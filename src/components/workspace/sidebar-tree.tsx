@@ -450,7 +450,7 @@ export function SidebarTree({
                 folderTargetOpen={folderTargetOpen}
               />
             ))}
-            <div style={{ minHeight: '100vh' }} />
+            <div style={{ minHeight: '40px' }} />
           </div>
         </ContextMenuTrigger>
 

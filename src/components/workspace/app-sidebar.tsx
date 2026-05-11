@@ -40,6 +40,8 @@ interface AppSidebarProps {
   onDelete?: (id: string) => void
   onNewFile?: (parentId: string | null) => void
   onNewFolder?: (parentId: string | null) => void
+  activeView?: SidebarView
+  onActiveViewChange?: (view: SidebarView) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onMoveItem?: (sourceId: string, targetFolderId: string) => void
@@ -68,6 +70,8 @@ export function AppSidebar({
   onDelete,
   onNewFile,
   onNewFolder,
+  activeView: controlledView,
+  onActiveViewChange,
   onOpenInNewTab,
   onOpenInExplorer,
   onMoveItem,
@@ -76,7 +80,12 @@ export function AppSidebar({
   isTreeOpen = true,
   readFile,
 }: AppSidebarProps) {
-  const [activeView, setActiveView] = React.useState<SidebarView>("files")
+  const [internalView, setInternalView] = React.useState<SidebarView>("files")
+  const activeView = controlledView ?? internalView
+  function setActiveView(v: SidebarView) {
+    setInternalView(v)
+    onActiveViewChange?.(v)
+  }
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
   const [folderResetKey, setFolderResetKey] = React.useState(0)
   const [folderTargetOpen, setFolderTargetOpen] = React.useState(true)

@@ -110,12 +110,7 @@ fn rename_item(old_path: String, new_path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn delete_item(path: String) -> Result<(), String> {
-    let p = Path::new(&path);
-    if p.is_dir() {
-        fs::remove_dir_all(&path).map_err(|e| e.to_string())
-    } else {
-        fs::remove_file(&path).map_err(|e| e.to_string())
-    }
+    trash::delete(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -146,10 +141,12 @@ fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
 fn open_in_explorer(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        // /select, highlights the item in its parent folder
-        let arg = format!("/select,{}", path);
+        // raw_arg passes the string verbatim to Windows without Rust re-quoting it
+        // /select,"path" reveals and selects the item in its parent folder
+        use std::os::windows::process::CommandExt;
+        let arg = format!("/select,\"{}\"", path);
         std::process::Command::new("explorer")
-            .arg(&arg)
+            .raw_arg(&arg)
             .spawn()
             .map_err(|e| e.to_string())?;
     }

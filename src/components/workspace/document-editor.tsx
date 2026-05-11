@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { TagEditor, type TagEditorHandle } from "./tag-editor"
 
 const TAG_RE_INLINE = /#([a-zA-Z][a-zA-Z0-9_-]*)/g
 
@@ -76,6 +77,7 @@ interface DocumentEditorProps {
   fileIcon?: string
   onNewFile?: () => void
   onOpenVault?: () => void
+  onTagClick?: (tag: string) => void
 }
 
 function getRelativePath(vault: string | undefined, filePath: string): string {
@@ -109,12 +111,14 @@ export function DocumentEditor({
   fileIcon,
   onNewFile,
   onOpenVault,
+  onTagClick,
 }: DocumentEditorProps) {
   const [content, setContent] = React.useState(document?.content ?? "")
   const [previewMode, setPreviewMode] = React.useState(false)
   const [editingTitle, setEditingTitle] = React.useState(false)
   const [titleValue, setTitleValue] = React.useState(document?.title ?? "")
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+  const editorRef = React.useRef<TagEditorHandle>(null as unknown as TagEditorHandle)
   const titleInputRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
@@ -138,16 +142,11 @@ export function DocumentEditor({
     if (e.key === "Escape") { setTitleValue(document?.title ?? ""); setEditingTitle(false) }
   }
 
-  React.useEffect(() => {
-    const el = textareaRef.current
-    if (!el || previewMode) return
-    el.style.height = "auto"
-    el.style.height = `${el.scrollHeight}px`
-  }, [content, previewMode])
+  // Auto-resize handled by TagEditor when not in preview mode
 
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setContent(e.target.value)
-    onContentChange?.(e.target.value)
+  const handleContentChange = (v: string) => {
+    setContent(v)
+    onContentChange?.(v)
   }
 
   const relPath = document ? getRelativePath(vault, document.path) : ""
@@ -289,13 +288,14 @@ export function DocumentEditor({
               </ReactMarkdown>
             </div>
           ) : (
-            <textarea
-              ref={textareaRef}
+            <TagEditor
+              key={document.id}
               value={content}
               onChange={handleContentChange}
+              onTagClick={onTagClick}
+              textareaRef={textareaRef}
+              editorRef={editorRef}
               placeholder="Начни писать..."
-              rows={1}
-              className="w-full resize-none overflow-hidden bg-transparent pb-20 font-mono text-sm leading-relaxed text-zinc-300 placeholder:text-zinc-600 focus:outline-none"
             />
           )}
         </div>
@@ -311,14 +311,14 @@ export function DocumentEditor({
           <button
             title="Отменить (Ctrl+Z)"
             className="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
-            onMouseDown={e => { e.preventDefault(); window.document.execCommand('undo') }}
+            onMouseDown={e => { e.preventDefault(); editorRef.current?.undo() }}
           >
             <Undo2 className="size-3" />
           </button>
           <button
             title="Повторить (Ctrl+Y)"
             className="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
-            onMouseDown={e => { e.preventDefault(); window.document.execCommand('redo') }}
+            onMouseDown={e => { e.preventDefault(); editorRef.current?.redo() }}
           >
             <Redo2 className="size-3" />
           </button>

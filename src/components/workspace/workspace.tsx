@@ -91,6 +91,7 @@ export function Workspace() {
   const [quickOpenOpen, setQuickOpenOpen] = React.useState(false)
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
+  const [sidebarActiveView, setSidebarActiveView] = React.useState<"files" | "search" | "tags" | "favorites" | "databases" | "archive">("files")
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
@@ -500,6 +501,8 @@ export function Workspace() {
     onDelete: handleDeleteFile,
     onNewFile: handleNewFileIn,
     onNewFolder: handleNewFolderIn,
+    activeView: sidebarActiveView,
+    onActiveViewChange: setSidebarActiveView,
     onOpenInNewTab: handleOpenInNewTab,
     onOpenInExplorer: openInExplorer,
     onMoveItem: handleMoveItem,
@@ -520,6 +523,10 @@ export function Workspace() {
     fileIcon: currentFileIcon,
     onNewFile: () => handleNewFileIn(null),
     onOpenVault: handleOpenVault,
+    onTagClick: (_tag: string) => {
+      setIsLeftSidebarOpen(true)
+      setSidebarActiveView("tags")
+    },
   }
 
   if (!vault && isTauri()) {
@@ -567,7 +574,7 @@ export function Workspace() {
           className={`fixed right-0 top-0 bottom-0 z-10 transition-transform duration-200 ease-out shadow-2xl ${focusShowRight ? "translate-x-0" : "translate-x-full"}`}
           onMouseLeave={() => setFocusShowRight(false)}
         >
-          <PropertiesPanel properties={currentProperties} wordCount={currentDoc?.wordCount ?? 0} />
+          <PropertiesPanel properties={currentProperties}  />
         </div>
 
         <QuickOpenModal
@@ -624,7 +631,7 @@ export function Workspace() {
         {isRightSidebarOpen && (
           <PropertiesPanel
             properties={currentProperties}
-            wordCount={currentDoc?.wordCount ?? 0}
+            
           />
         )}
       </div>

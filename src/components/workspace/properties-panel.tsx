@@ -11,8 +11,6 @@ import {
   Plus,
   Search,
   Circle,
-  Undo2,
-  Redo2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -33,7 +31,6 @@ interface DocumentProperties {
 
 interface PropertiesPanelProps {
   properties: DocumentProperties | null
-  wordCount?: number
 }
 
 const tabs: { id: TabType; label: string; icon: React.ElementType }[] = [
@@ -64,7 +61,7 @@ function PropertyRow({
   )
 }
 
-export function PropertiesPanel({ properties, wordCount = 0 }: PropertiesPanelProps) {
+export function PropertiesPanel({ properties }: PropertiesPanelProps) {
   const [activeTab, setActiveTab] = React.useState<TabType>("info")
 
   if (!properties) {
@@ -177,20 +174,6 @@ export function PropertiesPanel({ properties, wordCount = 0 }: PropertiesPanelPr
         </div>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t border-zinc-800 px-3 py-1.5 text-[10px] text-zinc-500">
-        <div className="flex items-center gap-3">
-          <span>{wordCount} words</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="size-5 text-zinc-500 hover:text-white">
-            <Undo2 className="size-3" />
-          </Button>
-          <Button variant="ghost" size="icon" className="size-5 text-zinc-500 hover:text-white">
-            <Redo2 className="size-3" />
-          </Button>
-        </div>
-      </div>
     </div>
   )
 }
