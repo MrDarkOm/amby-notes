@@ -143,6 +143,32 @@ fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
 }
 
 #[tauri::command]
+fn open_in_explorer(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use std::sync::mpsc;
     use tauri_plugin_dialog::DialogExt;
@@ -160,6 +186,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             list_files,
             read_file,
@@ -170,6 +197,7 @@ pub fn run() {
             delete_item,
             get_file_metadata,
             open_vault,
+            open_in_explorer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application")

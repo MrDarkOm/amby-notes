@@ -121,3 +121,8 @@ export async function getFileMetadata(path: string): Promise<FileMetadata> {
   const content = localStorage.getItem(FILE_PREFIX + path) ?? ""
   return { word_count: content.split(/\s+/).filter(Boolean).length }
 }
+
+export async function openInExplorer(path: string): Promise<void> {
+  if (!isTauri()) return
+  await invoke<void>("open_in_explorer", { path })
+}
