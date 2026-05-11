@@ -422,60 +422,34 @@ export function SidebarTree({
 
   return (
     <>
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          <div
-            className="flex flex-col gap-px select-none"
-            style={{ cursor: ptrDrag ? 'grabbing' : undefined, minHeight: '100%' }}
-          >
-            {items.map(item => (
-              <TreeNode
-                key={item.id}
-                item={item}
-                level={0}
-                selectedId={selectedId}
-                onSelect={onSelect}
-                onRename={onRename}
-                onDelete={onDelete}
-                onNewFile={onNewFile}
-                onNewFolder={onNewFolder}
-                onOpenInNewTab={onOpenInNewTab}
-                onOpenInExplorer={onOpenInExplorer}
-                onSetIcon={onSetIcon}
-                triggerRenameId={triggerRenameId}
-                onPtrDragStart={onPtrDragStart}
-                ptrDragSourceId={ptrDrag?.sourceId ?? null}
-                ptrDragTargetId={ptrDrag?.targetFolderId ?? null}
-                folderResetKey={folderResetKey}
-                folderTargetOpen={folderTargetOpen}
-              />
-            ))}
-            <div style={{ minHeight: '40px' }} />
-          </div>
-        </ContextMenuTrigger>
-
-        <ContextMenuContent className="w-52 border-zinc-800 bg-black text-zinc-300">
-          <ContextMenuItem
-            className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
-            onSelect={() => onNewFile?.(null)}
-          >
-            <FileText className="size-3.5 text-zinc-500" />
-            Новая заметка
-          </ContextMenuItem>
-          <ContextMenuItem
-            className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
-            onSelect={() => onNewFolder?.(null)}
-          >
-            <FolderPlus className="size-3.5 text-zinc-500" />
-            Новая папка
-          </ContextMenuItem>
-          <ContextMenuItem disabled className="flex items-center gap-2 text-[13px] text-zinc-600">
-            <Database className="size-3.5" />
-            База данных
-            <span className="ml-auto text-[10px] text-zinc-700">Скоро</span>
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+      <div
+        className="flex flex-col gap-px select-none"
+        style={{ cursor: ptrDrag ? 'grabbing' : undefined, minHeight: '100%' }}
+      >
+        {items.map(item => (
+          <TreeNode
+            key={item.id}
+            item={item}
+            level={0}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            onRename={onRename}
+            onDelete={onDelete}
+            onNewFile={onNewFile}
+            onNewFolder={onNewFolder}
+            onOpenInNewTab={onOpenInNewTab}
+            onOpenInExplorer={onOpenInExplorer}
+            onSetIcon={onSetIcon}
+            triggerRenameId={triggerRenameId}
+            onPtrDragStart={onPtrDragStart}
+            ptrDragSourceId={ptrDrag?.sourceId ?? null}
+            ptrDragTargetId={ptrDrag?.targetFolderId ?? null}
+            folderResetKey={folderResetKey}
+            folderTargetOpen={folderTargetOpen}
+          />
+        ))}
+        <div style={{ minHeight: '40px' }} />
+      </div>
 
       {ptrDrag?.active && (
         <div

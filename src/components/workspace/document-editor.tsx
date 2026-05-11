@@ -18,7 +18,7 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { TagEditor, type TagEditorHandle } from "./tag-editor"
 
-const TAG_RE_INLINE = /#([a-zA-Z][a-zA-Z0-9_-]*)/g
+const TAG_RE_INLINE = /#(\p{L}[\p{L}\p{N}_-]*)/gu
 
 function processTagsInText(text: string): React.ReactNode {
   const parts: React.ReactNode[] = []

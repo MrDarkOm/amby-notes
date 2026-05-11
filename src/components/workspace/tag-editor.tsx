@@ -2,7 +2,8 @@
 
 import * as React from "react"
 
-const TAG_RE = /#([a-zA-Z][a-zA-Z0-9_-]*)/g
+// Unicode-aware: matches #тег, #tag, #タグ etc.
+const TAG_RE = /#(\p{L}[\p{L}\p{N}_-]*)/gu
 
 export interface TagEditorHandle {
   undo: () => void
@@ -19,88 +20,84 @@ interface TagEditorProps {
 }
 
 export function TagEditor({ value, onChange, onTagClick, textareaRef, editorRef, placeholder }: TagEditorProps) {
-  // Custom undo/redo stack — batched by typing pauses and word boundaries
-  const undoStack = React.useRef<string[]>([value])
-  const redoStack = React.useRef<string[]>([])
-  const lastEditTime = React.useRef(0)
+  // ── Index-based undo/redo ──────────────────────────────────────────
+  // history.stack[history.index] always reflects the current content.
+  // Typing within BATCH_MS updates the current slot (no new entry).
+  // After a pause, the next character creates a new entry (new batch).
+  // Enter/Space/Backspace force a new batch on the *next* keystroke.
+  const historyRef = React.useRef<{ stack: string[]; index: number }>({
+    stack: [value],
+    index: 0,
+  })
+  const lastEditTimeRef = React.useRef(0)
   const BATCH_MS = 1200
 
-  function pushCheckpoint() {
+  function recordHistory(newValue: string) {
+    const h = historyRef.current
     const now = Date.now()
-    if (now - lastEditTime.current > BATCH_MS) {
-      undoStack.current.push(value)
-      if (undoStack.current.length > 300) undoStack.current.shift()
-      redoStack.current = []
+    if (now - lastEditTimeRef.current < BATCH_MS) {
+      // Same batch — update current slot
+      h.stack[h.index] = newValue
+    } else {
+      // New batch — truncate forward history and append
+      h.stack = h.stack.slice(0, h.index + 1)
+      h.stack.push(newValue)
+      if (h.stack.length > 300) h.stack.shift()
+      h.index = h.stack.length - 1
     }
-    lastEditTime.current = now
+    lastEditTimeRef.current = now
   }
 
   function applyUndo() {
-    if (undoStack.current.length <= 1) return
-    // flush current state first if needed
-    const last = undoStack.current[undoStack.current.length - 1]
-    if (last !== value) {
-      redoStack.current.push(value)
-      const prev = undoStack.current[undoStack.current.length - 1]
-      onChange(prev)
-    } else {
-      undoStack.current.pop()
-      redoStack.current.push(value)
-      const prev = undoStack.current[undoStack.current.length - 1]
-      onChange(prev)
+    const h = historyRef.current
+    if (h.index <= 0) return
+    // Flush any unsaved current state into the stack
+    if (h.stack[h.index] !== value) {
+      h.stack[h.index] = value
     }
-    lastEditTime.current = 0
+    h.index--
+    lastEditTimeRef.current = 0 // next edit starts a fresh batch
+    onChange(h.stack[h.index])
   }
 
   function applyRedo() {
-    if (!redoStack.current.length) return
-    const next = redoStack.current.pop()!
-    undoStack.current.push(value)
-    onChange(next)
-    lastEditTime.current = 0
+    const h = historyRef.current
+    if (h.index >= h.stack.length - 1) return
+    h.index++
+    lastEditTimeRef.current = 0
+    onChange(h.stack[h.index])
   }
 
+  // Expose undo/redo to parent (for floating widget buttons)
+  React.useEffect(() => {
+    if (!editorRef) return
+    ;(editorRef as React.MutableRefObject<TagEditorHandle>).current = { undo: applyUndo, redo: applyRedo }
+  })
+
   function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    pushCheckpoint()
+    recordHistory(e.target.value)
     onChange(e.target.value)
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     const ctrl = e.ctrlKey || e.metaKey
-    if (ctrl && !e.shiftKey && e.key === 'z') {
-      e.preventDefault()
-      applyUndo()
-      return
-    }
-    if (ctrl && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) {
-      e.preventDefault()
-      applyRedo()
-      return
-    }
-    // Force new batch at word/line boundaries
+    if (ctrl && !e.shiftKey && e.key === 'z') { e.preventDefault(); applyUndo(); return }
+    if (ctrl && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); applyRedo(); return }
+    // Force new batch at natural word/line boundaries
     if (e.key === 'Enter' || e.key === ' ' || e.key === 'Backspace' || e.key === 'Delete') {
-      lastEditTime.current = 0
+      lastEditTimeRef.current = 0
     }
   }
 
-  // Expose undo/redo to parent
-  React.useEffect(() => {
-    if (!editorRef) return
-    ;(editorRef as React.MutableRefObject<TagEditorHandle>).current = {
-      undo: applyUndo,
-      redo: applyRedo,
-    }
-  })
-
-  // Auto-resize textarea
+  // Auto-resize
   React.useEffect(() => {
     const el = textareaRef.current
     if (!el) return
-    el.style.height = "auto"
+    el.style.height = 'auto'
     el.style.height = `${el.scrollHeight}px`
   }, [value, textareaRef])
 
-  // Backdrop nodes: same text but transparent, with violet background on tags
+  // ── Backdrop nodes: transparent text + violet backgrounds on tags ──
   const backdropContent = React.useMemo(() => {
     const parts: React.ReactNode[] = []
     let last = 0
@@ -119,8 +116,8 @@ export function TagEditor({ value, onChange, onTagClick, textareaRef, editorRef,
       parts.push(
         <mark
           key={`m${m.index}`}
-          title={`#${tagName}`}
-          onClick={(e) => { e.stopPropagation(); onTagClick?.(tagName) }}
+          title={`Тег: #${tagName}`}
+          onClick={e => { e.stopPropagation(); onTagClick?.(tagName) }}
           style={{
             color: 'transparent',
             background: 'rgba(139,92,246,0.22)',
@@ -141,28 +138,22 @@ export function TagEditor({ value, onChange, onTagClick, textareaRef, editorRef,
         </span>
       )
     }
-    // Trailing char prevents last-line height collapse
     parts.push(<span key="nl" style={{ color: 'transparent' }}>{'\n'}</span>)
     return parts
   }, [value, onTagClick])
 
   return (
     <div className="relative">
-      {/* Backdrop — absolute overlay with tag highlights, pointer-events pass-through except on marks */}
+      {/* Backdrop — z-index above textarea, pointer-events none except tag marks */}
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 z-[2] break-words font-mono text-sm leading-relaxed"
-        style={{
-          whiteSpace: 'pre-wrap',
-          overflowWrap: 'break-word',
-          paddingBottom: '5rem',
-          // No background — transparent, textarea text shows through
-        }}
+        style={{ whiteSpace: 'pre-wrap', overflowWrap: 'break-word', paddingBottom: '5rem' }}
       >
         {backdropContent}
       </div>
 
-      {/* Actual editing textarea */}
+      {/* Textarea — actual editing, background transparent so backdrop shows through */}
       <textarea
         ref={textareaRef as React.RefObject<HTMLTextAreaElement>}
         value={value}

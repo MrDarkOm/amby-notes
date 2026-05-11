@@ -9,6 +9,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Database,
+  FileText,
   FilePlus,
   FolderPlus,
   FolderTree,
@@ -22,6 +23,12 @@ import {
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import { SidebarTree, type TreeItem } from "./sidebar-tree"
 import { SidebarSearch } from "./sidebar-search"
 import { SidebarTags } from "./sidebar-tags"
@@ -191,44 +198,69 @@ export function AppSidebar({
 
         {/* Content area */}
         {activeView === "files" ? (
-          <>
-            <ScrollArea className="flex-1 min-h-0">
-              <div className="p-1.5">
-                {treeItems.length === 0 ? (
-                  <p className="px-2 py-3 text-[12px] text-zinc-600">
-                    Нет файлов. Создай новый.
-                  </p>
-                ) : (
-                  <SidebarTree
-                    items={treeItems}
-                    selectedId={selectedId}
-                    onSelect={onSelect}
-                    onRename={onRename}
-                    onDelete={onDelete}
-                    onNewFile={onNewFile}
-                    onNewFolder={onNewFolder}
-                    onOpenInNewTab={onOpenInNewTab}
-                    onOpenInExplorer={onOpenInExplorer}
-                    onMoveItem={onMoveItem}
-                    onSetIcon={onSetIcon}
-                    triggerRenameId={triggerRenameId}
-                    folderResetKey={folderResetKey}
-                    folderTargetOpen={folderTargetOpen}
-                  />
-                )}
-              </div>
-            </ScrollArea>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div className="flex flex-1 min-h-0 flex-col">
+                <ScrollArea className="flex-1 min-h-0">
+                  <div className="p-1.5">
+                    {treeItems.length === 0 ? (
+                      <p className="px-2 py-3 text-[12px] text-zinc-600">
+                        Нет файлов. Создай новый.
+                      </p>
+                    ) : (
+                      <SidebarTree
+                        items={treeItems}
+                        selectedId={selectedId}
+                        onSelect={onSelect}
+                        onRename={onRename}
+                        onDelete={onDelete}
+                        onNewFile={onNewFile}
+                        onNewFolder={onNewFolder}
+                        onOpenInNewTab={onOpenInNewTab}
+                        onOpenInExplorer={onOpenInExplorer}
+                        onMoveItem={onMoveItem}
+                        onSetIcon={onSetIcon}
+                        triggerRenameId={triggerRenameId}
+                        folderResetKey={folderResetKey}
+                        folderTargetOpen={folderTargetOpen}
+                      />
+                    )}
+                  </div>
+                </ScrollArea>
 
-            <div className="shrink-0 p-2">
-              <Button
-                className="w-full gap-2 bg-zinc-100 text-zinc-900 hover:bg-white"
-                onClick={handleNewButtonClick}
+                <div className="shrink-0 p-2">
+                  <Button
+                    className="w-full gap-2 bg-zinc-100 text-zinc-900 hover:bg-white"
+                    onClick={handleNewButtonClick}
+                  >
+                    <FilePlus className="size-4" />
+                    Создать
+                  </Button>
+                </div>
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent className="w-52 border-zinc-800 bg-black text-zinc-300">
+              <ContextMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                onSelect={() => { if (!vault) onOpenVault(); else onNewFile?.(null) }}
               >
-                <FilePlus className="size-4" />
-                Создать
-              </Button>
-            </div>
-          </>
+                <FileText className="size-3.5 text-zinc-500" />
+                Новая заметка
+              </ContextMenuItem>
+              <ContextMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                onSelect={() => { if (!vault) onOpenVault(); else onNewFolder?.(null) }}
+              >
+                <FolderPlus className="size-3.5 text-zinc-500" />
+                Новая папка
+              </ContextMenuItem>
+              <ContextMenuItem disabled className="flex items-center gap-2 text-[13px] text-zinc-600">
+                <Database className="size-3.5" />
+                База данных
+                <span className="ml-auto text-[10px] text-zinc-700">Скоро</span>
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         ) : activeView === "search" ? (
           <SidebarSearch items={treeItems} onSelect={onSelect} readFile={readFile} />
         ) : activeView === "tags" ? (

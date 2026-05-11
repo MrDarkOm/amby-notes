@@ -13,7 +13,7 @@ interface SearchResult {
   score: number
 }
 
-const TAG_RE = /#([a-zA-Z][a-zA-Z0-9_-]*)/g
+const TAG_RE = /#(\p{L}[\p{L}\p{N}_-]*)/gu
 
 interface SidebarSearchProps {
   items: TreeItem[]

@@ -16,7 +16,7 @@ interface SidebarTagsProps {
   readFile?: (path: string) => Promise<string>
 }
 
-const TAG_RE = /#([a-zA-Z][a-zA-Z0-9_-]*)/g
+const TAG_RE = /#(\p{L}[\p{L}\p{N}_-]*)/gu
 
 function flattenFiles(items: TreeItem[], parentPath = ""): Array<{ item: TreeItem; path: string }> {
   const result: Array<{ item: TreeItem; path: string }> = []
