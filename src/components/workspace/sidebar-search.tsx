@@ -1,17 +1,19 @@
 "use client"
 
 import * as React from "react"
-import { FileText, Search, X } from "lucide-react"
+import { FileText, Hash, Search, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { TreeItem } from "./sidebar-tree"
 
 interface SearchResult {
   item: TreeItem
-  path: string        // display path like "Work › Notes"
-  matchType: "name" | "content"
-  snippet?: string    // content excerpt with match
+  path: string
+  matchType: "name" | "content" | "tag"
+  snippet?: string
   score: number
 }
+
+const TAG_RE = /#([a-zA-Z][a-zA-Z0-9_-]*)/g
 
 interface SidebarSearchProps {
   items: TreeItem[]
@@ -72,52 +74,90 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (!query.trim()) { setResults([]); setSelectedIndex(0); return }
 
-    const q = query.trim().toLowerCase()
     const flat = flattenTree(items)
+    const isTagQuery = query.startsWith('#')
 
-    // Immediate name match
-    const nameResults: SearchResult[] = flat
-      .filter(({ item }) => item.name.toLowerCase().includes(q))
-      .map(({ item, path }) => ({
-        item,
-        path,
-        matchType: "name" as const,
-        score: item.name.toLowerCase().startsWith(q) ? 2 : 1,
-      }))
-      .sort((a, b) => b.score - a.score)
+    if (isTagQuery) {
+      const tagQ = query.slice(1).trim().toLowerCase()
+      if (!tagQ) { setResults([]); setSelectedIndex(0); return }
 
-    setResults(nameResults)
-    setSelectedIndex(0)
-
-    // Debounced content search
-    if (readFile) {
+      if (!readFile) return
       setSearching(true)
+      setResults([])
+      setSelectedIndex(0)
+
       debounceRef.current = setTimeout(async () => {
-        const contentResults: SearchResult[] = []
-        const nameMatchIds = new Set(nameResults.map(r => r.item.id))
+        const tagResults: SearchResult[] = []
 
         await Promise.allSettled(
-          flat
-            .filter(({ item }) => !nameMatchIds.has(item.id))
-            .map(async ({ item, path }) => {
-              try {
-                const content = await readFile(item.id)
-                if (content.toLowerCase().includes(q)) {
-                  contentResults.push({
-                    item,
-                    path,
-                    matchType: "content",
-                    snippet: getSnippet(content, query.trim()),
-                    score: 0,
-                  })
-                }
-              } catch { /* skip unreadable files */ }
-            })
+          flat.map(async ({ item, path }) => {
+            try {
+              const content = await readFile(item.id)
+              const tags = [...content.matchAll(TAG_RE)].map(m => m[1].toLowerCase())
+              const matched = tags.filter(t => t.includes(tagQ))
+              if (matched.length > 0) {
+                tagResults.push({
+                  item,
+                  path,
+                  matchType: "tag" as const,
+                  snippet: [...new Set(matched)].map(t => `#${t}`).join('  '),
+                  score: matched.some(t => t === tagQ) ? 2 : 1,
+                })
+              }
+            } catch { /* skip */ }
+          })
         )
 
-        setResults(prev => [...prev, ...contentResults])
+        setResults(tagResults.sort((a, b) => b.score - a.score))
         setSearching(false)
-      }, 300)
+      }, 200)
+    } else {
+      const q = query.trim().toLowerCase()
+
+      // Immediate name match
+      const nameResults: SearchResult[] = flat
+        .filter(({ item }) => item.name.toLowerCase().includes(q))
+        .map(({ item, path }) => ({
+          item,
+          path,
+          matchType: "name" as const,
+          score: item.name.toLowerCase().startsWith(q) ? 2 : 1,
+        }))
+        .sort((a, b) => b.score - a.score)
+
+      setResults(nameResults)
+      setSelectedIndex(0)
+
+      // Debounced content search
+      if (readFile) {
+        setSearching(true)
+        debounceRef.current = setTimeout(async () => {
+          const contentResults: SearchResult[] = []
+          const nameMatchIds = new Set(nameResults.map(r => r.item.id))
+
+          await Promise.allSettled(
+            flat
+              .filter(({ item }) => !nameMatchIds.has(item.id))
+              .map(async ({ item, path }) => {
+                try {
+                  const content = await readFile(item.id)
+                  if (content.toLowerCase().includes(q)) {
+                    contentResults.push({
+                      item,
+                      path,
+                      matchType: "content",
+                      snippet: getSnippet(content, query.trim()),
+                      score: 0,
+                    })
+                  }
+                } catch { /* skip */ }
+              })
+          )
+
+          setResults(prev => [...prev, ...contentResults])
+          setSearching(false)
+        }, 300)
+      }
     }
 
     return () => {
@@ -157,7 +197,7 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Поиск заметок..."
+            placeholder="Поиск... или #тег"
             className="flex-1 bg-transparent text-[13px] text-zinc-200 placeholder:text-zinc-600 outline-none"
           />
           {query && (
@@ -171,10 +211,16 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
       {/* Results */}
       <div ref={listRef} className="flex-1 overflow-y-auto">
         {!query.trim() ? (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
+          <div className="flex flex-col items-center justify-center py-10 text-center px-4">
             <Search className="mb-2 size-8 text-zinc-700" />
             <p className="text-[12px] text-zinc-600">Введи текст для поиска</p>
-            <p className="mt-1 text-[11px] text-zinc-700">Поиск по именам и содержимому</p>
+            <p className="mt-1 text-[11px] text-zinc-700">или <span className="text-violet-500">#тег</span> для поиска по тегам</p>
+          </div>
+        ) : query === '#' ? (
+          <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+            <Hash className="mb-2 size-8 text-zinc-700" />
+            <p className="text-[12px] text-zinc-600">Продолжай вводить тег</p>
+            <p className="mt-1 text-[11px] text-zinc-700">Например: <span className="text-violet-500">#работа</span></p>
           </div>
         ) : results.length === 0 && !searching ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
@@ -195,9 +241,15 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
                 )}
               >
                 <div className="flex items-center gap-1.5 w-full min-w-0">
-                  <FileText className="size-3.5 shrink-0 text-zinc-500" />
+                  {result.matchType === "tag"
+                    ? <Hash className="size-3.5 shrink-0 text-violet-400" />
+                    : <FileText className="size-3.5 shrink-0 text-zinc-500" />
+                  }
                   <span className="truncate text-[13px] text-zinc-200">
-                    {highlight(result.item.name, query.trim())}
+                    {result.matchType === "tag"
+                      ? result.item.name
+                      : highlight(result.item.name, query.trim())
+                    }
                   </span>
                   {result.matchType === "content" && (
                     <span className="ml-auto shrink-0 text-[10px] text-zinc-600">содержимое</span>
@@ -207,8 +259,8 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
                   <span className="truncate pl-5 text-[11px] text-zinc-600">{result.path}</span>
                 )}
                 {result.snippet && (
-                  <p className="pl-5 text-[11px] leading-tight text-zinc-500 line-clamp-2">
-                    {highlight(result.snippet, query.trim())}
+                  <p className="pl-5 text-[11px] leading-tight text-violet-400/70 line-clamp-1">
+                    {result.matchType === "tag" ? result.snippet : highlight(result.snippet, query.trim())}
                   </p>
                 )}
               </button>
