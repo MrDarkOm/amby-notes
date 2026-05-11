@@ -19,6 +19,7 @@ interface Tab {
 interface HeaderTabsProps {
   tabs: Tab[]
   activeTabId: string
+  unsavedIds?: Set<string>
   onTabChange: (tabId: string) => void
   onTabClose: (tabId: string) => void
   onToggleLeftSidebar?: () => void
@@ -49,6 +50,7 @@ function LogoIcon({ className }: { className?: string }) {
 export function HeaderTabs({
   tabs,
   activeTabId,
+  unsavedIds,
   onTabChange,
   onTabClose,
   onToggleLeftSidebar,
@@ -117,6 +119,9 @@ export function HeaderTabs({
                     : "text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300"
                 )}
               >
+                {unsavedIds?.has(tab.id) && (
+                  <span className="size-1.5 rounded-full bg-zinc-400" />
+                )}
                 <span className="max-w-32 truncate">{tab.title}</span>
                 {activeTabId === tab.id && (
                   <button

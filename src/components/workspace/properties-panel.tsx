@@ -33,6 +33,7 @@ interface DocumentProperties {
 
 interface PropertiesPanelProps {
   properties: DocumentProperties | null
+  wordCount?: number
 }
 
 const tabs: { id: TabType; label: string; icon: React.ElementType }[] = [
@@ -63,7 +64,7 @@ function PropertyRow({
   )
 }
 
-export function PropertiesPanel({ properties }: PropertiesPanelProps) {
+export function PropertiesPanel({ properties, wordCount = 0 }: PropertiesPanelProps) {
   const [activeTab, setActiveTab] = React.useState<TabType>("info")
 
   if (!properties) {
@@ -179,8 +180,7 @@ export function PropertiesPanel({ properties }: PropertiesPanelProps) {
       {/* Footer */}
       <div className="flex items-center justify-between border-t border-zinc-800 px-3 py-1.5 text-[10px] text-zinc-500">
         <div className="flex items-center gap-3">
-          <span>0 words</span>
-          <span>0 symbols</span>
+          <span>{wordCount} words</span>
         </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" className="size-5 text-zinc-500 hover:text-white">
