@@ -11,9 +11,44 @@ import {
   Minimize2,
   MoreVertical,
   Pencil,
+  Redo2,
+  Undo2,
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+
+const TAG_RE_INLINE = /#([a-zA-Z][a-zA-Z0-9_-]*)/g
+
+function processTagsInText(text: string): React.ReactNode {
+  const parts: React.ReactNode[] = []
+  let last = 0
+  TAG_RE_INLINE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = TAG_RE_INLINE.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index))
+    parts.push(
+      <span key={m.index} className="inline-flex items-center rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[12px] font-medium text-violet-400 leading-[1.1]">
+        {m[0]}
+      </span>
+    )
+    last = m.index + m[0].length
+  }
+  if (!parts.length) return text
+  if (last < text.length) parts.push(text.slice(last))
+  return <>{parts}</>
+}
+
+function processTagChildren(children: React.ReactNode): React.ReactNode {
+  if (typeof children === 'string') return processTagsInText(children)
+  if (Array.isArray(children)) {
+    return children.map((c, i) =>
+      typeof c === 'string'
+        ? <React.Fragment key={i}>{processTagsInText(c)}</React.Fragment>
+        : c
+    )
+  }
+  return children
+}
 import { Button } from "@/components/ui/button"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/storage"
@@ -206,8 +241,10 @@ export function DocumentEditor({
     )
   }
 
+  const liveWordCount = content.split(/\s+/).filter(Boolean).length
+
   return (
-    <div className="flex h-full flex-1 flex-col bg-background">
+    <div className="relative flex h-full flex-1 flex-col bg-background">
       {navBar}
 
       <div className="flex-1 overflow-y-auto">
@@ -237,19 +274,17 @@ export function DocumentEditor({
             )}
           </div>
 
-          {/* Metadata */}
-          <div className="mb-6 flex items-center gap-3 text-[11px] uppercase tracking-wider text-zinc-500">
-            <span className="font-medium">Изменено</span>
-            <span>{document.modified}</span>
-            <span className="text-zinc-700">·</span>
-            <span>{document.wordCount} слов</span>
-          </div>
-
           <div className="mb-6 h-px bg-zinc-800" />
 
           {previewMode ? (
-            <div className="md-body pb-16">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <div className="md-body pb-20">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({ children }) => <p>{processTagChildren(children)}</p>,
+                  li: ({ children }) => <li>{processTagChildren(children)}</li>,
+                }}
+              >
                 {content || "*Пусто*"}
               </ReactMarkdown>
             </div>
@@ -260,9 +295,33 @@ export function DocumentEditor({
               onChange={handleContentChange}
               placeholder="Начни писать..."
               rows={1}
-              className="w-full resize-none overflow-hidden bg-transparent pb-16 font-mono text-sm leading-relaxed text-zinc-300 placeholder:text-zinc-600 focus:outline-none"
+              className="w-full resize-none overflow-hidden bg-transparent pb-20 font-mono text-sm leading-relaxed text-zinc-300 placeholder:text-zinc-600 focus:outline-none"
             />
           )}
+        </div>
+      </div>
+
+      {/* Floating stats widget */}
+      <div className="pointer-events-none absolute bottom-4 right-4 z-10">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/90 px-3 py-1.5 shadow-lg backdrop-blur-sm">
+          <span className="text-[11px] text-zinc-500">{document.modified}</span>
+          <span className="text-zinc-800">·</span>
+          <span className="text-[11px] text-zinc-500">{liveWordCount} сл.</span>
+          <div className="mx-1 h-3 w-px bg-zinc-800" />
+          <button
+            title="Отменить (Ctrl+Z)"
+            className="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+            onMouseDown={e => { e.preventDefault(); window.document.execCommand('undo') }}
+          >
+            <Undo2 className="size-3" />
+          </button>
+          <button
+            title="Повторить (Ctrl+Y)"
+            className="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+            onMouseDown={e => { e.preventDefault(); window.document.execCommand('redo') }}
+          >
+            <Redo2 className="size-3" />
+          </button>
         </div>
       </div>
     </div>

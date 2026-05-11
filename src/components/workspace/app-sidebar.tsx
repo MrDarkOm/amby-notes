@@ -41,6 +41,7 @@ interface AppSidebarProps {
   onNewFile?: (parentId: string | null) => void
   onNewFolder?: (parentId: string | null) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenInExplorer?: (id: string) => void
   onMoveItem?: (sourceId: string, targetFolderId: string) => void
   onSetIcon?: (id: string, icon: string) => void
   triggerRenameId?: string | null
@@ -68,6 +69,7 @@ export function AppSidebar({
   onNewFile,
   onNewFolder,
   onOpenInNewTab,
+  onOpenInExplorer,
   onMoveItem,
   onSetIcon,
   triggerRenameId,
@@ -197,6 +199,7 @@ export function AppSidebar({
                     onNewFile={onNewFile}
                     onNewFolder={onNewFolder}
                     onOpenInNewTab={onOpenInNewTab}
+                    onOpenInExplorer={onOpenInExplorer}
                     onMoveItem={onMoveItem}
                     onSetIcon={onSetIcon}
                     triggerRenameId={triggerRenameId}

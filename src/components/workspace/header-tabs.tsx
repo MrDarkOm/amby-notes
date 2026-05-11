@@ -91,7 +91,7 @@ export function HeaderTabs({
   onCloseAllTabs,
 }: HeaderTabsProps) {
   const [isMaximized, setIsMaximized] = React.useState(false)
-  const dragTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastClickTimeRef = React.useRef(0)
 
   React.useEffect(() => {
     if (!isTauri()) return
@@ -107,19 +107,15 @@ export function HeaderTabs({
   function handleEmptySpaceMouseDown(e: React.MouseEvent) {
     if (e.button !== 0 || !isTauri()) return
     e.preventDefault()
-    if (dragTimerRef.current) clearTimeout(dragTimerRef.current)
-    dragTimerRef.current = setTimeout(() => {
-      dragTimerRef.current = null
+    const now = Date.now()
+    const since = now - lastClickTimeRef.current
+    lastClickTimeRef.current = now
+    if (since < 300) {
+      lastClickTimeRef.current = 0
+      getCurrentWindow().toggleMaximize()
+    } else {
       getCurrentWindow().startDragging().catch(() => {})
-    }, 250)
-  }
-
-  function handleEmptySpaceDoubleClick() {
-    if (dragTimerRef.current) {
-      clearTimeout(dragTimerRef.current)
-      dragTimerRef.current = null
     }
-    if (isTauri()) getCurrentWindow().toggleMaximize()
   }
 
   return (
@@ -204,7 +200,6 @@ export function HeaderTabs({
         <div
           className="flex-1 h-full cursor-default"
           onMouseDown={handleEmptySpaceMouseDown}
-          onDoubleClick={handleEmptySpaceDoubleClick}
         />
 
         <div className="flex shrink-0 items-center">

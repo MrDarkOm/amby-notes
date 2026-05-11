@@ -501,6 +501,7 @@ export function Workspace() {
     onNewFile: handleNewFileIn,
     onNewFolder: handleNewFolderIn,
     onOpenInNewTab: handleOpenInNewTab,
+    onOpenInExplorer: openInExplorer,
     onMoveItem: handleMoveItem,
     onSetIcon: handleSetIcon,
     triggerRenameId: pendingRenameId,

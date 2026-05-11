@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import {
-  ChevronRight, Database, FileText, Folder, FolderPlus,
+  ChevronRight, Database, FileText, Folder, FolderOpen, FolderPlus,
   LayoutGrid, PenLine, Smile, SquareArrowOutUpRight,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -51,6 +51,7 @@ interface SidebarTreeProps {
   onNewFile?: (parentId: string | null) => void
   onNewFolder?: (parentId: string | null) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenInExplorer?: (id: string) => void
   onMoveItem?: (sourceId: string, targetFolderId: string) => void
   onSetIcon?: (id: string, icon: string) => void
   triggerRenameId?: string | null
@@ -68,6 +69,7 @@ interface TreeNodeProps {
   onNewFile?: (parentId: string | null) => void
   onNewFolder?: (parentId: string | null) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenInExplorer?: (id: string) => void
   onSetIcon?: (id: string, icon: string) => void
   triggerRenameId?: string | null
   onPtrDragStart: (id: string, name: string, x: number, y: number) => void
@@ -113,7 +115,7 @@ function getIcon(icon: string | undefined, className?: string) {
 
 function TreeNode({
   item, level, selectedId, onSelect, onRename, onDelete,
-  onNewFile, onNewFolder, onOpenInNewTab, onSetIcon,
+  onNewFile, onNewFolder, onOpenInNewTab, onOpenInExplorer, onSetIcon,
   triggerRenameId, onPtrDragStart, ptrDragSourceId, ptrDragTargetId,
   folderResetKey, folderTargetOpen,
 }: TreeNodeProps) {
@@ -231,18 +233,29 @@ function TreeNode({
         </ContextMenuSubContent>
       </ContextMenuSub>
 
-      {item.type === "file" && onOpenInNewTab && (
+      {(item.type === "file" && onOpenInNewTab) || onOpenInExplorer ? (
         <>
           <ContextMenuSeparator className="bg-zinc-800" />
-          <ContextMenuItem
-            className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
-            onSelect={() => onOpenInNewTab(item.id)}
-          >
-            <SquareArrowOutUpRight className="size-3.5 text-zinc-500" />
-            Открыть в новой вкладке
-          </ContextMenuItem>
+          {item.type === "file" && onOpenInNewTab && (
+            <ContextMenuItem
+              className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+              onSelect={() => onOpenInNewTab(item.id)}
+            >
+              <SquareArrowOutUpRight className="size-3.5 text-zinc-500" />
+              Открыть в новой вкладке
+            </ContextMenuItem>
+          )}
+          {onOpenInExplorer && (
+            <ContextMenuItem
+              className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+              onSelect={() => onOpenInExplorer(item.id)}
+            >
+              <FolderOpen className="size-3.5 text-zinc-500" />
+              Показать в проводнике
+            </ContextMenuItem>
+          )}
         </>
-      )}
+      ) : null}
 
       <ContextMenuSeparator className="bg-zinc-800" />
 
@@ -306,6 +319,7 @@ function TreeNode({
                 onNewFile={onNewFile}
                 onNewFolder={onNewFolder}
                 onOpenInNewTab={onOpenInNewTab}
+                onOpenInExplorer={onOpenInExplorer}
                 onSetIcon={onSetIcon}
                 triggerRenameId={triggerRenameId}
                 onPtrDragStart={onPtrDragStart}
@@ -342,7 +356,7 @@ function TreeNode({
 
 export function SidebarTree({
   items, selectedId, onSelect, onRename, onDelete,
-  onNewFile, onNewFolder, onOpenInNewTab, onMoveItem, onSetIcon, triggerRenameId,
+  onNewFile, onNewFolder, onOpenInNewTab, onOpenInExplorer, onMoveItem, onSetIcon, triggerRenameId,
   folderResetKey, folderTargetOpen,
 }: SidebarTreeProps) {
   const [ptrDrag, setPtrDrag] = React.useState<PtrDrag | null>(null)
@@ -426,6 +440,7 @@ export function SidebarTree({
                 onNewFile={onNewFile}
                 onNewFolder={onNewFolder}
                 onOpenInNewTab={onOpenInNewTab}
+                onOpenInExplorer={onOpenInExplorer}
                 onSetIcon={onSetIcon}
                 triggerRenameId={triggerRenameId}
                 onPtrDragStart={onPtrDragStart}

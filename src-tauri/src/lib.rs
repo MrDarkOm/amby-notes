@@ -146,15 +146,17 @@ fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
 fn open_in_explorer(path: String) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        // /select, highlights the item in its parent folder
+        let arg = format!("/select,{}", path);
         std::process::Command::new("explorer")
-            .arg(&path)
+            .arg(&arg)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .arg(&path)
+            .args(["-R", &path])
             .spawn()
             .map_err(|e| e.to_string())?;
     }
