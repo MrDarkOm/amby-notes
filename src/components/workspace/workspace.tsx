@@ -14,7 +14,7 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => v
     </div>
   )
 }
-import { DocumentEditor } from "./document-editor"
+import { DocumentEditor, type DocumentViewMode } from "./document-editor"
 import { PropertiesPanel } from "./properties-panel"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
@@ -27,11 +27,15 @@ import {
   readFile,
   writeFile,
   getFileMetadata,
-  createFile,
+  createNote,
   createFolder,
   renameItem,
   deleteItem,
+  moveItem,
+  createLayer,
   openInExplorer,
+  type FsMutationResult,
+  type LayerKind,
 } from "@/lib/storage"
 import { watch } from "@tauri-apps/plugin-fs"
 import { getCurrentWindow } from "@tauri-apps/api/window"
@@ -52,6 +56,8 @@ interface Tab {
   history: string[]
   historyIndex: number
 }
+
+type EditorLayer = "editor" | LayerKind
 
 interface LinkGraphNode {
   id: string
@@ -222,6 +228,8 @@ export function Workspace() {
   const [rightWidth, setRightWidth] = React.useState(256)
   const [favorites, setFavorites] = React.useState<Set<string>>(new Set())
   const [linkGraph, setLinkGraph] = React.useState<LinkGraph>({ nodes: [], edges: [] })
+  const [activeLayers, setActiveLayers] = React.useState<Record<string, EditorLayer>>({})
+  const [viewModes, setViewModes] = React.useState<Record<string, DocumentViewMode>>({})
 
   function handleToggleFavorite(id: string) {
     setFavorites(prev => {
@@ -331,6 +339,100 @@ export function Workspace() {
     localStorage.setItem("amby:vaults", JSON.stringify(next))
   }
 
+  function saveViewModes(path: string | null, next: Record<string, DocumentViewMode>) {
+    setViewModes(next)
+    if (path) localStorage.setItem(`amby:view-modes:${path}`, JSON.stringify(next))
+  }
+
+  async function refreshTree(path = vault) {
+    if (!path) return []
+    const tree = await listFiles(path)
+    setTreeItems(tree)
+    return tree
+  }
+
+  function remapPath(path: string, changes: FsMutationResult["pathChanges"]): string {
+    const exact = changes.find(change => change.oldPath && change.oldPath === path)
+    return exact?.newPath ?? path
+  }
+
+  function applyMutationResult(result: FsMutationResult) {
+    const changes = result.pathChanges.filter(change => change.oldPath && change.newPath)
+    const deleted = new Set(result.deletedPaths)
+
+    if (changes.length > 0 || deleted.size > 0) {
+      setOpenDocs(prev => {
+        const next: Record<string, Document> = {}
+        for (const [id, doc] of Object.entries(prev)) {
+          if (deleted.has(id)) continue
+          const nextId = remapPath(id, changes)
+          next[nextId] = { ...doc, id: nextId, path: remapPath(doc.path, changes) }
+        }
+        return next
+      })
+
+      setTabs(prev => {
+        const next = prev
+          .filter(tab => !deleted.has(tab.fileId))
+          .map(tab => ({
+            ...tab,
+            fileId: remapPath(tab.fileId, changes),
+            history: tab.history
+              .filter(path => !deleted.has(path))
+              .map(path => remapPath(path, changes)),
+          }))
+        if (next.length !== prev.length && activeTabKey) {
+          const stillExists = next.find(tab => tab.key === activeTabKey)
+          if (!stillExists) setActiveTabKey(next[next.length - 1]?.key ?? "")
+        }
+        return next
+      })
+
+      setFavorites(prev => {
+        const next = new Set<string>()
+        for (const id of prev) {
+          if (!deleted.has(id)) next.add(remapPath(id, changes))
+        }
+        if (vault) localStorage.setItem(`amby:favorites:${vault}`, JSON.stringify([...next]))
+        return next
+      })
+
+      setIconOverrides(prev => {
+        const next: Record<string, string> = {}
+        for (const [id, icon] of Object.entries(prev)) {
+          if (!deleted.has(id)) next[remapPath(id, changes)] = icon
+        }
+        localStorage.setItem("amby:icons", JSON.stringify(next))
+        return next
+      })
+
+      setActiveLayers(prev => {
+        const next: Record<string, EditorLayer> = {}
+        for (const [id, layer] of Object.entries(prev)) {
+          if (!deleted.has(id)) next[remapPath(id, changes)] = layer
+        }
+        return next
+      })
+
+      setViewModes(prev => {
+        const next: Record<string, DocumentViewMode> = {}
+        for (const [id, mode] of Object.entries(prev)) {
+          if (!deleted.has(id)) next[remapPath(id, changes)] = mode
+        }
+        if (vault) localStorage.setItem(`amby:view-modes:${vault}`, JSON.stringify(next))
+        return next
+      })
+
+      setUnsavedFileIds(prev => {
+        const next = new Set<string>()
+        for (const id of prev) {
+          if (!deleted.has(id)) next.add(remapPath(id, changes))
+        }
+        return next
+      })
+    }
+  }
+
   function addVaultToList(path: string) {
     setVaults(prev => {
       if (prev.find(v => v.path === path)) return prev
@@ -425,6 +527,12 @@ export function Workspace() {
         setFavorites(savedFavs ? new Set(JSON.parse(savedFavs)) : new Set())
       } catch { setFavorites(new Set()) }
 
+      // Restore per-note editor view modes
+      try {
+        const savedModes = localStorage.getItem(`amby:view-modes:${path}`)
+        setViewModes(savedModes ? JSON.parse(savedModes) : {})
+      } catch { setViewModes({}) }
+
       // Restore open tabs
       try {
         const savedTabs = localStorage.getItem(`amby:tabs:${path}`)
@@ -517,10 +625,12 @@ export function Workspace() {
     }
 
     try {
-      const path = await createFile(vault, target)
+      const result = await createNote(vault, target.split("/").pop() ?? target)
+      applyMutationResult(result)
+      await refreshTree()
+      const path = result.primaryPath
+      if (!path) return
       const name = target.split("/").pop() ?? target
-      const newItem: TreeItem = { id: path, name, type: "file", icon: "file" }
-      setTreeItems(prev => [...prev, newItem])
       const doc: Document = { id: path, title: name, content: "", modified: "Только что", wordCount: 0, path }
       setOpenDocs(prev => ({ ...prev, [path]: doc }))
       const key = newTabKey()
@@ -595,32 +705,19 @@ export function Workspace() {
     })
   }
 
-  function removeFromTree(items: TreeItem[], id: string): TreeItem[] {
-    return items
-      .filter(item => item.id !== id)
-      .map(item => ({ ...item, children: item.children ? removeFromTree(item.children, id) : undefined }))
-  }
-
   const handleRenameFile = async (id: string, newName: string) => {
     const item = findTreeItem(treeItems, id)
     if (!item) return
-    const parts = id.split("/")
-    parts[parts.length - 1] = item.type === "file" ? `${newName}.md` : newName
-    const newPath = parts.join("/")
     try {
-      await renameItem(id, newPath)
-      setTreeItems(prev => updateInTree(prev, id, i => ({ ...i, id: newPath, name: newName })))
-      setOpenDocs(prev => {
-        if (!prev[id]) return prev
-        const doc = { ...prev[id], id: newPath, title: newName, path: newPath }
-        const next = { ...prev }
-        delete next[id]
-        next[newPath] = doc
-        return next
-      })
-      setTabs(prev => prev.map(t => t.fileId === id
-        ? { ...t, fileId: newPath, title: newName, history: t.history.map(h => h === id ? newPath : h) }
-        : t))
+      const result = await renameItem(id, newName)
+      applyMutationResult(result)
+      const newPath = result.primaryPath ?? id
+      setOpenDocs(prev => prev[newPath] ? ({
+        ...prev,
+        [newPath]: { ...prev[newPath], title: newName },
+      }) : prev)
+      setTabs(prev => prev.map(t => t.fileId === newPath ? { ...t, title: newName } : t))
+      await refreshTree()
     } catch (err) {
       console.error("Failed to rename:", err)
     }
@@ -630,16 +727,9 @@ export function Workspace() {
     const item = findTreeItem(treeItems, id)
     if (!confirm(`Удалить "${item?.name ?? id}"?`)) return
     try {
-      await deleteItem(id)
-      setTreeItems(prev => removeFromTree(prev, id))
-      setTabs(prev => {
-        const remaining = prev.filter(t => t.fileId !== id)
-        if (remaining.length !== prev.length && activeTabKey) {
-          const stillExists = remaining.find(t => t.key === activeTabKey)
-          if (!stillExists) setActiveTabKey(remaining[remaining.length - 1]?.key ?? "")
-        }
-        return remaining
-      })
+      const result = await deleteItem(id)
+      applyMutationResult(result)
+      await refreshTree()
     } catch (err) {
       console.error("Failed to delete:", err)
     }
@@ -649,15 +739,11 @@ export function Workspace() {
     if (!vault) return
     const basePath = parentId ?? vault
     try {
-      const path = await createFile(basePath, "Untitled")
-      const newItem: TreeItem = { id: path, name: "Untitled", type: "file", icon: "file" }
-      if (parentId) {
-        setTreeItems(prev => updateInTree(prev, parentId, folder => ({
-          ...folder, children: [...(folder.children ?? []), newItem],
-        })))
-      } else {
-        setTreeItems(prev => [...prev, newItem])
-      }
+      const result = await createNote(basePath, "Untitled")
+      applyMutationResult(result)
+      await refreshTree()
+      const path = result.primaryPath
+      if (!path) return
       const doc: Document = { id: path, title: "Untitled", content: "", modified: "Только что", wordCount: 0, path }
       setOpenDocs(prev => ({ ...prev, [path]: doc }))
       const key = newTabKey()
@@ -697,31 +783,39 @@ export function Workspace() {
     const normSrc = norm(sourceId)
     const normTgt = norm(targetFolderId)
     if (normTgt.startsWith(normSrc + "/") || normTgt === normSrc) return
-    const sourceName = normSrc.split("/").pop()!
-    const sep = targetFolderId.includes("\\") ? "\\" : "/"
-    const newPath = `${targetFolderId}${sep}${sourceName}`
     try {
-      await renameItem(sourceId, newPath)
-      const withoutSource = removeFromTree(treeItems, sourceId)
-      const moved: TreeItem = { ...sourceItem, id: newPath }
-      const updated = updateInTree(withoutSource, targetFolderId, folder => ({
-        ...folder, children: [...(folder.children ?? []), moved],
-      }))
-      setTreeItems(updated)
-      setTabs(prev => prev.map(t => t.fileId === sourceId
-        ? { ...t, fileId: newPath, title: sourceItem.name, history: t.history.map(h => h === sourceId ? newPath : h) }
-        : t))
-      setOpenDocs(prev => {
-        if (!prev[sourceId]) return prev
-        const doc = { ...prev[sourceId], id: newPath, path: newPath }
-        const next = { ...prev }
-        delete next[sourceId]
-        next[newPath] = doc
-        return next
-      })
+      const result = await moveItem(sourceId, targetFolderId)
+      applyMutationResult(result)
+      await refreshTree()
     } catch (err) {
       console.error("Failed to move item:", err)
     }
+  }
+
+  const handleLayerChange = async (layer: EditorLayer) => {
+    const doc = activeTab ? openDocs[activeTab.fileId] ?? null : null
+    if (!doc) return
+    if (layer === "editor") {
+      setActiveLayers(prev => ({ ...prev, [doc.id]: "editor" }))
+      return
+    }
+    try {
+      const result = await createLayer(doc.id, layer)
+      applyMutationResult({
+        primaryPath: result.notePath,
+        pathChanges: result.pathChanges,
+        deletedPaths: [],
+      })
+      setActiveLayers(prev => ({ ...prev, [result.notePath]: layer }))
+      await refreshTree()
+    } catch (err) {
+      console.error("Failed to create layer:", err)
+    }
+  }
+
+  const handleViewModeChange = (mode: DocumentViewMode) => {
+    if (!currentDoc) return
+    saveViewModes(vault, { ...viewModes, [currentDoc.id]: mode })
   }
 
   const handleContentChange = (content: string) => {
@@ -798,6 +892,10 @@ export function Workspace() {
       setSidebarActiveView("tags")
     },
     onWikiLinkClick: handleWikiLinkClick,
+    activeLayer: currentDoc ? activeLayers[currentDoc.id] ?? "editor" : "editor",
+    onLayerChange: handleLayerChange,
+    viewMode: currentDoc ? viewModes[currentDoc.id] ?? "source" : "source",
+    onViewModeChange: handleViewModeChange,
   }
 
   if (!vault && isTauri()) {

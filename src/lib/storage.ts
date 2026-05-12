@@ -6,6 +6,26 @@ export interface FileMetadata {
   word_count: number
 }
 
+export interface PathChange {
+  oldPath: string
+  newPath: string
+}
+
+export interface FsMutationResult {
+  primaryPath?: string | null
+  pathChanges: PathChange[]
+  deletedPaths: string[]
+}
+
+export type LayerKind = "canvas" | "database" | "sketch"
+
+export interface LayerResult {
+  notePath: string
+  layerPath: string
+  kind: LayerKind
+  pathChanges: PathChange[]
+}
+
 export const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 
@@ -19,6 +39,27 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
 const WEB_VAULT = "web-vault"
 const TREE_KEY = "amby:tree"
 const FILE_PREFIX = "amby:file:"
+
+function pathDir(path: string): string {
+  const idx = path.replace(/\\/g, "/").lastIndexOf("/")
+  return idx === -1 ? "" : path.slice(0, idx)
+}
+
+function pathBase(path: string): string {
+  return path.replace(/\\/g, "/").split("/").pop() ?? path
+}
+
+function pathStem(path: string): string {
+  return pathBase(path).replace(/\.[^.]+$/u, "")
+}
+
+function joinPath(parent: string, child: string): string {
+  return `${parent.replace(/\/$/u, "")}/${child}`
+}
+
+function isBundleMainPath(path: string): boolean {
+  return path.endsWith(".md") && pathBase(pathDir(path)) === pathStem(path)
+}
 
 function webGetTree(): TreeItem[] {
   try {
@@ -57,6 +98,126 @@ function webDefaultContent(path: string): string {
   return ""
 }
 
+function webFindItem(items: TreeItem[], id: string): TreeItem | null {
+  for (const item of items) {
+    if (item.id === id) return item
+    const found = item.children ? webFindItem(item.children, id) : null
+    if (found) return found
+  }
+  return null
+}
+
+function webMapTreeIds(items: TreeItem[], mapper: (id: string) => string): TreeItem[] {
+  return items.map(item => ({
+    ...item,
+    id: mapper(item.id),
+    children: item.children ? webMapTreeIds(item.children, mapper) : undefined,
+  }))
+}
+
+function webUpdateItem(items: TreeItem[], id: string, updater: (item: TreeItem) => TreeItem): TreeItem[] {
+  return items.map(item => {
+    if (item.id === id) return updater(item)
+    return { ...item, children: item.children ? webUpdateItem(item.children, id, updater) : undefined }
+  })
+}
+
+function webRemoveItem(items: TreeItem[], id: string): { tree: TreeItem[]; item: TreeItem | null } {
+  let removed: TreeItem | null = null
+  const tree = items
+    .filter(item => {
+      if (item.id === id) {
+        removed = item
+        return false
+      }
+      return true
+    })
+    .map(item => {
+      if (!item.children) return item
+      const result = webRemoveItem(item.children, id)
+      if (result.item) removed = result.item
+      return { ...item, children: result.tree }
+    })
+  return { tree, item: removed }
+}
+
+function webCollectFileIds(item: TreeItem): string[] {
+  const ids = item.type === "file" ? [item.id] : []
+  for (const child of item.children ?? []) ids.push(...webCollectFileIds(child))
+  return ids
+}
+
+function webMoveFileContent(oldPath: string, newPath: string) {
+  if (!oldPath || !newPath || oldPath === newPath) return
+  const content = localStorage.getItem(FILE_PREFIX + oldPath) ?? webDefaultContent(oldPath)
+  localStorage.setItem(FILE_PREFIX + newPath, content)
+  localStorage.removeItem(FILE_PREFIX + oldPath)
+}
+
+function webApplyPathChanges(changes: PathChange[]) {
+  for (const change of changes) {
+    if (change.oldPath) webMoveFileContent(change.oldPath, change.newPath)
+  }
+}
+
+function webEnsureBundle(notePath: string): { notePath: string; changes: PathChange[]; tree: TreeItem[] } {
+  const tree = webGetTree()
+  const item = webFindItem(tree, notePath)
+  if (!item || item.type !== "file") throw new Error(`Not a note: ${notePath}`)
+  if (isBundleMainPath(notePath)) return { notePath, changes: [], tree }
+
+  const stem = pathStem(notePath)
+  const newPath = joinPath(joinPath(pathDir(notePath), stem), `${stem}.md`)
+  const changes = [{ oldPath: notePath, newPath }]
+  webApplyPathChanges(changes)
+  const nextTree = webUpdateItem(tree, notePath, current => ({ ...current, id: newPath, children: current.children ?? [] }))
+  webSaveTree(nextTree)
+  return { notePath: newPath, changes, tree: nextTree }
+}
+
+function webAddChild(items: TreeItem[], parentId: string | null, child: TreeItem): TreeItem[] {
+  if (!parentId) return [...items, child]
+  return webUpdateItem(items, parentId, item => ({
+    ...item,
+    children: [...(item.children ?? []), child],
+  }))
+}
+
+function webCreateNote(parentPath: string, name: string): FsMutationResult {
+  let tree = webGetTree()
+  let targetParentId: string | null = null
+  let targetDir = parentPath
+  const parent = webFindItem(tree, parentPath)
+  const pathChanges: PathChange[] = []
+
+  if (parent?.type === "file") {
+    const ensured = webEnsureBundle(parentPath)
+    tree = ensured.tree
+    pathChanges.push(...ensured.changes)
+    targetParentId = ensured.notePath
+    targetDir = pathDir(ensured.notePath)
+  } else if (parent?.type === "folder") {
+    targetParentId = parentPath
+    targetDir = parentPath
+  } else {
+    targetDir = parentPath
+  }
+
+  const primaryPath = joinPath(targetDir, `${name}.md`)
+  if (webFindItem(tree, primaryPath)) throw new Error(`Note already exists: ${primaryPath}`)
+
+  const child: TreeItem = { id: primaryPath, name, type: "file", icon: "file" }
+  const nextTree = webAddChild(tree, targetParentId, child)
+  localStorage.setItem(FILE_PREFIX + primaryPath, "")
+  webSaveTree(nextTree)
+
+  return {
+    primaryPath,
+    pathChanges: [...pathChanges, { oldPath: "", newPath: primaryPath }],
+    deletedPaths: [],
+  }
+}
+
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export async function openVault(): Promise<string | null> {
@@ -79,41 +240,133 @@ export async function writeFile(path: string, content: string): Promise<void> {
   localStorage.setItem(FILE_PREFIX + path, content)
 }
 
+export async function createNote(parentPath: string, name: string): Promise<FsMutationResult> {
+  if (isTauri()) return invoke<FsMutationResult>("create_note", { parentPath, name })
+  return webCreateNote(parentPath, name)
+}
+
 export async function createFile(vaultPath: string, name: string): Promise<string> {
-  const path = `${vaultPath}/${name}.md`
-  if (isTauri()) {
-    await invoke<void>("create_file", { path })
-  } else {
-    localStorage.setItem(FILE_PREFIX + path, "")
-    const tree = webGetTree()
-    tree.push({ id: path, name, type: "file", icon: "file" })
-    webSaveTree(tree)
-  }
-  return path
+  const result = await createNote(vaultPath, name)
+  return result.primaryPath ?? joinPath(vaultPath, `${name}.md`)
 }
 
 export async function createFolder(vaultPath: string, name: string): Promise<string> {
-  const path = `${vaultPath}/${name}`
+  const path = joinPath(vaultPath, name)
   if (isTauri()) {
     await invoke<void>("create_folder", { path })
   } else {
     const tree = webGetTree()
-    tree.push({ id: path, name, type: "folder", icon: "folder", children: [] })
-    webSaveTree(tree)
+    const parent = webFindItem(tree, vaultPath)
+    const folder: TreeItem = { id: path, name, type: "folder", icon: "folder", children: [] }
+    webSaveTree(webAddChild(tree, parent?.type === "folder" ? vaultPath : null, folder))
   }
   return path
 }
 
-export async function renameItem(oldPath: string, newPath: string): Promise<void> {
-  if (isTauri()) return invoke<void>("rename_item", { oldPath, newPath })
-  const content = localStorage.getItem(FILE_PREFIX + oldPath) ?? ""
-  localStorage.setItem(FILE_PREFIX + newPath, content)
-  localStorage.removeItem(FILE_PREFIX + oldPath)
+export async function createLayer(notePath: string, kind: LayerKind): Promise<LayerResult> {
+  if (isTauri()) return invoke<LayerResult>("create_layer", { notePath, kind })
+
+  const ensured = webEnsureBundle(notePath)
+  const stem = pathStem(ensured.notePath)
+  const dir = pathDir(ensured.notePath)
+  const layerPath = kind === "database"
+    ? joinPath(dir, "Metadata.md")
+    : joinPath(dir, `${stem}.${kind === "sketch" ? "excalidraw" : "canvas"}`)
+  localStorage.setItem(FILE_PREFIX + layerPath, kind === "database" ? "# Metadata\n\n```amby-db\n[]\n```\n" : "{}\n")
+  return { notePath: ensured.notePath, layerPath, kind, pathChanges: ensured.changes }
 }
 
-export async function deleteItem(path: string): Promise<void> {
-  if (isTauri()) return invoke<void>("delete_item", { path })
-  localStorage.removeItem(FILE_PREFIX + path)
+export async function renameItem(path: string, newName: string): Promise<FsMutationResult> {
+  if (isTauri()) return invoke<FsMutationResult>("rename_item", { path, newName })
+
+  const tree = webGetTree()
+  const item = webFindItem(tree, path)
+  if (!item) throw new Error(`Path not found: ${path}`)
+
+  const oldIds = webCollectFileIds(item)
+  const oldPrefix = isBundleMainPath(path) ? pathDir(path) : path
+  const newPrefix = isBundleMainPath(path)
+    ? joinPath(pathDir(pathDir(path)), newName)
+    : joinPath(pathDir(path), item.type === "file" ? `${newName}.md` : newName)
+  const primaryPath = isBundleMainPath(path)
+    ? joinPath(newPrefix, `${newName}.md`)
+    : newPrefix
+
+  const pathChanges = oldIds.map(oldPath => ({
+    oldPath,
+    newPath: oldPath === path
+      ? primaryPath
+      : oldPath.replace(oldPrefix, newPrefix),
+  }))
+  webApplyPathChanges(pathChanges)
+
+  const nextTree = webUpdateItem(tree, path, current => {
+    const updated = webMapTreeIds([current], id => {
+      if (id === path) return primaryPath
+      return id.replace(oldPrefix, newPrefix)
+    })[0]
+    return { ...updated, name: newName }
+  })
+  webSaveTree(nextTree)
+
+  return { primaryPath, pathChanges, deletedPaths: [] }
+}
+
+export async function moveItem(sourcePath: string, targetPath: string): Promise<FsMutationResult> {
+  if (isTauri()) return invoke<FsMutationResult>("move_item", { sourcePath, targetPath })
+
+  let tree = webGetTree()
+  const source = webFindItem(tree, sourcePath)
+  const target = webFindItem(tree, targetPath)
+  if (!source || !target) throw new Error("Move source or target not found")
+
+  const pathChanges: PathChange[] = []
+  let targetParentId = targetPath
+  let targetDir = target.type === "file" ? pathDir(targetPath) : targetPath
+  if (target.type === "file") {
+    const ensured = webEnsureBundle(targetPath)
+    tree = ensured.tree
+    pathChanges.push(...ensured.changes)
+    targetParentId = ensured.notePath
+    targetDir = pathDir(ensured.notePath)
+  }
+
+  const removed = webRemoveItem(tree, sourcePath)
+  if (!removed.item) throw new Error(`Source not found: ${sourcePath}`)
+  const sourceRoot = isBundleMainPath(sourcePath) ? pathDir(sourcePath) : sourcePath
+  const sourceRootName = pathBase(sourceRoot)
+  const newRoot = joinPath(targetDir, sourceRootName)
+  const primaryPath = isBundleMainPath(sourcePath)
+    ? joinPath(newRoot, pathBase(sourcePath))
+    : joinPath(targetDir, pathBase(sourcePath))
+  const sourceIds = webCollectFileIds(removed.item)
+  const sourceChanges = sourceIds.map(oldPath => ({
+    oldPath,
+    newPath: oldPath === sourcePath ? primaryPath : oldPath.replace(sourceRoot, newRoot),
+  }))
+  webApplyPathChanges(sourceChanges)
+
+  const moved = {
+    ...webMapTreeIds([removed.item], id => {
+      if (id === sourcePath) return primaryPath
+      return id.replace(sourceRoot, newRoot)
+    })[0],
+  }
+  const nextTree = webAddChild(removed.tree, targetParentId, moved)
+  webSaveTree(nextTree)
+
+  return { primaryPath, pathChanges: [...pathChanges, ...sourceChanges], deletedPaths: [] }
+}
+
+export async function deleteItem(path: string): Promise<FsMutationResult> {
+  if (isTauri()) return invoke<FsMutationResult>("delete_item", { path })
+
+  const tree = webGetTree()
+  const removed = webRemoveItem(tree, path)
+  const deletedPaths = removed.item ? webCollectFileIds(removed.item) : [path]
+  for (const deletedPath of deletedPaths) localStorage.removeItem(FILE_PREFIX + deletedPath)
+  webSaveTree(removed.tree)
+  return { primaryPath: null, pathChanges: [], deletedPaths }
 }
 
 export async function getFileMetadata(path: string): Promise<FileMetadata> {

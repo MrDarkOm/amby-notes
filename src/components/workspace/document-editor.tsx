@@ -3,20 +3,26 @@
 import * as React from "react"
 import {
   BookOpen,
+  Code2,
+  Database,
   ChevronLeft,
   ChevronRight,
+  FileText,
   FilePlus,
   FolderOpen,
+  LayoutGrid,
   Maximize2,
   Minimize2,
   MoreVertical,
-  Pencil,
   Redo2,
+  PenLine,
+  TextCursorInput,
   Undo2,
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { TagEditor, type TagEditorHandle } from "./tag-editor"
+import { LiveMarkdownEditor } from "./live-markdown-editor"
 
 const INLINE_TOKEN_RE = /#(\p{L}[\p{L}\p{N}_-]*)|\[\[([^\]\r\n]+)\]\]/gu
 
@@ -28,6 +34,36 @@ function getWikiLinkParts(raw: string) {
 }
 
 function processInlineText(text: string, onWikiLinkClick?: (target: string) => void): React.ReactNode {
+  const colorParts: React.ReactNode[] = []
+  let colorLast = 0
+  const safeColorSpanRe = /<span\s+style=["']color:\s*(#[0-9a-fA-F]{6})["']>(.*?)<\/span>/gu
+  let colorMatch: RegExpExecArray | null
+  while ((colorMatch = safeColorSpanRe.exec(text)) !== null) {
+    if (colorMatch.index > colorLast) {
+      colorParts.push(
+        <React.Fragment key={`ct${colorLast}`}>
+          {processInlineText(text.slice(colorLast, colorMatch.index), onWikiLinkClick)}
+        </React.Fragment>
+      )
+    }
+    colorParts.push(
+      <span key={`cs${colorMatch.index}`} style={{ color: colorMatch[1] }}>
+        {processInlineText(colorMatch[2], onWikiLinkClick)}
+      </span>
+    )
+    colorLast = colorMatch.index + colorMatch[0].length
+  }
+  if (colorParts.length) {
+    if (colorLast < text.length) {
+      colorParts.push(
+        <React.Fragment key={`cte${colorLast}`}>
+          {processInlineText(text.slice(colorLast), onWikiLinkClick)}
+        </React.Fragment>
+      )
+    }
+    return <>{colorParts}</>
+  }
+
   const parts: React.ReactNode[] = []
   let last = 0
   INLINE_TOKEN_RE.lastIndex = 0
@@ -101,7 +137,27 @@ interface DocumentEditorProps {
   onOpenVault?: () => void
   onTagClick?: (tag: string) => void
   onWikiLinkClick?: (target: string) => void
+  activeLayer?: EditorLayer
+  onLayerChange?: (layer: EditorLayer) => void
+  viewMode?: DocumentViewMode
+  onViewModeChange?: (mode: DocumentViewMode) => void
 }
+
+type EditorLayer = "editor" | "canvas" | "database" | "sketch"
+export type DocumentViewMode = "source" | "live" | "read"
+
+const LAYER_OPTIONS: Array<{ id: EditorLayer; label: string; icon: React.ElementType; title: string }> = [
+  { id: "editor", label: "Editor", icon: FileText, title: "Markdown editor" },
+  { id: "canvas", label: "Canvas", icon: LayoutGrid, title: "Canvas layer" },
+  { id: "database", label: "Database", icon: Database, title: "Database layer" },
+  { id: "sketch", label: "Sketch", icon: PenLine, title: "Sketch layer" },
+]
+
+const VIEW_MODE_OPTIONS: Array<{ id: DocumentViewMode; icon: React.ElementType; title: string }> = [
+  { id: "source", icon: Code2, title: "Исходный Markdown" },
+  { id: "live", icon: TextCursorInput, title: "Живое редактирование" },
+  { id: "read", icon: BookOpen, title: "Режим чтения" },
+]
 
 function getRelativePath(vault: string | undefined, filePath: string): string {
   if (!vault || !filePath) return ""
@@ -136,9 +192,12 @@ export function DocumentEditor({
   onOpenVault,
   onTagClick,
   onWikiLinkClick,
+  activeLayer = "editor",
+  onLayerChange,
+  viewMode = "source",
+  onViewModeChange,
 }: DocumentEditorProps) {
   const [content, setContent] = React.useState(document?.content ?? "")
-  const [previewMode, setPreviewMode] = React.useState(false)
   const [editingTitle, setEditingTitle] = React.useState(false)
   const [titleValue, setTitleValue] = React.useState(document?.title ?? "")
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
@@ -211,14 +270,44 @@ export function DocumentEditor({
 
       {/* Right: mode + focus + more */}
       <div className="flex items-center gap-0.5">
-        <Button
-          variant="ghost" size="icon"
-          className={`size-7 hover:bg-zinc-800 ${previewMode ? "text-zinc-200" : "text-zinc-500 hover:text-white"}`}
-          onClick={() => setPreviewMode(v => !v)}
-          title={previewMode ? "Режим редактирования" : "Режим чтения"}
-        >
-          {previewMode ? <Pencil className="size-4" /> : <BookOpen className="size-4" />}
-        </Button>
+        {document && (
+          <div className="mr-1 flex items-center rounded border border-zinc-800 bg-zinc-950 p-0.5">
+            {LAYER_OPTIONS.map(option => (
+              <button
+                key={option.id}
+                type="button"
+                title={option.title}
+                onClick={() => onLayerChange?.(option.id)}
+                className={`flex size-6 items-center justify-center rounded transition-colors ${
+                  activeLayer === option.id
+                    ? "bg-zinc-800 text-zinc-100"
+                    : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+                }`}
+              >
+                <option.icon className="size-3.5" />
+              </button>
+            ))}
+          </div>
+        )}
+        {document && activeLayer === "editor" && (
+          <div className="mr-1 flex items-center rounded border border-zinc-800 bg-zinc-950 p-0.5">
+            {VIEW_MODE_OPTIONS.map(option => (
+              <button
+                key={option.id}
+                type="button"
+                title={option.title}
+                onClick={() => onViewModeChange?.(option.id)}
+                className={`flex size-6 items-center justify-center rounded transition-colors ${
+                  viewMode === option.id
+                    ? "bg-zinc-800 text-zinc-100"
+                    : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
+                }`}
+              >
+                <option.icon className="size-3.5" />
+              </button>
+            ))}
+          </div>
+        )}
         <Button
           variant="ghost" size="icon"
           className={`size-7 hover:bg-zinc-800 ${isFocusMode ? "text-zinc-200" : "text-zinc-500 hover:text-white"}`}
@@ -265,6 +354,8 @@ export function DocumentEditor({
   }
 
   const liveWordCount = content.split(/\s+/).filter(Boolean).length
+  const activeLayerMeta = LAYER_OPTIONS.find(option => option.id === activeLayer) ?? LAYER_OPTIONS[0]
+  const ActiveLayerIcon = activeLayerMeta.icon
 
   return (
     <div className="relative flex h-full flex-1 flex-col bg-background">
@@ -299,7 +390,19 @@ export function DocumentEditor({
 
           <div className="mb-6 h-px bg-zinc-800" />
 
-          {previewMode ? (
+          {activeLayer !== "editor" ? (
+            <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded border border-dashed border-zinc-800 bg-zinc-950/40 text-center">
+              <div className="flex size-12 items-center justify-center rounded border border-zinc-800 bg-zinc-900 text-zinc-300">
+                <ActiveLayerIcon className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-zinc-300">{activeLayerMeta.label}</p>
+                <p className="mt-1 max-w-sm text-xs text-zinc-600">
+                  Слой создан рядом с заметкой. Полноценный редактор появится в следующем инкременте.
+                </p>
+              </div>
+            </div>
+          ) : viewMode === "read" ? (
             <div className="md-body pb-20">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -315,6 +418,16 @@ export function DocumentEditor({
                 {content || "*Пусто*"}
               </ReactMarkdown>
             </div>
+          ) : viewMode === "live" ? (
+            <LiveMarkdownEditor
+              key={document.id}
+              value={content}
+              onChange={handleContentChange}
+              onTagClick={onTagClick}
+              onWikiLinkClick={onWikiLinkClick}
+              editorRef={editorRef}
+              placeholder="Начни писать..."
+            />
           ) : (
             <TagEditor
               key={document.id}

@@ -39,7 +39,7 @@ interface PtrDrag {
   ghostX: number
   ghostY: number
   active: boolean
-  targetFolderId: string | null
+  targetId: string | null
 }
 
 interface SidebarTreeProps {
@@ -52,7 +52,7 @@ interface SidebarTreeProps {
   onNewFolder?: (parentId: string | null) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
-  onMoveItem?: (sourceId: string, targetFolderId: string) => void
+  onMoveItem?: (sourceId: string, targetId: string) => void
   onSetIcon?: (id: string, icon: string) => void
   triggerRenameId?: string | null
   folderResetKey?: number
@@ -138,7 +138,7 @@ function TreeNode({
   const hasChildren = (item.children && item.children.length > 0) || item.type === "folder"
   const isSelected = selectedId === item.id
   const isDragSource = ptrDragSourceId === item.id
-  const isDragTarget = ptrDragTargetId === item.id && item.type === "folder"
+  const isDragTarget = ptrDragTargetId === item.id && (item.type === "folder" || item.type === "file")
   const paddingLeft = 6 + level * 12
 
   React.useEffect(() => {
@@ -189,7 +189,7 @@ function TreeNode({
     <ContextMenuContent className="w-52 border-zinc-800 bg-black text-zinc-300">
       <ContextMenuItem
         className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
-        onSelect={() => onNewFile?.(item.type === "folder" ? item.id : null)}
+        onSelect={() => onNewFile?.(item.type === "folder" || item.type === "file" ? item.id : null)}
       >
         <FileText className="size-3.5 text-zinc-500" />
         Новая заметка
@@ -299,25 +299,38 @@ function TreeNode({
   if (hasChildren) {
     return (
       <div
-        data-drag-folder={item.type === "folder" ? item.id : undefined}
+        data-drag-target={item.type === "folder" || item.type === "file" ? item.id : undefined}
         className={cn(isDragTarget && "rounded ring-1 ring-inset ring-blue-500 bg-blue-900/20")}
       >
         <Collapsible open={isOpen} onOpenChange={setIsOpen}>
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <CollapsibleTrigger asChild>
+              <div
+                className={buttonCls}
+                style={{ paddingLeft }}
+                {...selectedAttr}
+              >
+                <CollapsibleTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex size-3 shrink-0 items-center justify-center text-muted-foreground"
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => e.stopPropagation()}
+                    title={isOpen ? "Свернуть" : "Раскрыть"}
+                  >
+                    <ChevronRight className={cn("size-3 transition-transform", isOpen && "rotate-90")} />
+                  </button>
+                </CollapsibleTrigger>
                 <button
+                  type="button"
                   onPointerDown={handlePointerDown}
                   onClick={() => { if (!isEditing) onSelect(item.id) }}
-                  className={buttonCls}
-                  style={{ paddingLeft }}
-                  {...selectedAttr}
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                 >
-                  <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
                   {getIcon(item.icon || "folder", "text-muted-foreground")}
                   {nameNode}
                 </button>
-              </CollapsibleTrigger>
+              </div>
             </ContextMenuTrigger>
             {ctxItems}
           </ContextMenu>
@@ -355,19 +368,24 @@ function TreeNode({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <button
-          onPointerDown={handlePointerDown}
-          onClick={() => { if (!isEditing) onSelect(item.id) }}
-          className={buttonCls}
-          style={{ paddingLeft: paddingLeft + 15 }}
-          {...selectedAttr}
+        <div
+          data-drag-target={item.type === "folder" || item.type === "file" ? item.id : undefined}
+          className={cn(isDragTarget && "rounded ring-1 ring-inset ring-blue-500 bg-blue-900/20")}
         >
-          {getIcon(item.icon || "file", "text-muted-foreground")}
-          {nameNode}
-          {favorites?.has(item.id) && (
-            <Star className="ml-auto size-3 shrink-0 text-amber-400 fill-amber-400" />
-          )}
-        </button>
+          <button
+            onPointerDown={handlePointerDown}
+            onClick={() => { if (!isEditing) onSelect(item.id) }}
+            className={buttonCls}
+            style={{ paddingLeft: paddingLeft + 15 }}
+            {...selectedAttr}
+          >
+            {getIcon(item.icon || "file", "text-muted-foreground")}
+            {nameNode}
+            {favorites?.has(item.id) && (
+              <Star className="ml-auto size-3 shrink-0 text-amber-400 fill-amber-400" />
+            )}
+          </button>
+        </div>
       </ContextMenuTrigger>
       {ctxItems}
     </ContextMenu>
@@ -398,11 +416,11 @@ export function SidebarTree({
 
       if (drag) {
         const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
-        const folderEl = el?.closest('[data-drag-folder]') as HTMLElement | null
-        const candidate = folderEl?.getAttribute('data-drag-folder') ?? null
+        const targetEl = el?.closest('[data-drag-target]') as HTMLElement | null
+        const candidate = targetEl?.getAttribute('data-drag-target') ?? null
         const validTarget = (candidate && candidate !== drag.sourceId && !candidate.startsWith(drag.sourceId + '/'))
           ? candidate : null
-        setPtrDrag(prev => prev ? { ...prev, ghostX: e.clientX, ghostY: e.clientY, targetFolderId: validTarget } : null)
+        setPtrDrag(prev => prev ? { ...prev, ghostX: e.clientX, ghostY: e.clientY, targetId: validTarget } : null)
         return
       }
 
@@ -416,7 +434,7 @@ export function SidebarTree({
           // suppress the click that fires after drag ends
           const suppress = (ev: MouseEvent) => { ev.stopPropagation(); ev.preventDefault(); document.removeEventListener('click', suppress, true) }
           document.addEventListener('click', suppress, true)
-          setPtrDrag({ sourceId: startId, sourceName: startName, startX: pd.x, startY: pd.y, ghostX: e.clientX, ghostY: e.clientY, active: true, targetFolderId: null })
+          setPtrDrag({ sourceId: startId, sourceName: startName, startX: pd.x, startY: pd.y, ghostX: e.clientX, ghostY: e.clientY, active: true, targetId: null })
         }
       }
     }
@@ -425,8 +443,8 @@ export function SidebarTree({
       const drag = ptrDragRef.current
       pointerDownRef.current = null
       if (drag) {
-        if (drag.targetFolderId) {
-          onMoveItemRef.current?.(drag.sourceId, drag.targetFolderId)
+        if (drag.targetId) {
+          onMoveItemRef.current?.(drag.sourceId, drag.targetId)
         }
         setPtrDrag(null)
       }
@@ -463,7 +481,7 @@ export function SidebarTree({
             triggerRenameId={triggerRenameId}
             onPtrDragStart={onPtrDragStart}
             ptrDragSourceId={ptrDrag?.sourceId ?? null}
-            ptrDragTargetId={ptrDrag?.targetFolderId ?? null}
+            ptrDragTargetId={ptrDrag?.targetId ?? null}
             folderResetKey={folderResetKey}
             folderTargetOpen={folderTargetOpen}
             favorites={favorites}
