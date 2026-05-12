@@ -3,15 +3,20 @@
 import * as React from "react"
 import {
   Bookmark,
+  BookmarkCheck,
   ChevronDown,
   Minus,
   Maximize2,
   Minimize2,
-  PanelLeft,
-  PanelRight,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen,
   Plus,
   X,
 } from "lucide-react"
+
+const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
 import { cn } from "@/lib/utils"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/storage"
@@ -48,6 +53,10 @@ interface HeaderTabsProps {
   onMoveVault: (id: string) => void
   onOpenVaultInExplorer: (path: string) => void
   onCloseAllTabs?: () => void
+  leftTreeWidth?: number
+  activeFileId?: string
+  favorites?: Set<string>
+  onToggleFavorite?: (id: string) => void
 }
 
 function AmbyIcon({ className }: { className?: string }) {
@@ -89,7 +98,13 @@ export function HeaderTabs({
   onMoveVault,
   onOpenVaultInExplorer,
   onCloseAllTabs,
+  leftTreeWidth = 208,
+  activeFileId,
+  favorites,
+  onToggleFavorite,
 }: HeaderTabsProps) {
+  // activity bar = 44px (w-11), mac spacer = 72px — picker width compensates the difference
+  const pickerWidth = isMac ? leftTreeWidth - 28 : leftTreeWidth
   const [isMaximized, setIsMaximized] = React.useState(false)
   const lastClickTimeRef = React.useRef(0)
 
@@ -120,14 +135,19 @@ export function HeaderTabs({
 
   return (
     <header className="flex h-10 select-none items-stretch border-b border-zinc-800 bg-[#0A0A0A]">
-      {/* Logo */}
-      <div className="flex w-11 shrink-0 items-center justify-center border-r border-zinc-800" onMouseDown={handleDragStart}>
-        <AmbyIcon className="pointer-events-none size-5 text-zinc-300" />
-      </div>
+      {/* macOS traffic light spacer — native buttons live here */}
+      {isMac ? (
+        <div className="w-[72px] shrink-0" onMouseDown={handleDragStart} />
+      ) : (
+        /* Non-mac: logo on the left */
+        <div className="flex w-11 shrink-0 items-center justify-center border-r border-zinc-800" onMouseDown={handleDragStart}>
+          <AmbyIcon className="pointer-events-none size-5 text-zinc-300" />
+        </div>
+      )}
 
       {/* Workspace switcher */}
       {isLeftSidebarOpen && (
-        <div className="flex w-52 shrink-0 items-center border-r border-zinc-800 px-3" onMouseDown={handleDragStart}>
+        <div className="flex shrink-0 items-center border-r border-zinc-800 px-3" style={{ width: pickerWidth }} onMouseDown={handleDragStart}>
           <WorkspacePicker
             vaults={vaults}
             currentPath={currentVaultPath}
@@ -154,12 +174,11 @@ export function HeaderTabs({
         <div className="flex h-full items-center overflow-hidden">
           <button
             onClick={onToggleLeftSidebar}
-            className={cn(
-              "flex shrink-0 size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white",
-              !isLeftSidebarOpen && "text-zinc-300"
-            )}
+            className="flex shrink-0 size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
           >
-            <PanelLeft className="size-4" />
+            {isLeftSidebarOpen
+              ? <PanelLeftClose className="size-4" />
+              : <PanelLeftOpen className="size-4 text-zinc-300" />}
           </button>
 
           <div className="flex h-full items-center overflow-hidden">
@@ -211,11 +230,13 @@ export function HeaderTabs({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 border-zinc-800 bg-black text-zinc-300">
               <DropdownMenuItem
-                disabled
+                disabled={!activeFileId}
                 className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                onSelect={() => activeFileId && onToggleFavorite?.(activeFileId)}
               >
-                <Bookmark className="size-3.5 text-zinc-500" />
-                Добавить в закладки
+                {activeFileId && favorites?.has(activeFileId)
+                  ? <><BookmarkCheck className="size-3.5 text-amber-400" />Убрать из закладок</>
+                  : <><Bookmark className="size-3.5 text-zinc-500" />Добавить в закладки</>}
               </DropdownMenuItem>
               <DropdownMenuItem
                 className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
@@ -245,37 +266,45 @@ export function HeaderTabs({
           </DropdownMenu>
           <button
             onClick={onToggleRightSidebar}
-            className={cn(
-              "flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white",
-              !isRightSidebarOpen && "text-zinc-300"
-            )}
+            className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
           >
-            <PanelRight className="size-4" />
+            {isRightSidebarOpen
+              ? <PanelRightClose className="size-4" />
+              : <PanelRightOpen className="size-4 text-zinc-300" />}
           </button>
+
+          {/* macOS: logo on the right */}
+          {isMac && (
+            <div className="flex w-11 shrink-0 items-center justify-center border-l border-zinc-800" onMouseDown={handleDragStart}>
+              <AmbyIcon className="pointer-events-none size-5 text-zinc-300" />
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Window controls */}
-      <div className="flex shrink-0 items-center border-l border-zinc-800">
-        <button
-          onClick={() => isTauri() && getCurrentWindow().minimize()}
-          className="flex h-10 w-12 items-center justify-center text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-        >
-          <Minus className="size-4" />
-        </button>
-        <button
-          onClick={() => isTauri() && getCurrentWindow().toggleMaximize()}
-          className="flex h-10 w-12 items-center justify-center text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-        >
-          {isMaximized ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
-        </button>
-        <button
-          onClick={() => isTauri() && getCurrentWindow().close()}
-          className="flex h-10 w-12 items-center justify-center text-zinc-500 transition-colors hover:bg-red-600 hover:text-white"
-        >
-          <X className="size-4" />
-        </button>
-      </div>
+      {/* Non-mac window controls */}
+      {!isMac && (
+        <div className="flex shrink-0 items-center border-l border-zinc-800">
+          <button
+            onClick={() => isTauri() && getCurrentWindow().minimize()}
+            className="flex h-10 w-12 items-center justify-center text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+          >
+            <Minus className="size-4" />
+          </button>
+          <button
+            onClick={() => isTauri() && getCurrentWindow().toggleMaximize()}
+            className="flex h-10 w-12 items-center justify-center text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+          >
+            {isMaximized ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+          </button>
+          <button
+            onClick={() => isTauri() && getCurrentWindow().close()}
+            className="flex h-10 w-12 items-center justify-center text-zinc-500 transition-colors hover:bg-red-600 hover:text-white"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
     </header>
   )
 }

@@ -3,6 +3,17 @@
 import * as React from "react"
 import { FolderOpen } from "lucide-react"
 import { AppSidebar } from "./app-sidebar"
+
+function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
+  return (
+    <div
+      className="relative z-10 w-px shrink-0 cursor-col-resize bg-zinc-800 transition-colors hover:bg-zinc-500"
+      onMouseDown={onMouseDown}
+    >
+      <div className="absolute inset-y-0 -left-1 -right-1" />
+    </div>
+  )
+}
 import { DocumentEditor } from "./document-editor"
 import { PropertiesPanel } from "./properties-panel"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
@@ -40,6 +51,18 @@ interface Tab {
   title: string
   history: string[]
   historyIndex: number
+}
+
+function flattenTree(items: TreeItem[]): Set<string> {
+  const ids = new Set<string>()
+  function walk(list: TreeItem[]) {
+    for (const item of list) {
+      ids.add(item.id)
+      if (item.children) walk(item.children)
+    }
+  }
+  walk(items)
+  return ids
 }
 
 function findTreeItem(items: TreeItem[], id: string): TreeItem | null {
@@ -88,6 +111,51 @@ export function Workspace() {
   const [unsavedFileIds, setUnsavedFileIds] = React.useState<Set<string>>(new Set())
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
+  const [leftWidth, setLeftWidth] = React.useState(208)
+  const [rightWidth, setRightWidth] = React.useState(256)
+  const [favorites, setFavorites] = React.useState<Set<string>>(new Set())
+
+  function handleToggleFavorite(id: string) {
+    setFavorites(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      if (vault) localStorage.setItem(`amby:favorites:${vault}`, JSON.stringify([...next]))
+      return next
+    })
+  }
+
+  function startResize(side: "left" | "right") {
+    return (e: React.MouseEvent) => {
+      e.preventDefault()
+      const startX = e.clientX
+      const startW = side === "left" ? leftWidth : rightWidth
+      const setW = side === "left" ? setLeftWidth : setRightWidth
+      const sign = side === "left" ? 1 : -1
+
+      function nearEdge(x: number) {
+        return side === "left" ? x < 20 : x > window.innerWidth - 20
+      }
+
+      function onMove(ev: MouseEvent) {
+        if (nearEdge(ev.clientX)) return
+        const newW = startW + sign * (ev.clientX - startX)
+        setW(Math.max(200, Math.min(520, newW)))
+      }
+
+      function onUp(ev: MouseEvent) {
+        if (nearEdge(ev.clientX)) {
+          setW(208)
+          if (side === "left") setIsLeftSidebarOpen(false)
+          else setIsRightSidebarOpen(false)
+        }
+        window.removeEventListener("mousemove", onMove)
+        window.removeEventListener("mouseup", onUp)
+      }
+
+      window.addEventListener("mousemove", onMove)
+      window.addEventListener("mouseup", onUp)
+    }
+  }
   const [quickOpenOpen, setQuickOpenOpen] = React.useState(false)
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
@@ -106,6 +174,16 @@ export function Workspace() {
   const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   React.useEffect(() => { openDocsRef.current = openDocs }, [openDocs])
+
+  React.useEffect(() => {
+    if (!vault || tabs.length === 0) return
+    const entries = tabs.map(t => ({ fileId: t.fileId, title: t.title }))
+    const active = tabs.find(t => t.key === activeTabKey)
+    localStorage.setItem(`amby:tabs:${vault}`, JSON.stringify({
+      entries,
+      activeFileId: active?.fileId ?? entries[0]?.fileId ?? "",
+    }))
+  }, [tabs, activeTabKey, vault])
 
   const activeTab = tabs.find(t => t.key === activeTabKey) ?? null
   const selectedId = activeTab?.fileId ?? ""
@@ -218,6 +296,47 @@ export function Workspace() {
       setTreeItems(tree)
       localStorage.setItem("amby:vault", path)
       addVaultToList(path)
+
+      // Restore favorites
+      try {
+        const savedFavs = localStorage.getItem(`amby:favorites:${path}`)
+        setFavorites(savedFavs ? new Set(JSON.parse(savedFavs)) : new Set())
+      } catch { setFavorites(new Set()) }
+
+      // Restore open tabs
+      try {
+        const savedTabs = localStorage.getItem(`amby:tabs:${path}`)
+        if (savedTabs) {
+          const { entries, activeFileId } = JSON.parse(savedTabs) as {
+            entries: { fileId: string; title: string }[]
+            activeFileId: string
+          }
+          const allIds = flattenTree(tree)
+          const valid = entries.filter(e => allIds.has(e.fileId))
+          if (valid.length > 0) {
+            const newTabs: Tab[] = valid.map(e => ({
+              key: newTabKey(), fileId: e.fileId, title: e.title,
+              history: [e.fileId], historyIndex: 0,
+            }))
+            setTabs(newTabs)
+            const activeTab = newTabs.find(t => t.fileId === activeFileId) ?? newTabs[0]
+            setActiveTabKey(activeTab.key)
+            // Load docs for restored tabs
+            valid.forEach(e => {
+              readFile(e.fileId).then(content => {
+                setOpenDocs(prev => ({
+                  ...prev,
+                  [e.fileId]: { id: e.fileId, title: e.title, content, modified: "", wordCount: 0, path: e.fileId },
+                }))
+              }).catch(() => {})
+            })
+            return
+          }
+        }
+      } catch { /* ignore */ }
+      setTabs([])
+      setOpenDocs({})
+      setActiveTabKey("")
     } catch (err) {
       console.error("Failed to load vault:", err)
     }
@@ -509,6 +628,8 @@ export function Workspace() {
     onSetIcon: handleSetIcon,
     triggerRenameId: pendingRenameId,
     readFile,
+    favorites,
+    onToggleFavorite: handleToggleFavorite,
   }
 
   const editorProps = {
@@ -612,13 +733,22 @@ export function Workspace() {
         onMoveVault={handleMoveVault}
         onOpenVaultInExplorer={openInExplorer}
         onCloseAllTabs={handleCloseAllTabs}
+        leftTreeWidth={leftWidth}
+        activeFileId={activeTab?.fileId}
+        favorites={favorites}
+        onToggleFavorite={handleToggleFavorite}
       />
 
       <div className="flex flex-1 overflow-hidden">
         <AppSidebar
           {...sidebarProps}
           isTreeOpen={isLeftSidebarOpen}
+          treeWidth={leftWidth}
         />
+
+        {isLeftSidebarOpen && (
+          <ResizeHandle onMouseDown={startResize("left")} />
+        )}
 
         <main className="flex flex-1 overflow-hidden">
           <DocumentEditor
@@ -629,10 +759,12 @@ export function Workspace() {
         </main>
 
         {isRightSidebarOpen && (
-          <PropertiesPanel
-            properties={currentProperties}
-            
-          />
+          <>
+            <ResizeHandle onMouseDown={startResize("right")} />
+            <div style={{ width: rightWidth }} className="shrink-0">
+              <PropertiesPanel properties={currentProperties} />
+            </div>
+          </>
         )}
       </div>
 

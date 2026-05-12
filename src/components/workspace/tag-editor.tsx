@@ -30,7 +30,7 @@ export function TagEditor({ value, onChange, onTagClick, textareaRef, editorRef,
     index: 0,
   })
   const lastEditTimeRef = React.useRef(0)
-  const BATCH_MS = 1200
+  const BATCH_MS = 400
 
   function recordHistory(newValue: string) {
     const h = historyRef.current

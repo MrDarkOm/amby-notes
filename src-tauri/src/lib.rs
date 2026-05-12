@@ -168,15 +168,15 @@ fn open_in_explorer(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    use std::sync::mpsc;
+async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
+    use tokio::sync::oneshot;
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = oneshot::channel();
     app.dialog().file().pick_folder(move |path| {
         let _ = tx.send(path);
     });
-    let result = rx.recv().map_err(|e| e.to_string())?;
+    let result = rx.await.map_err(|e| e.to_string())?;
     Ok(result.map(|p| p.to_string()))
 }
 
