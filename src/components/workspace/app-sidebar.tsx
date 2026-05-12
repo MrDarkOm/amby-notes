@@ -1,158 +1,285 @@
 "use client"
 
+import * as React from "react"
 import {
+  Archive,
   ArrowDownUp,
   Bell,
   Bookmark,
-  FolderOpen,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Database,
+  FileText,
+  FilePlus,
+  FolderPlus,
+  FolderTree,
   HelpCircle,
-  LayoutGrid,
-  MessageSquare,
-  PenLine,
+  LocateFixed,
+  RefreshCw,
   Search,
   Settings,
   Tag,
 } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { SidebarTree, TreeItem } from "./sidebar-tree"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import { SidebarTree, type TreeItem } from "./sidebar-tree"
+import { SidebarSearch } from "./sidebar-search"
+import { SidebarTags } from "./sidebar-tags"
+import { NewItemModal } from "./new-item-modal"
+
+type SidebarView = "files" | "search" | "tags" | "favorites" | "databases" | "archive"
 
 interface AppSidebarProps {
+  treeItems: TreeItem[]
   selectedId: string | null
+  vault: string | null
   onSelect: (id: string) => void
+  onOpenVault: () => void
+  onTreeChange: (items: TreeItem[]) => void
+  onRename?: (id: string, newName: string) => void
+  onDelete?: (id: string) => void
+  onNewFile?: (parentId: string | null) => void
+  onNewFolder?: (parentId: string | null) => void
+  activeView?: SidebarView
+  onActiveViewChange?: (view: SidebarView) => void
+  onOpenInNewTab?: (id: string) => void
+  onOpenInExplorer?: (id: string) => void
+  onMoveItem?: (sourceId: string, targetFolderId: string) => void
+  onSetIcon?: (id: string, icon: string) => void
+  triggerRenameId?: string | null
+  isTreeOpen?: boolean
+  readFile?: (path: string) => Promise<string>
 }
 
-const navItems = [
-  { icon: Search, label: "Search" },
-  { icon: FolderOpen, label: "Files" },
-  { icon: Tag, label: "Tags" },
-  { icon: Bookmark, label: "Bookmarks" },
-  { icon: LayoutGrid, label: "Canvas" },
-  { icon: MessageSquare, label: "Chat" },
+const treeMenuItems: { id: SidebarView; icon: React.ElementType; label: string }[] = [
+  { id: "search",    icon: Search,    label: "Поиск" },
+  { id: "files",     icon: FolderTree, label: "Древо" },
+  { id: "tags",      icon: Tag,       label: "Теги" },
+  { id: "favorites", icon: Bookmark,  label: "Избранное" },
+  { id: "databases", icon: Database,  label: "Базы данных" },
+  { id: "archive",   icon: Archive,   label: "Архив" },
 ]
 
-const bottomNavItems = [
-  { icon: Bell, label: "Notifications" },
-  { icon: Settings, label: "Settings" },
-  { icon: HelpCircle, label: "Help" },
-]
+export function AppSidebar({
+  treeItems,
+  selectedId,
+  vault,
+  onSelect,
+  onOpenVault,
+  onRename,
+  onDelete,
+  onNewFile,
+  onNewFolder,
+  activeView: controlledView,
+  onActiveViewChange,
+  onOpenInNewTab,
+  onOpenInExplorer,
+  onMoveItem,
+  onSetIcon,
+  triggerRenameId,
+  isTreeOpen = true,
+  readFile,
+}: AppSidebarProps) {
+  const [internalView, setInternalView] = React.useState<SidebarView>("files")
+  const activeView = controlledView ?? internalView
+  function setActiveView(v: SidebarView) {
+    setInternalView(v)
+    onActiveViewChange?.(v)
+  }
+  const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
+  const [folderResetKey, setFolderResetKey] = React.useState(0)
+  const [folderTargetOpen, setFolderTargetOpen] = React.useState(true)
+  const [allOpen, setAllOpen] = React.useState(true)
 
-const treeData: TreeItem[] = [
-  {
-    id: "main",
-    name: "Main",
-    type: "folder",
-    icon: "workspace",
-    children: [
-      {
-        id: "projects",
-        name: "Projects",
-        type: "folder",
-        icon: "workspace",
-        children: [
-          { id: "project-beta", name: "Project Beta", type: "file", icon: "file" },
-          { id: "project-alpha", name: "Project Alpha", type: "file", icon: "brain" },
-        ],
-      },
-      { id: "notes-1", name: "Notes", type: "file", icon: "file" },
-      { id: "notes-2", name: "Notes", type: "file", icon: "file" },
-    ],
-  },
-  {
-    id: "projects-root",
-    name: "Projects",
-    type: "folder",
-    icon: "folder",
-    children: [],
-  },
-  {
-    id: "journal",
-    name: "Journal",
-    type: "folder",
-    icon: "folder",
-    children: [],
-  },
-  {
-    id: "drafts",
-    name: "Drafts",
-    type: "folder",
-    icon: "draft",
-    children: [
-      { id: "draft-notes-1", name: "Notes", type: "file", icon: "file" },
-      { id: "draft-notes-2", name: "Notes", type: "file", icon: "file" },
-    ],
-  },
-  { id: "notes-root", name: "Notes", type: "file", icon: "file" },
-  { id: "canvas", name: "Canvas", type: "canvas", icon: "canvas" },
-]
+  function handleNewButtonClick() {
+    if (!vault) { onOpenVault(); return }
+    setNewItemModalOpen(true)
+  }
 
-export function AppSidebar({ selectedId, onSelect }: AppSidebarProps) {
+  function handleToggleFolders() {
+    const next = !allOpen
+    setAllOpen(next)
+    setFolderTargetOpen(next)
+    setFolderResetKey(k => k + 1)
+  }
+
+  function handleFindActive() {
+    document.querySelector<HTMLElement>('[data-tree-selected="true"]')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+
   return (
     <div className="flex h-full">
-      {/* Icon Navigation Rail - w-11 (2.75rem = 44px) to match header Column 1 */}
-      <div className="flex w-11 flex-col items-center border-r border-zinc-800 bg-[#0A0A0A] py-2">
-        <nav className="flex flex-1 flex-col items-center gap-0.5">
-          {navItems.map((item, index) => (
-            <Button
-              key={item.label}
-              variant="ghost"
-              size="icon"
-              className={`size-8 text-zinc-500 hover:bg-zinc-800 hover:text-white ${index === 0 ? "mt-1" : ""}`}
-              title={item.label}
-            >
-              <item.icon className="size-4" />
-            </Button>
-          ))}
-        </nav>
+      {/* Activity Bar */}
+      <div className="flex w-11 shrink-0 flex-col border-r border-zinc-800 bg-[#0A0A0A]">
 
-        <nav className="flex flex-col items-center gap-0.5">
-          {bottomNavItems.map((item) => (
-            <Button
-              key={item.label}
-              variant="ghost"
-              size="icon"
-              className="size-8 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+        {/* Zone 1: Tree menu */}
+        <div className="flex flex-col items-center gap-0.5 py-2">
+          {treeMenuItems.map(item => (
+            <button
+              key={item.id}
               title={item.label}
+              onClick={() => setActiveView(item.id)}
+              className={cn(
+                "flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white",
+                activeView === item.id && "bg-zinc-800 text-white"
+              )}
             >
               <item.icon className="size-4" />
-            </Button>
+            </button>
           ))}
-          <div className="mt-1.5 size-7 rounded-full bg-gradient-to-br from-amber-500 to-orange-600" />
-        </nav>
+        </div>
+
+        {/* Divider */}
+        <div className="mx-2 h-px bg-zinc-800" />
+
+        {/* Zone 2: Function buttons */}
+        <div className="flex flex-col items-center gap-0.5 py-2">
+          <button
+            title="Синхронизация"
+            className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+          >
+            <RefreshCw className="size-4" />
+          </button>
+        </div>
+
+        {/* Divider */}
+        <div className="mx-2 h-px bg-zinc-800" />
+
+        {/* Zone 3: Additional — pushed to bottom */}
+        <div className="flex flex-1 flex-col items-center justify-end gap-0.5 py-2">
+          <button title="Уведомления" className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white">
+            <Bell className="size-4" />
+          </button>
+          <button title="Настройки" className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white">
+            <Settings className="size-4" />
+          </button>
+          <button title="Справка" className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white">
+            <HelpCircle className="size-4" />
+          </button>
+          <div className="mt-1 size-7 rounded-full bg-gradient-to-br from-amber-500 to-orange-600" title="Аккаунт" />
+        </div>
       </div>
 
-      {/* Tree Sidebar - w-52 (13rem = 208px) to match header Column 2 */}
-      <div className="flex w-52 flex-col border-r border-zinc-800 bg-[#0A0A0A]">
-        {/* Header with controls */}
-        <div className="flex h-9 items-center justify-between border-b border-zinc-800 px-2">
-          <div className="flex items-center gap-0.5">
-            <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white">
+      {/* Tree Sidebar */}
+      <div className={`flex h-full w-52 min-h-0 flex-col border-r border-zinc-800 bg-[#0A0A0A] ${isTreeOpen ? "" : "hidden"}`}>
+        {/* Toolbar — only shown in files view */}
+        {activeView === "files" && (
+          <div className="flex h-9 shrink-0 items-center border-b border-zinc-800 px-1 gap-px">
+            <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title="Создать заметку"
+              onClick={() => { if (!vault) onOpenVault(); else onNewFile?.(null) }}>
+              <FilePlus className="size-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title="Создать папку"
+              onClick={() => { if (!vault) onOpenVault(); else onNewFolder?.(null) }}>
+              <FolderPlus className="size-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title="Порядок сортировки">
               <ArrowDownUp className="size-3.5" />
             </Button>
-            <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white">
-              <FolderOpen className="size-3.5" />
+            <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title="Найти активный файл"
+              onClick={handleFindActive}>
+              <LocateFixed className="size-3.5" />
             </Button>
-            <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white">
-              <Settings className="size-3.5" />
+            <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+              title={allOpen ? "Свернуть все папки" : "Развернуть все папки"}
+              onClick={handleToggleFolders}>
+              {allOpen ? <ChevronsDownUp className="size-3.5" /> : <ChevronsUpDown className="size-3.5" />}
             </Button>
           </div>
-        </div>
+        )}
 
-        {/* Tree */}
-        <ScrollArea className="flex-1">
-          <div className="p-1.5">
-            <SidebarTree items={treeData} selectedId={selectedId} onSelect={onSelect} />
+        {/* Content area */}
+        {activeView === "files" ? (
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div className="flex flex-1 min-h-0 flex-col">
+                <ScrollArea className="flex-1 min-h-0">
+                  <div className="p-1.5">
+                    {treeItems.length === 0 ? (
+                      <p className="px-2 py-3 text-[12px] text-zinc-600">
+                        Нет файлов. Создай новый.
+                      </p>
+                    ) : (
+                      <SidebarTree
+                        items={treeItems}
+                        selectedId={selectedId}
+                        onSelect={onSelect}
+                        onRename={onRename}
+                        onDelete={onDelete}
+                        onNewFile={onNewFile}
+                        onNewFolder={onNewFolder}
+                        onOpenInNewTab={onOpenInNewTab}
+                        onOpenInExplorer={onOpenInExplorer}
+                        onMoveItem={onMoveItem}
+                        onSetIcon={onSetIcon}
+                        triggerRenameId={triggerRenameId}
+                        folderResetKey={folderResetKey}
+                        folderTargetOpen={folderTargetOpen}
+                      />
+                    )}
+                  </div>
+                </ScrollArea>
+
+                <div className="shrink-0 p-2">
+                  <Button
+                    className="w-full gap-2 bg-zinc-100 text-zinc-900 hover:bg-white"
+                    onClick={handleNewButtonClick}
+                  >
+                    <FilePlus className="size-4" />
+                    Создать
+                  </Button>
+                </div>
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent className="w-52 border-zinc-800 bg-black text-zinc-300">
+              <ContextMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                onSelect={() => { if (!vault) onOpenVault(); else onNewFile?.(null) }}
+              >
+                <FileText className="size-3.5 text-zinc-500" />
+                Новая заметка
+              </ContextMenuItem>
+              <ContextMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                onSelect={() => { if (!vault) onOpenVault(); else onNewFolder?.(null) }}
+              >
+                <FolderPlus className="size-3.5 text-zinc-500" />
+                Новая папка
+              </ContextMenuItem>
+              <ContextMenuItem disabled className="flex items-center gap-2 text-[13px] text-zinc-600">
+                <Database className="size-3.5" />
+                База данных
+                <span className="ml-auto text-[10px] text-zinc-700">Скоро</span>
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
+        ) : activeView === "search" ? (
+          <SidebarSearch items={treeItems} onSelect={onSelect} readFile={readFile} />
+        ) : activeView === "tags" ? (
+          <SidebarTags items={treeItems} onSelect={onSelect} readFile={readFile} />
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+            <p className="text-[12px] text-zinc-600">
+              {treeMenuItems.find(i => i.id === activeView)?.label}
+            </p>
+            <p className="text-[11px] text-zinc-700">Скоро</p>
           </div>
-        </ScrollArea>
-
-        {/* New Button - High contrast white */}
-        <div className="p-2">
-          <Button className="w-full gap-2 bg-zinc-100 text-zinc-900 hover:bg-white">
-            <PenLine className="size-4" />
-            New
-          </Button>
-        </div>
+        )}
       </div>
+
+      <NewItemModal
+        open={newItemModalOpen}
+        onClose={() => setNewItemModalOpen(false)}
+        onCreateNote={() => onNewFile?.(null)}
+      />
     </div>
   )
 }

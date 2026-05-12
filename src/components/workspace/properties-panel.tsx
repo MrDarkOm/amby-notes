@@ -11,8 +11,6 @@ import {
   Plus,
   Search,
   Circle,
-  Undo2,
-  Redo2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -176,21 +174,6 @@ export function PropertiesPanel({ properties }: PropertiesPanelProps) {
         </div>
       </ScrollArea>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between border-t border-zinc-800 px-3 py-1.5 text-[10px] text-zinc-500">
-        <div className="flex items-center gap-3">
-          <span>0 words</span>
-          <span>0 symbols</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" className="size-5 text-zinc-500 hover:text-white">
-            <Undo2 className="size-3" />
-          </Button>
-          <Button variant="ghost" size="icon" className="size-5 text-zinc-500 hover:text-white">
-            <Redo2 className="size-3" />
-          </Button>
-        </div>
-      </div>
     </div>
   )
 }

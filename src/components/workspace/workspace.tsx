@@ -1,191 +1,648 @@
 "use client"
 
 import * as React from "react"
+import { FolderOpen } from "lucide-react"
 import { AppSidebar } from "./app-sidebar"
 import { DocumentEditor } from "./document-editor"
 import { PropertiesPanel } from "./properties-panel"
-import { HeaderTabs } from "./header-tabs"
+import { HeaderTabs, type HeaderTab } from "./header-tabs"
+import { QuickOpenModal } from "./quick-open-modal"
+import type { TreeItem } from "./sidebar-tree"
+import type { VaultRecord } from "./workspace-picker"
+import {
+  isTauri,
+  openVault,
+  listFiles,
+  readFile,
+  writeFile,
+  getFileMetadata,
+  createFile,
+  createFolder,
+  renameItem,
+  deleteItem,
+  openInExplorer,
+} from "@/lib/storage"
+import { watch } from "@tauri-apps/plugin-fs"
+import { getCurrentWindow } from "@tauri-apps/api/window"
 
-const documents = {
-  "project-alpha": {
-    id: "project-alpha",
-    title: "Project Alpha",
-    content: "",
-    modified: "Just now",
-    wordCount: 0,
-  },
-  "project-beta": {
-    id: "project-beta",
-    title: "Project Beta",
-    content: "This is a sample project document.",
-    modified: "2h ago",
-    wordCount: 6,
-  },
-  "notes-1": {
-    id: "notes-1",
-    title: "Notes",
-    content: "Quick notes for the day.",
-    modified: "Yesterday",
-    wordCount: 5,
-  },
-  "notes-2": {
-    id: "notes-2",
-    title: "Notes 2",
-    content: "Second notes document.",
-    modified: "Yesterday",
-    wordCount: 3,
-  },
-  "draft-notes-1": {
-    id: "draft-notes-1",
-    title: "Draft Notes 1",
-    content: "",
-    modified: "3d ago",
-    wordCount: 0,
-  },
-  "draft-notes-2": {
-    id: "draft-notes-2",
-    title: "Draft Notes 2",
-    content: "",
-    modified: "3d ago",
-    wordCount: 0,
-  },
+interface Document {
+  id: string
+  title: string
+  content: string
+  modified: string
+  wordCount: number
+  path: string
 }
 
-const documentProperties = {
-  "project-alpha": {
-    type: "Markdown",
-    status: "Draft",
-    revisions: 14,
-    backlinks: 3,
-    created: "24 / 10 / 2023 23:39",
-    modified: "2h ago",
-    id: "1278-4124-4214-1241",
-  },
-  "project-beta": {
-    type: "Markdown",
-    status: "In Progress",
-    revisions: 8,
-    backlinks: 1,
-    created: "20 / 10 / 2023 14:22",
-    modified: "1d ago",
-    id: "2341-5231-6342-7453",
-  },
-  "notes-1": {
-    type: "Markdown",
-    status: "Draft",
-    revisions: 2,
-    backlinks: 0,
-    created: "25 / 10 / 2023 09:15",
-    modified: "Yesterday",
-    id: "8564-9675-0786-1897",
-  },
-  "notes-2": {
-    type: "Markdown",
-    status: "Draft",
-    revisions: 1,
-    backlinks: 0,
-    created: "25 / 10 / 2023 10:00",
-    modified: "Yesterday",
-    id: "1212-3434-5656-7878",
-  },
-  "draft-notes-1": {
-    type: "Markdown",
-    status: "Draft",
-    revisions: 0,
-    backlinks: 0,
-    created: "22 / 10 / 2023 17:20",
-    modified: "3d ago",
-    id: "9898-7676-5454-3232",
-  },
-  "draft-notes-2": {
-    type: "Markdown",
-    status: "Draft",
-    revisions: 0,
-    backlinks: 0,
-    created: "22 / 10 / 2023 17:25",
-    modified: "3d ago",
-    id: "1111-2222-3333-4444",
-  },
+interface Tab {
+  key: string
+  fileId: string
+  title: string
+  history: string[]
+  historyIndex: number
 }
 
-type DocumentId = keyof typeof documents
+function findTreeItem(items: TreeItem[], id: string): TreeItem | null {
+  for (const item of items) {
+    if (item.id === id) return item
+    if (item.children) {
+      const found = findTreeItem(item.children, id)
+      if (found) return found
+    }
+  }
+  return null
+}
 
-function isDocumentId(id: string): id is DocumentId {
-  return id in documents
+function formatModified(ts?: number): string {
+  if (!ts) return "Только что"
+  const date = new Date(ts * 1000)
+  const diffMs = Date.now() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  if (diffMins < 1) return "Только что"
+  if (diffMins < 60) return `${diffMins} мин назад`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}ч назад`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays === 1) return "Вчера"
+  return `${diffDays}д назад`
+}
+
+function newTabKey() {
+  return `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function applyIconOverrides(items: TreeItem[], overrides: Record<string, string>): TreeItem[] {
+  return items.map(item => ({
+    ...item,
+    icon: overrides[item.id] ?? item.icon,
+    children: item.children ? applyIconOverrides(item.children, overrides) : undefined,
+  }))
 }
 
 export function Workspace() {
-  const [selectedId, setSelectedId] = React.useState<DocumentId>("project-alpha")
-  const [tabs, setTabs] = React.useState([
-    { id: "project-alpha", title: "Project Alpha" },
-  ])
-  const [activeTabId, setActiveTabId] = React.useState("project-alpha")
+  const [vault, setVault] = React.useState<string | null>(null)
+  const [treeItems, setTreeItems] = React.useState<TreeItem[]>([])
+  const [openDocs, setOpenDocs] = React.useState<Record<string, Document>>({})
+  const [tabs, setTabs] = React.useState<Tab[]>([])
+  const [activeTabKey, setActiveTabKey] = React.useState<string>("")
+  const [unsavedFileIds, setUnsavedFileIds] = React.useState<Set<string>>(new Set())
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
+  const [quickOpenOpen, setQuickOpenOpen] = React.useState(false)
+  const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
+  const [isFocusMode, setIsFocusMode] = React.useState(false)
+  const [sidebarActiveView, setSidebarActiveView] = React.useState<"files" | "search" | "tags" | "favorites" | "databases" | "archive">("files")
+  const [focusShowLeft, setFocusShowLeft] = React.useState(false)
+  const [focusShowRight, setFocusShowRight] = React.useState(false)
+  const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
+  const [iconOverrides, setIconOverrides] = React.useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem("amby:icons") ?? "{}") } catch { return {} }
+  })
+  const [vaults, setVaults] = React.useState<VaultRecord[]>(() => {
+    try { return JSON.parse(localStorage.getItem("amby:vaults") ?? "[]") } catch { return [] }
+  })
 
-  const currentDocument = documents[selectedId]
-  const currentProperties = documentProperties[selectedId]
+  const openDocsRef = React.useRef(openDocs)
+  const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handleSelect = (id: string) => {
-    if (!isDocumentId(id)) return
-    setSelectedId(id)
-    
-    // Add tab if not exists
-    if (!tabs.find((tab) => tab.id === id)) {
-      const doc = documents[id]
-      setTabs([...tabs, { id, title: doc.title }])
+  React.useEffect(() => { openDocsRef.current = openDocs }, [openDocs])
+
+  const activeTab = tabs.find(t => t.key === activeTabKey) ?? null
+  const selectedId = activeTab?.fileId ?? ""
+  const canGoBack = (activeTab?.historyIndex ?? 0) > 0
+  const canGoForward = activeTab ? activeTab.historyIndex < activeTab.history.length - 1 : false
+
+  const vaultName = vault?.replace(/\\/g, "/").split("/").pop() ?? undefined
+  const displayTreeItems = applyIconOverrides(treeItems, iconOverrides)
+
+  // Current file icon (from iconOverrides or tree)
+  const activeFileId = activeTab?.fileId ?? null
+  const activeTreeItem = activeFileId ? findTreeItem(displayTreeItems, activeFileId) : null
+  const currentFileIcon = activeTreeItem?.icon
+
+  function handleSetIcon(id: string, icon: string) {
+    const next = { ...iconOverrides, [id]: icon }
+    setIconOverrides(next)
+    localStorage.setItem("amby:icons", JSON.stringify(next))
+  }
+
+  function saveVaults(next: VaultRecord[]) {
+    setVaults(next)
+    localStorage.setItem("amby:vaults", JSON.stringify(next))
+  }
+
+  function addVaultToList(path: string) {
+    setVaults(prev => {
+      if (prev.find(v => v.path === path)) return prev
+      const name = path.replace(/\\/g, "/").split("/").pop() ?? path
+      const next = [...prev, { id: crypto.randomUUID(), name, path }]
+      localStorage.setItem("amby:vaults", JSON.stringify(next))
+      return next
+    })
+  }
+
+  function handleRenameVault(id: string, name: string) {
+    saveVaults(vaults.map(v => v.id === id ? { ...v, name } : v))
+  }
+
+  function handleDeleteVault(id: string) {
+    saveVaults(vaults.filter(v => v.id !== id))
+  }
+
+  async function handleMoveVault(id: string) {
+    const path = await openVault()
+    if (!path) return
+    saveVaults(vaults.map(v => v.id === id ? { ...v, path, name: path.replace(/\\/g, "/").split("/").pop() ?? v.name } : v))
+    const target = vaults.find(v => v.id === id)
+    if (target && vault === target.path) loadVault(path)
+  }
+
+  async function handleEnterFocusMode() {
+    preFocusSidebars.current = { left: isLeftSidebarOpen, right: isRightSidebarOpen }
+    setIsLeftSidebarOpen(false)
+    setIsRightSidebarOpen(false)
+    setIsFocusMode(true)
+    if (isTauri()) await getCurrentWindow().setFullscreen(true).catch(() => {})
+  }
+
+  async function handleExitFocusMode() {
+    setIsFocusMode(false)
+    if (preFocusSidebars.current) {
+      setIsLeftSidebarOpen(preFocusSidebars.current.left)
+      setIsRightSidebarOpen(preFocusSidebars.current.right)
+      preFocusSidebars.current = null
     }
-    setActiveTabId(id)
+    if (isTauri()) await getCurrentWindow().setFullscreen(false).catch(() => {})
   }
 
-  const handleTabChange = (tabId: string) => {
-    if (!isDocumentId(tabId)) return
-    setActiveTabId(tabId)
-    setSelectedId(tabId)
+  function handleCloseAllTabs() {
+    setTabs([])
+    setActiveTabKey("")
   }
 
-  const handleTabClose = (tabId: string) => {
-    const newTabs = tabs.filter((tab) => tab.id !== tabId)
-    setTabs(newTabs)
-    
-    if (activeTabId === tabId && newTabs.length > 0) {
-      setActiveTabId(newTabs[0].id)
-      if (isDocumentId(newTabs[0].id)) {
-        setSelectedId(newTabs[0].id)
+  // Watch vault for external changes
+  React.useEffect(() => {
+    if (!vault || !isTauri()) return
+    let unwatch: (() => void) | undefined
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null
+
+    watch(vault, () => {
+      if (refreshTimer) clearTimeout(refreshTimer)
+      refreshTimer = setTimeout(async () => {
+        try {
+          const tree = await listFiles(vault)
+          setTreeItems(tree)
+        } catch { /* vault may be temporarily inaccessible */ }
+      }, 300)
+    }, { recursive: true })
+      .then(fn => { unwatch = fn })
+      .catch(console.error)
+
+    return () => {
+      if (refreshTimer) clearTimeout(refreshTimer)
+      unwatch?.()
+    }
+  }, [vault])
+
+  // On mount: restore saved vault
+  React.useEffect(() => {
+    const saved = localStorage.getItem("amby:vault")
+    if (saved) loadVault(saved)
+    else if (!isTauri()) loadVault("web-vault")
+  }, [])
+
+  async function loadVault(path: string) {
+    try {
+      const tree = await listFiles(path)
+      setVault(path)
+      setTreeItems(tree)
+      localStorage.setItem("amby:vault", path)
+      addVaultToList(path)
+    } catch (err) {
+      console.error("Failed to load vault:", err)
+    }
+  }
+
+  async function handleOpenVault() {
+    const path = await openVault()
+    if (path) loadVault(path)
+  }
+
+  async function loadDoc(fileId: string, itemName: string): Promise<Document> {
+    if (openDocs[fileId]) return openDocs[fileId]
+    const [content, meta] = await Promise.all([readFile(fileId), getFileMetadata(fileId)])
+    const doc: Document = {
+      id: fileId, title: itemName, content,
+      modified: formatModified(meta.modified),
+      wordCount: meta.word_count, path: fileId,
+    }
+    setOpenDocs(prev => ({ ...prev, [fileId]: doc }))
+    return doc
+  }
+
+  const handleSelect = async (fileId: string) => {
+    const item = findTreeItem(treeItems, fileId)
+    if (!item || item.type !== "file") return
+
+    try {
+      await loadDoc(fileId, item.name)
+    } catch (err) {
+      console.error("Failed to load file:", err)
+      return
+    }
+
+    if (activeTabKey) {
+      setTabs(prev => prev.map(t => {
+        if (t.key !== activeTabKey) return t
+        const newHistory = [...t.history.slice(0, t.historyIndex + 1), fileId]
+        return { ...t, fileId, title: item.name, history: newHistory, historyIndex: newHistory.length - 1 }
+      }))
+    } else {
+      const key = newTabKey()
+      setTabs([{ key, fileId, title: item.name, history: [fileId], historyIndex: 0 }])
+      setActiveTabKey(key)
+    }
+  }
+
+  const handleOpenInNewTab = async (fileId: string) => {
+    const item = findTreeItem(treeItems, fileId)
+    if (!item || item.type !== "file") return
+
+    try {
+      await loadDoc(fileId, item.name)
+    } catch (err) {
+      console.error("Failed to load file:", err)
+      return
+    }
+
+    const key = newTabKey()
+    setTabs(prev => [...prev, { key, fileId, title: item.name, history: [fileId], historyIndex: 0 }])
+    setActiveTabKey(key)
+  }
+
+  async function navigateToFile(fileId: string) {
+    const item = findTreeItem(treeItems, fileId)
+    if (!item) return
+    try { await loadDoc(fileId, item.name) } catch { /* ok */ }
+  }
+
+  function handleBack() {
+    if (!activeTab || !canGoBack) return
+    const newIndex = activeTab.historyIndex - 1
+    const prevFileId = activeTab.history[newIndex]
+    const item = findTreeItem(treeItems, prevFileId)
+    setTabs(prev => prev.map(t => t.key !== activeTabKey ? t : {
+      ...t, fileId: prevFileId, title: item?.name ?? t.title, historyIndex: newIndex,
+    }))
+    navigateToFile(prevFileId)
+  }
+
+  function handleForward() {
+    if (!activeTab || !canGoForward) return
+    const newIndex = activeTab.historyIndex + 1
+    const nextFileId = activeTab.history[newIndex]
+    const item = findTreeItem(treeItems, nextFileId)
+    setTabs(prev => prev.map(t => t.key !== activeTabKey ? t : {
+      ...t, fileId: nextFileId, title: item?.name ?? t.title, historyIndex: newIndex,
+    }))
+    navigateToFile(nextFileId)
+  }
+
+  const handleTabChange = (key: string) => setActiveTabKey(key)
+
+  const handleTabClose = (key: string) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    const remaining = tabs.filter(t => t.key !== key)
+    setTabs(remaining)
+    if (activeTabKey === key) {
+      const next = remaining[remaining.length - 1]
+      setActiveTabKey(next?.key ?? "")
+    }
+  }
+
+  function updateInTree(items: TreeItem[], id: string, updater: (item: TreeItem) => TreeItem): TreeItem[] {
+    return items.map(item => {
+      if (item.id === id) return updater(item)
+      if (item.children) return { ...item, children: updateInTree(item.children, id, updater) }
+      return item
+    })
+  }
+
+  function removeFromTree(items: TreeItem[], id: string): TreeItem[] {
+    return items
+      .filter(item => item.id !== id)
+      .map(item => ({ ...item, children: item.children ? removeFromTree(item.children, id) : undefined }))
+  }
+
+  const handleRenameFile = async (id: string, newName: string) => {
+    const item = findTreeItem(treeItems, id)
+    if (!item) return
+    const parts = id.split("/")
+    parts[parts.length - 1] = item.type === "file" ? `${newName}.md` : newName
+    const newPath = parts.join("/")
+    try {
+      await renameItem(id, newPath)
+      setTreeItems(prev => updateInTree(prev, id, i => ({ ...i, id: newPath, name: newName })))
+      setOpenDocs(prev => {
+        if (!prev[id]) return prev
+        const doc = { ...prev[id], id: newPath, title: newName, path: newPath }
+        const next = { ...prev }
+        delete next[id]
+        next[newPath] = doc
+        return next
+      })
+      setTabs(prev => prev.map(t => t.fileId === id
+        ? { ...t, fileId: newPath, title: newName, history: t.history.map(h => h === id ? newPath : h) }
+        : t))
+    } catch (err) {
+      console.error("Failed to rename:", err)
+    }
+  }
+
+  const handleDeleteFile = async (id: string) => {
+    const item = findTreeItem(treeItems, id)
+    if (!confirm(`Удалить "${item?.name ?? id}"?`)) return
+    try {
+      await deleteItem(id)
+      setTreeItems(prev => removeFromTree(prev, id))
+      setTabs(prev => {
+        const remaining = prev.filter(t => t.fileId !== id)
+        if (remaining.length !== prev.length && activeTabKey) {
+          const stillExists = remaining.find(t => t.key === activeTabKey)
+          if (!stillExists) setActiveTabKey(remaining[remaining.length - 1]?.key ?? "")
+        }
+        return remaining
+      })
+    } catch (err) {
+      console.error("Failed to delete:", err)
+    }
+  }
+
+  const handleNewFileIn = async (parentId: string | null) => {
+    if (!vault) return
+    const basePath = parentId ?? vault
+    try {
+      const path = await createFile(basePath, "Untitled")
+      const newItem: TreeItem = { id: path, name: "Untitled", type: "file", icon: "file" }
+      if (parentId) {
+        setTreeItems(prev => updateInTree(prev, parentId, folder => ({
+          ...folder, children: [...(folder.children ?? []), newItem],
+        })))
+      } else {
+        setTreeItems(prev => [...prev, newItem])
       }
-    } else if (newTabs.length === 0) {
-      setActiveTabId("")
-      setSelectedId("project-alpha")
-      setTabs([{ id: "project-alpha", title: "Project Alpha" }])
+      const doc: Document = { id: path, title: "Untitled", content: "", modified: "Только что", wordCount: 0, path }
+      setOpenDocs(prev => ({ ...prev, [path]: doc }))
+      const key = newTabKey()
+      setTabs(prev => [...prev, { key, fileId: path, title: "Untitled", history: [path], historyIndex: 0 }])
+      setActiveTabKey(key)
+      setPendingRenameId(path)
+      setTimeout(() => setPendingRenameId(null), 500)
+    } catch (err) {
+      console.error("Failed to create file:", err)
     }
   }
 
+  const handleNewFolderIn = async (parentId: string | null) => {
+    if (!vault) return
+    const basePath = parentId ?? vault
+    try {
+      const path = await createFolder(basePath, "Untitled")
+      const newItem: TreeItem = { id: path, name: "Untitled", type: "folder", icon: "folder", children: [] }
+      if (parentId) {
+        setTreeItems(prev => updateInTree(prev, parentId, folder => ({
+          ...folder, children: [...(folder.children ?? []), newItem],
+        })))
+      } else {
+        setTreeItems(prev => [...prev, newItem])
+      }
+      setPendingRenameId(path)
+      setTimeout(() => setPendingRenameId(null), 500)
+    } catch (err) {
+      console.error("Failed to create folder:", err)
+    }
+  }
+
+  const handleMoveItem = async (sourceId: string, targetFolderId: string) => {
+    const sourceItem = findTreeItem(treeItems, sourceId)
+    if (!sourceItem) return
+    const norm = (p: string) => p.replace(/\\/g, "/")
+    const normSrc = norm(sourceId)
+    const normTgt = norm(targetFolderId)
+    if (normTgt.startsWith(normSrc + "/") || normTgt === normSrc) return
+    const sourceName = normSrc.split("/").pop()!
+    const sep = targetFolderId.includes("\\") ? "\\" : "/"
+    const newPath = `${targetFolderId}${sep}${sourceName}`
+    try {
+      await renameItem(sourceId, newPath)
+      const withoutSource = removeFromTree(treeItems, sourceId)
+      const moved: TreeItem = { ...sourceItem, id: newPath }
+      const updated = updateInTree(withoutSource, targetFolderId, folder => ({
+        ...folder, children: [...(folder.children ?? []), moved],
+      }))
+      setTreeItems(updated)
+      setTabs(prev => prev.map(t => t.fileId === sourceId
+        ? { ...t, fileId: newPath, title: sourceItem.name, history: t.history.map(h => h === sourceId ? newPath : h) }
+        : t))
+      setOpenDocs(prev => {
+        if (!prev[sourceId]) return prev
+        const doc = { ...prev[sourceId], id: newPath, path: newPath }
+        const next = { ...prev }
+        delete next[sourceId]
+        next[newPath] = doc
+        return next
+      })
+    } catch (err) {
+      console.error("Failed to move item:", err)
+    }
+  }
+
+  const handleContentChange = (content: string) => {
+    if (!activeTab) return
+    const fileId = activeTab.fileId
+
+    setOpenDocs(prev => ({
+      ...prev,
+      [fileId]: { ...prev[fileId], content, wordCount: content.split(/\s+/).filter(Boolean).length },
+    }))
+    setUnsavedFileIds(prev => new Set(prev).add(fileId))
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(async () => {
+      const doc = openDocsRef.current[fileId]
+      if (!doc) return
+      try {
+        await writeFile(doc.path, content)
+        setUnsavedFileIds(prev => { const s = new Set(prev); s.delete(fileId); return s })
+        setOpenDocs(prev => ({ ...prev, [fileId]: { ...prev[fileId], modified: "Только что" } }))
+      } catch (err) {
+        console.error("Failed to save:", err)
+      }
+    }, 500)
+  }
+
+  const currentDoc = activeTab ? openDocs[activeTab.fileId] ?? null : null
+
+  const currentProperties = currentDoc ? {
+    type: "Markdown", status: "Draft", revisions: 0, backlinks: 0,
+    created: "—", modified: currentDoc.modified, id: currentDoc.id,
+  } : null
+
+  const headerTabs: HeaderTab[] = tabs.map(t => ({ key: t.key, fileId: t.fileId, title: t.title }))
+
+  const sidebarProps = {
+    treeItems: displayTreeItems,
+    selectedId,
+    vault,
+    onSelect: handleSelect,
+    onOpenVault: handleOpenVault,
+    onTreeChange: setTreeItems,
+    onRename: handleRenameFile,
+    onDelete: handleDeleteFile,
+    onNewFile: handleNewFileIn,
+    onNewFolder: handleNewFolderIn,
+    activeView: sidebarActiveView,
+    onActiveViewChange: setSidebarActiveView,
+    onOpenInNewTab: handleOpenInNewTab,
+    onOpenInExplorer: openInExplorer,
+    onMoveItem: handleMoveItem,
+    onSetIcon: handleSetIcon,
+    triggerRenameId: pendingRenameId,
+    readFile,
+  }
+
+  const editorProps = {
+    document: currentDoc,
+    onContentChange: handleContentChange,
+    onBack: handleBack,
+    onForward: handleForward,
+    canGoBack,
+    canGoForward,
+    onRenameTitle: (name: string) => activeTab && handleRenameFile(activeTab.fileId, name),
+    vault: vault ?? undefined,
+    fileIcon: currentFileIcon,
+    onNewFile: () => handleNewFileIn(null),
+    onOpenVault: handleOpenVault,
+    onTagClick: (_tag: string) => {
+      setIsLeftSidebarOpen(true)
+      setSidebarActiveView("tags")
+    },
+  }
+
+  if (!vault && isTauri()) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background">
+        <p className="text-zinc-400">Хранилище не открыто</p>
+        <button
+          onClick={handleOpenVault}
+          className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-5 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+        >
+          <FolderOpen className="size-4" />
+          Открыть хранилище
+        </button>
+      </div>
+    )
+  }
+
+  // ── Focus mode layout ──────────────────────────────────────────
+  if (isFocusMode) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-background"
+        onMouseMove={e => {
+          const w = window.innerWidth
+          if (e.clientX < 20) setFocusShowLeft(true)
+          if (e.clientX > w - 20) setFocusShowRight(true)
+        }}
+      >
+        <DocumentEditor
+          {...editorProps}
+          isFocusMode={true}
+          onToggleFocusMode={handleExitFocusMode}
+        />
+
+        {/* Left sidebar overlay */}
+        <div
+          className={`fixed left-0 top-0 bottom-0 z-10 flex transition-transform duration-200 ease-out shadow-2xl ${focusShowLeft ? "translate-x-0" : "-translate-x-full"}`}
+          onMouseLeave={() => setFocusShowLeft(false)}
+        >
+          <AppSidebar {...sidebarProps} isTreeOpen={true} />
+        </div>
+
+        {/* Right sidebar overlay */}
+        <div
+          className={`fixed right-0 top-0 bottom-0 z-10 transition-transform duration-200 ease-out shadow-2xl ${focusShowRight ? "translate-x-0" : "translate-x-full"}`}
+          onMouseLeave={() => setFocusShowRight(false)}
+        >
+          <PropertiesPanel properties={currentProperties}  />
+        </div>
+
+        <QuickOpenModal
+          open={quickOpenOpen}
+          onClose={() => setQuickOpenOpen(false)}
+          treeItems={displayTreeItems}
+          onSelectFile={handleOpenInNewTab}
+          onNewNote={() => handleNewFileIn(null)}
+        />
+      </div>
+    )
+  }
+
+  // ── Normal layout ──────────────────────────────────────────────
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background">
       <HeaderTabs
-        tabs={tabs}
-        activeTabId={activeTabId}
+        tabs={headerTabs}
+        activeTabKey={activeTabKey}
+        unsavedFileIds={unsavedFileIds}
         onTabChange={handleTabChange}
         onTabClose={handleTabClose}
-        onToggleLeftSidebar={() => setIsLeftSidebarOpen(!isLeftSidebarOpen)}
-        onToggleRightSidebar={() => setIsRightSidebarOpen(!isRightSidebarOpen)}
+        onToggleLeftSidebar={() => setIsLeftSidebarOpen(v => !v)}
+        onToggleRightSidebar={() => setIsRightSidebarOpen(v => !v)}
         isLeftSidebarOpen={isLeftSidebarOpen}
         isRightSidebarOpen={isRightSidebarOpen}
+        onOpenPlusModal={() => setQuickOpenOpen(true)}
+        vaultName={vaultName}
+        vaults={vaults}
+        currentVaultPath={vault}
+        onSwitchVault={loadVault}
+        onAddVault={handleOpenVault}
+        onRenameVault={handleRenameVault}
+        onDeleteVault={handleDeleteVault}
+        onMoveVault={handleMoveVault}
+        onOpenVaultInExplorer={openInExplorer}
+        onCloseAllTabs={handleCloseAllTabs}
       />
-      
+
       <div className="flex flex-1 overflow-hidden">
-        {isLeftSidebarOpen && (
-          <AppSidebar selectedId={selectedId} onSelect={handleSelect} />
-        )}
-        
+        <AppSidebar
+          {...sidebarProps}
+          isTreeOpen={isLeftSidebarOpen}
+        />
+
         <main className="flex flex-1 overflow-hidden">
-          <DocumentEditor document={currentDocument || null} />
+          <DocumentEditor
+            {...editorProps}
+            isFocusMode={false}
+            onToggleFocusMode={handleEnterFocusMode}
+          />
         </main>
-        
+
         {isRightSidebarOpen && (
-          <PropertiesPanel properties={currentProperties || null} />
+          <PropertiesPanel
+            properties={currentProperties}
+            
+          />
         )}
       </div>
+
+      <QuickOpenModal
+        open={quickOpenOpen}
+        onClose={() => setQuickOpenOpen(false)}
+        treeItems={displayTreeItems}
+        onSelectFile={handleOpenInNewTab}
+        onNewNote={() => handleNewFileIn(null)}
+      />
     </div>
   )
 }
