@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { FileText, FolderOpen, Plus } from "lucide-react"
+import { FileText, Plus } from "lucide-react"
 import {
   Dialog,
   DialogContent,

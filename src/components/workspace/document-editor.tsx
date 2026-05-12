@@ -18,20 +18,42 @@ import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { TagEditor, type TagEditorHandle } from "./tag-editor"
 
-const TAG_RE_INLINE = /#(\p{L}[\p{L}\p{N}_-]*)/gu
+const INLINE_TOKEN_RE = /#(\p{L}[\p{L}\p{N}_-]*)|\[\[([^\]\r\n]+)\]\]/gu
 
-function processTagsInText(text: string): React.ReactNode {
+function getWikiLinkParts(raw: string) {
+  const [targetPart, aliasPart] = raw.split("|")
+  const target = (targetPart ?? "").split("#")[0].trim()
+  const label = (aliasPart ?? targetPart ?? "").trim()
+  return { target, label: label || target }
+}
+
+function processInlineText(text: string, onWikiLinkClick?: (target: string) => void): React.ReactNode {
   const parts: React.ReactNode[] = []
   let last = 0
-  TAG_RE_INLINE.lastIndex = 0
+  INLINE_TOKEN_RE.lastIndex = 0
   let m: RegExpExecArray | null
-  while ((m = TAG_RE_INLINE.exec(text)) !== null) {
+  while ((m = INLINE_TOKEN_RE.exec(text)) !== null) {
     if (m.index > last) parts.push(text.slice(last, m.index))
-    parts.push(
-      <span key={m.index} className="inline-flex items-center rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[12px] font-medium text-violet-400 leading-[1.1]">
-        {m[0]}
-      </span>
-    )
+    if (m[1]) {
+      parts.push(
+        <span key={m.index} className="inline-flex items-center rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[12px] font-medium text-violet-400 leading-[1.1]">
+          {m[0]}
+        </span>
+      )
+    } else {
+      const { target, label } = getWikiLinkParts(m[2])
+      parts.push(
+        <button
+          key={m.index}
+          type="button"
+          className="inline-flex items-center rounded bg-sky-500/10 px-1 text-sky-300 underline decoration-sky-500/50 underline-offset-2 transition-colors hover:bg-sky-500/20 hover:text-sky-200"
+          onClick={e => { e.preventDefault(); e.stopPropagation(); if (target) onWikiLinkClick?.(target) }}
+          title={`Открыть [[${target}]]`}
+        >
+          {label}
+        </button>
+      )
+    }
     last = m.index + m[0].length
   }
   if (!parts.length) return text
@@ -39,12 +61,12 @@ function processTagsInText(text: string): React.ReactNode {
   return <>{parts}</>
 }
 
-function processTagChildren(children: React.ReactNode): React.ReactNode {
-  if (typeof children === 'string') return processTagsInText(children)
+function processInlineChildren(children: React.ReactNode, onWikiLinkClick?: (target: string) => void): React.ReactNode {
+  if (typeof children === "string") return processInlineText(children, onWikiLinkClick)
   if (Array.isArray(children)) {
     return children.map((c, i) =>
-      typeof c === 'string'
-        ? <React.Fragment key={i}>{processTagsInText(c)}</React.Fragment>
+      typeof c === "string"
+        ? <React.Fragment key={i}>{processInlineText(c, onWikiLinkClick)}</React.Fragment>
         : c
     )
   }
@@ -78,6 +100,7 @@ interface DocumentEditorProps {
   onNewFile?: () => void
   onOpenVault?: () => void
   onTagClick?: (tag: string) => void
+  onWikiLinkClick?: (target: string) => void
 }
 
 function getRelativePath(vault: string | undefined, filePath: string): string {
@@ -112,6 +135,7 @@ export function DocumentEditor({
   onNewFile,
   onOpenVault,
   onTagClick,
+  onWikiLinkClick,
 }: DocumentEditorProps) {
   const [content, setContent] = React.useState(document?.content ?? "")
   const [previewMode, setPreviewMode] = React.useState(false)
@@ -280,8 +304,12 @@ export function DocumentEditor({
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  p: ({ children }) => <p>{processTagChildren(children)}</p>,
-                  li: ({ children }) => <li>{processTagChildren(children)}</li>,
+                  p: ({ children }) => <p>{processInlineChildren(children, onWikiLinkClick)}</p>,
+                  li: ({ children }) => <li>{processInlineChildren(children, onWikiLinkClick)}</li>,
+                  h1: ({ children }) => <h1>{processInlineChildren(children, onWikiLinkClick)}</h1>,
+                  h2: ({ children }) => <h2>{processInlineChildren(children, onWikiLinkClick)}</h2>,
+                  h3: ({ children }) => <h3>{processInlineChildren(children, onWikiLinkClick)}</h3>,
+                  blockquote: ({ children }) => <blockquote>{processInlineChildren(children, onWikiLinkClick)}</blockquote>,
                 }}
               >
                 {content || "*Пусто*"}
@@ -293,6 +321,7 @@ export function DocumentEditor({
               value={content}
               onChange={handleContentChange}
               onTagClick={onTagClick}
+              onWikiLinkClick={onWikiLinkClick}
               textareaRef={textareaRef}
               editorRef={editorRef}
               placeholder="Начни писать..."

@@ -16,6 +16,7 @@ import {
   FolderTree,
   HelpCircle,
   LocateFixed,
+  Network,
   RefreshCw,
   Search,
   Settings,
@@ -35,7 +36,7 @@ import { SidebarSearch } from "./sidebar-search"
 import { SidebarTags } from "./sidebar-tags"
 import { NewItemModal } from "./new-item-modal"
 
-type SidebarView = "files" | "search" | "tags" | "favorites" | "databases" | "archive"
+type SidebarView = "files" | "search" | "tags" | "favorites" | "databases" | "archive" | "graph"
 
 function flattenTreeItems(items: TreeItem[]): TreeItem[] {
   const result: TreeItem[] = []
@@ -47,6 +48,24 @@ function flattenTreeItems(items: TreeItem[]): TreeItem[] {
   }
   walk(items)
   return result
+}
+
+interface LinkGraphNode {
+  id: string
+  label: string
+  unresolved?: boolean
+}
+
+interface LinkGraphEdge {
+  source: string
+  target: string
+  label: string
+  unresolved?: boolean
+}
+
+interface LinkGraph {
+  nodes: LinkGraphNode[]
+  edges: LinkGraphEdge[]
 }
 
 function FavoritesView({
@@ -95,6 +114,95 @@ function FavoritesView({
   )
 }
 
+function LinkGraphView({
+  graph, selectedId, onSelect,
+}: {
+  graph?: LinkGraph
+  selectedId: string | null
+  onSelect: (id: string) => void
+}) {
+  const nodes = graph?.nodes ?? []
+  const edges = graph?.edges ?? []
+  const positions = React.useMemo(() => {
+    const map = new Map<string, { x: number; y: number }>()
+    const cx = 160
+    const cy = 150
+    const radius = Math.max(70, Math.min(118, nodes.length * 12))
+    nodes.forEach((node, i) => {
+      if (node.id === selectedId) { map.set(node.id, { x: cx, y: cy }); return }
+      const angle = (Math.PI * 2 * i) / Math.max(nodes.length, 1) - Math.PI / 2
+      map.set(node.id, { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius })
+    })
+    return map
+  }, [nodes, selectedId])
+
+  if (nodes.length === 0 || edges.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
+        <Network className="size-8 text-zinc-700" />
+        <p className="text-[12px] text-zinc-600">Нет связей</p>
+        <p className="text-[11px] text-zinc-700">Добавь ссылки вида [[Заметка]]</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b border-zinc-800 px-3 py-2">
+        <p className="text-[12px] font-medium text-zinc-300">Граф связей</p>
+        <p className="text-[11px] text-zinc-600">{nodes.length} узлов · {edges.length} ссылок</p>
+      </div>
+      <div className="flex-1 overflow-hidden p-2">
+        <svg viewBox="0 0 320 300" className="h-full min-h-64 w-full rounded-lg border border-zinc-800 bg-zinc-950/60">
+          {edges.map((edge, i) => {
+            const from = positions.get(edge.source)
+            const to = positions.get(edge.target)
+            if (!from || !to) return null
+            return (
+              <line
+                key={`${edge.source}-${edge.target}-${i}`}
+                x1={from.x}
+                y1={from.y}
+                x2={to.x}
+                y2={to.y}
+                className={edge.unresolved ? "stroke-zinc-700" : "stroke-sky-500/45"}
+                strokeWidth="1.2"
+              />
+            )
+          })}
+          {nodes.map(node => {
+            const pos = positions.get(node.id)
+            if (!pos) return null
+            const selected = node.id === selectedId
+            return (
+              <g
+                key={node.id}
+                className={node.unresolved ? "cursor-default" : "cursor-pointer"}
+                onClick={() => { if (!node.unresolved) onSelect(node.id) }}
+              >
+                <circle
+                  cx={pos.x}
+                  cy={pos.y}
+                  r={selected ? 10 : 7}
+                  className={selected ? "fill-sky-400" : node.unresolved ? "fill-zinc-700" : "fill-zinc-300"}
+                />
+                <text
+                  x={pos.x}
+                  y={pos.y + 20}
+                  textAnchor="middle"
+                  className={selected ? "fill-sky-300 text-[10px]" : "fill-zinc-500 text-[9px]"}
+                >
+                  {node.label.slice(0, 18)}
+                </text>
+              </g>
+            )
+          })}
+        </svg>
+      </div>
+    </div>
+  )
+}
+
 interface AppSidebarProps {
   treeItems: TreeItem[]
   selectedId: string | null
@@ -118,6 +226,7 @@ interface AppSidebarProps {
   readFile?: (path: string) => Promise<string>
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
+  linkGraph?: LinkGraph
 }
 
 const treeMenuItems: { id: SidebarView; icon: React.ElementType; label: string }[] = [
@@ -151,6 +260,7 @@ export function AppSidebar({
   readFile,
   favorites,
   onToggleFavorite,
+  linkGraph,
 }: AppSidebarProps) {
   const [internalView, setInternalView] = React.useState<SidebarView>("files")
   const activeView = controlledView ?? internalView
@@ -212,6 +322,16 @@ export function AppSidebar({
             className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
           >
             <RefreshCw className="size-4" />
+          </button>
+          <button
+            title={`Граф связей (${linkGraph?.edges.length ?? 0})`}
+            onClick={() => setActiveView("graph")}
+            className={cn(
+              "flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white",
+              activeView === "graph" && "bg-zinc-800 text-white"
+            )}
+          >
+            <Network className="size-4" />
           </button>
         </div>
 
@@ -339,6 +459,8 @@ export function AppSidebar({
             onSelect={onSelect}
             onToggleFavorite={onToggleFavorite}
           />
+        ) : activeView === "graph" ? (
+          <LinkGraphView graph={linkGraph} selectedId={selectedId} onSelect={onSelect} />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
             <p className="text-[12px] text-zinc-600">

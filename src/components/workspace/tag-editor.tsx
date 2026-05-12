@@ -2,8 +2,8 @@
 
 import * as React from "react"
 
-// Unicode-aware: matches #тег, #tag, #タグ etc.
-const TAG_RE = /#(\p{L}[\p{L}\p{N}_-]*)/gu
+// Unicode-aware: matches #тег/#tag/#タグ and [[Заметка]] wiki links.
+const INLINE_TOKEN_RE = /#(\p{L}[\p{L}\p{N}_-]*)|\[\[([^\]\r\n]+)\]\]/gu
 
 export interface TagEditorHandle {
   undo: () => void
@@ -14,12 +14,13 @@ interface TagEditorProps {
   value: string
   onChange: (v: string) => void
   onTagClick?: (tag: string) => void
+  onWikiLinkClick?: (target: string) => void
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
   editorRef?: React.RefObject<TagEditorHandle>
   placeholder?: string
 }
 
-export function TagEditor({ value, onChange, onTagClick, textareaRef, editorRef, placeholder }: TagEditorProps) {
+export function TagEditor({ value, onChange, onTagClick, onWikiLinkClick, textareaRef, editorRef, placeholder }: TagEditorProps) {
   // ── Index-based undo/redo ──────────────────────────────────────────
   // history.stack[history.index] always reflects the current content.
   // Typing within BATCH_MS updates the current slot (no new entry).
@@ -101,9 +102,9 @@ export function TagEditor({ value, onChange, onTagClick, textareaRef, editorRef,
   const backdropContent = React.useMemo(() => {
     const parts: React.ReactNode[] = []
     let last = 0
-    TAG_RE.lastIndex = 0
+    INLINE_TOKEN_RE.lastIndex = 0
     let m: RegExpExecArray | null
-    while ((m = TAG_RE.exec(value)) !== null) {
+    while ((m = INLINE_TOKEN_RE.exec(value)) !== null) {
       if (m.index > last) {
         parts.push(
           <span key={`t${last}`} style={{ color: 'transparent', whiteSpace: 'pre-wrap' }}>
@@ -111,24 +112,46 @@ export function TagEditor({ value, onChange, onTagClick, textareaRef, editorRef,
           </span>
         )
       }
-      const tagName = m[1]
-      const tagFull = m[0]
-      parts.push(
-        <mark
-          key={`m${m.index}`}
-          title={`Тег: #${tagName}`}
-          onClick={e => { e.stopPropagation(); onTagClick?.(tagName) }}
-          style={{
-            color: 'transparent',
-            background: 'rgba(139,92,246,0.22)',
-            borderRadius: '3px',
-            cursor: 'pointer',
-            pointerEvents: 'auto',
-          }}
-        >
-          {tagFull}
-        </mark>
-      )
+      if (m[1]) {
+        const tagName = m[1]
+        const tagFull = m[0]
+        parts.push(
+          <mark
+            key={`m${m.index}`}
+            title={`Тег: #${tagName}`}
+            onClick={e => { e.stopPropagation(); onTagClick?.(tagName) }}
+            style={{
+              color: 'transparent',
+              background: 'rgba(139,92,246,0.22)',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              pointerEvents: 'auto',
+            }}
+          >
+            {tagFull}
+          </mark>
+        )
+      } else {
+        const rawLink = m[2]
+        const target = (rawLink.split("|")[0] ?? "").split("#")[0].trim()
+        parts.push(
+          <mark
+            key={`m${m.index}`}
+            title={`Ссылка: [[${target}]]`}
+            onClick={e => { e.stopPropagation(); if (target) onWikiLinkClick?.(target) }}
+            style={{
+              color: 'transparent',
+              background: 'rgba(14,165,233,0.18)',
+              borderBottom: '1px solid rgba(56,189,248,0.45)',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              pointerEvents: 'auto',
+            }}
+          >
+            {m[0]}
+          </mark>
+        )
+      }
       last = m.index + m[0].length
     }
     if (last < value.length) {
@@ -140,7 +163,7 @@ export function TagEditor({ value, onChange, onTagClick, textareaRef, editorRef,
     }
     parts.push(<span key="nl" style={{ color: 'transparent' }}>{'\n'}</span>)
     return parts
-  }, [value, onTagClick])
+  }, [value, onTagClick, onWikiLinkClick])
 
   return (
     <div className="relative">

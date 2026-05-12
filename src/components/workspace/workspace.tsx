@@ -53,6 +53,65 @@ interface Tab {
   historyIndex: number
 }
 
+interface LinkGraphNode {
+  id: string
+  label: string
+  unresolved?: boolean
+}
+
+interface LinkGraphEdge {
+  source: string
+  target: string
+  label: string
+  unresolved?: boolean
+}
+
+interface LinkGraph {
+  nodes: LinkGraphNode[]
+  edges: LinkGraphEdge[]
+}
+
+const WIKI_LINK_RE = /\[\[([^\]\r\n]+)\]\]/gu
+
+function normalizeWikiLinkTarget(raw: string): string {
+  return raw
+    .split("|")[0]
+    .split("#")[0]
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\.md$/i, "")
+}
+
+function normalizeLookup(value: string): string {
+  return value.normalize("NFC").toLocaleLowerCase()
+}
+
+function extractWikiLinks(content: string): Array<{ raw: string; target: string; label: string }> {
+  const links: Array<{ raw: string; target: string; label: string }> = []
+  WIKI_LINK_RE.lastIndex = 0
+  let m: RegExpExecArray | null
+  while ((m = WIKI_LINK_RE.exec(content)) !== null) {
+    const raw = m[1]
+    const [targetPart, aliasPart] = raw.split("|")
+    const target = normalizeWikiLinkTarget(targetPart ?? "")
+    if (!target) continue
+    links.push({ raw, target, label: (aliasPart ?? targetPart ?? target).trim() || target })
+  }
+  return links
+}
+
+function flattenFileItems(items: TreeItem[]): TreeItem[] {
+  const files: TreeItem[] = []
+  function walk(list: TreeItem[]) {
+    for (const item of list) {
+      if (item.type === "file") files.push(item)
+      if (item.children) walk(item.children)
+    }
+  }
+  walk(items)
+  return files
+}
+
 function flattenTree(items: TreeItem[]): Set<string> {
   const ids = new Set<string>()
   function walk(list: TreeItem[]) {
@@ -74,6 +133,54 @@ function findTreeItem(items: TreeItem[], id: string): TreeItem | null {
     }
   }
   return null
+}
+
+function findWikiLinkItem(items: TreeItem[], target: string, vault: string | null): TreeItem | null {
+  const normalizedTarget = normalizeLookup(normalizeWikiLinkTarget(target))
+  if (!normalizedTarget) return null
+  const normalizedVault = vault?.replace(/\\/g, "/") ?? ""
+
+  function walk(list: TreeItem[]): TreeItem | null {
+    for (const item of list) {
+      if (item.type === "file") {
+        const id = item.id.replace(/\\/g, "/")
+        const relativePath = normalizedVault && id.startsWith(normalizedVault + "/")
+          ? id.slice(normalizedVault.length + 1)
+          : id.split("/").pop() ?? id
+        const pathWithoutExt = relativePath.replace(/\.md$/i, "")
+        if (normalizeLookup(item.name) === normalizedTarget || normalizeLookup(pathWithoutExt) === normalizedTarget) {
+          return item
+        }
+      }
+      if (item.children) {
+        const found = walk(item.children)
+        if (found) return found
+      }
+    }
+    return null
+  }
+
+  return walk(items)
+}
+
+function buildLinkGraph(items: TreeItem[], contents: Record<string, string>, vault: string | null): LinkGraph {
+  const files = flattenFileItems(items)
+  const nodes = new Map<string, LinkGraphNode>()
+  const edges: LinkGraphEdge[] = []
+
+  for (const file of files) nodes.set(file.id, { id: file.id, label: file.name })
+
+  for (const file of files) {
+    const content = contents[file.id] ?? ""
+    for (const link of extractWikiLinks(content)) {
+      const targetItem = findWikiLinkItem(items, link.target, vault)
+      const targetId = targetItem?.id ?? `missing:${normalizeLookup(link.target)}`
+      if (!nodes.has(targetId)) nodes.set(targetId, { id: targetId, label: link.target, unresolved: true })
+      edges.push({ source: file.id, target: targetId, label: link.label, unresolved: !targetItem })
+    }
+  }
+
+  return { nodes: [...nodes.values()], edges }
 }
 
 function formatModified(ts?: number): string {
@@ -114,6 +221,7 @@ export function Workspace() {
   const [leftWidth, setLeftWidth] = React.useState(208)
   const [rightWidth, setRightWidth] = React.useState(256)
   const [favorites, setFavorites] = React.useState<Set<string>>(new Set())
+  const [linkGraph, setLinkGraph] = React.useState<LinkGraph>({ nodes: [], edges: [] })
 
   function handleToggleFavorite(id: string) {
     setFavorites(prev => {
@@ -159,7 +267,7 @@ export function Workspace() {
   const [quickOpenOpen, setQuickOpenOpen] = React.useState(false)
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
-  const [sidebarActiveView, setSidebarActiveView] = React.useState<"files" | "search" | "tags" | "favorites" | "databases" | "archive">("files")
+  const [sidebarActiveView, setSidebarActiveView] = React.useState<"files" | "search" | "tags" | "favorites" | "databases" | "archive" | "graph">("files")
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
@@ -174,6 +282,20 @@ export function Workspace() {
   const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   React.useEffect(() => { openDocsRef.current = openDocs }, [openDocs])
+
+  React.useEffect(() => {
+    if (!vault) { setLinkGraph({ nodes: [], edges: [] }); return }
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      const files = flattenFileItems(treeItems)
+      const contents: Record<string, string> = {}
+      await Promise.allSettled(files.map(async file => {
+        contents[file.id] = openDocsRef.current[file.id]?.content ?? await readFile(file.id)
+      }))
+      if (!cancelled) setLinkGraph(buildLinkGraph(treeItems, contents, vault))
+    }, 150)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [treeItems, openDocs, vault])
 
   React.useEffect(() => {
     if (!vault || tabs.length === 0) return
@@ -380,6 +502,32 @@ export function Workspace() {
       const key = newTabKey()
       setTabs([{ key, fileId, title: item.name, history: [fileId], historyIndex: 0 }])
       setActiveTabKey(key)
+    }
+  }
+
+  const handleWikiLinkClick = async (rawTarget: string) => {
+    if (!vault) return
+    const target = normalizeWikiLinkTarget(rawTarget)
+    if (!target) return
+
+    const existing = findWikiLinkItem(treeItems, target, vault)
+    if (existing) {
+      await handleSelect(existing.id)
+      return
+    }
+
+    try {
+      const path = await createFile(vault, target)
+      const name = target.split("/").pop() ?? target
+      const newItem: TreeItem = { id: path, name, type: "file", icon: "file" }
+      setTreeItems(prev => [...prev, newItem])
+      const doc: Document = { id: path, title: name, content: "", modified: "Только что", wordCount: 0, path }
+      setOpenDocs(prev => ({ ...prev, [path]: doc }))
+      const key = newTabKey()
+      setTabs(prev => [...prev, { key, fileId: path, title: name, history: [path], historyIndex: 0 }])
+      setActiveTabKey(key)
+    } catch (err) {
+      console.error("Failed to open wiki link:", err)
     }
   }
 
@@ -603,7 +751,7 @@ export function Workspace() {
   const currentDoc = activeTab ? openDocs[activeTab.fileId] ?? null : null
 
   const currentProperties = currentDoc ? {
-    type: "Markdown", status: "Draft", revisions: 0, backlinks: 0,
+    type: "Markdown", status: "Draft", revisions: 0, backlinks: linkGraph.edges.filter(e => e.target === currentDoc.id).length,
     created: "—", modified: currentDoc.modified, id: currentDoc.id,
   } : null
 
@@ -630,6 +778,7 @@ export function Workspace() {
     readFile,
     favorites,
     onToggleFavorite: handleToggleFavorite,
+    linkGraph,
   }
 
   const editorProps = {
@@ -648,6 +797,7 @@ export function Workspace() {
       setIsLeftSidebarOpen(true)
       setSidebarActiveView("tags")
     },
+    onWikiLinkClick: handleWikiLinkClick,
   }
 
   if (!vault && isTauri()) {
@@ -695,7 +845,7 @@ export function Workspace() {
           className={`fixed right-0 top-0 bottom-0 z-10 transition-transform duration-200 ease-out shadow-2xl ${focusShowRight ? "translate-x-0" : "translate-x-full"}`}
           onMouseLeave={() => setFocusShowRight(false)}
         >
-          <PropertiesPanel properties={currentProperties}  />
+          <PropertiesPanel properties={currentProperties} linkGraph={linkGraph} currentDocId={currentDoc?.id ?? null} onSelectLink={handleSelect} />
         </div>
 
         <QuickOpenModal
@@ -762,7 +912,7 @@ export function Workspace() {
           <>
             <ResizeHandle onMouseDown={startResize("right")} />
             <div style={{ width: rightWidth }} className="shrink-0">
-              <PropertiesPanel properties={currentProperties} />
+              <PropertiesPanel properties={currentProperties} linkGraph={linkGraph} currentDocId={currentDoc?.id ?? null} onSelectLink={handleSelect} />
             </div>
           </>
         )}

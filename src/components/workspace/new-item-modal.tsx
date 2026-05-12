@@ -1,7 +1,6 @@
 "use client"
 
-import * as React from "react"
-import { Database, FileText, X } from "lucide-react"
+import { Database, FileText } from "lucide-react"
 import {
   Dialog,
   DialogContent,
