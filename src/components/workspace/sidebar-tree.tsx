@@ -2,8 +2,8 @@
 
 import * as React from "react"
 import {
-  ChevronRight, Database, FileText, Folder, FolderOpen, FolderPlus,
-  LayoutGrid, PenLine, Smile, SquareArrowOutUpRight,
+  Bookmark, BookmarkCheck, ChevronRight, Database, FileText, Folder, FolderOpen, FolderPlus,
+  LayoutGrid, PenLine, Smile, SquareArrowOutUpRight, Star,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -57,6 +57,8 @@ interface SidebarTreeProps {
   triggerRenameId?: string | null
   folderResetKey?: number
   folderTargetOpen?: boolean
+  favorites?: Set<string>
+  onToggleFavorite?: (id: string) => void
 }
 
 interface TreeNodeProps {
@@ -77,6 +79,8 @@ interface TreeNodeProps {
   ptrDragTargetId: string | null
   folderResetKey?: number
   folderTargetOpen?: boolean
+  favorites?: Set<string>
+  onToggleFavorite?: (id: string) => void
 }
 
 function BrainIcon({ className }: { className?: string }) {
@@ -117,7 +121,7 @@ function TreeNode({
   item, level, selectedId, onSelect, onRename, onDelete,
   onNewFile, onNewFolder, onOpenInNewTab, onOpenInExplorer, onSetIcon,
   triggerRenameId, onPtrDragStart, ptrDragSourceId, ptrDragTargetId,
-  folderResetKey, folderTargetOpen,
+  folderResetKey, folderTargetOpen, favorites, onToggleFavorite,
 }: TreeNodeProps) {
   const [isOpen, setIsOpen] = React.useState(true)
   const prevResetKey = React.useRef<number | undefined>(undefined)
@@ -259,6 +263,17 @@ function TreeNode({
 
       <ContextMenuSeparator className="bg-zinc-800" />
 
+      {item.type === "file" && onToggleFavorite && (
+        <ContextMenuItem
+          className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+          onSelect={() => onToggleFavorite(item.id)}
+        >
+          {favorites?.has(item.id)
+            ? <><BookmarkCheck className="size-3.5 text-amber-400" />Убрать из избранного</>
+            : <><Bookmark className="size-3.5 text-zinc-500" />Добавить в избранное</>}
+        </ContextMenuItem>
+      )}
+
       <ContextMenuItem
         className="text-[13px] focus:bg-zinc-800 focus:text-white"
         onSelect={() => setTimeout(() => setIsEditing(true), 80)}
@@ -327,6 +342,8 @@ function TreeNode({
                 ptrDragTargetId={ptrDragTargetId}
                 folderResetKey={folderResetKey}
                 folderTargetOpen={folderTargetOpen}
+                favorites={favorites}
+                onToggleFavorite={onToggleFavorite}
               />
             ))}
           </CollapsibleContent>
@@ -347,6 +364,9 @@ function TreeNode({
         >
           {getIcon(item.icon || "file", "text-muted-foreground")}
           {nameNode}
+          {favorites?.has(item.id) && (
+            <Star className="ml-auto size-3 shrink-0 text-amber-400 fill-amber-400" />
+          )}
         </button>
       </ContextMenuTrigger>
       {ctxItems}
@@ -357,7 +377,7 @@ function TreeNode({
 export function SidebarTree({
   items, selectedId, onSelect, onRename, onDelete,
   onNewFile, onNewFolder, onOpenInNewTab, onOpenInExplorer, onMoveItem, onSetIcon, triggerRenameId,
-  folderResetKey, folderTargetOpen,
+  folderResetKey, folderTargetOpen, favorites, onToggleFavorite,
 }: SidebarTreeProps) {
   const [ptrDrag, setPtrDrag] = React.useState<PtrDrag | null>(null)
   const ptrDragRef = React.useRef<PtrDrag | null>(null)
@@ -446,6 +466,8 @@ export function SidebarTree({
             ptrDragTargetId={ptrDrag?.targetFolderId ?? null}
             folderResetKey={folderResetKey}
             folderTargetOpen={folderTargetOpen}
+            favorites={favorites}
+            onToggleFavorite={onToggleFavorite}
           />
         ))}
         <div style={{ minHeight: '40px' }} />

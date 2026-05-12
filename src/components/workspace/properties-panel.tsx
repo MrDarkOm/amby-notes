@@ -66,7 +66,7 @@ export function PropertiesPanel({ properties }: PropertiesPanelProps) {
 
   if (!properties) {
     return (
-      <div className="flex h-full w-64 flex-col border-l border-zinc-800 bg-[#0A0A0A]">
+      <div className="flex h-full w-full flex-col border-l border-zinc-800 bg-[#0A0A0A]">
         <div className="flex h-9 items-center justify-center border-b border-zinc-800 text-xs text-zinc-500">
           No document selected
         </div>
@@ -75,7 +75,7 @@ export function PropertiesPanel({ properties }: PropertiesPanelProps) {
   }
 
   return (
-    <div className="flex h-full w-64 flex-col border-l border-zinc-800 bg-[#0A0A0A]">
+    <div className="flex h-full w-full flex-col border-l border-zinc-800 bg-[#0A0A0A]">
       {/* Tabs */}
       <div className="flex h-9 items-center gap-0.5 border-b border-zinc-800 px-2">
         {tabs.map((tab) => (

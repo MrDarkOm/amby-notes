@@ -6,6 +6,7 @@ import {
   ArrowDownUp,
   Bell,
   Bookmark,
+  BookmarkCheck,
   ChevronsDownUp,
   ChevronsUpDown,
   Database,
@@ -36,6 +37,64 @@ import { NewItemModal } from "./new-item-modal"
 
 type SidebarView = "files" | "search" | "tags" | "favorites" | "databases" | "archive"
 
+function flattenTreeItems(items: TreeItem[]): TreeItem[] {
+  const result: TreeItem[] = []
+  function walk(list: TreeItem[]) {
+    for (const item of list) {
+      result.push(item)
+      if (item.children) walk(item.children)
+    }
+  }
+  walk(items)
+  return result
+}
+
+function FavoritesView({
+  treeItems, favorites, onSelect, onToggleFavorite,
+}: {
+  treeItems: TreeItem[]
+  favorites: Set<string>
+  onSelect: (id: string) => void
+  onToggleFavorite?: (id: string) => void
+}) {
+  const all = flattenTreeItems(treeItems)
+  const favItems = all.filter(i => i.type === "file" && favorites.has(i.id))
+
+  if (favItems.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-4">
+        <Bookmark className="size-8 text-zinc-700" />
+        <p className="text-[12px] text-zinc-600">Нет избранных заметок</p>
+        <p className="text-[11px] text-zinc-700">Нажмите правой кнопкой на заметку и выберите «Добавить в избранное»</p>
+      </div>
+    )
+  }
+
+  return (
+    <ScrollArea className="flex-1">
+      <div className="flex flex-col gap-px p-1">
+        {favItems.map(item => (
+          <div
+            key={item.id}
+            className="group flex items-center gap-2 rounded px-2 py-1.5 hover:bg-zinc-800 cursor-pointer"
+            onClick={() => onSelect(item.id)}
+          >
+            <FileText className="size-3.5 shrink-0 text-zinc-500" />
+            <span className="flex-1 truncate text-[13px] text-zinc-300">{item.name}</span>
+            <button
+              onClick={e => { e.stopPropagation(); onToggleFavorite?.(item.id) }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Убрать из избранного"
+            >
+              <BookmarkCheck className="size-3.5 text-amber-400" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </ScrollArea>
+  )
+}
+
 interface AppSidebarProps {
   treeItems: TreeItem[]
   selectedId: string | null
@@ -55,7 +114,10 @@ interface AppSidebarProps {
   onSetIcon?: (id: string, icon: string) => void
   triggerRenameId?: string | null
   isTreeOpen?: boolean
+  treeWidth?: number
   readFile?: (path: string) => Promise<string>
+  favorites?: Set<string>
+  onToggleFavorite?: (id: string) => void
 }
 
 const treeMenuItems: { id: SidebarView; icon: React.ElementType; label: string }[] = [
@@ -85,7 +147,10 @@ export function AppSidebar({
   onSetIcon,
   triggerRenameId,
   isTreeOpen = true,
+  treeWidth = 208,
   readFile,
+  favorites,
+  onToggleFavorite,
 }: AppSidebarProps) {
   const [internalView, setInternalView] = React.useState<SidebarView>("files")
   const activeView = controlledView ?? internalView
@@ -169,7 +234,7 @@ export function AppSidebar({
       </div>
 
       {/* Tree Sidebar */}
-      <div className={`flex h-full w-52 min-h-0 flex-col border-r border-zinc-800 bg-[#0A0A0A] ${isTreeOpen ? "" : "hidden"}`}>
+      <div className={`flex h-full min-h-0 flex-col border-r border-zinc-800 bg-[#0A0A0A] ${isTreeOpen ? "" : "hidden"}`} style={{ width: treeWidth }}>
         {/* Toolbar — only shown in files view */}
         {activeView === "files" && (
           <div className="flex h-9 shrink-0 items-center border-b border-zinc-800 px-1 gap-px">
@@ -223,6 +288,8 @@ export function AppSidebar({
                         triggerRenameId={triggerRenameId}
                         folderResetKey={folderResetKey}
                         folderTargetOpen={folderTargetOpen}
+                        favorites={favorites}
+                        onToggleFavorite={onToggleFavorite}
                       />
                     )}
                   </div>
@@ -265,6 +332,13 @@ export function AppSidebar({
           <SidebarSearch items={treeItems} onSelect={onSelect} readFile={readFile} />
         ) : activeView === "tags" ? (
           <SidebarTags items={treeItems} onSelect={onSelect} readFile={readFile} />
+        ) : activeView === "favorites" ? (
+          <FavoritesView
+            treeItems={treeItems}
+            favorites={favorites ?? new Set()}
+            onSelect={onSelect}
+            onToggleFavorite={onToggleFavorite}
+          />
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
             <p className="text-[12px] text-zinc-600">
