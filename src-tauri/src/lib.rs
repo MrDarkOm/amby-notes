@@ -1,3 +1,6 @@
+mod frontmatter;
+mod vault_index;
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,6 +9,7 @@ use std::time::UNIX_EPOCH;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct TreeItem {
     pub id: String,
+    pub path: String,
     pub name: String,
     #[serde(rename = "type")]
     pub item_type: String,
@@ -24,9 +28,11 @@ pub struct PathChange {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FsMutationResult {
+    pub primary_id: Option<String>,
     pub primary_path: Option<String>,
     pub path_changes: Vec<PathChange>,
     pub deleted_paths: Vec<String>,
+    pub deleted_ids: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -40,6 +46,14 @@ pub struct LayerResult {
 
 #[derive(Serialize)]
 pub struct FileMetadata {
+    pub created: Option<u64>,
+    pub modified: Option<u64>,
+    pub word_count: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteMetadata {
     pub created: Option<u64>,
     pub modified: Option<u64>,
     pub word_count: usize,
@@ -67,6 +81,7 @@ fn is_markdown(path: &Path) -> bool {
     path.extension().map_or(false, |ext| ext == "md")
 }
 
+#[cfg(test)]
 fn is_bundle_dir(dir: &Path) -> bool {
     if !dir.is_dir() {
         return false;
@@ -90,11 +105,13 @@ fn is_bundle_main_note(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn bundle_main_note(dir: &Path) -> Result<PathBuf, String> {
     let name = file_name(dir)?;
     Ok(dir.join(format!("{name}.md")))
 }
 
+#[cfg(test)]
 fn sort_entries(entries: &mut Vec<fs::DirEntry>) {
     entries.sort_by_key(|e| {
         let path = e.path();
@@ -104,6 +121,7 @@ fn sort_entries(entries: &mut Vec<fs::DirEntry>) {
     });
 }
 
+#[cfg(test)]
 fn read_visible_entries(dir: &Path) -> Result<Vec<fs::DirEntry>, String> {
     let mut entries: Vec<_> = fs::read_dir(dir)
         .map_err(|e| e.to_string())?
@@ -114,6 +132,7 @@ fn read_visible_entries(dir: &Path) -> Result<Vec<fs::DirEntry>, String> {
     Ok(entries)
 }
 
+#[cfg(test)]
 fn tree_item_for_note(path: &Path, children: Option<Vec<TreeItem>>) -> TreeItem {
     let name = path
         .file_stem()
@@ -122,6 +141,7 @@ fn tree_item_for_note(path: &Path, children: Option<Vec<TreeItem>>) -> TreeItem 
         .to_string();
     TreeItem {
         id: path_string(path),
+        path: path_string(path),
         name,
         item_type: "file".to_string(),
         icon: "file".to_string(),
@@ -129,6 +149,7 @@ fn tree_item_for_note(path: &Path, children: Option<Vec<TreeItem>>) -> TreeItem 
     }
 }
 
+#[cfg(test)]
 fn scan_bundle_children(bundle_dir: &Path) -> Result<Vec<TreeItem>, String> {
     let main_note = bundle_main_note(bundle_dir)?;
     let mut items = Vec::new();
@@ -158,6 +179,7 @@ fn scan_bundle_children(bundle_dir: &Path) -> Result<Vec<TreeItem>, String> {
                 if !children.is_empty() {
                     items.push(TreeItem {
                         id: path_string(&path),
+                        path: path_string(&path),
                         name: raw_name,
                         item_type: "folder".to_string(),
                         icon: "folder".to_string(),
@@ -173,6 +195,7 @@ fn scan_bundle_children(bundle_dir: &Path) -> Result<Vec<TreeItem>, String> {
     Ok(items)
 }
 
+#[cfg(test)]
 fn scan_dir(dir: &Path) -> Result<Vec<TreeItem>, String> {
     let mut items = Vec::new();
 
@@ -195,6 +218,7 @@ fn scan_dir(dir: &Path) -> Result<Vec<TreeItem>, String> {
             } else {
                 items.push(TreeItem {
                     id: path_string(&path),
+                    path: path_string(&path),
                     name: raw_name,
                     item_type: "folder".to_string(),
                     icon: "folder".to_string(),
@@ -328,9 +352,11 @@ fn create_note_impl(parent_path: &Path, name: &str) -> Result<FsMutationResult, 
     });
 
     Ok(FsMutationResult {
+        primary_id: None,
         primary_path: Some(path_string(&new_note)),
         path_changes,
         deleted_paths: Vec::new(),
+        deleted_ids: Vec::new(),
     })
 }
 
@@ -418,9 +444,11 @@ fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutationResult, Str
         }
 
         Ok(FsMutationResult {
+            primary_id: None,
             primary_path: Some(path_string(&new_main)),
             path_changes,
             deleted_paths: Vec::new(),
+            deleted_ids: Vec::new(),
         })
     } else if path.is_file() {
         let parent = path
@@ -436,12 +464,14 @@ fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutationResult, Str
         }
         fs::rename(path, &new_path).map_err(|e| e.to_string())?;
         Ok(FsMutationResult {
+            primary_id: None,
             primary_path: Some(path_string(&new_path)),
             path_changes: vec![PathChange {
                 old_path: path_string(path),
                 new_path: path_string(&new_path),
             }],
             deleted_paths: Vec::new(),
+            deleted_ids: Vec::new(),
         })
     } else if path.is_dir() {
         let parent = path
@@ -455,9 +485,11 @@ fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutationResult, Str
         let path_changes = path_changes_for_prefix(&old_markdown_paths, path, &new_path);
         fs::rename(path, &new_path).map_err(|e| e.to_string())?;
         Ok(FsMutationResult {
+            primary_id: None,
             primary_path: Some(path_string(&new_path)),
             path_changes,
             deleted_paths: Vec::new(),
+            deleted_ids: Vec::new(),
         })
     } else {
         Err(format!("Path not found: {}", path_string(path)))
@@ -520,9 +552,11 @@ fn move_item_to_dir(source_path: &Path, target_dir: &Path) -> Result<FsMutationR
     };
 
     Ok(FsMutationResult {
+        primary_id: None,
         primary_path,
         path_changes,
         deleted_paths: Vec::new(),
+        deleted_ids: Vec::new(),
     })
 }
 
@@ -539,19 +573,45 @@ fn delete_item_impl(path: &Path) -> Result<FsMutationResult, String> {
     trash::delete(&delete_root).map_err(|e| e.to_string())?;
 
     Ok(FsMutationResult {
+        primary_id: None,
         primary_path: None,
         path_changes: Vec::new(),
         deleted_paths,
+        deleted_ids: Vec::new(),
     })
 }
 
+fn deleted_ids_for_paths(vault_path: &Path, paths: &[String]) -> Result<Vec<String>, String> {
+    let conn = vault_index::open_connection(vault_path)?;
+    let notes = vault_index::list_notes(&conn, vault_path)?;
+    let by_path: std::collections::HashMap<_, _> =
+        notes.into_iter().map(|note| (note.path, note.id)).collect();
+    Ok(paths
+        .iter()
+        .filter_map(|path| by_path.get(path).cloned())
+        .collect())
+}
+
+fn sync_mutation_result(vault_path: &Path, mut result: FsMutationResult) -> Result<FsMutationResult, String> {
+    let loaded = vault_index::load_vault(vault_path)?;
+    result.primary_id = result.primary_path.as_ref().and_then(|primary_path| {
+        loaded
+            .notes
+            .iter()
+            .find(|note| &note.path == primary_path)
+            .map(|note| note.id.clone())
+    });
+    Ok(result)
+}
+
 #[tauri::command]
-fn list_files(vault_path: String) -> Result<Vec<TreeItem>, String> {
-    let path = Path::new(&vault_path);
-    if !path.is_dir() {
-        return Err(format!("Not a directory: {vault_path}"));
-    }
-    scan_dir(path)
+fn load_vault(vault_path: String) -> Result<vault_index::LoadVaultResult, String> {
+    vault_index::load_vault(Path::new(&vault_path))
+}
+
+#[tauri::command]
+fn list_files(vault_path: String) -> Result<Vec<vault_index::TreeItem>, String> {
+    vault_index::load_vault(Path::new(&vault_path)).map(|loaded| loaded.tree)
 }
 
 #[tauri::command]
@@ -568,18 +628,56 @@ fn write_file(path: String, content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn ensure_bundle(path: String) -> Result<FsMutationResult, String> {
-    let (primary, path_changes) = ensure_bundle_path(Path::new(&path))?;
-    Ok(FsMutationResult {
-        primary_path: Some(path_string(&primary)),
-        path_changes,
-        deleted_paths: Vec::new(),
+fn read_note(vault_path: String, note_id: String) -> Result<String, String> {
+    vault_index::read_note(Path::new(&vault_path), &note_id)
+}
+
+#[tauri::command]
+fn write_note(vault_path: String, note_id: String, content: String) -> Result<(), String> {
+    vault_index::write_note(Path::new(&vault_path), &note_id, &content)
+}
+
+#[tauri::command]
+fn get_note_metadata(vault_path: String, note_id: String) -> Result<NoteMetadata, String> {
+    let note = vault_index::note_metadata(Path::new(&vault_path), &note_id)?;
+    Ok(NoteMetadata {
+        created: None,
+        modified: note.modified,
+        word_count: note.word_count,
     })
 }
 
 #[tauri::command]
-fn create_note(parent_path: String, name: String) -> Result<FsMutationResult, String> {
-    create_note_impl(Path::new(&parent_path), &name)
+fn list_tags(vault_path: String) -> Result<Vec<vault_index::TagEntry>, String> {
+    vault_index::list_tags(Path::new(&vault_path))
+}
+
+#[tauri::command]
+fn search_notes(vault_path: String, query: String) -> Result<Vec<vault_index::SearchResult>, String> {
+    vault_index::search_notes(Path::new(&vault_path), &query)
+}
+
+#[tauri::command]
+fn get_link_graph(vault_path: String) -> Result<vault_index::LinkGraph, String> {
+    vault_index::link_graph(Path::new(&vault_path))
+}
+
+#[tauri::command]
+fn ensure_bundle(vault_path: String, path: String) -> Result<FsMutationResult, String> {
+    let (primary, path_changes) = ensure_bundle_path(Path::new(&path))?;
+    sync_mutation_result(Path::new(&vault_path), FsMutationResult {
+        primary_id: None,
+        primary_path: Some(path_string(&primary)),
+        path_changes,
+        deleted_paths: Vec::new(),
+        deleted_ids: Vec::new(),
+    })
+}
+
+#[tauri::command]
+fn create_note(vault_path: String, parent_path: String, name: String) -> Result<FsMutationResult, String> {
+    let result = create_note_impl(Path::new(&parent_path), &name)?;
+    sync_mutation_result(Path::new(&vault_path), result)
 }
 
 #[tauri::command]
@@ -588,8 +686,9 @@ fn create_layer(note_path: String, kind: String) -> Result<LayerResult, String> 
 }
 
 #[tauri::command]
-fn move_item(source_path: String, target_path: String) -> Result<FsMutationResult, String> {
-    move_item_impl(Path::new(&source_path), Path::new(&target_path))
+fn move_item(vault_path: String, source_path: String, target_path: String) -> Result<FsMutationResult, String> {
+    let result = move_item_impl(Path::new(&source_path), Path::new(&target_path))?;
+    sync_mutation_result(Path::new(&vault_path), result)
 }
 
 #[tauri::command]
@@ -612,13 +711,17 @@ fn create_folder(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn rename_item(path: String, new_name: String) -> Result<FsMutationResult, String> {
-    rename_item_impl(Path::new(&path), &new_name)
+fn rename_item(vault_path: String, path: String, new_name: String) -> Result<FsMutationResult, String> {
+    let result = rename_item_impl(Path::new(&path), &new_name)?;
+    sync_mutation_result(Path::new(&vault_path), result)
 }
 
 #[tauri::command]
-fn delete_item(path: String) -> Result<FsMutationResult, String> {
-    delete_item_impl(Path::new(&path))
+fn delete_item(vault_path: String, path: String) -> Result<FsMutationResult, String> {
+    let mut result = delete_item_impl(Path::new(&path))?;
+    result.deleted_ids = deleted_ids_for_paths(Path::new(&vault_path), &result.deleted_paths)?;
+    vault_index::load_vault(Path::new(&vault_path))?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -693,9 +796,16 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
+            load_vault,
             list_files,
             read_file,
             write_file,
+            read_note,
+            write_note,
+            get_note_metadata,
+            list_tags,
+            search_notes,
+            get_link_graph,
             ensure_bundle,
             create_note,
             create_layer,

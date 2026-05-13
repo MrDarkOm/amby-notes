@@ -6,15 +6,39 @@ export interface FileMetadata {
   word_count: number
 }
 
+export interface IndexedNote {
+  id: string
+  path: string
+  title: string
+  modified?: number
+  wordCount: number
+}
+
+export interface SyncReport {
+  inserted: number
+  updated: number
+  deleted: number
+  warnings: string[]
+  pathToId: Record<string, string>
+}
+
+export interface LoadVaultResult {
+  tree: TreeItem[]
+  notes: IndexedNote[]
+  sync: SyncReport
+}
+
 export interface PathChange {
   oldPath: string
   newPath: string
 }
 
 export interface FsMutationResult {
+  primaryId?: string | null
   primaryPath?: string | null
   pathChanges: PathChange[]
   deletedPaths: string[]
+  deletedIds?: string[]
 }
 
 export type LayerKind = "canvas" | "database" | "sketch"
@@ -24,6 +48,24 @@ export interface LayerResult {
   layerPath: string
   kind: LayerKind
   pathChanges: PathChange[]
+}
+
+export interface LinkGraphNode {
+  id: string
+  label: string
+  unresolved?: boolean
+}
+
+export interface LinkGraphEdge {
+  source: string
+  target: string
+  label: string
+  unresolved?: boolean
+}
+
+export interface LinkGraph {
+  nodes: LinkGraphNode[]
+  edges: LinkGraphEdge[]
 }
 
 export const isTauri = (): boolean =>
@@ -78,12 +120,14 @@ function webDefaultTree(): TreeItem[] {
   return [
     {
       id: "web-vault/Welcome.md",
+      path: "web-vault/Welcome.md",
       name: "Welcome",
       type: "file" as const,
       icon: "brain" as const,
     },
     {
       id: "web-vault/Notes.md",
+      path: "web-vault/Notes.md",
       name: "Notes",
       type: "file" as const,
       icon: "file" as const,
@@ -111,6 +155,7 @@ function webMapTreeIds(items: TreeItem[], mapper: (id: string) => string): TreeI
   return items.map(item => ({
     ...item,
     id: mapper(item.id),
+    path: mapper(item.path ?? item.id),
     children: item.children ? webMapTreeIds(item.children, mapper) : undefined,
   }))
 }
@@ -206,12 +251,13 @@ function webCreateNote(parentPath: string, name: string): FsMutationResult {
   const primaryPath = joinPath(targetDir, `${name}.md`)
   if (webFindItem(tree, primaryPath)) throw new Error(`Note already exists: ${primaryPath}`)
 
-  const child: TreeItem = { id: primaryPath, name, type: "file", icon: "file" }
+  const child: TreeItem = { id: primaryPath, path: primaryPath, name, type: "file", icon: "file" }
   const nextTree = webAddChild(tree, targetParentId, child)
   localStorage.setItem(FILE_PREFIX + primaryPath, "")
   webSaveTree(nextTree)
 
   return {
+    primaryId: primaryPath,
     primaryPath,
     pathChanges: [...pathChanges, { oldPath: "", newPath: primaryPath }],
     deletedPaths: [],
@@ -225,9 +271,30 @@ export async function openVault(): Promise<string | null> {
   return WEB_VAULT
 }
 
+export async function loadVaultData(vaultPath: string): Promise<LoadVaultResult> {
+  if (isTauri()) return invoke<LoadVaultResult>("load_vault", { vaultPath })
+  const tree = webGetTree()
+  const notes = flattenWebNotes(tree).map(item => ({
+    id: item.id,
+    path: item.path ?? item.id,
+    title: item.name,
+    wordCount: (localStorage.getItem(FILE_PREFIX + item.id) ?? "").split(/\s+/).filter(Boolean).length,
+  }))
+  return { tree, notes, sync: { inserted: 0, updated: 0, deleted: 0, warnings: [], pathToId: {} } }
+}
+
 export async function listFiles(vaultPath: string): Promise<TreeItem[]> {
   if (isTauri()) return invoke<TreeItem[]>("list_files", { vaultPath })
   return webGetTree()
+}
+
+function flattenWebNotes(items: TreeItem[]): TreeItem[] {
+  const notes: TreeItem[] = []
+  for (const item of items) {
+    if (item.type === "file") notes.push(item)
+    if (item.children) notes.push(...flattenWebNotes(item.children))
+  }
+  return notes
 }
 
 export async function readFile(path: string): Promise<string> {
@@ -235,18 +302,28 @@ export async function readFile(path: string): Promise<string> {
   return localStorage.getItem(FILE_PREFIX + path) ?? webDefaultContent(path)
 }
 
+export async function readNote(vaultPath: string, noteId: string): Promise<string> {
+  if (isTauri()) return invoke<string>("read_note", { vaultPath, noteId })
+  return readFile(noteId)
+}
+
 export async function writeFile(path: string, content: string): Promise<void> {
   if (isTauri()) return invoke<void>("write_file", { path, content })
   localStorage.setItem(FILE_PREFIX + path, content)
 }
 
-export async function createNote(parentPath: string, name: string): Promise<FsMutationResult> {
-  if (isTauri()) return invoke<FsMutationResult>("create_note", { parentPath, name })
+export async function writeNote(vaultPath: string, noteId: string, content: string): Promise<void> {
+  if (isTauri()) return invoke<void>("write_note", { vaultPath, noteId, content })
+  return writeFile(noteId, content)
+}
+
+export async function createNote(vaultPath: string, parentPath: string, name: string): Promise<FsMutationResult> {
+  if (isTauri()) return invoke<FsMutationResult>("create_note", { vaultPath, parentPath, name })
   return webCreateNote(parentPath, name)
 }
 
 export async function createFile(vaultPath: string, name: string): Promise<string> {
-  const result = await createNote(vaultPath, name)
+  const result = await createNote(vaultPath, vaultPath, name)
   return result.primaryPath ?? joinPath(vaultPath, `${name}.md`)
 }
 
@@ -257,7 +334,7 @@ export async function createFolder(vaultPath: string, name: string): Promise<str
   } else {
     const tree = webGetTree()
     const parent = webFindItem(tree, vaultPath)
-    const folder: TreeItem = { id: path, name, type: "folder", icon: "folder", children: [] }
+    const folder: TreeItem = { id: path, path, name, type: "folder", icon: "folder", children: [] }
     webSaveTree(webAddChild(tree, parent?.type === "folder" ? vaultPath : null, folder))
   }
   return path
@@ -276,8 +353,8 @@ export async function createLayer(notePath: string, kind: LayerKind): Promise<La
   return { notePath: ensured.notePath, layerPath, kind, pathChanges: ensured.changes }
 }
 
-export async function renameItem(path: string, newName: string): Promise<FsMutationResult> {
-  if (isTauri()) return invoke<FsMutationResult>("rename_item", { path, newName })
+export async function renameItem(vaultPath: string, path: string, newName: string): Promise<FsMutationResult> {
+  if (isTauri()) return invoke<FsMutationResult>("rename_item", { vaultPath, path, newName })
 
   const tree = webGetTree()
   const item = webFindItem(tree, path)
@@ -309,21 +386,25 @@ export async function renameItem(path: string, newName: string): Promise<FsMutat
   })
   webSaveTree(nextTree)
 
-  return { primaryPath, pathChanges, deletedPaths: [] }
+  return { primaryId: primaryPath, primaryPath, pathChanges, deletedPaths: [], deletedIds: [] }
 }
 
-export async function moveItem(sourcePath: string, targetPath: string): Promise<FsMutationResult> {
-  if (isTauri()) return invoke<FsMutationResult>("move_item", { sourcePath, targetPath })
+export async function moveItem(vaultPath: string, sourcePath: string, targetPath: string): Promise<FsMutationResult> {
+  if (isTauri()) return invoke<FsMutationResult>("move_item", { vaultPath, sourcePath, targetPath })
 
   let tree = webGetTree()
   const source = webFindItem(tree, sourcePath)
-  const target = webFindItem(tree, targetPath)
-  if (!source || !target) throw new Error("Move source or target not found")
+  const target = targetPath === vaultPath ? null : webFindItem(tree, targetPath)
+  if (!source || (targetPath !== vaultPath && !target)) throw new Error("Move source or target not found")
 
   const pathChanges: PathChange[] = []
-  let targetParentId = targetPath
-  let targetDir = target.type === "file" ? pathDir(targetPath) : targetPath
-  if (target.type === "file") {
+  let targetParentId: string | null = null
+  let targetDir = vaultPath
+  if (target) {
+    targetParentId = targetPath
+    targetDir = target.type === "file" ? pathDir(targetPath) : targetPath
+  }
+  if (target?.type === "file") {
     const ensured = webEnsureBundle(targetPath)
     tree = ensured.tree
     pathChanges.push(...ensured.changes)
@@ -355,24 +436,35 @@ export async function moveItem(sourcePath: string, targetPath: string): Promise<
   const nextTree = webAddChild(removed.tree, targetParentId, moved)
   webSaveTree(nextTree)
 
-  return { primaryPath, pathChanges: [...pathChanges, ...sourceChanges], deletedPaths: [] }
+  return { primaryId: primaryPath, primaryPath, pathChanges: [...pathChanges, ...sourceChanges], deletedPaths: [], deletedIds: [] }
 }
 
-export async function deleteItem(path: string): Promise<FsMutationResult> {
-  if (isTauri()) return invoke<FsMutationResult>("delete_item", { path })
+export async function deleteItem(vaultPath: string, path: string): Promise<FsMutationResult> {
+  if (isTauri()) return invoke<FsMutationResult>("delete_item", { vaultPath, path })
 
   const tree = webGetTree()
   const removed = webRemoveItem(tree, path)
   const deletedPaths = removed.item ? webCollectFileIds(removed.item) : [path]
   for (const deletedPath of deletedPaths) localStorage.removeItem(FILE_PREFIX + deletedPath)
   webSaveTree(removed.tree)
-  return { primaryPath: null, pathChanges: [], deletedPaths }
+  return { primaryId: null, primaryPath: null, pathChanges: [], deletedPaths, deletedIds: deletedPaths }
+}
+
+export async function getNoteMetadata(vaultPath: string, noteId: string): Promise<FileMetadata> {
+  if (isTauri()) return invoke<FileMetadata>("get_note_metadata", { vaultPath, noteId })
+  const content = localStorage.getItem(FILE_PREFIX + noteId) ?? ""
+  return { word_count: content.split(/\s+/).filter(Boolean).length }
 }
 
 export async function getFileMetadata(path: string): Promise<FileMetadata> {
   if (isTauri()) return invoke<FileMetadata>("get_file_metadata", { path })
   const content = localStorage.getItem(FILE_PREFIX + path) ?? ""
   return { word_count: content.split(/\s+/).filter(Boolean).length }
+}
+
+export async function getLinkGraph(vaultPath: string): Promise<LinkGraph> {
+  if (isTauri()) return invoke<LinkGraph>("get_link_graph", { vaultPath })
+  return { nodes: [], edges: [] }
 }
 
 export async function openInExplorer(path: string): Promise<void> {

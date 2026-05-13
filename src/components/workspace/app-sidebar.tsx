@@ -218,7 +218,7 @@ interface AppSidebarProps {
   onActiveViewChange?: (view: SidebarView) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
-  onMoveItem?: (sourceId: string, targetFolderId: string) => void
+  onMoveItem?: (sourceId: string, targetFolderId: string | null) => void
   onSetIcon?: (id: string, icon: string) => void
   triggerRenameId?: string | null
   isTreeOpen?: boolean

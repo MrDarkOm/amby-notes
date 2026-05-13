@@ -15,6 +15,7 @@ import {
 
 export interface TreeItem {
   id: string
+  path: string
   name: string
   type: "folder" | "file" | "canvas"
   icon?: string
@@ -22,6 +23,7 @@ export interface TreeItem {
 }
 
 const KNOWN_ICONS = new Set(["folder", "file", "workspace", "canvas", "draft", "brain"])
+const ROOT_DROP_TARGET = "__amby_root__"
 
 const EMOJI_LIST = [
   "📝","📄","📃","📋","📊","📈","📜","📌",
@@ -52,7 +54,7 @@ interface SidebarTreeProps {
   onNewFolder?: (parentId: string | null) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
-  onMoveItem?: (sourceId: string, targetId: string) => void
+  onMoveItem?: (sourceId: string, targetId: string | null) => void
   onSetIcon?: (id: string, icon: string) => void
   triggerRenameId?: string | null
   folderResetKey?: number
@@ -252,7 +254,7 @@ function TreeNode({
           {onOpenInExplorer && (
             <ContextMenuItem
               className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
-              onSelect={() => onOpenInExplorer(item.id)}
+              onSelect={() => onOpenInExplorer(item.path ?? item.id)}
             >
               <FolderOpen className="size-3.5 text-zinc-500" />
               Показать в проводнике
@@ -418,8 +420,11 @@ export function SidebarTree({
         const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
         const targetEl = el?.closest('[data-drag-target]') as HTMLElement | null
         const candidate = targetEl?.getAttribute('data-drag-target') ?? null
-        const validTarget = (candidate && candidate !== drag.sourceId && !candidate.startsWith(drag.sourceId + '/'))
-          ? candidate : null
+        const validTarget = candidate === ROOT_DROP_TARGET
+          ? ROOT_DROP_TARGET
+          : (candidate && candidate !== drag.sourceId && !candidate.startsWith(drag.sourceId + '/'))
+            ? candidate
+            : null
         setPtrDrag(prev => prev ? { ...prev, ghostX: e.clientX, ghostY: e.clientY, targetId: validTarget } : null)
         return
       }
@@ -444,7 +449,7 @@ export function SidebarTree({
       pointerDownRef.current = null
       if (drag) {
         if (drag.targetId) {
-          onMoveItemRef.current?.(drag.sourceId, drag.targetId)
+          onMoveItemRef.current?.(drag.sourceId, drag.targetId === ROOT_DROP_TARGET ? null : drag.targetId)
         }
         setPtrDrag(null)
       }
@@ -461,6 +466,7 @@ export function SidebarTree({
   return (
     <>
       <div
+        data-drag-target={ROOT_DROP_TARGET}
         className="flex flex-col gap-px select-none"
         style={{ cursor: ptrDrag ? 'grabbing' : undefined, minHeight: '100%' }}
       >
@@ -488,7 +494,12 @@ export function SidebarTree({
             onToggleFavorite={onToggleFavorite}
           />
         ))}
-        <div style={{ minHeight: '40px' }} />
+        <div
+          className={cn(
+            "mt-1 min-h-10 rounded border border-transparent",
+            ptrDrag?.targetId === ROOT_DROP_TARGET && "border-blue-500 bg-blue-900/20"
+          )}
+        />
       </div>
 
       {ptrDrag?.active && (

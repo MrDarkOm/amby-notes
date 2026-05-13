@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import {
-  BookOpen,
   Code2,
   Database,
   ChevronLeft,
@@ -16,13 +15,18 @@ import {
   MoreVertical,
   Redo2,
   PenLine,
-  TextCursorInput,
   Undo2,
 } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import { TagEditor, type TagEditorHandle } from "./tag-editor"
-import { LiveMarkdownEditor } from "./live-markdown-editor"
+import { MilkdownMarkdownEditor } from "./milkdown-markdown-editor"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 const INLINE_TOKEN_RE = /#(\p{L}[\p{L}\p{N}_-]*)|\[\[([^\]\r\n]+)\]\]/gu
 
@@ -33,12 +37,27 @@ function getWikiLinkParts(raw: string) {
   return { target, label: label || target }
 }
 
+function parseSafeSpanStyle(style: string): React.CSSProperties | null {
+  const result: React.CSSProperties = {}
+  for (const part of style.split(";")) {
+    const [rawKey, rawValue] = part.split(":")
+    const key = rawKey?.trim().toLowerCase()
+    const value = rawValue?.trim()
+    if (!value || !/^#[0-9a-fA-F]{6}$/.test(value)) continue
+    if (key === "color") result.color = value
+    if (key === "background-color") result.backgroundColor = value
+  }
+  return Object.keys(result).length ? result : null
+}
+
 function processInlineText(text: string, onWikiLinkClick?: (target: string) => void): React.ReactNode {
   const colorParts: React.ReactNode[] = []
   let colorLast = 0
-  const safeColorSpanRe = /<span\s+style=["']color:\s*(#[0-9a-fA-F]{6})["']>(.*?)<\/span>/gu
+  const safeColorSpanRe = /<span\s+style=["']([^"']*)["']>(.*?)<\/span>/gu
   let colorMatch: RegExpExecArray | null
   while ((colorMatch = safeColorSpanRe.exec(text)) !== null) {
+    const safeStyle = parseSafeSpanStyle(colorMatch[1])
+    if (!safeStyle) continue
     if (colorMatch.index > colorLast) {
       colorParts.push(
         <React.Fragment key={`ct${colorLast}`}>
@@ -47,7 +66,7 @@ function processInlineText(text: string, onWikiLinkClick?: (target: string) => v
       )
     }
     colorParts.push(
-      <span key={`cs${colorMatch.index}`} style={{ color: colorMatch[1] }}>
+      <span key={`cs${colorMatch.index}`} style={safeStyle}>
         {processInlineText(colorMatch[2], onWikiLinkClick)}
       </span>
     )
@@ -62,6 +81,36 @@ function processInlineText(text: string, onWikiLinkClick?: (target: string) => v
       )
     }
     return <>{colorParts}</>
+  }
+
+  const underlineParts: React.ReactNode[] = []
+  let underlineLast = 0
+  const safeUnderlineRe = /<u>(.*?)<\/u>/gu
+  let underlineMatch: RegExpExecArray | null
+  while ((underlineMatch = safeUnderlineRe.exec(text)) !== null) {
+    if (underlineMatch.index > underlineLast) {
+      underlineParts.push(
+        <React.Fragment key={`ut${underlineLast}`}>
+          {processInlineText(text.slice(underlineLast, underlineMatch.index), onWikiLinkClick)}
+        </React.Fragment>
+      )
+    }
+    underlineParts.push(
+      <u key={`us${underlineMatch.index}`}>
+        {processInlineText(underlineMatch[1], onWikiLinkClick)}
+      </u>
+    )
+    underlineLast = underlineMatch.index + underlineMatch[0].length
+  }
+  if (underlineParts.length) {
+    if (underlineLast < text.length) {
+      underlineParts.push(
+        <React.Fragment key={`ute${underlineLast}`}>
+          {processInlineText(text.slice(underlineLast), onWikiLinkClick)}
+        </React.Fragment>
+      )
+    }
+    return <>{underlineParts}</>
   }
 
   const parts: React.ReactNode[] = []
@@ -108,6 +157,13 @@ function processInlineChildren(children: React.ReactNode, onWikiLinkClick?: (tar
   }
   return children
 }
+
+function getPlainReactText(node: React.ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node)
+  if (Array.isArray(node)) return node.map(getPlainReactText).join("")
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) return getPlainReactText(node.props.children)
+  return ""
+}
 import { Button } from "@/components/ui/button"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/storage"
@@ -153,12 +209,6 @@ const LAYER_OPTIONS: Array<{ id: EditorLayer; label: string; icon: React.Element
   { id: "sketch", label: "Sketch", icon: PenLine, title: "Sketch layer" },
 ]
 
-const VIEW_MODE_OPTIONS: Array<{ id: DocumentViewMode; icon: React.ElementType; title: string }> = [
-  { id: "source", icon: Code2, title: "Исходный Markdown" },
-  { id: "live", icon: TextCursorInput, title: "Живое редактирование" },
-  { id: "read", icon: BookOpen, title: "Режим чтения" },
-]
-
 function getRelativePath(vault: string | undefined, filePath: string): string {
   if (!vault || !filePath) return ""
   const norm = (p: string) => p.replace(/\\/g, "/")
@@ -194,7 +244,7 @@ export function DocumentEditor({
   onWikiLinkClick,
   activeLayer = "editor",
   onLayerChange,
-  viewMode = "source",
+  viewMode = "live",
   onViewModeChange,
 }: DocumentEditorProps) {
   const [content, setContent] = React.useState(document?.content ?? "")
@@ -268,7 +318,7 @@ export function DocumentEditor({
         ) : null}
       </div>
 
-      {/* Right: mode + focus + more */}
+      {/* Right: layer + focus + more */}
       <div className="flex items-center gap-0.5">
         {document && (
           <div className="mr-1 flex items-center rounded border border-zinc-800 bg-zinc-950 p-0.5">
@@ -289,25 +339,6 @@ export function DocumentEditor({
             ))}
           </div>
         )}
-        {document && activeLayer === "editor" && (
-          <div className="mr-1 flex items-center rounded border border-zinc-800 bg-zinc-950 p-0.5">
-            {VIEW_MODE_OPTIONS.map(option => (
-              <button
-                key={option.id}
-                type="button"
-                title={option.title}
-                onClick={() => onViewModeChange?.(option.id)}
-                className={`flex size-6 items-center justify-center rounded transition-colors ${
-                  viewMode === option.id
-                    ? "bg-zinc-800 text-zinc-100"
-                    : "text-zinc-500 hover:bg-zinc-900 hover:text-zinc-300"
-                }`}
-              >
-                <option.icon className="size-3.5" />
-              </button>
-            ))}
-          </div>
-        )}
         <Button
           variant="ghost" size="icon"
           className={`size-7 hover:bg-zinc-800 ${isFocusMode ? "text-zinc-200" : "text-zinc-500 hover:text-white"}`}
@@ -316,9 +347,24 @@ export function DocumentEditor({
         >
           {isFocusMode ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
         </Button>
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white">
-          <MoreVertical className="size-4" />
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white">
+              <MoreVertical className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52 border-zinc-800 bg-black text-zinc-300">
+            <DropdownMenuCheckboxItem
+              checked={viewMode === "source"}
+              disabled={!document || activeLayer !== "editor"}
+              onCheckedChange={() => onViewModeChange?.(viewMode === "source" ? "live" : "source")}
+              className="text-[13px] focus:bg-zinc-800 focus:text-white"
+            >
+              <Code2 className="size-3.5" />
+              Source Markdown
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   )
@@ -403,7 +449,7 @@ export function DocumentEditor({
               </div>
             </div>
           ) : viewMode === "read" ? (
-            <div className="md-body pb-20">
+            <div className="md-body amby-read-body pb-20">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
@@ -412,19 +458,26 @@ export function DocumentEditor({
                   h1: ({ children }) => <h1>{processInlineChildren(children, onWikiLinkClick)}</h1>,
                   h2: ({ children }) => <h2>{processInlineChildren(children, onWikiLinkClick)}</h2>,
                   h3: ({ children }) => <h3>{processInlineChildren(children, onWikiLinkClick)}</h3>,
-                  blockquote: ({ children }) => <blockquote>{processInlineChildren(children, onWikiLinkClick)}</blockquote>,
+                  blockquote: ({ children }) => {
+                    const plain = getPlainReactText(children).trim()
+                    const isCallout = /^\[![A-Z]+\]/i.test(plain)
+                    return (
+                      <blockquote className={isCallout ? "amby-callout" : undefined}>
+                        {processInlineChildren(children, onWikiLinkClick)}
+                      </blockquote>
+                    )
+                  },
                 }}
               >
                 {content || "*Пусто*"}
               </ReactMarkdown>
             </div>
           ) : viewMode === "live" ? (
-            <LiveMarkdownEditor
+            <MilkdownMarkdownEditor
               key={document.id}
+              documentId={document.id}
               value={content}
               onChange={handleContentChange}
-              onTagClick={onTagClick}
-              onWikiLinkClick={onWikiLinkClick}
               editorRef={editorRef}
               placeholder="Начни писать..."
             />
@@ -449,6 +502,17 @@ export function DocumentEditor({
           <span className="text-[11px] text-zinc-500">{document.modified}</span>
           <span className="text-zinc-800">·</span>
           <span className="text-[11px] text-zinc-500">{liveWordCount} сл.</span>
+          <div className="mx-1 h-3 w-px bg-zinc-800" />
+          <button
+            type="button"
+            title={viewMode === "read" ? "Переключить в Live" : "Переключить в Read"}
+            disabled={activeLayer !== "editor" || viewMode === "source"}
+            className="rounded border border-zinc-800 px-1.5 py-0.5 text-[11px] font-medium text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
+            onMouseDown={e => e.preventDefault()}
+            onClick={() => onViewModeChange?.(viewMode === "read" ? "live" : "read")}
+          >
+            {viewMode === "read" ? "Read" : "Live"}
+          </button>
           <div className="mx-1 h-3 w-px bg-zinc-800" />
           <button
             title="Отменить (Ctrl+Z)"

@@ -23,10 +23,13 @@ import type { VaultRecord } from "./workspace-picker"
 import {
   isTauri,
   openVault,
-  listFiles,
   readFile,
   writeFile,
-  getFileMetadata,
+  readNote,
+  writeNote,
+  loadVaultData,
+  getNoteMetadata,
+  getLinkGraph,
   createNote,
   createFolder,
   renameItem,
@@ -36,6 +39,9 @@ import {
   openInExplorer,
   type FsMutationResult,
   type LayerKind,
+  type LinkGraph,
+  type LinkGraphNode,
+  type LinkGraphEdge,
 } from "@/lib/storage"
 import { watch } from "@tauri-apps/plugin-fs"
 import { getCurrentWindow } from "@tauri-apps/api/window"
@@ -58,24 +64,6 @@ interface Tab {
 }
 
 type EditorLayer = "editor" | LayerKind
-
-interface LinkGraphNode {
-  id: string
-  label: string
-  unresolved?: boolean
-}
-
-interface LinkGraphEdge {
-  source: string
-  target: string
-  label: string
-  unresolved?: boolean
-}
-
-interface LinkGraph {
-  nodes: LinkGraphNode[]
-  edges: LinkGraphEdge[]
-}
 
 const WIKI_LINK_RE = /\[\[([^\]\r\n]+)\]\]/gu
 
@@ -130,6 +118,10 @@ function flattenTree(items: TreeItem[]): Set<string> {
   return ids
 }
 
+function remapStoredId(id: string, pathToId: Record<string, string>): string {
+  return pathToId[id] ?? id
+}
+
 function findTreeItem(items: TreeItem[], id: string): TreeItem | null {
   for (const item of items) {
     if (item.id === id) return item
@@ -149,7 +141,7 @@ function findWikiLinkItem(items: TreeItem[], target: string, vault: string | nul
   function walk(list: TreeItem[]): TreeItem | null {
     for (const item of list) {
       if (item.type === "file") {
-        const id = item.id.replace(/\\/g, "/")
+        const id = (item.path ?? item.id).replace(/\\/g, "/")
         const relativePath = normalizedVault && id.startsWith(normalizedVault + "/")
           ? id.slice(normalizedVault.length + 1)
           : id.split("/").pop() ?? id
@@ -295,6 +287,13 @@ export function Workspace() {
     if (!vault) { setLinkGraph({ nodes: [], edges: [] }); return }
     let cancelled = false
     const timer = setTimeout(async () => {
+      if (isTauri()) {
+        try {
+          const graph = await getLinkGraph(vault)
+          if (!cancelled) setLinkGraph(graph)
+        } catch { /* index may be rebuilding */ }
+        return
+      }
       const files = flattenFileItems(treeItems)
       const contents: Record<string, string> = {}
       await Promise.allSettled(files.map(async file => {
@@ -346,9 +345,9 @@ export function Workspace() {
 
   async function refreshTree(path = vault) {
     if (!path) return []
-    const tree = await listFiles(path)
-    setTreeItems(tree)
-    return tree
+    const loaded = await loadVaultData(path)
+    setTreeItems(loaded.tree)
+    return loaded.tree
   }
 
   function remapPath(path: string, changes: FsMutationResult["pathChanges"]): string {
@@ -358,15 +357,14 @@ export function Workspace() {
 
   function applyMutationResult(result: FsMutationResult) {
     const changes = result.pathChanges.filter(change => change.oldPath && change.newPath)
-    const deleted = new Set(result.deletedPaths)
+    const deleted = new Set(result.deletedIds ?? result.deletedPaths)
 
     if (changes.length > 0 || deleted.size > 0) {
       setOpenDocs(prev => {
         const next: Record<string, Document> = {}
         for (const [id, doc] of Object.entries(prev)) {
           if (deleted.has(id)) continue
-          const nextId = remapPath(id, changes)
-          next[nextId] = { ...doc, id: nextId, path: remapPath(doc.path, changes) }
+          next[id] = { ...doc, path: remapPath(doc.path, changes) }
         }
         return next
       })
@@ -376,10 +374,10 @@ export function Workspace() {
           .filter(tab => !deleted.has(tab.fileId))
           .map(tab => ({
             ...tab,
-            fileId: remapPath(tab.fileId, changes),
+            fileId: tab.fileId,
             history: tab.history
               .filter(path => !deleted.has(path))
-              .map(path => remapPath(path, changes)),
+              .map(path => path),
           }))
         if (next.length !== prev.length && activeTabKey) {
           const stillExists = next.find(tab => tab.key === activeTabKey)
@@ -390,9 +388,7 @@ export function Workspace() {
 
       setFavorites(prev => {
         const next = new Set<string>()
-        for (const id of prev) {
-          if (!deleted.has(id)) next.add(remapPath(id, changes))
-        }
+        for (const id of prev) if (!deleted.has(id)) next.add(id)
         if (vault) localStorage.setItem(`amby:favorites:${vault}`, JSON.stringify([...next]))
         return next
       })
@@ -400,7 +396,7 @@ export function Workspace() {
       setIconOverrides(prev => {
         const next: Record<string, string> = {}
         for (const [id, icon] of Object.entries(prev)) {
-          if (!deleted.has(id)) next[remapPath(id, changes)] = icon
+          if (!deleted.has(id)) next[id] = icon
         }
         localStorage.setItem("amby:icons", JSON.stringify(next))
         return next
@@ -409,7 +405,7 @@ export function Workspace() {
       setActiveLayers(prev => {
         const next: Record<string, EditorLayer> = {}
         for (const [id, layer] of Object.entries(prev)) {
-          if (!deleted.has(id)) next[remapPath(id, changes)] = layer
+          if (!deleted.has(id)) next[id] = layer
         }
         return next
       })
@@ -417,7 +413,7 @@ export function Workspace() {
       setViewModes(prev => {
         const next: Record<string, DocumentViewMode> = {}
         for (const [id, mode] of Object.entries(prev)) {
-          if (!deleted.has(id)) next[remapPath(id, changes)] = mode
+          if (!deleted.has(id)) next[id] = mode
         }
         if (vault) localStorage.setItem(`amby:view-modes:${vault}`, JSON.stringify(next))
         return next
@@ -426,7 +422,7 @@ export function Workspace() {
       setUnsavedFileIds(prev => {
         const next = new Set<string>()
         for (const id of prev) {
-          if (!deleted.has(id)) next.add(remapPath(id, changes))
+          if (!deleted.has(id)) next.add(id)
         }
         return next
       })
@@ -492,8 +488,7 @@ export function Workspace() {
       if (refreshTimer) clearTimeout(refreshTimer)
       refreshTimer = setTimeout(async () => {
         try {
-          const tree = await listFiles(vault)
-          setTreeItems(tree)
+          await refreshTree(vault)
         } catch { /* vault may be temporarily inaccessible */ }
       }, 300)
     }, { recursive: true })
@@ -515,22 +510,45 @@ export function Workspace() {
 
   async function loadVault(path: string) {
     try {
-      const tree = await listFiles(path)
+      const loaded = await loadVaultData(path)
+      const tree = loaded.tree
+      const pathToId = loaded.sync.pathToId ?? {}
+      const allIds = flattenTree(tree)
       setVault(path)
       setTreeItems(tree)
       localStorage.setItem("amby:vault", path)
       addVaultToList(path)
 
+      setIconOverrides(prev => {
+        const next: Record<string, string> = {}
+        for (const [id, icon] of Object.entries(prev)) {
+          const nextId = remapStoredId(id, pathToId)
+          next[nextId] = icon
+        }
+        localStorage.setItem("amby:icons", JSON.stringify(next))
+        return next
+      })
+
       // Restore favorites
       try {
         const savedFavs = localStorage.getItem(`amby:favorites:${path}`)
-        setFavorites(savedFavs ? new Set(JSON.parse(savedFavs)) : new Set())
+        const favs = savedFavs ? JSON.parse(savedFavs) as string[] : []
+        const next = new Set(favs.map(id => remapStoredId(id, pathToId)).filter(id => allIds.has(id)))
+        setFavorites(next)
+        localStorage.setItem(`amby:favorites:${path}`, JSON.stringify([...next]))
       } catch { setFavorites(new Set()) }
 
       // Restore per-note editor view modes
       try {
         const savedModes = localStorage.getItem(`amby:view-modes:${path}`)
-        setViewModes(savedModes ? JSON.parse(savedModes) : {})
+        const modes = savedModes ? JSON.parse(savedModes) as Record<string, DocumentViewMode> : {}
+        const next: Record<string, DocumentViewMode> = {}
+        for (const [id, mode] of Object.entries(modes)) {
+          const nextId = remapStoredId(id, pathToId)
+          if (allIds.has(nextId)) next[nextId] = mode
+        }
+        setViewModes(next)
+        localStorage.setItem(`amby:view-modes:${path}`, JSON.stringify(next))
       } catch { setViewModes({}) }
 
       // Restore open tabs
@@ -541,22 +559,24 @@ export function Workspace() {
             entries: { fileId: string; title: string }[]
             activeFileId: string
           }
-          const allIds = flattenTree(tree)
-          const valid = entries.filter(e => allIds.has(e.fileId))
+          const mappedEntries = entries.map(e => ({ ...e, fileId: remapStoredId(e.fileId, pathToId) }))
+          const mappedActiveFileId = remapStoredId(activeFileId, pathToId)
+          const valid = mappedEntries.filter(e => allIds.has(e.fileId))
           if (valid.length > 0) {
             const newTabs: Tab[] = valid.map(e => ({
               key: newTabKey(), fileId: e.fileId, title: e.title,
               history: [e.fileId], historyIndex: 0,
             }))
             setTabs(newTabs)
-            const activeTab = newTabs.find(t => t.fileId === activeFileId) ?? newTabs[0]
+            const activeTab = newTabs.find(t => t.fileId === mappedActiveFileId) ?? newTabs[0]
             setActiveTabKey(activeTab.key)
             // Load docs for restored tabs
             valid.forEach(e => {
-              readFile(e.fileId).then(content => {
+              const item = findTreeItem(tree, e.fileId)
+              readNote(path, e.fileId).then(content => {
                 setOpenDocs(prev => ({
                   ...prev,
-                  [e.fileId]: { id: e.fileId, title: e.title, content, modified: "", wordCount: 0, path: e.fileId },
+                  [e.fileId]: { id: e.fileId, title: e.title, content, modified: "", wordCount: 0, path: item?.path ?? e.fileId },
                 }))
               }).catch(() => {})
             })
@@ -579,11 +599,14 @@ export function Workspace() {
 
   async function loadDoc(fileId: string, itemName: string): Promise<Document> {
     if (openDocs[fileId]) return openDocs[fileId]
-    const [content, meta] = await Promise.all([readFile(fileId), getFileMetadata(fileId)])
+    const item = findTreeItem(treeItems, fileId)
+    const [content, meta] = vault
+      ? await Promise.all([readNote(vault, fileId), getNoteMetadata(vault, fileId)])
+      : await Promise.all([readFile(item?.path ?? fileId), getNoteMetadata("", fileId)])
     const doc: Document = {
       id: fileId, title: itemName, content,
       modified: formatModified(meta.modified),
-      wordCount: meta.word_count, path: fileId,
+      wordCount: meta.word_count, path: item?.path ?? fileId,
     }
     setOpenDocs(prev => ({ ...prev, [fileId]: doc }))
     return doc
@@ -625,16 +648,17 @@ export function Workspace() {
     }
 
     try {
-      const result = await createNote(vault, target.split("/").pop() ?? target)
+      const result = await createNote(vault, vault, target.split("/").pop() ?? target)
       applyMutationResult(result)
-      await refreshTree()
-      const path = result.primaryPath
-      if (!path) return
+      const tree = await refreshTree()
+      const id = result.primaryId ?? result.primaryPath
+      if (!id) return
+      const item = findTreeItem(tree, id)
       const name = target.split("/").pop() ?? target
-      const doc: Document = { id: path, title: name, content: "", modified: "Только что", wordCount: 0, path }
-      setOpenDocs(prev => ({ ...prev, [path]: doc }))
+      const doc: Document = { id, title: name, content: "", modified: "Только что", wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
+      setOpenDocs(prev => ({ ...prev, [id]: doc }))
       const key = newTabKey()
-      setTabs(prev => [...prev, { key, fileId: path, title: name, history: [path], historyIndex: 0 }])
+      setTabs(prev => [...prev, { key, fileId: id, title: name, history: [id], historyIndex: 0 }])
       setActiveTabKey(key)
     } catch (err) {
       console.error("Failed to open wiki link:", err)
@@ -709,14 +733,14 @@ export function Workspace() {
     const item = findTreeItem(treeItems, id)
     if (!item) return
     try {
-      const result = await renameItem(id, newName)
+      const result = await renameItem(vault ?? "", item.path ?? id, newName)
       applyMutationResult(result)
-      const newPath = result.primaryPath ?? id
-      setOpenDocs(prev => prev[newPath] ? ({
+      const newPath = result.primaryPath ?? item.path ?? id
+      setOpenDocs(prev => prev[id] ? ({
         ...prev,
-        [newPath]: { ...prev[newPath], title: newName },
+        [id]: { ...prev[id], title: newName, path: newPath },
       }) : prev)
-      setTabs(prev => prev.map(t => t.fileId === newPath ? { ...t, title: newName } : t))
+      setTabs(prev => prev.map(t => t.fileId === id ? { ...t, title: newName } : t))
       await refreshTree()
     } catch (err) {
       console.error("Failed to rename:", err)
@@ -727,7 +751,7 @@ export function Workspace() {
     const item = findTreeItem(treeItems, id)
     if (!confirm(`Удалить "${item?.name ?? id}"?`)) return
     try {
-      const result = await deleteItem(id)
+      const result = await deleteItem(vault ?? "", item?.path ?? id)
       applyMutationResult(result)
       await refreshTree()
     } catch (err) {
@@ -738,18 +762,20 @@ export function Workspace() {
   const handleNewFileIn = async (parentId: string | null) => {
     if (!vault) return
     const basePath = parentId ?? vault
+    const parent = parentId ? findTreeItem(treeItems, parentId) : null
     try {
-      const result = await createNote(basePath, "Untitled")
+      const result = await createNote(vault, parent?.path ?? basePath, "Untitled")
       applyMutationResult(result)
-      await refreshTree()
-      const path = result.primaryPath
-      if (!path) return
-      const doc: Document = { id: path, title: "Untitled", content: "", modified: "Только что", wordCount: 0, path }
-      setOpenDocs(prev => ({ ...prev, [path]: doc }))
+      const tree = await refreshTree()
+      const id = result.primaryId ?? result.primaryPath
+      if (!id) return
+      const item = findTreeItem(tree, id)
+      const doc: Document = { id, title: "Untitled", content: "", modified: "Только что", wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
+      setOpenDocs(prev => ({ ...prev, [id]: doc }))
       const key = newTabKey()
-      setTabs(prev => [...prev, { key, fileId: path, title: "Untitled", history: [path], historyIndex: 0 }])
+      setTabs(prev => [...prev, { key, fileId: id, title: "Untitled", history: [id], historyIndex: 0 }])
       setActiveTabKey(key)
-      setPendingRenameId(path)
+      setPendingRenameId(id)
       setTimeout(() => setPendingRenameId(null), 500)
     } catch (err) {
       console.error("Failed to create file:", err)
@@ -759,9 +785,10 @@ export function Workspace() {
   const handleNewFolderIn = async (parentId: string | null) => {
     if (!vault) return
     const basePath = parentId ?? vault
+    const parent = parentId ? findTreeItem(treeItems, parentId) : null
     try {
-      const path = await createFolder(basePath, "Untitled")
-      const newItem: TreeItem = { id: path, name: "Untitled", type: "folder", icon: "folder", children: [] }
+      const path = await createFolder(parent?.path ?? basePath, "Untitled")
+      const newItem: TreeItem = { id: `folder:${path}`, path, name: "Untitled", type: "folder", icon: "folder", children: [] }
       if (parentId) {
         setTreeItems(prev => updateInTree(prev, parentId, folder => ({
           ...folder, children: [...(folder.children ?? []), newItem],
@@ -769,22 +796,36 @@ export function Workspace() {
       } else {
         setTreeItems(prev => [...prev, newItem])
       }
-      setPendingRenameId(path)
+      setPendingRenameId(newItem.id)
       setTimeout(() => setPendingRenameId(null), 500)
     } catch (err) {
       console.error("Failed to create folder:", err)
     }
   }
 
-  const handleMoveItem = async (sourceId: string, targetFolderId: string) => {
+  const handleMoveItem = async (sourceId: string, targetFolderId: string | null) => {
     const sourceItem = findTreeItem(treeItems, sourceId)
-    if (!sourceItem) return
+    if (!sourceItem || !vault) return
+    const targetItem = targetFolderId ? findTreeItem(treeItems, targetFolderId) : null
+    if (targetFolderId && !targetItem) return
     const norm = (p: string) => p.replace(/\\/g, "/")
-    const normSrc = norm(sourceId)
-    const normTgt = norm(targetFolderId)
-    if (normTgt.startsWith(normSrc + "/") || normTgt === normSrc) return
+    const dirname = (p: string) => {
+      const value = norm(p).replace(/\/+$/, "")
+      const index = value.lastIndexOf("/")
+      return index === -1 ? "" : value.slice(0, index)
+    }
+    const basename = (p: string) => norm(p).replace(/\/+$/, "").split("/").pop() ?? ""
+    const stem = (p: string) => basename(p).replace(/\.[^.]+$/, "")
+    const normSrc = norm(sourceItem.path ?? sourceId)
+    const normTgt = targetItem ? norm(targetItem.path ?? targetFolderId ?? "") : norm(vault)
+    const sourceParent = dirname(normSrc)
+    const sourceRoot = sourceItem.type === "file" && basename(sourceParent) === stem(normSrc)
+      ? sourceParent
+      : normSrc
+    if (normTgt.startsWith(sourceRoot + "/") || normTgt === sourceRoot) return
+    if (!targetFolderId && dirname(sourceRoot) === norm(vault)) return
     try {
-      const result = await moveItem(sourceId, targetFolderId)
+      const result = await moveItem(vault, sourceItem.path ?? sourceId, targetItem?.path ?? vault)
       applyMutationResult(result)
       await refreshTree()
     } catch (err) {
@@ -800,13 +841,13 @@ export function Workspace() {
       return
     }
     try {
-      const result = await createLayer(doc.id, layer)
+      const result = await createLayer(doc.path, layer)
       applyMutationResult({
         primaryPath: result.notePath,
         pathChanges: result.pathChanges,
         deletedPaths: [],
       })
-      setActiveLayers(prev => ({ ...prev, [result.notePath]: layer }))
+      setActiveLayers(prev => ({ ...prev, [doc.id]: layer }))
       await refreshTree()
     } catch (err) {
       console.error("Failed to create layer:", err)
@@ -833,7 +874,8 @@ export function Workspace() {
       const doc = openDocsRef.current[fileId]
       if (!doc) return
       try {
-        await writeFile(doc.path, content)
+        if (vault) await writeNote(vault, doc.id, content)
+        else await writeFile(doc.path, content)
         setUnsavedFileIds(prev => { const s = new Set(prev); s.delete(fileId); return s })
         setOpenDocs(prev => ({ ...prev, [fileId]: { ...prev[fileId], modified: "Только что" } }))
       } catch (err) {
@@ -869,7 +911,7 @@ export function Workspace() {
     onMoveItem: handleMoveItem,
     onSetIcon: handleSetIcon,
     triggerRenameId: pendingRenameId,
-    readFile,
+    readFile: (id: string) => vault ? readNote(vault, id) : readFile(id),
     favorites,
     onToggleFavorite: handleToggleFavorite,
     linkGraph,
@@ -894,7 +936,7 @@ export function Workspace() {
     onWikiLinkClick: handleWikiLinkClick,
     activeLayer: currentDoc ? activeLayers[currentDoc.id] ?? "editor" : "editor",
     onLayerChange: handleLayerChange,
-    viewMode: currentDoc ? viewModes[currentDoc.id] ?? "source" : "source",
+    viewMode: currentDoc ? viewModes[currentDoc.id] ?? "live" : "live",
     onViewModeChange: handleViewModeChange,
   }
 
