@@ -17,10 +17,9 @@ import {
   PenLine,
   Undo2,
 } from "lucide-react"
-import ReactMarkdown from "react-markdown"
-import remarkGfm from "remark-gfm"
-import { TagEditor, type TagEditorHandle } from "./tag-editor"
-import { MilkdownMarkdownEditor } from "./milkdown-markdown-editor"
+import { SourceEditor } from "./source-editor"
+import { TiptapEditor } from "./tiptap/TiptapEditor"
+import type { EditorHandle } from "./tiptap/constants"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -28,142 +27,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-const INLINE_TOKEN_RE = /#(\p{L}[\p{L}\p{N}_-]*)|\[\[([^\]\r\n]+)\]\]/gu
-
-function getWikiLinkParts(raw: string) {
-  const [targetPart, aliasPart] = raw.split("|")
-  const target = (targetPart ?? "").split("#")[0].trim()
-  const label = (aliasPart ?? targetPart ?? "").trim()
-  return { target, label: label || target }
-}
-
-function parseSafeSpanStyle(style: string): React.CSSProperties | null {
-  const result: React.CSSProperties = {}
-  for (const part of style.split(";")) {
-    const [rawKey, rawValue] = part.split(":")
-    const key = rawKey?.trim().toLowerCase()
-    const value = rawValue?.trim()
-    if (!value || !/^#[0-9a-fA-F]{6}$/.test(value)) continue
-    if (key === "color") result.color = value
-    if (key === "background-color") result.backgroundColor = value
-  }
-  return Object.keys(result).length ? result : null
-}
-
-function processInlineText(text: string, onWikiLinkClick?: (target: string) => void): React.ReactNode {
-  const colorParts: React.ReactNode[] = []
-  let colorLast = 0
-  const safeColorSpanRe = /<span\s+style=["']([^"']*)["']>(.*?)<\/span>/gu
-  let colorMatch: RegExpExecArray | null
-  while ((colorMatch = safeColorSpanRe.exec(text)) !== null) {
-    const safeStyle = parseSafeSpanStyle(colorMatch[1])
-    if (!safeStyle) continue
-    if (colorMatch.index > colorLast) {
-      colorParts.push(
-        <React.Fragment key={`ct${colorLast}`}>
-          {processInlineText(text.slice(colorLast, colorMatch.index), onWikiLinkClick)}
-        </React.Fragment>
-      )
-    }
-    colorParts.push(
-      <span key={`cs${colorMatch.index}`} style={safeStyle}>
-        {processInlineText(colorMatch[2], onWikiLinkClick)}
-      </span>
-    )
-    colorLast = colorMatch.index + colorMatch[0].length
-  }
-  if (colorParts.length) {
-    if (colorLast < text.length) {
-      colorParts.push(
-        <React.Fragment key={`cte${colorLast}`}>
-          {processInlineText(text.slice(colorLast), onWikiLinkClick)}
-        </React.Fragment>
-      )
-    }
-    return <>{colorParts}</>
-  }
-
-  const underlineParts: React.ReactNode[] = []
-  let underlineLast = 0
-  const safeUnderlineRe = /<u>(.*?)<\/u>/gu
-  let underlineMatch: RegExpExecArray | null
-  while ((underlineMatch = safeUnderlineRe.exec(text)) !== null) {
-    if (underlineMatch.index > underlineLast) {
-      underlineParts.push(
-        <React.Fragment key={`ut${underlineLast}`}>
-          {processInlineText(text.slice(underlineLast, underlineMatch.index), onWikiLinkClick)}
-        </React.Fragment>
-      )
-    }
-    underlineParts.push(
-      <u key={`us${underlineMatch.index}`}>
-        {processInlineText(underlineMatch[1], onWikiLinkClick)}
-      </u>
-    )
-    underlineLast = underlineMatch.index + underlineMatch[0].length
-  }
-  if (underlineParts.length) {
-    if (underlineLast < text.length) {
-      underlineParts.push(
-        <React.Fragment key={`ute${underlineLast}`}>
-          {processInlineText(text.slice(underlineLast), onWikiLinkClick)}
-        </React.Fragment>
-      )
-    }
-    return <>{underlineParts}</>
-  }
-
-  const parts: React.ReactNode[] = []
-  let last = 0
-  INLINE_TOKEN_RE.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = INLINE_TOKEN_RE.exec(text)) !== null) {
-    if (m.index > last) parts.push(text.slice(last, m.index))
-    if (m[1]) {
-      parts.push(
-        <span key={m.index} className="inline-flex items-center rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[12px] font-medium text-violet-400 leading-[1.1]">
-          {m[0]}
-        </span>
-      )
-    } else {
-      const { target, label } = getWikiLinkParts(m[2])
-      parts.push(
-        <button
-          key={m.index}
-          type="button"
-          className="inline-flex items-center rounded bg-sky-500/10 px-1 text-sky-300 underline decoration-sky-500/50 underline-offset-2 transition-colors hover:bg-sky-500/20 hover:text-sky-200"
-          onClick={e => { e.preventDefault(); e.stopPropagation(); if (target) onWikiLinkClick?.(target) }}
-          title={`Открыть [[${target}]]`}
-        >
-          {label}
-        </button>
-      )
-    }
-    last = m.index + m[0].length
-  }
-  if (!parts.length) return text
-  if (last < text.length) parts.push(text.slice(last))
-  return <>{parts}</>
-}
-
-function processInlineChildren(children: React.ReactNode, onWikiLinkClick?: (target: string) => void): React.ReactNode {
-  if (typeof children === "string") return processInlineText(children, onWikiLinkClick)
-  if (Array.isArray(children)) {
-    return children.map((c, i) =>
-      typeof c === "string"
-        ? <React.Fragment key={i}>{processInlineText(c, onWikiLinkClick)}</React.Fragment>
-        : c
-    )
-  }
-  return children
-}
-
-function getPlainReactText(node: React.ReactNode): string {
-  if (typeof node === "string" || typeof node === "number") return String(node)
-  if (Array.isArray(node)) return node.map(getPlainReactText).join("")
-  if (React.isValidElement<{ children?: React.ReactNode }>(node)) return getPlainReactText(node.props.children)
-  return ""
-}
 import { Button } from "@/components/ui/button"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/storage"
@@ -250,8 +113,7 @@ export function DocumentEditor({
   const [content, setContent] = React.useState(document?.content ?? "")
   const [editingTitle, setEditingTitle] = React.useState(false)
   const [titleValue, setTitleValue] = React.useState(document?.title ?? "")
-  const textareaRef = React.useRef<HTMLTextAreaElement>(null)
-  const editorRef = React.useRef<TagEditorHandle>(null as unknown as TagEditorHandle)
+  const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
   const titleInputRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
@@ -275,7 +137,6 @@ export function DocumentEditor({
     if (e.key === "Escape") { setTitleValue(document?.title ?? ""); setEditingTitle(false) }
   }
 
-  // Auto-resize handled by TagEditor when not in preview mode
 
   const handleContentChange = (v: string) => {
     setContent(v)
@@ -448,48 +309,25 @@ export function DocumentEditor({
                 </p>
               </div>
             </div>
-          ) : viewMode === "read" ? (
-            <div className="md-body amby-read-body pb-20">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  p: ({ children }) => <p>{processInlineChildren(children, onWikiLinkClick)}</p>,
-                  li: ({ children }) => <li>{processInlineChildren(children, onWikiLinkClick)}</li>,
-                  h1: ({ children }) => <h1>{processInlineChildren(children, onWikiLinkClick)}</h1>,
-                  h2: ({ children }) => <h2>{processInlineChildren(children, onWikiLinkClick)}</h2>,
-                  h3: ({ children }) => <h3>{processInlineChildren(children, onWikiLinkClick)}</h3>,
-                  blockquote: ({ children }) => {
-                    const plain = getPlainReactText(children).trim()
-                    const isCallout = /^\[![A-Z]+\]/i.test(plain)
-                    return (
-                      <blockquote className={isCallout ? "amby-callout" : undefined}>
-                        {processInlineChildren(children, onWikiLinkClick)}
-                      </blockquote>
-                    )
-                  },
-                }}
-              >
-                {content || "*Пусто*"}
-              </ReactMarkdown>
-            </div>
-          ) : viewMode === "live" ? (
-            <MilkdownMarkdownEditor
-              key={document.id}
-              documentId={document.id}
-              value={content}
-              onChange={handleContentChange}
-              editorRef={editorRef}
-              placeholder="Начни писать..."
-            />
-          ) : (
-            <TagEditor
+          ) : viewMode === "source" ? (
+            <SourceEditor
               key={document.id}
               value={content}
               onChange={handleContentChange}
               onTagClick={onTagClick}
               onWikiLinkClick={onWikiLinkClick}
-              textareaRef={textareaRef}
               editorRef={editorRef}
+              placeholder="Начни писать..."
+            />
+          ) : (
+            <TiptapEditor
+              key={document.id}
+              value={content}
+              onChange={handleContentChange}
+              editorRef={editorRef}
+              editable={viewMode === "live"}
+              onTagClick={onTagClick}
+              onWikiLinkClick={onWikiLinkClick}
               placeholder="Начни писать..."
             />
           )}
