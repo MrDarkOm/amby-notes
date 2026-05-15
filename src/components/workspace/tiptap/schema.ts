@@ -9,6 +9,7 @@ import { AmbyTextStyle } from "./marks/amby-text-style"
 import { AmbyUnderline } from "./marks/amby-underline"
 import { AmbyHtml } from "./marks/amby-html"
 import { MarkdownMarkup } from "./markdown-markup"
+import { CalloutNode } from "./callout-node"
 
 // Schema-defining extensions — identical for Live and Read, and the source of
 // truth for the standalone schema used by the markdown conversion layer.
@@ -33,6 +34,7 @@ export const schemaExtensions: Extensions = [
   AmbyTextStyle,
   AmbyUnderline,
   AmbyHtml,
+  CalloutNode,
 ]
 
 export const editorSchema = getSchema(schemaExtensions)

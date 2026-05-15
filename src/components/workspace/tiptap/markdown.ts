@@ -18,6 +18,7 @@ import type Token from "markdown-it/lib/token.mjs"
 import { MarkdownParser, MarkdownSerializerState } from "prosemirror-markdown"
 
 import { editorSchema } from "./schema"
+import { CALLOUT_DEFAULTS } from "./callout-node"
 import {
   SAFE_UNDERLINE_RE,
   escapeHtml,
@@ -181,10 +182,113 @@ function softbreaksToText(state: StateCore) {
   }
 }
 
+// ── markdown-it: detect Obsidian-style callouts (`> [!NOTE] emoji`) ──────────
+
+const CALLOUT_FIRST_LINE_RE = /^\[!(NOTE|WARNING|INFO|TIP|DANGER)\](?:\s+(\S[^\n]*))?/i
+
+/**
+ * Transforms blockquotes whose first line is `[!TYPE] emoji` into `callout`
+ * tokens so the MarkdownParser can create a proper `callout` ProseMirror node.
+ *
+ * Must run BEFORE softbreaksToText, AFTER detectTaskLists (order matters).
+ */
+function detectCallouts(state: StateCore) {
+  const tokens = state.tokens
+  const out: Token[] = []
+  let i = 0
+
+  while (i < tokens.length) {
+    if (tokens[i].type !== "blockquote_open") {
+      out.push(tokens[i++])
+      continue
+    }
+
+    // Find the end of this blockquote
+    let depth = 0
+    let bqClose = -1
+    for (let j = i; j < tokens.length; j++) {
+      if (tokens[j].type === "blockquote_open") depth++
+      else if (tokens[j].type === "blockquote_close") {
+        depth--
+        if (depth === 0) { bqClose = j; break }
+      }
+    }
+    if (bqClose < 0) { out.push(tokens[i++]); continue }
+
+    // Find the first paragraph (open / inline / close) inside the blockquote
+    let firstParaOpen = -1, firstInlineIdx = -1, firstParaClose = -1
+    for (let j = i + 1; j < bqClose; j++) {
+      if (tokens[j].type === "paragraph_open" && firstParaOpen < 0) {
+        firstParaOpen = j
+      } else if (tokens[j].type === "inline" && firstParaOpen >= 0 && firstInlineIdx < 0) {
+        firstInlineIdx = j
+      } else if (tokens[j].type === "paragraph_close" && firstInlineIdx >= 0 && firstParaClose < 0) {
+        firstParaClose = j
+        break
+      }
+    }
+
+    if (firstInlineIdx < 0) { out.push(tokens[i++]); continue }
+
+    const firstInline = tokens[firstInlineIdx]
+    const match = CALLOUT_FIRST_LINE_RE.exec(firstInline.content)
+    if (!match) { out.push(tokens[i++]); continue }
+
+    const calloutType = match[1].toUpperCase()
+    const emojiRaw = (match[2] ?? "").trim()
+    const emoji = emojiRaw || CALLOUT_DEFAULTS[calloutType] || "💡"
+
+    // Strip the "[!TYPE] emoji" prefix from the first inline token
+    const markerLen = match[0].length
+    firstInline.content = firstInline.content.slice(markerLen).trimStart()
+    if (firstInline.children?.length) {
+      const fc = firstInline.children[0]
+      if (fc.type === "text") {
+        fc.content = fc.content.slice(markerLen).trimStart()
+        if (!fc.content) firstInline.children.shift()
+      }
+      // Drop the leading softbreak that separates [!TYPE] line from content
+      if (firstInline.children[0]?.type === "softbreak") firstInline.children.shift()
+    }
+
+    const skipFirstPara =
+      !firstInline.content.trim() &&
+      (!firstInline.children || firstInline.children.length === 0)
+
+    const calloutOpen = new state.Token("callout_open", "div", 1)
+    calloutOpen.attrSet("calloutType", calloutType)
+    calloutOpen.attrSet("emoji", emoji)
+    out.push(calloutOpen)
+
+    // Emit inner tokens, optionally skipping the (now-empty) first paragraph
+    for (let j = i + 1; j < bqClose; j++) {
+      if (skipFirstPara && j >= firstParaOpen && j <= firstParaClose) continue
+      out.push(tokens[j])
+    }
+
+    // Guarantee at least one block in the callout (ProseMirror requires block+)
+    const innerCount = bqClose - i - 1 - (skipFirstPara ? firstParaClose - firstParaOpen + 1 : 0)
+    if (innerCount <= 0) {
+      out.push(new state.Token("paragraph_open", "p", 1))
+      const empty = new state.Token("inline", "", 0)
+      empty.content = ""
+      empty.children = []
+      out.push(empty)
+      out.push(new state.Token("paragraph_close", "p", -1))
+    }
+
+    out.push(new state.Token("callout_close", "div", -1))
+    i = bqClose + 1
+  }
+
+  state.tokens = out
+}
+
 function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.inline.ruler.before("html_inline", "amby_html", ambyInlineRule)
   md.core.ruler.push("amby_tables", normalizeTables)
   md.core.ruler.push("amby_task_lists", detectTaskLists)
+  md.core.ruler.push("amby_callouts", detectCallouts)
   md.core.ruler.push("amby_softbreaks", softbreaksToText)
 }
 
@@ -194,6 +298,13 @@ tokenizer.use(ambyMarkdownItPlugin)
 // ── Parser ────────────────────────────────────────────────────────────────────
 
 const parser = new MarkdownParser(editorSchema, tokenizer, {
+  callout: {
+    block: "callout",
+    getAttrs: tok => ({
+      calloutType: tok.attrGet("calloutType") ?? "NOTE",
+      emoji: tok.attrGet("emoji") ?? "💡",
+    }),
+  },
   blockquote: { block: "blockquote" },
   paragraph: { block: "paragraph" },
   list_item: { block: "listItem" },
@@ -328,6 +439,14 @@ const nodeSerializers: Record<
     state.closeBlock(node)
   },
   blockquote(state, node) {
+    state.wrapBlock("> ", null, node, () => state.renderContent(node))
+  },
+  callout(state, node) {
+    const type = (node.attrs.calloutType as string) || "NOTE"
+    const emoji = (node.attrs.emoji as string) || CALLOUT_DEFAULTS[type] || "💡"
+    // Write the [!TYPE] header line with the emoji
+    state.write(`> [!${type}] ${emoji}\n`)
+    // Wrap the content lines with "> " prefix
     state.wrapBlock("> ", null, node, () => state.renderContent(node))
   },
   codeBlock(state, node) {

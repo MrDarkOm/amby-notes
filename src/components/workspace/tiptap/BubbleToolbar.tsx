@@ -21,11 +21,11 @@ import {
   Underline,
 } from "lucide-react"
 
-import { EMOJIS } from "./constants"
-import { markdownToDoc } from "./markdown"
 import { TextStylePalette } from "../text-style-palette"
+import { EmojiPickerPanel } from "./EmojiPickerPanel"
+import { CALLOUT_DEFAULTS } from "./callout-node"
 
-type Panel = "heading" | "color" | "list" | "emoji" | null
+type Panel = "heading" | "color" | "list" | "emoji" | "tag" | "link" | "wikilink" | null
 
 interface BubbleToolbarProps {
   editor: Editor
@@ -70,15 +70,27 @@ const HEADINGS: Array<{ label: string; level: 1 | 2 | 3 | 4 | 5 | null; Icon?: R
 
 export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
   const [panel, setPanel] = React.useState<Panel>(null)
+  const [inputValue, setInputValue] = React.useState("")
+  const [linkLabel, setLinkLabel] = React.useState("")
+  // Track whether selection was empty when the link panel was opened.
+  const [linkHasSelection, setLinkHasSelection] = React.useState(false)
 
-  function togglePanel(next: Exclude<Panel, null>) {
+  function openPanel(next: Exclude<Panel, null>) {
+    setInputValue("")
+    setLinkLabel("")
     setPanel(prev => (prev === next ? null : next))
+  }
+
+  function closePanel() {
+    setPanel(null)
+    setInputValue("")
+    setLinkLabel("")
   }
 
   function setHeading(level: 1 | 2 | 3 | 4 | 5 | null) {
     if (level === null) editor.chain().focus().setParagraph().run()
     else editor.chain().focus().setHeading({ level }).run()
-    setPanel(null)
+    closePanel()
   }
 
   function applyTextColor(color: string | null) {
@@ -89,54 +101,91 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
     editor.chain().focus().setAmbyTextStyle({ backgroundColor: color }).run()
   }
 
-  function insertTag() {
-    const tag = window.prompt("Tag", "tag")
+  // ── Tag panel ──────────────────────────────────────────────────────────────
+  function openTagPanel() {
+    setInputValue("")
+    setPanel("tag")
+  }
+
+  function applyTag() {
+    const tag = inputValue.replace(/^#/, "").trim()
     if (!tag) return
-    editor.chain().focus().insertContent(`#${tag.replace(/^#/, "").trim()} `).run()
+    editor.chain().focus().insertContent(`#${tag} `).run()
   }
 
-  function insertLink() {
-    const url = window.prompt("URL")
+  // ── Link panel ─────────────────────────────────────────────────────────────
+  function openLinkPanel() {
+    const isEmpty = editor.state.selection.empty
+    setLinkHasSelection(!isEmpty)
+    setInputValue("")
+    setLinkLabel("")
+    setPanel("link")
+  }
+
+  function applyLink() {
+    const url = inputValue.trim()
     if (!url) return
-    const { empty } = editor.state.selection
-    if (empty) {
-      const label = window.prompt("Текст ссылки", url) ?? url
+    if (!linkHasSelection) {
+      const label = linkLabel.trim() || url
       editor.chain().focus().insertContent(`[${label}](${url})`).run()
-      return
+    } else {
+      editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run()
     }
-    editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run()
   }
 
-  function insertWikiLink() {
+  // ── Wikilink panel ─────────────────────────────────────────────────────────
+  function openWikilinkPanel() {
     const { from, to } = editor.state.selection
     const selected = editor.state.doc.textBetween(from, to, " ").trim()
-    const target = window.prompt("Backlink", selected || "Note")
+    setInputValue(selected)
+    setPanel("wikilink")
+  }
+
+  function applyWikilink() {
+    const target = inputValue.trim()
     if (!target) return
     editor.chain().focus().insertContent(`[[${target}]]`).run()
   }
 
+  // ── Callout ────────────────────────────────────────────────────────────────
   function insertCallout() {
-    const { from, to, empty } = editor.state.selection
-    const selected = empty ? "" : editor.state.doc.textBetween(from, to, "\n")
-    const body = selected
-      ? `> [!NOTE]\n${selected.split("\n").map(line => `> ${line}`).join("\n")}`
-      : "> [!NOTE]\n> "
-    const doc = markdownToDoc(body) as { content?: unknown }
-    editor.chain().focus().insertContent((doc.content as object) ?? body).run()
+    editor.chain().focus().insertContent({
+      type: "callout",
+      attrs: { calloutType: "NOTE", emoji: CALLOUT_DEFAULTS.NOTE },
+      content: [{ type: "paragraph" }],
+    }).run()
   }
 
+  // ── Emoji ──────────────────────────────────────────────────────────────────
   function insertEmoji(emoji: string) {
     editor.chain().focus().insertContent(emoji).run()
-    setPanel(null)
+    closePanel()
+  }
+
+  // Shared input key handler
+  function handleInputKey(
+    e: React.KeyboardEvent<HTMLInputElement>,
+    onEnter: () => void
+  ) {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      onEnter()
+      closePanel()
+    }
+    if (e.key === "Escape") closePanel()
   }
 
   return (
     <div
-      className="amby-floating-menu fixed z-50 flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-950/95 p-1 shadow-xl backdrop-blur"
+      className="amby-floating-menu fixed z-50 flex items-center gap-1 rounded-md border border-zinc-700 bg-black p-1 shadow-xl backdrop-blur"
       style={{ left, top }}
-      onMouseDown={e => e.preventDefault()}
+      onMouseDown={e => {
+        // Prevent editor blur when clicking toolbar buttons; allow it for
+        // <input> elements so they can receive focus naturally.
+        if (!(e.target instanceof HTMLInputElement)) e.preventDefault()
+      }}
     >
-      <ToolbarButton title="Заголовок" active={panel === "heading"} onClick={() => togglePanel("heading")}>
+      <ToolbarButton title="Заголовок" active={panel === "heading"} onClick={() => openPanel("heading")}>
         <Heading className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
@@ -177,25 +226,25 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
 
       <div className="mx-1 h-5 w-px bg-zinc-800" />
 
-      <ToolbarButton title="Цвет" active={panel === "color"} onClick={() => togglePanel("color")}>
+      <ToolbarButton title="Цвет" active={panel === "color"} onClick={() => openPanel("color")}>
         <Palette className="size-3.5" />
       </ToolbarButton>
-      <ToolbarButton title="Тег" onClick={insertTag}>
+      <ToolbarButton title="Тег" active={panel === "tag"} onClick={openTagPanel}>
         <Hash className="size-3.5" />
       </ToolbarButton>
-      <ToolbarButton title="URL link" onClick={insertLink}>
+      <ToolbarButton title="URL link" active={panel === "link"} onClick={openLinkPanel}>
         <Link className="size-3.5" />
       </ToolbarButton>
-      <ToolbarButton title="Backlink" onClick={insertWikiLink}>
+      <ToolbarButton title="Backlink" active={panel === "wikilink"} onClick={openWikilinkPanel}>
         <span className="text-[10px] font-semibold">[[</span>
       </ToolbarButton>
-      <ToolbarButton title="Emoji" active={panel === "emoji"} onClick={() => togglePanel("emoji")}>
+      <ToolbarButton title="Emoji" active={panel === "emoji"} onClick={() => openPanel("emoji")}>
         <Smile className="size-3.5" />
       </ToolbarButton>
 
       <div className="mx-1 h-5 w-px bg-zinc-800" />
 
-      <ToolbarButton title="List" active={panel === "list"} onClick={() => togglePanel("list")}>
+      <ToolbarButton title="List" active={panel === "list"} onClick={() => openPanel("list")}>
         <List className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
@@ -209,8 +258,19 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
         <MessageSquare className="size-3.5" />
       </ToolbarButton>
 
-      {panel && (
-        <div className="absolute left-0 top-[calc(100%+6px)] rounded-md border border-zinc-800 bg-zinc-950/98 p-1 shadow-xl">
+      {/* ── Emoji picker: rendered outside the shared box to avoid double-border ── */}
+      {panel === "emoji" && (
+        <div className="absolute left-0 top-[calc(100%+6px)]">
+          <EmojiPickerPanel
+            onSelect={emojiData => insertEmoji(emojiData.native)}
+            onClose={closePanel}
+          />
+        </div>
+      )}
+
+      {panel && panel !== "emoji" && (
+        <div className="absolute left-0 top-[calc(100%+6px)] rounded-md border border-zinc-800 bg-black p-1 shadow-xl">
+          {/* ── Heading picker ─────────────────────────────────────────────── */}
           {panel === "heading" && (
             <div className="grid grid-cols-3 gap-1">
               {HEADINGS.map(({ label, level, Icon }) => (
@@ -226,6 +286,8 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
               ))}
             </div>
           )}
+
+          {/* ── Color palette ───────────────────────────────────────────────── */}
           {panel === "color" && (
             <TextStylePalette
               onTextColor={color => applyTextColor(color)}
@@ -234,13 +296,15 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
               onClearBackgroundColor={() => applyBackgroundColor(null)}
             />
           )}
+
+          {/* ── List type picker ────────────────────────────────────────────── */}
           {panel === "list" && (
             <div className="flex items-center gap-1">
               <ToolbarButton
                 title="Bullet list"
                 onClick={() => {
                   editor.chain().focus().toggleBulletList().run()
-                  setPanel(null)
+                  closePanel()
                 }}
               >
                 <List className="size-3.5" />
@@ -249,7 +313,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
                 title="Ordered list"
                 onClick={() => {
                   editor.chain().focus().toggleOrderedList().run()
-                  setPanel(null)
+                  closePanel()
                 }}
               >
                 <ListOrdered className="size-3.5" />
@@ -258,26 +322,80 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
                 title="Task list"
                 onClick={() => {
                   editor.chain().focus().toggleTaskList().run()
-                  setPanel(null)
+                  closePanel()
                 }}
               >
                 <CheckSquare className="size-3.5" />
               </ToolbarButton>
             </div>
           )}
-          {panel === "emoji" && (
-            <div className="grid grid-cols-6 gap-1">
-              {EMOJIS.map(emoji => (
-                <button
-                  key={emoji}
-                  type="button"
-                  className="flex size-8 items-center justify-center rounded text-base hover:bg-zinc-800"
-                  onMouseDown={e => e.preventDefault()}
-                  onClick={() => insertEmoji(emoji)}
-                >
-                  {emoji}
-                </button>
-              ))}
+
+          {/* ── Tag input ───────────────────────────────────────────────────── */}
+          {panel === "tag" && (
+            <div className="flex items-center gap-1.5 px-1.5 py-1">
+              <span className="text-xs text-zinc-500">#</span>
+              <input
+                autoFocus
+                type="text"
+                className="w-40 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
+                placeholder="tagname"
+                value={inputValue}
+                onChange={e => setInputValue(e.target.value)}
+                onKeyDown={e => handleInputKey(e, applyTag)}
+                onMouseDown={e => e.stopPropagation() /* let focus transfer; outer guard handles blur */}
+              />
+            </div>
+          )}
+
+          {/* ── Link input ──────────────────────────────────────────────────── */}
+          {panel === "link" && (
+            <div className="flex flex-col gap-1 px-1.5 py-1">
+              <div className="flex items-center gap-1.5">
+                <span className="w-8 shrink-0 text-[10px] text-zinc-500">URL</span>
+                <input
+                  autoFocus
+                  type="url"
+                  className="w-48 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
+                  placeholder="https://..."
+                  value={inputValue}
+                  onChange={e => setInputValue(e.target.value)}
+                  onKeyDown={e => handleInputKey(e, applyLink)}
+                  onMouseDown={e => e.stopPropagation() /* let focus transfer; outer guard handles blur */}
+                />
+              </div>
+              {!linkHasSelection && (
+                <div className="flex items-center gap-1.5">
+                  <span className="w-8 shrink-0 text-[10px] text-zinc-500">Text</span>
+                  <input
+                    type="text"
+                    className="w-48 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
+                    placeholder="Link label"
+                    value={linkLabel}
+                    onChange={e => setLinkLabel(e.target.value)}
+                    onKeyDown={e => handleInputKey(e, applyLink)}
+                    onMouseDown={e => e.stopPropagation() /* let focus transfer; outer guard handles blur */}
+                  />
+                </div>
+              )}
+              <p className="text-[10px] text-zinc-600">Enter to confirm · Esc to cancel</p>
+            </div>
+          )}
+
+          {/* ── Wikilink input ──────────────────────────────────────────────── */}
+          {panel === "wikilink" && (
+            <div className="flex items-center gap-1.5 px-1.5 py-1">
+              <span className="text-[10px] text-zinc-500">[[</span>
+              <input
+                autoFocus
+                type="text"
+                className="w-44 bg-transparent text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
+                placeholder="Note name"
+                value={inputValue}
+                onChange={e => setInputValue(e.target.value)}
+                onKeyDown={e => handleInputKey(e, applyWikilink)}
+                onMouseDown={e => e.stopPropagation() /* let focus transfer; outer guard handles blur */}
+              />
+              <span className="text-[10px] text-zinc-500">]]</span>
             </div>
           )}
         </div>

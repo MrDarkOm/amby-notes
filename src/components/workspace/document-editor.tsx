@@ -6,6 +6,7 @@ import {
   Database,
   ChevronLeft,
   ChevronRight,
+  Eye,
   FileText,
   FilePlus,
   FolderOpen,
@@ -30,6 +31,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/storage"
+import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel"
 
 interface Document {
   id: string
@@ -60,6 +62,7 @@ interface DocumentEditorProps {
   onLayerChange?: (layer: EditorLayer) => void
   viewMode?: DocumentViewMode
   onViewModeChange?: (mode: DocumentViewMode) => void
+  onFileIconChange?: (emoji: string) => void
 }
 
 type EditorLayer = "editor" | "canvas" | "database" | "sketch"
@@ -109,10 +112,12 @@ export function DocumentEditor({
   onLayerChange,
   viewMode = "live",
   onViewModeChange,
+  onFileIconChange,
 }: DocumentEditorProps) {
   const [content, setContent] = React.useState(document?.content ?? "")
   const [editingTitle, setEditingTitle] = React.useState(false)
   const [titleValue, setTitleValue] = React.useState(document?.title ?? "")
+  const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false)
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
   const titleInputRef = React.useRef<HTMLInputElement>(null)
 
@@ -273,7 +278,27 @@ export function DocumentEditor({
           {/* Title */}
           <div className="mb-4 flex items-center gap-3">
             {fileIcon && !/^(folder|file|workspace|canvas|draft|brain)$/.test(fileIcon) && (
-              <span className="text-3xl leading-none shrink-0">{fileIcon}</span>
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  className="text-3xl leading-none transition-transform hover:scale-110 focus:outline-none"
+                  title="Change icon"
+                  onClick={() => setEmojiPickerOpen(v => !v)}
+                >
+                  {fileIcon}
+                </button>
+                {emojiPickerOpen && (
+                  <div className="absolute left-0 top-full z-50 mt-1">
+                    <EmojiPickerPanel
+                      onSelect={emojiData => {
+                        onFileIconChange?.(emojiData.native)
+                        setEmojiPickerOpen(false)
+                      }}
+                      onClose={() => setEmojiPickerOpen(false)}
+                    />
+                  </div>
+                )}
+              </div>
             )}
             {editingTitle ? (
               <input
@@ -345,11 +370,11 @@ export function DocumentEditor({
             type="button"
             title={viewMode === "read" ? "Переключить в Live" : "Переключить в Read"}
             disabled={activeLayer !== "editor" || viewMode === "source"}
-            className="rounded border border-zinc-800 px-1.5 py-0.5 text-[11px] font-medium text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
+            className="flex size-5 items-center justify-center rounded border border-zinc-800 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
             onMouseDown={e => e.preventDefault()}
             onClick={() => onViewModeChange?.(viewMode === "read" ? "live" : "read")}
           >
-            {viewMode === "read" ? "Read" : "Live"}
+            {viewMode === "read" ? <Eye className="size-3" /> : <PenLine className="size-3" />}
           </button>
           <div className="mx-1 h-3 w-px bg-zinc-800" />
           <button

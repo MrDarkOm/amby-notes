@@ -8,6 +8,7 @@ import { markdownToDoc, docToMarkdown } from "./markdown"
 import { clamp, type EditorHandle } from "./constants"
 import type { TagsWikilinksCallbacks } from "./tags-wikilinks"
 import { BubbleToolbar } from "./BubbleToolbar"
+import { BlockHandles } from "./BlockHandles"
 
 interface TiptapEditorProps {
   value: string
@@ -26,6 +27,7 @@ interface MenuState {
 }
 
 const MENU_WIDTH = 290
+const MENU_HEIGHT = 44
 
 // Shared rich-text editor used by both Live (editable) and Read (editable=false)
 // modes. Markdown is the source of truth: `value` is parsed on the way in and
@@ -90,13 +92,23 @@ export function TiptapEditor({
         8,
         window.innerWidth - MENU_WIDTH - 8
       )
-      const above = Math.min(start.top, end.top) - 50
       const below = Math.max(start.bottom, end.bottom) + 10
-      const top = above > 8 ? above : clamp(below, 8, window.innerHeight - 60)
+      const above = Math.min(start.top, end.top) - MENU_HEIGHT - 6
+      // Prefer below; fall back to above if there is not enough room
+      const top =
+        below + MENU_HEIGHT < window.innerHeight - 8
+          ? below
+          : clamp(above, 8, window.innerHeight - MENU_HEIGHT - 8)
       setMenu({ open: true, left, top })
     },
     onBlur: () => {
-      window.setTimeout(closeMenu, 180)
+      window.setTimeout(() => {
+        // Don't close if focus moved into the floating bubble toolbar (e.g. an
+        // input field for tag / link / wikilink panels).
+        const floatingMenu = document.querySelector(".amby-floating-menu")
+        if (floatingMenu?.contains(document.activeElement)) return
+        closeMenu()
+      }, 180)
     },
   })
 
@@ -130,6 +142,7 @@ export function TiptapEditor({
       {editor && editable && menu.open && (
         <BubbleToolbar editor={editor} left={menu.left} top={menu.top} />
       )}
+      {editor && editable && <BlockHandles editor={editor} />}
       <EditorContent editor={editor} />
     </div>
   )
