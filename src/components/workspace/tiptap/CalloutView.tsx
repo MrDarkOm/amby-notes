@@ -18,7 +18,11 @@ import { EmojiPickerPanel } from "./EmojiPickerPanel"
 export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
   const [pickerOpen, setPickerOpen] = React.useState(false)
   const emojiSlotRef = React.useRef<HTMLDivElement>(null)
-  const { calloutType, emoji } = node.attrs as { calloutType: string; emoji: string }
+  const { calloutType, emoji, bgColor } = node.attrs as {
+    calloutType: string
+    emoji: string
+    bgColor: string | null
+  }
 
   function handleEmojiSelect(emojiData: { native: string }) {
     updateAttributes({ emoji: emojiData.native })
@@ -28,6 +32,7 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
   return (
     <NodeViewWrapper
       data-callout-type={calloutType}
+      data-bg={bgColor ?? undefined}
       className="amby-callout-node"
     >
       <div className="amby-callout-inner">

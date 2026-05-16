@@ -1,51 +1,13 @@
 import { Extension, type Editor, type Range } from "@tiptap/core"
 import Suggestion, { type SuggestionProps } from "@tiptap/suggestion"
 
-import { markdownToDoc } from "./markdown"
+import { INLINE_INSERT_ITEMS, type BlockInsertItem } from "./block-insert-items"
 
-interface SlashItem {
-  title: string
-  hint: string
-  run: (editor: Editor, range: Range) => void
-}
-
-const ITEMS: SlashItem[] = [
-  {
-    title: "Callout",
-    hint: "> [!NOTE]",
-    run: (editor, range) => {
-      const doc = markdownToDoc("> [!NOTE]\n> ") as { content?: object }
-      editor
-        .chain()
-        .focus()
-        .deleteRange(range)
-        .insertContent((doc.content as object) ?? "> [!NOTE]\n> ")
-        .run()
-    },
-  },
-  {
-    title: "Tag",
-    hint: "#tag",
-    run: (editor, range) => {
-      editor.chain().focus().deleteRange(range).insertContent("#tag ").run()
-    },
-  },
-  {
-    title: "Backlink",
-    hint: "[[Note]]",
-    run: (editor, range) => {
-      editor.chain().focus().deleteRange(range).insertContent("[[Note]]").run()
-    },
-  },
-]
-
-// Lightweight plain-DOM popup for the `/` slash menu — keeps callout / tag /
-// wikilink insertion available without a React renderer.
 class SlashPopup {
   private root: HTMLElement
-  private items: SlashItem[] = []
+  private items: BlockInsertItem[] = []
   private selected = 0
-  private props: SuggestionProps<SlashItem> | null = null
+  private props: SuggestionProps<BlockInsertItem> | null = null
 
   constructor() {
     this.root = document.createElement("div")
@@ -54,7 +16,7 @@ class SlashPopup {
     this.root.style.zIndex = "60"
   }
 
-  update(props: SuggestionProps<SlashItem>) {
+  update(props: SuggestionProps<BlockInsertItem>) {
     this.props = props
     this.items = props.items
     this.selected = 0
@@ -93,7 +55,7 @@ class SlashPopup {
   private choose(index: number) {
     const item = this.items[index]
     const props = this.props
-    if (item && props) item.run(props.editor, props.range)
+    if (item && props) runSlashItem(props.editor, props.range, item)
   }
 
   onKeyDown(event: KeyboardEvent): boolean {
@@ -124,18 +86,25 @@ class SlashPopup {
   }
 }
 
+function runSlashItem(editor: Editor, range: Range, item: BlockInsertItem) {
+  editor.chain().focus().deleteRange(range).run()
+  item.inline(editor)
+}
+
 export const SlashMenu = Extension.create({
   name: "slashMenu",
 
   addProseMirrorPlugins() {
     return [
-      Suggestion<SlashItem>({
+      Suggestion<BlockInsertItem>({
         editor: this.editor,
         char: "/",
         startOfLine: false,
         items: ({ query }) =>
-          ITEMS.filter(item => item.title.toLowerCase().includes(query.toLowerCase())),
-        command: ({ editor, range, props }) => props.run(editor, range),
+          INLINE_INSERT_ITEMS.filter(item =>
+            item.title.toLowerCase().includes(query.toLowerCase()),
+          ),
+        command: ({ editor, range, props }) => runSlashItem(editor, range, props),
         render: () => {
           let popup: SlashPopup | null = null
           return {

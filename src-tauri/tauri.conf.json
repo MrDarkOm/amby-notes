@@ -15,6 +15,7 @@
         "title": "amby-desktop",
         "width": 1280,
         "height": 800,
+        "decorations": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "trafficLightPosition": { "x": 12, "y": 20 }

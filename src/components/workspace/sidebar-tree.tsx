@@ -7,6 +7,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel"
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem,
   ContextMenuSeparator, ContextMenuTrigger,
@@ -24,14 +25,6 @@ export interface TreeItem {
 
 const KNOWN_ICONS = new Set(["folder", "file", "workspace", "canvas", "draft", "brain"])
 const ROOT_DROP_TARGET = "__amby_root__"
-
-const EMOJI_LIST = [
-  "📝","📄","📃","📋","📊","📈","📜","📌",
-  "⭐","🔖","💡","🎯","🔥","💎","🚀","⚡",
-  "😀","🤔","👍","❤️","🎉","✅","❌","⚠️",
-  "🏠","🌍","🔧","📚","🎮","🎨","🎵","🎬",
-  "🐛","🦋","🌸","🍀","🌙","☀️","🌈","🌊",
-]
 
 interface PtrDrag {
   sourceId: string
@@ -216,19 +209,12 @@ function TreeNode({
           <Smile className="size-3.5 text-zinc-500" />
           Иконка
         </ContextMenuSubTrigger>
-        <ContextMenuSubContent className="border-zinc-800 bg-black p-1.5 shadow-xl">
-          <div className="grid grid-cols-8 gap-px">
-            {EMOJI_LIST.map(emoji => (
-              <ContextMenuItem
-                key={emoji}
-                onSelect={() => onSetIcon?.(item.id, emoji)}
-                className="flex size-7 items-center justify-center rounded p-0 text-[15px] focus:bg-zinc-700 cursor-pointer"
-              >
-                {emoji}
-              </ContextMenuItem>
-            ))}
-          </div>
-          <div className="mt-1 border-t border-zinc-800 pt-1">
+        <ContextMenuSubContent className="border-zinc-800 bg-black p-0 shadow-xl">
+          <EmojiPickerPanel
+            onSelect={emojiData => onSetIcon?.(item.id, emojiData.native)}
+            onClose={() => {}}
+          />
+          <div className="border-t border-zinc-800 p-1">
             <ContextMenuItem
               onSelect={() => onSetIcon?.(item.id, defaultIcon)}
               className="text-[12px] text-zinc-400 focus:bg-zinc-800 focus:text-zinc-300"

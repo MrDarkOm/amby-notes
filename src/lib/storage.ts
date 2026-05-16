@@ -50,6 +50,12 @@ export interface LayerResult {
   pathChanges: PathChange[]
 }
 
+export interface NoteLayers {
+  canvas: boolean
+  sketch: boolean
+  database: boolean
+}
+
 export interface LinkGraphNode {
   id: string
   label: string
@@ -338,6 +344,18 @@ export async function createFolder(vaultPath: string, name: string): Promise<str
     webSaveTree(webAddChild(tree, parent?.type === "folder" ? vaultPath : null, folder))
   }
   return path
+}
+
+export async function noteLayers(notePath: string): Promise<NoteLayers> {
+  if (isTauri()) return invoke<NoteLayers>("note_layers", { notePath })
+  const stem = pathStem(notePath)
+  const dir = pathDir(notePath)
+  if (pathBase(dir) !== stem) return { canvas: false, sketch: false, database: false }
+  return {
+    canvas: localStorage.getItem(FILE_PREFIX + joinPath(dir, `${stem}.canvas`)) !== null,
+    sketch: localStorage.getItem(FILE_PREFIX + joinPath(dir, `${stem}.excalidraw`)) !== null,
+    database: localStorage.getItem(FILE_PREFIX + joinPath(dir, "Metadata.md")) !== null,
+  }
 }
 
 export async function createLayer(notePath: string, kind: LayerKind): Promise<LayerResult> {

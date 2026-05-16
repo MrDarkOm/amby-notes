@@ -44,6 +44,14 @@ pub struct LayerResult {
     pub path_changes: Vec<PathChange>,
 }
 
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteLayers {
+    pub canvas: bool,
+    pub sketch: bool,
+    pub database: bool,
+}
+
 #[derive(Serialize)]
 pub struct FileMetadata {
     pub created: Option<u64>,
@@ -686,6 +694,29 @@ fn create_layer(note_path: String, kind: String) -> Result<LayerResult, String> 
 }
 
 #[tauri::command]
+fn note_layers(note_path: String) -> Result<NoteLayers, String> {
+    let path = Path::new(&note_path);
+    let mut layers = NoteLayers::default();
+    if !path.is_file() {
+        return Ok(layers);
+    }
+    let Some(parent) = path.parent() else {
+        return Ok(layers);
+    };
+    let Some(parent_name) = parent.file_name().map(|s| s.to_string_lossy().to_string()) else {
+        return Ok(layers);
+    };
+    let stem = file_stem(path)?;
+    if parent_name != stem {
+        return Ok(layers);
+    }
+    layers.canvas = parent.join(format!("{stem}.canvas")).is_file();
+    layers.sketch = parent.join(format!("{stem}.excalidraw")).is_file();
+    layers.database = parent.join("Metadata.md").is_file();
+    Ok(layers)
+}
+
+#[tauri::command]
 fn move_item(vault_path: String, source_path: String, target_path: String) -> Result<FsMutationResult, String> {
     let result = move_item_impl(Path::new(&source_path), Path::new(&target_path))?;
     sync_mutation_result(Path::new(&vault_path), result)
@@ -809,6 +840,7 @@ pub fn run() {
             ensure_bundle,
             create_note,
             create_layer,
+            note_layers,
             move_item,
             create_file,
             create_folder,

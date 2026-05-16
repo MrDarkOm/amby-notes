@@ -31,6 +31,7 @@ export const CalloutNode = Node.create({
     return {
       calloutType: { default: "NOTE" },
       emoji: { default: "💡" },
+      bgColor: { default: null as string | null },
     }
   },
 
@@ -43,6 +44,7 @@ export const CalloutNode = Node.create({
           return {
             calloutType: div.getAttribute("data-callout-type") ?? "NOTE",
             emoji: div.getAttribute("data-emoji") ?? "💡",
+            bgColor: div.getAttribute("data-bg"),
           }
         },
       },
@@ -50,15 +52,13 @@ export const CalloutNode = Node.create({
   },
 
   renderHTML({ HTMLAttributes, node }) {
-    return [
-      "div",
-      mergeAttributes(HTMLAttributes, {
-        "data-type": "callout",
-        "data-callout-type": node.attrs.calloutType,
-        "data-emoji": node.attrs.emoji,
-      }),
-      0,
-    ]
+    const extras: Record<string, string> = {
+      "data-type": "callout",
+      "data-callout-type": node.attrs.calloutType,
+      "data-emoji": node.attrs.emoji,
+    }
+    if (node.attrs.bgColor) extras["data-bg"] = node.attrs.bgColor
+    return ["div", mergeAttributes(HTMLAttributes, extras), 0]
   },
 
   addNodeView() {

@@ -36,6 +36,8 @@ import {
   deleteItem,
   moveItem,
   createLayer,
+  noteLayers,
+  type NoteLayers,
   openInExplorer,
   type FsMutationResult,
   type LayerKind,
@@ -222,6 +224,8 @@ export function Workspace() {
   const [linkGraph, setLinkGraph] = React.useState<LinkGraph>({ nodes: [], edges: [] })
   const [activeLayers, setActiveLayers] = React.useState<Record<string, EditorLayer>>({})
   const [viewModes, setViewModes] = React.useState<Record<string, DocumentViewMode>>({})
+  const [linkedLayersByDoc, setLinkedLayersByDoc] = React.useState<Record<string, NoteLayers>>({})
+  const [lockedFileIds, setLockedFileIds] = React.useState<Set<string>>(new Set())
 
   function handleToggleFavorite(id: string) {
     setFavorites(prev => {
@@ -341,6 +345,20 @@ export function Workspace() {
   function saveViewModes(path: string | null, next: Record<string, DocumentViewMode>) {
     setViewModes(next)
     if (path) localStorage.setItem(`amby:view-modes:${path}`, JSON.stringify(next))
+  }
+
+  function saveLockedFileIds(path: string | null, next: Set<string>) {
+    setLockedFileIds(next)
+    if (path) localStorage.setItem(`amby:locked:${path}`, JSON.stringify([...next]))
+  }
+
+  async function refreshLinkedLayers(docId: string, notePath: string) {
+    try {
+      const layers = await noteLayers(notePath)
+      setLinkedLayersByDoc(prev => ({ ...prev, [docId]: layers }))
+    } catch (err) {
+      console.error("Failed to load note layers:", err)
+    }
   }
 
   async function refreshTree(path = vault) {
@@ -550,6 +568,17 @@ export function Workspace() {
         setViewModes(next)
         localStorage.setItem(`amby:view-modes:${path}`, JSON.stringify(next))
       } catch { setViewModes({}) }
+
+      // Restore locked notes
+      try {
+        const savedLocked = localStorage.getItem(`amby:locked:${path}`)
+        const ids = savedLocked ? JSON.parse(savedLocked) as string[] : []
+        const next = new Set(
+          ids.map(id => remapStoredId(id, pathToId)).filter(id => allIds.has(id)),
+        )
+        setLockedFileIds(next)
+        localStorage.setItem(`amby:locked:${path}`, JSON.stringify([...next]))
+      } catch { setLockedFileIds(new Set()) }
 
       // Restore open tabs
       try {
@@ -849,6 +878,7 @@ export function Workspace() {
       })
       setActiveLayers(prev => ({ ...prev, [doc.id]: layer }))
       await refreshTree()
+      await refreshLinkedLayers(doc.id, result.notePath ?? doc.path)
     } catch (err) {
       console.error("Failed to create layer:", err)
     }
@@ -857,6 +887,13 @@ export function Workspace() {
   const handleViewModeChange = (mode: DocumentViewMode) => {
     if (!currentDoc) return
     saveViewModes(vault, { ...viewModes, [currentDoc.id]: mode })
+  }
+
+  const handleToggleLock = () => {
+    if (!currentDoc) return
+    const next = new Set(lockedFileIds)
+    if (next.has(currentDoc.id)) next.delete(currentDoc.id); else next.add(currentDoc.id)
+    saveLockedFileIds(vault, next)
   }
 
   const handleContentChange = (content: string) => {
@@ -885,6 +922,13 @@ export function Workspace() {
   }
 
   const currentDoc = activeTab ? openDocs[activeTab.fileId] ?? null : null
+
+  React.useEffect(() => {
+    if (!currentDoc) return
+    if (linkedLayersByDoc[currentDoc.id]) return
+    refreshLinkedLayers(currentDoc.id, currentDoc.path)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentDoc?.id, currentDoc?.path])
 
   const currentProperties = currentDoc ? {
     type: "Markdown", status: "Draft", revisions: 0, backlinks: linkGraph.edges.filter(e => e.target === currentDoc.id).length,
@@ -938,6 +982,11 @@ export function Workspace() {
     onLayerChange: handleLayerChange,
     viewMode: currentDoc ? viewModes[currentDoc.id] ?? "live" : "live",
     onViewModeChange: handleViewModeChange,
+    linkedLayers: currentDoc
+      ? linkedLayersByDoc[currentDoc.id] ?? { canvas: false, sketch: false, database: false }
+      : { canvas: false, sketch: false, database: false },
+    isLocked: currentDoc ? lockedFileIds.has(currentDoc.id) : false,
+    onToggleLock: handleToggleLock,
   }
 
   if (!vault && isTauri()) {

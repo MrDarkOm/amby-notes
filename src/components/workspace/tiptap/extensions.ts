@@ -5,6 +5,7 @@ import { schemaExtensions } from "./schema"
 import { TagsWikilinks, type TagsWikilinksCallbacks } from "./tags-wikilinks"
 import { SlashMenu } from "./slash-menu"
 import { IndentShortcut } from "./indent-shortcut"
+import { WrapShortcuts } from "./wrap-shortcuts"
 
 export interface BuildExtensionsOptions {
   placeholder: string
@@ -21,5 +22,6 @@ export function buildExtensions({ placeholder, callbacks }: BuildExtensionsOptio
     TagsWikilinks.configure({ callbacks }),
     SlashMenu,
     IndentShortcut,
+    WrapShortcuts,
   ]
 }

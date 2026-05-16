@@ -24,6 +24,7 @@ import {
 import { TextStylePalette } from "../text-style-palette"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { CALLOUT_DEFAULTS } from "./callout-node"
+import { wrapSelectionInCallout } from "./block-insert-items"
 
 type Panel = "heading" | "color" | "list" | "emoji" | "tag" | "link" | "wikilink" | null
 
@@ -103,6 +104,16 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
 
   // ── Tag panel ──────────────────────────────────────────────────────────────
   function openTagPanel() {
+    const { from, to } = editor.state.selection
+    if (from !== to) {
+      // Selection exists: wrap immediately without opening the input panel
+      const selected = editor.state.doc.textBetween(from, to, " ").trim()
+      const slug = selected.replace(/\s+/g, "-").replace(/[^\p{L}\p{N}_\-/]/gu, "")
+      if (slug) {
+        editor.chain().focus().insertContentAt({ from, to }, `#${slug} `).run()
+        return
+      }
+    }
     setInputValue("")
     setPanel("tag")
   }
@@ -137,6 +148,11 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
   function openWikilinkPanel() {
     const { from, to } = editor.state.selection
     const selected = editor.state.doc.textBetween(from, to, " ").trim()
+    if (from !== to && selected) {
+      // Selection exists: wrap immediately as [[selected text]]
+      editor.chain().focus().insertContentAt({ from, to }, `[[${selected}]]`).run()
+      return
+    }
     setInputValue(selected)
     setPanel("wikilink")
   }
@@ -149,6 +165,12 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
 
   // ── Callout ────────────────────────────────────────────────────────────────
   function insertCallout() {
+    const { from, to } = editor.state.selection
+    if (from !== to) {
+      // Selection exists: wrap the selected block(s) in a callout
+      wrapSelectionInCallout(editor)
+      return
+    }
     editor.chain().focus().insertContent({
       type: "callout",
       attrs: { calloutType: "NOTE", emoji: CALLOUT_DEFAULTS.NOTE },
