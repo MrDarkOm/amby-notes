@@ -4,7 +4,7 @@ mod vault_index;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct TreeItem {
@@ -807,6 +807,160 @@ fn open_in_explorer(path: String) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedAsset {
+    pub rel_path: String,
+    pub abs_path: String,
+    pub file_name: String,
+    pub kind: String,
+}
+
+const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
+
+fn classify_ext(ext: &str) -> &'static str {
+    let ext = ext.to_lowercase();
+    if IMAGE_EXTS.iter().any(|e| *e == ext) {
+        "image"
+    } else {
+        "file"
+    }
+}
+
+fn now_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
+
+fn assets_dir_for(vault: &Path, note: &Path) -> PathBuf {
+    if is_bundle_main_note(note) {
+        if let Some(parent) = note.parent() {
+            return parent.join("assets");
+        }
+    }
+    vault.join("assets")
+}
+
+fn unique_name(dir: &Path, stem: &str, ext: &str) -> String {
+    let safe_stem: String = stem
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .collect();
+    let safe_stem = if safe_stem.is_empty() { "asset".to_string() } else { safe_stem };
+    let initial = if ext.is_empty() {
+        safe_stem.clone()
+    } else {
+        format!("{safe_stem}.{ext}")
+    };
+    if !dir.join(&initial).exists() {
+        return initial;
+    }
+    let suffix = now_millis();
+    if ext.is_empty() {
+        format!("{safe_stem}-{suffix}")
+    } else {
+        format!("{safe_stem}-{suffix}.{ext}")
+    }
+}
+
+fn relative_for_markdown(vault: &Path, note: &Path, asset_abs: &Path) -> String {
+    // Prefer note-relative path (works for bundle assets like `assets/foo.png`).
+    if let Some(note_dir) = note.parent() {
+        if let Ok(rel) = asset_abs.strip_prefix(note_dir) {
+            return path_string(rel).replace('\\', "/");
+        }
+    }
+    if let Ok(rel) = asset_abs.strip_prefix(vault) {
+        return path_string(rel).replace('\\', "/");
+    }
+    path_string(asset_abs)
+}
+
+fn build_imported_asset(vault: &Path, note: &Path, abs_path: PathBuf, file_name: String) -> ImportedAsset {
+    let ext = abs_path
+        .extension()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let kind = classify_ext(&ext).to_string();
+    let rel_path = relative_for_markdown(vault, note, &abs_path);
+    ImportedAsset {
+        rel_path,
+        abs_path: path_string(&abs_path),
+        file_name,
+        kind,
+    }
+}
+
+#[tauri::command]
+fn import_asset(
+    vault_path: String,
+    note_path: String,
+    source_path: String,
+) -> Result<ImportedAsset, String> {
+    let vault = Path::new(&vault_path);
+    let note = Path::new(&note_path);
+    let source = Path::new(&source_path);
+    if !source.is_file() {
+        return Err(format!("Source is not a file: {source_path}"));
+    }
+    let dir = assets_dir_for(vault, note);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem = source
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "asset".to_string());
+    let ext = source
+        .extension()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let name = unique_name(&dir, &stem, &ext);
+    let dest = dir.join(&name);
+    fs::copy(source, &dest).map_err(|e| e.to_string())?;
+    Ok(build_imported_asset(vault, note, dest, name))
+}
+
+#[tauri::command]
+fn import_asset_bytes(
+    vault_path: String,
+    note_path: String,
+    bytes: Vec<u8>,
+    suggested_ext: String,
+) -> Result<ImportedAsset, String> {
+    let vault = Path::new(&vault_path);
+    let note = Path::new(&note_path);
+    let dir = assets_dir_for(vault, note);
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let ext = suggested_ext.trim_start_matches('.').to_lowercase();
+    let ext = if ext.is_empty() { "png".to_string() } else { ext };
+    let stem = format!("pasted-{}", now_millis());
+    let name = unique_name(&dir, &stem, &ext);
+    let dest = dir.join(&name);
+    fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+    Ok(build_imported_asset(vault, note, dest, name))
+}
+
+#[tauri::command]
+async fn pick_asset_file(
+    app: tauri::AppHandle,
+    images_only: bool,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    use tokio::sync::oneshot;
+
+    let (tx, rx) = oneshot::channel();
+    let mut builder = app.dialog().file();
+    if images_only {
+        builder = builder.add_filter("Image", IMAGE_EXTS);
+    }
+    builder.pick_file(move |path| {
+        let _ = tx.send(path);
+    });
+    let result = rx.await.map_err(|e| e.to_string())?;
+    Ok(result.map(|p| p.to_string()))
+}
+
 #[tauri::command]
 async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -849,6 +1003,9 @@ pub fn run() {
             get_file_metadata,
             open_vault,
             open_in_explorer,
+            import_asset,
+            import_asset_bytes,
+            pick_asset_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application")

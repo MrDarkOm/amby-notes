@@ -3,13 +3,12 @@ import StarterKit from "@tiptap/starter-kit"
 import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table"
 import { TaskList } from "@tiptap/extension-task-list"
 import { TaskItem } from "@tiptap/extension-task-item"
-import { Image } from "@tiptap/extension-image"
-
 import { AmbyTextStyle } from "./marks/amby-text-style"
 import { AmbyUnderline } from "./marks/amby-underline"
 import { AmbyHtml } from "./marks/amby-html"
 import { MarkdownMarkup } from "./markdown-markup"
 import { CalloutNode } from "./callout-node"
+import { AmbyImage } from "./amby-image"
 
 // Schema-defining extensions — identical for Live and Read, and the source of
 // truth for the standalone schema used by the markdown conversion layer.
@@ -29,7 +28,7 @@ export const schemaExtensions: Extensions = [
   TableCell,
   TaskList,
   TaskItem.configure({ nested: true }),
-  Image.configure({ inline: true }),
+  AmbyImage.configure({ inline: true }),
   MarkdownMarkup,
   AmbyTextStyle,
   AmbyUnderline,

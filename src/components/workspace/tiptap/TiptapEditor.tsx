@@ -9,6 +9,15 @@ import { clamp, type EditorHandle } from "./constants"
 import type { TagsWikilinksCallbacks } from "./tags-wikilinks"
 import { BubbleToolbar } from "./BubbleToolbar"
 import { BlockHandles } from "./BlockHandles"
+import { BlockInsertPanel } from "./BlockInsertPanel"
+import { primeAssetConverter, setAssetContext } from "./asset-resolver"
+import { bindTauriFileDrop } from "./media-drop"
+import {
+  SLASH_TRIGGER_EVENT,
+  closeSlashMenu,
+  readSlashStorage,
+  type SlashTriggerState,
+} from "./slash-menu"
 
 interface TiptapEditorProps {
   value: string
@@ -18,6 +27,8 @@ interface TiptapEditorProps {
   editable?: boolean
   onTagClick?: (tag: string) => void
   onWikiLinkClick?: (target: string) => void
+  vaultPath?: string
+  notePath?: string
 }
 
 interface MenuState {
@@ -40,6 +51,8 @@ export function TiptapEditor({
   editable = true,
   onTagClick,
   onWikiLinkClick,
+  vaultPath,
+  notePath,
 }: TiptapEditorProps) {
   const valueRef = React.useRef(value)
   const onChangeRef = React.useRef(onChange)
@@ -137,13 +150,82 @@ export function TiptapEditor({
     }
   }, [editor, editorRef])
 
+  // Make vault/note paths reachable from inside extensions/node views.
+  React.useEffect(() => {
+    if (!editor) return
+    setAssetContext(editor, { vaultPath: vaultPath ?? "", notePath: notePath ?? "" })
+  }, [editor, vaultPath, notePath])
+
+  React.useEffect(() => {
+    void primeAssetConverter()
+  }, [])
+
+  React.useEffect(() => {
+    if (!editor || !editable) return
+    let dispose: (() => void) | undefined
+    void bindTauriFileDrop(editor.view, (clientX, clientY) => {
+      const coords = editor.view.posAtCoords({ left: clientX, top: clientY })
+      return coords?.pos ?? null
+    }).then(unsub => {
+      dispose = unsub
+    })
+    return () => {
+      dispose?.()
+    }
+  }, [editor, editable])
+
+  // ── Slash-trigger subscription: render a single BlockInsertPanel when the
+  // SlashMenu extension publishes state to editor.storage.slashMenu. ─────────
+  const [slashState, setSlashState] = React.useState<SlashTriggerState | null>(null)
+  React.useEffect(() => {
+    if (!editor) return
+    const read = () => {
+      const s = readSlashStorage(editor)
+      if (!s) {
+        setSlashState(null)
+        return
+      }
+      // Snapshot so React diff fires.
+      setSlashState({ ...s })
+    }
+    read()
+    window.addEventListener(SLASH_TRIGGER_EVENT, read)
+    return () => window.removeEventListener(SLASH_TRIGGER_EVENT, read)
+  }, [editor])
+
+  const slashAnchor = React.useMemo(() => {
+    const r = slashState?.rect
+    if (!r) return null
+    return {
+      left: r.left,
+      top: r.top,
+      right: r.right,
+      bottom: r.bottom,
+      width: r.width,
+      height: r.height,
+    }
+  }, [slashState])
+
   return (
     <div className="amby-tiptap relative min-h-[360px] pb-24">
       {editor && editable && menu.open && (
         <BubbleToolbar editor={editor} left={menu.left} top={menu.top} />
       )}
-      {editor && editable && <BlockHandles editor={editor} />}
+      {editor && editable && (
+        <BlockHandles editor={editor} vaultPath={vaultPath} notePath={notePath} />
+      )}
       <EditorContent editor={editor} />
+      {editor && editable && slashState?.open && slashState.range && slashAnchor && (
+        <BlockInsertPanel
+          editor={editor}
+          vaultPath={vaultPath}
+          notePath={notePath}
+          source="slash"
+          range={slashState.range}
+          anchorRect={slashAnchor}
+          onClose={() => closeSlashMenu(editor)}
+        />
+      )}
     </div>
   )
 }

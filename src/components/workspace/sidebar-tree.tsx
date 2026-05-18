@@ -13,6 +13,10 @@ import {
   ContextMenuSeparator, ContextMenuTrigger,
   ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
 } from "@/components/ui/context-menu"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
+
+type AttachableLayer = "canvas" | "database"
+interface NodeLayers { canvas: boolean; database: boolean; sketch: boolean }
 
 export interface TreeItem {
   id: string
@@ -54,6 +58,8 @@ interface SidebarTreeProps {
   folderTargetOpen?: boolean
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
+  onAttachLayer?: (id: string, layer: AttachableLayer) => void
+  linkedLayersByDoc?: Record<string, NodeLayers>
 }
 
 interface TreeNodeProps {
@@ -76,6 +82,8 @@ interface TreeNodeProps {
   folderTargetOpen?: boolean
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
+  onAttachLayer?: (id: string, layer: AttachableLayer) => void
+  linkedLayersByDoc?: Record<string, NodeLayers>
 }
 
 function BrainIcon({ className }: { className?: string }) {
@@ -116,8 +124,10 @@ function TreeNode({
   item, level, selectedId, onSelect, onRename, onDelete,
   onNewFile, onNewFolder, onOpenInNewTab, onOpenInExplorer, onSetIcon,
   triggerRenameId, onPtrDragStart, ptrDragSourceId, ptrDragTargetId,
-  folderResetKey, folderTargetOpen, favorites, onToggleFavorite,
+  folderResetKey, folderTargetOpen, favorites, onToggleFavorite, onAttachLayer,
+  linkedLayersByDoc,
 }: TreeNodeProps) {
+  const [pendingAttach, setPendingAttach] = React.useState<AttachableLayer | null>(null)
   const [isOpen, setIsOpen] = React.useState(true)
   const prevResetKey = React.useRef<number | undefined>(undefined)
   React.useEffect(() => {
@@ -196,11 +206,34 @@ function TreeNode({
         <FolderPlus className="size-3.5 text-zinc-500" />
         Новая папка
       </ContextMenuItem>
-      <ContextMenuItem disabled className="flex items-center gap-2 text-[13px] text-zinc-600">
-        <Database className="size-3.5" />
-        База данных
-        <span className="ml-auto text-[10px] text-zinc-700">Скоро</span>
-      </ContextMenuItem>
+      {item.type === "file" && onAttachLayer && (() => {
+        const layers = linkedLayersByDoc?.[item.id]
+        const canvasAvail = !layers?.canvas
+        const dbAvail = !layers?.database
+        if (!canvasAvail && !dbAvail) return null
+        return (
+          <>
+            {canvasAvail && (
+              <ContextMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                onSelect={() => setPendingAttach("canvas")}
+              >
+                <LayoutGrid className="size-3.5 text-zinc-500" />
+                Прикрепить Canvas
+              </ContextMenuItem>
+            )}
+            {dbAvail && (
+              <ContextMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                onSelect={() => setPendingAttach("database")}
+              >
+                <Database className="size-3.5 text-zinc-500" />
+                Прикрепить базу данных
+              </ContextMenuItem>
+            )}
+          </>
+        )
+      })()}
 
       <ContextMenuSeparator className="bg-zinc-800" />
 
@@ -277,6 +310,50 @@ function TreeNode({
     </ContextMenuContent>
   )
 
+  const layerLabelRu: Record<AttachableLayer, string> = { canvas: "Canvas", database: "базу данных" }
+
+  const attachDialog = (
+    <Dialog
+      open={pendingAttach !== null}
+      onOpenChange={(open) => { if (!open) setPendingAttach(null) }}
+    >
+      <DialogContent
+        showCloseButton={false}
+        className="w-72 border-zinc-800 bg-black p-4 text-zinc-200 sm:max-w-xs"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault()
+            if (pendingAttach) { onAttachLayer?.(item.id, pendingAttach); setPendingAttach(null) }
+          }
+        }}
+      >
+        <p className="text-[13px] leading-snug">
+          Создать привязанный{" "}
+          {pendingAttach ? layerLabelRu[pendingAttach] : ""} к заметке «{item.name}»?
+        </p>
+        <div className="mt-1 flex justify-end gap-2">
+          <button
+            type="button"
+            className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-900"
+            onClick={() => setPendingAttach(null)}
+          >
+            Отмена
+          </button>
+          <button
+            type="button"
+            autoFocus
+            className="rounded bg-zinc-100 px-2.5 py-1 text-xs font-medium text-black hover:bg-white"
+            onClick={() => {
+              if (pendingAttach) { onAttachLayer?.(item.id, pendingAttach); setPendingAttach(null) }
+            }}
+          >
+            Создать
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+
   const buttonCls = cn(
     "flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[13px] transition-colors hover:bg-accent",
     isSelected && "bg-accent",
@@ -286,6 +363,7 @@ function TreeNode({
 
   if (hasChildren) {
     return (
+      <>
       <div
         data-drag-target={item.type === "folder" || item.type === "file" ? item.id : undefined}
         className={cn(isDragTarget && "rounded ring-1 ring-inset ring-blue-500 bg-blue-900/20")}
@@ -345,15 +423,20 @@ function TreeNode({
                 folderTargetOpen={folderTargetOpen}
                 favorites={favorites}
                 onToggleFavorite={onToggleFavorite}
+                onAttachLayer={onAttachLayer}
+                linkedLayersByDoc={linkedLayersByDoc}
               />
             ))}
           </CollapsibleContent>
         </Collapsible>
       </div>
+      {attachDialog}
+    </>
     )
   }
 
   return (
+    <>
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
@@ -377,13 +460,15 @@ function TreeNode({
       </ContextMenuTrigger>
       {ctxItems}
     </ContextMenu>
+    {attachDialog}
+    </>
   )
 }
 
 export function SidebarTree({
   items, selectedId, onSelect, onRename, onDelete,
   onNewFile, onNewFolder, onOpenInNewTab, onOpenInExplorer, onMoveItem, onSetIcon, triggerRenameId,
-  folderResetKey, folderTargetOpen, favorites, onToggleFavorite,
+  folderResetKey, folderTargetOpen, favorites, onToggleFavorite, onAttachLayer, linkedLayersByDoc,
 }: SidebarTreeProps) {
   const [ptrDrag, setPtrDrag] = React.useState<PtrDrag | null>(null)
   const ptrDragRef = React.useRef<PtrDrag | null>(null)
@@ -478,6 +563,8 @@ export function SidebarTree({
             folderTargetOpen={folderTargetOpen}
             favorites={favorites}
             onToggleFavorite={onToggleFavorite}
+            onAttachLayer={onAttachLayer}
+            linkedLayersByDoc={linkedLayersByDoc}
           />
         ))}
         <div

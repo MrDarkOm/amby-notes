@@ -16,17 +16,15 @@ import {
   Palette,
   Pilcrow,
   Quote,
-  Smile,
   Strikethrough,
   Underline,
 } from "lucide-react"
 
 import { TextStylePalette } from "../text-style-palette"
-import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { CALLOUT_DEFAULTS } from "./callout-node"
 import { wrapSelectionInCallout } from "./block-insert-items"
 
-type Panel = "heading" | "color" | "list" | "emoji" | "tag" | "link" | "wikilink" | null
+type Panel = "heading" | "color" | "list" | "tag" | "link" | "wikilink" | null
 
 interface BubbleToolbarProps {
   editor: Editor
@@ -178,12 +176,6 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
     }).run()
   }
 
-  // ── Emoji ──────────────────────────────────────────────────────────────────
-  function insertEmoji(emoji: string) {
-    editor.chain().focus().insertContent(emoji).run()
-    closePanel()
-  }
-
   // Shared input key handler
   function handleInputKey(
     e: React.KeyboardEvent<HTMLInputElement>,
@@ -246,26 +238,6 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
         <Code2 className="size-3.5" />
       </ToolbarButton>
 
-      <div className="mx-1 h-5 w-px bg-zinc-800" />
-
-      <ToolbarButton title="Цвет" active={panel === "color"} onClick={() => openPanel("color")}>
-        <Palette className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton title="Тег" active={panel === "tag"} onClick={openTagPanel}>
-        <Hash className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton title="URL link" active={panel === "link"} onClick={openLinkPanel}>
-        <Link className="size-3.5" />
-      </ToolbarButton>
-      <ToolbarButton title="Backlink" active={panel === "wikilink"} onClick={openWikilinkPanel}>
-        <span className="text-[10px] font-semibold">[[</span>
-      </ToolbarButton>
-      <ToolbarButton title="Emoji" active={panel === "emoji"} onClick={() => openPanel("emoji")}>
-        <Smile className="size-3.5" />
-      </ToolbarButton>
-
-      <div className="mx-1 h-5 w-px bg-zinc-800" />
-
       <ToolbarButton title="List" active={panel === "list"} onClick={() => openPanel("list")}>
         <List className="size-3.5" />
       </ToolbarButton>
@@ -280,17 +252,25 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
         <MessageSquare className="size-3.5" />
       </ToolbarButton>
 
-      {/* ── Emoji picker: rendered outside the shared box to avoid double-border ── */}
-      {panel === "emoji" && (
-        <div className="absolute left-0 top-[calc(100%+6px)]">
-          <EmojiPickerPanel
-            onSelect={emojiData => insertEmoji(emojiData.native)}
-            onClose={closePanel}
-          />
-        </div>
-      )}
+      <div className="mx-1 h-5 w-px bg-zinc-800" />
 
-      {panel && panel !== "emoji" && (
+      <ToolbarButton title="Тег" active={panel === "tag"} onClick={openTagPanel}>
+        <Hash className="size-3.5" />
+      </ToolbarButton>
+      <ToolbarButton title="Backlink" active={panel === "wikilink"} onClick={openWikilinkPanel}>
+        <span className="text-[10px] font-semibold">[[</span>
+      </ToolbarButton>
+      <ToolbarButton title="URL link" active={panel === "link"} onClick={openLinkPanel}>
+        <Link className="size-3.5" />
+      </ToolbarButton>
+
+      <div className="mx-1 h-5 w-px bg-zinc-800" />
+
+      <ToolbarButton title="Цвет" active={panel === "color"} onClick={() => openPanel("color")}>
+        <Palette className="size-3.5" />
+      </ToolbarButton>
+
+      {panel && (
         <div className="absolute left-0 top-[calc(100%+6px)] rounded-md border border-zinc-800 bg-black p-1 shadow-xl">
           {/* ── Heading picker ─────────────────────────────────────────────── */}
           {panel === "heading" && (

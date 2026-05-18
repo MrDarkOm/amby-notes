@@ -516,6 +516,18 @@
     gap: 2px;
 }
 
+/* Hover bridge: extend hit-test toward the editor so moving from row to
+   gutter does not flicker through dead space between text and handles. */
+.amby-block-handles::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -8px;
+    width: 8px;
+    pointer-events: auto;
+}
+
 .amby-block-handle-btn {
     display: flex;
     align-items: center;
@@ -633,13 +645,474 @@
     color: #ef4444;
 }
 
-/* Drag-and-drop drop position indicators */
-[data-drag-before="true"] {
-    box-shadow: 0 -2px 0 0 #7c3aed;
+/* Drag-and-drop drop position indicator — a 2px line painted in the gap
+   between blocks (above the first block / below the last when relevant). */
+.amby-block-drop-indicator {
+    position: fixed;
+    height: 2px;
+    background: #7c3aed;
+    border-radius: 2px;
+    pointer-events: none;
+    z-index: 9998;
+    box-shadow: 0 0 6px rgba(124, 58, 237, 0.55);
 }
 
-[data-drag-after="true"] {
-    box-shadow: 0 2px 0 0 #7c3aed;
+/* Drag ghost — semi-transparent clone of source block, follows pointer. */
+.amby-block-drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 9999;
+    opacity: 0.7;
+    pointer-events: none;
+    background: #0a0a0a;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+    border-radius: 6px;
+    padding: 4px 8px;
+    will-change: transform;
+}
+
+/* Dim source block while drag is active. */
+.amby-block-drag-source {
+    opacity: 0.35;
+    transition: opacity 0.1s;
+}
+
+/* ── Block insert + actions panel (v2) ───────────────────────────────────── */
+
+.amby-block-panel {
+    width: 260px;
+    background: #000000;
+    border: 1px solid #1c1c1f;
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.amby-block-panel--insert[data-mode="list"] {
+    height: 250px;
+}
+
+.amby-block-panel--insert[data-mode="url"] {
+    height: auto;
+}
+
+.amby-block-panel--insert[data-mode="emoji"] {
+    width: auto;
+    height: auto;
+}
+
+.amby-block-panel--actions {
+    max-height: 360px;
+}
+
+.amby-block-panel-header {
+    flex: 0 0 auto;
+    padding: 6px;
+    border-bottom: 1px solid #18181b;
+}
+
+.amby-block-panel-search {
+    width: 100%;
+    background: #0c0c0e;
+    border: 1px solid #232328;
+    color: #fafafa;
+    border-radius: 5px;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    outline: none;
+}
+
+.amby-block-panel-search:focus {
+    border-color: #3f3f46;
+}
+
+.amby-block-panel-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.amby-block-panel-footer {
+    flex: 0 0 auto;
+    border-top: 1px solid #18181b;
+    padding: 4px;
+}
+
+.amby-block-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 5px 8px;
+    border-radius: 5px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #d4d4d8;
+    font-size: 0.78rem;
+    text-align: left;
+    transition: background-color 0.1s;
+}
+
+.amby-block-row:hover,
+.amby-block-row.is-active {
+    background: #1a1a1f;
+    color: #fafafa;
+}
+
+.amby-block-row.is-disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.amby-block-row.is-danger {
+    color: #f87171;
+}
+
+.amby-block-row.is-danger:hover {
+    background: rgba(239, 68, 68, 0.12);
+    color: #ef4444;
+}
+
+.amby-block-row-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: #71717a;
+}
+
+.amby-block-row.is-active .amby-block-row-icon,
+.amby-block-row:hover .amby-block-row-icon {
+    color: #d4d4d8;
+}
+
+.amby-block-row-label {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.amby-block-row-hint {
+    font-size: 0.66rem;
+    color: #52525b;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.amby-block-panel-close {
+    width: 100%;
+    padding: 4px 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #71717a;
+    border-radius: 5px;
+    font-size: 0.72rem;
+    cursor: pointer;
+}
+
+.amby-block-panel-close:hover {
+    background: #18181b;
+    color: #fafafa;
+}
+
+.amby-block-panel-empty {
+    padding: 16px 8px;
+    text-align: center;
+    color: #52525b;
+    font-size: 0.74rem;
+}
+
+.amby-block-panel-section {
+    padding: 6px 8px 2px;
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #71717a;
+}
+
+.amby-block-panel-url {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+}
+
+.amby-block-panel-url input {
+    width: 100%;
+    background: #0c0c0e;
+    border: 1px solid #232328;
+    color: #fafafa;
+    border-radius: 5px;
+    padding: 4px 8px;
+    font-size: 0.78rem;
+    outline: none;
+}
+
+.amby-block-panel-url input:focus {
+    border-color: #3f3f46;
+}
+
+.amby-block-panel-url-actions {
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+.amby-block-panel-url-actions button {
+    flex: 1;
+    padding: 4px 8px;
+    border-radius: 5px;
+    border: 1px solid #232328;
+    background: transparent;
+    color: #d4d4d8;
+    cursor: pointer;
+    font-size: 0.72rem;
+}
+
+.amby-block-panel-url-actions button:hover {
+    background: #18181b;
+}
+
+.amby-block-panel-url-actions button.is-primary {
+    background: #1e3a8a;
+    border-color: #1e3a8a;
+    color: #fafafa;
+}
+
+.amby-block-panel-url-actions button.is-primary:hover {
+    background: #1e40af;
+}
+
+.amby-block-panel-emoji {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px;
+    height: 100%;
+    min-height: 0;
+}
+
+/* ── Action panel: context sections ──────────────────────────────────────── */
+
+.amby-ctx-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 8px 8px;
+}
+
+.amby-ctx-swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+    padding: 0;
+    transition:
+        transform 0.1s,
+        border-color 0.1s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.amby-ctx-swatch:hover {
+    transform: scale(1.1);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.amby-ctx-swatch--none {
+    background: transparent;
+    color: #a1a1aa;
+}
+
+.amby-ctx-heading-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    padding: 4px 8px 8px;
+}
+
+.amby-ctx-heading-btn {
+    padding: 6px 4px;
+    border-radius: 5px;
+    border: 1px solid #232328;
+    background: transparent;
+    color: #d4d4d8;
+    cursor: pointer;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.amby-ctx-heading-btn:hover {
+    background: #18181b;
+    color: #fafafa;
+}
+
+.amby-ctx-heading-btn.is-active {
+    background: #1e3a8a;
+    border-color: #1e3a8a;
+    color: #fafafa;
+}
+
+.amby-ctx-type-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    padding: 4px 8px 8px;
+}
+
+.amby-ctx-type-btn {
+    padding: 6px 4px;
+    border-radius: 5px;
+    border: 1px solid #232328;
+    background: transparent;
+    color: #d4d4d8;
+    cursor: pointer;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.amby-ctx-type-btn:hover {
+    background: #18181b;
+}
+
+.amby-ctx-type-btn.is-active {
+    background: #1e3a8a;
+    border-color: #1e3a8a;
+}
+
+.amby-ctx-input,
+.amby-ctx-text-input {
+    width: calc(100% - 16px);
+    margin: 0 8px 8px;
+    background: #0c0c0e;
+    border: 1px solid #232328;
+    color: #fafafa;
+    border-radius: 5px;
+    padding: 4px 8px;
+    font-size: 0.75rem;
+    outline: none;
+}
+
+.amby-ctx-input:focus,
+.amby-ctx-text-input:focus {
+    border-color: #3f3f46;
+}
+
+.amby-ctx-align-row {
+    display: flex;
+    gap: 4px;
+    padding: 4px 8px 8px;
+}
+
+.amby-ctx-align-btn {
+    flex: 1;
+    padding: 6px;
+    border-radius: 5px;
+    border: 1px solid #232328;
+    background: transparent;
+    color: #a1a1aa;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.amby-ctx-align-btn:hover {
+    background: #18181b;
+    color: #fafafa;
+}
+
+.amby-ctx-align-btn.is-active {
+    background: #1e3a8a;
+    border-color: #1e3a8a;
+    color: #fafafa;
+}
+
+.amby-ctx-replace-btn {
+    width: calc(100% - 16px);
+    margin: 4px 8px 8px;
+    padding: 6px;
+    border-radius: 5px;
+    border: 1px solid #232328;
+    background: transparent;
+    color: #d4d4d8;
+    cursor: pointer;
+    font-size: 0.74rem;
+}
+
+.amby-ctx-replace-btn:hover {
+    background: #18181b;
+}
+
+/* ── Turn into submenu (right popover) ───────────────────────────────────── */
+
+.amby-turn-into-menu {
+    position: fixed;
+    width: 200px;
+    max-height: 320px;
+    overflow-y: auto;
+    background: #000000;
+    border: 1px solid #1c1c1f;
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    z-index: 9000;
+}
+
+/* ── Image NodeView ──────────────────────────────────────────────────────── */
+
+.amby-image-wrap {
+    display: inline-block;
+    max-width: 100%;
+}
+
+.amby-image-wrap img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    border: 1px solid transparent;
+}
+
+.amby-image-wrap.is-selected img {
+    border-color: #7c3aed;
+}
+
+.amby-image-wrap img.is-broken {
+    display: inline-block;
+    min-width: 80px;
+    min-height: 40px;
+    background: repeating-linear-gradient(
+        45deg,
+        #1a1a1f,
+        #1a1a1f 6px,
+        #232328 6px,
+        #232328 12px
+    );
+}
+
+.amby-image-wrap--left {
+    display: block;
+    text-align: left;
+}
+
+.amby-image-wrap--center {
+    display: block;
+    text-align: center;
+}
+
+.amby-image-wrap--right {
+    display: block;
+    text-align: right;
 }
 
 /* ── emoji-mart custom element — force pure-black background ─────────────────
@@ -819,4 +1292,29 @@ em-emoji-picker {
     font-size: 0.7rem;
     color: #71717a;
     font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+/* ── Activity bar buttons (left/right vertical rails) ────────────────────── */
+
+.amby-activity-button[data-dragging="true"] {
+    opacity: 0.4;
+}
+
+.amby-activity-button[data-drop-target="true"] {
+    outline: 2px solid #38bdf8;
+    outline-offset: -2px;
+}
+
+[data-activity-bar][data-drop-target="true"] {
+    box-shadow: inset 0 0 0 2px rgba(56, 189, 248, 0.5);
+}
+
+.amby-activity-ghost {
+    opacity: 0.7;
+    background: #18181b;
+    border: 1px solid #27272a;
+    border-radius: 6px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+    padding: 4px;
+    will-change: transform;
 }

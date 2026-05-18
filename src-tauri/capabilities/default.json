@@ -19,6 +19,7 @@
     "fs:allow-unwatch",
     "fs:scope-home-recursive",
     "fs:scope-desktop-recursive",
-    "fs:scope-document-recursive"
+    "fs:scope-document-recursive",
+    "core:webview:default"
   ]
 }

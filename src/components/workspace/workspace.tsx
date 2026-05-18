@@ -2,7 +2,24 @@
 
 import * as React from "react"
 import { FolderOpen } from "lucide-react"
-import { AppSidebar } from "./app-sidebar"
+import { ActivityBar } from "./activity-bar"
+import { PanelHost } from "./panel-host"
+import { GraphTabView } from "./graph-tab-view"
+import {
+  DEFAULT_BUTTONS,
+  buttonsForSide,
+  findButtonDef,
+  loadActiveBySide,
+  loadButtons,
+  saveActiveBySide,
+  saveButtons,
+  type ActionContext,
+  type ActivityButton,
+  type PanelId,
+  type PanelRenderProps,
+  type Side,
+} from "./panel-registry"
+import { useActivityDnD } from "./use-activity-dnd"
 
 function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
   return (
@@ -15,7 +32,6 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => v
   )
 }
 import { DocumentEditor, type DocumentViewMode } from "./document-editor"
-import { PropertiesPanel } from "./properties-panel"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
 import type { TreeItem } from "./sidebar-tree"
@@ -57,13 +73,18 @@ interface Document {
   path: string
 }
 
+type TabKind = "document" | "graph"
+
 interface Tab {
   key: string
+  kind: TabKind
   fileId: string
   title: string
   history: string[]
   historyIndex: number
 }
+
+const GRAPH_TAB_FILE_ID = "__graph__"
 
 type EditorLayer = "editor" | LayerKind
 
@@ -245,7 +266,8 @@ export function Workspace() {
       const sign = side === "left" ? 1 : -1
 
       function nearEdge(x: number) {
-        return side === "left" ? x < 20 : x > window.innerWidth - 20
+        // 44px activity bar + 20px threshold inside the panel.
+        return side === "left" ? x < 44 + 20 : x > window.innerWidth - 44 - 20
       }
 
       function onMove(ev: MouseEvent) {
@@ -271,7 +293,14 @@ export function Workspace() {
   const [quickOpenOpen, setQuickOpenOpen] = React.useState(false)
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
-  const [sidebarActiveView, setSidebarActiveView] = React.useState<"files" | "search" | "tags" | "favorites" | "databases" | "archive" | "graph">("files")
+  const [activityButtons, setActivityButtons] = React.useState<ActivityButton[]>(
+    () => loadButtons() ?? DEFAULT_BUTTONS,
+  )
+  const [activeBySide, setActiveBySide] = React.useState<Record<Side, PanelId | null>>(
+    () => loadActiveBySide() ?? { left: "files", right: "info" },
+  )
+  React.useEffect(() => { saveButtons(activityButtons) }, [activityButtons])
+  React.useEffect(() => { saveActiveBySide(activeBySide) }, [activeBySide])
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
@@ -310,8 +339,10 @@ export function Workspace() {
 
   React.useEffect(() => {
     if (!vault || tabs.length === 0) return
-    const entries = tabs.map(t => ({ fileId: t.fileId, title: t.title }))
-    const active = tabs.find(t => t.key === activeTabKey)
+    // Only persist document tabs (graph tab is ephemeral).
+    const docTabs = tabs.filter(t => t.kind === "document")
+    const entries = docTabs.map(t => ({ fileId: t.fileId, title: t.title }))
+    const active = docTabs.find(t => t.key === activeTabKey)
     localStorage.setItem(`amby:tabs:${vault}`, JSON.stringify({
       entries,
       activeFileId: active?.fileId ?? entries[0]?.fileId ?? "",
@@ -319,9 +350,138 @@ export function Workspace() {
   }, [tabs, activeTabKey, vault])
 
   const activeTab = tabs.find(t => t.key === activeTabKey) ?? null
-  const selectedId = activeTab?.fileId ?? ""
+  const selectedId = activeTab && activeTab.kind === "document" ? activeTab.fileId : ""
   const canGoBack = (activeTab?.historyIndex ?? 0) > 0
   const canGoForward = activeTab ? activeTab.historyIndex < activeTab.history.length - 1 : false
+
+  function openGraphTab() {
+    const existing = tabs.find(t => t.kind === "graph")
+    if (existing) {
+      setActiveTabKey(existing.key)
+      return
+    }
+    const key = newTabKey()
+    setTabs(prev => [...prev, {
+      key, kind: "graph", fileId: GRAPH_TAB_FILE_ID,
+      title: "Граф связей", history: [], historyIndex: 0,
+    }])
+    setActiveTabKey(key)
+  }
+
+  async function refreshVault() {
+    if (!vault) return
+    try { await refreshTree(vault) } catch { /* ignore */ }
+  }
+
+  const actionContext: ActionContext = { openGraphTab, refreshVault }
+
+  // Move a button to the opposite side (appended to that side's end).
+  function moveButtonToSide(defId: string, targetSide: Side) {
+    setActivityButtons(prev => {
+      const button = prev.find(b => b.defId === defId)
+      if (!button) return prev
+      if (button.side === targetSide) return prev
+      const targetOrders = prev.filter(b => b.side === targetSide).map(b => b.order)
+      const nextOrder = targetOrders.length ? Math.max(...targetOrders) + 1 : 0
+      return prev.map(b => b.defId === defId ? { ...b, side: targetSide, order: nextOrder } : b)
+    })
+    setActiveBySide(prev => {
+      const next = { ...prev }
+      // If this view was active on its old side, fall back.
+      const def = findButtonDef(defId)
+      if (def?.kind === "view") {
+        const otherSide: Side = targetSide === "left" ? "right" : "left"
+        if (prev[otherSide] === defId) {
+          const remaining = activityButtons
+            .filter(b => b.side === otherSide && b.defId !== defId)
+            .sort((a, b) => a.order - b.order)
+          const firstView = remaining.find(b => findButtonDef(b.defId)?.kind === "view")
+          next[otherSide] = (firstView?.defId as PanelId | undefined) ?? null
+        }
+        // Optionally make the moved view active on its new side.
+        next[targetSide] = def.id
+      }
+      return next
+    })
+  }
+
+  // Drop handler: place defId on `targetSide` before `beforeDefId` (or at end).
+  function reorderButton(defId: string, targetSide: Side, beforeDefId: string | "__end__") {
+    setActivityButtons(prev => {
+      const moving = prev.find(b => b.defId === defId)
+      if (!moving) return prev
+      // Build the target-side list without the moving button, sorted by current order.
+      const others = prev
+        .filter(b => b.side === targetSide && b.defId !== defId)
+        .sort((a, b) => a.order - b.order)
+      let insertAt = others.length
+      if (beforeDefId !== "__end__") {
+        const idx = others.findIndex(b => b.defId === beforeDefId)
+        if (idx >= 0) insertAt = idx
+      }
+      const reorderedTarget = [
+        ...others.slice(0, insertAt),
+        { ...moving, side: targetSide },
+        ...others.slice(insertAt),
+      ].map((b, i) => ({ ...b, order: i }))
+      const oppositeSide: Side = targetSide === "left" ? "right" : "left"
+      const opposite = prev
+        .filter(b => b.side === oppositeSide && b.defId !== defId)
+        .sort((a, b) => a.order - b.order)
+        .map((b, i) => ({ ...b, order: i }))
+      return [...reorderedTarget, ...opposite]
+    })
+    // Cross-side fallback for active view
+    const movingDef = findButtonDef(defId)
+    if (movingDef?.kind === "view") {
+      const oldSide: Side = activityButtons.find(b => b.defId === defId)?.side ?? targetSide
+      if (oldSide !== targetSide) {
+        setActiveBySide(prev => {
+          const next = { ...prev }
+          if (prev[oldSide] === defId) {
+            const remaining = activityButtons
+              .filter(b => b.side === oldSide && b.defId !== defId)
+              .sort((a, b) => a.order - b.order)
+            const firstView = remaining.find(b => findButtonDef(b.defId)?.kind === "view")
+            next[oldSide] = (firstView?.defId as PanelId | undefined) ?? null
+          }
+          next[targetSide] = (movingDef.id as PanelId)
+          return next
+        })
+      }
+    }
+  }
+
+  const dnd = useActivityDnD({ onDrop: reorderButton })
+
+  function handleActivate(defId: string) {
+    const def = findButtonDef(defId)
+    if (!def) return
+    if (def.kind === "action") {
+      def.invoke(actionContext)
+      return
+    }
+    const button = activityButtons.find(b => b.defId === defId)
+    if (!button) return
+    const side = button.side
+    const isOpen = side === "left" ? isLeftSidebarOpen : isRightSidebarOpen
+    const setOpen = side === "left" ? setIsLeftSidebarOpen : setIsRightSidebarOpen
+    // Click on already-active view collapses the panel.
+    if (isOpen && activeBySide[side] === def.id) {
+      setOpen(false)
+      return
+    }
+    setActiveBySide(prev => ({ ...prev, [side]: def.id }))
+    setOpen(true)
+  }
+
+  function activatePanelAnywhere(panelId: PanelId) {
+    const button = activityButtons.find(b => b.defId === panelId)
+    if (!button) return
+    if (button.side === "left") setIsLeftSidebarOpen(true)
+    else setIsRightSidebarOpen(true)
+    setActiveBySide(prev => ({ ...prev, [button.side]: panelId }))
+  }
 
   const vaultName = vault?.replace(/\\/g, "/").split("/").pop() ?? undefined
   const displayTreeItems = applyIconOverrides(treeItems, iconOverrides)
@@ -593,7 +753,7 @@ export function Workspace() {
           const valid = mappedEntries.filter(e => allIds.has(e.fileId))
           if (valid.length > 0) {
             const newTabs: Tab[] = valid.map(e => ({
-              key: newTabKey(), fileId: e.fileId, title: e.title,
+              key: newTabKey(), kind: "document" as const, fileId: e.fileId, title: e.title,
               history: [e.fileId], historyIndex: 0,
             }))
             setTabs(newTabs)
@@ -652,7 +812,9 @@ export function Workspace() {
       return
     }
 
-    if (activeTabKey) {
+    const active = tabs.find(t => t.key === activeTabKey)
+    // If active tab is graph, don't overwrite — open a fresh document tab instead.
+    if (active && active.kind === "document") {
       setTabs(prev => prev.map(t => {
         if (t.key !== activeTabKey) return t
         const newHistory = [...t.history.slice(0, t.historyIndex + 1), fileId]
@@ -660,7 +822,7 @@ export function Workspace() {
       }))
     } else {
       const key = newTabKey()
-      setTabs([{ key, fileId, title: item.name, history: [fileId], historyIndex: 0 }])
+      setTabs(prev => [...prev, { key, kind: "document", fileId, title: item.name, history: [fileId], historyIndex: 0 }])
       setActiveTabKey(key)
     }
   }
@@ -687,7 +849,7 @@ export function Workspace() {
       const doc: Document = { id, title: name, content: "", modified: "Только что", wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
       setOpenDocs(prev => ({ ...prev, [id]: doc }))
       const key = newTabKey()
-      setTabs(prev => [...prev, { key, fileId: id, title: name, history: [id], historyIndex: 0 }])
+      setTabs(prev => [...prev, { key, kind: "document", fileId: id, title: name, history: [id], historyIndex: 0 }])
       setActiveTabKey(key)
     } catch (err) {
       console.error("Failed to open wiki link:", err)
@@ -706,7 +868,7 @@ export function Workspace() {
     }
 
     const key = newTabKey()
-    setTabs(prev => [...prev, { key, fileId, title: item.name, history: [fileId], historyIndex: 0 }])
+    setTabs(prev => [...prev, { key, kind: "document", fileId, title: item.name, history: [fileId], historyIndex: 0 }])
     setActiveTabKey(key)
   }
 
@@ -802,7 +964,7 @@ export function Workspace() {
       const doc: Document = { id, title: "Untitled", content: "", modified: "Только что", wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
       setOpenDocs(prev => ({ ...prev, [id]: doc }))
       const key = newTabKey()
-      setTabs(prev => [...prev, { key, fileId: id, title: "Untitled", history: [id], historyIndex: 0 }])
+      setTabs(prev => [...prev, { key, kind: "document", fileId: id, title: "Untitled", history: [id], historyIndex: 0 }])
       setActiveTabKey(key)
       setPendingRenameId(id)
       setTimeout(() => setPendingRenameId(null), 500)
@@ -937,19 +1099,44 @@ export function Workspace() {
 
   const headerTabs: HeaderTab[] = tabs.map(t => ({ key: t.key, fileId: t.fileId, title: t.title }))
 
-  const sidebarProps = {
+  const handleAttachLayerToFile = async (fileId: string, layer: "canvas" | "database") => {
+    // Find the file path from the flat tree
+    function findPath(items: typeof treeItems): string | null {
+      for (const item of items) {
+        if (item.id === fileId && item.type === "file") return item.path
+        if (item.children) {
+          const found = findPath(item.children)
+          if (found) return found
+        }
+      }
+      return null
+    }
+    const filePath = findPath(treeItems)
+    if (!filePath) return
+    try {
+      const result = await createLayer(filePath, layer)
+      applyMutationResult({
+        primaryPath: result.notePath,
+        pathChanges: result.pathChanges,
+        deletedPaths: [],
+      })
+      await refreshTree()
+      await refreshLinkedLayers(fileId, result.notePath ?? filePath)
+    } catch (err) {
+      console.error("Failed to attach layer:", err)
+    }
+  }
+
+  const panelRenderProps: PanelRenderProps = {
     treeItems: displayTreeItems,
     selectedId,
     vault,
     onSelect: handleSelect,
     onOpenVault: handleOpenVault,
-    onTreeChange: setTreeItems,
     onRename: handleRenameFile,
     onDelete: handleDeleteFile,
     onNewFile: handleNewFileIn,
     onNewFolder: handleNewFolderIn,
-    activeView: sidebarActiveView,
-    onActiveViewChange: setSidebarActiveView,
     onOpenInNewTab: handleOpenInNewTab,
     onOpenInExplorer: openInExplorer,
     onMoveItem: handleMoveItem,
@@ -958,8 +1145,16 @@ export function Workspace() {
     readFile: (id: string) => vault ? readNote(vault, id) : readFile(id),
     favorites,
     onToggleFavorite: handleToggleFavorite,
+    onAttachLayer: handleAttachLayerToFile,
+    linkedLayersByDoc,
+    properties: currentProperties,
     linkGraph,
+    currentDocId: currentDoc?.id ?? null,
+    onSelectLink: handleSelect,
   }
+
+  const leftButtons = buttonsForSide(activityButtons, "left")
+  const rightButtons = buttonsForSide(activityButtons, "right")
 
   const editorProps = {
     document: currentDoc,
@@ -974,8 +1169,7 @@ export function Workspace() {
     onNewFile: () => handleNewFileIn(null),
     onOpenVault: handleOpenVault,
     onTagClick: (_tag: string) => {
-      setIsLeftSidebarOpen(true)
-      setSidebarActiveView("tags")
+      activatePanelAnywhere("tags")
     },
     onWikiLinkClick: handleWikiLinkClick,
     activeLayer: currentDoc ? activeLayers[currentDoc.id] ?? "editor" : "editor",
@@ -1015,26 +1209,52 @@ export function Workspace() {
           if (e.clientX > w - 20) setFocusShowRight(true)
         }}
       >
-        <DocumentEditor
-          {...editorProps}
-          isFocusMode={true}
-          onToggleFocusMode={handleExitFocusMode}
-        />
+        {activeTab?.kind === "graph" ? (
+          <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
+        ) : (
+          <DocumentEditor
+            {...editorProps}
+            isFocusMode={true}
+            onToggleFocusMode={handleExitFocusMode}
+          />
+        )}
 
         {/* Left sidebar overlay */}
         <div
           className={`fixed left-0 top-0 bottom-0 z-10 flex transition-transform duration-200 ease-out shadow-2xl ${focusShowLeft ? "translate-x-0" : "-translate-x-full"}`}
           onMouseLeave={() => setFocusShowLeft(false)}
         >
-          <AppSidebar {...sidebarProps} isTreeOpen={true} />
+          <ActivityBar
+            side="left"
+            buttons={leftButtons}
+            activeView={activeBySide.left}
+            onActivate={handleActivate}
+            onMoveToOtherSide={defId => moveButtonToSide(defId, "right")}
+            onPointerDownButton={dnd.onPointerDown}
+            draggingId={dnd.draggingId}
+          />
+          <div style={{ width: leftWidth }} className="shrink-0">
+            <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
+          </div>
         </div>
 
         {/* Right sidebar overlay */}
         <div
-          className={`fixed right-0 top-0 bottom-0 z-10 transition-transform duration-200 ease-out shadow-2xl ${focusShowRight ? "translate-x-0" : "translate-x-full"}`}
+          className={`fixed right-0 top-0 bottom-0 z-10 flex transition-transform duration-200 ease-out shadow-2xl ${focusShowRight ? "translate-x-0" : "translate-x-full"}`}
           onMouseLeave={() => setFocusShowRight(false)}
         >
-          <PropertiesPanel properties={currentProperties} linkGraph={linkGraph} currentDocId={currentDoc?.id ?? null} onSelectLink={handleSelect} />
+          <div style={{ width: rightWidth }} className="shrink-0">
+            <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
+          </div>
+          <ActivityBar
+            side="right"
+            buttons={rightButtons}
+            activeView={activeBySide.right}
+            onActivate={handleActivate}
+            onMoveToOtherSide={defId => moveButtonToSide(defId, "left")}
+            onPointerDownButton={dnd.onPointerDown}
+            draggingId={dnd.draggingId}
+          />
         </div>
 
         <QuickOpenModal
@@ -1073,38 +1293,62 @@ export function Workspace() {
         onOpenVaultInExplorer={openInExplorer}
         onCloseAllTabs={handleCloseAllTabs}
         leftTreeWidth={leftWidth}
+        rightPanelWidth={rightWidth}
         activeFileId={activeTab?.fileId}
         favorites={favorites}
         onToggleFavorite={handleToggleFavorite}
       />
 
       <div className="flex flex-1 overflow-hidden">
-        <AppSidebar
-          {...sidebarProps}
-          isTreeOpen={isLeftSidebarOpen}
-          treeWidth={leftWidth}
+        <ActivityBar
+          side="left"
+          buttons={leftButtons}
+          activeView={activeBySide.left}
+          onActivate={handleActivate}
+          onMoveToOtherSide={defId => moveButtonToSide(defId, "right")}
+          onPointerDownButton={dnd.onPointerDown}
+          draggingId={dnd.draggingId}
         />
 
         {isLeftSidebarOpen && (
-          <ResizeHandle onMouseDown={startResize("left")} />
+          <>
+            <div style={{ width: leftWidth }} className="shrink-0">
+              <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
+            </div>
+            <ResizeHandle onMouseDown={startResize("left")} />
+          </>
         )}
 
         <main className="flex flex-1 overflow-hidden">
-          <DocumentEditor
-            {...editorProps}
-            isFocusMode={false}
-            onToggleFocusMode={handleEnterFocusMode}
-          />
+          {activeTab?.kind === "graph" ? (
+            <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
+          ) : (
+            <DocumentEditor
+              {...editorProps}
+              isFocusMode={false}
+              onToggleFocusMode={handleEnterFocusMode}
+            />
+          )}
         </main>
 
         {isRightSidebarOpen && (
           <>
             <ResizeHandle onMouseDown={startResize("right")} />
             <div style={{ width: rightWidth }} className="shrink-0">
-              <PropertiesPanel properties={currentProperties} linkGraph={linkGraph} currentDocId={currentDoc?.id ?? null} onSelectLink={handleSelect} />
+              <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
             </div>
           </>
         )}
+
+        <ActivityBar
+          side="right"
+          buttons={rightButtons}
+          activeView={activeBySide.right}
+          onActivate={handleActivate}
+          onMoveToOtherSide={defId => moveButtonToSide(defId, "left")}
+          onPointerDownButton={dnd.onPointerDown}
+          draggingId={dnd.draggingId}
+        />
       </div>
 
       <QuickOpenModal

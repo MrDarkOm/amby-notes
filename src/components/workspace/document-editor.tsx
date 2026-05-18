@@ -19,11 +19,6 @@ import {
   PenLine,
   Undo2,
 } from "lucide-react";
-import {
-  Popover,
-  PopoverAnchor,
-  PopoverContent,
-} from "@/components/ui/popover";
 import { SourceEditor } from "./source-editor";
 import { TiptapEditor } from "./tiptap/TiptapEditor";
 import type { EditorHandle } from "./tiptap/constants";
@@ -31,8 +26,14 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+} from "@/components/ui/dialog";
 
 import { Button } from "@/components/ui/button";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -142,9 +143,7 @@ export function DocumentEditor({
   const [editingTitle, setEditingTitle] = React.useState(false);
   const [titleValue, setTitleValue] = React.useState(document?.title ?? "");
   const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false);
-  const [layerConfirm, setLayerConfirm] = React.useState<EditorLayer | null>(
-    null,
-  );
+  const [layerConfirm, setLayerConfirm] = React.useState<EditorLayer | null>(null);
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle);
   const titleInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -183,9 +182,16 @@ export function DocumentEditor({
 
   const relPath = document ? getRelativePath(vault, document.path) : "";
 
+  const layerLabelRu: Record<string, string> = {
+    canvas: "Canvas",
+    database: "базу данных",
+    sketch: "Excalidraw",
+  };
+
   const navBar = (
+    <>
     <div
-      className={`flex h-9 shrink-0 items-center justify-between border-b border-zinc-800 px-2 ${isFocusMode ? "bg-[#0A0A0A]/80 backdrop-blur-sm" : "bg-[#0A0A0A]"}`}
+      className={`flex h-9 shrink-0 items-center justify-between border-zinc-800 px-2 ${isFocusMode ? "bg-[#0A0A0A]/80 backdrop-blur-sm" : "bg-[#0A0A0A]"}`}
     >
       {/* Left: back/forward + drag zone for focus mode */}
       <div className="flex items-center gap-0.5">
@@ -228,102 +234,62 @@ export function DocumentEditor({
       <div className="flex items-center gap-0.5">
         {document && (
           <div className="mr-1 flex items-center rounded bg-zinc-950 p-0.5 gap-1">
-            {LAYER_OPTIONS.map((option) => {
-              const isActive = activeLayer === option.id;
-              const isEditorLayer = option.id === "editor";
-              const linked = isEditorLayer
-                ? true
-                : linkedLayers
-                  ? linkedLayers[option.id as "canvas" | "database" | "sketch"]
-                  : false;
-              const baseClass =
-                "flex size-6 items-center justify-center rounded transition-colors";
-              const styleClass = isActive
-                ? "bg-zinc-800 text-zinc-100"
-                : linked
-                  ? "bg-zinc-1000 text-zinc-100"
-                  : "bg-zinc-400 text-black hover:bg-zinc-300";
-
-              const handleClick = () => {
-                if (linked || isEditorLayer) {
-                  onLayerChange?.(option.id);
-                } else {
-                  setLayerConfirm(option.id);
-                }
-              };
-
-              const button = (
-                <button
-                  type="button"
-                  title={option.title}
-                  onClick={handleClick}
-                  className={`${baseClass} ${styleClass}`}
-                >
-                  <option.icon className="size-3.5" />
-                </button>
-              );
-
-              if (isEditorLayer) {
-                return (
-                  <React.Fragment key={option.id}>{button}</React.Fragment>
-                );
-              }
-
-              const layerLabelRu: Record<string, string> = {
-                canvas: "Canvas",
-                database: "DB",
-                sketch: "Excalidraw",
-              };
-
-              return (
-                <Popover
-                  key={option.id}
-                  open={layerConfirm === option.id}
-                  onOpenChange={(open) => {
-                    if (!open) setLayerConfirm(null);
-                  }}
-                >
-                  <PopoverAnchor asChild>{button}</PopoverAnchor>
-                  <PopoverContent
-                    align="end"
-                    sideOffset={8}
-                    className="w-64 border-zinc-800 bg-black p-3 text-zinc-200"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        onLayerChange?.(option.id);
-                        setLayerConfirm(null);
-                      }
-                    }}
-                  >
-                    <p className="text-[13px] leading-snug">
-                      Создать привязанный{" "}
-                      {layerLabelRu[option.id] ?? option.label} к заметке?
-                    </p>
-                    <div className="mt-3 flex justify-end gap-2">
-                      <button
-                        type="button"
-                        className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-900"
-                        onClick={() => setLayerConfirm(null)}
-                      >
-                        Отмена
-                      </button>
-                      <button
-                        type="button"
-                        autoFocus
-                        className="rounded bg-zinc-100 px-2.5 py-1 text-xs font-medium text-black hover:bg-white"
-                        onClick={() => {
-                          onLayerChange?.(option.id);
-                          setLayerConfirm(null);
-                        }}
-                      >
-                        Создать
-                      </button>
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              );
-            })}
+            {/* Editor layer — always visible */}
+            <button
+              type="button"
+              title="Markdown editor"
+              onClick={() => onLayerChange?.("editor")}
+              className={`flex size-6 items-center justify-center rounded transition-colors ${
+                activeLayer === "editor"
+                  ? "bg-zinc-800 text-zinc-100"
+                  : "bg-zinc-1000 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+              }`}
+            >
+              <FileText className="size-3.5" />
+            </button>
+            {/* Only show attached (linked) layers */}
+            {linkedLayers?.canvas && (
+              <button
+                type="button"
+                title="Canvas layer"
+                onClick={() => onLayerChange?.("canvas")}
+                className={`flex size-6 items-center justify-center rounded transition-colors ${
+                  activeLayer === "canvas"
+                    ? "bg-zinc-800 text-zinc-100"
+                    : "bg-zinc-1000 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                }`}
+              >
+                <LayoutGrid className="size-3.5" />
+              </button>
+            )}
+            {linkedLayers?.database && (
+              <button
+                type="button"
+                title="Database layer"
+                onClick={() => onLayerChange?.("database")}
+                className={`flex size-6 items-center justify-center rounded transition-colors ${
+                  activeLayer === "database"
+                    ? "bg-zinc-800 text-zinc-100"
+                    : "bg-zinc-1000 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                }`}
+              >
+                <Database className="size-3.5" />
+              </button>
+            )}
+            {linkedLayers?.sketch && (
+              <button
+                type="button"
+                title="Excalidraw layer"
+                onClick={() => onLayerChange?.("sketch")}
+                className={`flex size-6 items-center justify-center rounded transition-colors ${
+                  activeLayer === "sketch"
+                    ? "bg-zinc-800 text-zinc-100"
+                    : "bg-zinc-1000 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                }`}
+              >
+                <PenLine className="size-3.5" />
+              </button>
+            )}
           </div>
         )}
         <Button
@@ -373,10 +339,84 @@ export function DocumentEditor({
               <Lock className="size-3.5" />
               Заблокировать
             </DropdownMenuCheckboxItem>
+            {/* Attach layer options — only shown for layers not yet linked */}
+            {document && (!linkedLayers?.canvas || !linkedLayers?.database || !linkedLayers?.sketch) && (
+              <>
+                <DropdownMenuSeparator className="bg-zinc-800" />
+                {!linkedLayers?.canvas && (
+                  <DropdownMenuItem
+                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                    onSelect={() => setLayerConfirm("canvas")}
+                  >
+                    <LayoutGrid className="size-3.5 text-zinc-500" />
+                    Прикрепить Canvas
+                  </DropdownMenuItem>
+                )}
+                {!linkedLayers?.database && (
+                  <DropdownMenuItem
+                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                    onSelect={() => setLayerConfirm("database")}
+                  >
+                    <Database className="size-3.5 text-zinc-500" />
+                    Прикрепить базу данных
+                  </DropdownMenuItem>
+                )}
+                {!linkedLayers?.sketch && (
+                  <DropdownMenuItem
+                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                    onSelect={() => setLayerConfirm("sketch")}
+                  >
+                    <PenLine className="size-3.5 text-zinc-500" />
+                    Прикрепить Excalidraw
+                  </DropdownMenuItem>
+                )}
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
     </div>
+    {/* Layer attachment confirmation dialog */}
+    <Dialog
+      open={layerConfirm !== null}
+      onOpenChange={(open) => { if (!open) setLayerConfirm(null) }}
+    >
+      <DialogContent
+        showCloseButton={false}
+        className="w-72 border-zinc-800 bg-black p-4 text-zinc-200 sm:max-w-xs"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault()
+            if (layerConfirm) { onLayerChange?.(layerConfirm); setLayerConfirm(null) }
+          }
+        }}
+      >
+        <p className="text-[13px] leading-snug">
+          Создать привязанный{" "}
+          {layerConfirm ? layerLabelRu[layerConfirm] ?? layerConfirm : ""} к заметке?
+        </p>
+        <div className="mt-1 flex justify-end gap-2">
+          <button
+            type="button"
+            className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-900"
+            onClick={() => setLayerConfirm(null)}
+          >
+            Отмена
+          </button>
+          <button
+            type="button"
+            autoFocus
+            className="rounded bg-zinc-100 px-2.5 py-1 text-xs font-medium text-black hover:bg-white"
+            onClick={() => {
+              if (layerConfirm) { onLayerChange?.(layerConfirm); setLayerConfirm(null) }
+            }}
+          >
+            Создать
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 
   if (!document) {
@@ -513,6 +553,8 @@ export function DocumentEditor({
               onTagClick={onTagClick}
               onWikiLinkClick={onWikiLinkClick}
               placeholder="Начни писать..."
+              vaultPath={vault}
+              notePath={document.path}
             />
           )}
         </div>

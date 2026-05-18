@@ -6,6 +6,7 @@ import { TagsWikilinks, type TagsWikilinksCallbacks } from "./tags-wikilinks"
 import { SlashMenu } from "./slash-menu"
 import { IndentShortcut } from "./indent-shortcut"
 import { WrapShortcuts } from "./wrap-shortcuts"
+import { MediaDrop } from "./media-drop"
 
 export interface BuildExtensionsOptions {
   placeholder: string
@@ -23,5 +24,6 @@ export function buildExtensions({ placeholder, callbacks }: BuildExtensionsOptio
     SlashMenu,
     IndentShortcut,
     WrapShortcuts,
+    MediaDrop,
   ]
 }

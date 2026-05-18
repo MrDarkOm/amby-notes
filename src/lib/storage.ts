@@ -489,3 +489,45 @@ export async function openInExplorer(path: string): Promise<void> {
   if (!isTauri()) return
   await invoke<void>("open_in_explorer", { path })
 }
+
+export interface ImportedAsset {
+  relPath: string
+  absPath: string
+  fileName: string
+  kind: "image" | "file"
+}
+
+export async function pickAssetFile(imagesOnly: boolean): Promise<string | null> {
+  if (!isTauri()) return null
+  return invoke<string | null>("pick_asset_file", { imagesOnly })
+}
+
+export async function importAsset(
+  vaultPath: string,
+  notePath: string,
+  sourcePath: string,
+): Promise<ImportedAsset | null> {
+  if (!isTauri()) return null
+  return invoke<ImportedAsset>("import_asset", { vaultPath, notePath, sourcePath })
+}
+
+export async function importAssetBytes(
+  vaultPath: string,
+  notePath: string,
+  bytes: Uint8Array,
+  suggestedExt: string,
+): Promise<ImportedAsset | null> {
+  if (!isTauri()) return null
+  return invoke<ImportedAsset>("import_asset_bytes", {
+    vaultPath,
+    notePath,
+    bytes: Array.from(bytes),
+    suggestedExt,
+  })
+}
+
+export async function toAssetUrl(absPath: string): Promise<string> {
+  if (!isTauri()) return absPath
+  const { convertFileSrc } = await import("@tauri-apps/api/core")
+  return convertFileSrc(absPath)
+}
