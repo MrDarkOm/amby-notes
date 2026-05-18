@@ -1115,6 +1115,27 @@
     text-align: right;
 }
 
+/* Drag ghost — semi-transparent clone of source block, follows pointer. */
+.amby-block-drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 9999;
+    opacity: 0.7;
+    pointer-events: none;
+    background: #0a0a0a;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+    border-radius: 6px;
+    padding: 4px 8px;
+    will-change: transform;
+}
+
+/* Dim source block while drag is active. */
+.amby-block-drag-source {
+    opacity: 0.35;
+    transition: opacity 0.1s;
+}
+
 /* ── emoji-mart custom element — force pure-black background ─────────────────
    CSS custom properties pierce shadow DOM so this overrides the picker's
    internal dark-theme variables.

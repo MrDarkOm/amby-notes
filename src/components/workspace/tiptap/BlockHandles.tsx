@@ -25,21 +25,14 @@ const DRAGGABLE_TYPES = new Set([
 function findDraggableAncestor(
   $pos: ResolvedPos,
 ): { pos: number; depth: number; node: PMNode } | null {
-  for (let d = 1; d <= $pos.depth; d++) {
+  for (let d = $pos.depth; d >= 1; d--) {
     const node = $pos.node(d)
     if (DRAGGABLE_TYPES.has(node.type.name)) {
       return { pos: $pos.before(d), depth: d, node }
     }
   }
-  if ($pos.nodeAfter && DRAGGABLE_TYPES.has($pos.nodeAfter.type.name)) {
-    return { pos: $pos.pos, depth: $pos.depth + 1, node: $pos.nodeAfter }
-  }
-  if ($pos.nodeBefore && DRAGGABLE_TYPES.has($pos.nodeBefore.type.name)) {
-    return {
-      pos: $pos.pos - $pos.nodeBefore.nodeSize,
-      depth: $pos.depth + 1,
-      node: $pos.nodeBefore,
-    }
+  if ($pos.depth === 0 && $pos.nodeAfter && DRAGGABLE_TYPES.has($pos.nodeAfter.type.name)) {
+    return { pos: $pos.pos, depth: 1, node: $pos.nodeAfter }
   }
   return null
 }
@@ -54,6 +47,7 @@ function findScrollAncestor(el: HTMLElement): HTMLElement {
   }
   return (document.scrollingElement as HTMLElement | null) ?? document.documentElement
 }
+
 
 interface HandleState {
   visible: boolean
@@ -84,7 +78,6 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     anchorPos: -1,
   })
   const [actionsOpen, setActionsOpen] = React.useState(false)
-  const anyPanelOpen = insertPanel.open || actionsOpen
 
   const handlesRef = React.useRef<HTMLDivElement>(null)
   const posRef = React.useRef({ top: 0, left: 0 })
@@ -98,6 +91,8 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
   const ghostRef = React.useRef<HTMLElement | null>(null)
 
+  // Hover tracking: which block the mouse is over, plus presence flags so we
+  // know when to show / hide handles and survive moves from row → gutter.
   const hoveredPosRef = React.useRef<number>(-1)
   const mouseInsideEditorRef = React.useRef(false)
   const mouseInsideWidgetRef = React.useRef(false)
@@ -106,16 +101,6 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   const lastMoveRef = React.useRef<{ x: number; y: number } | null>(null)
   const widgetEnterRef = React.useRef<(() => void) | null>(null)
   const widgetLeaveRef = React.useRef<(() => void) | null>(null)
-  const anyPanelOpenRef = React.useRef(false)
-  const handleNodePosRef = React.useRef(-1)
-
-  React.useEffect(() => {
-    anyPanelOpenRef.current = anyPanelOpen
-  }, [anyPanelOpen])
-
-  React.useEffect(() => {
-    handleNodePosRef.current = handle.nodePos
-  }, [handle.nodePos])
 
   const applyVisibility = React.useCallback(() => {
     if (!editor.isEditable) {
@@ -126,15 +111,16 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
     const { state, view } = editor
 
+    // Decide effective nodePos: hover wins when mouse is over editor/widget,
+    // otherwise fall back to cursor selection.
     let nodePos = -1
     const mouseOver = mouseInsideEditorRef.current || mouseInsideWidgetRef.current
     if (mouseOver && hoveredPosRef.current >= 0) {
       nodePos = hoveredPosRef.current
-    }
-
-    // Keep handle pinned while a panel owns the interaction.
-    if (anyPanelOpenRef.current && handleNodePosRef.current >= 0) {
-      nodePos = handleNodePosRef.current
+    } else {
+      const { $from } = state.selection
+      const found = findDraggableAncestor($from)
+      if (found) nodePos = found.pos
     }
 
     if (nodePos < 0) {
@@ -152,6 +138,8 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     const editorRect = view.dom.getBoundingClientRect()
     const rect = nodeDom.getBoundingClientRect()
 
+    // Left: place handles 4 px to the left of the actual text content column,
+    // accounting for the ProseMirror element's own padding-left.
     const editorPaddingLeft =
       parseFloat(window.getComputedStyle(view.dom).paddingLeft) || 12
     const contentLeft = editorRect.left + editorPaddingLeft
@@ -195,12 +183,9 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     }
     const scheduleHideIfNeeded = () => {
       cancelHide()
-      // While a panel is open, do not hide on mouse leave.
-      if (anyPanelOpenRef.current) return
       hideTimerRef.current = window.setTimeout(() => {
         hideTimerRef.current = null
         if (mouseInsideEditorRef.current || mouseInsideWidgetRef.current) return
-        if (anyPanelOpenRef.current) return
         hoveredPosRef.current = -1
         applyVisibility()
       }, 120)
@@ -242,6 +227,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     editorDom.addEventListener("mouseenter", onEditorEnter)
     editorDom.addEventListener("mouseleave", onEditorLeave)
 
+    // Expose enter/leave for the widget portal via refs read from JSX handlers.
     widgetEnterRef.current = () => {
       mouseInsideWidgetRef.current = true
       cancelHide()
@@ -382,10 +368,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         }
         const $pos = doc.resolve(safe)
         const target = findDraggableAncestor($pos)
-        if (!target) {
-          hideIndicator()
-          return null
-        }
+        if (!target) return null
         const targetPos = target.pos
         const targetDom = view.nodeDOM(targetPos) as HTMLElement | null
         if (!targetDom) {
@@ -480,13 +463,16 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           ? target.targetPos
           : target.targetPos + targetNode.nodeSize
 
+        // No-op: dropping into our own slot (immediately before or after self).
         if (insertPos === srcPos || insertPos === srcEnd) return
+        // Dropping strictly inside the source — invalid for container draggables.
         if (insertPos > srcPos && insertPos < srcEnd) return
 
         const $src = doc.resolve(srcPos)
         const $ins = doc.resolve(insertPos)
         const parentKey = ($p: ResolvedPos) =>
           $p.depth === 0 ? -1 : $p.before($p.depth)
+        // Same-parent siblings only in this round; cross-parent drops bail.
         if (parentKey($src) !== parentKey($ins)) return
 
         const tr = state.tr
