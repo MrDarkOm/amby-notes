@@ -210,7 +210,7 @@ export function HeaderTabs({
   );
 
   return (
-    <header className="flex h-10 select-none items-stretch border-b border-zinc-800 bg-[#0A0A0A]">
+    <header className="relative z-50 flex h-10 select-none items-stretch border-b border-zinc-800 bg-[#0A0A0A]">
       {/* macOS traffic light spacer — native buttons live here */}
       {isMac ? (
         <div className="w-[80px] shrink-0" onMouseDown={handleDragStart} />
