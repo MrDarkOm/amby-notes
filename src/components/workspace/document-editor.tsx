@@ -39,6 +39,13 @@ import { Button } from "@/components/ui/button";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@/lib/storage";
 import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel";
+import type { TreeItem } from "./sidebar-tree";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 interface Document {
   id: string;
@@ -73,6 +80,10 @@ interface DocumentEditorProps {
   linkedLayers?: { canvas: boolean; sketch: boolean; database: boolean };
   isLocked?: boolean;
   onToggleLock?: () => void;
+  treeItems?: TreeItem[];
+  onOpenItem?: (id: string) => void;
+  onUnlinkLayer?: (layer: "canvas" | "database" | "sketch") => void;
+  onDeleteLayer?: (layer: "canvas" | "database" | "sketch") => void;
 }
 
 type EditorLayer = "editor" | "canvas" | "database" | "sketch";
@@ -95,13 +106,58 @@ const LAYER_OPTIONS: Array<{
   { id: "sketch", label: "Sketch", icon: PenLine, title: "Sketch layer" },
 ];
 
-function getRelativePath(vault: string | undefined, filePath: string): string {
-  if (!vault || !filePath) return "";
-  const norm = (p: string) => p.replace(/\\/g, "/");
-  const rel = norm(filePath).startsWith(norm(vault) + "/")
-    ? norm(filePath).slice(norm(vault).length + 1)
-    : (norm(filePath).split("/").pop() ?? norm(filePath));
-  return rel.split("/").join(" › ");
+interface BreadcrumbSegment {
+  id: string;
+  name: string;
+  kind: "file" | "folder";
+}
+
+function stripMdExt(name: string): string {
+  return name.replace(/\.md$/iu, "");
+}
+
+function findBreadcrumbTrail(
+  items: TreeItem[],
+  targetId: string,
+): TreeItem[] | null {
+  for (const item of items) {
+    if (item.id === targetId) return [item];
+    if (item.children) {
+      const sub = findBreadcrumbTrail(item.children, targetId);
+      if (sub) return [item, ...sub];
+    }
+  }
+  return null;
+}
+
+function buildBreadcrumb(
+  treeItems: TreeItem[] | undefined,
+  docId: string | undefined,
+): BreadcrumbSegment[] {
+  if (!treeItems || !docId) return [];
+  const trail = findBreadcrumbTrail(treeItems, docId);
+  if (!trail) return [];
+  const segments: BreadcrumbSegment[] = [];
+  for (let i = 0; i < trail.length; i++) {
+    const item = trail[i];
+    const next = trail[i + 1];
+    // Bundle collapse: folder whose name matches the next (file) child's name.
+    // The sidebar effectively presents these as one entry.
+    if (
+      next &&
+      item.type === "folder" &&
+      next.type === "file" &&
+      stripMdExt(item.name) === stripMdExt(next.name)
+    ) {
+      continue;
+    }
+    segments.push({
+      id: item.id,
+      name: stripMdExt(item.name),
+      kind: item.type === "folder" ? "folder" : "file",
+    });
+  }
+  return segments;
 }
 
 function handleDragStart(e: React.MouseEvent) {
@@ -138,6 +194,10 @@ export function DocumentEditor({
   linkedLayers,
   isLocked = false,
   onToggleLock,
+  treeItems,
+  onOpenItem,
+  onUnlinkLayer,
+  onDeleteLayer,
 }: DocumentEditorProps) {
   const [content, setContent] = React.useState(document?.content ?? "");
   const [editingTitle, setEditingTitle] = React.useState(false);
@@ -180,7 +240,10 @@ export function DocumentEditor({
     onContentChange?.(v);
   };
 
-  const relPath = document ? getRelativePath(vault, document.path) : "";
+  const breadcrumb = React.useMemo(
+    () => buildBreadcrumb(treeItems, document?.id),
+    [treeItems, document?.id],
+  );
 
   const layerLabelRu: Record<string, string> = {
     canvas: "Canvas",
@@ -221,12 +284,39 @@ export function DocumentEditor({
         </Button>
       </div>
 
-      {/* Center: path */}
-      <div className="flex flex-1 items-center justify-center gap-1.5 overflow-hidden px-2 text-xs">
-        {relPath ? (
-          <span className="truncate text-zinc-500">{relPath}</span>
+      {/* Center: breadcrumb mirroring the tree */}
+      <div className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-hidden px-2 text-xs">
+        {breadcrumb.length > 0 ? (
+          breadcrumb.map((seg, idx) => {
+            const isLast = idx === breadcrumb.length - 1;
+            const isClickable = !isLast && seg.kind === "file" && !!onOpenItem;
+            return (
+              <React.Fragment key={seg.id}>
+                {isClickable ? (
+                  <button
+                    type="button"
+                    className="max-w-[200px] truncate rounded px-1 py-0.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+                    onClick={() => onOpenItem?.(seg.id)}
+                    title={seg.name}
+                  >
+                    {seg.name}
+                  </button>
+                ) : (
+                  <span
+                    className={`max-w-[260px] truncate px-1 ${isLast ? "text-zinc-300" : "text-zinc-500"}`}
+                    title={seg.name}
+                  >
+                    {seg.name}
+                  </span>
+                )}
+                {!isLast && (
+                  <span className="shrink-0 text-zinc-700">›</span>
+                )}
+              </React.Fragment>
+            );
+          })
         ) : document ? (
-          <span className="text-zinc-400">{document.title}</span>
+          <span className="truncate text-zinc-400">{document.title}</span>
         ) : null}
       </div>
 
@@ -247,48 +337,39 @@ export function DocumentEditor({
             >
               <FileText className="size-3.5" />
             </button>
-            {/* Only show attached (linked) layers */}
+            {/* Only show attached (linked) layers — right-click for unlink/delete */}
             {linkedLayers?.canvas && (
-              <button
-                type="button"
+              <LayerButton
+                layer="canvas"
                 title="Canvas layer"
-                onClick={() => onLayerChange?.("canvas")}
-                className={`flex size-6 items-center justify-center rounded transition-colors ${
-                  activeLayer === "canvas"
-                    ? "bg-zinc-800 text-zinc-100"
-                    : "bg-zinc-1000 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-                }`}
-              >
-                <LayoutGrid className="size-3.5" />
-              </button>
+                icon={<LayoutGrid className="size-3.5" />}
+                active={activeLayer === "canvas"}
+                onActivate={() => onLayerChange?.("canvas")}
+                onUnlink={onUnlinkLayer}
+                onDelete={onDeleteLayer}
+              />
             )}
             {linkedLayers?.database && (
-              <button
-                type="button"
+              <LayerButton
+                layer="database"
                 title="Database layer"
-                onClick={() => onLayerChange?.("database")}
-                className={`flex size-6 items-center justify-center rounded transition-colors ${
-                  activeLayer === "database"
-                    ? "bg-zinc-800 text-zinc-100"
-                    : "bg-zinc-1000 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-                }`}
-              >
-                <Database className="size-3.5" />
-              </button>
+                icon={<Database className="size-3.5" />}
+                active={activeLayer === "database"}
+                onActivate={() => onLayerChange?.("database")}
+                onUnlink={onUnlinkLayer}
+                onDelete={onDeleteLayer}
+              />
             )}
             {linkedLayers?.sketch && (
-              <button
-                type="button"
+              <LayerButton
+                layer="sketch"
                 title="Excalidraw layer"
-                onClick={() => onLayerChange?.("sketch")}
-                className={`flex size-6 items-center justify-center rounded transition-colors ${
-                  activeLayer === "sketch"
-                    ? "bg-zinc-800 text-zinc-100"
-                    : "bg-zinc-1000 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
-                }`}
-              >
-                <PenLine className="size-3.5" />
-              </button>
+                icon={<PenLine className="size-3.5" />}
+                active={activeLayer === "sketch"}
+                onActivate={() => onLayerChange?.("sketch")}
+                onUnlink={onUnlinkLayer}
+                onDelete={onDeleteLayer}
+              />
             )}
           </div>
         )}
@@ -611,5 +692,55 @@ export function DocumentEditor({
         </div>
       </div>
     </div>
+  );
+}
+
+type LayerKind = "canvas" | "database" | "sketch";
+
+function LayerButton({
+  layer,
+  title,
+  icon,
+  active,
+  onActivate,
+  onUnlink,
+  onDelete,
+}: {
+  layer: LayerKind;
+  title: string;
+  icon: React.ReactNode;
+  active: boolean;
+  onActivate: () => void;
+  onUnlink?: (layer: LayerKind) => void;
+  onDelete?: (layer: LayerKind) => void;
+}) {
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <button
+          type="button"
+          title={title}
+          onClick={onActivate}
+          className={`flex size-6 items-center justify-center rounded transition-colors ${
+            active
+              ? "bg-zinc-800 text-zinc-100"
+              : "bg-zinc-1000 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+          }`}
+        >
+          {icon}
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-48">
+        <ContextMenuItem onSelect={() => onUnlink?.(layer)}>
+          Отвязать
+        </ContextMenuItem>
+        <ContextMenuItem
+          onSelect={() => onDelete?.(layer)}
+          className="text-red-400 focus:text-red-300"
+        >
+          Удалить
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

@@ -2,7 +2,9 @@
 // editor, and the markdown conversion layer.
 
 // Unicode-aware: matches #тег/#tag/#タグ and [[Заметка]] wiki links.
-export const INLINE_TOKEN_RE = /#(\p{L}[\p{L}\p{N}_-]*)|\[\[([^\]\r\n]+)\]\]/gu
+// The `#` must be at the start of the text node or preceded by whitespace —
+// otherwise hex colors like `#abc123` inside a word would be parsed as tags.
+export const INLINE_TOKEN_RE = /(?<=^|\s)#(\p{L}[\p{L}\p{N}_-]*)|\[\[([^\]\r\n]+)\]\]/gu
 
 export const HEX_RE = /^#[0-9a-fA-F]{6}$/
 export const SAFE_SPAN_RE = /^<span\s+style=["']([^"']*)["']>(.*?)<\/span>$/is

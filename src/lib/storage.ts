@@ -358,6 +358,53 @@ export async function noteLayers(notePath: string): Promise<NoteLayers> {
   }
 }
 
+export async function unlinkLayer(vaultPath: string, notePath: string, kind: LayerKind): Promise<FsMutationResult> {
+  if (isTauri()) return invoke<FsMutationResult>("unlink_layer", { vaultPath, notePath, kind })
+  // Web fallback: rename layer key with _ul suffix and lift it out of the bundle dir.
+  const dir = pathDir(notePath)
+  const parentDir = pathDir(dir)
+  const stem = pathStem(notePath)
+  const ext = kind === "canvas" ? "canvas" : kind === "sketch" ? "excalidraw" : "md"
+  const oldPath = kind === "database"
+    ? joinPath(dir, "Metadata.md")
+    : joinPath(dir, `${stem}.${ext}`)
+  const newStem = kind === "database" ? `${stem}_metadata_ul` : `${stem}_ul`
+  let newPath = joinPath(parentDir, `${newStem}.${ext}`)
+  let i = 2
+  while (localStorage.getItem(FILE_PREFIX + newPath) !== null) {
+    newPath = joinPath(parentDir, `${newStem}_${i}.${ext}`)
+    i += 1
+  }
+  const content = localStorage.getItem(FILE_PREFIX + oldPath)
+  if (content === null) throw new Error(`Layer file not found: ${oldPath}`)
+  localStorage.setItem(FILE_PREFIX + newPath, content)
+  localStorage.removeItem(FILE_PREFIX + oldPath)
+  return {
+    primaryId: null,
+    primaryPath: notePath,
+    pathChanges: ext === "md" ? [{ oldPath, newPath }] : [],
+    deletedPaths: [],
+    deletedIds: [],
+  }
+}
+
+export async function deleteLayer(vaultPath: string, notePath: string, kind: LayerKind): Promise<FsMutationResult> {
+  if (isTauri()) return invoke<FsMutationResult>("delete_layer", { vaultPath, notePath, kind })
+  const dir = pathDir(notePath)
+  const stem = pathStem(notePath)
+  const layerPath = kind === "database"
+    ? joinPath(dir, "Metadata.md")
+    : joinPath(dir, `${stem}.${kind === "sketch" ? "excalidraw" : "canvas"}`)
+  localStorage.removeItem(FILE_PREFIX + layerPath)
+  return {
+    primaryId: null,
+    primaryPath: notePath,
+    pathChanges: [],
+    deletedPaths: kind === "database" ? [layerPath] : [],
+    deletedIds: [],
+  }
+}
+
 export async function createLayer(notePath: string, kind: LayerKind): Promise<LayerResult> {
   if (isTauri()) return invoke<LayerResult>("create_layer", { notePath, kind })
 

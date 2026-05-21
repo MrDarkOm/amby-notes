@@ -52,6 +52,8 @@ import {
   deleteItem,
   moveItem,
   createLayer,
+  unlinkLayer,
+  deleteLayer,
   noteLayers,
   type NoteLayers,
   openInExplorer,
@@ -1127,6 +1129,35 @@ export function Workspace() {
     }
   }
 
+  const handleUnlinkLayer = async (layer: LayerKind) => {
+    if (!currentDoc || !vault) return
+    try {
+      const result = await unlinkLayer(vault, currentDoc.path, layer)
+      applyMutationResult(result)
+      await refreshTree()
+      await refreshLinkedLayers(currentDoc.id, result.primaryPath ?? currentDoc.path)
+      // If the unlinked layer was active, fall back to the editor.
+      setActiveLayers(prev => (prev[currentDoc.id] === layer ? { ...prev, [currentDoc.id]: "editor" } : prev))
+    } catch (err) {
+      console.error("Failed to unlink layer:", err)
+    }
+  }
+
+  const handleDeleteLayer = async (layer: LayerKind) => {
+    if (!currentDoc || !vault) return
+    const labels: Record<LayerKind, string> = { canvas: "Canvas", database: "базу данных", sketch: "Excalidraw" }
+    if (!confirm(`Удалить ${labels[layer]} у заметки "${currentDoc.title}"? Файл переедет в корзину.`)) return
+    try {
+      const result = await deleteLayer(vault, currentDoc.path, layer)
+      applyMutationResult(result)
+      await refreshTree()
+      await refreshLinkedLayers(currentDoc.id, result.primaryPath ?? currentDoc.path)
+      setActiveLayers(prev => (prev[currentDoc.id] === layer ? { ...prev, [currentDoc.id]: "editor" } : prev))
+    } catch (err) {
+      console.error("Failed to delete layer:", err)
+    }
+  }
+
   const panelRenderProps: PanelRenderProps = {
     treeItems: displayTreeItems,
     selectedId,
@@ -1181,6 +1212,10 @@ export function Workspace() {
       : { canvas: false, sketch: false, database: false },
     isLocked: currentDoc ? lockedFileIds.has(currentDoc.id) : false,
     onToggleLock: handleToggleLock,
+    treeItems: displayTreeItems,
+    onOpenItem: handleSelect,
+    onUnlinkLayer: handleUnlinkLayer,
+    onDeleteLayer: handleDeleteLayer,
   }
 
   if (!vault && isTauri()) {

@@ -183,7 +183,12 @@ fn extract_tags(content: &str) -> Vec<String> {
     let chars: Vec<char> = content.chars().collect();
     let mut i = 0;
     while i < chars.len() {
-        if chars[i] == '#' && i + 1 < chars.len() && chars[i + 1].is_alphabetic() {
+        let prev_is_boundary = i == 0 || chars[i - 1].is_whitespace();
+        if prev_is_boundary
+            && chars[i] == '#'
+            && i + 1 < chars.len()
+            && chars[i + 1].is_alphabetic()
+        {
             let start = i + 1;
             let mut end = start;
             while end < chars.len()

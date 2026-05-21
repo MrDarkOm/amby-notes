@@ -397,6 +397,100 @@ fn create_layer_impl(note_path: &Path, kind: &str) -> Result<LayerResult, String
     })
 }
 
+fn layer_file_path(note_path: &Path, kind: &str) -> Result<PathBuf, String> {
+    let bundle_dir = note_path
+        .parent()
+        .ok_or_else(|| "Bundle note has no parent".to_string())?;
+    let stem = file_stem(note_path)?;
+    let parent_name = bundle_dir
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if parent_name != stem {
+        return Err(format!("Note is not a bundle: {}", path_string(note_path)));
+    }
+    Ok(match kind {
+        "canvas" => bundle_dir.join(format!("{stem}.canvas")),
+        "sketch" => bundle_dir.join(format!("{stem}.excalidraw")),
+        "database" => bundle_dir.join("Metadata.md"),
+        other => return Err(format!("Unknown layer kind: {other}")),
+    })
+}
+
+fn unique_path(base_dir: &Path, stem: &str, ext: &str) -> PathBuf {
+    let first = base_dir.join(format!("{stem}.{ext}"));
+    if !first.exists() {
+        return first;
+    }
+    let mut i = 2;
+    loop {
+        let candidate = base_dir.join(format!("{stem}_{i}.{ext}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        i += 1;
+    }
+}
+
+fn unlink_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutationResult, String> {
+    let layer_path = layer_file_path(note_path, kind)?;
+    if !layer_path.exists() {
+        return Err(format!("Layer file not found: {}", path_string(&layer_path)));
+    }
+    let bundle_dir = layer_path
+        .parent()
+        .ok_or_else(|| "Layer file has no parent".to_string())?;
+    let target_dir = bundle_dir
+        .parent()
+        .ok_or_else(|| "Bundle has no parent dir".to_string())?;
+    let stem = file_stem(note_path)?;
+    let ext = layer_path
+        .extension()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let new_stem = match kind {
+        "database" => format!("{stem}_metadata_ul"),
+        _ => format!("{stem}_ul"),
+    };
+    let new_path = unique_path(target_dir, &new_stem, &ext);
+    fs::rename(&layer_path, &new_path).map_err(|e| e.to_string())?;
+
+    let mut path_changes = Vec::new();
+    if is_markdown(&layer_path) {
+        path_changes.push(PathChange {
+            old_path: path_string(&layer_path),
+            new_path: path_string(&new_path),
+        });
+    }
+    Ok(FsMutationResult {
+        primary_id: None,
+        primary_path: Some(path_string(note_path)),
+        path_changes,
+        deleted_paths: Vec::new(),
+        deleted_ids: Vec::new(),
+    })
+}
+
+fn delete_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutationResult, String> {
+    let layer_path = layer_file_path(note_path, kind)?;
+    if !layer_path.exists() {
+        return Err(format!("Layer file not found: {}", path_string(&layer_path)));
+    }
+    let deleted_paths = if is_markdown(&layer_path) {
+        vec![path_string(&layer_path)]
+    } else {
+        Vec::new()
+    };
+    trash::delete(&layer_path).map_err(|e| e.to_string())?;
+    Ok(FsMutationResult {
+        primary_id: None,
+        primary_path: Some(path_string(note_path)),
+        path_changes: Vec::new(),
+        deleted_paths,
+        deleted_ids: Vec::new(),
+    })
+}
+
 fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutationResult, String> {
     let trimmed = new_name.trim();
     if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
@@ -691,6 +785,22 @@ fn create_note(vault_path: String, parent_path: String, name: String) -> Result<
 #[tauri::command]
 fn create_layer(note_path: String, kind: String) -> Result<LayerResult, String> {
     create_layer_impl(Path::new(&note_path), &kind)
+}
+
+#[tauri::command]
+fn unlink_layer(vault_path: String, note_path: String, kind: String) -> Result<FsMutationResult, String> {
+    let result = unlink_layer_impl(Path::new(&note_path), &kind)?;
+    sync_mutation_result(Path::new(&vault_path), result)
+}
+
+#[tauri::command]
+fn delete_layer(vault_path: String, note_path: String, kind: String) -> Result<FsMutationResult, String> {
+    let mut result = delete_layer_impl(Path::new(&note_path), &kind)?;
+    if !result.deleted_paths.is_empty() {
+        result.deleted_ids = deleted_ids_for_paths(Path::new(&vault_path), &result.deleted_paths)?;
+    }
+    vault_index::load_vault(Path::new(&vault_path))?;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -994,6 +1104,8 @@ pub fn run() {
             ensure_bundle,
             create_note,
             create_layer,
+            unlink_layer,
+            delete_layer,
             note_layers,
             move_item,
             create_file,
