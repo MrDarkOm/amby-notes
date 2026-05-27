@@ -8,6 +8,8 @@ import {
   forceLink,
   forceManyBody,
   forceSimulation,
+  forceX,
+  forceY,
   type Simulation,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
@@ -57,6 +59,8 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
   // Keep stable refs to node objects across re-renders so positions persist.
   const nodeMapRef = React.useRef<Map<string, SimNode>>(new Map())
   const simRef = React.useRef<Simulation<SimNode, SimLink> | null>(null)
+  // Used to throttle d3 ticks to one React setState per animation frame (~60fps).
+  const rafRef = React.useRef<number | null>(null)
   const [, setTick] = React.useState(0)
 
   // Build / sync sim nodes and links whenever graph topology changes.
@@ -73,8 +77,8 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
           id: n.id,
           label: n.label,
           unresolved: n.unresolved,
-          x: (Math.random() - 0.5) * 200,
-          y: (Math.random() - 0.5) * 200,
+          x: (Math.random() - 0.5) * 60,
+          y: (Math.random() - 0.5) * 60,
         })
       }
     })
@@ -95,20 +99,35 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
         "link",
         forceLink<SimNode, SimLink>(simLinks)
           .id(d => d.id)
-          .distance(80)
-          .strength(0.7),
+          .distance(60)
+          .strength(0.8),
       )
-      .force("charge", forceManyBody().strength(-220))
-      .force("center", forceCenter(0, 0))
+      .force("charge", forceManyBody().strength(-140))
+      .force("center", forceCenter(0, 0).strength(1))
+      .force("x", forceX(0).strength(0.08))
+      .force("y", forceY(0).strength(0.08))
       .force("collide", forceCollide(18))
       .alpha(1)
       .alphaDecay(0.04)
-      .on("tick", () => setTick(t => (t + 1) & 0xffff))
+      .on("tick", () => {
+        // Throttle to one React setState per animation frame. Without this, d3's internal
+        // timer fires faster than 60fps, queueing up many setState calls and janking the UI.
+        if (rafRef.current !== null) return
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null
+          setTick(t => (t + 1) & 0xffff)
+        })
+      })
 
     simRef.current = sim
     return () => {
       sim.stop()
       if (simRef.current === sim) simRef.current = null
+      // Cancel any pending RAF so setState is not called after unmount.
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+        rafRef.current = null
+      }
     }
   }, [simNodes, simLinks])
 
@@ -231,6 +250,10 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
     setView({ tx: size.w / 2, ty: size.h / 2, zoom: 1 })
   }
 
+  // Level-of-detail: text labels are the bulk of the per-frame SVG DOM cost, so on
+  // large graphs only draw them once the user zooms in.
+  const showLabels = nodes.length <= 200 || view.zoom >= 1.1
+
   if (nodes.length === 0 || edges.length === 0) {
     return (
       <div ref={containerRef} className="flex h-full w-full flex-col items-center justify-center gap-3 bg-background px-6 text-center">
@@ -305,15 +328,17 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
                     r={r}
                     className={selected ? "fill-sky-400" : node.unresolved ? "fill-zinc-700" : "fill-zinc-300"}
                   />
-                  <text
-                    x={node.x}
-                    y={node.y + r + 12}
-                    textAnchor="middle"
-                    style={{ fontSize: 11 / Math.max(view.zoom, 0.6) }}
-                    className={selected ? "fill-sky-300" : "fill-zinc-500"}
-                  >
-                    {node.label.slice(0, 24)}
-                  </text>
+                  {(showLabels || selected) && (
+                    <text
+                      x={node.x}
+                      y={node.y + r + 12}
+                      textAnchor="middle"
+                      style={{ fontSize: 11 / Math.max(view.zoom, 0.6) }}
+                      className={selected ? "fill-sky-300" : "fill-zinc-500"}
+                    >
+                      {node.label.slice(0, 24)}
+                    </text>
+                  )}
                 </g>
               )
             })}

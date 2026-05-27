@@ -5,6 +5,7 @@ import { FolderOpen } from "lucide-react"
 import { ActivityBar } from "./activity-bar"
 import { PanelHost } from "./panel-host"
 import { GraphTabView } from "./graph-tab-view"
+import { CanvasEditor } from "./canvas-editor"
 import {
   DEFAULT_BUTTONS,
   buttonsForSide,
@@ -34,6 +35,7 @@ function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => v
 import { DocumentEditor, type DocumentViewMode } from "./document-editor"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
+import { SearchModal } from "./search-modal"
 import type { TreeItem } from "./sidebar-tree"
 import type { VaultRecord } from "./workspace-picker"
 import {
@@ -52,6 +54,8 @@ import {
   deleteItem,
   moveItem,
   createLayer,
+  createCanvasFile,
+  attachCanvasToNote,
   unlinkLayer,
   deleteLayer,
   noteLayers,
@@ -75,7 +79,7 @@ interface Document {
   path: string
 }
 
-type TabKind = "document" | "graph"
+type TabKind = "document" | "graph" | "canvas"
 
 interface Tab {
   key: string
@@ -87,6 +91,26 @@ interface Tab {
 }
 
 const GRAPH_TAB_FILE_ID = "__graph__"
+
+function wsPathDir(path: string): string {
+  const idx = path.replace(/\\/g, "/").lastIndexOf("/")
+  return idx === -1 ? "" : path.slice(0, idx)
+}
+
+function wsPathBase(path: string): string {
+  return path.replace(/\\/g, "/").split("/").pop() ?? path
+}
+
+function wsPathStem(path: string): string {
+  return wsPathBase(path).replace(/\.[^.]+$/u, "")
+}
+
+/** Path of a note's canvas layer sidecar file (<dir>/<stem>.canvas). */
+function canvasLayerPath(notePath: string): string {
+  const dir = wsPathDir(notePath)
+  const stem = wsPathStem(notePath)
+  return `${dir}/${stem}.canvas`
+}
 
 type EditorLayer = "editor" | LayerKind
 
@@ -249,15 +273,18 @@ export function Workspace() {
   const [viewModes, setViewModes] = React.useState<Record<string, DocumentViewMode>>({})
   const [linkedLayersByDoc, setLinkedLayersByDoc] = React.useState<Record<string, NoteLayers>>({})
   const [lockedFileIds, setLockedFileIds] = React.useState<Set<string>>(new Set())
+  // Raw .canvas JSON keyed by canvas file path (covers both note layers and standalone canvases).
+  const [openCanvases, setOpenCanvases] = React.useState<Record<string, string>>({})
+  const canvasSaveTimers = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
-  function handleToggleFavorite(id: string) {
+  const handleToggleFavorite = React.useCallback((id: string) => {
     setFavorites(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id); else next.add(id)
       if (vault) localStorage.setItem(`amby:favorites:${vault}`, JSON.stringify([...next]))
       return next
     })
-  }
+  }, [vault])
 
   function startResize(side: "left" | "right") {
     return (e: React.MouseEvent) => {
@@ -272,17 +299,32 @@ export function Workspace() {
         return side === "left" ? x < 44 + 20 : x > window.innerWidth - 44 - 20
       }
 
+      // Coalesce mousemove updates to one setState per animation frame so dragging
+      // doesn't trigger a React re-render on every pixel.
+      let frame = 0
+      let pendingW = startW
+
       function onMove(ev: MouseEvent) {
         if (nearEdge(ev.clientX)) return
-        const newW = startW + sign * (ev.clientX - startX)
-        setW(Math.max(200, Math.min(520, newW)))
+        pendingW = Math.max(200, Math.min(520, startW + sign * (ev.clientX - startX)))
+        if (frame) return
+        frame = requestAnimationFrame(() => {
+          frame = 0
+          setW(pendingW)
+        })
       }
 
       function onUp(ev: MouseEvent) {
+        if (frame) {
+          cancelAnimationFrame(frame)
+          frame = 0
+        }
         if (nearEdge(ev.clientX)) {
           setW(208)
           if (side === "left") setIsLeftSidebarOpen(false)
           else setIsRightSidebarOpen(false)
+        } else {
+          setW(pendingW)
         }
         window.removeEventListener("mousemove", onMove)
         window.removeEventListener("mouseup", onUp)
@@ -293,13 +335,20 @@ export function Workspace() {
     }
   }
   const [quickOpenOpen, setQuickOpenOpen] = React.useState(false)
+  const [searchOpen, setSearchOpen] = React.useState(false)
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
   const [activityButtons, setActivityButtons] = React.useState<ActivityButton[]>(
     () => loadButtons() ?? DEFAULT_BUTTONS,
   )
   const [activeBySide, setActiveBySide] = React.useState<Record<Side, PanelId | null>>(
-    () => loadActiveBySide() ?? { left: "files", right: "info" },
+    () => {
+      const saved = loadActiveBySide() ?? { left: "files", right: "info" }
+      // "search" is no longer a panel (now a spotlight action) — sanitize stale state.
+      const fix = (v: PanelId | null, fallback: PanelId): PanelId | null =>
+        (v as string) === "search" ? fallback : v
+      return { left: fix(saved.left, "files"), right: fix(saved.right, "info") }
+    },
   )
   React.useEffect(() => { saveButtons(activityButtons) }, [activityButtons])
   React.useEffect(() => { saveActiveBySide(activeBySide) }, [activeBySide])
@@ -337,7 +386,11 @@ export function Workspace() {
       if (!cancelled) setLinkGraph(buildLinkGraph(treeItems, contents, vault))
     }, 150)
     return () => { cancelled = true; clearTimeout(timer) }
-  }, [treeItems, openDocs, vault])
+  // openDocs intentionally excluded: web-mode already reads via openDocsRef; Tauri-mode
+  // fetches from SQLite and doesn't need openDocs at all. Removing it prevents this effect
+  // from re-running on every keystroke.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeItems, vault])
 
   React.useEffect(() => {
     if (!vault || tabs.length === 0) return
@@ -370,12 +423,30 @@ export function Workspace() {
     setActiveTabKey(key)
   }
 
+  function openCanvasTab(path: string, title: string) {
+    setOpenCanvases(prev => {
+      if (prev[path] !== undefined) return prev
+      readFile(path)
+        .then(c => setOpenCanvases(p => (p[path] !== undefined ? p : { ...p, [path]: c })))
+        .catch(() => setOpenCanvases(p => (p[path] !== undefined ? p : { ...p, [path]: "{}" })))
+      return prev
+    })
+    const existing = tabs.find(t => t.kind === "canvas" && t.fileId === path)
+    if (existing) {
+      setActiveTabKey(existing.key)
+      return
+    }
+    const key = newTabKey()
+    setTabs(prev => [...prev, { key, kind: "canvas", fileId: path, title, history: [], historyIndex: 0 }])
+    setActiveTabKey(key)
+  }
+
   async function refreshVault() {
     if (!vault) return
     try { await refreshTree(vault) } catch { /* ignore */ }
   }
 
-  const actionContext: ActionContext = { openGraphTab, refreshVault }
+  const actionContext: ActionContext = { openGraphTab, refreshVault, openSearch: () => setSearchOpen(true) }
 
   // Move a button to the opposite side (appended to that side's end).
   function moveButtonToSide(defId: string, targetSide: Side) {
@@ -486,18 +557,25 @@ export function Workspace() {
   }
 
   const vaultName = vault?.replace(/\\/g, "/").split("/").pop() ?? undefined
-  const displayTreeItems = applyIconOverrides(treeItems, iconOverrides)
+  // Memoised so a keystroke (which changes openDocs, not the tree) doesn't produce a
+  // fresh array and re-render every sidebar panel via panelRenderProps.
+  const displayTreeItems = React.useMemo(
+    () => applyIconOverrides(treeItems, iconOverrides),
+    [treeItems, iconOverrides],
+  )
 
   // Current file icon (from iconOverrides or tree)
   const activeFileId = activeTab?.fileId ?? null
   const activeTreeItem = activeFileId ? findTreeItem(displayTreeItems, activeFileId) : null
   const currentFileIcon = activeTreeItem?.icon
 
-  function handleSetIcon(id: string, icon: string) {
-    const next = { ...iconOverrides, [id]: icon }
-    setIconOverrides(next)
-    localStorage.setItem("amby:icons", JSON.stringify(next))
-  }
+  const handleSetIcon = React.useCallback((id: string, icon: string) => {
+    setIconOverrides(prev => {
+      const next = { ...prev, [id]: icon }
+      localStorage.setItem("amby:icons", JSON.stringify(next))
+      return next
+    })
+  }, [])
 
   function saveVaults(next: VaultRecord[]) {
     setVaults(next)
@@ -783,13 +861,18 @@ export function Workspace() {
     }
   }
 
-  async function handleOpenVault() {
+  const handleOpenVault = React.useCallback(async () => {
     const path = await openVault()
     if (path) loadVault(path)
-  }
+  // loadVault reads vault via closure but is stable (defined once in module scope via
+  // async function declaration — does not close over changing state after our ref fixes).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function loadDoc(fileId: string, itemName: string): Promise<Document> {
-    if (openDocs[fileId]) return openDocs[fileId]
+    // Use the ref so this function doesn't close over the openDocs state value and can
+    // be stabilised later with useCallback without causing stale-closure issues.
+    if (openDocsRef.current[fileId]) return openDocsRef.current[fileId]
     const item = findTreeItem(treeItems, fileId)
     const [content, meta] = vault
       ? await Promise.all([readNote(vault, fileId), getNoteMetadata(vault, fileId)])
@@ -803,8 +886,12 @@ export function Workspace() {
     return doc
   }
 
-  const handleSelect = async (fileId: string) => {
+  const handleSelect = React.useCallback(async (fileId: string) => {
     const item = findTreeItem(treeItems, fileId)
+    if (item && item.type === "canvas") {
+      openCanvasTab(item.path, item.name)
+      return
+    }
     if (!item || item.type !== "file") return
 
     try {
@@ -827,7 +914,9 @@ export function Workspace() {
       setTabs(prev => [...prev, { key, kind: "document", fileId, title: item.name, history: [fileId], historyIndex: 0 }])
       setActiveTabKey(key)
     }
-  }
+  // loadDoc uses openDocsRef internally — safe to exclude openDocs from deps.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeItems, tabs, activeTabKey])
 
   const handleWikiLinkClick = async (rawTarget: string) => {
     if (!vault) return
@@ -858,8 +947,12 @@ export function Workspace() {
     }
   }
 
-  const handleOpenInNewTab = async (fileId: string) => {
+  const handleOpenInNewTab = React.useCallback(async (fileId: string) => {
     const item = findTreeItem(treeItems, fileId)
+    if (item && item.type === "canvas") {
+      openCanvasTab(item.path, item.name)
+      return
+    }
     if (!item || item.type !== "file") return
 
     try {
@@ -872,7 +965,8 @@ export function Workspace() {
     const key = newTabKey()
     setTabs(prev => [...prev, { key, kind: "document", fileId, title: item.name, history: [fileId], historyIndex: 0 }])
     setActiveTabKey(key)
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeItems])
 
   async function navigateToFile(fileId: string) {
     const item = findTreeItem(treeItems, fileId)
@@ -922,7 +1016,7 @@ export function Workspace() {
     })
   }
 
-  const handleRenameFile = async (id: string, newName: string) => {
+  const handleRenameFile = React.useCallback(async (id: string, newName: string) => {
     const item = findTreeItem(treeItems, id)
     if (!item) return
     try {
@@ -938,9 +1032,12 @@ export function Workspace() {
     } catch (err) {
       console.error("Failed to rename:", err)
     }
-  }
+  // applyMutationResult closes over setters (stable); refreshTree closes over vault via
+  // closure but vault is in deps. activeTabKey excluded — uses functional setTabs.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeItems, vault])
 
-  const handleDeleteFile = async (id: string) => {
+  const handleDeleteFile = React.useCallback(async (id: string) => {
     const item = findTreeItem(treeItems, id)
     if (!confirm(`Удалить "${item?.name ?? id}"?`)) return
     try {
@@ -950,9 +1047,10 @@ export function Workspace() {
     } catch (err) {
       console.error("Failed to delete:", err)
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeItems, vault])
 
-  const handleNewFileIn = async (parentId: string | null) => {
+  const handleNewFileIn = React.useCallback(async (parentId: string | null) => {
     if (!vault) return
     const basePath = parentId ?? vault
     const parent = parentId ? findTreeItem(treeItems, parentId) : null
@@ -973,9 +1071,10 @@ export function Workspace() {
     } catch (err) {
       console.error("Failed to create file:", err)
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vault, treeItems])
 
-  const handleNewFolderIn = async (parentId: string | null) => {
+  const handleNewFolderIn = React.useCallback(async (parentId: string | null) => {
     if (!vault) return
     const basePath = parentId ?? vault
     const parent = parentId ? findTreeItem(treeItems, parentId) : null
@@ -994,9 +1093,71 @@ export function Workspace() {
     } catch (err) {
       console.error("Failed to create folder:", err)
     }
+  // updateInTree is a pure helper (stable); eslint disabled to avoid listing it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vault, treeItems])
+
+  const handleNewCanvasIn = async (parentId: string | null) => {
+    if (!vault) return
+    const parent = parentId ? findTreeItem(treeItems, parentId) : null
+    try {
+      const path = await createCanvasFile(vault, parent?.path ?? parentId ?? null, "Untitled")
+      await refreshTree()
+      setOpenCanvases(prev => ({ ...prev, [path]: "{}\n" }))
+      const title = wsPathStem(path)
+      const key = newTabKey()
+      setTabs(prev => [...prev, { key, kind: "canvas", fileId: path, title, history: [], historyIndex: 0 }])
+      setActiveTabKey(key)
+    } catch (err) {
+      console.error("Failed to create canvas:", err)
+    }
   }
 
-  const handleMoveItem = async (sourceId: string, targetFolderId: string | null) => {
+  const handleAttachCanvasToNote = async (canvasId: string) => {
+    if (!vault) return
+    const item = findTreeItem(treeItems, canvasId)
+    const canvasPath = item?.path ?? canvasId.replace(/^canvas:/u, "")
+    try {
+      const result = await attachCanvasToNote(vault, canvasPath)
+      applyMutationResult(result)
+      const tree = await refreshTree()
+      // Close the now-promoted standalone canvas tab.
+      setTabs(prev => prev.filter(t => !(t.kind === "canvas" && t.fileId === canvasPath)))
+      const notePath = result.primaryPath
+      if (!notePath) return
+      // Resolve the new note's tree id (ULID in Tauri) by path.
+      const norm = notePath.replace(/\\/g, "/")
+      function findByPath(items: typeof treeItems): (typeof treeItems)[number] | null {
+        for (const it of items) {
+          if (it.type === "file" && (it.path ?? it.id).replace(/\\/g, "/") === norm) return it
+          if (it.children) {
+            const found = findByPath(it.children)
+            if (found) return found
+          }
+        }
+        return null
+      }
+      const noteItem = findByPath(tree)
+      const id = noteItem?.id ?? result.primaryId ?? notePath
+      const name = noteItem?.name ?? wsPathStem(notePath)
+      try {
+        await loadDoc(id, name)
+      } catch { /* ignore */ }
+      setActiveLayers(prev => ({ ...prev, [id]: "canvas" }))
+      const existing = tabs.find(t => t.kind === "document" && t.fileId === id)
+      if (existing) {
+        setActiveTabKey(existing.key)
+      } else {
+        const key = newTabKey()
+        setTabs(prev => [...prev, { key, kind: "document", fileId: id, title: name, history: [id], historyIndex: 0 }])
+        setActiveTabKey(key)
+      }
+    } catch (err) {
+      console.error("Failed to attach canvas to note:", err)
+    }
+  }
+
+  const handleMoveItem = React.useCallback(async (sourceId: string, targetFolderId: string | null) => {
     const sourceItem = findTreeItem(treeItems, sourceId)
     if (!sourceItem || !vault) return
     const targetItem = targetFolderId ? findTreeItem(treeItems, targetFolderId) : null
@@ -1024,7 +1185,8 @@ export function Workspace() {
     } catch (err) {
       console.error("Failed to move item:", err)
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeItems, vault])
 
   const handleLayerChange = async (layer: EditorLayer) => {
     const doc = activeTab ? openDocs[activeTab.fileId] ?? null : null
@@ -1066,7 +1228,9 @@ export function Workspace() {
 
     setOpenDocs(prev => ({
       ...prev,
-      [fileId]: { ...prev[fileId], content, wordCount: content.split(/\s+/).filter(Boolean).length },
+      // Store only content here; wordCount is derived lazily inside DocumentEditor
+      // to avoid the O(n) split on every keystroke causing a Workspace re-render.
+      [fileId]: { ...prev[fileId], content },
     }))
     setUnsavedFileIds(prev => new Set(prev).add(fileId))
 
@@ -1094,14 +1258,80 @@ export function Workspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDoc?.id, currentDoc?.path])
 
-  const currentProperties = currentDoc ? {
-    type: "Markdown", status: "Draft", revisions: 0, backlinks: linkGraph.edges.filter(e => e.target === currentDoc.id).length,
-    created: "—", modified: currentDoc.modified, id: currentDoc.id,
-  } : null
+  // Debounced persistence of any open canvas (note layer or standalone), keyed by file path.
+  const handleCanvasSave = React.useCallback((path: string, json: string) => {
+    setOpenCanvases(prev => ({ ...prev, [path]: json }))
+    const timers = canvasSaveTimers.current
+    if (timers[path]) clearTimeout(timers[path])
+    timers[path] = setTimeout(async () => {
+      try {
+        await writeFile(path, json)
+      } catch (err) {
+        console.error("Failed to save canvas:", err)
+      }
+    }, 500)
+  }, [])
+
+  // Lazily load the canvas layer file when the canvas layer becomes active.
+  React.useEffect(() => {
+    if (!currentDoc) return
+    if ((activeLayers[currentDoc.id] ?? "editor") !== "canvas") return
+    const path = canvasLayerPath(currentDoc.path)
+    if (openCanvases[path] !== undefined) return
+    let cancelled = false
+    readFile(path)
+      .then(content => {
+        if (!cancelled) {
+          setOpenCanvases(prev => (prev[path] !== undefined ? prev : { ...prev, [path]: content }))
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOpenCanvases(prev => (prev[path] !== undefined ? prev : { ...prev, [path]: "{}" }))
+        }
+      })
+    return () => { cancelled = true }
+  }, [currentDoc?.id, currentDoc?.path, activeLayers, openCanvases])
+
+  // Resolve an Obsidian vault-relative file ref to a tree item and open it.
+  const handleOpenCanvasNote = React.useCallback((file: string) => {
+    if (!file) return
+    const norm = file.replace(/\\/g, "/")
+    const stem = wsPathStem(norm)
+    function find(items: typeof treeItems): (typeof treeItems)[number] | null {
+      for (const it of items) {
+        const p = (it.path ?? it.id).replace(/\\/g, "/")
+        if (it.type === "file" && (p === norm || p.endsWith(`/${norm}`) || wsPathStem(p) === stem)) {
+          return it
+        }
+        if (it.children) {
+          const found = find(it.children)
+          if (found) return found
+        }
+      }
+      return null
+    }
+    const target = find(treeItems)
+    if (target) handleSelect(target.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeItems])
+
+  // Memoised on the fields it actually reads — `currentDoc` gets a new identity on
+  // every keystroke (content changes), but id/modified don't, so this keeps
+  // panelRenderProps stable while typing.
+  const currentProperties = React.useMemo(
+    () => currentDoc ? {
+      type: "Markdown", status: "Draft", revisions: 0,
+      backlinks: linkGraph.edges.filter(e => e.target === currentDoc.id).length,
+      created: "—", modified: currentDoc.modified, id: currentDoc.id,
+    } : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [currentDoc?.id, currentDoc?.modified, linkGraph],
+  )
 
   const headerTabs: HeaderTab[] = tabs.map(t => ({ key: t.key, fileId: t.fileId, title: t.title }))
 
-  const handleAttachLayerToFile = async (fileId: string, layer: "canvas" | "database") => {
+  const handleAttachLayerToFile = React.useCallback(async (fileId: string, layer: "canvas" | "database") => {
     // Find the file path from the flat tree
     function findPath(items: typeof treeItems): string | null {
       for (const item of items) {
@@ -1127,7 +1357,8 @@ export function Workspace() {
     } catch (err) {
       console.error("Failed to attach layer:", err)
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeItems, vault])
 
   const handleUnlinkLayer = async (layer: LayerKind) => {
     if (!currentDoc || !vault) return
@@ -1158,7 +1389,10 @@ export function Workspace() {
     }
   }
 
-  const panelRenderProps: PanelRenderProps = {
+  // panelRenderProps is memoised so that sidebar panels don't re-render when only
+  // the editor content changes (openDocs/currentDoc). The deps list covers every value
+  // the sidebar panels actually *display* or *act on*.
+  const panelRenderProps: PanelRenderProps = React.useMemo(() => ({
     treeItems: displayTreeItems,
     selectedId,
     vault,
@@ -1168,6 +1402,8 @@ export function Workspace() {
     onDelete: handleDeleteFile,
     onNewFile: handleNewFileIn,
     onNewFolder: handleNewFolderIn,
+    onNewCanvas: handleNewCanvasIn,
+    onAttachCanvas: handleAttachCanvasToNote,
     onOpenInNewTab: handleOpenInNewTab,
     onOpenInExplorer: openInExplorer,
     onMoveItem: handleMoveItem,
@@ -1182,7 +1418,16 @@ export function Workspace() {
     linkGraph,
     currentDocId: currentDoc?.id ?? null,
     onSelectLink: handleSelect,
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [
+    displayTreeItems, selectedId, vault,
+    handleSelect, handleOpenVault, handleRenameFile, handleDeleteFile,
+    handleNewFileIn, handleNewFolderIn, handleOpenInNewTab,
+    handleMoveItem, handleSetIcon,
+    pendingRenameId, favorites, handleToggleFavorite,
+    handleAttachLayerToFile, linkedLayersByDoc,
+    currentProperties, linkGraph, currentDoc?.id,
+  ])
 
   const leftButtons = buttonsForSide(activityButtons, "left")
   const rightButtons = buttonsForSide(activityButtons, "right")
@@ -1216,6 +1461,11 @@ export function Workspace() {
     onOpenItem: handleSelect,
     onUnlinkLayer: handleUnlinkLayer,
     onDeleteLayer: handleDeleteLayer,
+    canvasValue: currentDoc ? openCanvases[canvasLayerPath(currentDoc.path)] ?? "{}" : "{}",
+    onCanvasChange: (json: string) => {
+      if (currentDoc) handleCanvasSave(canvasLayerPath(currentDoc.path), json)
+    },
+    onOpenCanvasNote: handleOpenCanvasNote,
   }
 
   if (!vault && isTauri()) {
@@ -1246,6 +1496,15 @@ export function Workspace() {
       >
         {activeTab?.kind === "graph" ? (
           <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
+        ) : activeTab?.kind === "canvas" ? (
+          <CanvasEditor
+            key={activeTab.fileId}
+            value={openCanvases[activeTab.fileId] ?? "{}"}
+            onChange={(json) => handleCanvasSave(activeTab.fileId, json)}
+            vault={vault ?? null}
+            notePath={activeTab.fileId}
+            onOpenNote={handleOpenCanvasNote}
+          />
         ) : (
           <DocumentEditor
             {...editorProps}
@@ -1298,6 +1557,14 @@ export function Workspace() {
           treeItems={displayTreeItems}
           onSelectFile={handleOpenInNewTab}
           onNewNote={() => handleNewFileIn(null)}
+        />
+
+        <SearchModal
+          open={searchOpen}
+          onClose={() => setSearchOpen(false)}
+          items={displayTreeItems}
+          onSelect={handleSelect}
+          readFile={readFile}
         />
       </div>
     )
@@ -1357,6 +1624,15 @@ export function Workspace() {
         <main className="flex flex-1 overflow-hidden">
           {activeTab?.kind === "graph" ? (
             <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
+          ) : activeTab?.kind === "canvas" ? (
+            <CanvasEditor
+              key={activeTab.fileId}
+              value={openCanvases[activeTab.fileId] ?? "{}"}
+              onChange={(json) => handleCanvasSave(activeTab.fileId, json)}
+              vault={vault ?? null}
+              notePath={activeTab.fileId}
+              onOpenNote={handleOpenCanvasNote}
+            />
           ) : (
             <DocumentEditor
               {...editorProps}
@@ -1392,6 +1668,14 @@ export function Workspace() {
         treeItems={displayTreeItems}
         onSelectFile={handleOpenInNewTab}
         onNewNote={() => handleNewFileIn(null)}
+      />
+
+      <SearchModal
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+        items={displayTreeItems}
+        onSelect={handleSelect}
+        readFile={readFile}
       />
     </div>
   )

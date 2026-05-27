@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { EditorContent, useEditor } from "@tiptap/react"
+import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 
 import { buildExtensions } from "./extensions"
 import { markdownToDoc, docToMarkdown } from "./markdown"
@@ -57,7 +57,21 @@ export function TiptapEditor({
   const valueRef = React.useRef(value)
   const onChangeRef = React.useRef(onChange)
   const callbacksRef = React.useRef<TagsWikilinksCallbacks>({ onTagClick, onWikiLinkClick })
+  const serializeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const [menu, setMenu] = React.useState<MenuState>({ open: false, left: 0, top: 0 })
+
+  // docToMarkdown is O(doc size); running it on every keystroke lags large notes.
+  // Debounce it, and flush on blur/unmount so the save path never loses edits.
+  const flushSerialize = React.useCallback((ed: Editor) => {
+    if (serializeTimerRef.current) {
+      clearTimeout(serializeTimerRef.current)
+      serializeTimerRef.current = null
+    }
+    const markdown = docToMarkdown(ed.state.doc)
+    if (markdown === valueRef.current) return
+    valueRef.current = markdown
+    onChangeRef.current(markdown)
+  }, [])
 
   React.useEffect(() => {
     onChangeRef.current = onChange
@@ -86,10 +100,8 @@ export function TiptapEditor({
       attributes: { class: "amby-tiptap-prose" },
     },
     onUpdate: ({ editor }) => {
-      const markdown = docToMarkdown(editor.state.doc)
-      if (markdown === valueRef.current) return
-      valueRef.current = markdown
-      onChangeRef.current(markdown)
+      if (serializeTimerRef.current) clearTimeout(serializeTimerRef.current)
+      serializeTimerRef.current = setTimeout(() => flushSerialize(editor), 200)
     },
     onSelectionUpdate: ({ editor }) => {
       if (!editor.isEditable) return
@@ -114,7 +126,8 @@ export function TiptapEditor({
           : clamp(above, 8, window.innerHeight - MENU_HEIGHT - 8)
       setMenu({ open: true, left, top })
     },
-    onBlur: () => {
+    onBlur: ({ editor }) => {
+      flushSerialize(editor)
       window.setTimeout(() => {
         // Don't close if focus moved into the floating bubble toolbar (e.g. an
         // input field for tag / link / wikilink panels).
@@ -133,6 +146,13 @@ export function TiptapEditor({
     valueRef.current = value
     editor.commands.setContent(markdownToDoc(value), { emitUpdate: false })
   }, [value, editor])
+
+  // Flush any pending serialization before this editor instance goes away
+  // (document switch, view-mode toggle, tab close) so the latest edit is saved.
+  React.useEffect(() => {
+    if (!editor) return
+    return () => flushSerialize(editor)
+  }, [editor, flushSerialize])
 
   // Toggle Live <-> Read in place without re-instantiating the editor.
   React.useEffect(() => {

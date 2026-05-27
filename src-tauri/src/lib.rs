@@ -1,4 +1,5 @@
 mod frontmatter;
+mod paths;
 mod vault_index;
 
 use serde::{Deserialize, Serialize};
@@ -235,6 +236,16 @@ fn scan_dir(dir: &Path) -> Result<Vec<TreeItem>, String> {
             }
         } else if is_markdown(&path) {
             items.push(tree_item_for_note(&path, None));
+        } else if is_canvas_file(&path) {
+            // Standalone canvas (bundle layer sidecars are hidden by scan_bundle_children).
+            items.push(TreeItem {
+                id: format!("canvas:{}", path_string(&path)),
+                path: path_string(&path),
+                name: file_stem(&path).unwrap_or_else(|_| raw_name.clone()),
+                item_type: "canvas".to_string(),
+                icon: "canvas".to_string(),
+                children: None,
+            });
         }
     }
 
@@ -414,6 +425,73 @@ fn layer_file_path(note_path: &Path, kind: &str) -> Result<PathBuf, String> {
         "sketch" => bundle_dir.join(format!("{stem}.excalidraw")),
         "database" => bundle_dir.join("Metadata.md"),
         other => return Err(format!("Unknown layer kind: {other}")),
+    })
+}
+
+fn is_canvas_file(path: &Path) -> bool {
+    path.extension().map_or(false, |ext| ext == "canvas")
+}
+
+/// Create a standalone `.canvas` file inside the given container (or next to a note).
+fn create_canvas_impl(parent_path: &Path, name: &str) -> Result<PathBuf, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
+        return Err("Invalid canvas name".to_string());
+    }
+    let container = if parent_path.is_dir() {
+        parent_path.to_path_buf()
+    } else if parent_path.is_file() {
+        parent_path
+            .parent()
+            .ok_or_else(|| format!("Path has no parent: {}", path_string(parent_path)))?
+            .to_path_buf()
+    } else {
+        parent_path.to_path_buf()
+    };
+    if !container.is_dir() {
+        return Err(format!("Not a directory: {}", path_string(&container)));
+    }
+    let path = unique_path(&container, trimmed, "canvas");
+    fs::write(&path, "{}\n").map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// Promote a standalone `.canvas` into a freshly-created note's bundle as its canvas layer.
+fn attach_canvas_impl(canvas_path: &Path) -> Result<FsMutationResult, String> {
+    if !canvas_path.is_file() || !is_canvas_file(canvas_path) {
+        return Err(format!("Not a canvas file: {}", path_string(canvas_path)));
+    }
+    let dir = canvas_path
+        .parent()
+        .ok_or_else(|| format!("Canvas has no parent: {}", path_string(canvas_path)))?;
+    let stem = file_stem(canvas_path)?;
+
+    // Create a sibling note (unique name), then turn it into a bundle that owns the canvas.
+    let note_path = unique_path(dir, &stem, "md");
+    fs::write(&note_path, "").map_err(|e| e.to_string())?;
+    let (main_note, mut path_changes) = ensure_bundle_path(&note_path)?;
+    let bundle_dir = main_note
+        .parent()
+        .ok_or_else(|| "Bundle note has no parent".to_string())?;
+    let note_stem = file_stem(&main_note)?;
+    let target = bundle_dir.join(format!("{note_stem}.canvas"));
+    fs::rename(canvas_path, &target).map_err(|e| e.to_string())?;
+
+    path_changes.push(PathChange {
+        old_path: path_string(canvas_path),
+        new_path: path_string(&target),
+    });
+    path_changes.push(PathChange {
+        old_path: String::new(),
+        new_path: path_string(&main_note),
+    });
+
+    Ok(FsMutationResult {
+        primary_id: None,
+        primary_path: Some(path_string(&main_note)),
+        path_changes,
+        deleted_paths: Vec::new(),
+        deleted_ids: Vec::new(),
     })
 }
 
@@ -706,23 +784,59 @@ fn sync_mutation_result(vault_path: &Path, mut result: FsMutationResult) -> Resu
     Ok(result)
 }
 
-#[tauri::command]
-fn load_vault(vault_path: String) -> Result<vault_index::LoadVaultResult, String> {
-    vault_index::load_vault(Path::new(&vault_path))
+/// Mark `vault_path` as the active vault: record it for path guards and grant
+/// the fs + asset-protocol scopes dynamically (instead of a static recursive
+/// scope over the whole home directory).
+fn activate_vault(
+    app: &tauri::AppHandle,
+    scope: &paths::VaultScope,
+    vault_path: &str,
+) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    use tauri_plugin_fs::FsExt;
+    let canonical = Path::new(vault_path)
+        .canonicalize()
+        .map_err(|e| format!("Vault not accessible: {e}"))?;
+    scope.set(canonical.clone());
+    let _ = app.fs_scope().allow_directory(&canonical, true);
+    let _ = app.asset_protocol_scope().allow_directory(&canonical, true);
+    Ok(canonical)
 }
 
 #[tauri::command]
-fn list_files(vault_path: String) -> Result<Vec<vault_index::TreeItem>, String> {
-    vault_index::load_vault(Path::new(&vault_path)).map(|loaded| loaded.tree)
+async fn load_vault(
+    app: tauri::AppHandle,
+    scope: tauri::State<'_, paths::VaultScope>,
+    vault_path: String,
+) -> Result<vault_index::LoadVaultResult, String> {
+    activate_vault(&app, &scope, &vault_path)?;
+    tauri::async_runtime::spawn_blocking(move || vault_index::load_vault(Path::new(&vault_path)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn read_file(path: String) -> Result<String, String> {
+async fn list_files(vault_path: String) -> Result<Vec<vault_index::TreeItem>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        vault_index::load_vault(Path::new(&vault_path)).map(|loaded| loaded.tree)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn read_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result<String, String> {
+    paths::guard(&scope, &path)?;
     fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn write_file(path: String, content: String) -> Result<(), String> {
+fn write_file(
+    scope: tauri::State<paths::VaultScope>,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    paths::guard(&scope, &path)?;
     if let Some(parent) = Path::new(&path).parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -750,22 +864,31 @@ fn get_note_metadata(vault_path: String, note_id: String) -> Result<NoteMetadata
 }
 
 #[tauri::command]
-fn list_tags(vault_path: String) -> Result<Vec<vault_index::TagEntry>, String> {
-    vault_index::list_tags(Path::new(&vault_path))
+async fn list_tags(vault_path: String) -> Result<Vec<vault_index::TagEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || vault_index::list_tags(Path::new(&vault_path)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn search_notes(vault_path: String, query: String) -> Result<Vec<vault_index::SearchResult>, String> {
-    vault_index::search_notes(Path::new(&vault_path), &query)
+async fn search_notes(vault_path: String, query: String) -> Result<Vec<vault_index::SearchResult>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        vault_index::search_notes(Path::new(&vault_path), &query)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn get_link_graph(vault_path: String) -> Result<vault_index::LinkGraph, String> {
-    vault_index::link_graph(Path::new(&vault_path))
+async fn get_link_graph(vault_path: String) -> Result<vault_index::LinkGraph, String> {
+    tauri::async_runtime::spawn_blocking(move || vault_index::link_graph(Path::new(&vault_path)))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
 fn ensure_bundle(vault_path: String, path: String) -> Result<FsMutationResult, String> {
+    paths::guard_in(&vault_path, &path)?;
     let (primary, path_changes) = ensure_bundle_path(Path::new(&path))?;
     sync_mutation_result(Path::new(&vault_path), FsMutationResult {
         primary_id: None,
@@ -778,23 +901,46 @@ fn ensure_bundle(vault_path: String, path: String) -> Result<FsMutationResult, S
 
 #[tauri::command]
 fn create_note(vault_path: String, parent_path: String, name: String) -> Result<FsMutationResult, String> {
+    paths::guard_in(&vault_path, &parent_path)?;
     let result = create_note_impl(Path::new(&parent_path), &name)?;
     sync_mutation_result(Path::new(&vault_path), result)
 }
 
 #[tauri::command]
-fn create_layer(note_path: String, kind: String) -> Result<LayerResult, String> {
+fn create_layer(
+    scope: tauri::State<paths::VaultScope>,
+    note_path: String,
+    kind: String,
+) -> Result<LayerResult, String> {
+    paths::guard(&scope, &note_path)?;
     create_layer_impl(Path::new(&note_path), &kind)
 }
 
 #[tauri::command]
+fn create_canvas(vault_path: String, parent_path: String, name: String) -> Result<String, String> {
+    paths::guard_in(&vault_path, &parent_path)?;
+    let path = create_canvas_impl(Path::new(&parent_path), &name)?;
+    vault_index::load_vault(Path::new(&vault_path))?;
+    Ok(path_string(&path))
+}
+
+#[tauri::command]
+fn attach_canvas_to_note(vault_path: String, canvas_path: String) -> Result<FsMutationResult, String> {
+    paths::guard_in(&vault_path, &canvas_path)?;
+    let result = attach_canvas_impl(Path::new(&canvas_path))?;
+    sync_mutation_result(Path::new(&vault_path), result)
+}
+
+#[tauri::command]
 fn unlink_layer(vault_path: String, note_path: String, kind: String) -> Result<FsMutationResult, String> {
+    paths::guard_in(&vault_path, &note_path)?;
     let result = unlink_layer_impl(Path::new(&note_path), &kind)?;
     sync_mutation_result(Path::new(&vault_path), result)
 }
 
 #[tauri::command]
 fn delete_layer(vault_path: String, note_path: String, kind: String) -> Result<FsMutationResult, String> {
+    paths::guard_in(&vault_path, &note_path)?;
     let mut result = delete_layer_impl(Path::new(&note_path), &kind)?;
     if !result.deleted_paths.is_empty() {
         result.deleted_ids = deleted_ids_for_paths(Path::new(&vault_path), &result.deleted_paths)?;
@@ -804,7 +950,11 @@ fn delete_layer(vault_path: String, note_path: String, kind: String) -> Result<F
 }
 
 #[tauri::command]
-fn note_layers(note_path: String) -> Result<NoteLayers, String> {
+fn note_layers(
+    scope: tauri::State<paths::VaultScope>,
+    note_path: String,
+) -> Result<NoteLayers, String> {
+    paths::guard(&scope, &note_path)?;
     let path = Path::new(&note_path);
     let mut layers = NoteLayers::default();
     if !path.is_file() {
@@ -828,12 +978,15 @@ fn note_layers(note_path: String) -> Result<NoteLayers, String> {
 
 #[tauri::command]
 fn move_item(vault_path: String, source_path: String, target_path: String) -> Result<FsMutationResult, String> {
+    paths::guard_in(&vault_path, &source_path)?;
+    paths::guard_in(&vault_path, &target_path)?;
     let result = move_item_impl(Path::new(&source_path), Path::new(&target_path))?;
     sync_mutation_result(Path::new(&vault_path), result)
 }
 
 #[tauri::command]
-fn create_file(path: String) -> Result<(), String> {
+fn create_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result<(), String> {
+    paths::guard(&scope, &path)?;
     if Path::new(&path).exists() {
         return Err(format!("File already exists: {path}"));
     }
@@ -844,7 +997,8 @@ fn create_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn create_folder(path: String) -> Result<(), String> {
+fn create_folder(scope: tauri::State<paths::VaultScope>, path: String) -> Result<(), String> {
+    paths::guard(&scope, &path)?;
     if Path::new(&path).exists() {
         return Err(format!("Folder already exists: {path}"));
     }
@@ -853,12 +1007,14 @@ fn create_folder(path: String) -> Result<(), String> {
 
 #[tauri::command]
 fn rename_item(vault_path: String, path: String, new_name: String) -> Result<FsMutationResult, String> {
+    paths::guard_in(&vault_path, &path)?;
     let result = rename_item_impl(Path::new(&path), &new_name)?;
     sync_mutation_result(Path::new(&vault_path), result)
 }
 
 #[tauri::command]
 fn delete_item(vault_path: String, path: String) -> Result<FsMutationResult, String> {
+    paths::guard_in(&vault_path, &path)?;
     let mut result = delete_item_impl(Path::new(&path))?;
     result.deleted_ids = deleted_ids_for_paths(Path::new(&vault_path), &result.deleted_paths)?;
     vault_index::load_vault(Path::new(&vault_path))?;
@@ -866,7 +1022,11 @@ fn delete_item(vault_path: String, path: String) -> Result<FsMutationResult, Str
 }
 
 #[tauri::command]
-fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
+fn get_file_metadata(
+    scope: tauri::State<paths::VaultScope>,
+    path: String,
+) -> Result<FileMetadata, String> {
+    paths::guard(&scope, &path)?;
     let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
 
@@ -890,7 +1050,11 @@ fn get_file_metadata(path: String) -> Result<FileMetadata, String> {
 }
 
 #[tauri::command]
-fn open_in_explorer(path: String) -> Result<(), String> {
+fn open_in_explorer(
+    scope: tauri::State<paths::VaultScope>,
+    path: String,
+) -> Result<(), String> {
+    paths::guard(&scope, &path)?;
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -1009,6 +1173,7 @@ fn import_asset(
     note_path: String,
     source_path: String,
 ) -> Result<ImportedAsset, String> {
+    paths::guard_in(&vault_path, &note_path)?;
     let vault = Path::new(&vault_path);
     let note = Path::new(&note_path);
     let source = Path::new(&source_path);
@@ -1038,6 +1203,7 @@ fn import_asset_bytes(
     bytes: Vec<u8>,
     suggested_ext: String,
 ) -> Result<ImportedAsset, String> {
+    paths::guard_in(&vault_path, &note_path)?;
     let vault = Path::new(&vault_path);
     let note = Path::new(&note_path);
     let dir = assets_dir_for(vault, note);
@@ -1090,6 +1256,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .manage(paths::VaultScope::default())
         .invoke_handler(tauri::generate_handler![
             load_vault,
             list_files,
@@ -1104,6 +1271,8 @@ pub fn run() {
             ensure_bundle,
             create_note,
             create_layer,
+            create_canvas,
+            attach_canvas_to_note,
             unlink_layer,
             delete_layer,
             note_layers,
@@ -1149,14 +1318,21 @@ mod tests {
         fs::write(vault.join("Parent/Metadata.md"), "").unwrap();
         fs::create_dir(vault.join("Parent/assets")).unwrap();
         fs::write(vault.join("Parent/assets/image.png"), "").unwrap();
+        // Standalone canvas (not a note's layer sidecar) should surface in the tree.
+        fs::write(vault.join("Board.canvas"), "{}").unwrap();
 
         let tree = scan_dir(&vault).unwrap();
         let parent = tree.iter().find(|item| item.name == "Parent").unwrap();
         assert_eq!(parent.item_type, "file");
         assert_eq!(parent.id, path_string(&vault.join("Parent/Parent.md")));
         let children = parent.children.as_ref().unwrap();
+        // Only Child.md is exposed; Parent.canvas (layer sidecar) stays hidden.
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].name, "Child");
+
+        let board = tree.iter().find(|item| item.name == "Board").unwrap();
+        assert_eq!(board.item_type, "canvas");
+        assert_eq!(board.icon, "canvas");
     }
 
     #[test]

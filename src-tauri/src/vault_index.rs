@@ -96,6 +96,9 @@ struct ScannedNote {
     body: String,
     mtime: i64,
     size: i64,
+    /// Set when the file's mtime+size match the index, so its body was not read
+    /// and the existing row can be kept as-is.
+    unchanged: bool,
 }
 
 fn path_string(path: &Path) -> String {
@@ -115,6 +118,10 @@ fn abs_from_rel(vault: &Path, rel_path: &str) -> PathBuf {
 
 fn is_markdown(path: &Path) -> bool {
     path.extension().map_or(false, |ext| ext == "md")
+}
+
+fn is_canvas(path: &Path) -> bool {
+    path.extension().map_or(false, |ext| ext == "canvas")
 }
 
 fn file_stem(path: &Path) -> String {
@@ -210,13 +217,14 @@ fn extract_tags(content: &str) -> Vec<String> {
 }
 
 fn normalize_wiki_target(raw: &str) -> String {
-    raw.split('|')
+    let without_alias = raw.split('|').next().unwrap_or(raw);
+    // A `#heading` or `^block` anchor points within a note, not at a different
+    // note, so it must be dropped before matching against note keys.
+    let base = without_alias
+        .split(|c| c == '#' || c == '^')
         .next()
-        .unwrap_or(raw)
-        .split('#')
-        .next()
-        .unwrap_or(raw)
-        .trim()
+        .unwrap_or(without_alias);
+    base.trim()
         .trim_end_matches(".md")
         .replace('\\', "/")
         .to_lowercase()
@@ -254,6 +262,10 @@ pub fn open_connection(vault: &Path) -> Result<Connection, String> {
     let amby_dir = vault.join(".amby");
     fs::create_dir_all(&amby_dir).map_err(|e| e.to_string())?;
     let conn = Connection::open(db_path(vault)).map_err(|e| e.to_string())?;
+    // WAL + a busy timeout keep reads and writes from colliding now that heavy
+    // commands run concurrently on the blocking thread pool.
+    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;")
+        .map_err(|e| e.to_string())?;
     init_schema(&conn)?;
     Ok(conn)
 }
@@ -289,6 +301,7 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_notes_title ON notes(title);
         CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
         CREATE INDEX IF NOT EXISTS idx_links_target ON links(target);
+        CREATE INDEX IF NOT EXISTS idx_links_note ON links(note_id);
         "#,
     )
     .map_err(|e| e.to_string())
@@ -311,7 +324,34 @@ fn db_snapshot(conn: &Connection) -> Result<(HashMap<String, String>, HashMap<St
     Ok((by_id, by_path))
 }
 
-fn scan_disk(vault: &Path, warnings: &mut Vec<String>) -> Result<Vec<ScannedNote>, String> {
+/// rel_path -> (note id, mtime, size) for incremental scanning.
+fn db_path_stamps(conn: &Connection) -> Result<HashMap<String, (String, i64, i64)>, String> {
+    let mut map = HashMap::new();
+    let mut stmt = conn
+        .prepare("SELECT path, id, mtime, size FROM notes")
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+    for row in rows {
+        let (path, id, mtime, size) = row.map_err(|e| e.to_string())?;
+        map.insert(path, (id, mtime, size));
+    }
+    Ok(map)
+}
+
+fn scan_disk(
+    vault: &Path,
+    prev: &HashMap<String, (String, i64, i64)>,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<ScannedNote>, String> {
     let mut notes = Vec::new();
     for entry in WalkDir::new(vault)
         .into_iter()
@@ -326,6 +366,24 @@ fn scan_disk(vault: &Path, warnings: &mut Vec<String>) -> Result<Vec<ScannedNote
             .strip_prefix(vault)
             .map(normalize_rel_path)
             .map_err(|e| e.to_string())?;
+        let (mtime, size) = metadata_stamp(path)?;
+
+        // Unchanged since last index: skip the expensive read + YAML parse.
+        if let Some((id, prev_mtime, prev_size)) = prev.get(&rel_path) {
+            if *prev_mtime == mtime && *prev_size == size {
+                notes.push(ScannedNote {
+                    path: path.to_path_buf(),
+                    rel_path,
+                    parsed_id: Some(id.clone()),
+                    body: String::new(),
+                    mtime,
+                    size,
+                    unchanged: true,
+                });
+                continue;
+            }
+        }
+
         let parsed = match frontmatter::read_markdown(path) {
             Ok(parsed) => parsed,
             Err(err) => {
@@ -340,7 +398,6 @@ fn scan_disk(vault: &Path, warnings: &mut Vec<String>) -> Result<Vec<ScannedNote
             ));
             continue;
         }
-        let (mtime, size) = metadata_stamp(path)?;
         notes.push(ScannedNote {
             path: path.to_path_buf(),
             rel_path,
@@ -348,6 +405,7 @@ fn scan_disk(vault: &Path, warnings: &mut Vec<String>) -> Result<Vec<ScannedNote
             body: parsed.body,
             mtime,
             size,
+            unchanged: false,
         });
     }
     notes.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
@@ -360,8 +418,9 @@ pub fn sync_vault(vault: &Path) -> Result<SyncReport, String> {
     }
     let conn = open_connection(vault)?;
     let (db_by_id, _db_by_path) = db_snapshot(&conn)?;
+    let prev = db_path_stamps(&conn)?;
     let mut warnings = Vec::new();
-    let mut notes = scan_disk(vault, &mut warnings)?;
+    let mut notes = scan_disk(vault, &prev, &mut warnings)?;
     notes.sort_by_key(|note| {
         let priority = note
             .parsed_id
@@ -379,6 +438,16 @@ pub fn sync_vault(vault: &Path) -> Result<SyncReport, String> {
     let mut path_to_id = HashMap::new();
 
     for mut note in notes {
+        // Unchanged files keep their existing row untouched; just mark them seen.
+        if note.unchanged {
+            if let Some(id) = note.parsed_id.clone() {
+                seen_paths.insert(note.rel_path.clone());
+                seen_ids.insert(id.clone());
+                path_to_id.insert(path_string(&note.path), id);
+                continue;
+            }
+        }
+
         let mut id = note.parsed_id.clone().unwrap_or_default();
         if id.is_empty() || seen_ids.contains(&id) {
             id = Ulid::new().to_string();
@@ -468,20 +537,25 @@ pub fn sync_vault(vault: &Path) -> Result<SyncReport, String> {
     let after_delete: i64 = tx
         .query_row("SELECT COUNT(*) FROM notes", [], |row| row.get(0))
         .map_err(|e| e.to_string())?;
+    let deleted = before_delete.saturating_sub(after_delete) as usize;
 
-    resolve_links(&tx)?;
+    // Re-resolving every link is only needed when the note set actually changed.
+    if inserted > 0 || updated > 0 || deleted > 0 {
+        resolve_links(&tx)?;
+    }
     tx.commit().map_err(|e| e.to_string())?;
 
     Ok(SyncReport {
         inserted,
         updated,
-        deleted: before_delete.saturating_sub(after_delete) as usize,
+        deleted,
         warnings,
         path_to_id,
     })
 }
 
-fn resolve_links(conn: &Connection) -> Result<(), String> {
+/// Map of every resolvable key (lowercased title, path-without-`.md`, basename) to note id.
+fn build_note_lookup(conn: &Connection) -> Result<HashMap<String, String>, String> {
     let mut stmt = conn
         .prepare("SELECT id, path, title FROM notes")
         .map_err(|e| e.to_string())?;
@@ -503,6 +577,17 @@ fn resolve_links(conn: &Connection) -> Result<(), String> {
             lookup.insert(name.trim_end_matches(".md").to_lowercase(), id);
         }
     }
+    Ok(lookup)
+}
+
+/// Resolve `target_note_id` for every link. Clears first so that targets which no
+/// longer match (renamed/retitled notes) are dropped — important now that
+/// `sync_vault` no longer rewrites the link rows of unchanged notes.
+fn resolve_links(conn: &Connection) -> Result<(), String> {
+    let lookup = build_note_lookup(conn)?;
+
+    conn.execute("UPDATE links SET target_note_id = NULL", [])
+        .map_err(|e| e.to_string())?;
 
     let mut link_stmt = conn
         .prepare("SELECT rowid, target FROM links")
@@ -523,6 +608,76 @@ fn resolve_links(conn: &Connection) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         }
     }
+    Ok(())
+}
+
+/// Scoped resolution for a single note after it is saved. Avoids the whole-vault
+/// link rewrite on every autosave: only this note's outgoing links and the links
+/// that point *at* this note are touched.
+fn resolve_links_for_note(conn: &Connection, note_id: &str) -> Result<(), String> {
+    let row: Option<(String, String)> = conn
+        .query_row(
+            "SELECT path, title FROM notes WHERE id = ?1",
+            [note_id],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?;
+    let Some((path, title)) = row else {
+        return Ok(());
+    };
+
+    let mut keys = vec![
+        title.to_lowercase(),
+        path.trim_end_matches(".md").to_lowercase(),
+    ];
+    if let Some(name) = path.split('/').last() {
+        keys.push(name.trim_end_matches(".md").to_lowercase());
+    }
+    keys.sort();
+    keys.dedup();
+
+    // Outgoing: resolve this note's own (freshly re-inserted) links.
+    let lookup = build_note_lookup(conn)?;
+    let mut stmt = conn
+        .prepare("SELECT rowid, target FROM links WHERE note_id = ?1")
+        .map_err(|e| e.to_string())?;
+    let outgoing = stmt
+        .query_map([note_id], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    drop(stmt);
+    for (rowid, target) in outgoing {
+        let target_id = lookup.get(&target);
+        conn.execute(
+            "UPDATE links SET target_note_id = ?1 WHERE rowid = ?2",
+            params![target_id, rowid],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // Incoming: drop stale links that pointed here (e.g. after a retitle), then
+    // (re)point any link whose target matches this note's current keys.
+    let placeholders = keys.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let mut bind: Vec<String> = Vec::with_capacity(keys.len() + 1);
+    bind.push(note_id.to_string());
+    bind.extend(keys.iter().cloned());
+    conn.execute(
+        &format!(
+            "UPDATE links SET target_note_id = NULL WHERE target_note_id = ?1 AND target NOT IN ({placeholders})"
+        ),
+        rusqlite::params_from_iter(bind.iter()),
+    )
+    .map_err(|e| e.to_string())?;
+    conn.execute(
+        &format!("UPDATE links SET target_note_id = ?1 WHERE target IN ({placeholders})"),
+        rusqlite::params_from_iter(bind.iter()),
+    )
+    .map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -642,6 +797,20 @@ fn scan_tree_dir(
             if let Some(note) = notes.get(&rel) {
                 items.push(tree_item_for_note(&path, note, Vec::new()));
             }
+        } else if is_canvas(&path) {
+            // Hide a note's canvas layer sidecar (<bundle>/<bundle>.canvas);
+            // surface every other .canvas as a standalone canvas item.
+            let is_layer_sidecar = in_bundle && file_stem(&path) == file_name(dir);
+            if !is_layer_sidecar {
+                items.push(TreeItem {
+                    id: format!("canvas:{}", path_string(&path)),
+                    path: path_string(&path),
+                    name: file_stem(&path),
+                    item_type: "canvas".to_string(),
+                    icon: "canvas".to_string(),
+                    children: None,
+                });
+            }
         }
     }
     Ok(items)
@@ -677,13 +846,80 @@ pub fn read_note(vault: &Path, note_id: &str) -> Result<String, String> {
     frontmatter::read_markdown(Path::new(&note.path)).map(|parsed| parsed.body)
 }
 
+/// Update only the index entry for a single note after saving it.
+/// Avoids the O(N) full-vault scan done by `sync_vault`.
+pub fn upsert_note_index(vault: &Path, note_id: &str, body: &str, note_path: &Path) -> Result<(), String> {
+    let conn = open_connection(vault)?;
+
+    let (mtime, size) = metadata_stamp(note_path)?;
+    let rel_path = note_path
+        .strip_prefix(vault)
+        .map(normalize_rel_path)
+        .map_err(|e| e.to_string())?;
+    let title = title_for(note_path, body);
+
+    conn.execute(
+        r#"
+        INSERT INTO notes (id, path, title, mtime, size, content, word_count, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%s','now'), strftime('%s','now'))
+        ON CONFLICT(id) DO UPDATE SET
+            path       = excluded.path,
+            title      = excluded.title,
+            mtime      = excluded.mtime,
+            size       = excluded.size,
+            content    = excluded.content,
+            word_count = excluded.word_count,
+            updated_at = strftime('%s','now')
+        "#,
+        rusqlite::params![
+            note_id,
+            rel_path,
+            title,
+            mtime,
+            size,
+            body,
+            word_count(body) as i64
+        ],
+    )
+    .map_err(|e| e.to_string())?;
+
+    // Re-index tags for this note.
+    conn.execute("DELETE FROM tags WHERE note_id = ?1", [note_id])
+        .map_err(|e| e.to_string())?;
+    for tag in extract_tags(body) {
+        conn.execute(
+            "INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?1, ?2)",
+            rusqlite::params![note_id, tag],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // Re-index outgoing links for this note.
+    conn.execute("DELETE FROM links WHERE note_id = ?1", [note_id])
+        .map_err(|e| e.to_string())?;
+    for (raw, target, label) in extract_links(body) {
+        conn.execute(
+            "INSERT INTO links (note_id, raw, target, label, target_note_id) VALUES (?1, ?2, ?3, ?4, NULL)",
+            rusqlite::params![note_id, raw, target, label],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    // Resolve only this note's links and the links pointing at it.
+    resolve_links_for_note(&conn, note_id)?;
+
+    Ok(())
+}
+
 pub fn write_note(vault: &Path, note_id: &str, content: &str) -> Result<(), String> {
     let note = note_by_id(vault, note_id)?;
     let path = Path::new(&note.path);
     let current = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let next = frontmatter::replace_body_preserving_id(&current, content, note_id)?;
     frontmatter::atomic_write(path, &next)?;
-    sync_vault(vault)?;
+    // Parse the body that was actually written (without frontmatter) to update the index.
+    let written = frontmatter::parse_markdown(&next);
+    upsert_note_index(vault, note_id, &written.body, path)?;
     Ok(())
 }
 
@@ -695,43 +931,42 @@ pub fn list_tags(vault: &Path) -> Result<Vec<TagEntry>, String> {
     sync_vault(vault)?;
     let conn = open_connection(vault)?;
     let mut stmt = conn
-        .prepare("SELECT DISTINCT tag FROM tags ORDER BY tag")
+        .prepare(
+            r#"
+            SELECT t.tag, n.id, n.path, n.title, n.mtime, n.word_count
+            FROM tags t
+            JOIN notes n ON n.id = t.note_id
+            ORDER BY t.tag, n.path
+            "#,
+        )
         .map_err(|e| e.to_string())?;
-    let tags = stmt
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-    drop(stmt);
-
-    let mut result = Vec::new();
-    for tag in tags {
-        let mut note_stmt = conn
-            .prepare(
-                r#"
-                SELECT n.id, n.path, n.title, n.mtime, n.word_count
-                FROM notes n
-                JOIN tags t ON t.note_id = n.id
-                WHERE t.tag = ?1
-                ORDER BY n.path
-                "#,
-            )
-            .map_err(|e| e.to_string())?;
-        let notes = note_stmt
-            .query_map([&tag], |row| {
-                let rel_path: String = row.get(1)?;
-                Ok(IndexedNote {
-                    id: row.get(0)?,
+    let rows = stmt
+        .query_map([], |row| {
+            let rel_path: String = row.get(2)?;
+            Ok((
+                row.get::<_, String>(0)?,
+                IndexedNote {
+                    id: row.get(1)?,
                     path: path_string(&abs_from_rel(vault, &rel_path)),
-                    title: row.get(2)?,
-                    modified: row.get::<_, Option<i64>>(3)?.map(|v| v as u64),
-                    word_count: row.get::<_, i64>(4)? as usize,
-                })
-            })
-            .map_err(|e| e.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| e.to_string())?;
-        result.push(TagEntry { tag, notes });
+                    title: row.get(3)?,
+                    modified: row.get::<_, Option<i64>>(4)?.map(|v| v as u64),
+                    word_count: row.get::<_, i64>(5)? as usize,
+                },
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+
+    // Rows arrive grouped by tag, so append into the trailing entry.
+    let mut result: Vec<TagEntry> = Vec::new();
+    for row in rows {
+        let (tag, note) = row.map_err(|e| e.to_string())?;
+        match result.last_mut() {
+            Some(entry) if entry.tag == tag => entry.notes.push(note),
+            _ => result.push(TagEntry {
+                tag,
+                notes: vec![note],
+            }),
+        }
     }
     Ok(result)
 }
@@ -928,5 +1163,73 @@ mod tests {
         assert_eq!(loaded.tree[0].name, "Parent");
         assert_eq!(loaded.tree[0].item_type, "file");
         assert_eq!(loaded.tree[0].children.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn incremental_reload_keeps_links_resolved() {
+        let vault = temp_vault("incr-links");
+        fs::write(vault.join("A.md"), "Link to [[B]]").unwrap();
+        fs::write(vault.join("B.md"), "# B").unwrap();
+
+        load_vault(&vault).unwrap();
+        let graph = link_graph(&vault).unwrap();
+        assert_eq!(graph.edges.len(), 1);
+        assert!(graph.edges.iter().all(|e| e.unresolved.is_none()));
+
+        // Nothing changed: the unchanged-file fast path must not drop the
+        // already-resolved target.
+        let graph2 = link_graph(&vault).unwrap();
+        assert!(graph2.edges.iter().all(|e| e.unresolved.is_none()));
+    }
+
+    #[test]
+    fn normalizes_heading_and_block_anchors() {
+        assert_eq!(normalize_wiki_target("Note#Heading"), "note");
+        assert_eq!(normalize_wiki_target("Note^block-id"), "note");
+        assert_eq!(normalize_wiki_target("Note#Heading|Alias"), "note");
+        assert_eq!(normalize_wiki_target("Folder/Note^abc"), "folder/note");
+    }
+
+    #[test]
+    fn resolves_anchored_and_bundle_links() {
+        let vault = temp_vault("anchors");
+        // A links to a heading, a block, and a bundle note by its name.
+        fs::write(
+            vault.join("A.md"),
+            "[[Target#Intro]] [[Target^para1]] [[Bundle]]",
+        )
+        .unwrap();
+        fs::write(vault.join("Target.md"), "# Target").unwrap();
+        fs::create_dir(vault.join("Bundle")).unwrap();
+        fs::write(vault.join("Bundle/Bundle.md"), "# Bundle").unwrap();
+
+        load_vault(&vault).unwrap();
+        let graph = link_graph(&vault).unwrap();
+
+        assert_eq!(graph.edges.len(), 3);
+        assert!(
+            graph.edges.iter().all(|e| e.unresolved.is_none()),
+            "all anchored/bundle links should resolve: {:?}",
+            graph.edges
+        );
+    }
+
+    #[test]
+    fn deleting_target_unresolves_links_on_reload() {
+        let vault = temp_vault("unresolve");
+        fs::write(vault.join("A.md"), "Link to [[B]]").unwrap();
+        fs::write(vault.join("B.md"), "# B").unwrap();
+        load_vault(&vault).unwrap();
+        assert!(link_graph(&vault)
+            .unwrap()
+            .edges
+            .iter()
+            .all(|e| e.unresolved.is_none()));
+
+        // A is untouched; only the target is removed. The link must re-resolve to
+        // unresolved even though A's row is skipped by the incremental scan.
+        fs::remove_file(vault.join("B.md")).unwrap();
+        let graph = link_graph(&vault).unwrap();
+        assert!(graph.edges.iter().any(|e| e.unresolved == Some(true)));
     }
 }

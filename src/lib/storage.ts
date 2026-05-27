@@ -346,6 +346,78 @@ export async function createFolder(vaultPath: string, name: string): Promise<str
   return path
 }
 
+export async function createCanvasFile(
+  vaultPath: string,
+  parentPath: string | null,
+  name: string,
+): Promise<string> {
+  if (isTauri()) {
+    return invoke<string>("create_canvas", { vaultPath, parentPath: parentPath ?? vaultPath, name })
+  }
+  // Web fallback: write a standalone .canvas file and register a tree item.
+  const tree = webGetTree()
+  const parentItem = parentPath ? webFindItem(tree, parentPath) : null
+  let targetDir = WEB_VAULT
+  let parentFolderId: string | null = null
+  if (parentItem?.type === "folder") {
+    targetDir = parentItem.path ?? parentItem.id
+    parentFolderId = parentItem.id
+  } else if (parentItem?.type === "file") {
+    targetDir = pathDir(parentItem.path ?? parentItem.id)
+  } else if (parentPath && parentPath !== WEB_VAULT) {
+    targetDir = parentPath
+  }
+
+  const stem = name.trim() || "Untitled"
+  let path = joinPath(targetDir, `${stem}.canvas`)
+  let i = 2
+  while (localStorage.getItem(FILE_PREFIX + path) !== null) {
+    path = joinPath(targetDir, `${stem}_${i}.canvas`)
+    i += 1
+  }
+  localStorage.setItem(FILE_PREFIX + path, "{}\n")
+  const item: TreeItem = { id: `canvas:${path}`, path, name: pathStem(path), type: "canvas", icon: "canvas" }
+  webSaveTree(webAddChild(tree, parentFolderId, item))
+  return path
+}
+
+export async function attachCanvasToNote(
+  vaultPath: string,
+  canvasPath: string,
+): Promise<FsMutationResult> {
+  if (isTauri()) {
+    return invoke<FsMutationResult>("attach_canvas_to_note", { vaultPath, canvasPath })
+  }
+  // Web fallback: create a sibling note bundle and move the canvas in as its layer.
+  const dir = pathDir(canvasPath)
+  const stem = pathStem(canvasPath)
+  const content = localStorage.getItem(FILE_PREFIX + canvasPath) ?? "{}\n"
+
+  let name = stem
+  let i = 2
+  while (webFindItem(webGetTree(), joinPath(dir, `${name}.md`))) {
+    name = `${stem}-${i}`
+    i += 1
+  }
+  const createRes = webCreateNote(dir, name)
+  const created = createRes.primaryPath ?? joinPath(dir, `${name}.md`)
+  const ensured = webEnsureBundle(created)
+  const bundleDir = pathDir(ensured.notePath)
+  const layerPath = joinPath(bundleDir, `${pathStem(ensured.notePath)}.canvas`)
+  localStorage.setItem(FILE_PREFIX + layerPath, content)
+  localStorage.removeItem(FILE_PREFIX + canvasPath)
+  const removed = webRemoveItem(webGetTree(), `canvas:${canvasPath}`)
+  webSaveTree(removed.tree)
+
+  return {
+    primaryId: ensured.notePath,
+    primaryPath: ensured.notePath,
+    pathChanges: [...createRes.pathChanges, ...ensured.changes],
+    deletedPaths: [],
+    deletedIds: [],
+  }
+}
+
 export async function noteLayers(notePath: string): Promise<NoteLayers> {
   if (isTauri()) return invoke<NoteLayers>("note_layers", { notePath })
   const stem = pathStem(notePath)

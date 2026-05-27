@@ -19,6 +19,7 @@ import {
   Hash,
   History,
   Info,
+  LayoutGrid,
   Link as LinkIcon,
   LocateFixed,
   Network,
@@ -39,7 +40,6 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { SidebarTree, type TreeItem } from "./sidebar-tree"
-import { SidebarSearch } from "./sidebar-search"
 import { SidebarTags } from "./sidebar-tags"
 import { NewItemModal } from "./new-item-modal"
 
@@ -47,7 +47,6 @@ export type Side = "left" | "right"
 
 export type PanelId =
   | "files"
-  | "search"
   | "tags"
   | "favorites"
   | "databases"
@@ -96,6 +95,8 @@ export interface PanelRenderProps {
   onDelete?: (id: string) => void
   onNewFile?: (parentId: string | null) => void
   onNewFolder?: (parentId: string | null) => void
+  onNewCanvas?: (parentId: string | null) => void
+  onAttachCanvas?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onMoveItem?: (sourceId: string, targetFolderId: string | null) => void
@@ -122,6 +123,7 @@ export interface PanelRenderProps {
 export interface ActionContext {
   openGraphTab: () => void
   refreshVault: () => void
+  openSearch: () => void
 }
 
 export interface PanelDef {
@@ -165,7 +167,7 @@ function flattenTreeItems(items: TreeItem[]): TreeItem[] {
 function FilesPanel(props: PanelRenderProps) {
   const {
     treeItems, selectedId, vault, onSelect, onOpenVault,
-    onRename, onDelete, onNewFile, onNewFolder,
+    onRename, onDelete, onNewFile, onNewFolder, onNewCanvas, onAttachCanvas,
     onOpenInNewTab, onOpenInExplorer, onMoveItem, onSetIcon,
     triggerRenameId, favorites, onToggleFavorite, onAttachLayer, linkedLayersByDoc,
   } = props
@@ -204,6 +206,10 @@ function FilesPanel(props: PanelRenderProps) {
           onClick={() => { if (!vault) onOpenVault(); else onNewFolder?.(null) }}>
           <FolderPlus className="size-3.5" />
         </Button>
+        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title="Создать Canvas"
+          onClick={() => { if (!vault) onOpenVault(); else onNewCanvas?.(null) }}>
+          <LayoutGrid className="size-3.5" />
+        </Button>
         <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title="Порядок сортировки">
           <ArrowDownUp className="size-3.5" />
         </Button>
@@ -236,6 +242,8 @@ function FilesPanel(props: PanelRenderProps) {
                     onDelete={onDelete}
                     onNewFile={onNewFile}
                     onNewFolder={onNewFolder}
+                    onNewCanvas={onNewCanvas}
+                    onAttachCanvas={onAttachCanvas}
                     onOpenInNewTab={onOpenInNewTab}
                     onOpenInExplorer={onOpenInExplorer}
                     onMoveItem={onMoveItem}
@@ -278,6 +286,13 @@ function FilesPanel(props: PanelRenderProps) {
             <FolderPlus className="size-3.5 text-zinc-500" />
             Новая папка
           </ContextMenuItem>
+          <ContextMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+            onSelect={() => { if (!vault) onOpenVault(); else onNewCanvas?.(null) }}
+          >
+            <LayoutGrid className="size-3.5 text-zinc-500" />
+            Новый Canvas
+          </ContextMenuItem>
           <ContextMenuItem disabled className="flex items-center gap-2 text-[13px] text-zinc-600">
             <Database className="size-3.5" />
             База данных
@@ -295,9 +310,6 @@ function FilesPanel(props: PanelRenderProps) {
   )
 }
 
-function SearchPanel({ treeItems, onSelect, readFile }: PanelRenderProps) {
-  return <SidebarSearch items={treeItems} onSelect={onSelect} readFile={readFile} />
-}
 
 function TagsPanel({ treeItems, onSelect, readFile }: PanelRenderProps) {
   return <SidebarTags items={treeItems} onSelect={onSelect} readFile={readFile} />
@@ -523,7 +535,6 @@ function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps)
 
 export const PANEL_DEFS: PanelDef[] = [
   { id: "files",     label: "Древо",       icon: FolderTree, kind: "view", render: p => <FilesPanel {...p} /> },
-  { id: "search",    label: "Поиск",       icon: Search,     kind: "view", render: p => <SearchPanel {...p} /> },
   { id: "tags",      label: "Теги",        icon: Tag,        kind: "view", render: p => <TagsPanel {...p} /> },
   { id: "favorites", label: "Избранное",   icon: Bookmark,   kind: "view", render: p => <FavoritesPanel {...p} /> },
   { id: "databases", label: "Базы данных", icon: Database,   kind: "view", render: () => <ComingSoonPanel label="Базы данных" /> },
@@ -534,6 +545,7 @@ export const PANEL_DEFS: PanelDef[] = [
 ]
 
 export const ACTION_DEFS: ActionDef[] = [
+  { id: "search",  label: "Поиск",         icon: Search,    kind: "action", invoke: ctx => ctx.openSearch() },
   { id: "refresh", label: "Синхронизация", icon: RefreshCw, kind: "action", invoke: ctx => ctx.refreshVault() },
   { id: "network", label: "Граф связей",   icon: Network,   kind: "action", invoke: ctx => ctx.openGraphTab() },
 ]

@@ -260,7 +260,7 @@ export function HeaderTabs({
               </button>
             </WorkspacePicker>
           </div>
-          {leftSidebarToggle}
+          <div className="flex shrink-0 -translate-x-2">{leftSidebarToggle}</div>
         </div>
       )}
 

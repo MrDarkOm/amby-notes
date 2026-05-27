@@ -14,6 +14,7 @@ import {
   ContextMenuSub, ContextMenuSubTrigger, ContextMenuSubContent,
 } from "@/components/ui/context-menu"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { setTreeDragPayload, clearTreeDragPayload } from "@/lib/canvas-dnd"
 
 type AttachableLayer = "canvas" | "database"
 interface NodeLayers { canvas: boolean; database: boolean; sketch: boolean }
@@ -49,6 +50,8 @@ interface SidebarTreeProps {
   onDelete?: (id: string) => void
   onNewFile?: (parentId: string | null) => void
   onNewFolder?: (parentId: string | null) => void
+  onNewCanvas?: (parentId: string | null) => void
+  onAttachCanvas?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onMoveItem?: (sourceId: string, targetId: string | null) => void
@@ -71,11 +74,13 @@ interface TreeNodeProps {
   onDelete?: (id: string) => void
   onNewFile?: (parentId: string | null) => void
   onNewFolder?: (parentId: string | null) => void
+  onNewCanvas?: (parentId: string | null) => void
+  onAttachCanvas?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onSetIcon?: (id: string, icon: string) => void
   triggerRenameId?: string | null
-  onPtrDragStart: (id: string, name: string, x: number, y: number) => void
+  onPtrDragStart: (id: string, name: string, path: string, x: number, y: number) => void
   ptrDragSourceId: string | null
   ptrDragTargetId: string | null
   folderResetKey?: number
@@ -120,9 +125,12 @@ function getIcon(icon: string | undefined, className?: string) {
   }
 }
 
-function TreeNode({
+// areEqual deliberately ignores callback identity (onSelect, onRename, …).
+// During drag, Workspace is *not* re-rendering so the callbacks are stable anyway;
+// during typing we skip the whole tree re-render because ptrDrag/selectedId/item are unchanged.
+const TreeNode = React.memo(function TreeNode({
   item, level, selectedId, onSelect, onRename, onDelete,
-  onNewFile, onNewFolder, onOpenInNewTab, onOpenInExplorer, onSetIcon,
+  onNewFile, onNewFolder, onNewCanvas, onAttachCanvas, onOpenInNewTab, onOpenInExplorer, onSetIcon,
   triggerRenameId, onPtrDragStart, ptrDragSourceId, ptrDragTargetId,
   folderResetKey, folderTargetOpen, favorites, onToggleFavorite, onAttachLayer,
   linkedLayersByDoc,
@@ -171,7 +179,7 @@ function TreeNode({
 
   function handlePointerDown(e: React.PointerEvent) {
     if (e.button !== 0 || isEditing) return
-    onPtrDragStart(item.id, item.name, e.clientX, e.clientY)
+    onPtrDragStart(item.id, item.name, item.path ?? item.id, e.clientX, e.clientY)
   }
 
   const nameNode = isEditing ? (
@@ -206,6 +214,22 @@ function TreeNode({
         <FolderPlus className="size-3.5 text-zinc-500" />
         Новая папка
       </ContextMenuItem>
+      <ContextMenuItem
+        className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+        onSelect={() => onNewCanvas?.(item.type === "folder" || item.type === "file" ? item.id : null)}
+      >
+        <LayoutGrid className="size-3.5 text-zinc-500" />
+        Новый Canvas
+      </ContextMenuItem>
+      {item.type === "canvas" && onAttachCanvas && (
+        <ContextMenuItem
+          className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+          onSelect={() => onAttachCanvas(item.id)}
+        >
+          <FileText className="size-3.5 text-zinc-500" />
+          Привязать к заметке
+        </ContextMenuItem>
+      )}
       {item.type === "file" && onAttachLayer && (() => {
         const layers = linkedLayersByDoc?.[item.id]
         const canvasAvail = !layers?.canvas
@@ -412,6 +436,8 @@ function TreeNode({
                 onDelete={onDelete}
                 onNewFile={onNewFile}
                 onNewFolder={onNewFolder}
+                onNewCanvas={onNewCanvas}
+                onAttachCanvas={onAttachCanvas}
                 onOpenInNewTab={onOpenInNewTab}
                 onOpenInExplorer={onOpenInExplorer}
                 onSetIcon={onSetIcon}
@@ -464,23 +490,34 @@ function TreeNode({
     </>
   )
 }
+, (prev, next) =>
+  prev.item === next.item &&
+  prev.selectedId === next.selectedId &&
+  prev.ptrDragSourceId === next.ptrDragSourceId &&
+  prev.ptrDragTargetId === next.ptrDragTargetId &&
+  prev.triggerRenameId === next.triggerRenameId &&
+  prev.folderResetKey === next.folderResetKey &&
+  prev.folderTargetOpen === next.folderTargetOpen &&
+  prev.favorites === next.favorites &&
+  prev.linkedLayersByDoc === next.linkedLayersByDoc
+)
 
 export function SidebarTree({
   items, selectedId, onSelect, onRename, onDelete,
-  onNewFile, onNewFolder, onOpenInNewTab, onOpenInExplorer, onMoveItem, onSetIcon, triggerRenameId,
+  onNewFile, onNewFolder, onNewCanvas, onAttachCanvas, onOpenInNewTab, onOpenInExplorer, onMoveItem, onSetIcon, triggerRenameId,
   folderResetKey, folderTargetOpen, favorites, onToggleFavorite, onAttachLayer, linkedLayersByDoc,
 }: SidebarTreeProps) {
   const [ptrDrag, setPtrDrag] = React.useState<PtrDrag | null>(null)
   const ptrDragRef = React.useRef<PtrDrag | null>(null)
   const onMoveItemRef = React.useRef(onMoveItem)
-  const pointerDownRef = React.useRef<{ id: string; name: string; x: number; y: number } | null>(null)
+  const pointerDownRef = React.useRef<{ id: string; name: string; path: string; x: number; y: number } | null>(null)
 
   React.useEffect(() => { ptrDragRef.current = ptrDrag }, [ptrDrag])
   React.useEffect(() => { onMoveItemRef.current = onMoveItem }, [onMoveItem])
 
-  function onPtrDragStart(id: string, name: string, x: number, y: number) {
-    pointerDownRef.current = { id, name, x, y }
-  }
+  const onPtrDragStart = React.useCallback((id: string, name: string, path: string, x: number, y: number) => {
+    pointerDownRef.current = { id, name, path, x, y }
+  }, [])
 
   React.useEffect(() => {
     function onMove(e: PointerEvent) {
@@ -506,10 +543,13 @@ export function SidebarTree({
         if (dx > 5 || dy > 5) {
           const startId = pd.id
           const startName = pd.name
+          const startPath = pd.path
           pointerDownRef.current = null
           // suppress the click that fires after drag ends
           const suppress = (ev: MouseEvent) => { ev.stopPropagation(); ev.preventDefault(); document.removeEventListener('click', suppress, true) }
           document.addEventListener('click', suppress, true)
+          // Expose the dragged item to the Canvas (pointer-based bridge).
+          setTreeDragPayload({ id: startId, name: startName, path: startPath })
           setPtrDrag({ sourceId: startId, sourceName: startName, startX: pd.x, startY: pd.y, ghostX: e.clientX, ghostY: e.clientY, active: true, targetId: null })
         }
       }
@@ -524,6 +564,8 @@ export function SidebarTree({
         }
         setPtrDrag(null)
       }
+      // Clear the canvas bridge after the canvas had a chance to read it on its own pointerup.
+      setTimeout(() => clearTreeDragPayload(), 0)
     }
 
     document.addEventListener('pointermove', onMove)
@@ -552,6 +594,8 @@ export function SidebarTree({
             onDelete={onDelete}
             onNewFile={onNewFile}
             onNewFolder={onNewFolder}
+            onNewCanvas={onNewCanvas}
+            onAttachCanvas={onAttachCanvas}
             onOpenInNewTab={onOpenInNewTab}
             onOpenInExplorer={onOpenInExplorer}
             onSetIcon={onSetIcon}

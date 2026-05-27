@@ -14,6 +14,44 @@ export default defineConfig(async () => ({
     },
   },
 
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Tiptap + ProseMirror — the largest single block (~400 kB).
+          "vendor-tiptap": [
+            "@tiptap/core",
+            "@tiptap/react",
+            "@tiptap/starter-kit",
+            "@tiptap/extension-bubble-menu",
+            "@tiptap/extension-image",
+            "@tiptap/extension-link",
+            "@tiptap/extension-placeholder",
+            "@tiptap/extension-table",
+            "@tiptap/extension-table-cell",
+            "@tiptap/extension-table-header",
+            "@tiptap/extension-table-row",
+            "@tiptap/extension-task-item",
+            "@tiptap/extension-task-list",
+            "@tiptap/suggestion",
+          ],
+          // CodeMirror — used only in source-mode view.
+          "vendor-codemirror": [
+            "@codemirror/commands",
+            "@codemirror/lang-markdown",
+            "@codemirror/language",
+            "@codemirror/state",
+            "@codemirror/view",
+          ],
+          // d3-force — used only in the graph tab.
+          "vendor-d3": ["d3-force"],
+          // emoji-mart — used only in the emoji picker panel.
+          "vendor-emoji": ["emoji-mart", "@emoji-mart/react", "@emoji-mart/data"],
+        },
+      },
+    },
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors
@@ -36,3 +74,4 @@ export default defineConfig(async () => ({
     },
   },
 }));
+

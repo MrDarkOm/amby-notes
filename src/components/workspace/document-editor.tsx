@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { SourceEditor } from "./source-editor";
 import { TiptapEditor } from "./tiptap/TiptapEditor";
+import { CanvasEditor } from "./canvas-editor";
 import type { EditorHandle } from "./tiptap/constants";
 import {
   DropdownMenu,
@@ -84,6 +85,9 @@ interface DocumentEditorProps {
   onOpenItem?: (id: string) => void;
   onUnlinkLayer?: (layer: "canvas" | "database" | "sketch") => void;
   onDeleteLayer?: (layer: "canvas" | "database" | "sketch") => void;
+  canvasValue?: string;
+  onCanvasChange?: (json: string) => void;
+  onOpenCanvasNote?: (file: string) => void;
 }
 
 type EditorLayer = "editor" | "canvas" | "database" | "sketch";
@@ -198,6 +202,9 @@ export function DocumentEditor({
   onOpenItem,
   onUnlinkLayer,
   onDeleteLayer,
+  canvasValue,
+  onCanvasChange,
+  onOpenCanvasNote,
 }: DocumentEditorProps) {
   const [content, setContent] = React.useState(document?.content ?? "");
   const [editingTitle, setEditingTitle] = React.useState(false);
@@ -529,6 +536,25 @@ export function DocumentEditor({
               Открыть хранилище
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Canvas layer: borderless, full-bleed infinite canvas (no title / scroll column).
+  if (activeLayer === "canvas") {
+    return (
+      <div className="relative flex h-full flex-1 flex-col bg-background">
+        {navBar}
+        <div className="flex-1 overflow-hidden">
+          <CanvasEditor
+            key={`${document.id}:canvas`}
+            value={canvasValue ?? "{}"}
+            onChange={(json) => onCanvasChange?.(json)}
+            vault={vault ?? null}
+            notePath={document.path}
+            onOpenNote={onOpenCanvasNote}
+          />
         </div>
       </div>
     );

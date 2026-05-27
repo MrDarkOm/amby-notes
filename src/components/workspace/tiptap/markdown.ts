@@ -295,6 +295,11 @@ function ambyMarkdownItPlugin(md: MarkdownIt) {
 const tokenizer = new MarkdownIt("default", { html: true, linkify: false, breaks: false })
 tokenizer.use(ambyMarkdownItPlugin)
 
+/** Render a markdown string to HTML using the shared tokenizer (read-only display). */
+export function markdownToHtml(markdown: string): string {
+  return tokenizer.render(markdown ?? "")
+}
+
 // ── Parser ────────────────────────────────────────────────────────────────────
 
 const parser = new MarkdownParser(editorSchema, tokenizer, {
