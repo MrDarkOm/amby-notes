@@ -1,0 +1,71 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct TreeItem {
+    pub id: String,
+    pub path: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub item_type: String,
+    pub icon: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<TreeItem>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathChange {
+    pub old_path: String,
+    pub new_path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FsMutationResult {
+    pub primary_id: Option<String>,
+    pub primary_path: Option<String>,
+    pub path_changes: Vec<PathChange>,
+    pub deleted_paths: Vec<String>,
+    pub deleted_ids: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayerResult {
+    pub note_path: String,
+    pub layer_path: String,
+    pub kind: String,
+    pub path_changes: Vec<PathChange>,
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteLayers {
+    pub canvas: bool,
+    pub sketch: bool,
+    pub database: bool,
+}
+
+#[derive(Serialize)]
+pub struct FileMetadata {
+    pub created: Option<u64>,
+    pub modified: Option<u64>,
+    pub word_count: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteMetadata {
+    pub created: Option<u64>,
+    pub modified: Option<u64>,
+    pub word_count: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedAsset {
+    pub rel_path: String,
+    pub abs_path: String,
+    pub file_name: String,
+    pub kind: String,
+}
