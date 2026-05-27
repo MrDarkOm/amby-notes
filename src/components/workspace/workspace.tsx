@@ -7,19 +7,14 @@ import { PanelHost } from "./panel-host"
 import { GraphTabView } from "./graph-tab-view"
 import { CanvasEditor } from "./canvas-editor"
 import {
-  DEFAULT_BUTTONS,
   buttonsForSide,
   findButtonDef,
-  loadActiveBySide,
-  loadButtons,
-  saveActiveBySide,
-  saveButtons,
   type ActionContext,
-  type ActivityButton,
   type PanelId,
   type PanelRenderProps,
   type Side,
 } from "./panel-registry"
+import { usePresets } from "./use-presets"
 import { useActivityDnD } from "./use-activity-dnd"
 
 function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
@@ -338,20 +333,10 @@ export function Workspace() {
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
-  const [activityButtons, setActivityButtons] = React.useState<ActivityButton[]>(
-    () => loadButtons() ?? DEFAULT_BUTTONS,
-  )
-  const [activeBySide, setActiveBySide] = React.useState<Record<Side, PanelId | null>>(
-    () => {
-      const saved = loadActiveBySide() ?? { left: "files", right: "info" }
-      // "search" is no longer a panel (now a spotlight action) — sanitize stale state.
-      const fix = (v: PanelId | null, fallback: PanelId): PanelId | null =>
-        (v as string) === "search" ? fallback : v
-      return { left: fix(saved.left, "files"), right: fix(saved.right, "info") }
-    },
-  )
-  React.useEffect(() => { saveButtons(activityButtons) }, [activityButtons])
-  React.useEffect(() => { saveActiveBySide(activeBySide) }, [activeBySide])
+  const {
+    activityButtons, setActivityButtons,
+    activeBySide, setActiveBySide,
+  } = usePresets()
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
