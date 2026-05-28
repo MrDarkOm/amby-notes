@@ -571,45 +571,6 @@ export const DEFAULT_BUTTONS: ActivityButton[] = [
   { defId: "links",     side: "right", order: 2 },
 ]
 
-const BUTTONS_KEY = "amby:panel-buttons:v1"
-const ACTIVE_KEY = "amby:active-views:v1"
-
-export function loadButtons(): ActivityButton[] | null {
-  try {
-    const raw = localStorage.getItem(BUTTONS_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as ActivityButton[]
-    if (!Array.isArray(parsed)) return null
-    return parsed.filter(b => findButtonDef(b.defId))
-  } catch {
-    return null
-  }
-}
-
-export function saveButtons(buttons: ActivityButton[]) {
-  try {
-    localStorage.setItem(BUTTONS_KEY, JSON.stringify(buttons))
-  } catch { /* localStorage unavailable */ }
-}
-
-export function loadActiveBySide(): Record<Side, PanelId | null> | null {
-  try {
-    const raw = localStorage.getItem(ACTIVE_KEY)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== "object") return null
-    return { left: parsed.left ?? null, right: parsed.right ?? null }
-  } catch {
-    return null
-  }
-}
-
-export function saveActiveBySide(active: Record<Side, PanelId | null>) {
-  try {
-    localStorage.setItem(ACTIVE_KEY, JSON.stringify(active))
-  } catch { /* localStorage unavailable */ }
-}
-
 export function buttonsForSide(buttons: ActivityButton[], side: Side): ActivityButton[] {
   return buttons
     .filter(b => b.side === side)

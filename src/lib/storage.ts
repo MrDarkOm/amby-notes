@@ -689,3 +689,98 @@ export async function importTextFile(): Promise<string | null> {
     input.click()
   })
 }
+
+// ── Tiered settings storage ─────────────────────────────────────────────────
+//
+// Generic JSON read/write over two roots (the domain layer decides what file
+// names and shapes live where):
+//  • Global  — {local_data_dir}/Amby/<file>           via read/write_app_data
+//  • Vault   — {vault}/.amby/<rel>                     via read/write/delete_vault_meta
+//             (also covers per-note block sidecars: blocks/<id>.json)
+//
+// Web-only dev mode (no backend) mirrors both into localStorage. The browser
+// only ever has a single web vault, so vault-meta is keyed without a vault id.
+
+const GLOBAL_WEB_PREFIX = "amby:g:"
+const VAULT_WEB_PREFIX = "amby:vmeta:"
+
+async function readGlobalRaw(file: string): Promise<string | null> {
+  if (isTauri()) return invoke<string | null>("read_app_data", { rel: file })
+  return localStorage.getItem(GLOBAL_WEB_PREFIX + file)
+}
+
+async function writeGlobalRaw(file: string, contents: string): Promise<void> {
+  if (isTauri()) return invoke<void>("write_app_data", { rel: file, contents })
+  localStorage.setItem(GLOBAL_WEB_PREFIX + file, contents)
+}
+
+async function readVaultRaw(rel: string): Promise<string | null> {
+  if (isTauri()) return invoke<string | null>("read_vault_meta", { rel })
+  return localStorage.getItem(VAULT_WEB_PREFIX + rel)
+}
+
+async function writeVaultRaw(rel: string, contents: string): Promise<void> {
+  if (isTauri()) return invoke<void>("write_vault_meta", { rel, contents })
+  localStorage.setItem(VAULT_WEB_PREFIX + rel, contents)
+}
+
+/** Load + parse a global JSON file, returning `fallback` if absent or corrupt. */
+export async function loadGlobalJSON<T>(file: string, fallback: T): Promise<T> {
+  try {
+    const raw = await readGlobalRaw(file)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+/** Serialize + write a global JSON file (fire-and-forget; errors swallowed). */
+export async function saveGlobalJSON(file: string, data: unknown): Promise<void> {
+  try {
+    await writeGlobalRaw(file, JSON.stringify(data, null, 2))
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** Load + parse a per-vault JSON file, returning `fallback` if absent or corrupt. */
+export async function loadVaultJSON<T>(rel: string, fallback: T): Promise<T> {
+  try {
+    const raw = await readVaultRaw(rel)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+
+/** Serialize + write a per-vault JSON file (fire-and-forget; errors swallowed). */
+export async function saveVaultJSON(rel: string, data: unknown): Promise<void> {
+  try {
+    await writeVaultRaw(rel, JSON.stringify(data, null, 2))
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** Delete a per-vault metadata file (no-op if missing). */
+export async function deleteVaultMeta(rel: string): Promise<void> {
+  try {
+    if (isTauri()) {
+      await invoke<void>("delete_vault_meta", { rel })
+      return
+    }
+    localStorage.removeItem(VAULT_WEB_PREFIX + rel)
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+/** True when a global config file has never been written (fresh / pre-tier). */
+export async function globalFileMissing(file: string): Promise<boolean> {
+  return (await readGlobalRaw(file)) === null
+}
+
+/** True when a per-vault metadata file has never been written. */
+export async function vaultFileMissing(rel: string): Promise<boolean> {
+  return (await readVaultRaw(rel)) === null
+}

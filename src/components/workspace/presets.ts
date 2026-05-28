@@ -60,22 +60,6 @@ export function getPreset(id: string | null | undefined): Preset {
   return BUILTIN_PRESETS.find(p => p.id === id) ?? STANDARD_PRESET
 }
 
-const ACTIVE_PRESET_KEY = "amby:active-preset:v1"
-
-export function loadActivePresetId(): string | null {
-  try {
-    return localStorage.getItem(ACTIVE_PRESET_KEY)
-  } catch {
-    return null
-  }
-}
-
-export function saveActivePresetId(id: string) {
-  try {
-    localStorage.setItem(ACTIVE_PRESET_KEY, id)
-  } catch { /* localStorage unavailable */ }
-}
-
 /**
  * Validate a preset parsed from JSON (used by import in Phase 3). Drops unknown
  * buttons and unknown modules so a malformed or foreign preset can't wedge the
@@ -159,22 +143,3 @@ export function parsePresetFile(text: string): Preset | null {
   return validatePreset(wrapped)
 }
 
-const USER_PRESETS_KEY = "amby:user-presets:v1"
-
-export function loadUserPresets(): Preset[] {
-  try {
-    const raw = localStorage.getItem(USER_PRESETS_KEY)
-    if (!raw) return []
-    const arr = JSON.parse(raw)
-    if (!Array.isArray(arr)) return []
-    return arr.map(validatePreset).filter((p): p is Preset => !!p)
-  } catch {
-    return []
-  }
-}
-
-export function saveUserPresets(presets: Preset[]) {
-  try {
-    localStorage.setItem(USER_PRESETS_KEY, JSON.stringify(presets))
-  } catch { /* localStorage unavailable */ }
-}

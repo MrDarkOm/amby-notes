@@ -74,6 +74,18 @@ pub fn guard_in(vault: &str, candidate: &str) -> Result<(), String> {
     confine(Path::new(vault), Path::new(candidate)).map(|_| ())
 }
 
+/// Resolve a *relative* path `rel` under `root` and verify it stays inside.
+/// `root` must already exist (callers create it first). Rejects absolute paths
+/// and `..` traversal — used by the app-data / vault-meta storage commands where
+/// the webview supplies only a relative file name (e.g. `blocks/<id>.json`).
+pub fn confine_rel(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let rel_path = Path::new(rel);
+    if rel_path.is_absolute() {
+        return Err(format!("Path must be relative: {rel}"));
+    }
+    confine(root, &root.join(rel_path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,5 +129,18 @@ mod tests {
         let vault = temp_dir("traversal");
         let escape = vault.join("../../etc/passwd");
         assert!(confine(&vault, &escape).is_err());
+    }
+
+    #[test]
+    fn confine_rel_allows_nested_relative() {
+        let root = temp_dir("rel-ok");
+        assert!(confine_rel(&root, "blocks/abc.json").is_ok());
+    }
+
+    #[test]
+    fn confine_rel_rejects_absolute_and_escape() {
+        let root = temp_dir("rel-bad");
+        assert!(confine_rel(&root, "/etc/passwd").is_err());
+        assert!(confine_rel(&root, "../escape.json").is_err());
     }
 }

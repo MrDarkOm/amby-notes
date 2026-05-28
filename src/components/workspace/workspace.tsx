@@ -18,6 +18,7 @@ import { usePresets } from "./use-presets"
 import { useDocStore, type Document } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useVaultStore } from "./use-vault-store"
+import { loadSession, loadWorkspaces, saveSession, saveWorkspaces } from "./app-config"
 import { useActivityDnD } from "./use-activity-dnd"
 
 function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
@@ -268,10 +269,9 @@ export function Workspace() {
     setFavorites(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id); else next.add(id)
-      if (vault) localStorage.setItem(`amby:favorites:${vault}`, JSON.stringify([...next]))
       return next
     })
-  }, [vault])
+  }, [])
 
   function startResize(side: "left" | "right") {
     return (e: React.MouseEvent) => {
@@ -328,8 +328,9 @@ export function Workspace() {
   const {
     activityButtons, setActivityButtons,
     activeBySide, setActiveBySide,
-    activePresetId, presets, switchPreset, importPreset, exportPreset,
-  } = usePresets()
+    activePresetId, presets, panelScope, setPanelScope,
+    switchPreset, importPreset, exportPreset,
+  } = usePresets(vault)
   const presetOptions = React.useMemo(
     () => presets.map(p => ({ id: p.id, label: p.label })),
     [presets],
@@ -352,9 +353,8 @@ export function Workspace() {
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
-  const [iconOverrides, setIconOverrides] = React.useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem("amby:icons") ?? "{}") } catch { return {} }
-  })
+  // Hydrated per-vault from session.json when a vault opens (see loadVault).
+  const [iconOverrides, setIconOverrides] = React.useState<Record<string, string>>({})
   const vaults = useVaultStore((s) => s.vaults)
 
   // One debounce timer per open file, so editing or closing one document never
@@ -386,17 +386,27 @@ export function Workspace() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [treeItems, vault])
 
+  // Debounced persistence of the whole per-vault session (tabs + favorites +
+  // view-modes + locked + icons) into {vault}/.amby/session.json. Gated on
+  // sessionHydratedRef so applying a freshly-restored session doesn't echo back.
+  const sessionHydratedRef = React.useRef(false)
   React.useEffect(() => {
-    if (!vault || tabs.length === 0) return
-    // Only persist document tabs (graph tab is ephemeral).
+    if (!vault || !sessionHydratedRef.current) return
     const docTabs = tabs.filter(t => t.kind === "document")
     const entries = docTabs.map(t => ({ fileId: t.fileId, title: t.title }))
     const active = docTabs.find(t => t.key === activeTabKey)
-    localStorage.setItem(`amby:tabs:${vault}`, JSON.stringify({
-      entries,
-      activeFileId: active?.fileId ?? entries[0]?.fileId ?? "",
-    }))
-  }, [tabs, activeTabKey, vault])
+    const timer = setTimeout(() => {
+      saveSession({
+        tabs: entries,
+        activeFileId: active?.fileId ?? entries[0]?.fileId ?? "",
+        favorites: [...favorites],
+        viewModes,
+        locked: [...lockedFileIds],
+        icons: iconOverrides,
+      })
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [vault, tabs, activeTabKey, favorites, viewModes, lockedFileIds, iconOverrides])
 
   const activeTab = tabs.find(t => t.key === activeTabKey) ?? null
   const selectedId = activeTab && activeTab.kind === "document" ? activeTab.fileId : ""
@@ -564,26 +574,19 @@ export function Workspace() {
   const currentFileIcon = activeTreeItem?.icon
 
   const handleSetIcon = React.useCallback((id: string, icon: string) => {
-    setIconOverrides(prev => {
-      const next = { ...prev, [id]: icon }
-      localStorage.setItem("amby:icons", JSON.stringify(next))
-      return next
-    })
+    setIconOverrides(prev => ({ ...prev, [id]: icon }))
   }, [])
 
   function saveVaults(next: VaultRecord[]) {
     setVaults(next)
-    localStorage.setItem("amby:vaults", JSON.stringify(next))
   }
 
-  function saveViewModes(path: string | null, next: Record<string, DocumentViewMode>) {
+  function saveViewModes(_path: string | null, next: Record<string, DocumentViewMode>) {
     setViewModes(next)
-    if (path) localStorage.setItem(`amby:view-modes:${path}`, JSON.stringify(next))
   }
 
-  function saveLockedFileIds(path: string | null, next: Set<string>) {
+  function saveLockedFileIds(_path: string | null, next: Set<string>) {
     setLockedFileIds(next)
-    if (path) localStorage.setItem(`amby:locked:${path}`, JSON.stringify([...next]))
   }
 
   async function refreshLinkedLayers(docId: string, notePath: string) {
@@ -634,7 +637,6 @@ export function Workspace() {
       setFavorites(prev => {
         const next = new Set<string>()
         for (const id of prev) if (!deleted.has(id)) next.add(id)
-        if (vault) localStorage.setItem(`amby:favorites:${vault}`, JSON.stringify([...next]))
         return next
       })
 
@@ -643,7 +645,6 @@ export function Workspace() {
         for (const [id, icon] of Object.entries(prev)) {
           if (!deleted.has(id)) next[id] = icon
         }
-        localStorage.setItem("amby:icons", JSON.stringify(next))
         return next
       })
 
@@ -660,7 +661,6 @@ export function Workspace() {
         for (const [id, mode] of Object.entries(prev)) {
           if (!deleted.has(id)) next[id] = mode
         }
-        if (vault) localStorage.setItem(`amby:view-modes:${vault}`, JSON.stringify(next))
         return next
       })
 
@@ -671,9 +671,7 @@ export function Workspace() {
     setVaults(prev => {
       if (prev.find(v => v.path === path)) return prev
       const name = path.replace(/\\/g, "/").split("/").pop() ?? path
-      const next = [...prev, { id: crypto.randomUUID(), name, path }]
-      localStorage.setItem("amby:vaults", JSON.stringify(next))
-      return next
+      return [...prev, { id: crypto.randomUUID(), name, path }]
     })
   }
 
@@ -739,12 +737,28 @@ export function Workspace() {
     }
   }, [vault])
 
-  // On mount: restore saved vault
+  // On mount: hydrate the known-vaults list from the global workspaces.json
+  // (migrating pre-tier localStorage), then restore the last-opened vault.
+  const workspacesHydrated = React.useRef(false)
   React.useEffect(() => {
-    const saved = localStorage.getItem("amby:vault")
-    if (saved) loadVault(saved)
-    else if (!isTauri()) loadVault("web-vault")
+    let cancelled = false
+    ;(async () => {
+      const file = await loadWorkspaces()
+      if (cancelled) return
+      setVaults(file.recent)
+      workspacesHydrated.current = true
+      if (file.lastOpened) loadVault(file.lastOpened)
+      else if (!isTauri()) loadVault("web-vault")
+    })()
+    return () => { cancelled = true }
   }, [])
+
+  // Persist the known-vaults list + last-opened together (after hydration, so we
+  // never clobber the file with the empty initial state).
+  React.useEffect(() => {
+    if (!workspacesHydrated.current) return
+    saveWorkspaces({ recent: vaults, lastOpened: vault })
+  }, [vaults, vault])
 
   async function loadVault(path: string) {
     try {
@@ -754,85 +768,64 @@ export function Workspace() {
       const allIds = flattenTree(tree)
       setVault(path)
       setTreeItems(tree)
-      localStorage.setItem("amby:vault", path)
       addVaultToList(path)
 
-      setIconOverrides(prev => {
+      // Restore the per-vault session from {vault}/.amby/session.json (migrating
+      // pre-tier localStorage on first read). Suppress session persistence until
+      // the restored state is applied, so we don't immediately overwrite the file.
+      sessionHydratedRef.current = false
+      const session = await loadSession(path)
+
+      setIconOverrides(() => {
         const next: Record<string, string> = {}
-        for (const [id, icon] of Object.entries(prev)) {
-          const nextId = remapStoredId(id, pathToId)
-          next[nextId] = icon
+        for (const [id, icon] of Object.entries(session.icons)) {
+          next[remapStoredId(id, pathToId)] = icon
         }
-        localStorage.setItem("amby:icons", JSON.stringify(next))
         return next
       })
 
-      // Restore favorites
-      try {
-        const savedFavs = localStorage.getItem(`amby:favorites:${path}`)
-        const favs = savedFavs ? JSON.parse(savedFavs) as string[] : []
-        const next = new Set(favs.map(id => remapStoredId(id, pathToId)).filter(id => allIds.has(id)))
-        setFavorites(next)
-        localStorage.setItem(`amby:favorites:${path}`, JSON.stringify([...next]))
-      } catch { setFavorites(new Set()) }
+      setFavorites(
+        new Set(session.favorites.map(id => remapStoredId(id, pathToId)).filter(id => allIds.has(id))),
+      )
 
-      // Restore per-note editor view modes
-      try {
-        const savedModes = localStorage.getItem(`amby:view-modes:${path}`)
-        const modes = savedModes ? JSON.parse(savedModes) as Record<string, DocumentViewMode> : {}
+      {
         const next: Record<string, DocumentViewMode> = {}
-        for (const [id, mode] of Object.entries(modes)) {
+        for (const [id, mode] of Object.entries(session.viewModes)) {
           const nextId = remapStoredId(id, pathToId)
-          if (allIds.has(nextId)) next[nextId] = mode
+          if (allIds.has(nextId)) next[nextId] = mode as DocumentViewMode
         }
         setViewModes(next)
-        localStorage.setItem(`amby:view-modes:${path}`, JSON.stringify(next))
-      } catch { setViewModes({}) }
+      }
 
-      // Restore locked notes
-      try {
-        const savedLocked = localStorage.getItem(`amby:locked:${path}`)
-        const ids = savedLocked ? JSON.parse(savedLocked) as string[] : []
-        const next = new Set(
-          ids.map(id => remapStoredId(id, pathToId)).filter(id => allIds.has(id)),
-        )
-        setLockedFileIds(next)
-        localStorage.setItem(`amby:locked:${path}`, JSON.stringify([...next]))
-      } catch { setLockedFileIds(new Set()) }
+      setLockedFileIds(
+        new Set(session.locked.map(id => remapStoredId(id, pathToId)).filter(id => allIds.has(id))),
+      )
 
       // Restore open tabs
-      try {
-        const savedTabs = localStorage.getItem(`amby:tabs:${path}`)
-        if (savedTabs) {
-          const { entries, activeFileId } = JSON.parse(savedTabs) as {
-            entries: { fileId: string; title: string }[]
-            activeFileId: string
-          }
-          const mappedEntries = entries.map(e => ({ ...e, fileId: remapStoredId(e.fileId, pathToId) }))
-          const mappedActiveFileId = remapStoredId(activeFileId, pathToId)
-          const valid = mappedEntries.filter(e => allIds.has(e.fileId))
-          if (valid.length > 0) {
-            const newTabs: Tab[] = valid.map(e => ({
-              key: newTabKey(), kind: "document" as const, fileId: e.fileId, title: e.title,
-              history: [e.fileId], historyIndex: 0,
-            }))
-            setTabs(newTabs)
-            const activeTab = newTabs.find(t => t.fileId === mappedActiveFileId) ?? newTabs[0]
-            setActiveTabKey(activeTab.key)
-            // Load docs for restored tabs
-            valid.forEach(e => {
-              const item = findTreeItem(tree, e.fileId)
-              readNote(path, e.fileId).then(content => {
-                setDoc(e.fileId, { id: e.fileId, title: e.title, content, modified: "", wordCount: 0, path: item?.path ?? e.fileId })
-              }).catch(() => {})
-            })
-            return
-          }
-        }
-      } catch { /* ignore */ }
-      setTabs([])
-      clearDocs()
-      setActiveTabKey("")
+      const mappedEntries = session.tabs.map(e => ({ ...e, fileId: remapStoredId(e.fileId, pathToId) }))
+      const mappedActiveFileId = remapStoredId(session.activeFileId, pathToId)
+      const valid = mappedEntries.filter(e => allIds.has(e.fileId))
+      if (valid.length > 0) {
+        const newTabs: Tab[] = valid.map(e => ({
+          key: newTabKey(), kind: "document" as const, fileId: e.fileId, title: e.title,
+          history: [e.fileId], historyIndex: 0,
+        }))
+        setTabs(newTabs)
+        const activeTab = newTabs.find(t => t.fileId === mappedActiveFileId) ?? newTabs[0]
+        setActiveTabKey(activeTab.key)
+        // Load docs for restored tabs
+        valid.forEach(e => {
+          const item = findTreeItem(tree, e.fileId)
+          readNote(path, e.fileId).then(content => {
+            setDoc(e.fileId, { id: e.fileId, title: e.title, content, modified: "", wordCount: 0, path: item?.path ?? e.fileId })
+          }).catch(() => {})
+        })
+      } else {
+        setTabs([])
+        clearDocs()
+        setActiveTabKey("")
+      }
+      sessionHydratedRef.current = true
     } catch (err) {
       console.error("Failed to load vault:", err)
     }
@@ -1530,6 +1523,8 @@ export function Workspace() {
             onSwitchPreset={(id) => switchPreset(id, { vault })}
             onImportPreset={handleImportPreset}
             onExportPreset={handleExportPreset}
+            panelScope={panelScope}
+            onSetPanelScope={setPanelScope}
           />
           <div style={{ width: leftWidth }} className="shrink-0">
             <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />

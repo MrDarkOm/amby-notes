@@ -284,16 +284,43 @@ function detectCallouts(state: StateCore) {
   state.tokens = out
 }
 
+// ── markdown-it: detect Amby special blocks (```amby-<type> fences) ──────────
+
+const AMBY_BLOCK_INFO_RE = /^amby-([a-z0-9-]+)$/i
+
+/**
+ * Converts a fenced code block whose info string is `amby-<type>` into a single
+ * `amby_block` token carrying { blockType, blockId } (the fence body is the id).
+ * Keeps the note's `.md` portable: other editors just render a code block.
+ */
+function detectAmbyBlocks(state: StateCore) {
+  for (const tok of state.tokens) {
+    if (tok.type !== "fence") continue
+    const m = AMBY_BLOCK_INFO_RE.exec(tok.info.trim())
+    if (!m) continue
+    tok.type = "amby_block"
+    tok.tag = ""
+    tok.meta = { ...(tok.meta ?? {}), blockType: m[1].toLowerCase(), blockId: tok.content.trim() }
+  }
+}
+
 function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.inline.ruler.before("html_inline", "amby_html", ambyInlineRule)
   md.core.ruler.push("amby_tables", normalizeTables)
   md.core.ruler.push("amby_task_lists", detectTaskLists)
+  md.core.ruler.push("amby_blocks", detectAmbyBlocks)
   md.core.ruler.push("amby_callouts", detectCallouts)
   md.core.ruler.push("amby_softbreaks", softbreaksToText)
 }
 
 const tokenizer = new MarkdownIt("default", { html: true, linkify: false, breaks: false })
 tokenizer.use(ambyMarkdownItPlugin)
+// Read-only HTML render of an Amby block (Live mode uses the React NodeView).
+tokenizer.renderer.rules.amby_block = (tokens, idx) => {
+  const t = tokens[idx]
+  const type = (t.meta?.blockType as string) ?? "db"
+  return `<div class="amby-block-readonly" data-block-type="${type}">[${type}]</div>`
+}
 
 /** Render a markdown string to HTML using the shared tokenizer (read-only display). */
 export function markdownToHtml(markdown: string): string {
@@ -357,6 +384,13 @@ const parser = new MarkdownParser(editorSchema, tokenizer, {
   code_inline: { mark: "code", noCloseToken: true },
   html_inline: { node: "ambyHtml", noCloseToken: true, getAttrs: tok => ({ value: tok.content }) },
   html_block: { ignore: true, noCloseToken: true },
+  amby_block: {
+    node: "ambyBlock",
+    getAttrs: tok => ({
+      blockType: (tok.meta?.blockType as string) ?? "db",
+      blockId: (tok.meta?.blockId as string) ?? "",
+    }),
+  },
   amby_span: {
     mark: "ambyTextStyle",
     getAttrs: tok => ({
@@ -465,6 +499,13 @@ const nodeSerializers: Record<
   },
   horizontalRule(state, node) {
     state.write("---")
+    state.closeBlock(node)
+  },
+  ambyBlock(state, node) {
+    const type = (node.attrs.blockType as string) || "db"
+    state.write("```amby-" + type + "\n")
+    state.text((node.attrs.blockId as string) || "", false)
+    state.write("\n```")
     state.closeBlock(node)
   },
   bulletList(state, node) {

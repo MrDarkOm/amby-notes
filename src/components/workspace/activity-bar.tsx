@@ -42,6 +42,9 @@ interface ActivityBarProps {
   onSwitchPreset?: (id: string) => void
   onImportPreset?: () => void
   onExportPreset?: () => void
+  /** Whether the panel layout is shared globally or kept per-workspace. */
+  panelScope?: "global" | "workspace"
+  onSetPanelScope?: (scope: "global" | "workspace") => void
 }
 
 function findDef(defId: string): ButtonDef | undefined {
@@ -61,6 +64,8 @@ export function ActivityBar({
   onSwitchPreset,
   onImportPreset,
   onExportPreset,
+  panelScope,
+  onSetPanelScope,
 }: ActivityBarProps) {
   const sideButtons = buttonsForSide(buttons, side)
 
@@ -180,6 +185,32 @@ export function ActivityBar({
                     <Upload className="size-3.5 text-zinc-500" />
                     Импорт пресета…
                   </DropdownMenuItem>
+                )}
+                {onSetPanelScope && (
+                  <>
+                    <DropdownMenuSeparator className="bg-zinc-800" />
+                    <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-zinc-500">
+                      Раскладка панелей
+                    </DropdownMenuLabel>
+                    {([
+                      { id: "global", label: "Общая для всех" },
+                      { id: "workspace", label: "Для этого воркспейса" },
+                    ] as const).map(opt => (
+                      <DropdownMenuItem
+                        key={opt.id}
+                        onSelect={() => onSetPanelScope(opt.id)}
+                        className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                      >
+                        <Check
+                          className={cn(
+                            "size-3.5",
+                            opt.id === panelScope ? "text-sky-400 opacity-100" : "opacity-0",
+                          )}
+                        />
+                        {opt.label}
+                      </DropdownMenuItem>
+                    ))}
+                  </>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>

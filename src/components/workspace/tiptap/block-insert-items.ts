@@ -15,6 +15,7 @@ import {
   ListOrdered,
   MessageSquare,
   Minus,
+  Table2,
   Paperclip,
   Pilcrow,
   Quote,
@@ -23,6 +24,7 @@ import {
 import type { ElementType } from "react"
 
 import { CALLOUT_DEFAULTS } from "./callout-node"
+import { newBlockId } from "./amby-block-node"
 import { importAsset, pickAssetFile } from "@/lib/storage"
 
 export type BlockItemCategory = "text" | "list" | "media" | "embed"
@@ -326,6 +328,33 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
         .setTextSelection(start + 2)
         .run()
     },
+  },
+  {
+    id: "database",
+    title: "База данных",
+    hint: "Таблица",
+    icon: Table2,
+    category: "embed",
+    availableIn: PLUS_SLASH,
+    insertAfter: (e, pos) => {
+      const node = e.state.doc.nodeAt(pos)
+      if (!node) return
+      const after = pos + node.nodeSize
+      e
+        .chain()
+        .focus()
+        .insertContentAt(after, {
+          type: "ambyBlock",
+          attrs: { blockType: "db", blockId: newBlockId() },
+        })
+        .run()
+    },
+    inline: e =>
+      e
+        .chain()
+        .focus()
+        .insertContent({ type: "ambyBlock", attrs: { blockType: "db", blockId: newBlockId() } })
+        .run(),
   },
   {
     id: "blockquote",

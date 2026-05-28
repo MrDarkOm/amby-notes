@@ -7,14 +7,6 @@ function resolve<T>(updater: Updater<T>, prev: T): T {
   return typeof updater === "function" ? (updater as (p: T) => T)(prev) : updater
 }
 
-function loadVaults(): VaultRecord[] {
-  try {
-    return JSON.parse(localStorage.getItem("amby:vaults") ?? "[]")
-  } catch {
-    return []
-  }
-}
-
 interface VaultStore {
   /** Absolute path of the currently open vault, or null. */
   vault: string | null
@@ -26,12 +18,12 @@ interface VaultStore {
 
 /**
  * Current vault + known-vaults list. Setters mirror setState (value or updater).
- * Persistence of the `vaults` list stays with the caller (saveVaults) so the
- * store has no I/O beyond seeding from localStorage.
+ * The store has no I/O: `vaults` is hydrated from the global `workspaces.json`
+ * by the Workspace orchestrator, which also owns persistence (app-config.ts).
  */
 export const useVaultStore = create<VaultStore>((set) => ({
   vault: null,
-  vaults: loadVaults(),
+  vaults: [],
   setVault: (updater) => set((s) => ({ vault: resolve(updater, s.vault) })),
   setVaults: (updater) => set((s) => ({ vaults: resolve(updater, s.vaults) })),
 }))

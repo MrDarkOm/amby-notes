@@ -1,0 +1,209 @@
+import * as React from "react"
+import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
+import { Database, Plus, X } from "lucide-react"
+
+import { loadVaultJSON, saveVaultJSON } from "@/lib/storage"
+
+/** On-disk shape of a `db` block's sidecar (`.amby/blocks/<id>.json`). */
+interface DbData {
+  columns: string[]
+  rows: string[][]
+}
+
+const DEFAULT_DATA: DbData = {
+  columns: ["Колонка 1", "Колонка 2"],
+  rows: [["", ""]],
+}
+
+const blockPath = (id: string) => `blocks/${id}.json`
+
+/** Make sure rows are rectangular against the column count. */
+function normalize(d: Partial<DbData> | null): DbData {
+  const columns = Array.isArray(d?.columns) && d!.columns.length ? d!.columns.map(String) : DEFAULT_DATA.columns
+  const rawRows = Array.isArray(d?.rows) ? d!.rows : []
+  const rows = (rawRows.length ? rawRows : DEFAULT_DATA.rows).map(row => {
+    const r = Array.isArray(row) ? row.map(String) : []
+    while (r.length < columns.length) r.push("")
+    return r.slice(0, columns.length)
+  })
+  return { columns, rows }
+}
+
+export function AmbyBlockView({ node, editor }: NodeViewProps) {
+  const blockId = node.attrs.blockId as string
+  const editable = editor.isEditable
+  const [data, setData] = React.useState<DbData | null>(null)
+  const saveTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    if (!blockId) {
+      setData(DEFAULT_DATA)
+      return
+    }
+    loadVaultJSON<Partial<DbData>>(blockPath(blockId), {}).then(d => {
+      if (!cancelled) setData(normalize(d))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [blockId])
+
+  React.useEffect(() => {
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+    }
+  }, [])
+
+  const persist = React.useCallback(
+    (next: DbData) => {
+      setData(next)
+      if (!blockId) return
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      saveTimer.current = setTimeout(() => {
+        void saveVaultJSON(blockPath(blockId), next)
+      }, 400)
+    },
+    [blockId],
+  )
+
+  const setCell = (r: number, c: number, value: string) => {
+    if (!data) return
+    const rows = data.rows.map((row, ri) =>
+      ri === r ? row.map((cell, ci) => (ci === c ? value : cell)) : row,
+    )
+    persist({ ...data, rows })
+  }
+
+  const setColumn = (c: number, value: string) => {
+    if (!data) return
+    persist({ ...data, columns: data.columns.map((col, ci) => (ci === c ? value : col)) })
+  }
+
+  const addRow = () => {
+    if (!data) return
+    persist({ ...data, rows: [...data.rows, data.columns.map(() => "")] })
+  }
+
+  const addColumn = () => {
+    if (!data) return
+    persist({
+      columns: [...data.columns, `Колонка ${data.columns.length + 1}`],
+      rows: data.rows.map(row => [...row, ""]),
+    })
+  }
+
+  const removeRow = (r: number) => {
+    if (!data) return
+    persist({ ...data, rows: data.rows.filter((_, ri) => ri !== r) })
+  }
+
+  const removeColumn = (c: number) => {
+    if (!data || data.columns.length <= 1) return
+    persist({
+      columns: data.columns.filter((_, ci) => ci !== c),
+      rows: data.rows.map(row => row.filter((_, ci) => ci !== c)),
+    })
+  }
+
+  return (
+    <NodeViewWrapper
+      className="amby-db-block my-2 rounded-md border border-zinc-800 bg-[#0D0D0D]"
+      data-block-type={node.attrs.blockType}
+    >
+      <div contentEditable={false} onKeyDown={e => e.stopPropagation()}>
+        <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5 text-[11px] uppercase tracking-wider text-zinc-500">
+          <Database className="size-3.5" />
+          База данных
+        </div>
+
+        {data === null ? (
+          <div className="px-3 py-4 text-[13px] text-zinc-600">Загрузка…</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-[13px] text-zinc-200">
+              <thead>
+                <tr>
+                  {data.columns.map((col, c) => (
+                    <th key={c} className="border-b border-zinc-800 p-0 text-left font-medium">
+                      <div className="group flex items-center">
+                        <input
+                          value={col}
+                          disabled={!editable}
+                          onChange={e => setColumn(c, e.target.value)}
+                          className="w-full bg-transparent px-2 py-1.5 text-zinc-300 outline-none placeholder:text-zinc-600"
+                          placeholder="Колонка"
+                        />
+                        {editable && data.columns.length > 1 && (
+                          <button
+                            type="button"
+                            title="Удалить колонку"
+                            onClick={() => removeColumn(c)}
+                            className="invisible mr-1 rounded p-0.5 text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300 group-hover:visible"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        )}
+                      </div>
+                    </th>
+                  ))}
+                  <th className="w-8 border-b border-zinc-800">
+                    {editable && (
+                      <button
+                        type="button"
+                        title="Добавить колонку"
+                        onClick={addColumn}
+                        className="flex size-7 items-center justify-center text-zinc-600 hover:text-zinc-300"
+                      >
+                        <Plus className="size-3.5" />
+                      </button>
+                    )}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map((row, r) => (
+                  <tr key={r} className="group/row">
+                    {row.map((cell, c) => (
+                      <td key={c} className="border-b border-zinc-900 p-0 align-top">
+                        <input
+                          value={cell}
+                          disabled={!editable}
+                          onChange={e => setCell(r, c, e.target.value)}
+                          className="w-full bg-transparent px-2 py-1.5 outline-none"
+                        />
+                      </td>
+                    ))}
+                    <td className="border-b border-zinc-900 text-center align-middle">
+                      {editable && (
+                        <button
+                          type="button"
+                          title="Удалить строку"
+                          onClick={() => removeRow(r)}
+                          className="invisible rounded p-0.5 text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300 group-hover/row:visible"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {editable && (
+              <button
+                type="button"
+                onClick={addRow}
+                className="flex w-full items-center gap-1.5 px-2 py-1.5 text-[12px] text-zinc-600 hover:bg-zinc-900 hover:text-zinc-300"
+              >
+                <Plus className="size-3.5" />
+                Строка
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </NodeViewWrapper>
+  )
+}

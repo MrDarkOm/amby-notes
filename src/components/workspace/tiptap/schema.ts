@@ -8,6 +8,7 @@ import { AmbyUnderline } from "./marks/amby-underline"
 import { AmbyHtml } from "./marks/amby-html"
 import { MarkdownMarkup } from "./markdown-markup"
 import { CalloutNode } from "./callout-node"
+import { AmbyBlockNode } from "./amby-block-node"
 import { AmbyImage } from "./amby-image"
 
 // Schema-defining extensions — identical for Live and Read, and the source of
@@ -34,6 +35,7 @@ export const schemaExtensions: Extensions = [
   AmbyUnderline,
   AmbyHtml,
   CalloutNode,
+  AmbyBlockNode,
 ]
 
 export const editorSchema = getSchema(schemaExtensions)

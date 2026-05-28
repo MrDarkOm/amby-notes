@@ -1,3 +1,4 @@
+mod app_data;
 mod bundle;
 mod frontmatter;
 mod model;
@@ -530,6 +531,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         pick_asset_file,
         export_text_file,
         import_text_file,
+        app_data::read_app_data,
+        app_data::write_app_data,
+        app_data::read_vault_meta,
+        app_data::write_vault_meta,
+        app_data::delete_vault_meta,
     ])
 }
 
