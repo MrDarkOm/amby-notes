@@ -17,6 +17,7 @@ import {
 import { usePresets } from "./use-presets"
 import { useDocStore, type Document } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
+import { useVaultStore } from "./use-vault-store"
 import { useActivityDnD } from "./use-activity-dnd"
 
 function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
@@ -236,7 +237,8 @@ function applyIconOverrides(items: TreeItem[], overrides: Record<string, string>
 }
 
 export function Workspace() {
-  const [vault, setVault] = React.useState<string | null>(null)
+  const vault = useVaultStore((s) => s.vault)
+  const { setVault, setVaults } = useVaultStore.getState()
   const [treeItems, setTreeItems] = React.useState<TreeItem[]>([])
   const openDocs = useDocStore((s) => s.openDocs)
   // Actions are stable in zustand, so read them once without subscribing.
@@ -353,9 +355,7 @@ export function Workspace() {
   const [iconOverrides, setIconOverrides] = React.useState<Record<string, string>>(() => {
     try { return JSON.parse(localStorage.getItem("amby:icons") ?? "{}") } catch { return {} }
   })
-  const [vaults, setVaults] = React.useState<VaultRecord[]>(() => {
-    try { return JSON.parse(localStorage.getItem("amby:vaults") ?? "[]") } catch { return [] }
-  })
+  const vaults = useVaultStore((s) => s.vaults)
 
   // One debounce timer per open file, so editing or closing one document never
   // cancels another's pending save (also what an editor split relies on).
