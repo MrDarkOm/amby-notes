@@ -15,6 +15,7 @@ import {
   type Side,
 } from "./panel-registry"
 import { usePresets } from "./use-presets"
+import { useDocStore, type Document } from "./use-doc-store"
 import { useActivityDnD } from "./use-activity-dnd"
 
 function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
@@ -66,15 +67,6 @@ import {
 } from "@/lib/storage"
 import { watch } from "@tauri-apps/plugin-fs"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-
-interface Document {
-  id: string
-  title: string
-  content: string
-  modified: string
-  wordCount: number
-  path: string
-}
 
 type TabKind = "document" | "graph" | "canvas"
 
@@ -256,13 +248,16 @@ function applyIconOverrides(items: TreeItem[], overrides: Record<string, string>
 export function Workspace() {
   const [vault, setVault] = React.useState<string | null>(null)
   const [treeItems, setTreeItems] = React.useState<TreeItem[]>([])
-  const [openDocs, setOpenDocs] = React.useState<Record<string, Document>>({})
+  const openDocs = useDocStore((s) => s.openDocs)
+  // Actions are stable in zustand, so read them once without subscribing.
+  const { setDoc, patchDoc, clearDocs, markUnsaved, markSaved, applyMutation } =
+    useDocStore.getState()
   const [tabs, setTabs] = React.useState<Tab[]>([])
   const [activeTabKey, setActiveTabKey] = React.useState<string>("")
   // When set, the editor area splits and this document tab renders in a second
   // pane alongside the active tab.
   const [secondaryTabKey, setSecondaryTabKey] = React.useState<string | null>(null)
-  const [unsavedFileIds, setUnsavedFileIds] = React.useState<Set<string>>(new Set())
+  const unsavedFileIds = useDocStore((s) => s.unsavedFileIds)
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
   const [leftWidth, setLeftWidth] = React.useState(208)
@@ -372,12 +367,9 @@ export function Workspace() {
     try { return JSON.parse(localStorage.getItem("amby:vaults") ?? "[]") } catch { return [] }
   })
 
-  const openDocsRef = React.useRef(openDocs)
   // One debounce timer per open file, so editing or closing one document never
   // cancels another's pending save (also what an editor split relies on).
   const saveTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
-
-  React.useEffect(() => { openDocsRef.current = openDocs }, [openDocs])
 
   React.useEffect(() => {
     if (!vault) { setLinkGraph({ nodes: [], edges: [] }); return }
@@ -393,7 +385,7 @@ export function Workspace() {
       const files = flattenFileItems(treeItems)
       const contents: Record<string, string> = {}
       await Promise.allSettled(files.map(async file => {
-        contents[file.id] = openDocsRef.current[file.id]?.content ?? await readFile(file.id)
+        contents[file.id] = useDocStore.getState().openDocs[file.id]?.content ?? await readFile(file.id)
       }))
       if (!cancelled) setLinkGraph(buildLinkGraph(treeItems, contents, vault))
     }, 150)
@@ -630,14 +622,7 @@ export function Workspace() {
     const deleted = new Set(result.deletedIds ?? result.deletedPaths)
 
     if (changes.length > 0 || deleted.size > 0) {
-      setOpenDocs(prev => {
-        const next: Record<string, Document> = {}
-        for (const [id, doc] of Object.entries(prev)) {
-          if (deleted.has(id)) continue
-          next[id] = { ...doc, path: remapPath(doc.path, changes) }
-        }
-        return next
-      })
+      applyMutation([...deleted], path => remapPath(path, changes))
 
       setTabs(prev => {
         const next = prev
@@ -689,13 +674,6 @@ export function Workspace() {
         return next
       })
 
-      setUnsavedFileIds(prev => {
-        const next = new Set<string>()
-        for (const id of prev) {
-          if (!deleted.has(id)) next.add(id)
-        }
-        return next
-      })
     }
   }
 
@@ -855,10 +833,7 @@ export function Workspace() {
             valid.forEach(e => {
               const item = findTreeItem(tree, e.fileId)
               readNote(path, e.fileId).then(content => {
-                setOpenDocs(prev => ({
-                  ...prev,
-                  [e.fileId]: { id: e.fileId, title: e.title, content, modified: "", wordCount: 0, path: item?.path ?? e.fileId },
-                }))
+                setDoc(e.fileId, { id: e.fileId, title: e.title, content, modified: "", wordCount: 0, path: item?.path ?? e.fileId })
               }).catch(() => {})
             })
             return
@@ -866,7 +841,7 @@ export function Workspace() {
         }
       } catch { /* ignore */ }
       setTabs([])
-      setOpenDocs({})
+      clearDocs()
       setActiveTabKey("")
     } catch (err) {
       console.error("Failed to load vault:", err)
@@ -884,7 +859,7 @@ export function Workspace() {
   async function loadDoc(fileId: string, itemName: string): Promise<Document> {
     // Use the ref so this function doesn't close over the openDocs state value and can
     // be stabilised later with useCallback without causing stale-closure issues.
-    if (openDocsRef.current[fileId]) return openDocsRef.current[fileId]
+    if (useDocStore.getState().openDocs[fileId]) return useDocStore.getState().openDocs[fileId]
     const item = findTreeItem(treeItems, fileId)
     const [content, meta] = vault
       ? await Promise.all([readNote(vault, fileId), getNoteMetadata(vault, fileId)])
@@ -894,7 +869,7 @@ export function Workspace() {
       modified: formatModified(meta.modified),
       wordCount: meta.word_count, path: item?.path ?? fileId,
     }
-    setOpenDocs(prev => ({ ...prev, [fileId]: doc }))
+    setDoc(fileId, doc)
     return doc
   }
 
@@ -950,7 +925,7 @@ export function Workspace() {
       const item = findTreeItem(tree, id)
       const name = target.split("/").pop() ?? target
       const doc: Document = { id, title: name, content: "", modified: "Только что", wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
-      setOpenDocs(prev => ({ ...prev, [id]: doc }))
+      setDoc(id, doc)
       const key = newTabKey()
       setTabs(prev => [...prev, { key, kind: "document", fileId: id, title: name, history: [id], historyIndex: 0 }])
       setActiveTabKey(key)
@@ -1048,10 +1023,7 @@ export function Workspace() {
       const result = await renameItem(vault ?? "", item.path ?? id, newName)
       applyMutationResult(result)
       const newPath = result.primaryPath ?? item.path ?? id
-      setOpenDocs(prev => prev[id] ? ({
-        ...prev,
-        [id]: { ...prev[id], title: newName, path: newPath },
-      }) : prev)
+      patchDoc(id, { title: newName, path: newPath })
       setTabs(prev => prev.map(t => t.fileId === id ? { ...t, title: newName } : t))
       await refreshTree()
     } catch (err) {
@@ -1087,7 +1059,7 @@ export function Workspace() {
       if (!id) return
       const item = findTreeItem(tree, id)
       const doc: Document = { id, title: "Untitled", content: "", modified: "Только что", wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
-      setOpenDocs(prev => ({ ...prev, [id]: doc }))
+      setDoc(id, doc)
       const key = newTabKey()
       setTabs(prev => [...prev, { key, kind: "document", fileId: id, title: "Untitled", history: [id], historyIndex: 0 }])
       setActiveTabKey(key)
@@ -1248,26 +1220,22 @@ export function Workspace() {
   }
 
   const handleContentChange = (fileId: string, content: string) => {
-    setOpenDocs(prev => ({
-      ...prev,
-      // Store only content here; wordCount is derived lazily inside DocumentEditor
-      // to avoid the O(n) split on every keystroke causing a Workspace re-render.
-      [fileId]: { ...prev[fileId], content },
-    }))
-    setUnsavedFileIds(prev => new Set(prev).add(fileId))
+    // Store only content here; wordCount is derived lazily inside DocumentEditor
+    // to avoid the O(n) split on every keystroke causing a Workspace re-render.
+    patchDoc(fileId, { content })
+    markUnsaved(fileId)
 
     const timers = saveTimersRef.current
     const existing = timers.get(fileId)
     if (existing) clearTimeout(existing)
     timers.set(fileId, setTimeout(async () => {
       timers.delete(fileId)
-      const doc = openDocsRef.current[fileId]
+      const doc = useDocStore.getState().openDocs[fileId]
       if (!doc) return
       try {
         if (vault) await writeNote(vault, doc.id, content)
         else await writeFile(doc.path, content)
-        setUnsavedFileIds(prev => { const s = new Set(prev); s.delete(fileId); return s })
-        setOpenDocs(prev => ({ ...prev, [fileId]: { ...prev[fileId], modified: "Только что" } }))
+        markSaved(fileId)
       } catch (err) {
         console.error("Failed to save:", err)
       }
