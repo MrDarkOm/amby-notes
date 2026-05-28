@@ -259,6 +259,9 @@ export function Workspace() {
   const [openDocs, setOpenDocs] = React.useState<Record<string, Document>>({})
   const [tabs, setTabs] = React.useState<Tab[]>([])
   const [activeTabKey, setActiveTabKey] = React.useState<string>("")
+  // When set, the editor area splits and this document tab renders in a second
+  // pane alongside the active tab.
+  const [secondaryTabKey, setSecondaryTabKey] = React.useState<string | null>(null)
   const [unsavedFileIds, setUnsavedFileIds] = React.useState<Set<string>>(new Set())
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
@@ -1007,12 +1010,21 @@ export function Workspace() {
 
   const handleTabChange = (key: string) => setActiveTabKey(key)
 
+  // Toggle the editor split: pin the active document into a second pane, or
+  // collapse back to a single pane.
+  function toggleSplit() {
+    setSecondaryTabKey(prev =>
+      prev ? null : activeTab?.kind === "document" ? activeTabKey : null,
+    )
+  }
+
   const handleTabClose = (key: string) => {
     const closing = tabs.find(t => t.key === key)
     if (closing) {
       const timer = saveTimersRef.current.get(closing.fileId)
       if (timer) { clearTimeout(timer); saveTimersRef.current.delete(closing.fileId) }
     }
+    if (secondaryTabKey === key) setSecondaryTabKey(null)
     const remaining = tabs.filter(t => t.key !== key)
     setTabs(remaining)
     if (activeTabKey === key) {
@@ -1445,41 +1457,57 @@ export function Workspace() {
   const leftButtons = buttonsForSide(activityButtons, "left")
   const rightButtons = buttonsForSide(activityButtons, "right")
 
-  const editorProps = {
-    document: currentDoc,
-    onContentChange: (content: string) => { if (activeTab) handleContentChange(activeTab.fileId, content) },
-    onBack: handleBack,
-    onForward: handleForward,
-    canGoBack,
-    canGoForward,
-    onRenameTitle: (name: string) => activeTab && handleRenameFile(activeTab.fileId, name),
-    vault: vault ?? undefined,
-    fileIcon: currentFileIcon,
-    onNewFile: () => handleNewFileIn(null),
-    onOpenVault: handleOpenVault,
-    onTagClick: (_tag: string) => {
-      activatePanelAnywhere("tags")
-    },
-    onWikiLinkClick: handleWikiLinkClick,
-    activeLayer: currentDoc ? activeLayers[currentDoc.id] ?? "editor" : "editor",
-    onLayerChange: handleLayerChange,
-    viewMode: currentDoc ? viewModes[currentDoc.id] ?? "live" : "live",
-    onViewModeChange: handleViewModeChange,
-    linkedLayers: currentDoc
-      ? linkedLayersByDoc[currentDoc.id] ?? { canvas: false, sketch: false, database: false }
-      : { canvas: false, sketch: false, database: false },
-    isLocked: currentDoc ? lockedFileIds.has(currentDoc.id) : false,
-    onToggleLock: handleToggleLock,
-    treeItems: displayTreeItems,
-    onOpenItem: handleSelect,
-    onUnlinkLayer: handleUnlinkLayer,
-    onDeleteLayer: handleDeleteLayer,
-    canvasValue: currentDoc ? openCanvases[canvasLayerPath(currentDoc.path)] ?? "{}" : "{}",
-    onCanvasChange: (json: string) => {
-      if (currentDoc) handleCanvasSave(canvasLayerPath(currentDoc.path), json)
-    },
-    onOpenCanvasNote: handleOpenCanvasNote,
+  const NO_LAYERS = { canvas: false, sketch: false, database: false }
+
+  // Build editor props for a given tab. The primary pane (active tab) keeps full
+  // functionality; a secondary (split) pane gets editing + view-mode + autosave,
+  // with layer/canvas/history scoped to the primary to keep the split coherent.
+  function paneEditorProps(tab: Tab | null) {
+    const doc = tab ? openDocs[tab.fileId] ?? null : null
+    const isPrimary = !!tab && tab.key === activeTabKey
+    return {
+      document: doc,
+      onContentChange: (content: string) => { if (tab) handleContentChange(tab.fileId, content) },
+      onBack: isPrimary ? handleBack : () => {},
+      onForward: isPrimary ? handleForward : () => {},
+      canGoBack: isPrimary ? canGoBack : false,
+      canGoForward: isPrimary ? canGoForward : false,
+      onRenameTitle: (name: string) => { if (tab) handleRenameFile(tab.fileId, name) },
+      vault: vault ?? undefined,
+      fileIcon: isPrimary
+        ? currentFileIcon
+        : doc ? findTreeItem(displayTreeItems, doc.id)?.icon : undefined,
+      onNewFile: () => handleNewFileIn(null),
+      onOpenVault: handleOpenVault,
+      onTagClick: (_tag: string) => { activatePanelAnywhere("tags") },
+      onWikiLinkClick: handleWikiLinkClick,
+      activeLayer: isPrimary && doc ? activeLayers[doc.id] ?? "editor" : "editor",
+      onLayerChange: isPrimary ? handleLayerChange : async (_layer: EditorLayer) => {},
+      viewMode: doc ? viewModes[doc.id] ?? "live" : "live",
+      onViewModeChange: isPrimary
+        ? handleViewModeChange
+        : (mode: DocumentViewMode) => { if (doc) saveViewModes(vault, { ...viewModes, [doc.id]: mode }) },
+      linkedLayers: isPrimary && doc ? linkedLayersByDoc[doc.id] ?? NO_LAYERS : NO_LAYERS,
+      isLocked: doc ? lockedFileIds.has(doc.id) : false,
+      onToggleLock: isPrimary ? handleToggleLock : () => {},
+      treeItems: displayTreeItems,
+      onOpenItem: handleSelect,
+      onUnlinkLayer: handleUnlinkLayer,
+      onDeleteLayer: handleDeleteLayer,
+      canvasValue: isPrimary && doc ? openCanvases[canvasLayerPath(doc.path)] ?? "{}" : "{}",
+      onCanvasChange: isPrimary
+        ? (json: string) => { if (doc) handleCanvasSave(canvasLayerPath(doc.path), json) }
+        : (_json: string) => {},
+      onOpenCanvasNote: handleOpenCanvasNote,
+    }
   }
+
+  const editorProps = paneEditorProps(activeTab)
+  const secondaryTab = secondaryTabKey
+    ? tabs.find(t => t.key === secondaryTabKey && t.kind === "document") ?? null
+    : null
+  const secondaryProps = secondaryTab ? paneEditorProps(secondaryTab) : null
+  const showSplit = !!secondaryProps && activeTab?.kind === "document"
 
   if (!vault && isTauri()) {
     return (
@@ -1601,6 +1629,8 @@ export function Workspace() {
         onToggleRightSidebar={() => setIsRightSidebarOpen(v => !v)}
         isLeftSidebarOpen={isLeftSidebarOpen}
         isRightSidebarOpen={isRightSidebarOpen}
+        onToggleSplit={toggleSplit}
+        isSplit={!!secondaryTabKey}
         onOpenPlusModal={() => setQuickOpenOpen(true)}
         vaultName={vaultName}
         vaults={vaults}
@@ -1656,6 +1686,26 @@ export function Workspace() {
               notePath={activeTab.fileId}
               onOpenNote={handleOpenCanvasNote}
             />
+          ) : showSplit ? (
+            <>
+              <div className="flex min-w-0 flex-1">
+                <DocumentEditor
+                  key="pane-primary"
+                  {...editorProps}
+                  isFocusMode={false}
+                  onToggleFocusMode={handleEnterFocusMode}
+                />
+              </div>
+              <div className="w-px shrink-0 bg-zinc-800" />
+              <div className="flex min-w-0 flex-1">
+                <DocumentEditor
+                  key="pane-secondary"
+                  {...secondaryProps!}
+                  isFocusMode={false}
+                  onToggleFocusMode={() => {}}
+                />
+              </div>
+            </>
           ) : (
             <DocumentEditor
               {...editorProps}

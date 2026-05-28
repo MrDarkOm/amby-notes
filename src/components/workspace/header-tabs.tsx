@@ -5,6 +5,7 @@ import {
   Bookmark,
   BookmarkCheck,
   ChevronDown,
+  Columns2,
   Minus,
   Maximize2,
   Minimize2,
@@ -46,6 +47,8 @@ interface HeaderTabsProps {
   onToggleRightSidebar?: () => void;
   isLeftSidebarOpen?: boolean;
   isRightSidebarOpen?: boolean;
+  onToggleSplit?: () => void;
+  isSplit?: boolean;
   onOpenPlusModal?: () => void;
   vaultName?: string;
   vaults: VaultRecord[];
@@ -118,6 +121,8 @@ export function HeaderTabs({
   onToggleRightSidebar,
   isLeftSidebarOpen = true,
   isRightSidebarOpen = true,
+  onToggleSplit,
+  isSplit = false,
   onOpenPlusModal,
   vaultName,
   vaults,
@@ -373,6 +378,18 @@ export function HeaderTabs({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          {onToggleSplit && (
+            <button
+              onClick={onToggleSplit}
+              title="Разделить редактор"
+              className={cn(
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded transition-colors hover:bg-zinc-800 hover:text-white",
+                isSplit ? "text-sky-400" : "text-zinc-500",
+              )}
+            >
+              <Columns2 className="size-4" />
+            </button>
+          )}
           {!isRightSidebarOpen && rightSidebarToggle}
         </div>
       </div>
