@@ -15,7 +15,6 @@ import {
   type Side,
 } from "./panel-registry"
 import { usePresets } from "./use-presets"
-import { BUILTIN_PRESETS } from "./presets"
 import { useActivityDnD } from "./use-activity-dnd"
 
 function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
@@ -337,12 +336,38 @@ export function Workspace() {
   const {
     activityButtons, setActivityButtons,
     activeBySide, setActiveBySide,
-    activePresetId, switchPreset,
+    activePresetId, presets, switchPreset, importPreset, exportPreset,
   } = usePresets()
   const presetOptions = React.useMemo(
-    () => BUILTIN_PRESETS.map(p => ({ id: p.id, label: p.label })),
-    [],
+    () => presets.map(p => ({ id: p.id, label: p.label })),
+    [presets],
   )
+
+  function handleExportPreset() {
+    const json = exportPreset(activePresetId)
+    if (!json) return
+    const blob = new Blob([json], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${activePresetId}.amby-preset.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function handleImportPreset() {
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = "application/json,.json"
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      try {
+        importPreset(await file.text(), { vault })
+      } catch { /* unreadable file */ }
+    }
+    input.click()
+  }
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
@@ -1520,6 +1545,8 @@ export function Workspace() {
             presets={presetOptions}
             activePresetId={activePresetId}
             onSwitchPreset={(id) => switchPreset(id, { vault })}
+            onImportPreset={handleImportPreset}
+            onExportPreset={handleExportPreset}
           />
           <div style={{ width: leftWidth }} className="shrink-0">
             <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
@@ -1607,6 +1634,8 @@ export function Workspace() {
           presets={presetOptions}
           activePresetId={activePresetId}
           onSwitchPreset={(id) => switchPreset(id, { vault })}
+          onImportPreset={handleImportPreset}
+          onExportPreset={handleExportPreset}
         />
 
         {isLeftSidebarOpen && (

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Bell, Check, HelpCircle, Settings } from "lucide-react"
+import { Bell, Check, Download, HelpCircle, Settings, Upload } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import {
@@ -40,6 +40,8 @@ interface ActivityBarProps {
   presets?: { id: string; label: string }[]
   activePresetId?: string
   onSwitchPreset?: (id: string) => void
+  onImportPreset?: () => void
+  onExportPreset?: () => void
 }
 
 function findDef(defId: string): ButtonDef | undefined {
@@ -57,6 +59,8 @@ export function ActivityBar({
   presets,
   activePresetId,
   onSwitchPreset,
+  onImportPreset,
+  onExportPreset,
 }: ActivityBarProps) {
   const sideButtons = buttonsForSide(buttons, side)
 
@@ -156,6 +160,27 @@ export function ActivityBar({
                     {preset.label}
                   </DropdownMenuItem>
                 ))}
+                {(onExportPreset || onImportPreset) && (
+                  <DropdownMenuSeparator className="bg-zinc-800" />
+                )}
+                {onExportPreset && (
+                  <DropdownMenuItem
+                    onSelect={onExportPreset}
+                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                  >
+                    <Download className="size-3.5 text-zinc-500" />
+                    Экспорт текущего
+                  </DropdownMenuItem>
+                )}
+                {onImportPreset && (
+                  <DropdownMenuItem
+                    onSelect={onImportPreset}
+                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                  >
+                    <Upload className="size-3.5 text-zinc-500" />
+                    Импорт пресета…
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
             <button

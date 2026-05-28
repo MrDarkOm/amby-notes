@@ -118,3 +118,63 @@ export function visibleLayout(preset: Preset): ActivityButton[] {
   const allowed = contributedDefIds(preset.activeModules)
   return preset.layout.filter(b => allowed.has(b.defId))
 }
+
+// ── Import / export ─────────────────────────────────────────────────────────
+
+/** On-disk shape of an exported preset (the unit of sharing/selling). */
+interface PresetFile {
+  format: "amby-preset"
+  version: 1
+  preset: Pick<Preset, "id" | "label" | "activeModules" | "layout" | "activeBySide">
+}
+
+/** Serialize a preset to the shareable JSON file format. */
+export function serializePreset(preset: Preset): string {
+  const file: PresetFile = {
+    format: "amby-preset",
+    version: 1,
+    preset: {
+      id: preset.id,
+      label: preset.label,
+      activeModules: preset.activeModules,
+      layout: preset.layout,
+      activeBySide: preset.activeBySide,
+    },
+  }
+  return JSON.stringify(file, null, 2)
+}
+
+/** Parse + validate a preset from exported JSON (wrapped) or a bare preset. */
+export function parsePresetFile(text: string): Preset | null {
+  let data: unknown
+  try {
+    data = JSON.parse(text)
+  } catch {
+    return null
+  }
+  const wrapped =
+    data && typeof data === "object" && "preset" in (data as Record<string, unknown>)
+      ? (data as Record<string, unknown>).preset
+      : data
+  return validatePreset(wrapped)
+}
+
+const USER_PRESETS_KEY = "amby:user-presets:v1"
+
+export function loadUserPresets(): Preset[] {
+  try {
+    const raw = localStorage.getItem(USER_PRESETS_KEY)
+    if (!raw) return []
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr)) return []
+    return arr.map(validatePreset).filter((p): p is Preset => !!p)
+  } catch {
+    return []
+  }
+}
+
+export function saveUserPresets(presets: Preset[]) {
+  try {
+    localStorage.setItem(USER_PRESETS_KEY, JSON.stringify(presets))
+  } catch { /* localStorage unavailable */ }
+}
