@@ -8,7 +8,7 @@ use std::time::UNIX_EPOCH;
 use ulid::Ulid;
 use walkdir::{DirEntry, WalkDir};
 
-#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Clone, Debug, PartialEq, Eq, specta::Type)]
 pub struct TreeItem {
     pub id: String,
     pub path: String,
@@ -20,7 +20,7 @@ pub struct TreeItem {
     pub children: Option<Vec<TreeItem>>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct IndexedNote {
     pub id: String,
@@ -30,7 +30,7 @@ pub struct IndexedNote {
     pub word_count: usize,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncReport {
     pub inserted: usize,
@@ -40,7 +40,7 @@ pub struct SyncReport {
     pub path_to_id: HashMap<String, String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LoadVaultResult {
     pub tree: Vec<TreeItem>,
@@ -48,14 +48,14 @@ pub struct LoadVaultResult {
     pub sync: SyncReport,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TagEntry {
     pub tag: String,
     pub notes: Vec<IndexedNote>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult {
     pub note: IndexedNote,
@@ -64,7 +64,7 @@ pub struct SearchResult {
     pub score: i64,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkGraphNode {
     pub id: String,
@@ -73,7 +73,7 @@ pub struct LinkGraphNode {
     pub unresolved: Option<bool>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LinkGraphEdge {
     pub source: String,
@@ -83,7 +83,7 @@ pub struct LinkGraphEdge {
     pub unresolved: Option<bool>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Clone, Debug, specta::Type)]
 pub struct LinkGraph {
     pub nodes: Vec<LinkGraphNode>,
     pub edges: Vec<LinkGraphEdge>,

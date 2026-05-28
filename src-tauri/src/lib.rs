@@ -54,6 +54,7 @@ fn activate_vault(
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn load_vault(
     app: tauri::AppHandle,
     scope: tauri::State<'_, paths::VaultScope>,
@@ -66,6 +67,7 @@ async fn load_vault(
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn list_files(vault_path: String) -> Result<Vec<vault_index::TreeItem>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         vault_index::load_vault(Path::new(&vault_path)).map(|loaded| loaded.tree)
@@ -75,12 +77,14 @@ async fn list_files(vault_path: String) -> Result<Vec<vault_index::TreeItem>, St
 }
 
 #[tauri::command]
+#[specta::specta]
 fn read_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result<String, String> {
     paths::guard(&scope, &path)?;
     fs::read_to_string(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
+#[specta::specta]
 fn write_file(
     scope: tauri::State<paths::VaultScope>,
     path: String,
@@ -94,16 +98,19 @@ fn write_file(
 }
 
 #[tauri::command]
+#[specta::specta]
 fn read_note(vault_path: String, note_id: String) -> Result<String, String> {
     vault_index::read_note(Path::new(&vault_path), &note_id)
 }
 
 #[tauri::command]
+#[specta::specta]
 fn write_note(vault_path: String, note_id: String, content: String) -> Result<(), String> {
     vault_index::write_note(Path::new(&vault_path), &note_id, &content)
 }
 
 #[tauri::command]
+#[specta::specta]
 fn get_note_metadata(vault_path: String, note_id: String) -> Result<NoteMetadata, String> {
     let note = vault_index::note_metadata(Path::new(&vault_path), &note_id)?;
     Ok(NoteMetadata {
@@ -114,6 +121,7 @@ fn get_note_metadata(vault_path: String, note_id: String) -> Result<NoteMetadata
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn list_tags(vault_path: String) -> Result<Vec<vault_index::TagEntry>, String> {
     tauri::async_runtime::spawn_blocking(move || vault_index::list_tags(Path::new(&vault_path)))
         .await
@@ -121,6 +129,7 @@ async fn list_tags(vault_path: String) -> Result<Vec<vault_index::TagEntry>, Str
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn search_notes(vault_path: String, query: String) -> Result<Vec<vault_index::SearchResult>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         vault_index::search_notes(Path::new(&vault_path), &query)
@@ -130,6 +139,7 @@ async fn search_notes(vault_path: String, query: String) -> Result<Vec<vault_ind
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn get_link_graph(vault_path: String) -> Result<vault_index::LinkGraph, String> {
     tauri::async_runtime::spawn_blocking(move || vault_index::link_graph(Path::new(&vault_path)))
         .await
@@ -137,6 +147,7 @@ async fn get_link_graph(vault_path: String) -> Result<vault_index::LinkGraph, St
 }
 
 #[tauri::command]
+#[specta::specta]
 fn ensure_bundle(vault_path: String, path: String) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
     let (primary, path_changes) = ensure_bundle_path(Path::new(&path))?;
@@ -150,6 +161,7 @@ fn ensure_bundle(vault_path: String, path: String) -> Result<FsMutationResult, S
 }
 
 #[tauri::command]
+#[specta::specta]
 fn create_note(vault_path: String, parent_path: String, name: String) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &parent_path)?;
     let result = create_note_impl(Path::new(&parent_path), &name)?;
@@ -157,6 +169,7 @@ fn create_note(vault_path: String, parent_path: String, name: String) -> Result<
 }
 
 #[tauri::command]
+#[specta::specta]
 fn create_layer(
     scope: tauri::State<paths::VaultScope>,
     note_path: String,
@@ -167,6 +180,7 @@ fn create_layer(
 }
 
 #[tauri::command]
+#[specta::specta]
 fn create_canvas(vault_path: String, parent_path: String, name: String) -> Result<String, String> {
     paths::guard_in(&vault_path, &parent_path)?;
     let path = create_canvas_impl(Path::new(&parent_path), &name)?;
@@ -175,6 +189,7 @@ fn create_canvas(vault_path: String, parent_path: String, name: String) -> Resul
 }
 
 #[tauri::command]
+#[specta::specta]
 fn attach_canvas_to_note(vault_path: String, canvas_path: String) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &canvas_path)?;
     let result = attach_canvas_impl(Path::new(&canvas_path))?;
@@ -182,6 +197,7 @@ fn attach_canvas_to_note(vault_path: String, canvas_path: String) -> Result<FsMu
 }
 
 #[tauri::command]
+#[specta::specta]
 fn unlink_layer(vault_path: String, note_path: String, kind: String) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &note_path)?;
     let result = unlink_layer_impl(Path::new(&note_path), &kind)?;
@@ -189,6 +205,7 @@ fn unlink_layer(vault_path: String, note_path: String, kind: String) -> Result<F
 }
 
 #[tauri::command]
+#[specta::specta]
 fn delete_layer(vault_path: String, note_path: String, kind: String) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &note_path)?;
     let mut result = delete_layer_impl(Path::new(&note_path), &kind)?;
@@ -200,6 +217,7 @@ fn delete_layer(vault_path: String, note_path: String, kind: String) -> Result<F
 }
 
 #[tauri::command]
+#[specta::specta]
 fn note_layers(
     scope: tauri::State<paths::VaultScope>,
     note_path: String,
@@ -227,6 +245,7 @@ fn note_layers(
 }
 
 #[tauri::command]
+#[specta::specta]
 fn move_item(vault_path: String, source_path: String, target_path: String) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &source_path)?;
     paths::guard_in(&vault_path, &target_path)?;
@@ -235,6 +254,7 @@ fn move_item(vault_path: String, source_path: String, target_path: String) -> Re
 }
 
 #[tauri::command]
+#[specta::specta]
 fn create_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result<(), String> {
     paths::guard(&scope, &path)?;
     if Path::new(&path).exists() {
@@ -247,6 +267,7 @@ fn create_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result<(
 }
 
 #[tauri::command]
+#[specta::specta]
 fn create_folder(scope: tauri::State<paths::VaultScope>, path: String) -> Result<(), String> {
     paths::guard(&scope, &path)?;
     if Path::new(&path).exists() {
@@ -256,6 +277,7 @@ fn create_folder(scope: tauri::State<paths::VaultScope>, path: String) -> Result
 }
 
 #[tauri::command]
+#[specta::specta]
 fn rename_item(vault_path: String, path: String, new_name: String) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
     let result = rename_item_impl(Path::new(&path), &new_name)?;
@@ -263,6 +285,7 @@ fn rename_item(vault_path: String, path: String, new_name: String) -> Result<FsM
 }
 
 #[tauri::command]
+#[specta::specta]
 fn delete_item(vault_path: String, path: String) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
     let mut result = delete_item_impl(Path::new(&path))?;
@@ -272,6 +295,7 @@ fn delete_item(vault_path: String, path: String) -> Result<FsMutationResult, Str
 }
 
 #[tauri::command]
+#[specta::specta]
 fn get_file_metadata(
     scope: tauri::State<paths::VaultScope>,
     path: String,
@@ -300,6 +324,7 @@ fn get_file_metadata(
 }
 
 #[tauri::command]
+#[specta::specta]
 fn open_in_explorer(
     scope: tauri::State<paths::VaultScope>,
     path: String,
@@ -332,6 +357,7 @@ fn open_in_explorer(
 }
 
 #[tauri::command]
+#[specta::specta]
 fn import_asset(
     vault_path: String,
     note_path: String,
@@ -361,6 +387,7 @@ fn import_asset(
 }
 
 #[tauri::command]
+#[specta::specta]
 fn import_asset_bytes(
     vault_path: String,
     note_path: String,
@@ -382,6 +409,7 @@ fn import_asset_bytes(
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn pick_asset_file(
     app: tauri::AppHandle,
     images_only: bool,
@@ -402,6 +430,7 @@ async fn pick_asset_file(
 }
 
 #[tauri::command]
+#[specta::specta]
 async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     use tokio::sync::oneshot;
@@ -418,6 +447,7 @@ async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String> {
 /// The destination is picked here (never supplied by the webview), so there is
 /// no arbitrary-write-from-JS vector — used for exporting presets.
 #[tauri::command]
+#[specta::specta]
 async fn export_text_file(
     app: tauri::AppHandle,
     contents: String,
@@ -445,6 +475,7 @@ async fn export_text_file(
 /// The path is chosen here, so the webview can't read arbitrary files — used
 /// for importing presets (which live outside the vault).
 #[tauri::command]
+#[specta::specta]
 async fn import_text_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     use tokio::sync::oneshot;
@@ -463,46 +494,81 @@ async fn import_text_file(app: tauri::AppHandle) -> Result<Option<String>, Strin
     Ok(Some(contents))
 }
 
+/// Single source of truth for the command set — drives both the runtime
+/// invoke handler and the generated TypeScript bindings (so the frontend IPC
+/// types can't drift from the Rust signatures).
+fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
+    tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
+        load_vault,
+        list_files,
+        read_file,
+        write_file,
+        read_note,
+        write_note,
+        get_note_metadata,
+        list_tags,
+        search_notes,
+        get_link_graph,
+        ensure_bundle,
+        create_note,
+        create_layer,
+        create_canvas,
+        attach_canvas_to_note,
+        unlink_layer,
+        delete_layer,
+        note_layers,
+        move_item,
+        create_file,
+        create_folder,
+        rename_item,
+        delete_item,
+        get_file_metadata,
+        open_vault,
+        open_in_explorer,
+        import_asset,
+        import_asset_bytes,
+        pick_asset_file,
+        export_text_file,
+        import_text_file,
+    ])
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let builder = specta_builder();
+    #[cfg(debug_assertions)]
+    builder
+        .export(
+            specta_typescript::Typescript::default()
+                .bigint(specta_typescript::BigIntExportBehavior::Number)
+                .header("// @ts-nocheck\n"),
+            "../src/lib/bindings.ts",
+        )
+        .ok();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(paths::VaultScope::default())
-        .invoke_handler(tauri::generate_handler![
-            load_vault,
-            list_files,
-            read_file,
-            write_file,
-            read_note,
-            write_note,
-            get_note_metadata,
-            list_tags,
-            search_notes,
-            get_link_graph,
-            ensure_bundle,
-            create_note,
-            create_layer,
-            create_canvas,
-            attach_canvas_to_note,
-            unlink_layer,
-            delete_layer,
-            note_layers,
-            move_item,
-            create_file,
-            create_folder,
-            rename_item,
-            delete_item,
-            get_file_metadata,
-            open_vault,
-            open_in_explorer,
-            import_asset,
-            import_asset_bytes,
-            pick_asset_file,
-            export_text_file,
-            import_text_file,
-        ])
+        .invoke_handler(builder.invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application")
+}
+
+#[cfg(test)]
+mod specta_export {
+    /// Regenerates src/lib/bindings.ts headlessly (`cargo test`), without
+    /// launching the app.
+    #[test]
+    fn export_bindings() {
+        super::specta_builder()
+            .export(
+                specta_typescript::Typescript::default()
+                    .bigint(specta_typescript::BigIntExportBehavior::Number)
+                    .header("// @ts-nocheck\n"),
+                "../src/lib/bindings.ts",
+            )
+            .expect("failed to export typescript bindings");
+    }
 }

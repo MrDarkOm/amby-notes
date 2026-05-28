@@ -1,13 +1,13 @@
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PathChange {
     pub old_path: String,
     pub new_path: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FsMutationResult {
     pub primary_id: Option<String>,
@@ -17,7 +17,7 @@ pub struct FsMutationResult {
     pub deleted_ids: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LayerResult {
     pub note_path: String,
@@ -26,7 +26,7 @@ pub struct LayerResult {
     pub path_changes: Vec<PathChange>,
 }
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Default, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteLayers {
     pub canvas: bool,
@@ -34,14 +34,14 @@ pub struct NoteLayers {
     pub database: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct FileMetadata {
     pub created: Option<u64>,
     pub modified: Option<u64>,
     pub word_count: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteMetadata {
     pub created: Option<u64>,
@@ -49,7 +49,7 @@ pub struct NoteMetadata {
     pub word_count: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportedAsset {
     pub rel_path: String,
