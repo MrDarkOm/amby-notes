@@ -16,6 +16,7 @@ import {
 } from "./panel-registry"
 import { usePresets } from "./use-presets"
 import { useDocStore, type Document } from "./use-doc-store"
+import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useActivityDnD } from "./use-activity-dnd"
 
 function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
@@ -67,17 +68,6 @@ import {
 } from "@/lib/storage"
 import { watch } from "@tauri-apps/plugin-fs"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-
-type TabKind = "document" | "graph" | "canvas"
-
-interface Tab {
-  key: string
-  kind: TabKind
-  fileId: string
-  title: string
-  history: string[]
-  historyIndex: number
-}
 
 const GRAPH_TAB_FILE_ID = "__graph__"
 
@@ -252,11 +242,11 @@ export function Workspace() {
   // Actions are stable in zustand, so read them once without subscribing.
   const { setDoc, patchDoc, clearDocs, markUnsaved, markSaved, applyMutation } =
     useDocStore.getState()
-  const [tabs, setTabs] = React.useState<Tab[]>([])
-  const [activeTabKey, setActiveTabKey] = React.useState<string>("")
-  // When set, the editor area splits and this document tab renders in a second
-  // pane alongside the active tab.
-  const [secondaryTabKey, setSecondaryTabKey] = React.useState<string | null>(null)
+  const tabs = useTabsStore((s) => s.tabs)
+  const activeTabKey = useTabsStore((s) => s.activeTabKey)
+  const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
+  // Stable setters (value-or-updater, like setState); see use-tabs-store.
+  const { setTabs, setActiveTabKey, setSecondaryTabKey } = useTabsStore.getState()
   const unsavedFileIds = useDocStore((s) => s.unsavedFileIds)
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
