@@ -650,3 +650,42 @@ export async function toAssetUrl(absPath: string): Promise<string> {
   const { convertFileSrc } = await import("@tauri-apps/api/core")
   return convertFileSrc(absPath)
 }
+
+/**
+ * Save text to a user-chosen file. Uses the native save dialog under Tauri
+ * (a programmatic <a download> click silently fails in the webview); falls
+ * back to a browser blob download in web-only dev mode. Returns the saved
+ * path (Tauri) or null (cancelled / web).
+ */
+export async function exportTextFile(contents: string, defaultName: string): Promise<string | null> {
+  if (isTauri()) {
+    return invoke<string | null>("export_text_file", { contents, defaultName })
+  }
+  const blob = new Blob([contents], { type: "application/json" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = defaultName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return null
+}
+
+/** Open a user-chosen text file and return its contents, or null if cancelled. */
+export async function importTextFile(): Promise<string | null> {
+  if (isTauri()) {
+    return invoke<string | null>("import_text_file", {})
+  }
+  return new Promise(resolve => {
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = "application/json,.json"
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      resolve(file ? await file.text() : null)
+    }
+    input.click()
+  })
+}

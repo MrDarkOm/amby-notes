@@ -1,16 +1,4 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub struct TreeItem {
-    pub id: String,
-    pub path: String,
-    pub name: String,
-    #[serde(rename = "type")]
-    pub item_type: String,
-    pub icon: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub children: Option<Vec<TreeItem>>,
-}
+use serde::Serialize;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

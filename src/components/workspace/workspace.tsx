@@ -56,6 +56,8 @@ import {
   noteLayers,
   type NoteLayers,
   openInExplorer,
+  exportTextFile,
+  importTextFile,
   type FsMutationResult,
   type LayerKind,
   type LinkGraph,
@@ -343,30 +345,19 @@ export function Workspace() {
     [presets],
   )
 
-  function handleExportPreset() {
+  async function handleExportPreset() {
     const json = exportPreset(activePresetId)
     if (!json) return
-    const blob = new Blob([json], { type: "application/json" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `${activePresetId}.amby-preset.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    try {
+      await exportTextFile(json, `${activePresetId}.amby-preset.json`)
+    } catch { /* dialog cancelled / write failed */ }
   }
 
-  function handleImportPreset() {
-    const input = document.createElement("input")
-    input.type = "file"
-    input.accept = "application/json,.json"
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
-      try {
-        importPreset(await file.text(), { vault })
-      } catch { /* unreadable file */ }
-    }
-    input.click()
+  async function handleImportPreset() {
+    try {
+      const text = await importTextFile()
+      if (text) importPreset(text, { vault })
+    } catch { /* dialog cancelled / unreadable file */ }
   }
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)

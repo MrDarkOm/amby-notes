@@ -414,6 +414,55 @@ async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String> {
     Ok(result.map(|p| p.to_string()))
 }
 
+/// Save arbitrary text to a user-chosen location via the native save dialog.
+/// The destination is picked here (never supplied by the webview), so there is
+/// no arbitrary-write-from-JS vector — used for exporting presets.
+#[tauri::command]
+async fn export_text_file(
+    app: tauri::AppHandle,
+    contents: String,
+    default_name: String,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    use tokio::sync::oneshot;
+
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
+        .file()
+        .set_file_name(&default_name)
+        .save_file(move |path| {
+            let _ = tx.send(path);
+        });
+    let Some(path) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let path = path.to_string();
+    fs::write(&path, contents).map_err(|e| e.to_string())?;
+    Ok(Some(path))
+}
+
+/// Open a user-chosen text file via the native dialog and return its contents.
+/// The path is chosen here, so the webview can't read arbitrary files — used
+/// for importing presets (which live outside the vault).
+#[tauri::command]
+async fn import_text_file(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    use tokio::sync::oneshot;
+
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("JSON", &["json"])
+        .pick_file(move |path| {
+            let _ = tx.send(path);
+        });
+    let Some(path) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let contents = fs::read_to_string(path.to_string()).map_err(|e| e.to_string())?;
+    Ok(Some(contents))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -451,6 +500,8 @@ pub fn run() {
             import_asset,
             import_asset_bytes,
             pick_asset_file,
+            export_text_file,
+            import_text_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application")

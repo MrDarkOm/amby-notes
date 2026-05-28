@@ -2,7 +2,20 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::model::{FsMutationResult, ImportedAsset, LayerResult, PathChange, TreeItem};
+use crate::model::{FsMutationResult, ImportedAsset, LayerResult, PathChange};
+
+/// Tree node used only by the scan-helper tests below (the production tree is
+/// built in vault_index). Test-only so it doesn't live in the shared model.
+#[cfg(test)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TreeItem {
+    id: String,
+    path: String,
+    name: String,
+    item_type: String,
+    icon: String,
+    children: Option<Vec<TreeItem>>,
+}
 
 pub(crate) fn path_string(path: &Path) -> String {
     path.to_string_lossy().to_string()
