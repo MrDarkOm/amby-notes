@@ -370,7 +370,9 @@ export function Workspace() {
   })
 
   const openDocsRef = React.useRef(openDocs)
-  const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  // One debounce timer per open file, so editing or closing one document never
+  // cancels another's pending save (also what an editor split relies on).
+  const saveTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   React.useEffect(() => { openDocsRef.current = openDocs }, [openDocs])
 
@@ -1006,7 +1008,11 @@ export function Workspace() {
   const handleTabChange = (key: string) => setActiveTabKey(key)
 
   const handleTabClose = (key: string) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    const closing = tabs.find(t => t.key === key)
+    if (closing) {
+      const timer = saveTimersRef.current.get(closing.fileId)
+      if (timer) { clearTimeout(timer); saveTimersRef.current.delete(closing.fileId) }
+    }
     const remaining = tabs.filter(t => t.key !== key)
     setTabs(remaining)
     if (activeTabKey === key) {
@@ -1229,10 +1235,7 @@ export function Workspace() {
     saveLockedFileIds(vault, next)
   }
 
-  const handleContentChange = (content: string) => {
-    if (!activeTab) return
-    const fileId = activeTab.fileId
-
+  const handleContentChange = (fileId: string, content: string) => {
     setOpenDocs(prev => ({
       ...prev,
       // Store only content here; wordCount is derived lazily inside DocumentEditor
@@ -1241,8 +1244,11 @@ export function Workspace() {
     }))
     setUnsavedFileIds(prev => new Set(prev).add(fileId))
 
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(async () => {
+    const timers = saveTimersRef.current
+    const existing = timers.get(fileId)
+    if (existing) clearTimeout(existing)
+    timers.set(fileId, setTimeout(async () => {
+      timers.delete(fileId)
       const doc = openDocsRef.current[fileId]
       if (!doc) return
       try {
@@ -1253,7 +1259,7 @@ export function Workspace() {
       } catch (err) {
         console.error("Failed to save:", err)
       }
-    }, 500)
+    }, 500))
   }
 
   const currentDoc = activeTab ? openDocs[activeTab.fileId] ?? null : null
@@ -1441,7 +1447,7 @@ export function Workspace() {
 
   const editorProps = {
     document: currentDoc,
-    onContentChange: handleContentChange,
+    onContentChange: (content: string) => { if (activeTab) handleContentChange(activeTab.fileId, content) },
     onBack: handleBack,
     onForward: handleForward,
     canGoBack,
