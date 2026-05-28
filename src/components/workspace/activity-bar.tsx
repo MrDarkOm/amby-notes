@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Bell, HelpCircle, Settings } from "lucide-react"
+import { Bell, Check, HelpCircle, Settings } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import {
@@ -10,6 +10,14 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   ACTION_DEFS,
   PANEL_DEFS,
@@ -28,6 +36,10 @@ interface ActivityBarProps {
   onMoveToOtherSide: (defId: string) => void
   onPointerDownButton: (defId: string) => (e: React.PointerEvent<HTMLElement>) => void
   draggingId: string | null
+  /** Available presets (left bar only) for the workspace switcher. */
+  presets?: { id: string; label: string }[]
+  activePresetId?: string
+  onSwitchPreset?: (id: string) => void
 }
 
 function findDef(defId: string): ButtonDef | undefined {
@@ -42,6 +54,9 @@ export function ActivityBar({
   onMoveToOtherSide,
   onPointerDownButton,
   draggingId,
+  presets,
+  activePresetId,
+  onSwitchPreset,
 }: ActivityBarProps) {
   const sideButtons = buttonsForSide(buttons, side)
 
@@ -107,13 +122,42 @@ export function ActivityBar({
             >
               <Bell className="size-4" />
             </button>
-            <button
-              type="button"
-              title="Настройки"
-              className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
-            >
-              <Settings className="size-4" />
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  title="Пресет рабочего пространства"
+                  className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+                >
+                  <Settings className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="right"
+                align="end"
+                className="w-48 border-zinc-800 bg-black text-zinc-300"
+              >
+                <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-zinc-500">
+                  Пресет
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-zinc-800" />
+                {(presets ?? []).map(preset => (
+                  <DropdownMenuItem
+                    key={preset.id}
+                    onSelect={() => onSwitchPreset?.(preset.id)}
+                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                  >
+                    <Check
+                      className={cn(
+                        "size-3.5",
+                        preset.id === activePresetId ? "text-sky-400 opacity-100" : "opacity-0",
+                      )}
+                    />
+                    {preset.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <button
               type="button"
               title="Справка"

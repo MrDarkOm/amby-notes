@@ -15,6 +15,7 @@ import {
   type Side,
 } from "./panel-registry"
 import { usePresets } from "./use-presets"
+import { BUILTIN_PRESETS } from "./presets"
 import { useActivityDnD } from "./use-activity-dnd"
 
 function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
@@ -336,7 +337,12 @@ export function Workspace() {
   const {
     activityButtons, setActivityButtons,
     activeBySide, setActiveBySide,
+    activePresetId, switchPreset,
   } = usePresets()
+  const presetOptions = React.useMemo(
+    () => BUILTIN_PRESETS.map(p => ({ id: p.id, label: p.label })),
+    [],
+  )
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
@@ -1511,6 +1517,9 @@ export function Workspace() {
             onMoveToOtherSide={defId => moveButtonToSide(defId, "right")}
             onPointerDownButton={dnd.onPointerDown}
             draggingId={dnd.draggingId}
+            presets={presetOptions}
+            activePresetId={activePresetId}
+            onSwitchPreset={(id) => switchPreset(id, { vault })}
           />
           <div style={{ width: leftWidth }} className="shrink-0">
             <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
@@ -1595,6 +1604,9 @@ export function Workspace() {
           onMoveToOtherSide={defId => moveButtonToSide(defId, "right")}
           onPointerDownButton={dnd.onPointerDown}
           draggingId={dnd.draggingId}
+          presets={presetOptions}
+          activePresetId={activePresetId}
+          onSwitchPreset={(id) => switchPreset(id, { vault })}
         />
 
         {isLeftSidebarOpen && (
