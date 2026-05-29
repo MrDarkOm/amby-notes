@@ -1,4 +1,5 @@
 import * as React from "react"
+import i18n from "@/lib/i18n"
 import type { ActivityButton, PanelId, Side } from "./panel-registry"
 import { runModuleLifecycle, type ModuleContext } from "./modules"
 import {
@@ -177,7 +178,7 @@ export function usePresets(vault: string | null): UsePresets {
   const importPreset = React.useCallback(
     (text: string, ctx: ModuleContext): ImportResult => {
       const parsed = parsePresetFile(text)
-      if (!parsed) return { ok: false, error: "Не удалось разобрать файл пресета" }
+      if (!parsed) return { ok: false, error: i18n.t("presets.parseError") }
 
       // Never clobber a built-in id.
       let preset = parsed

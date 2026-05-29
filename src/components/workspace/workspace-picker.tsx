@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Check, FolderOpen, FolderTree, MoreHorizontal, PenLine, Plus, Unlink } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -38,6 +39,7 @@ export function WorkspacePicker({
   onMove,
   onOpenInExplorer,
 }: WorkspacePickerProps) {
+  const { t } = useTranslation()
   const [open, setOpen] = React.useState(false)
   const [renamingId, setRenamingId] = React.useState<string | null>(null)
   const [renameValue, setRenameValue] = React.useState("")
@@ -63,12 +65,12 @@ export function WorkspacePicker({
         onMouseDown={e => e.stopPropagation()}
       >
         <div className="border-b border-zinc-800 px-3 py-2">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">Хранилища</p>
+          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">{t("vaultPicker.vaults")}</p>
         </div>
 
         <div className="flex max-h-64 flex-col overflow-y-auto p-1">
           {vaults.length === 0 && (
-            <p className="px-3 py-2 text-[12px] text-zinc-600">Нет сохранённых хранилищ</p>
+            <p className="px-3 py-2 text-[12px] text-zinc-600">{t("vaultPicker.noVaults")}</p>
           )}
           {vaults.map(vault => (
             <div
@@ -129,21 +131,21 @@ export function WorkspacePicker({
                     onSelect={() => { setRenameValue(vault.name); setRenamingId(vault.id) }}
                   >
                     <PenLine className="size-3.5 text-zinc-500" />
-                    Переименовать
+                    {t("vaultPicker.rename")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
                     onSelect={() => onMove(vault.id)}
                   >
                     <FolderTree className="size-3.5 text-zinc-500" />
-                    Переместить
+                    {t("vaultPicker.move")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
                     onSelect={() => onOpenInExplorer(vault.path)}
                   >
                     <FolderOpen className="size-3.5 text-zinc-500" />
-                    Открыть в проводнике
+                    {t("vaultPicker.showInExplorer")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator className="bg-zinc-800" />
                   <DropdownMenuItem
@@ -151,7 +153,7 @@ export function WorkspacePicker({
                     onSelect={() => onDelete(vault.id)}
                   >
                     <Unlink className="size-3.5" />
-                    Отвязать
+                    {t("vaultPicker.detach")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -165,7 +167,7 @@ export function WorkspacePicker({
             className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-[13px] text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
           >
             <Plus className="size-3.5" />
-            Открыть или создать хранилище
+            {t("vaultPicker.openOrCreate")}
           </button>
         </div>
       </PopoverContent>

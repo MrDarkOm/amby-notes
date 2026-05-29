@@ -20,6 +20,7 @@ import type { VaultRecord } from "./workspace-picker"
 import type { ActivityButton, PanelId, Side } from "./panel-registry"
 import type { Preset } from "./presets"
 import type { AiConfig, AiFamily } from "@/lib/ai"
+import i18n from "@/lib/i18n"
 
 export const WORKSPACES_FILE = "workspaces.json"
 export const SETTINGS_FILE = "settings.json"
@@ -148,7 +149,7 @@ export const DEFAULT_AI: AiSettings = {
 
 /** A fresh blank model entry (used by the "add model" button). */
 export function blankModel(): AiModel {
-  return { id: crypto.randomUUID(), label: "Новая модель", provider: "ollama", model: "llama3.2", baseUrl: "", apiKey: "", apiVersion: "" }
+  return { id: crypto.randomUUID(), label: i18n.t("workspace.newModel"), provider: "ollama", model: "llama3.2", baseUrl: "", apiKey: "", apiVersion: "" }
 }
 
 // ── App preferences (the user-facing Settings screen) ───────────────────────
@@ -244,7 +245,7 @@ function normalizeModel(raw: unknown): AiModel | null {
   if (typeof d.id !== "string" || typeof d.provider !== "string") return null
   return {
     id: d.id,
-    label: typeof d.label === "string" && d.label ? d.label : "Модель",
+    label: typeof d.label === "string" && d.label ? d.label : i18n.t("workspace.modelFallback"),
     provider: d.provider,
     model: typeof d.model === "string" ? d.model : "",
     baseUrl: typeof d.baseUrl === "string" ? d.baseUrl : "",

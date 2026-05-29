@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import i18n from "@/lib/i18n"
 import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 
 import { buildExtensions } from "./extensions"
@@ -47,7 +48,7 @@ export function TiptapEditor({
   value,
   onChange,
   editorRef,
-  placeholder = "Начни писать...",
+  placeholder = i18n.t("editor.placeholder"),
   editable = true,
   onTagClick,
   onWikiLinkClick,
