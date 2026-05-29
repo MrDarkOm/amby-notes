@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useTranslation } from "react-i18next";
 import {
   Code2,
   Database,
@@ -212,6 +213,7 @@ export function DocumentEditor({
   const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false);
   const [layerConfirm, setLayerConfirm] = React.useState<EditorLayer | null>(null);
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle);
+  const { t } = useTranslation();
   const titleInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -252,11 +254,6 @@ export function DocumentEditor({
     [treeItems, document?.id],
   );
 
-  const layerLabelRu: Record<string, string> = {
-    canvas: "Canvas",
-    database: "базу данных",
-    sketch: "Excalidraw",
-  };
 
   const navBar = (
     <>
@@ -385,7 +382,7 @@ export function DocumentEditor({
           size="icon"
           className={`size-7 hover:bg-zinc-800 ${isFocusMode ? "text-zinc-200" : "text-zinc-500 hover:text-white"}`}
           onClick={onToggleFocusMode}
-          title={isFocusMode ? "Выйти из фокуса" : "Режим фокуса"}
+          title={isFocusMode ? t("docEditor.focusModeExit") : t("docEditor.focusModeEnter")}
         >
           {isFocusMode ? (
             <Minimize2 className="size-4" />
@@ -425,7 +422,7 @@ export function DocumentEditor({
               className="text-[13px] focus:bg-zinc-800 focus:text-white"
             >
               <Lock className="size-3.5" />
-              Заблокировать
+              {t("docEditor.lock")}
             </DropdownMenuCheckboxItem>
             {/* Attach layer options — only shown for layers not yet linked */}
             {document && (!linkedLayers?.canvas || !linkedLayers?.database || !linkedLayers?.sketch) && (
@@ -437,7 +434,7 @@ export function DocumentEditor({
                     onSelect={() => setLayerConfirm("canvas")}
                   >
                     <LayoutGrid className="size-3.5 text-zinc-500" />
-                    Прикрепить Canvas
+                    {t("docEditor.attachCanvas")}
                   </DropdownMenuItem>
                 )}
                 {!linkedLayers?.database && (
@@ -446,7 +443,7 @@ export function DocumentEditor({
                     onSelect={() => setLayerConfirm("database")}
                   >
                     <Database className="size-3.5 text-zinc-500" />
-                    Прикрепить базу данных
+                    {t("docEditor.attachDatabase")}
                   </DropdownMenuItem>
                 )}
                 {!linkedLayers?.sketch && (
@@ -455,7 +452,7 @@ export function DocumentEditor({
                     onSelect={() => setLayerConfirm("sketch")}
                   >
                     <PenLine className="size-3.5 text-zinc-500" />
-                    Прикрепить Excalidraw
+                    {t("docEditor.attachSketch")}
                   </DropdownMenuItem>
                 )}
               </>
@@ -480,8 +477,9 @@ export function DocumentEditor({
         }}
       >
         <p className="text-[13px] leading-snug">
-          Создать привязанный{" "}
-          {layerConfirm ? layerLabelRu[layerConfirm] ?? layerConfirm : ""} к заметке?
+          {layerConfirm === "canvas" ? t("docEditor.confirmCreateCanvas")
+            : layerConfirm === "sketch" ? t("docEditor.confirmCreateSketch")
+            : t("docEditor.confirmCreateDatabase")}
         </p>
         <div className="mt-1 flex justify-end gap-2">
           <button
@@ -489,7 +487,7 @@ export function DocumentEditor({
             className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-900"
             onClick={() => setLayerConfirm(null)}
           >
-            Отмена
+            {t("docEditor.cancel")}
           </button>
           <button
             type="button"
@@ -499,7 +497,7 @@ export function DocumentEditor({
               if (layerConfirm) { onLayerChange?.(layerConfirm); setLayerConfirm(null) }
             }}
           >
-            Создать
+            {t("docEditor.create")}
           </button>
         </div>
       </DialogContent>
@@ -514,10 +512,10 @@ export function DocumentEditor({
         <div className="flex flex-1 flex-col items-center justify-center gap-6">
           <div className="text-center">
             <p className="text-lg font-medium text-zinc-300">
-              Нет открытых заметок
+              {t("docEditor.noNotes")}
             </p>
             <p className="mt-1 text-sm text-zinc-600">
-              Создай новую или открой существующую
+              {t("docEditor.noNotesHint")}
             </p>
           </div>
           <div className="flex gap-3">
@@ -526,14 +524,14 @@ export function DocumentEditor({
               className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 hover:border-zinc-500"
             >
               <FilePlus className="size-4 text-zinc-400" />
-              Создать заметку
+              {t("docEditor.createNote")}
             </button>
             <button
               onClick={onOpenVault}
               className="flex items-center gap-2 rounded-lg border border-zinc-800 px-4 py-2.5 text-sm text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-300"
             >
               <FolderOpen className="size-4" />
-              Открыть хранилище
+              {t("docEditor.openVault")}
             </button>
           </div>
         </div>
@@ -616,7 +614,7 @@ export function DocumentEditor({
                   setTitleValue(document.title);
                   setEditingTitle(true);
                 }}
-                title="Нажми чтобы переименовать"
+                title={t("docEditor.renameHint")}
               >
                 {document.title}
               </h1>
@@ -635,8 +633,7 @@ export function DocumentEditor({
                   {activeLayerMeta.label}
                 </p>
                 <p className="mt-1 max-w-sm text-xs text-zinc-600">
-                  Слой создан рядом с заметкой. Полноценный редактор появится в
-                  следующем инкременте.
+                  {t("docEditor.layerCreated")}
                 </p>
               </div>
             </div>
@@ -648,7 +645,7 @@ export function DocumentEditor({
               onTagClick={onTagClick}
               onWikiLinkClick={onWikiLinkClick}
               editorRef={editorRef}
-              placeholder="Начни писать..."
+              placeholder={t("editor.placeholder")}
             />
           ) : (
             <TiptapEditor
@@ -659,7 +656,7 @@ export function DocumentEditor({
               editable={viewMode === "live" && !isLocked}
               onTagClick={onTagClick}
               onWikiLinkClick={onWikiLinkClick}
-              placeholder="Начни писать..."
+              placeholder={t("editor.placeholder")}
               vaultPath={vault}
               notePath={document.path}
             />
@@ -672,12 +669,12 @@ export function DocumentEditor({
         <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/90 px-3 py-1.5 shadow-lg backdrop-blur-sm">
           <span className="text-[11px] text-zinc-500">{document.modified}</span>
           <span className="text-zinc-800">·</span>
-          <span className="text-[11px] text-zinc-500">{liveWordCount} сл.</span>
+          <span className="text-[11px] text-zinc-500">{t("docEditor.wordCount", { count: liveWordCount })}</span>
           <div className="mx-1 h-3 w-px bg-zinc-800" />
           <button
             type="button"
             title={
-              viewMode === "read" ? "Переключить в Live" : "Переключить в Read"
+              viewMode === "read" ? t("docEditor.switchToLive") : t("docEditor.switchToRead")
             }
             disabled={
               activeLayer !== "editor" || viewMode === "source" || isLocked
@@ -696,7 +693,7 @@ export function DocumentEditor({
           </button>
           <div className="mx-1 h-3 w-px bg-zinc-800" />
           <button
-            title="Отменить (Ctrl+Z)"
+            title={t("docEditor.undo")}
             className="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
             onMouseDown={(e) => {
               e.preventDefault();
@@ -706,7 +703,7 @@ export function DocumentEditor({
             <Undo2 className="size-3" />
           </button>
           <button
-            title="Повторить (Ctrl+Y)"
+            title={t("docEditor.redo")}
             className="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
             onMouseDown={(e) => {
               e.preventDefault();
@@ -740,6 +737,7 @@ function LayerButton({
   onUnlink?: (layer: LayerKind) => void;
   onDelete?: (layer: LayerKind) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -758,13 +756,13 @@ function LayerButton({
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
         <ContextMenuItem onSelect={() => onUnlink?.(layer)}>
-          Отвязать
+          {t("docEditor.detach")}
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={() => onDelete?.(layer)}
           className="text-red-400 focus:text-red-300"
         >
-          Удалить
+          {t("docEditor.delete")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

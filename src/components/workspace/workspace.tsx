@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from "react"
+import { useTranslation } from "react-i18next"
+import i18n from "@/lib/i18n"
 import { FolderOpen } from "lucide-react"
 import { ActivityBar } from "./activity-bar"
 import { PanelHost } from "./panel-host"
@@ -214,17 +216,18 @@ function buildLinkGraph(items: TreeItem[], contents: Record<string, string>, vau
 }
 
 function formatModified(ts?: number): string {
-  if (!ts) return "Только что"
+  const t = i18n.t.bind(i18n)
+  if (!ts) return t("time.justNow")
   const date = new Date(ts * 1000)
   const diffMs = Date.now() - date.getTime()
   const diffMins = Math.floor(diffMs / 60000)
-  if (diffMins < 1) return "Только что"
-  if (diffMins < 60) return `${diffMins} мин назад`
+  if (diffMins < 1) return t("time.justNow")
+  if (diffMins < 60) return t("time.minsAgo", { n: diffMins })
   const diffHours = Math.floor(diffMins / 60)
-  if (diffHours < 24) return `${diffHours}ч назад`
+  if (diffHours < 24) return t("time.hoursAgo", { n: diffHours })
   const diffDays = Math.floor(diffHours / 24)
-  if (diffDays === 1) return "Вчера"
-  return `${diffDays}д назад`
+  if (diffDays === 1) return t("time.yesterday")
+  return t("time.daysAgo", { n: diffDays })
 }
 
 function newTabKey() {
@@ -240,6 +243,7 @@ function applyIconOverrides(items: TreeItem[], overrides: Record<string, string>
 }
 
 export function Workspace() {
+  const { t } = useTranslation()
   const vault = useVaultStore((s) => s.vault)
   const { setVault, setVaults } = useVaultStore.getState()
   const [treeItems, setTreeItems] = React.useState<TreeItem[]>([])
@@ -438,7 +442,7 @@ export function Workspace() {
     const key = newTabKey()
     setTabs(prev => [...prev, {
       key, kind: "graph", fileId: GRAPH_TAB_FILE_ID,
-      title: "Граф связей", history: [], historyIndex: 0,
+      title: t("workspace.graphTab"), history: [], historyIndex: 0,
     }])
     setActiveTabKey(key)
   }
@@ -928,7 +932,7 @@ export function Workspace() {
       if (!id) return
       const item = findTreeItem(tree, id)
       const name = target.split("/").pop() ?? target
-      const doc: Document = { id, title: name, content: "", modified: "Только что", wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
+      const doc: Document = { id, title: name, content: "", modified: t("time.justNow"), wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
       setDoc(id, doc)
       const key = newTabKey()
       setTabs(prev => [...prev, { key, kind: "document", fileId: id, title: name, history: [id], historyIndex: 0 }])
@@ -1040,7 +1044,7 @@ export function Workspace() {
 
   const handleDeleteFile = React.useCallback(async (id: string) => {
     const item = findTreeItem(treeItems, id)
-    if (!confirm(`Удалить "${item?.name ?? id}"?`)) return
+    if (!confirm(t("workspace.deleteConfirm", { name: item?.name ?? id }))) return
     try {
       const result = await deleteItem(vault ?? "", item?.path ?? id)
       applyMutationResult(result)
@@ -1062,7 +1066,7 @@ export function Workspace() {
       const id = result.primaryId ?? result.primaryPath
       if (!id) return
       const item = findTreeItem(tree, id)
-      const doc: Document = { id, title: "Untitled", content: "", modified: "Только что", wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
+      const doc: Document = { id, title: "Untitled", content: "", modified: t("time.justNow"), wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
       setDoc(id, doc)
       const key = newTabKey()
       setTabs(prev => [...prev, { key, kind: "document", fileId: id, title: "Untitled", history: [id], historyIndex: 0 }])
@@ -1373,8 +1377,7 @@ export function Workspace() {
 
   const handleDeleteLayer = async (layer: LayerKind) => {
     if (!currentDoc || !vault) return
-    const labels: Record<LayerKind, string> = { canvas: "Canvas", database: "базу данных", sketch: "Excalidraw" }
-    if (!confirm(`Удалить ${labels[layer]} у заметки "${currentDoc.title}"? Файл переедет в корзину.`)) return
+    if (!confirm(t("workspace.deleteLayerConfirm", { layer: t(`layer.${layer}`), title: currentDoc.title }))) return
     try {
       const result = await deleteLayer(vault, currentDoc.path, layer)
       applyMutationResult(result)
@@ -1484,13 +1487,13 @@ export function Workspace() {
   if (!vault && isTauri()) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background">
-        <p className="text-zinc-400">Хранилище не открыто</p>
+        <p className="text-zinc-400">{t("workspace.noVault")}</p>
         <button
           onClick={handleOpenVault}
           className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-5 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
         >
           <FolderOpen className="size-4" />
-          Открыть хранилище
+          {t("workspace.openVault")}
         </button>
       </div>
     )

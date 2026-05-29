@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { createPortal } from "react-dom"
 import type { Editor } from "@tiptap/react"
 import {
@@ -76,6 +77,7 @@ export function BlockActionsPanel({
   const [query, setQuery] = React.useState("")
   const [turnIntoOpen, setTurnIntoOpen] = React.useState(false)
   const [turnIntoAnchor, setTurnIntoAnchor] = React.useState<AnchorRect | null>(null)
+  const { t } = useTranslation()
   const turnIntoBtnRef = React.useRef<HTMLButtonElement>(null)
   const searchRef = React.useRef<HTMLInputElement>(null)
   const panelRef = React.useRef<HTMLDivElement>(null)
@@ -158,7 +160,7 @@ export function BlockActionsPanel({
           </>
         )}
         {!hasContext && matches("turn into") === false && matches("duplicate") === false && matches("delete") === false && (
-          <div className="amby-block-panel-empty">Нет настроек для этого блока</div>
+          <div className="amby-block-panel-empty">{t("blockPanel.noSettings")}</div>
         )}
       </div>
 
@@ -273,6 +275,7 @@ function CalloutContext({
   nodePos: number
   matches: (s: string) => boolean
 }) {
+  const { t } = useTranslation()
   const node = editor.state.doc.nodeAt(nodePos)
   const calloutType = (node?.attrs.calloutType as string) ?? "NOTE"
 
@@ -313,7 +316,7 @@ function CalloutContext({
     <>
       {showBg && (
         <>
-          <div className="amby-block-panel-section">Фон callout</div>
+          <div className="amby-block-panel-section">{t("blockPanel.bgCallout")}</div>
           <div className="amby-ctx-swatches">
             {CALLOUT_SWATCHES.map(sw => (
               <button
@@ -336,7 +339,7 @@ function CalloutContext({
       )}
       {showText && (
         <>
-          <div className="amby-block-panel-section">Цвет текста</div>
+          <div className="amby-block-panel-section">{t("blockPanel.textColor")}</div>
           <div className="amby-ctx-swatches">
             {TEXT_COLORS.map(c => (
               <button
@@ -359,7 +362,7 @@ function CalloutContext({
       )}
       {showType && (
         <>
-          <div className="amby-block-panel-section">Тип</div>
+          <div className="amby-block-panel-section">{t("blockPanel.type")}</div>
           <div className="amby-ctx-type-grid">
             {CALLOUT_TYPES.map(t => (
               <button
@@ -392,6 +395,7 @@ function HeadingContext({
   nodePos: number
   matches: (s: string) => boolean
 }) {
+  const { t } = useTranslation()
   const node = editor.state.doc.nodeAt(nodePos)
   const currentLevel = (node?.attrs.level as number) ?? 1
 
@@ -410,7 +414,7 @@ function HeadingContext({
 
   return (
     <>
-      <div className="amby-block-panel-section">Уровень заголовка</div>
+      <div className="amby-block-panel-section">{t("blockPanel.headingLevel")}</div>
       <div className="amby-ctx-heading-grid">
         {([1, 2, 3, 4, 5] as const).map(level => (
           <button
@@ -444,6 +448,7 @@ function ImageContext({
   notePath?: string
   matches: (s: string) => boolean
 }) {
+  const { t } = useTranslation()
   const node = editor.state.doc.nodeAt(nodePos)
   const altInit = (node?.attrs.alt as string | null) ?? ""
   const alignInit = (node?.attrs.align as string | null) ?? null
@@ -487,15 +492,15 @@ function ImageContext({
     <>
       {showReplace && (
         <>
-          <div className="amby-block-panel-section">Источник</div>
+          <div className="amby-block-panel-section">{t("blockPanel.source")}</div>
           <button type="button" className="amby-ctx-replace-btn" onClick={replaceImage}>
-            Заменить картинку
+            {t("blockPanel.replaceImage")}
           </button>
         </>
       )}
       {showAlt && (
         <>
-          <div className="amby-block-panel-section">Alt-текст</div>
+          <div className="amby-block-panel-section">{t("blockPanel.altText")}</div>
           <input
             className="amby-ctx-text-input"
             value={alt}
@@ -507,14 +512,14 @@ function ImageContext({
                 commitAlt()
               }
             }}
-            placeholder="Описание картинки"
+            placeholder={t("blockPanel.imagePlaceholder")}
             onMouseDown={e => e.stopPropagation()}
           />
         </>
       )}
       {showAlign && (
         <>
-          <div className="amby-block-panel-section">Выравнивание</div>
+          <div className="amby-block-panel-section">{t("blockPanel.align")}</div>
           <div className="amby-ctx-align-row">
             {alignButtons.map(({ id, Icon }) => (
               <button
@@ -564,6 +569,7 @@ function ListContext({
   nodePos: number
   matches: (s: string) => boolean
 }) {
+  const { t } = useTranslation()
   const parentType = findListParent(editor, nodePos)
 
   function focusInside() {
@@ -605,7 +611,7 @@ function ListContext({
 
   return (
     <>
-      <div className="amby-block-panel-section">Тип списка</div>
+      <div className="amby-block-panel-section">{t("blockPanel.listType")}</div>
       <div className="amby-ctx-align-row">
         {buttons.map(b => (
           <button
@@ -634,6 +640,7 @@ function CodeBlockContext({
   nodePos: number
   matches: (s: string) => boolean
 }) {
+  const { t } = useTranslation()
   const node = editor.state.doc.nodeAt(nodePos)
   const initial = (node?.attrs.language as string | null) ?? ""
   const [lang, setLang] = React.useState(initial)
@@ -655,7 +662,7 @@ function CodeBlockContext({
 
   return (
     <>
-      <div className="amby-block-panel-section">Язык кода</div>
+      <div className="amby-block-panel-section">{t("blockPanel.codeLanguage")}</div>
       <input
         className="amby-ctx-text-input"
         value={lang}
