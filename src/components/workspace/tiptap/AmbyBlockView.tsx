@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
 import { Database, Plus, X } from "lucide-react"
 
@@ -10,8 +11,10 @@ interface DbData {
   rows: string[][]
 }
 
+import i18n from "@/lib/i18n"
+
 const DEFAULT_DATA: DbData = {
-  columns: ["Колонка 1", "Колонка 2"],
+  columns: [i18n.t("dbBlock.defaultColumn", { n: 1 }), i18n.t("dbBlock.defaultColumn", { n: 2 })],
   rows: [["", ""]],
 }
 
@@ -30,6 +33,7 @@ function normalize(d: Partial<DbData> | null): DbData {
 }
 
 export function AmbyBlockView({ node, editor }: NodeViewProps) {
+  const { t } = useTranslation()
   const blockId = node.attrs.blockId as string
   const editable = editor.isEditable
   const [data, setData] = React.useState<DbData | null>(null)
@@ -88,7 +92,7 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
   const addColumn = () => {
     if (!data) return
     persist({
-      columns: [...data.columns, `Колонка ${data.columns.length + 1}`],
+      columns: [...data.columns, t("dbBlock.defaultColumn", { n: data.columns.length + 1 })],
       rows: data.rows.map(row => [...row, ""]),
     })
   }
@@ -114,11 +118,11 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
       <div contentEditable={false} onKeyDown={e => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5 text-[11px] uppercase tracking-wider text-zinc-500">
           <Database className="size-3.5" />
-          База данных
+          {t("dbBlock.database")}
         </div>
 
         {data === null ? (
-          <div className="px-3 py-4 text-[13px] text-zinc-600">Загрузка…</div>
+          <div className="px-3 py-4 text-[13px] text-zinc-600">{t("dbBlock.loading")}</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-[13px] text-zinc-200">
@@ -132,12 +136,12 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
                           disabled={!editable}
                           onChange={e => setColumn(c, e.target.value)}
                           className="w-full bg-transparent px-2 py-1.5 text-zinc-300 outline-none placeholder:text-zinc-600"
-                          placeholder="Колонка"
+                          placeholder={t("dbBlock.columnPlaceholder")}
                         />
                         {editable && data.columns.length > 1 && (
                           <button
                             type="button"
-                            title="Удалить колонку"
+                            title={t("dbBlock.deleteColumn")}
                             onClick={() => removeColumn(c)}
                             className="invisible mr-1 rounded p-0.5 text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300 group-hover:visible"
                           >
@@ -151,7 +155,7 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
                     {editable && (
                       <button
                         type="button"
-                        title="Добавить колонку"
+                        title={t("dbBlock.addColumn")}
                         onClick={addColumn}
                         className="flex size-7 items-center justify-center text-zinc-600 hover:text-zinc-300"
                       >
@@ -178,7 +182,7 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
                       {editable && (
                         <button
                           type="button"
-                          title="Удалить строку"
+                          title={t("dbBlock.deleteRow")}
                           onClick={() => removeRow(r)}
                           className="invisible rounded p-0.5 text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300 group-hover/row:visible"
                         >
@@ -198,7 +202,7 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
                 className="flex w-full items-center gap-1.5 px-2 py-1.5 text-[12px] text-zinc-600 hover:bg-zinc-900 hover:text-zinc-300"
               >
                 <Plus className="size-3.5" />
-                Строка
+                {t("dbBlock.addRow")}
               </button>
             )}
           </div>

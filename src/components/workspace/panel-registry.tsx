@@ -169,6 +169,7 @@ function flattenTreeItems(items: TreeItem[]): TreeItem[] {
 }
 
 function FilesPanel(props: PanelRenderProps) {
+  const { t } = useTranslation()
   const {
     treeItems, selectedId, vault, onSelect, onOpenVault,
     onRename, onDelete, onNewFile, onNewFolder, onNewCanvas, onAttachCanvas,
@@ -202,27 +203,27 @@ function FilesPanel(props: PanelRenderProps) {
     <div className="flex h-full min-h-0 flex-col">
       {/* Toolbar */}
       <div className="flex h-9 shrink-0 items-center border-b border-zinc-800 px-1 gap-px">
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title="Создать заметку"
+        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title={t("filesPanel.createNote")}
           onClick={() => { if (!vault) onOpenVault(); else onNewFile?.(null) }}>
           <FilePlus className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title="Создать папку"
+        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title={t("filesPanel.createFolder")}
           onClick={() => { if (!vault) onOpenVault(); else onNewFolder?.(null) }}>
           <FolderPlus className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title="Создать Canvas"
+        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title={t("filesPanel.createCanvas")}
           onClick={() => { if (!vault) onOpenVault(); else onNewCanvas?.(null) }}>
           <LayoutGrid className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title="Порядок сортировки">
+        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title={t("filesPanel.sortOrder")}>
           <ArrowDownUp className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title="Найти активный файл"
+        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title={t("filesPanel.findActive")}
           onClick={handleFindActive}>
           <LocateFixed className="size-3.5" />
         </Button>
         <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white"
-          title={allOpen ? "Свернуть все папки" : "Развернуть все папки"}
+          title={allOpen ? t("filesPanel.collapseAll") : t("filesPanel.expandAll")}
           onClick={handleToggleFolders}>
           {allOpen ? <ChevronsDownUp className="size-3.5" /> : <ChevronsUpDown className="size-3.5" />}
         </Button>
@@ -235,7 +236,7 @@ function FilesPanel(props: PanelRenderProps) {
               <div className="p-1.5">
                 {treeItems.length === 0 ? (
                   <p className="px-2 py-3 text-[12px] text-zinc-600">
-                    Нет файлов. Создай новый.
+                    {t("filesPanel.empty")}
                   </p>
                 ) : (
                   <SidebarTree
@@ -270,7 +271,7 @@ function FilesPanel(props: PanelRenderProps) {
                 onClick={handleNewButtonClick}
               >
                 <FilePlus className="size-4" />
-                Создать
+                {t("filesPanel.create")}
               </Button>
             </div>
           </div>
@@ -281,26 +282,26 @@ function FilesPanel(props: PanelRenderProps) {
             onSelect={() => { if (!vault) onOpenVault(); else onNewFile?.(null) }}
           >
             <FileText className="size-3.5 text-zinc-500" />
-            Новая заметка
+            {t("filesPanel.newNote")}
           </ContextMenuItem>
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
             onSelect={() => { if (!vault) onOpenVault(); else onNewFolder?.(null) }}
           >
             <FolderPlus className="size-3.5 text-zinc-500" />
-            Новая папка
+            {t("filesPanel.newFolder")}
           </ContextMenuItem>
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
             onSelect={() => { if (!vault) onOpenVault(); else onNewCanvas?.(null) }}
           >
             <LayoutGrid className="size-3.5 text-zinc-500" />
-            Новый Canvas
+            {t("filesPanel.newCanvas")}
           </ContextMenuItem>
           <ContextMenuItem disabled className="flex items-center gap-2 text-[13px] text-zinc-600">
             <Database className="size-3.5" />
-            База данных
-            <span className="ml-auto text-[10px] text-zinc-700">Скоро</span>
+            {t("filesPanel.database")}
+            <span className="ml-auto text-[10px] text-zinc-700">{t("common.comingSoon")}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -320,6 +321,7 @@ function TagsPanel({ treeItems, onSelect, readFile }: PanelRenderProps) {
 }
 
 function FavoritesPanel({ treeItems, favorites, onSelect, onToggleFavorite }: PanelRenderProps) {
+  const { t } = useTranslation()
   const all = flattenTreeItems(treeItems)
   const favItems = all.filter(i => i.type === "file" && favorites?.has(i.id))
 
@@ -327,8 +329,8 @@ function FavoritesPanel({ treeItems, favorites, onSelect, onToggleFavorite }: Pa
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-4">
         <Bookmark className="size-8 text-zinc-700" />
-        <p className="text-[12px] text-zinc-600">Нет избранных заметок</p>
-        <p className="text-[11px] text-zinc-700">Нажмите правой кнопкой на заметку и выберите «Добавить в избранное»</p>
+        <p className="text-[12px] text-zinc-600">{t("favoritesPanel.empty")}</p>
+        <p className="text-[11px] text-zinc-700">{t("favoritesPanel.emptyHint")}</p>
       </div>
     )
   }
@@ -347,7 +349,7 @@ function FavoritesPanel({ treeItems, favorites, onSelect, onToggleFavorite }: Pa
             <button
               onClick={e => { e.stopPropagation(); onToggleFavorite?.(item.id) }}
               className="opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Убрать из избранного"
+              title={t("favoritesPanel.removeBookmark")}
             >
               <BookmarkCheck className="size-3.5 text-amber-400" />
             </button>
@@ -449,15 +451,17 @@ function InfoPanel({ properties }: PanelRenderProps) {
 }
 
 function HistoryPanel() {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center">
       <History className="size-8 text-zinc-700" />
-      <p className="text-[12px] text-zinc-600">История изменений скоро</p>
+      <p className="text-[12px] text-zinc-600">{t("panels.history")} — {t("common.comingSoon").toLowerCase()}</p>
     </div>
   )
 }
 
 function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps) {
+  const { t } = useTranslation()
   const [query, setQuery] = React.useState("")
   const nodes = linkGraph?.nodes ?? []
   const edges = linkGraph?.edges ?? []
@@ -506,7 +510,7 @@ function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps)
         {list.length ? list.map((edge, i) => (
           <LinkRow key={`${edge.source}-${edge.target}-${direction}-${i}`} edge={edge} direction={direction} />
         )) : (
-          <p className="px-2 py-1 text-[11px] text-zinc-700">Нет ссылок</p>
+          <p className="px-2 py-1 text-[11px] text-zinc-700">{t("graph.noLinks")}</p>
         )}
       </div>
     )

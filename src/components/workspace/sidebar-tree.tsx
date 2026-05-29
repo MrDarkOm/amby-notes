@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Bookmark, BookmarkCheck, ChevronRight, Database, FileText, Folder, FolderOpen, FolderPlus,
   LayoutGrid, PenLine, Smile, SquareArrowOutUpRight, Star,
@@ -135,6 +136,7 @@ const TreeNode = React.memo(function TreeNode({
   folderResetKey, folderTargetOpen, favorites, onToggleFavorite, onAttachLayer,
   linkedLayersByDoc,
 }: TreeNodeProps) {
+  const { t } = useTranslation()
   const [pendingAttach, setPendingAttach] = React.useState<AttachableLayer | null>(null)
   const [isOpen, setIsOpen] = React.useState(true)
   const prevResetKey = React.useRef<number | undefined>(undefined)
@@ -205,21 +207,21 @@ const TreeNode = React.memo(function TreeNode({
         onSelect={() => onNewFile?.(item.type === "folder" || item.type === "file" ? item.id : null)}
       >
         <FileText className="size-3.5 text-zinc-500" />
-        Новая заметка
+        {t("tree.newNote")}
       </ContextMenuItem>
       <ContextMenuItem
         className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
         onSelect={() => onNewFolder?.(item.type === "folder" ? item.id : null)}
       >
         <FolderPlus className="size-3.5 text-zinc-500" />
-        Новая папка
+        {t("tree.newFolder")}
       </ContextMenuItem>
       <ContextMenuItem
         className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
         onSelect={() => onNewCanvas?.(item.type === "folder" || item.type === "file" ? item.id : null)}
       >
         <LayoutGrid className="size-3.5 text-zinc-500" />
-        Новый Canvas
+        {t("tree.newCanvas")}
       </ContextMenuItem>
       {item.type === "canvas" && onAttachCanvas && (
         <ContextMenuItem
@@ -227,7 +229,7 @@ const TreeNode = React.memo(function TreeNode({
           onSelect={() => onAttachCanvas(item.id)}
         >
           <FileText className="size-3.5 text-zinc-500" />
-          Привязать к заметке
+          {t("tree.attachToNote")}
         </ContextMenuItem>
       )}
       {item.type === "file" && onAttachLayer && (() => {
@@ -243,7 +245,7 @@ const TreeNode = React.memo(function TreeNode({
                 onSelect={() => setPendingAttach("canvas")}
               >
                 <LayoutGrid className="size-3.5 text-zinc-500" />
-                Прикрепить Canvas
+                {t("tree.attachCanvas")}
               </ContextMenuItem>
             )}
             {dbAvail && (
@@ -252,7 +254,7 @@ const TreeNode = React.memo(function TreeNode({
                 onSelect={() => setPendingAttach("database")}
               >
                 <Database className="size-3.5 text-zinc-500" />
-                Прикрепить базу данных
+                {t("tree.attachDatabase")}
               </ContextMenuItem>
             )}
           </>
@@ -264,7 +266,7 @@ const TreeNode = React.memo(function TreeNode({
       <ContextMenuSub>
         <ContextMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white data-[state=open]:bg-zinc-800">
           <Smile className="size-3.5 text-zinc-500" />
-          Иконка
+          {t("tree.icon")}
         </ContextMenuSubTrigger>
         <ContextMenuSubContent className="border-zinc-800 bg-black p-0 shadow-xl">
           <EmojiPickerPanel
@@ -276,7 +278,7 @@ const TreeNode = React.memo(function TreeNode({
               onSelect={() => onSetIcon?.(item.id, defaultIcon)}
               className="text-[12px] text-zinc-400 focus:bg-zinc-800 focus:text-zinc-300"
             >
-              Сбросить иконку
+              {t("tree.resetIcon")}
             </ContextMenuItem>
           </div>
         </ContextMenuSubContent>
@@ -291,7 +293,7 @@ const TreeNode = React.memo(function TreeNode({
               onSelect={() => onOpenInNewTab(item.id)}
             >
               <SquareArrowOutUpRight className="size-3.5 text-zinc-500" />
-              Открыть в новой вкладке
+              {t("tree.openInNewTab")}
             </ContextMenuItem>
           )}
           {onOpenInExplorer && (
@@ -300,7 +302,7 @@ const TreeNode = React.memo(function TreeNode({
               onSelect={() => onOpenInExplorer(item.path ?? item.id)}
             >
               <FolderOpen className="size-3.5 text-zinc-500" />
-              Показать в проводнике
+              {t("tree.showInExplorer")}
             </ContextMenuItem>
           )}
         </>
@@ -314,8 +316,8 @@ const TreeNode = React.memo(function TreeNode({
           onSelect={() => onToggleFavorite(item.id)}
         >
           {favorites?.has(item.id)
-            ? <><BookmarkCheck className="size-3.5 text-amber-400" />Убрать из избранного</>
-            : <><Bookmark className="size-3.5 text-zinc-500" />Добавить в избранное</>}
+            ? <><BookmarkCheck className="size-3.5 text-amber-400" />{t("tree.removeBookmark")}</>
+            : <><Bookmark className="size-3.5 text-zinc-500" />{t("tree.addBookmark")}</>}
         </ContextMenuItem>
       )}
 
@@ -323,18 +325,16 @@ const TreeNode = React.memo(function TreeNode({
         className="text-[13px] focus:bg-zinc-800 focus:text-white"
         onSelect={() => setTimeout(() => setIsEditing(true), 80)}
       >
-        Переименовать
+        {t("tree.rename")}
       </ContextMenuItem>
       <ContextMenuItem
         className="text-[13px] text-red-400 focus:bg-zinc-800 focus:text-red-300"
         onSelect={() => onDelete?.(item.id)}
       >
-        Удалить
+        {t("tree.delete")}
       </ContextMenuItem>
     </ContextMenuContent>
   )
-
-  const layerLabelRu: Record<AttachableLayer, string> = { canvas: "Canvas", database: "базу данных" }
 
   const attachDialog = (
     <Dialog
@@ -352,8 +352,9 @@ const TreeNode = React.memo(function TreeNode({
         }}
       >
         <p className="text-[13px] leading-snug">
-          Создать привязанный{" "}
-          {pendingAttach ? layerLabelRu[pendingAttach] : ""} к заметке «{item.name}»?
+          {pendingAttach === "canvas"
+            ? t("tree.confirmAttachCanvas", { name: item.name })
+            : t("tree.confirmAttachDatabase", { name: item.name })}
         </p>
         <div className="mt-1 flex justify-end gap-2">
           <button
@@ -361,7 +362,7 @@ const TreeNode = React.memo(function TreeNode({
             className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-900"
             onClick={() => setPendingAttach(null)}
           >
-            Отмена
+            {t("tree.cancel")}
           </button>
           <button
             type="button"
@@ -371,7 +372,7 @@ const TreeNode = React.memo(function TreeNode({
               if (pendingAttach) { onAttachLayer?.(item.id, pendingAttach); setPendingAttach(null) }
             }}
           >
-            Создать
+            {t("tree.create")}
           </button>
         </div>
       </DialogContent>
@@ -406,7 +407,7 @@ const TreeNode = React.memo(function TreeNode({
                     className="flex size-3 shrink-0 items-center justify-center text-muted-foreground"
                     onPointerDown={e => e.stopPropagation()}
                     onClick={e => e.stopPropagation()}
-                    title={isOpen ? "Свернуть" : "Раскрыть"}
+                    title={isOpen ? t("tree.collapse") : t("tree.expand")}
                   >
                     <ChevronRight className={cn("size-3 transition-transform", isOpen && "rotate-90")} />
                   </button>
