@@ -26,6 +26,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Sparkles,
   Tag,
 } from "lucide-react"
 
@@ -42,6 +43,7 @@ import {
 import { SidebarTree, type TreeItem } from "./sidebar-tree"
 import { SidebarTags } from "./sidebar-tags"
 import { NewItemModal } from "./new-item-modal"
+import { AiPanel } from "./ai-panel"
 
 export type Side = "left" | "right"
 
@@ -54,6 +56,7 @@ export type PanelId =
   | "info"
   | "history"
   | "links"
+  | "ai"
 
 export interface DocumentProperties {
   type: string
@@ -542,6 +545,7 @@ export const PANEL_DEFS: PanelDef[] = [
   { id: "info",      label: "Info",        icon: Info,       kind: "view", render: p => <InfoPanel {...p} /> },
   { id: "history",   label: "History",     icon: History,    kind: "view", render: () => <HistoryPanel /> },
   { id: "links",     label: "Links",       icon: LinkIcon,   kind: "view", render: p => <LinksPanel {...p} /> },
+  { id: "ai",        label: "AI",          icon: Sparkles,   kind: "view", render: p => <AiPanel {...p} /> },
 ]
 
 export const ACTION_DEFS: ActionDef[] = [
@@ -569,6 +573,7 @@ export const DEFAULT_BUTTONS: ActivityButton[] = [
   { defId: "info",      side: "right", order: 0 },
   { defId: "history",   side: "right", order: 1 },
   { defId: "links",     side: "right", order: 2 },
+  { defId: "ai",        side: "right", order: 3 },
 ]
 
 export function buttonsForSide(buttons: ActivityButton[], side: Side): ActivityButton[] {

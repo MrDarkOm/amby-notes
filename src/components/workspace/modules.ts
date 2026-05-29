@@ -49,6 +49,7 @@ export const MODULE_REGISTRY: ModuleDef[] = [
   { id: "links", label: "Ссылки", manifest: { permissions: ["ui-panel", "read-vault-meta"] }, panels: ["links"] },
   { id: "graph", label: "Граф связей", manifest: { permissions: ["ui-action", "read-vault-meta"] }, actions: ["network"] },
   { id: "sync", label: "Синхронизация", manifest: { permissions: ["ui-action", "read-vault-meta"] }, actions: ["refresh"] },
+  { id: "ai", label: "AI", manifest: { permissions: ["ui-panel", "read-notes", "write-notes"] }, panels: ["ai"] },
 ]
 
 export const ALL_MODULE_IDS: string[] = MODULE_REGISTRY.map(m => m.id)

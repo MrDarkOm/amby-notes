@@ -12,10 +12,12 @@ import {
   Link,
   List,
   ListOrdered,
+  Loader2,
   MessageSquare,
   Palette,
   Pilcrow,
   Quote,
+  Sparkles,
   Strikethrough,
   Underline,
 } from "lucide-react"
@@ -23,8 +25,45 @@ import {
 import { TextStylePalette } from "../text-style-palette"
 import { CALLOUT_DEFAULTS } from "./callout-node"
 import { wrapSelectionInCallout } from "./block-insert-items"
+import { aiChat, AiUnavailableError } from "@/lib/ai"
+import { activeModel, loadSettings, resolveAiConfig } from "../app-config"
 
-type Panel = "heading" | "color" | "list" | "tag" | "link" | "wikilink" | null
+type Panel = "heading" | "color" | "list" | "tag" | "link" | "wikilink" | "ai" | null
+
+interface AiAction {
+  id: string
+  label: string
+  /** "replace" overwrites the selection; "after" appends below it. */
+  mode: "replace" | "after"
+  prompt: (text: string) => string
+}
+
+const AI_ACTIONS: AiAction[] = [
+  {
+    id: "rewrite",
+    label: "Переписать",
+    mode: "replace",
+    prompt: t => `Перепиши текст яснее и лучше, сохранив смысл и язык. Верни только результат:\n\n${t}`,
+  },
+  {
+    id: "shorten",
+    label: "Сократить",
+    mode: "replace",
+    prompt: t => `Сократи текст, сохранив суть и язык. Верни только результат:\n\n${t}`,
+  },
+  {
+    id: "continue",
+    label: "Продолжить",
+    mode: "after",
+    prompt: t => `Продолжи текст в том же стиле и языке. Верни только продолжение:\n\n${t}`,
+  },
+  {
+    id: "explain",
+    label: "Объяснить",
+    mode: "after",
+    prompt: t => `Объясни простыми словами следующий фрагмент. Верни только объяснение:\n\n${t}`,
+  },
+]
 
 interface BubbleToolbarProps {
   editor: Editor
@@ -73,6 +112,43 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
   const [linkLabel, setLinkLabel] = React.useState("")
   // Track whether selection was empty when the link panel was opened.
   const [linkHasSelection, setLinkHasSelection] = React.useState(false)
+  const [aiBusy, setAiBusy] = React.useState(false)
+  const [aiError, setAiError] = React.useState<string | null>(null)
+  const mountedRef = React.useRef(true)
+  React.useEffect(() => () => { mountedRef.current = false }, [])
+
+  async function runAiAction(action: AiAction) {
+    if (aiBusy) return
+    const { from, to } = editor.state.selection
+    const selected = editor.state.doc.textBetween(from, to, " ").trim()
+    if (!selected) return
+    setAiBusy(true)
+    setAiError(null)
+    try {
+      const settings = await loadSettings()
+      const model = activeModel(settings.ai)
+      if (!model) {
+        if (mountedRef.current) setAiError("Не настроена модель")
+        return
+      }
+      const result = (
+        await aiChat(resolveAiConfig(model), [{ role: "user", content: action.prompt(selected) }])
+      ).trim()
+      if (!result) return
+      if (action.mode === "after") {
+        editor.chain().focus().insertContentAt(to, `\n\n${result}`).run()
+      } else {
+        editor.chain().focus().insertContentAt({ from, to }, result).run()
+      }
+      if (mountedRef.current) setPanel(null)
+    } catch (e) {
+      if (mountedRef.current) {
+        setAiError(e instanceof AiUnavailableError ? e.message : String(e))
+      }
+    } finally {
+      if (mountedRef.current) setAiBusy(false)
+    }
+  }
 
   function openPanel(next: Exclude<Panel, null>) {
     setInputValue("")
@@ -270,6 +346,12 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
         <Palette className="size-3.5" />
       </ToolbarButton>
 
+      <div className="mx-1 h-5 w-px bg-zinc-800" />
+
+      <ToolbarButton title="AI" active={panel === "ai"} onClick={() => openPanel("ai")}>
+        <Sparkles className="size-3.5 text-sky-400" />
+      </ToolbarButton>
+
       {panel && (
         <div className="absolute left-0 top-[calc(100%+6px)] rounded-md border border-zinc-800 bg-black p-1 shadow-xl">
           {/* ── Heading picker ─────────────────────────────────────────────── */}
@@ -380,6 +462,34 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
                 </div>
               )}
               <p className="text-[10px] text-zinc-600">Enter to confirm · Esc to cancel</p>
+            </div>
+          )}
+
+          {/* ── AI actions ──────────────────────────────────────────────────── */}
+          {panel === "ai" && (
+            <div className="flex w-44 flex-col gap-0.5 p-0.5">
+              {AI_ACTIONS.map(action => (
+                <button
+                  key={action.id}
+                  type="button"
+                  disabled={aiBusy}
+                  className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] text-zinc-300 hover:bg-zinc-800 hover:text-white disabled:opacity-50"
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => void runAiAction(action)}
+                >
+                  <Sparkles className="size-3.5 text-sky-400" />
+                  {action.label}
+                </button>
+              ))}
+              {aiBusy && (
+                <div className="flex items-center gap-2 px-2 py-1.5 text-[12px] text-zinc-500">
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Генерация…
+                </div>
+              )}
+              {aiError && (
+                <div className="px-2 py-1.5 text-[11px] text-red-400">{aiError}</div>
+              )}
             </div>
           )}
 
