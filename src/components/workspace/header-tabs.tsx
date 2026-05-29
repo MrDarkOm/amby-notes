@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useTranslation } from "react-i18next";
 import {
   Bookmark,
   BookmarkCheck,
@@ -140,6 +141,7 @@ export function HeaderTabs({
   favorites,
   onToggleFavorite,
 }: HeaderTabsProps) {
+  const { t } = useTranslation();
   // activity bar in body = 44px (w-11);
   // mac traffic-light spacer = 72px;
   // non-mac logo on left = 44px. Picker width compensates so the editor area
@@ -343,12 +345,12 @@ export function HeaderTabs({
                 {activeFileId && favorites?.has(activeFileId) ? (
                   <>
                     <BookmarkCheck className="size-3.5 text-amber-400" />
-                    Убрать из закладок
+                    {t("tabs.removeBookmark")}
                   </>
                 ) : (
                   <>
                     <Bookmark className="size-3.5 text-zinc-500" />
-                    Добавить в закладки
+                    {t("tabs.addBookmark")}
                   </>
                 )}
               </DropdownMenuItem>
@@ -357,7 +359,7 @@ export function HeaderTabs({
                 onSelect={onCloseAllTabs}
               >
                 <X className="size-3.5 text-zinc-500" />
-                Закрыть все вкладки
+                {t("tabs.closeAll")}
               </DropdownMenuItem>
               {tabs.length > 0 && (
                 <>
@@ -381,7 +383,7 @@ export function HeaderTabs({
           {onToggleSplit && (
             <button
               onClick={onToggleSplit}
-              title="Разделить редактор"
+              title={t("tabs.splitEditor")}
               className={cn(
                 "flex h-10 w-10 shrink-0 items-center justify-center rounded transition-colors hover:bg-zinc-800 hover:text-white",
                 isSplit ? "text-sky-400" : "text-zinc-500",

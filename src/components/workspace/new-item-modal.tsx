@@ -1,6 +1,7 @@
 "use client"
 
 import { Database, FileText } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import {
   Dialog,
   DialogContent,
@@ -15,11 +16,12 @@ interface NewItemModalProps {
 }
 
 export function NewItemModal({ open, onClose, onCreateNote }: NewItemModalProps) {
+  const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="w-80 border-zinc-800 bg-zinc-950 p-0 text-zinc-100 shadow-2xl">
         <DialogHeader className="border-b border-zinc-800 px-4 py-3">
-          <DialogTitle className="text-sm font-medium text-zinc-300">Создать новый элемент</DialogTitle>
+          <DialogTitle className="text-sm font-medium text-zinc-300">{t("newItem.title")}</DialogTitle>
         </DialogHeader>
 
         <div className="grid grid-cols-2 gap-3 p-4">
@@ -32,8 +34,8 @@ export function NewItemModal({ open, onClose, onCreateNote }: NewItemModalProps)
               <FileText className="size-5 text-zinc-300" />
             </div>
             <div>
-              <p className="text-sm font-medium text-zinc-200">Заметка</p>
-              <p className="mt-0.5 text-[11px] text-zinc-500">Markdown файл</p>
+              <p className="text-sm font-medium text-zinc-200">{t("newItem.note")}</p>
+              <p className="mt-0.5 text-[11px] text-zinc-500">{t("newItem.noteDesc")}</p>
             </div>
           </button>
 
@@ -43,8 +45,8 @@ export function NewItemModal({ open, onClose, onCreateNote }: NewItemModalProps)
               <Database className="size-5 text-zinc-500" />
             </div>
             <div>
-              <p className="text-sm font-medium text-zinc-400">База данных</p>
-              <p className="mt-0.5 text-[11px] text-zinc-600">Скоро</p>
+              <p className="text-sm font-medium text-zinc-400">{t("newItem.database")}</p>
+              <p className="mt-0.5 text-[11px] text-zinc-600">{t("common.comingSoon")}</p>
             </div>
           </div>
         </div>

@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { FileText, Hash, Search, X } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import type { TreeItem } from "./sidebar-tree"
 
@@ -58,6 +59,7 @@ function getSnippet(content: string, query: string, radius = 60): string {
 }
 
 export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps) {
+  const { t } = useTranslation()
   const [query, setQuery] = React.useState("")
   const [results, setResults] = React.useState<SearchResult[]>([])
   const [selectedIndex, setSelectedIndex] = React.useState(0)
@@ -197,7 +199,7 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Поиск... или #тег"
+            placeholder={t("search.placeholder")}
             className="flex-1 bg-transparent text-[13px] text-zinc-200 placeholder:text-zinc-600 outline-none"
           />
           {query && (
@@ -213,18 +215,18 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
         {!query.trim() ? (
           <div className="flex flex-col items-center justify-center py-10 text-center px-4">
             <Search className="mb-2 size-8 text-zinc-700" />
-            <p className="text-[12px] text-zinc-600">Введи текст для поиска</p>
-            <p className="mt-1 text-[11px] text-zinc-700">или <span className="text-violet-500">#тег</span> для поиска по тегам</p>
+            <p className="text-[12px] text-zinc-600">{t("search.prompt")}</p>
+            <p className="mt-1 text-[11px] text-zinc-700">{t("search.tagHintPre")} <span className="text-violet-500">#{t("search.tagWord")}</span> {t("search.tagHintPost")}</p>
           </div>
         ) : query === '#' ? (
           <div className="flex flex-col items-center justify-center py-10 text-center px-4">
             <Hash className="mb-2 size-8 text-zinc-700" />
-            <p className="text-[12px] text-zinc-600">Продолжай вводить тег</p>
-            <p className="mt-1 text-[11px] text-zinc-700">Например: <span className="text-violet-500">#работа</span></p>
+            <p className="text-[12px] text-zinc-600">{t("search.keepTyping")}</p>
+            <p className="mt-1 text-[11px] text-zinc-700">{t("search.examplePrefix")} <span className="text-violet-500">#{t("search.exampleTag")}</span></p>
           </div>
         ) : results.length === 0 && !searching ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
-            <p className="text-[12px] text-zinc-500">Ничего не найдено</p>
+            <p className="text-[12px] text-zinc-500">{t("search.notFound")}</p>
             <p className="mt-1 text-[11px] text-zinc-700">«{query}»</p>
           </div>
         ) : (
@@ -252,7 +254,7 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
                     }
                   </span>
                   {result.matchType === "content" && (
-                    <span className="ml-auto shrink-0 text-[10px] text-zinc-600">содержимое</span>
+                    <span className="ml-auto shrink-0 text-[10px] text-zinc-600">{t("search.contentBadge")}</span>
                   )}
                 </div>
                 {result.path && (
@@ -266,7 +268,7 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
               </button>
             ))}
             {searching && (
-              <p className="px-2 py-1 text-[11px] text-zinc-700">Поиск по содержимому…</p>
+              <p className="px-2 py-1 text-[11px] text-zinc-700">{t("search.searchingContent")}</p>
             )}
           </div>
         )}

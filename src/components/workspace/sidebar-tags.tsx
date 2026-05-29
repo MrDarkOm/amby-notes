@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { ChevronRight, FileText, Hash, Loader2 } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import type { TreeItem } from "./sidebar-tree"
 
@@ -29,6 +30,7 @@ function flattenFiles(items: TreeItem[], parentPath = ""): Array<{ item: TreeIte
 }
 
 export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
+  const { t } = useTranslation()
   const [tags, setTags] = React.useState<TagEntry[]>([])
   const [loading, setLoading] = React.useState(false)
   const [openTags, setOpenTags] = React.useState<Set<string>>(new Set())
@@ -76,7 +78,7 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2">
         <Loader2 className="size-5 animate-spin text-zinc-600" />
-        <p className="text-[12px] text-zinc-600">Сканирование тегов…</p>
+        <p className="text-[12px] text-zinc-600">{t("tagsPanel.scanning")}</p>
       </div>
     )
   }
@@ -84,7 +86,7 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
   if (!readFile) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center">
-        <p className="text-[12px] text-zinc-600">Нет доступа к файлам</p>
+        <p className="text-[12px] text-zinc-600">{t("tagsPanel.noAccess")}</p>
       </div>
     )
   }
@@ -93,8 +95,8 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-4">
         <Hash className="size-8 text-zinc-700" />
-        <p className="text-[12px] text-zinc-500">Нет тегов</p>
-        <p className="text-[11px] text-zinc-700">Используй #тег в заметках</p>
+        <p className="text-[12px] text-zinc-500">{t("tagsPanel.empty")}</p>
+        <p className="text-[11px] text-zinc-700">{t("tagsPanel.emptyHint")}</p>
       </div>
     )
   }
