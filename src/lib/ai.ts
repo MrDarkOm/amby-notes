@@ -3,6 +3,7 @@
 // resolves the call and, in browser-only dev mode, fails with a clear message.
 
 import { isTauri } from "./storage"
+import i18n from "./i18n"
 
 /** Wire "family" the Rust backend dispatches on. */
 export type AiFamily = "ollama" | "openai" | "anthropic" | "azure"
@@ -26,7 +27,7 @@ export interface AiMessage {
 /** Thrown when AI is invoked outside the desktop app (no Rust backend). */
 export class AiUnavailableError extends Error {
   constructor() {
-    super("AI доступен только в десктоп-версии Amby")
+    super(i18n.t("ai.unavailable"))
     this.name = "AiUnavailableError"
   }
 }

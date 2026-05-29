@@ -1,7 +1,10 @@
 "use client"
 
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { ArrowLeft, FileText, Send, Settings2, Sparkles } from "lucide-react"
+
+import i18n from "@/lib/i18n"
 
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -20,21 +23,29 @@ import type { PanelRenderProps } from "./panel-registry"
 
 const MAX_CONTEXT_CHARS = 12000
 
+/** Maps the UI language to the language the model should answer in. */
+const RESPONSE_LANG: Record<string, string> = { ru: "Russian", en: "English" }
+function responseLang(): string {
+  return RESPONSE_LANG[i18n.language] ?? "the user's language"
+}
+
 function buildSystemPrompt(title: string | null, content: string | null): string {
+  const lang = responseLang()
   if (!content || !content.trim()) {
-    return "Ты — ассистент внутри редактора заметок Amby. Отвечай на русском, кратко и по делу."
+    return `You are an assistant inside the Amby notes editor. Respond in ${lang}, concisely and to the point.`
   }
   const clipped = content.length > MAX_CONTEXT_CHARS ? content.slice(0, MAX_CONTEXT_CHARS) + "\n…" : content
   return [
-    "Ты — ассистент внутри редактора заметок Amby. Тебе доступен ТОЛЬКО текст текущей заметки",
-    "пользователя (ниже). Отвечай на его вопросы, опираясь на неё. На русском, кратко и по делу.",
+    "You are an assistant inside the Amby notes editor. You have access to ONLY the text of the",
+    `user's current note (below). Answer their questions based on it. Respond in ${lang}, concisely.`,
     "",
-    `# ${title ?? "Заметка"}`,
+    `# ${title ?? i18n.t("ai.noteFallback")}`,
     clipped,
   ].join("\n")
 }
 
 export function AiPanel({ currentDocId }: PanelRenderProps) {
+  const { t } = useTranslation()
   const openDocs = useDocStore(s => s.openDocs)
   const currentDoc = currentDocId ? openDocs[currentDocId] ?? null : null
 
@@ -65,7 +76,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
     if (!text || loading) return
     const model = activeModel(ai)
     if (!model) {
-      setError("Не настроена ни одна модель — откройте настройки (шестерёнка).")
+      setError(t("ai.noModelConfigured"))
       return
     }
     setError(null)
@@ -96,7 +107,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
           {showSettings ? (
             <button
               type="button"
-              title="Назад к чату"
+              title={t("ai.backToChat")}
               onClick={() => setShowSettings(false)}
               className="-ml-1 rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
             >
@@ -105,12 +116,12 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
           ) : (
             <Sparkles className="size-4 text-sky-400" />
           )}
-          {showSettings ? "Модели" : "AI"}
+          {showSettings ? t("ai.models") : "AI"}
         </div>
         {!showSettings && (
           <button
             type="button"
-            title="Модели и провайдеры"
+            title={t("ai.modelsAndProviders")}
             onClick={() => setShowSettings(true)}
             className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
           >
@@ -128,9 +139,9 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
             <FileText className="size-3 shrink-0" />
             <span className="truncate">
               {currentDoc ? (
-                <>Контекст: <span className="text-zinc-400">{currentDoc.title || "без названия"}</span></>
+                <>{t("ai.contextPrefix")} <span className="text-zinc-400">{currentDoc.title || t("ai.untitled")}</span></>
               ) : (
-                <>Контекст: нет открытой заметки</>
+                <>{t("ai.contextPrefix")} {t("ai.noNote")}</>
               )}
             </span>
           </div>
@@ -140,7 +151,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
             <div ref={scrollRef} className="flex flex-col gap-3 p-3">
               {messages.length === 0 && !loading && (
                 <p className="px-1 py-6 text-center text-[12px] text-zinc-600">
-                  Спросите что-нибудь о текущей заметке.
+                  {t("ai.askAboutNote")}
                 </p>
               )}
               {messages.map((m, i) => (
@@ -158,7 +169,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
               ))}
               {streaming !== null && (
                 <div className="max-w-[92%] self-start whitespace-pre-wrap break-words rounded-lg bg-zinc-900 px-3 py-2 text-[13px] leading-relaxed text-zinc-200">
-                  {streaming || <span className="text-zinc-500">Думаю…</span>}
+                  {streaming || <span className="text-zinc-500">{t("ai.thinking")}</span>}
                 </div>
               )}
               {error && (
@@ -182,14 +193,14 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
                   }
                 }}
                 rows={2}
-                placeholder="Сообщение…"
+                placeholder={t("ai.messagePlaceholder")}
                 className="min-h-[2.25rem] min-w-0 flex-1 resize-none rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-[13px] text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-zinc-700"
               />
               <button
                 type="button"
                 onClick={() => void send()}
                 disabled={loading || !input.trim()}
-                title="Отправить"
+                title={t("ai.send")}
                 className="flex size-8 shrink-0 items-center justify-center rounded-md bg-sky-600 text-white transition-opacity hover:bg-sky-500 disabled:opacity-40"
               >
                 <Send className="size-4" />
@@ -198,10 +209,10 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
             <select
               value={ai.activeModelId ?? ""}
               onChange={e => updateAi({ ...ai, activeModelId: e.target.value })}
-              title="Активная модель"
+              title={t("ai.activeModel")}
               className="h-6 w-full rounded border border-zinc-800 bg-zinc-900 px-1.5 text-[11px] text-zinc-400 outline-none focus:border-zinc-700"
             >
-              {ai.models.length === 0 && <option value="">Нет моделей — откройте настройки</option>}
+              {ai.models.length === 0 && <option value="">{t("ai.noModelsOpenSettings")}</option>}
               {ai.models.map(m => (
                 <option key={m.id} value={m.id}>
                   {m.label}

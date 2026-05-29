@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import type { Editor } from "@tiptap/react"
+import { useTranslation } from "react-i18next"
 import {
   Bold,
   CheckSquare,
@@ -32,7 +33,7 @@ type Panel = "heading" | "color" | "list" | "tag" | "link" | "wikilink" | "ai" |
 
 interface AiAction {
   id: string
-  label: string
+  labelKey: string
   /** "replace" overwrites the selection; "after" appends below it. */
   mode: "replace" | "after"
   prompt: (text: string) => string
@@ -41,27 +42,27 @@ interface AiAction {
 const AI_ACTIONS: AiAction[] = [
   {
     id: "rewrite",
-    label: "Переписать",
+    labelKey: "ai.actions.rewrite",
     mode: "replace",
-    prompt: t => `Перепиши текст яснее и лучше, сохранив смысл и язык. Верни только результат:\n\n${t}`,
+    prompt: text => `Rewrite the text to be clearer and better, preserving its meaning and language. Return only the result:\n\n${text}`,
   },
   {
     id: "shorten",
-    label: "Сократить",
+    labelKey: "ai.actions.shorten",
     mode: "replace",
-    prompt: t => `Сократи текст, сохранив суть и язык. Верни только результат:\n\n${t}`,
+    prompt: text => `Shorten the text, preserving its essence and language. Return only the result:\n\n${text}`,
   },
   {
     id: "continue",
-    label: "Продолжить",
+    labelKey: "ai.actions.continue",
     mode: "after",
-    prompt: t => `Продолжи текст в том же стиле и языке. Верни только продолжение:\n\n${t}`,
+    prompt: text => `Continue the text in the same style and language. Return only the continuation:\n\n${text}`,
   },
   {
     id: "explain",
-    label: "Объяснить",
+    labelKey: "ai.actions.explain",
     mode: "after",
-    prompt: t => `Объясни простыми словами следующий фрагмент. Верни только объяснение:\n\n${t}`,
+    prompt: text => `Explain the following fragment in simple terms, in the same language as the fragment. Return only the explanation:\n\n${text}`,
   },
 ]
 
@@ -107,6 +108,7 @@ const HEADINGS: Array<{ label: string; level: 1 | 2 | 3 | 4 | 5 | null; Icon?: R
 ]
 
 export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
+  const { t } = useTranslation()
   const [panel, setPanel] = React.useState<Panel>(null)
   const [inputValue, setInputValue] = React.useState("")
   const [linkLabel, setLinkLabel] = React.useState("")
@@ -128,7 +130,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
       const settings = await loadSettings()
       const model = activeModel(settings.ai)
       if (!model) {
-        if (mountedRef.current) setAiError("Не настроена модель")
+        if (mountedRef.current) setAiError(t("ai.noModelShort"))
         return
       }
       const result = (
@@ -275,7 +277,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
         if (!(e.target instanceof HTMLInputElement)) e.preventDefault()
       }}
     >
-      <ToolbarButton title="Заголовок" active={panel === "heading"} onClick={() => openPanel("heading")}>
+      <ToolbarButton title={t("editor.heading")} active={panel === "heading"} onClick={() => openPanel("heading")}>
         <Heading className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
@@ -330,7 +332,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
 
       <div className="mx-1 h-5 w-px bg-zinc-800" />
 
-      <ToolbarButton title="Тег" active={panel === "tag"} onClick={openTagPanel}>
+      <ToolbarButton title={t("editor.tag")} active={panel === "tag"} onClick={openTagPanel}>
         <Hash className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton title="Backlink" active={panel === "wikilink"} onClick={openWikilinkPanel}>
@@ -342,7 +344,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
 
       <div className="mx-1 h-5 w-px bg-zinc-800" />
 
-      <ToolbarButton title="Цвет" active={panel === "color"} onClick={() => openPanel("color")}>
+      <ToolbarButton title={t("editor.color")} active={panel === "color"} onClick={() => openPanel("color")}>
         <Palette className="size-3.5" />
       </ToolbarButton>
 
@@ -478,13 +480,13 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
                   onClick={() => void runAiAction(action)}
                 >
                   <Sparkles className="size-3.5 text-sky-400" />
-                  {action.label}
+                  {t(action.labelKey)}
                 </button>
               ))}
               {aiBusy && (
                 <div className="flex items-center gap-2 px-2 py-1.5 text-[12px] text-zinc-500">
                   <Loader2 className="size-3.5 animate-spin" />
-                  Генерация…
+                  {t("ai.generating")}
                 </div>
               )}
               {aiError && (

@@ -1,6 +1,7 @@
 "use client"
 
 import { Plus, Trash2 } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -9,6 +10,7 @@ import { AI_PROVIDERS, blankModel, findProvider, type AiModel, type AiSettings }
 // ── Models library manager ────────────────────────────────────────────────────
 
 export function ModelsManager({ ai, onChange }: { ai: AiSettings; onChange: (next: AiSettings) => void }) {
+  const { t } = useTranslation()
   const updateModel = (next: AiModel) =>
     onChange({ ...ai, models: ai.models.map(m => (m.id === next.id ? next : m)) })
 
@@ -28,7 +30,7 @@ export function ModelsManager({ ai, onChange }: { ai: AiSettings; onChange: (nex
       <div className="flex flex-col gap-2.5 p-3">
         {ai.models.length === 0 && (
           <p className="px-1 py-4 text-center text-[12px] text-zinc-600">
-            Пока нет моделей. Добавьте первую ниже.
+            {t("models.empty")}
           </p>
         )}
         {ai.models.map(m => (
@@ -46,7 +48,7 @@ export function ModelsManager({ ai, onChange }: { ai: AiSettings; onChange: (nex
           className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-zinc-700 px-2 py-2 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200"
         >
           <Plus className="size-3.5" />
-          Добавить модель
+          {t("models.add")}
         </button>
       </div>
     </ScrollArea>
@@ -64,6 +66,7 @@ function ModelEditor({
   onChange: (next: AiModel) => void
   onDelete: () => void
 }) {
+  const { t } = useTranslation()
   const provider = findProvider(model.provider)
   const field =
     "h-7 w-full min-w-0 rounded border border-zinc-800 bg-zinc-900 px-2 text-[12px] text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-sky-700"
@@ -85,11 +88,11 @@ function ModelEditor({
           className={cn(field, "flex-1 font-medium")}
           value={model.label}
           onChange={e => set({ label: e.target.value })}
-          placeholder="Название"
+          placeholder={t("models.namePlaceholder")}
         />
         <button
           type="button"
-          title="Удалить модель"
+          title={t("models.delete")}
           onClick={onDelete}
           className="shrink-0 rounded p-1 text-zinc-600 hover:bg-zinc-800 hover:text-red-400"
         >
@@ -98,16 +101,16 @@ function ModelEditor({
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className={label}>Провайдер</label>
+        <label className={label}>{t("models.provider")}</label>
         <select className={field} value={model.provider} onChange={e => set({ provider: e.target.value })}>
-          <optgroup label="Локальные">
+          <optgroup label={t("models.local")}>
             {locals.map(p => (
               <option key={p.id} value={p.id}>
                 {p.label}
               </option>
             ))}
           </optgroup>
-          <optgroup label="Облачные">
+          <optgroup label={t("models.cloud")}>
             {clouds.map(p => (
               <option key={p.id} value={p.id}>
                 {p.label}
@@ -118,12 +121,12 @@ function ModelEditor({
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className={label}>{provider?.azure ? "Имя deployment" : "Модель"}</label>
+        <label className={label}>{provider?.azure ? t("models.deploymentName") : t("models.model")}</label>
         <input
           className={field}
           value={model.model}
           onChange={e => set({ model: e.target.value })}
-          placeholder={provider?.defaultModel || "модель"}
+          placeholder={provider?.defaultModel || t("models.modelPlaceholder")}
         />
       </div>
 
@@ -134,20 +137,20 @@ function ModelEditor({
           value={model.baseUrl}
           onChange={e => set({ baseUrl: e.target.value })}
           placeholder={
-            provider?.defaultBaseUrl || (provider?.azure ? "https://<resource>.openai.azure.com" : "необязательно")
+            provider?.defaultBaseUrl || (provider?.azure ? "https://<resource>.openai.azure.com" : t("models.optional"))
           }
         />
       </div>
 
       {provider?.needsKey && (
         <div className="flex flex-col gap-1">
-          <label className={label}>API-ключ</label>
+          <label className={label}>{t("models.apiKey")}</label>
           <input
             className={field}
             type="password"
             value={model.apiKey}
             onChange={e => set({ apiKey: e.target.value })}
-            placeholder="ключ"
+            placeholder={t("models.keyPlaceholder")}
           />
         </div>
       )}
@@ -166,7 +169,7 @@ function ModelEditor({
 
       {provider?.kind === "cloud" && (
         <p className="text-[10px] leading-snug text-zinc-600">
-          Текст текущей заметки уйдёт на сервер провайдера. Ключ хранится локально.
+          {t("models.privacyNote")}
         </p>
       )}
     </div>
