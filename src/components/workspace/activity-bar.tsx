@@ -45,6 +45,8 @@ interface ActivityBarProps {
   /** Whether the panel layout is shared globally or kept per-workspace. */
   panelScope?: "global" | "workspace"
   onSetPanelScope?: (scope: "global" | "workspace") => void
+  /** Opens the application settings dialog (left bar only). */
+  onOpenSettings?: () => void
 }
 
 function findDef(defId: string): ButtonDef | undefined {
@@ -66,6 +68,7 @@ export function ActivityBar({
   onExportPreset,
   panelScope,
   onSetPanelScope,
+  onOpenSettings,
 }: ActivityBarProps) {
   const sideButtons = buttonsForSide(buttons, side)
 
@@ -146,6 +149,18 @@ export function ActivityBar({
                 align="end"
                 className="w-48 border-zinc-800 bg-black text-zinc-300"
               >
+                {onOpenSettings && (
+                  <>
+                    <DropdownMenuItem
+                      onSelect={onOpenSettings}
+                      className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                    >
+                      <Settings className="size-3.5 text-zinc-500" />
+                      Настройки…
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="bg-zinc-800" />
+                  </>
+                )}
                 <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-zinc-500">
                   Пресет
                 </DropdownMenuLabel>

@@ -1,0 +1,131 @@
+import i18n from "i18next"
+import { initReactI18next } from "react-i18next"
+
+// Translations for the Settings screen only (v1). The rest of the app is still
+// hardcoded Russian and will be migrated incrementally. Initial language is the
+// fallback; useApplyPreferences switches to the stored preference after hydration.
+
+const ru = {
+  settings: {
+    title: "Настройки",
+    tabs: {
+      appearance: "Внешний вид",
+      editor: "Редактор",
+      ai: "ИИ",
+      startup: "Запуск",
+      data: "Данные",
+    },
+    appearance: {
+      theme: "Тема",
+      themeDark: "Тёмная",
+      themeLight: "Светлая",
+      themeSystem: "Системная",
+      lightSoon: "Светлая тема скоро",
+      accent: "Акцентный цвет",
+      fontScale: "Размер шрифта",
+      fontSm: "Мелкий",
+      fontMd: "Средний",
+      fontLg: "Крупный",
+      density: "Плотность интерфейса",
+      comfortable: "Просторно",
+      compact: "Компактно",
+      language: "Язык",
+    },
+    editor: {
+      defaultViewMode: "Режим по умолчанию",
+      live: "Live",
+      source: "Исходник",
+      read: "Чтение",
+      contentWidth: "Ширина контента",
+      normal: "Обычная",
+      wide: "Широкая",
+      full: "Во всю ширину",
+      autosave: "Автосохранение",
+      autosaveHint: "Задержка перед записью на диск, мс",
+    },
+    ai: {
+      desc: "Библиотека моделей и провайдеров. Те же настройки доступны в панели ИИ.",
+    },
+    startup: {
+      reopenLastVault: "Открывать последнее хранилище при запуске",
+      restoreSession: "Восстанавливать вкладки и сессию",
+    },
+    data: {
+      location: "Папка настроек",
+      openFolder: "Открыть папку",
+      reset: "Сбросить настройки",
+      resetConfirm: "Сбросить все настройки до значений по умолчанию?",
+      clearRecent: "Очистить список недавних хранилищ",
+    },
+    common: {
+      done: "Готово",
+    },
+  },
+}
+
+const en: typeof ru = {
+  settings: {
+    title: "Settings",
+    tabs: {
+      appearance: "Appearance",
+      editor: "Editor",
+      ai: "AI",
+      startup: "Startup",
+      data: "Data",
+    },
+    appearance: {
+      theme: "Theme",
+      themeDark: "Dark",
+      themeLight: "Light",
+      themeSystem: "System",
+      lightSoon: "Light theme coming soon",
+      accent: "Accent color",
+      fontScale: "Font size",
+      fontSm: "Small",
+      fontMd: "Medium",
+      fontLg: "Large",
+      density: "UI density",
+      comfortable: "Comfortable",
+      compact: "Compact",
+      language: "Language",
+    },
+    editor: {
+      defaultViewMode: "Default mode",
+      live: "Live",
+      source: "Source",
+      read: "Read",
+      contentWidth: "Content width",
+      normal: "Normal",
+      wide: "Wide",
+      full: "Full width",
+      autosave: "Autosave",
+      autosaveHint: "Delay before writing to disk, ms",
+    },
+    ai: {
+      desc: "Library of models and providers. The same settings are available in the AI panel.",
+    },
+    startup: {
+      reopenLastVault: "Reopen last vault on startup",
+      restoreSession: "Restore tabs and session",
+    },
+    data: {
+      location: "Settings folder",
+      openFolder: "Open folder",
+      reset: "Reset settings",
+      resetConfirm: "Reset all settings to defaults?",
+      clearRecent: "Clear recent vaults list",
+    },
+    common: {
+      done: "Done",
+    },
+  },
+}
+
+void i18n.use(initReactI18next).init({
+  resources: { ru: { translation: ru }, en: { translation: en } },
+  lng: "ru",
+  fallbackLng: "ru",
+  interpolation: { escapeValue: false },
+})
+
+export default i18n

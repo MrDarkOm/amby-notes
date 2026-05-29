@@ -35,6 +35,8 @@ import { DocumentEditor, type DocumentViewMode } from "./document-editor"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
 import { SearchModal } from "./search-modal"
+import { SettingsDialog } from "./settings-dialog"
+import { useSettingsStore } from "./use-settings-store"
 import type { TreeItem } from "./sidebar-tree"
 import type { VaultRecord } from "./workspace-picker"
 import {
@@ -323,6 +325,20 @@ export function Workspace() {
   }
   const [quickOpenOpen, setQuickOpenOpen] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [settingsOpen, setSettingsOpen] = React.useState(false)
+  const defaultViewMode = useSettingsStore(s => s.prefs.editor.defaultViewMode)
+
+  // Cmd/Ctrl + , opens application settings (desktop convention).
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault()
+        setSettingsOpen(true)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
   const {
@@ -743,11 +759,13 @@ export function Workspace() {
   React.useEffect(() => {
     let cancelled = false
     ;(async () => {
+      await useSettingsStore.getState().hydrate()
+      const reopen = useSettingsStore.getState().prefs.startup.reopenLastVault
       const file = await loadWorkspaces()
       if (cancelled) return
       setVaults(file.recent)
       workspacesHydrated.current = true
-      if (file.lastOpened) loadVault(file.lastOpened)
+      if (file.lastOpened && reopen) loadVault(file.lastOpened)
       else if (!isTauri()) loadVault("web-vault")
     })()
     return () => { cancelled = true }
@@ -801,8 +819,11 @@ export function Workspace() {
         new Set(session.locked.map(id => remapStoredId(id, pathToId)).filter(id => allIds.has(id))),
       )
 
-      // Restore open tabs
-      const mappedEntries = session.tabs.map(e => ({ ...e, fileId: remapStoredId(e.fileId, pathToId) }))
+      // Restore open tabs (unless the user disabled session restore)
+      const restoreSession = useSettingsStore.getState().prefs.startup.restoreSession
+      const mappedEntries = restoreSession
+        ? session.tabs.map(e => ({ ...e, fileId: remapStoredId(e.fileId, pathToId) }))
+        : []
       const mappedActiveFileId = remapStoredId(session.activeFileId, pathToId)
       const valid = mappedEntries.filter(e => allIds.has(e.fileId))
       if (valid.length > 0) {
@@ -1222,7 +1243,7 @@ export function Workspace() {
       } catch (err) {
         console.error("Failed to save:", err)
       }
-    }, 500))
+    }, useSettingsStore.getState().prefs.editor.autosaveMs))
   }
 
   const currentDoc = activeTab ? openDocs[activeTab.fileId] ?? null : null
@@ -1434,7 +1455,7 @@ export function Workspace() {
       onWikiLinkClick: handleWikiLinkClick,
       activeLayer: isPrimary && doc ? activeLayers[doc.id] ?? "editor" : "editor",
       onLayerChange: isPrimary ? handleLayerChange : async (_layer: EditorLayer) => {},
-      viewMode: doc ? viewModes[doc.id] ?? "live" : "live",
+      viewMode: doc ? viewModes[doc.id] ?? defaultViewMode : defaultViewMode,
       onViewModeChange: isPrimary
         ? handleViewModeChange
         : (mode: DocumentViewMode) => { if (doc) saveViewModes(vault, { ...viewModes, [doc.id]: mode }) },
@@ -1525,6 +1546,7 @@ export function Workspace() {
             onExportPreset={handleExportPreset}
             panelScope={panelScope}
             onSetPanelScope={setPanelScope}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
           <div style={{ width: leftWidth }} className="shrink-0">
             <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
@@ -1616,6 +1638,7 @@ export function Workspace() {
           onSwitchPreset={(id) => switchPreset(id, { vault })}
           onImportPreset={handleImportPreset}
           onExportPreset={handleExportPreset}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
 
         {isLeftSidebarOpen && (
@@ -1703,6 +1726,8 @@ export function Workspace() {
         onSelect={handleSelect}
         readFile={readFile}
       />
+
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )
 }

@@ -24,6 +24,44 @@
         --popover-foreground: 0 0% 98%;
         --accent: 0 0% 14%;
         --accent-foreground: 0 0% 98%;
+        /* Editor/preview base font size, overridden at runtime by the font-scale
+           preference (see use-settings-store.ts). */
+        --editor-font-size: 1.02rem;
+    }
+
+    /* Accent palette — set via data-accent on <html> (useApplyPreferences).
+       Overrides interactive tokens (--primary / --ring) used by shadcn-style
+       primitives. Defaults to violet to match DEFAULT_PREFS. */
+    :root,
+    [data-accent="violet"] {
+        --primary: 262 83% 58%;
+        --primary-foreground: 0 0% 100%;
+        --ring: 262 83% 58%;
+    }
+    [data-accent="sky"] {
+        --primary: 199 89% 48%;
+        --primary-foreground: 0 0% 100%;
+        --ring: 199 89% 48%;
+    }
+    [data-accent="teal"] {
+        --primary: 173 80% 40%;
+        --primary-foreground: 0 0% 100%;
+        --ring: 173 80% 40%;
+    }
+    [data-accent="emerald"] {
+        --primary: 160 84% 39%;
+        --primary-foreground: 0 0% 100%;
+        --ring: 160 84% 39%;
+    }
+    [data-accent="amber"] {
+        --primary: 38 92% 50%;
+        --primary-foreground: 0 0% 10%;
+        --ring: 38 92% 50%;
+    }
+    [data-accent="rose"] {
+        --primary: 350 89% 60%;
+        --primary-foreground: 0 0% 100%;
+        --ring: 350 89% 60%;
     }
 
     * {
@@ -58,7 +96,7 @@
 .md-body {
     color: #d7d7dc;
     line-height: 1.78;
-    font-size: 1.02rem;
+    font-size: var(--editor-font-size, 1.02rem);
 }
 
 .amby-read-body {
@@ -264,7 +302,7 @@
     outline: none;
     line-height: 1.78;
     color: #d7d7dc;
-    font-size: 1.02rem;
+    font-size: var(--editor-font-size, 1.02rem);
     caret-color: #22d3ee;
 }
 

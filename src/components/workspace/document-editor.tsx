@@ -571,7 +571,7 @@ export function DocumentEditor({
       {navBar}
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-10 py-8">
+        <div className="mx-auto px-10 py-8" style={{ maxWidth: "var(--content-max-width, 48rem)" }}>
           {/* Title */}
           <div className="mb-4 flex items-center gap-3">
             {fileIcon &&
