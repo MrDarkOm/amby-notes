@@ -29,6 +29,7 @@ import {
   Sparkles,
   Tag,
 } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -131,7 +132,7 @@ export interface ActionContext {
 
 export interface PanelDef {
   id: PanelId
-  label: string
+  labelKey: string
   icon: React.ComponentType<{ className?: string }>
   kind: "view"
   render: (props: PanelRenderProps) => React.ReactNode
@@ -139,7 +140,7 @@ export interface PanelDef {
 
 export interface ActionDef {
   id: string
-  label: string
+  labelKey: string
   icon: React.ComponentType<{ className?: string }>
   kind: "action"
   invoke: (ctx: ActionContext) => void
@@ -357,11 +358,12 @@ function FavoritesPanel({ treeItems, favorites, onSelect, onToggleFavorite }: Pa
   )
 }
 
-function ComingSoonPanel({ label }: { label: string }) {
+function ComingSoonPanel({ labelKey }: { labelKey: string }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-      <p className="text-[12px] text-zinc-600">{label}</p>
-      <p className="text-[11px] text-zinc-700">Скоро</p>
+      <p className="text-[12px] text-zinc-600">{t(labelKey)}</p>
+      <p className="text-[11px] text-zinc-700">{t("common.comingSoon")}</p>
     </div>
   )
 }
@@ -537,21 +539,21 @@ function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps)
 // ── Registries ──────────────────────────────────────────────────────────
 
 export const PANEL_DEFS: PanelDef[] = [
-  { id: "files",     label: "Древо",       icon: FolderTree, kind: "view", render: p => <FilesPanel {...p} /> },
-  { id: "tags",      label: "Теги",        icon: Tag,        kind: "view", render: p => <TagsPanel {...p} /> },
-  { id: "favorites", label: "Избранное",   icon: Bookmark,   kind: "view", render: p => <FavoritesPanel {...p} /> },
-  { id: "databases", label: "Базы данных", icon: Database,   kind: "view", render: () => <ComingSoonPanel label="Базы данных" /> },
-  { id: "archive",   label: "Архив",       icon: Archive,    kind: "view", render: () => <ComingSoonPanel label="Архив" /> },
-  { id: "info",      label: "Info",        icon: Info,       kind: "view", render: p => <InfoPanel {...p} /> },
-  { id: "history",   label: "History",     icon: History,    kind: "view", render: () => <HistoryPanel /> },
-  { id: "links",     label: "Links",       icon: LinkIcon,   kind: "view", render: p => <LinksPanel {...p} /> },
-  { id: "ai",        label: "AI",          icon: Sparkles,   kind: "view", render: p => <AiPanel {...p} /> },
+  { id: "files",     labelKey: "panels.files",     icon: FolderTree, kind: "view", render: p => <FilesPanel {...p} /> },
+  { id: "tags",      labelKey: "panels.tags",      icon: Tag,        kind: "view", render: p => <TagsPanel {...p} /> },
+  { id: "favorites", labelKey: "panels.favorites", icon: Bookmark,   kind: "view", render: p => <FavoritesPanel {...p} /> },
+  { id: "databases", labelKey: "panels.databases", icon: Database,   kind: "view", render: () => <ComingSoonPanel labelKey="panels.databases" /> },
+  { id: "archive",   labelKey: "panels.archive",   icon: Archive,    kind: "view", render: () => <ComingSoonPanel labelKey="panels.archive" /> },
+  { id: "info",      labelKey: "panels.info",      icon: Info,       kind: "view", render: p => <InfoPanel {...p} /> },
+  { id: "history",   labelKey: "panels.history",   icon: History,    kind: "view", render: () => <HistoryPanel /> },
+  { id: "links",     labelKey: "panels.links",     icon: LinkIcon,   kind: "view", render: p => <LinksPanel {...p} /> },
+  { id: "ai",        labelKey: "panels.ai",        icon: Sparkles,   kind: "view", render: p => <AiPanel {...p} /> },
 ]
 
 export const ACTION_DEFS: ActionDef[] = [
-  { id: "search",  label: "Поиск",         icon: Search,    kind: "action", invoke: ctx => ctx.openSearch() },
-  { id: "refresh", label: "Синхронизация", icon: RefreshCw, kind: "action", invoke: ctx => ctx.refreshVault() },
-  { id: "network", label: "Граф связей",   icon: Network,   kind: "action", invoke: ctx => ctx.openGraphTab() },
+  { id: "search",  labelKey: "actions.search",  icon: Search,    kind: "action", invoke: ctx => ctx.openSearch() },
+  { id: "refresh", labelKey: "actions.refresh", icon: RefreshCw, kind: "action", invoke: ctx => ctx.refreshVault() },
+  { id: "network", labelKey: "actions.network", icon: Network,   kind: "action", invoke: ctx => ctx.openGraphTab() },
 ]
 
 export function findButtonDef(defId: string): ButtonDef | undefined {

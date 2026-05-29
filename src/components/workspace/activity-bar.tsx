@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { Bell, Check, Download, HelpCircle, Settings, Upload } from "lucide-react"
+import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
 import {
@@ -70,6 +71,7 @@ export function ActivityBar({
   onSetPanelScope,
   onOpenSettings,
 }: ActivityBarProps) {
+  const { t } = useTranslation()
   const sideButtons = buttonsForSide(buttons, side)
 
   return (
@@ -95,7 +97,7 @@ export function ActivityBar({
               <ContextMenuTrigger asChild>
                 <button
                   type="button"
-                  title={def.label}
+                  title={t(def.labelKey)}
                   data-activity-button={def.id}
                   data-dragging={isDragging || undefined}
                   onPointerDown={onPointerDownButton(def.id)}
@@ -114,7 +116,7 @@ export function ActivityBar({
                   className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
                   onSelect={() => onMoveToOtherSide(def.id)}
                 >
-                  {side === "left" ? "Переместить вправо" : "Переместить влево"}
+                  {side === "left" ? t("activityBar.moveRight") : t("activityBar.moveLeft")}
                 </ContextMenuItem>
               </ContextMenuContent>
             </ContextMenu>
@@ -129,7 +131,7 @@ export function ActivityBar({
           <div className="flex flex-col items-center gap-0.5 py-2">
             <button
               type="button"
-              title="Уведомления"
+              title={t("activityBar.notifications")}
               className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
             >
               <Bell className="size-4" />
@@ -138,7 +140,7 @@ export function ActivityBar({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  title="Пресет рабочего пространства"
+                  title={t("activityBar.presetMenu")}
                   className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
                 >
                   <Settings className="size-4" />
@@ -156,13 +158,13 @@ export function ActivityBar({
                       className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
                     >
                       <Settings className="size-3.5 text-zinc-500" />
-                      Настройки…
+                      {t("activityBar.settings")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator className="bg-zinc-800" />
                   </>
                 )}
                 <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-zinc-500">
-                  Пресет
+                  {t("activityBar.presetSection")}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-zinc-800" />
                 {(presets ?? []).map(preset => (
@@ -189,7 +191,7 @@ export function ActivityBar({
                     className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
                   >
                     <Download className="size-3.5 text-zinc-500" />
-                    Экспорт текущего
+                    {t("activityBar.exportCurrent")}
                   </DropdownMenuItem>
                 )}
                 {onImportPreset && (
@@ -198,18 +200,18 @@ export function ActivityBar({
                     className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
                   >
                     <Upload className="size-3.5 text-zinc-500" />
-                    Импорт пресета…
+                    {t("activityBar.importPreset")}
                   </DropdownMenuItem>
                 )}
                 {onSetPanelScope && (
                   <>
                     <DropdownMenuSeparator className="bg-zinc-800" />
                     <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-zinc-500">
-                      Раскладка панелей
+                      {t("activityBar.layoutSection")}
                     </DropdownMenuLabel>
                     {([
-                      { id: "global", label: "Общая для всех" },
-                      { id: "workspace", label: "Для этого воркспейса" },
+                      { id: "global", labelKey: "activityBar.layoutGlobal" },
+                      { id: "workspace", labelKey: "activityBar.layoutWorkspace" },
                     ] as const).map(opt => (
                       <DropdownMenuItem
                         key={opt.id}
@@ -222,7 +224,7 @@ export function ActivityBar({
                             opt.id === panelScope ? "text-sky-400 opacity-100" : "opacity-0",
                           )}
                         />
-                        {opt.label}
+                        {t(opt.labelKey)}
                       </DropdownMenuItem>
                     ))}
                   </>
@@ -231,12 +233,12 @@ export function ActivityBar({
             </DropdownMenu>
             <button
               type="button"
-              title="Справка"
+              title={t("activityBar.help")}
               className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
             >
               <HelpCircle className="size-4" />
             </button>
-            <div className="mt-1 size-7 rounded-full bg-gradient-to-br from-amber-500 to-orange-600" title="Аккаунт" />
+            <div className="mt-1 size-7 rounded-full bg-gradient-to-br from-amber-500 to-orange-600" title={t("activityBar.account")} />
           </div>
         </>
       )}
