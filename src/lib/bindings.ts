@@ -303,6 +303,14 @@ async deleteVaultMeta(rel: string) : Promise<Result<null, string>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async aiChat(config: AiConfig, messages: AiMessage[], system: string | null, streamId: string | null) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ai_chat", { config, messages, system, streamId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -316,6 +324,24 @@ async deleteVaultMeta(rel: string) : Promise<Result<null, string>> {
 
 /** user-defined types **/
 
+export type AiConfig = { 
+/**
+ * Wire family: "ollama" | "openai" | "anthropic" | "azure".
+ */
+provider: string; model: string; 
+/**
+ * Empty string falls back to the family's default endpoint.
+ */
+baseUrl: string; apiKey: string | null; maxTokens: number | null; 
+/**
+ * Azure only: API version query param.
+ */
+apiVersion: string | null }
+export type AiMessage = { 
+/**
+ * "user" | "assistant"
+ */
+role: string; content: string }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 export type FsMutationResult = { primaryId: string | null; primaryPath: string | null; pathChanges: PathChange[]; deletedPaths: string[]; deletedIds: string[] }
 export type ImportedAsset = { relPath: string; absPath: string; fileName: string; kind: string }
