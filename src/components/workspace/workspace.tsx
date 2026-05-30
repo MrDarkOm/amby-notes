@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from "react"
+import { useTranslation } from "react-i18next"
+import i18n from "@/lib/i18n"
 import { FolderOpen } from "lucide-react"
 import { ActivityBar } from "./activity-bar"
 import { PanelHost } from "./panel-host"
@@ -24,7 +26,7 @@ import { useActivityDnD } from "./use-activity-dnd"
 function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
   return (
     <div
-      className="relative z-10 w-px shrink-0 cursor-col-resize bg-zinc-800 transition-colors hover:bg-zinc-500"
+      className="relative z-10 w-px shrink-0 cursor-col-resize bg-accent transition-colors hover:bg-muted-foreground"
       onMouseDown={onMouseDown}
     >
       <div className="absolute inset-y-0 -left-1 -right-1" />
@@ -35,6 +37,8 @@ import { DocumentEditor, type DocumentViewMode } from "./document-editor"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
 import { SearchModal } from "./search-modal"
+import { SettingsDialog } from "./settings-dialog"
+import { useSettingsStore } from "./use-settings-store"
 import type { TreeItem } from "./sidebar-tree"
 import type { VaultRecord } from "./workspace-picker"
 import {
@@ -212,17 +216,18 @@ function buildLinkGraph(items: TreeItem[], contents: Record<string, string>, vau
 }
 
 function formatModified(ts?: number): string {
-  if (!ts) return "Только что"
+  const t = i18n.t.bind(i18n)
+  if (!ts) return t("time.justNow")
   const date = new Date(ts * 1000)
   const diffMs = Date.now() - date.getTime()
   const diffMins = Math.floor(diffMs / 60000)
-  if (diffMins < 1) return "Только что"
-  if (diffMins < 60) return `${diffMins} мин назад`
+  if (diffMins < 1) return t("time.justNow")
+  if (diffMins < 60) return t("time.minsAgo", { n: diffMins })
   const diffHours = Math.floor(diffMins / 60)
-  if (diffHours < 24) return `${diffHours}ч назад`
+  if (diffHours < 24) return t("time.hoursAgo", { n: diffHours })
   const diffDays = Math.floor(diffHours / 24)
-  if (diffDays === 1) return "Вчера"
-  return `${diffDays}д назад`
+  if (diffDays === 1) return t("time.yesterday")
+  return t("time.daysAgo", { n: diffDays })
 }
 
 function newTabKey() {
@@ -238,6 +243,7 @@ function applyIconOverrides(items: TreeItem[], overrides: Record<string, string>
 }
 
 export function Workspace() {
+  const { t } = useTranslation()
   const vault = useVaultStore((s) => s.vault)
   const { setVault, setVaults } = useVaultStore.getState()
   const [treeItems, setTreeItems] = React.useState<TreeItem[]>([])
@@ -323,6 +329,20 @@ export function Workspace() {
   }
   const [quickOpenOpen, setQuickOpenOpen] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [settingsOpen, setSettingsOpen] = React.useState(false)
+  const defaultViewMode = useSettingsStore(s => s.prefs.editor.defaultViewMode)
+
+  // Cmd/Ctrl + , opens application settings (desktop convention).
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
+        e.preventDefault()
+        setSettingsOpen(true)
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
   const {
@@ -422,7 +442,7 @@ export function Workspace() {
     const key = newTabKey()
     setTabs(prev => [...prev, {
       key, kind: "graph", fileId: GRAPH_TAB_FILE_ID,
-      title: "Граф связей", history: [], historyIndex: 0,
+      title: t("workspace.graphTab"), history: [], historyIndex: 0,
     }])
     setActiveTabKey(key)
   }
@@ -743,11 +763,13 @@ export function Workspace() {
   React.useEffect(() => {
     let cancelled = false
     ;(async () => {
+      await useSettingsStore.getState().hydrate()
+      const reopen = useSettingsStore.getState().prefs.startup.reopenLastVault
       const file = await loadWorkspaces()
       if (cancelled) return
       setVaults(file.recent)
       workspacesHydrated.current = true
-      if (file.lastOpened) loadVault(file.lastOpened)
+      if (file.lastOpened && reopen) loadVault(file.lastOpened)
       else if (!isTauri()) loadVault("web-vault")
     })()
     return () => { cancelled = true }
@@ -801,8 +823,11 @@ export function Workspace() {
         new Set(session.locked.map(id => remapStoredId(id, pathToId)).filter(id => allIds.has(id))),
       )
 
-      // Restore open tabs
-      const mappedEntries = session.tabs.map(e => ({ ...e, fileId: remapStoredId(e.fileId, pathToId) }))
+      // Restore open tabs (unless the user disabled session restore)
+      const restoreSession = useSettingsStore.getState().prefs.startup.restoreSession
+      const mappedEntries = restoreSession
+        ? session.tabs.map(e => ({ ...e, fileId: remapStoredId(e.fileId, pathToId) }))
+        : []
       const mappedActiveFileId = remapStoredId(session.activeFileId, pathToId)
       const valid = mappedEntries.filter(e => allIds.has(e.fileId))
       if (valid.length > 0) {
@@ -907,7 +932,7 @@ export function Workspace() {
       if (!id) return
       const item = findTreeItem(tree, id)
       const name = target.split("/").pop() ?? target
-      const doc: Document = { id, title: name, content: "", modified: "Только что", wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
+      const doc: Document = { id, title: name, content: "", modified: t("time.justNow"), wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
       setDoc(id, doc)
       const key = newTabKey()
       setTabs(prev => [...prev, { key, kind: "document", fileId: id, title: name, history: [id], historyIndex: 0 }])
@@ -1019,7 +1044,7 @@ export function Workspace() {
 
   const handleDeleteFile = React.useCallback(async (id: string) => {
     const item = findTreeItem(treeItems, id)
-    if (!confirm(`Удалить "${item?.name ?? id}"?`)) return
+    if (!confirm(t("workspace.deleteConfirm", { name: item?.name ?? id }))) return
     try {
       const result = await deleteItem(vault ?? "", item?.path ?? id)
       applyMutationResult(result)
@@ -1041,7 +1066,7 @@ export function Workspace() {
       const id = result.primaryId ?? result.primaryPath
       if (!id) return
       const item = findTreeItem(tree, id)
-      const doc: Document = { id, title: "Untitled", content: "", modified: "Только что", wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
+      const doc: Document = { id, title: "Untitled", content: "", modified: t("time.justNow"), wordCount: 0, path: item?.path ?? result.primaryPath ?? id }
       setDoc(id, doc)
       const key = newTabKey()
       setTabs(prev => [...prev, { key, kind: "document", fileId: id, title: "Untitled", history: [id], historyIndex: 0 }])
@@ -1222,7 +1247,7 @@ export function Workspace() {
       } catch (err) {
         console.error("Failed to save:", err)
       }
-    }, 500))
+    }, useSettingsStore.getState().prefs.editor.autosaveMs))
   }
 
   const currentDoc = activeTab ? openDocs[activeTab.fileId] ?? null : null
@@ -1352,8 +1377,7 @@ export function Workspace() {
 
   const handleDeleteLayer = async (layer: LayerKind) => {
     if (!currentDoc || !vault) return
-    const labels: Record<LayerKind, string> = { canvas: "Canvas", database: "базу данных", sketch: "Excalidraw" }
-    if (!confirm(`Удалить ${labels[layer]} у заметки "${currentDoc.title}"? Файл переедет в корзину.`)) return
+    if (!confirm(t("workspace.deleteLayerConfirm", { layer: t(`layer.${layer}`), title: currentDoc.title }))) return
     try {
       const result = await deleteLayer(vault, currentDoc.path, layer)
       applyMutationResult(result)
@@ -1434,7 +1458,7 @@ export function Workspace() {
       onWikiLinkClick: handleWikiLinkClick,
       activeLayer: isPrimary && doc ? activeLayers[doc.id] ?? "editor" : "editor",
       onLayerChange: isPrimary ? handleLayerChange : async (_layer: EditorLayer) => {},
-      viewMode: doc ? viewModes[doc.id] ?? "live" : "live",
+      viewMode: doc ? viewModes[doc.id] ?? defaultViewMode : defaultViewMode,
       onViewModeChange: isPrimary
         ? handleViewModeChange
         : (mode: DocumentViewMode) => { if (doc) saveViewModes(vault, { ...viewModes, [doc.id]: mode }) },
@@ -1463,13 +1487,13 @@ export function Workspace() {
   if (!vault && isTauri()) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background">
-        <p className="text-zinc-400">Хранилище не открыто</p>
+        <p className="text-muted-foreground">{t("workspace.noVault")}</p>
         <button
           onClick={handleOpenVault}
-          className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-5 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+          className="flex items-center gap-2 rounded-lg border border-border bg-card px-5 py-2.5 text-sm text-foreground transition-colors hover:bg-accent"
         >
           <FolderOpen className="size-4" />
-          Открыть хранилище
+          {t("workspace.openVault")}
         </button>
       </div>
     )
@@ -1525,6 +1549,7 @@ export function Workspace() {
             onExportPreset={handleExportPreset}
             panelScope={panelScope}
             onSetPanelScope={setPanelScope}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
           <div style={{ width: leftWidth }} className="shrink-0">
             <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
@@ -1616,6 +1641,7 @@ export function Workspace() {
           onSwitchPreset={(id) => switchPreset(id, { vault })}
           onImportPreset={handleImportPreset}
           onExportPreset={handleExportPreset}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
 
         {isLeftSidebarOpen && (
@@ -1649,7 +1675,7 @@ export function Workspace() {
                   onToggleFocusMode={handleEnterFocusMode}
                 />
               </div>
-              <div className="w-px shrink-0 bg-zinc-800" />
+              <div className="w-px shrink-0 bg-accent" />
               <div className="flex min-w-0 flex-1">
                 <DocumentEditor
                   key="pane-secondary"
@@ -1703,6 +1729,8 @@ export function Workspace() {
         onSelect={handleSelect}
         readFile={readFile}
       />
+
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )
 }

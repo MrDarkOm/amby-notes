@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Bookmark, BookmarkCheck, ChevronRight, Database, FileText, Folder, FolderOpen, FolderPlus,
   LayoutGrid, PenLine, Smile, SquareArrowOutUpRight, Star,
@@ -135,6 +136,7 @@ const TreeNode = React.memo(function TreeNode({
   folderResetKey, folderTargetOpen, favorites, onToggleFavorite, onAttachLayer,
   linkedLayersByDoc,
 }: TreeNodeProps) {
+  const { t } = useTranslation()
   const [pendingAttach, setPendingAttach] = React.useState<AttachableLayer | null>(null)
   const [isOpen, setIsOpen] = React.useState(true)
   const prevResetKey = React.useRef<number | undefined>(undefined)
@@ -190,7 +192,7 @@ const TreeNode = React.memo(function TreeNode({
       onBlur={commitRename}
       onKeyDown={handleKeyDown}
       onClick={e => e.stopPropagation()}
-      className="w-full min-w-0 rounded bg-zinc-800 px-1 text-[13px] text-zinc-100 outline-none ring-1 ring-blue-500"
+      className="w-full min-w-0 rounded bg-accent px-1 text-[13px] text-foreground outline-none ring-1 ring-blue-500"
     />
   ) : (
     <span className="truncate">{item.name}</span>
@@ -199,35 +201,35 @@ const TreeNode = React.memo(function TreeNode({
   const defaultIcon = item.type === "folder" ? "folder" : "file"
 
   const ctxItems = (
-    <ContextMenuContent className="w-52 border-zinc-800 bg-black text-zinc-300">
+    <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
       <ContextMenuItem
-        className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+        className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
         onSelect={() => onNewFile?.(item.type === "folder" || item.type === "file" ? item.id : null)}
       >
-        <FileText className="size-3.5 text-zinc-500" />
-        Новая заметка
+        <FileText className="size-3.5 text-muted-foreground" />
+        {t("tree.newNote")}
       </ContextMenuItem>
       <ContextMenuItem
-        className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+        className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
         onSelect={() => onNewFolder?.(item.type === "folder" ? item.id : null)}
       >
-        <FolderPlus className="size-3.5 text-zinc-500" />
-        Новая папка
+        <FolderPlus className="size-3.5 text-muted-foreground" />
+        {t("tree.newFolder")}
       </ContextMenuItem>
       <ContextMenuItem
-        className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+        className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
         onSelect={() => onNewCanvas?.(item.type === "folder" || item.type === "file" ? item.id : null)}
       >
-        <LayoutGrid className="size-3.5 text-zinc-500" />
-        Новый Canvas
+        <LayoutGrid className="size-3.5 text-muted-foreground" />
+        {t("tree.newCanvas")}
       </ContextMenuItem>
       {item.type === "canvas" && onAttachCanvas && (
         <ContextMenuItem
-          className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
           onSelect={() => onAttachCanvas(item.id)}
         >
-          <FileText className="size-3.5 text-zinc-500" />
-          Привязать к заметке
+          <FileText className="size-3.5 text-muted-foreground" />
+          {t("tree.attachToNote")}
         </ContextMenuItem>
       )}
       {item.type === "file" && onAttachLayer && (() => {
@@ -239,44 +241,44 @@ const TreeNode = React.memo(function TreeNode({
           <>
             {canvasAvail && (
               <ContextMenuItem
-                className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                 onSelect={() => setPendingAttach("canvas")}
               >
-                <LayoutGrid className="size-3.5 text-zinc-500" />
-                Прикрепить Canvas
+                <LayoutGrid className="size-3.5 text-muted-foreground" />
+                {t("tree.attachCanvas")}
               </ContextMenuItem>
             )}
             {dbAvail && (
               <ContextMenuItem
-                className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                 onSelect={() => setPendingAttach("database")}
               >
-                <Database className="size-3.5 text-zinc-500" />
-                Прикрепить базу данных
+                <Database className="size-3.5 text-muted-foreground" />
+                {t("tree.attachDatabase")}
               </ContextMenuItem>
             )}
           </>
         )
       })()}
 
-      <ContextMenuSeparator className="bg-zinc-800" />
+      <ContextMenuSeparator className="bg-accent" />
 
       <ContextMenuSub>
-        <ContextMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white data-[state=open]:bg-zinc-800">
-          <Smile className="size-3.5 text-zinc-500" />
-          Иконка
+        <ContextMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+          <Smile className="size-3.5 text-muted-foreground" />
+          {t("tree.icon")}
         </ContextMenuSubTrigger>
-        <ContextMenuSubContent className="border-zinc-800 bg-black p-0 shadow-xl">
+        <ContextMenuSubContent className="border-border bg-popover p-0 shadow-xl">
           <EmojiPickerPanel
             onSelect={emojiData => onSetIcon?.(item.id, emojiData.native)}
             onClose={() => {}}
           />
-          <div className="border-t border-zinc-800 p-1">
+          <div className="border-t border-border p-1">
             <ContextMenuItem
               onSelect={() => onSetIcon?.(item.id, defaultIcon)}
-              className="text-[12px] text-zinc-400 focus:bg-zinc-800 focus:text-zinc-300"
+              className="text-[12px] text-muted-foreground focus:bg-accent focus:text-foreground"
             >
-              Сбросить иконку
+              {t("tree.resetIcon")}
             </ContextMenuItem>
           </div>
         </ContextMenuSubContent>
@@ -284,57 +286,55 @@ const TreeNode = React.memo(function TreeNode({
 
       {(item.type === "file" && onOpenInNewTab) || onOpenInExplorer ? (
         <>
-          <ContextMenuSeparator className="bg-zinc-800" />
+          <ContextMenuSeparator className="bg-accent" />
           {item.type === "file" && onOpenInNewTab && (
             <ContextMenuItem
-              className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
               onSelect={() => onOpenInNewTab(item.id)}
             >
-              <SquareArrowOutUpRight className="size-3.5 text-zinc-500" />
-              Открыть в новой вкладке
+              <SquareArrowOutUpRight className="size-3.5 text-muted-foreground" />
+              {t("tree.openInNewTab")}
             </ContextMenuItem>
           )}
           {onOpenInExplorer && (
             <ContextMenuItem
-              className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
               onSelect={() => onOpenInExplorer(item.path ?? item.id)}
             >
-              <FolderOpen className="size-3.5 text-zinc-500" />
-              Показать в проводнике
+              <FolderOpen className="size-3.5 text-muted-foreground" />
+              {t("tree.showInExplorer")}
             </ContextMenuItem>
           )}
         </>
       ) : null}
 
-      <ContextMenuSeparator className="bg-zinc-800" />
+      <ContextMenuSeparator className="bg-accent" />
 
       {item.type === "file" && onToggleFavorite && (
         <ContextMenuItem
-          className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
           onSelect={() => onToggleFavorite(item.id)}
         >
           {favorites?.has(item.id)
-            ? <><BookmarkCheck className="size-3.5 text-amber-400" />Убрать из избранного</>
-            : <><Bookmark className="size-3.5 text-zinc-500" />Добавить в избранное</>}
+            ? <><BookmarkCheck className="size-3.5 text-amber-400" />{t("tree.removeBookmark")}</>
+            : <><Bookmark className="size-3.5 text-muted-foreground" />{t("tree.addBookmark")}</>}
         </ContextMenuItem>
       )}
 
       <ContextMenuItem
-        className="text-[13px] focus:bg-zinc-800 focus:text-white"
+        className="text-[13px] focus:bg-accent focus:text-white"
         onSelect={() => setTimeout(() => setIsEditing(true), 80)}
       >
-        Переименовать
+        {t("tree.rename")}
       </ContextMenuItem>
       <ContextMenuItem
-        className="text-[13px] text-red-400 focus:bg-zinc-800 focus:text-red-300"
+        className="text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
         onSelect={() => onDelete?.(item.id)}
       >
-        Удалить
+        {t("tree.delete")}
       </ContextMenuItem>
     </ContextMenuContent>
   )
-
-  const layerLabelRu: Record<AttachableLayer, string> = { canvas: "Canvas", database: "базу данных" }
 
   const attachDialog = (
     <Dialog
@@ -343,7 +343,7 @@ const TreeNode = React.memo(function TreeNode({
     >
       <DialogContent
         showCloseButton={false}
-        className="w-72 border-zinc-800 bg-black p-4 text-zinc-200 sm:max-w-xs"
+        className="w-72 border-border bg-popover p-4 text-foreground sm:max-w-xs"
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault()
@@ -352,26 +352,27 @@ const TreeNode = React.memo(function TreeNode({
         }}
       >
         <p className="text-[13px] leading-snug">
-          Создать привязанный{" "}
-          {pendingAttach ? layerLabelRu[pendingAttach] : ""} к заметке «{item.name}»?
+          {pendingAttach === "canvas"
+            ? t("tree.confirmAttachCanvas", { name: item.name })
+            : t("tree.confirmAttachDatabase", { name: item.name })}
         </p>
         <div className="mt-1 flex justify-end gap-2">
           <button
             type="button"
-            className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-900"
+            className="rounded border border-border px-2.5 py-1 text-xs text-foreground hover:bg-card"
             onClick={() => setPendingAttach(null)}
           >
-            Отмена
+            {t("tree.cancel")}
           </button>
           <button
             type="button"
             autoFocus
-            className="rounded bg-zinc-100 px-2.5 py-1 text-xs font-medium text-black hover:bg-white"
+            className="rounded bg-foreground px-2.5 py-1 text-xs font-medium text-background hover:bg-foreground/90"
             onClick={() => {
               if (pendingAttach) { onAttachLayer?.(item.id, pendingAttach); setPendingAttach(null) }
             }}
           >
-            Создать
+            {t("tree.create")}
           </button>
         </div>
       </DialogContent>
@@ -406,7 +407,7 @@ const TreeNode = React.memo(function TreeNode({
                     className="flex size-3 shrink-0 items-center justify-center text-muted-foreground"
                     onPointerDown={e => e.stopPropagation()}
                     onClick={e => e.stopPropagation()}
-                    title={isOpen ? "Свернуть" : "Раскрыть"}
+                    title={isOpen ? t("tree.collapse") : t("tree.expand")}
                   >
                     <ChevronRight className={cn("size-3 transition-transform", isOpen && "rotate-90")} />
                   </button>
@@ -622,7 +623,7 @@ export function SidebarTree({
       {ptrDrag?.active && (
         <div
           style={{ position: 'fixed', left: ptrDrag.ghostX + 14, top: ptrDrag.ghostY + 10, pointerEvents: 'none', zIndex: 9999 }}
-          className="flex items-center gap-1.5 rounded bg-zinc-800 px-2 py-1 text-[12px] text-zinc-200 shadow-xl ring-1 ring-zinc-600"
+          className="flex items-center gap-1.5 rounded bg-accent px-2 py-1 text-[12px] text-foreground shadow-xl ring-1 ring-border"
         >
           <FileText className="size-3.5 shrink-0" />
           <span className="max-w-32 truncate">{ptrDrag.sourceName}</span>

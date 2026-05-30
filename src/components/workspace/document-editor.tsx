@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useTranslation } from "react-i18next";
 import {
   Code2,
   Database,
@@ -212,6 +213,7 @@ export function DocumentEditor({
   const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false);
   const [layerConfirm, setLayerConfirm] = React.useState<EditorLayer | null>(null);
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle);
+  const { t } = useTranslation();
   const titleInputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => {
@@ -252,16 +254,11 @@ export function DocumentEditor({
     [treeItems, document?.id],
   );
 
-  const layerLabelRu: Record<string, string> = {
-    canvas: "Canvas",
-    database: "базу данных",
-    sketch: "Excalidraw",
-  };
 
   const navBar = (
     <>
     <div
-      className={`flex h-9 shrink-0 items-center justify-between border-zinc-800 px-2 ${isFocusMode ? "bg-[#0A0A0A]/80 backdrop-blur-sm" : "bg-[#0A0A0A]"}`}
+      className={`flex h-9 shrink-0 items-center justify-between border-border px-2 ${isFocusMode ? "bg-background/80 backdrop-blur-sm" : "bg-background"}`}
     >
       {/* Left: back/forward + drag zone for focus mode */}
       <div className="flex items-center gap-0.5">
@@ -274,7 +271,7 @@ export function DocumentEditor({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white disabled:opacity-30"
+          className="size-7 text-muted-foreground hover:bg-accent hover:text-white disabled:opacity-30"
           onClick={onBack}
           disabled={!canGoBack}
         >
@@ -283,7 +280,7 @@ export function DocumentEditor({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white disabled:opacity-30"
+          className="size-7 text-muted-foreground hover:bg-accent hover:text-white disabled:opacity-30"
           onClick={onForward}
           disabled={!canGoForward}
         >
@@ -302,7 +299,7 @@ export function DocumentEditor({
                 {isClickable ? (
                   <button
                     type="button"
-                    className="max-w-[200px] truncate rounded px-1 py-0.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+                    className="max-w-[200px] truncate rounded px-1 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                     onClick={() => onOpenItem?.(seg.id)}
                     title={seg.name}
                   >
@@ -310,27 +307,27 @@ export function DocumentEditor({
                   </button>
                 ) : (
                   <span
-                    className={`max-w-[260px] truncate px-1 ${isLast ? "text-zinc-300" : "text-zinc-500"}`}
+                    className={`max-w-[260px] truncate px-1 ${isLast ? "text-foreground" : "text-muted-foreground"}`}
                     title={seg.name}
                   >
                     {seg.name}
                   </span>
                 )}
                 {!isLast && (
-                  <span className="shrink-0 text-zinc-700">›</span>
+                  <span className="shrink-0 text-muted-foreground">›</span>
                 )}
               </React.Fragment>
             );
           })
         ) : document ? (
-          <span className="truncate text-zinc-400">{document.title}</span>
+          <span className="truncate text-muted-foreground">{document.title}</span>
         ) : null}
       </div>
 
       {/* Right: layer + focus + more */}
       <div className="flex items-center gap-0.5">
         {document && (
-          <div className="mr-1 flex items-center rounded bg-zinc-950 p-0.5 gap-1">
+          <div className="mr-1 flex items-center rounded bg-background p-0.5 gap-1">
             {/* Editor layer — always visible */}
             <button
               type="button"
@@ -338,8 +335,8 @@ export function DocumentEditor({
               onClick={() => onLayerChange?.("editor")}
               className={`flex size-6 items-center justify-center rounded transition-colors ${
                 activeLayer === "editor"
-                  ? "bg-zinc-800 text-zinc-100"
-                  : "bg-zinc-1000 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                  ? "bg-accent text-foreground"
+                  : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
             >
               <FileText className="size-3.5" />
@@ -383,9 +380,9 @@ export function DocumentEditor({
         <Button
           variant="ghost"
           size="icon"
-          className={`size-7 hover:bg-zinc-800 ${isFocusMode ? "text-zinc-200" : "text-zinc-500 hover:text-white"}`}
+          className={`size-7 hover:bg-accent ${isFocusMode ? "text-foreground" : "text-muted-foreground hover:text-white"}`}
           onClick={onToggleFocusMode}
-          title={isFocusMode ? "Выйти из фокуса" : "Режим фокуса"}
+          title={isFocusMode ? t("docEditor.focusModeExit") : t("docEditor.focusModeEnter")}
         >
           {isFocusMode ? (
             <Minimize2 className="size-4" />
@@ -398,14 +395,14 @@ export function DocumentEditor({
             <Button
               variant="ghost"
               size="icon"
-              className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+              className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
             >
               <MoreVertical className="size-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="w-52 border-zinc-800 bg-black text-zinc-300"
+            className="w-52 border-border bg-popover text-foreground"
           >
             <DropdownMenuCheckboxItem
               checked={viewMode === "source"}
@@ -413,7 +410,7 @@ export function DocumentEditor({
               onCheckedChange={() =>
                 onViewModeChange?.(viewMode === "source" ? "live" : "source")
               }
-              className="text-[13px] focus:bg-zinc-800 focus:text-white"
+              className="text-[13px] focus:bg-accent focus:text-white"
             >
               <Code2 className="size-3.5" />
               Source Markdown
@@ -422,40 +419,40 @@ export function DocumentEditor({
               checked={isLocked}
               disabled={!document}
               onCheckedChange={() => onToggleLock?.()}
-              className="text-[13px] focus:bg-zinc-800 focus:text-white"
+              className="text-[13px] focus:bg-accent focus:text-white"
             >
               <Lock className="size-3.5" />
-              Заблокировать
+              {t("docEditor.lock")}
             </DropdownMenuCheckboxItem>
             {/* Attach layer options — only shown for layers not yet linked */}
             {document && (!linkedLayers?.canvas || !linkedLayers?.database || !linkedLayers?.sketch) && (
               <>
-                <DropdownMenuSeparator className="bg-zinc-800" />
+                <DropdownMenuSeparator className="bg-accent" />
                 {!linkedLayers?.canvas && (
                   <DropdownMenuItem
-                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                     onSelect={() => setLayerConfirm("canvas")}
                   >
-                    <LayoutGrid className="size-3.5 text-zinc-500" />
-                    Прикрепить Canvas
+                    <LayoutGrid className="size-3.5 text-muted-foreground" />
+                    {t("docEditor.attachCanvas")}
                   </DropdownMenuItem>
                 )}
                 {!linkedLayers?.database && (
                   <DropdownMenuItem
-                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                     onSelect={() => setLayerConfirm("database")}
                   >
-                    <Database className="size-3.5 text-zinc-500" />
-                    Прикрепить базу данных
+                    <Database className="size-3.5 text-muted-foreground" />
+                    {t("docEditor.attachDatabase")}
                   </DropdownMenuItem>
                 )}
                 {!linkedLayers?.sketch && (
                   <DropdownMenuItem
-                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                     onSelect={() => setLayerConfirm("sketch")}
                   >
-                    <PenLine className="size-3.5 text-zinc-500" />
-                    Прикрепить Excalidraw
+                    <PenLine className="size-3.5 text-muted-foreground" />
+                    {t("docEditor.attachSketch")}
                   </DropdownMenuItem>
                 )}
               </>
@@ -471,7 +468,7 @@ export function DocumentEditor({
     >
       <DialogContent
         showCloseButton={false}
-        className="w-72 border-zinc-800 bg-black p-4 text-zinc-200 sm:max-w-xs"
+        className="w-72 border-border bg-popover p-4 text-foreground sm:max-w-xs"
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault()
@@ -480,26 +477,27 @@ export function DocumentEditor({
         }}
       >
         <p className="text-[13px] leading-snug">
-          Создать привязанный{" "}
-          {layerConfirm ? layerLabelRu[layerConfirm] ?? layerConfirm : ""} к заметке?
+          {layerConfirm === "canvas" ? t("docEditor.confirmCreateCanvas")
+            : layerConfirm === "sketch" ? t("docEditor.confirmCreateSketch")
+            : t("docEditor.confirmCreateDatabase")}
         </p>
         <div className="mt-1 flex justify-end gap-2">
           <button
             type="button"
-            className="rounded border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-900"
+            className="rounded border border-border px-2.5 py-1 text-xs text-foreground hover:bg-card"
             onClick={() => setLayerConfirm(null)}
           >
-            Отмена
+            {t("docEditor.cancel")}
           </button>
           <button
             type="button"
             autoFocus
-            className="rounded bg-zinc-100 px-2.5 py-1 text-xs font-medium text-black hover:bg-white"
+            className="rounded bg-foreground px-2.5 py-1 text-xs font-medium text-background hover:bg-foreground/90"
             onClick={() => {
               if (layerConfirm) { onLayerChange?.(layerConfirm); setLayerConfirm(null) }
             }}
           >
-            Создать
+            {t("docEditor.create")}
           </button>
         </div>
       </DialogContent>
@@ -513,27 +511,27 @@ export function DocumentEditor({
         {navBar}
         <div className="flex flex-1 flex-col items-center justify-center gap-6">
           <div className="text-center">
-            <p className="text-lg font-medium text-zinc-300">
-              Нет открытых заметок
+            <p className="text-lg font-medium text-foreground">
+              {t("docEditor.noNotes")}
             </p>
-            <p className="mt-1 text-sm text-zinc-600">
-              Создай новую или открой существующую
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("docEditor.noNotesHint")}
             </p>
           </div>
           <div className="flex gap-3">
             <button
               onClick={onNewFile}
-              className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800 hover:border-zinc-500"
+              className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-accent hover:border-border"
             >
-              <FilePlus className="size-4 text-zinc-400" />
-              Создать заметку
+              <FilePlus className="size-4 text-muted-foreground" />
+              {t("docEditor.createNote")}
             </button>
             <button
               onClick={onOpenVault}
-              className="flex items-center gap-2 rounded-lg border border-zinc-800 px-4 py-2.5 text-sm text-zinc-500 transition-colors hover:bg-zinc-900 hover:text-zinc-300"
+              className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
             >
               <FolderOpen className="size-4" />
-              Открыть хранилище
+              {t("docEditor.openVault")}
             </button>
           </div>
         </div>
@@ -571,7 +569,7 @@ export function DocumentEditor({
       {navBar}
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-10 py-8">
+        <div className="mx-auto px-10 py-8" style={{ maxWidth: "var(--content-max-width, 48rem)" }}>
           {/* Title */}
           <div className="mb-4 flex items-center gap-3">
             {fileIcon &&
@@ -607,36 +605,35 @@ export function DocumentEditor({
                 onChange={(e) => setTitleValue(e.target.value)}
                 onBlur={commitTitleRename}
                 onKeyDown={handleTitleKeyDown}
-                className="flex-1 bg-transparent text-3xl font-semibold tracking-tight text-zinc-100 outline-none border-b border-zinc-600 focus:border-zinc-400"
+                className="flex-1 bg-transparent text-3xl font-semibold tracking-tight text-foreground outline-none border-b border-border focus:border-muted-foreground"
               />
             ) : (
               <h1
-                className="text-3xl font-semibold tracking-tight text-zinc-100 cursor-text hover:text-white"
+                className="text-3xl font-semibold tracking-tight text-foreground cursor-text hover:text-white"
                 onClick={() => {
                   setTitleValue(document.title);
                   setEditingTitle(true);
                 }}
-                title="Нажми чтобы переименовать"
+                title={t("docEditor.renameHint")}
               >
                 {document.title}
               </h1>
             )}
           </div>
 
-          <div className="mb-6 h-px bg-zinc-800" />
+          <div className="mb-6 h-px bg-accent" />
 
           {activeLayer !== "editor" ? (
-            <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded border border-dashed border-zinc-800 bg-zinc-950/40 text-center">
-              <div className="flex size-12 items-center justify-center rounded border border-zinc-800 bg-zinc-900 text-zinc-300">
+            <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded border border-dashed border-border bg-background/40 text-center">
+              <div className="flex size-12 items-center justify-center rounded border border-border bg-card text-foreground">
                 <ActiveLayerIcon className="size-5" />
               </div>
               <div>
-                <p className="text-sm font-medium text-zinc-300">
+                <p className="text-sm font-medium text-foreground">
                   {activeLayerMeta.label}
                 </p>
-                <p className="mt-1 max-w-sm text-xs text-zinc-600">
-                  Слой создан рядом с заметкой. Полноценный редактор появится в
-                  следующем инкременте.
+                <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+                  {t("docEditor.layerCreated")}
                 </p>
               </div>
             </div>
@@ -648,7 +645,7 @@ export function DocumentEditor({
               onTagClick={onTagClick}
               onWikiLinkClick={onWikiLinkClick}
               editorRef={editorRef}
-              placeholder="Начни писать..."
+              placeholder={t("editor.placeholder")}
             />
           ) : (
             <TiptapEditor
@@ -659,7 +656,7 @@ export function DocumentEditor({
               editable={viewMode === "live" && !isLocked}
               onTagClick={onTagClick}
               onWikiLinkClick={onWikiLinkClick}
-              placeholder="Начни писать..."
+              placeholder={t("editor.placeholder")}
               vaultPath={vault}
               notePath={document.path}
             />
@@ -669,20 +666,20 @@ export function DocumentEditor({
 
       {/* Floating stats widget */}
       <div className="pointer-events-none absolute bottom-4 right-4 z-10">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-950/90 px-3 py-1.5 shadow-lg backdrop-blur-sm">
-          <span className="text-[11px] text-zinc-500">{document.modified}</span>
-          <span className="text-zinc-800">·</span>
-          <span className="text-[11px] text-zinc-500">{liveWordCount} сл.</span>
-          <div className="mx-1 h-3 w-px bg-zinc-800" />
+        <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-background/90 px-3 py-1.5 shadow-lg backdrop-blur-sm">
+          <span className="text-[11px] text-muted-foreground">{document.modified}</span>
+          <span className="text-border">·</span>
+          <span className="text-[11px] text-muted-foreground">{t("docEditor.wordCount", { count: liveWordCount })}</span>
+          <div className="mx-1 h-3 w-px bg-accent" />
           <button
             type="button"
             title={
-              viewMode === "read" ? "Переключить в Live" : "Переключить в Read"
+              viewMode === "read" ? t("docEditor.switchToLive") : t("docEditor.switchToRead")
             }
             disabled={
               activeLayer !== "editor" || viewMode === "source" || isLocked
             }
-            className="flex size-5 items-center justify-center rounded border border-zinc-800 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40"
+            className="flex size-5 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() =>
               onViewModeChange?.(viewMode === "read" ? "live" : "read")
@@ -694,10 +691,10 @@ export function DocumentEditor({
               <PenLine className="size-3" />
             )}
           </button>
-          <div className="mx-1 h-3 w-px bg-zinc-800" />
+          <div className="mx-1 h-3 w-px bg-accent" />
           <button
-            title="Отменить (Ctrl+Z)"
-            className="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+            title={t("docEditor.undo")}
+            className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             onMouseDown={(e) => {
               e.preventDefault();
               editorRef.current?.undo();
@@ -706,8 +703,8 @@ export function DocumentEditor({
             <Undo2 className="size-3" />
           </button>
           <button
-            title="Повторить (Ctrl+Y)"
-            className="flex size-5 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-300"
+            title={t("docEditor.redo")}
+            className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             onMouseDown={(e) => {
               e.preventDefault();
               editorRef.current?.redo();
@@ -740,6 +737,7 @@ function LayerButton({
   onUnlink?: (layer: LayerKind) => void;
   onDelete?: (layer: LayerKind) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -749,8 +747,8 @@ function LayerButton({
           onClick={onActivate}
           className={`flex size-6 items-center justify-center rounded transition-colors ${
             active
-              ? "bg-zinc-800 text-zinc-100"
-              : "bg-zinc-1000 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+              ? "bg-accent text-foreground"
+              : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
           }`}
         >
           {icon}
@@ -758,13 +756,13 @@ function LayerButton({
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
         <ContextMenuItem onSelect={() => onUnlink?.(layer)}>
-          Отвязать
+          {t("docEditor.detach")}
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={() => onDelete?.(layer)}
           className="text-red-400 focus:text-red-300"
         >
-          Удалить
+          {t("docEditor.delete")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

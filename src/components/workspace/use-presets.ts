@@ -1,4 +1,5 @@
 import * as React from "react"
+import i18n from "@/lib/i18n"
 import type { ActivityButton, PanelId, Side } from "./panel-registry"
 import { runModuleLifecycle, type ModuleContext } from "./modules"
 import {
@@ -51,6 +52,28 @@ const sanitizeSide = (
   const fix = (v: PanelId | null, fallback: PanelId): PanelId | null =>
     (v as string) === "search" ? fallback : v
   return { left: fix(saved.left, "files"), right: fix(saved.right, "info") }
+}
+
+/**
+ * Union a persisted button layout with the preset's default buttons for active
+ * modules, appending any that are missing. This is what makes a newly-added
+ * module's button (e.g. AI) show up for users whose saved layout predates it —
+ * while staying an ordinary, draggable activity-bar button they can move.
+ */
+const mergeMissingButtons = (saved: ActivityButton[], preset: Preset): ActivityButton[] => {
+  const have = new Set(saved.map(b => b.defId))
+  const missing = visibleLayout(preset).filter(b => !have.has(b.defId))
+  if (missing.length === 0) return saved
+  const maxOrder: Record<string, number> = {}
+  for (const b of saved) maxOrder[b.side] = Math.max(maxOrder[b.side] ?? -1, b.order)
+  return [
+    ...saved,
+    ...missing.map(b => {
+      const order = (maxOrder[b.side] ?? -1) + 1
+      maxOrder[b.side] = order
+      return { ...b, side: b.side, order }
+    }),
+  ]
 }
 
 /**
@@ -107,7 +130,9 @@ export function usePresets(vault: string | null): UsePresets {
       setUserPresets(userP)
       presetsRef.current = all
       setActivePresetId(layout.activePresetId ?? preset.id)
-      setActivityButtons(layout.buttons ?? visibleLayout(preset))
+      setActivityButtons(
+        layout.buttons ? mergeMissingButtons(layout.buttons, preset) : visibleLayout(preset),
+      )
       setActiveBySide(sanitizeSide(layout.activeBySide ?? preset.activeBySide))
       hydratedRef.current = true
     })()
@@ -153,7 +178,7 @@ export function usePresets(vault: string | null): UsePresets {
   const importPreset = React.useCallback(
     (text: string, ctx: ModuleContext): ImportResult => {
       const parsed = parsePresetFile(text)
-      if (!parsed) return { ok: false, error: "Не удалось разобрать файл пресета" }
+      if (!parsed) return { ok: false, error: i18n.t("presets.parseError") }
 
       // Never clobber a built-in id.
       let preset = parsed

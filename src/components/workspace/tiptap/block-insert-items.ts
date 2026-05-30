@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core"
+import i18n from "@/lib/i18n"
 import {
   AtSign,
   CheckSquare,
@@ -331,8 +332,8 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "database",
-    title: "База данных",
-    hint: "Таблица",
+    title: i18n.t("blockPanel.database"),
+    hint: i18n.t("blockPanel.databaseHint"),
     icon: Table2,
     category: "embed",
     availableIn: PLUS_SLASH,

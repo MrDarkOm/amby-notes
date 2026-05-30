@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import type { Editor, Range } from "@tiptap/core"
 
 import {
@@ -45,6 +46,7 @@ export function BlockInsertPanel({
   const urlRef = React.useRef<HTMLInputElement>(null)
   const panelRef = React.useRef<HTMLDivElement>(null)
   const placementStyle = useSmartPlacement(anchorRect, panelRef)
+  const { t } = useTranslation()
   const tauri = isTauri()
 
   const all = React.useMemo(
@@ -165,13 +167,13 @@ export function BlockInsertPanel({
               value={query}
               onChange={e => setQuery(e.target.value)}
               onKeyDown={onListKeyDown}
-              placeholder="Поиск блока…"
+              placeholder={t("blockPanel.searchPlaceholder")}
               className="amby-block-panel-search"
             />
           </div>
           <div className="amby-block-panel-body" onKeyDown={onListKeyDown} tabIndex={-1}>
             {filtered.length === 0 ? (
-              <div className="amby-block-panel-empty">Ничего не найдено</div>
+              <div className="amby-block-panel-empty">{t("blockPanel.notFound")}</div>
             ) : (
               filtered.map((item, idx) => {
                 const disabled = itemDisabled(item)
@@ -198,7 +200,7 @@ export function BlockInsertPanel({
           </div>
           <div className="amby-block-panel-footer">
             <button type="button" className="amby-block-panel-close" onClick={onClose}>
-              Закрыть
+              {t("blockPanel.close")}
             </button>
           </div>
         </>
@@ -217,10 +219,10 @@ export function BlockInsertPanel({
           />
           <div className="amby-block-panel-url-actions">
             <button type="button" onClick={() => setMode("list")}>
-              Назад
+              {t("blockPanel.back")}
             </button>
             <button type="button" className="is-primary" onClick={applyUrl}>
-              Вставить
+              {t("blockPanel.insert")}
             </button>
           </div>
         </div>

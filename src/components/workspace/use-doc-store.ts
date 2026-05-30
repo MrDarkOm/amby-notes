@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import i18n from "@/lib/i18n"
 
 /** An open document buffer (the in-memory copy being edited). */
 export interface Document {
@@ -64,7 +65,7 @@ export const useDocStore = create<DocStore>((set) => ({
       return {
         unsavedFileIds: unsaved,
         openDocs: doc
-          ? { ...s.openDocs, [fileId]: { ...doc, modified: "Только что" } }
+          ? { ...s.openDocs, [fileId]: { ...doc, modified: i18n.t("time.justNow") } }
           : s.openDocs,
       }
     }),

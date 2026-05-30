@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useTranslation } from "react-i18next";
 import {
   Bookmark,
   BookmarkCheck,
@@ -140,6 +141,7 @@ export function HeaderTabs({
   favorites,
   onToggleFavorite,
 }: HeaderTabsProps) {
+  const { t } = useTranslation();
   // activity bar in body = 44px (w-11);
   // mac traffic-light spacer = 72px;
   // non-mac logo on left = 44px. Picker width compensates so the editor area
@@ -191,12 +193,12 @@ export function HeaderTabs({
   const leftSidebarToggle = (
     <button
       onClick={onToggleLeftSidebar}
-      className="flex h-10 w-10 shrink-0 rounded items-center justify-center text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+      className="flex h-10 w-10 shrink-0 rounded items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
     >
       {isLeftSidebarOpen ? (
         <PanelLeftClose className="size-4" />
       ) : (
-        <PanelLeftOpen className="size-4 text-zinc-300" />
+        <PanelLeftOpen className="size-4 text-foreground" />
       )}
     </button>
   );
@@ -204,18 +206,18 @@ export function HeaderTabs({
   const rightSidebarToggle = (
     <button
       onClick={onToggleRightSidebar}
-      className="flex h-10 w-10 shrink-0 rounded items-center justify-center text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+      className="flex h-10 w-10 shrink-0 rounded items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
     >
       {isRightSidebarOpen ? (
         <PanelRightClose className="size-4" />
       ) : (
-        <PanelRightOpen className="size-4 text-zinc-300" />
+        <PanelRightOpen className="size-4 text-foreground" />
       )}
     </button>
   );
 
   return (
-    <header className="relative z-50 flex h-10 select-none items-stretch border-b border-zinc-800 bg-[#0A0A0A]">
+    <header className="relative z-50 flex h-10 select-none items-stretch border-b border-border bg-background">
       {/* macOS traffic light spacer — native buttons live here */}
       {isMac ? (
         <div className="w-[80px] shrink-0" onMouseDown={handleDragStart} />
@@ -225,7 +227,7 @@ export function HeaderTabs({
           className="flex w-112 shrink-0 items-center justify-center"
           onMouseDown={handleDragStart}
         >
-          <AmbyIcon className="pointer-events-none size-5 text-zinc-300" />
+          <AmbyIcon className="pointer-events-none size-5 text-foreground" />
         </div>
       )}
 
@@ -255,13 +257,13 @@ export function HeaderTabs({
               onOpenInExplorer={onOpenVaultInExplorer}
             >
               <button
-                className="flex min-w-0 items-center gap-1.5 rounded px-2 py-1 text-sm transition-colors hover:bg-zinc-800"
+                className="flex min-w-0 items-center gap-1.5 rounded px-2 py-1 text-sm transition-colors hover:bg-accent"
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                <span className="truncate font-medium text-zinc-200">
+                <span className="truncate font-medium text-foreground">
                   {vaultName ?? "Workspace"}
                 </span>
-                <ChevronDown className="size-3 shrink-0 text-zinc-500" />
+                <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
               </button>
             </WorkspacePicker>
           </div>
@@ -288,12 +290,12 @@ export function HeaderTabs({
                 className={cn(
                   "group relative flex h-full shrink-0 cursor-pointer items-center gap-2 px-3 text-sm transition-colors",
                   activeTabKey === tab.key
-                    ? "bg-zinc-900 text-white"
-                    : "text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300",
+                    ? "bg-card text-white"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                 )}
               >
                 {unsavedFileIds?.has(tab.fileId) && (
-                  <span className="size-1.5 shrink-0 rounded-full bg-zinc-400" />
+                  <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />
                 )}
                 <span className="max-w-32 truncate">{tab.title}</span>
                 <button
@@ -301,7 +303,7 @@ export function HeaderTabs({
                     e.stopPropagation();
                     onTabClose(tab.key);
                   }}
-                  className="flex size-4 items-center justify-center rounded text-zinc-500 opacity-0 transition-all group-hover:opacity-100 hover:bg-zinc-700 hover:text-white"
+                  className="flex size-4 items-center justify-center rounded text-muted-foreground opacity-0 transition-all group-hover:opacity-100 hover:bg-accent hover:text-white"
                 >
                   <X className="size-3" />
                 </button>
@@ -311,7 +313,7 @@ export function HeaderTabs({
 
           <button
             onClick={onOpenPlusModal}
-            className="flex shrink-0 size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+            className="flex shrink-0 size-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white"
           >
             <Plus className="size-4" />
           </button>
@@ -325,17 +327,17 @@ export function HeaderTabs({
         <div className="flex shrink-0 items-center">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white">
+              <button className="flex size-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white">
                 <ChevronDown className="size-4" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
-              className="w-56 border-zinc-800 bg-black text-zinc-300"
+              className="w-56 border-border bg-popover text-foreground"
             >
               <DropdownMenuItem
                 disabled={!activeFileId}
-                className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                 onSelect={() =>
                   activeFileId && onToggleFavorite?.(activeFileId)
                 }
@@ -343,30 +345,30 @@ export function HeaderTabs({
                 {activeFileId && favorites?.has(activeFileId) ? (
                   <>
                     <BookmarkCheck className="size-3.5 text-amber-400" />
-                    Убрать из закладок
+                    {t("tabs.removeBookmark")}
                   </>
                 ) : (
                   <>
-                    <Bookmark className="size-3.5 text-zinc-500" />
-                    Добавить в закладки
+                    <Bookmark className="size-3.5 text-muted-foreground" />
+                    {t("tabs.addBookmark")}
                   </>
                 )}
               </DropdownMenuItem>
               <DropdownMenuItem
-                className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                 onSelect={onCloseAllTabs}
               >
-                <X className="size-3.5 text-zinc-500" />
-                Закрыть все вкладки
+                <X className="size-3.5 text-muted-foreground" />
+                {t("tabs.closeAll")}
               </DropdownMenuItem>
               {tabs.length > 0 && (
                 <>
-                  <DropdownMenuSeparator className="bg-zinc-800" />
+                  <DropdownMenuSeparator className="bg-accent" />
                   {tabs.map((tab) => (
                     <DropdownMenuItem
                       key={tab.key}
                       className={cn(
-                        "flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white",
+                        "flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white",
                         activeTabKey === tab.key && "text-white",
                       )}
                       onSelect={() => onTabChange(tab.key)}
@@ -381,10 +383,10 @@ export function HeaderTabs({
           {onToggleSplit && (
             <button
               onClick={onToggleSplit}
-              title="Разделить редактор"
+              title={t("tabs.splitEditor")}
               className={cn(
-                "flex h-10 w-10 shrink-0 items-center justify-center rounded transition-colors hover:bg-zinc-800 hover:text-white",
-                isSplit ? "text-sky-400" : "text-zinc-500",
+                "flex h-10 w-10 shrink-0 items-center justify-center rounded transition-colors hover:bg-accent hover:text-white",
+                isSplit ? "text-sky-400" : "text-muted-foreground",
               )}
             >
               <Columns2 className="size-4" />
@@ -419,7 +421,7 @@ export function HeaderTabs({
           className="flex w-11 shrink-0 items-center justify-center"
           onMouseDown={handleDragStart}
         >
-          <AmbyIcon className="pointer-events-none size-5 text-zinc-300" />
+          <AmbyIcon className="pointer-events-none size-5 text-foreground" />
         </div>
       )}
 
@@ -428,13 +430,13 @@ export function HeaderTabs({
         <div className="flex shrink-0 items-center">
           <button
             onClick={() => isTauri() && getCurrentWindow().minimize()}
-            className="flex h-10 w-12 items-center justify-center text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+            className="flex h-10 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
           >
             <Minus className="size-4" />
           </button>
           <button
             onClick={() => isTauri() && getCurrentWindow().toggleMaximize()}
-            className="flex h-10 w-12 items-center justify-center text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+            className="flex h-10 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
           >
             {isMaximized ? (
               <Minimize2 className="size-3.5" />
@@ -444,7 +446,7 @@ export function HeaderTabs({
           </button>
           <button
             onClick={() => isTauri() && getCurrentWindow().close()}
-            className="flex h-10 w-12 items-center justify-center text-zinc-500 transition-colors hover:bg-red-600 hover:text-white"
+            className="flex h-10 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-red-600 hover:text-white"
           >
             <X className="size-4" />
           </button>

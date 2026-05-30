@@ -1,5 +1,6 @@
 "use client"
 
+import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import {
   PANEL_DEFS,
@@ -16,20 +17,21 @@ interface PanelHostProps {
 
 /** Thin wrapper around the active PanelDef.render. Provides shared chrome. */
 export function PanelHost({ side, activeId, props }: PanelHostProps) {
+  const { t } = useTranslation()
   const def = activeId ? PANEL_DEFS.find(d => d.id === activeId) : undefined
   return (
     <div
       className={cn(
-        "flex h-full min-h-0 w-full flex-col bg-[#0A0A0A]",
+        "flex h-full min-h-0 w-full flex-col bg-background",
         side === "left" ? "border-r" : "border-l",
-        "border-zinc-800",
+        "border-border",
       )}
     >
       {def ? (
         def.render(props)
       ) : (
         <div className="flex h-full items-center justify-center px-4 text-center">
-          <p className="text-[11px] text-zinc-600">Нет активной панели</p>
+          <p className="text-[11px] text-muted-foreground">{t("panelHost.noPanel")}</p>
         </div>
       )}
     </div>

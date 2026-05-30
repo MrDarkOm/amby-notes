@@ -1,3 +1,4 @@
+mod ai;
 mod app_data;
 mod bundle;
 mod frontmatter;
@@ -536,6 +537,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         app_data::read_vault_meta,
         app_data::write_vault_meta,
         app_data::delete_vault_meta,
+        ai::ai_chat,
     ])
 }
 
