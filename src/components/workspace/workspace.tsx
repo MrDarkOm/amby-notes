@@ -26,7 +26,7 @@ import { useActivityDnD } from "./use-activity-dnd"
 function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
   return (
     <div
-      className="relative z-10 w-px shrink-0 cursor-col-resize bg-zinc-800 transition-colors hover:bg-zinc-500"
+      className="relative z-10 w-px shrink-0 cursor-col-resize bg-accent transition-colors hover:bg-muted-foreground"
       onMouseDown={onMouseDown}
     >
       <div className="absolute inset-y-0 -left-1 -right-1" />
@@ -1487,10 +1487,10 @@ export function Workspace() {
   if (!vault && isTauri()) {
     return (
       <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background">
-        <p className="text-zinc-400">{t("workspace.noVault")}</p>
+        <p className="text-muted-foreground">{t("workspace.noVault")}</p>
         <button
           onClick={handleOpenVault}
-          className="flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-5 py-2.5 text-sm text-zinc-200 transition-colors hover:bg-zinc-800"
+          className="flex items-center gap-2 rounded-lg border border-border bg-card px-5 py-2.5 text-sm text-foreground transition-colors hover:bg-accent"
         >
           <FolderOpen className="size-4" />
           {t("workspace.openVault")}
@@ -1675,7 +1675,7 @@ export function Workspace() {
                   onToggleFocusMode={handleEnterFocusMode}
                 />
               </div>
-              <div className="w-px shrink-0 bg-zinc-800" />
+              <div className="w-px shrink-0 bg-accent" />
               <div className="flex min-w-0 flex-1">
                 <DocumentEditor
                   key="pane-secondary"

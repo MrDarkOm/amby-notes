@@ -78,9 +78,9 @@ export function ActivityBar({
     <div
       data-activity-bar={side}
       className={cn(
-        "flex w-11 shrink-0 flex-col bg-[#0A0A0A]",
+        "flex w-11 shrink-0 flex-col bg-background",
         side === "left" ? "border-r" : "border-l",
-        "border-zinc-800",
+        "border-border",
       )}
     >
       {/* Configurable buttons */}
@@ -104,16 +104,16 @@ export function ActivityBar({
                   onClick={() => onActivate(def.id)}
                   className={cn(
                     "amby-activity-button",
-                    "flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white",
-                    isActive && "bg-zinc-800 text-white",
+                    "flex size-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white",
+                    isActive && "bg-accent text-white",
                   )}
                 >
                   <Icon className="size-4" />
                 </button>
               </ContextMenuTrigger>
-              <ContextMenuContent className="w-52 border-zinc-800 bg-black text-zinc-300">
+              <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
                 <ContextMenuItem
-                  className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                   onSelect={() => onMoveToOtherSide(def.id)}
                 >
                   {side === "left" ? t("activityBar.moveRight") : t("activityBar.moveLeft")}
@@ -132,7 +132,7 @@ export function ActivityBar({
             <button
               type="button"
               title={t("activityBar.notifications")}
-              className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+              className="flex size-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white"
             >
               <Bell className="size-4" />
             </button>
@@ -141,7 +141,7 @@ export function ActivityBar({
                 <button
                   type="button"
                   title={t("activityBar.presetMenu")}
-                  className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+                  className="flex size-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white"
                 >
                   <Settings className="size-4" />
                 </button>
@@ -149,29 +149,29 @@ export function ActivityBar({
               <DropdownMenuContent
                 side="right"
                 align="end"
-                className="w-48 border-zinc-800 bg-black text-zinc-300"
+                className="w-48 border-border bg-popover text-foreground"
               >
                 {onOpenSettings && (
                   <>
                     <DropdownMenuItem
                       onSelect={onOpenSettings}
-                      className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                     >
-                      <Settings className="size-3.5 text-zinc-500" />
+                      <Settings className="size-3.5 text-muted-foreground" />
                       {t("activityBar.settings")}
                     </DropdownMenuItem>
-                    <DropdownMenuSeparator className="bg-zinc-800" />
+                    <DropdownMenuSeparator className="bg-accent" />
                   </>
                 )}
-                <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-zinc-500">
+                <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">
                   {t("activityBar.presetSection")}
                 </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-zinc-800" />
+                <DropdownMenuSeparator className="bg-accent" />
                 {(presets ?? []).map(preset => (
                   <DropdownMenuItem
                     key={preset.id}
                     onSelect={() => onSwitchPreset?.(preset.id)}
-                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                   >
                     <Check
                       className={cn(
@@ -183,30 +183,30 @@ export function ActivityBar({
                   </DropdownMenuItem>
                 ))}
                 {(onExportPreset || onImportPreset) && (
-                  <DropdownMenuSeparator className="bg-zinc-800" />
+                  <DropdownMenuSeparator className="bg-accent" />
                 )}
                 {onExportPreset && (
                   <DropdownMenuItem
                     onSelect={onExportPreset}
-                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                   >
-                    <Download className="size-3.5 text-zinc-500" />
+                    <Download className="size-3.5 text-muted-foreground" />
                     {t("activityBar.exportCurrent")}
                   </DropdownMenuItem>
                 )}
                 {onImportPreset && (
                   <DropdownMenuItem
                     onSelect={onImportPreset}
-                    className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                   >
-                    <Upload className="size-3.5 text-zinc-500" />
+                    <Upload className="size-3.5 text-muted-foreground" />
                     {t("activityBar.importPreset")}
                   </DropdownMenuItem>
                 )}
                 {onSetPanelScope && (
                   <>
-                    <DropdownMenuSeparator className="bg-zinc-800" />
-                    <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-zinc-500">
+                    <DropdownMenuSeparator className="bg-accent" />
+                    <DropdownMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">
                       {t("activityBar.layoutSection")}
                     </DropdownMenuLabel>
                     {([
@@ -216,7 +216,7 @@ export function ActivityBar({
                       <DropdownMenuItem
                         key={opt.id}
                         onSelect={() => onSetPanelScope(opt.id)}
-                        className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+                        className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                       >
                         <Check
                           className={cn(
@@ -234,7 +234,7 @@ export function ActivityBar({
             <button
               type="button"
               title={t("activityBar.help")}
-              className="flex size-8 items-center justify-center rounded text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-white"
+              className="flex size-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white"
             >
               <HelpCircle className="size-4" />
             </button>

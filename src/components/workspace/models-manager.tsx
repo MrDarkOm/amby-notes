@@ -29,7 +29,7 @@ export function ModelsManager({ ai, onChange }: { ai: AiSettings; onChange: (nex
     <ScrollArea className="min-h-0 flex-1">
       <div className="flex flex-col gap-2.5 p-3">
         {ai.models.length === 0 && (
-          <p className="px-1 py-4 text-center text-[12px] text-zinc-600">
+          <p className="px-1 py-4 text-center text-[12px] text-muted-foreground">
             {t("models.empty")}
           </p>
         )}
@@ -45,7 +45,7 @@ export function ModelsManager({ ai, onChange }: { ai: AiSettings; onChange: (nex
         <button
           type="button"
           onClick={addModel}
-          className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-zinc-700 px-2 py-2 text-[12px] text-zinc-400 transition-colors hover:border-zinc-500 hover:text-zinc-200"
+          className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-2 text-[12px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
         >
           <Plus className="size-3.5" />
           {t("models.add")}
@@ -69,8 +69,8 @@ function ModelEditor({
   const { t } = useTranslation()
   const provider = findProvider(model.provider)
   const field =
-    "h-7 w-full min-w-0 rounded border border-zinc-800 bg-zinc-900 px-2 text-[12px] text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-sky-700"
-  const label = "text-[10px] uppercase tracking-wider text-zinc-500"
+    "h-7 w-full min-w-0 rounded border border-border bg-card px-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-sky-700"
+  const label = "text-[10px] uppercase tracking-wider text-muted-foreground"
   const set = (patch: Partial<AiModel>) => onChange({ ...model, ...patch })
 
   const locals = AI_PROVIDERS.filter(p => p.kind === "local")
@@ -79,8 +79,8 @@ function ModelEditor({
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 rounded-lg border bg-zinc-950 p-2.5",
-        active ? "border-sky-800/60" : "border-zinc-800",
+        "flex flex-col gap-2 rounded-lg border bg-background p-2.5",
+        active ? "border-sky-800/60" : "border-border",
       )}
     >
       <div className="flex items-center gap-2">
@@ -94,7 +94,7 @@ function ModelEditor({
           type="button"
           title={t("models.delete")}
           onClick={onDelete}
-          className="shrink-0 rounded p-1 text-zinc-600 hover:bg-zinc-800 hover:text-red-400"
+          className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-red-400"
         >
           <Trash2 className="size-3.5" />
         </button>
@@ -168,7 +168,7 @@ function ModelEditor({
       )}
 
       {provider?.kind === "cloud" && (
-        <p className="text-[10px] leading-snug text-zinc-600">
+        <p className="text-[10px] leading-snug text-muted-foreground">
           {t("models.privacyNote")}
         </p>
       )}

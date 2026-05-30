@@ -51,24 +51,24 @@ export function QuickOpenModal({ open, onClose, treeItems, onSelectFile, onNewNo
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="w-[480px] border-zinc-800 bg-zinc-950 p-0 shadow-2xl [&>button]:hidden">
+      <DialogContent className="w-[480px] border-border bg-background p-0 shadow-2xl [&>button]:hidden">
         <Command className="rounded-lg bg-transparent">
           <CommandInput
             placeholder={t("quickOpen.searchPlaceholder")}
-            className="h-11 border-none text-zinc-200 placeholder:text-zinc-500 focus:ring-0"
+            className="h-11 border-none text-foreground placeholder:text-muted-foreground focus:ring-0"
           />
           <CommandList className="max-h-72 overflow-y-auto">
-            <CommandEmpty className="py-6 text-center text-sm text-zinc-500">
+            <CommandEmpty className="py-6 text-center text-sm text-muted-foreground">
               {t("quickOpen.noFiles")}
             </CommandEmpty>
 
-            <CommandGroup heading={t("quickOpen.actionsHeading")} className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-zinc-600 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+            <CommandGroup heading={t("quickOpen.actionsHeading")} className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
               <CommandItem
                 onSelect={handleNewNote}
-                className="flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] text-zinc-300 aria-selected:bg-zinc-800 aria-selected:text-white cursor-pointer"
+                className="flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] text-foreground aria-selected:bg-accent aria-selected:text-white cursor-pointer"
               >
-                <div className="flex size-6 items-center justify-center rounded bg-zinc-800">
-                  <Plus className="size-3.5 text-zinc-400" />
+                <div className="flex size-6 items-center justify-center rounded bg-accent">
+                  <Plus className="size-3.5 text-muted-foreground" />
                 </div>
                 {t("quickOpen.createNote")}
               </CommandItem>
@@ -76,16 +76,16 @@ export function QuickOpenModal({ open, onClose, treeItems, onSelectFile, onNewNo
 
             {files.length > 0 && (
               <>
-                <CommandSeparator className="bg-zinc-800" />
-                <CommandGroup heading={t("quickOpen.filesHeading")} className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-zinc-600 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+                <CommandSeparator className="bg-accent" />
+                <CommandGroup heading={t("quickOpen.filesHeading")} className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
                   {files.map(file => (
                     <CommandItem
                       key={file.id}
                       value={file.name}
                       onSelect={() => handleSelect(file.id)}
-                      className="flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] text-zinc-300 aria-selected:bg-zinc-800 aria-selected:text-white cursor-pointer"
+                      className="flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] text-foreground aria-selected:bg-accent aria-selected:text-white cursor-pointer"
                     >
-                      <FileText className="size-4 shrink-0 text-zinc-500" />
+                      <FileText className="size-4 shrink-0 text-muted-foreground" />
                       <span className="truncate">{file.name}</span>
                     </CommandItem>
                   ))}

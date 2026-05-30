@@ -77,8 +77,8 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
   if (loading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2">
-        <Loader2 className="size-5 animate-spin text-zinc-600" />
-        <p className="text-[12px] text-zinc-600">{t("tagsPanel.scanning")}</p>
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <p className="text-[12px] text-muted-foreground">{t("tagsPanel.scanning")}</p>
       </div>
     )
   }
@@ -86,7 +86,7 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
   if (!readFile) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center">
-        <p className="text-[12px] text-zinc-600">{t("tagsPanel.noAccess")}</p>
+        <p className="text-[12px] text-muted-foreground">{t("tagsPanel.noAccess")}</p>
       </div>
     )
   }
@@ -94,9 +94,9 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
   if (tags.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-4">
-        <Hash className="size-8 text-zinc-700" />
-        <p className="text-[12px] text-zinc-500">{t("tagsPanel.empty")}</p>
-        <p className="text-[11px] text-zinc-700">{t("tagsPanel.emptyHint")}</p>
+        <Hash className="size-8 text-muted-foreground" />
+        <p className="text-[12px] text-muted-foreground">{t("tagsPanel.empty")}</p>
+        <p className="text-[11px] text-muted-foreground">{t("tagsPanel.emptyHint")}</p>
       </div>
     )
   }
@@ -110,12 +110,12 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
             <div key={tag}>
               <button
                 onClick={() => toggleTag(tag)}
-                className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left transition-colors hover:bg-zinc-800"
+                className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left transition-colors hover:bg-accent"
               >
-                <ChevronRight className={cn("size-3 shrink-0 text-zinc-600 transition-transform", isOpen && "rotate-90")} />
+                <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
                 <Hash className="size-3.5 shrink-0 text-violet-400" />
-                <span className="flex-1 truncate text-[13px] text-zinc-300">{tag}</span>
-                <span className="shrink-0 text-[11px] text-zinc-600">{files.length}</span>
+                <span className="flex-1 truncate text-[13px] text-foreground">{tag}</span>
+                <span className="shrink-0 text-[11px] text-muted-foreground">{files.length}</span>
               </button>
               {isOpen && (
                 <div className="ml-4 flex flex-col gap-px">
@@ -123,12 +123,12 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
                     <button
                       key={item.id}
                       onClick={() => onSelect(item.id)}
-                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left transition-colors hover:bg-zinc-800"
+                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left transition-colors hover:bg-accent"
                     >
-                      <FileText className="size-3.5 shrink-0 text-zinc-600" />
+                      <FileText className="size-3.5 shrink-0 text-muted-foreground" />
                       <div className="min-w-0">
-                        <p className="truncate text-[12px] text-zinc-300">{item.name}</p>
-                        {path && <p className="truncate text-[10px] text-zinc-600">{path}</p>}
+                        <p className="truncate text-[12px] text-foreground">{item.name}</p>
+                        {path && <p className="truncate text-[10px] text-muted-foreground">{path}</p>}
                       </div>
                     </button>
                   ))}

@@ -112,30 +112,30 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
 
   return (
     <NodeViewWrapper
-      className="amby-db-block my-2 rounded-md border border-zinc-800 bg-[#0D0D0D]"
+      className="amby-db-block my-2 rounded-md border border-border bg-[#0D0D0D]"
       data-block-type={node.attrs.blockType}
     >
       <div contentEditable={false} onKeyDown={e => e.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5 text-[11px] uppercase tracking-wider text-zinc-500">
+        <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
           <Database className="size-3.5" />
           {t("dbBlock.database")}
         </div>
 
         {data === null ? (
-          <div className="px-3 py-4 text-[13px] text-zinc-600">{t("dbBlock.loading")}</div>
+          <div className="px-3 py-4 text-[13px] text-muted-foreground">{t("dbBlock.loading")}</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-[13px] text-zinc-200">
+            <table className="w-full border-collapse text-[13px] text-foreground">
               <thead>
                 <tr>
                   {data.columns.map((col, c) => (
-                    <th key={c} className="border-b border-zinc-800 p-0 text-left font-medium">
+                    <th key={c} className="border-b border-border p-0 text-left font-medium">
                       <div className="group flex items-center">
                         <input
                           value={col}
                           disabled={!editable}
                           onChange={e => setColumn(c, e.target.value)}
-                          className="w-full bg-transparent px-2 py-1.5 text-zinc-300 outline-none placeholder:text-zinc-600"
+                          className="w-full bg-transparent px-2 py-1.5 text-foreground outline-none placeholder:text-muted-foreground"
                           placeholder={t("dbBlock.columnPlaceholder")}
                         />
                         {editable && data.columns.length > 1 && (
@@ -143,7 +143,7 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
                             type="button"
                             title={t("dbBlock.deleteColumn")}
                             onClick={() => removeColumn(c)}
-                            className="invisible mr-1 rounded p-0.5 text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300 group-hover:visible"
+                            className="invisible mr-1 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover:visible"
                           >
                             <X className="size-3" />
                           </button>
@@ -151,13 +151,13 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
                       </div>
                     </th>
                   ))}
-                  <th className="w-8 border-b border-zinc-800">
+                  <th className="w-8 border-b border-border">
                     {editable && (
                       <button
                         type="button"
                         title={t("dbBlock.addColumn")}
                         onClick={addColumn}
-                        className="flex size-7 items-center justify-center text-zinc-600 hover:text-zinc-300"
+                        className="flex size-7 items-center justify-center text-muted-foreground hover:text-foreground"
                       >
                         <Plus className="size-3.5" />
                       </button>
@@ -169,7 +169,7 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
                 {data.rows.map((row, r) => (
                   <tr key={r} className="group/row">
                     {row.map((cell, c) => (
-                      <td key={c} className="border-b border-zinc-900 p-0 align-top">
+                      <td key={c} className="border-b border-border p-0 align-top">
                         <input
                           value={cell}
                           disabled={!editable}
@@ -178,13 +178,13 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
                         />
                       </td>
                     ))}
-                    <td className="border-b border-zinc-900 text-center align-middle">
+                    <td className="border-b border-border text-center align-middle">
                       {editable && (
                         <button
                           type="button"
                           title={t("dbBlock.deleteRow")}
                           onClick={() => removeRow(r)}
-                          className="invisible rounded p-0.5 text-zinc-600 hover:bg-zinc-800 hover:text-zinc-300 group-hover/row:visible"
+                          className="invisible rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover/row:visible"
                         >
                           <X className="size-3" />
                         </button>
@@ -199,7 +199,7 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
               <button
                 type="button"
                 onClick={addRow}
-                className="flex w-full items-center gap-1.5 px-2 py-1.5 text-[12px] text-zinc-600 hover:bg-zinc-900 hover:text-zinc-300"
+                className="flex w-full items-center gap-1.5 px-2 py-1.5 text-[12px] text-muted-foreground hover:bg-card hover:text-foreground"
               >
                 <Plus className="size-3.5" />
                 {t("dbBlock.addRow")}

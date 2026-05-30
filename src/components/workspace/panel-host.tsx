@@ -22,16 +22,16 @@ export function PanelHost({ side, activeId, props }: PanelHostProps) {
   return (
     <div
       className={cn(
-        "flex h-full min-h-0 w-full flex-col bg-[#0A0A0A]",
+        "flex h-full min-h-0 w-full flex-col bg-background",
         side === "left" ? "border-r" : "border-l",
-        "border-zinc-800",
+        "border-border",
       )}
     >
       {def ? (
         def.render(props)
       ) : (
         <div className="flex h-full items-center justify-center px-4 text-center">
-          <p className="text-[11px] text-zinc-600">{t("panelHost.noPanel")}</p>
+          <p className="text-[11px] text-muted-foreground">{t("panelHost.noPanel")}</p>
         </div>
       )}
     </div>

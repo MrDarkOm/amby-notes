@@ -54,15 +54,15 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   return (
     <div className="flex items-center justify-between gap-4 py-2.5">
       <div className="min-w-0">
-        <div className="text-[13px] text-zinc-200">{label}</div>
-        {hint && <div className="mt-0.5 text-[11px] text-zinc-500">{hint}</div>}
+        <div className="text-[13px] text-foreground">{label}</div>
+        {hint && <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>}
       </div>
       <div className="shrink-0">{children}</div>
     </div>
   )
 }
 
-const selectTrigger = "h-8 w-44 bg-zinc-900 border-zinc-800 text-[13px] text-zinc-200"
+const selectTrigger = "h-8 w-44 bg-card border-border text-[13px] text-foreground"
 
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { t } = useTranslation()
@@ -71,13 +71,13 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[80vh] flex-col gap-4 border-zinc-800 bg-[#0a0a0a] sm:max-w-2xl">
+      <DialogContent className="flex max-h-[80vh] flex-col gap-4 border-border bg-background sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-zinc-100">{t("settings.title")}</DialogTitle>
+          <DialogTitle className="text-foreground">{t("settings.title")}</DialogTitle>
         </DialogHeader>
 
         <Tabs defaultValue="appearance" className="min-h-0 flex-1">
-          <TabsList className="bg-zinc-900">
+          <TabsList className="bg-card">
             <TabsTrigger value="appearance">{t("settings.tabs.appearance")}</TabsTrigger>
             <TabsTrigger value="editor">{t("settings.tabs.editor")}</TabsTrigger>
             <TabsTrigger value="ai">{t("settings.tabs.ai")}</TabsTrigger>
@@ -87,7 +87,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
 
           <div className="mt-2 max-h-[55vh] min-h-[280px] overflow-y-auto pr-1">
             {/* ── Appearance ───────────────────────────────────────────── */}
-            <TabsContent value="appearance" className="divide-y divide-zinc-900">
+            <TabsContent value="appearance" className="divide-y divide-border">
               <Row label={t("settings.appearance.theme")}>
                 <Select value={prefs.theme} onValueChange={(v) => setPrefs({ theme: v as ThemePref })}>
                   <SelectTrigger className={selectTrigger}>
@@ -161,7 +161,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
             </TabsContent>
 
             {/* ── Editor ───────────────────────────────────────────────── */}
-            <TabsContent value="editor" className="divide-y divide-zinc-900">
+            <TabsContent value="editor" className="divide-y divide-border">
               <Row label={t("settings.editor.defaultViewMode")}>
                 <Select
                   value={prefs.editor.defaultViewMode}
@@ -205,19 +205,19 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     const n = Number(e.target.value)
                     if (Number.isFinite(n)) setPrefs({ editor: { ...prefs.editor, autosaveMs: n } })
                   }}
-                  className="h-8 w-24 rounded-md border border-zinc-800 bg-zinc-900 px-2 text-right text-[13px] text-zinc-200 outline-none focus:border-zinc-600"
+                  className="h-8 w-24 rounded-md border border-border bg-card px-2 text-right text-[13px] text-foreground outline-none focus:border-border"
                 />
               </Row>
             </TabsContent>
 
             {/* ── AI ───────────────────────────────────────────────────── */}
             <TabsContent value="ai" className="flex h-full min-h-0 flex-col">
-              <p className="px-1 pb-2 text-[12px] text-zinc-500">{t("settings.ai.desc")}</p>
+              <p className="px-1 pb-2 text-[12px] text-muted-foreground">{t("settings.ai.desc")}</p>
               <AiTab />
             </TabsContent>
 
             {/* ── Startup ──────────────────────────────────────────────── */}
-            <TabsContent value="startup" className="divide-y divide-zinc-900">
+            <TabsContent value="startup" className="divide-y divide-border">
               <Row label={t("settings.startup.reopenLastVault")}>
                 <Switch
                   checked={prefs.startup.reopenLastVault}
@@ -282,14 +282,14 @@ function DataTab() {
   }, [])
 
   const btn =
-    "flex items-center gap-2 rounded-md border border-zinc-800 px-3 py-2 text-[13px] text-zinc-200 transition-colors hover:bg-zinc-900"
+    "flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] text-foreground transition-colors hover:bg-card"
 
   return (
     <div className="flex flex-col gap-4 py-1">
       <div>
-        <div className="mb-1 text-[13px] text-zinc-200">{t("settings.data.location")}</div>
+        <div className="mb-1 text-[13px] text-foreground">{t("settings.data.location")}</div>
         <div className="flex items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded bg-zinc-900 px-2 py-1.5 text-[12px] text-zinc-400">
+          <code className="min-w-0 flex-1 truncate rounded bg-card px-2 py-1.5 text-[12px] text-muted-foreground">
             {dir || (isTauri() ? "…" : "localStorage (web)")}
           </code>
           {isTauri() && (

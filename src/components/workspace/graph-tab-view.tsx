@@ -259,24 +259,24 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
   if (nodes.length === 0 || edges.length === 0) {
     return (
       <div ref={containerRef} className="flex h-full w-full flex-col items-center justify-center gap-3 bg-background px-6 text-center">
-        <Network className="size-12 text-zinc-700" />
-        <p className="text-[14px] text-zinc-500">{t("graph.noLinks")}</p>
-        <p className="text-[12px] text-zinc-600">{t("graph.noLinksHint")}</p>
+        <Network className="size-12 text-muted-foreground" />
+        <p className="text-[14px] text-muted-foreground">{t("graph.noLinks")}</p>
+        <p className="text-[12px] text-muted-foreground">{t("graph.noLinksHint")}</p>
       </div>
     )
   }
 
   return (
     <div ref={containerRef} className="flex h-full w-full flex-col bg-background">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-800 px-4 py-2">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2">
         <div>
-          <p className="text-[13px] font-medium text-zinc-300">{t("graph.title")}</p>
-          <p className="text-[11px] text-zinc-600">{t("graph.stats", { nodes: nodes.length, edges: edges.length })}</p>
+          <p className="text-[13px] font-medium text-foreground">{t("graph.title")}</p>
+          <p className="text-[11px] text-muted-foreground">{t("graph.stats", { nodes: nodes.length, edges: edges.length })}</p>
         </div>
         <button
           type="button"
           onClick={recenter}
-          className="flex h-7 items-center gap-1 rounded px-2 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+          className="flex h-7 items-center gap-1 rounded px-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
           title={t("graph.restartLayout")}
         >
           <RotateCw className="size-3.5" />

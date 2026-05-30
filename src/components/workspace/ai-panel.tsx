@@ -100,16 +100,16 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
   }, [ai, currentDoc, input, loading, messages])
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#0A0A0A]">
+    <div className="flex h-full min-h-0 flex-col bg-background">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-3 py-2">
-        <div className="flex items-center gap-2 text-[13px] font-medium text-zinc-200">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
+        <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
           {showSettings ? (
             <button
               type="button"
               title={t("ai.backToChat")}
               onClick={() => setShowSettings(false)}
-              className="-ml-1 rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+              className="-ml-1 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <ArrowLeft className="size-4" />
             </button>
@@ -123,7 +123,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
             type="button"
             title={t("ai.modelsAndProviders")}
             onClick={() => setShowSettings(true)}
-            className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
           >
             <Settings2 className="size-4" />
           </button>
@@ -135,11 +135,11 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
       ) : (
         <>
           {/* Context scope chip */}
-          <div className="flex shrink-0 items-center gap-1.5 border-b border-zinc-900 px-3 py-1.5 text-[11px] text-zinc-500">
+          <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground">
             <FileText className="size-3 shrink-0" />
             <span className="truncate">
               {currentDoc ? (
-                <>{t("ai.contextPrefix")} <span className="text-zinc-400">{currentDoc.title || t("ai.untitled")}</span></>
+                <>{t("ai.contextPrefix")} <span className="text-muted-foreground">{currentDoc.title || t("ai.untitled")}</span></>
               ) : (
                 <>{t("ai.contextPrefix")} {t("ai.noNote")}</>
               )}
@@ -150,7 +150,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
           <ScrollArea className="min-h-0 flex-1">
             <div ref={scrollRef} className="flex flex-col gap-3 p-3">
               {messages.length === 0 && !loading && (
-                <p className="px-1 py-6 text-center text-[12px] text-zinc-600">
+                <p className="px-1 py-6 text-center text-[12px] text-muted-foreground">
                   {t("ai.askAboutNote")}
                 </p>
               )}
@@ -160,16 +160,16 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
                   className={cn(
                     "max-w-[92%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-[13px] leading-relaxed",
                     m.role === "user"
-                      ? "self-end bg-sky-600/20 text-zinc-100"
-                      : "self-start bg-zinc-900 text-zinc-200",
+                      ? "self-end bg-sky-600/20 text-foreground"
+                      : "self-start bg-card text-foreground",
                   )}
                 >
                   {m.content}
                 </div>
               ))}
               {streaming !== null && (
-                <div className="max-w-[92%] self-start whitespace-pre-wrap break-words rounded-lg bg-zinc-900 px-3 py-2 text-[13px] leading-relaxed text-zinc-200">
-                  {streaming || <span className="text-zinc-500">{t("ai.thinking")}</span>}
+                <div className="max-w-[92%] self-start whitespace-pre-wrap break-words rounded-lg bg-card px-3 py-2 text-[13px] leading-relaxed text-foreground">
+                  {streaming || <span className="text-muted-foreground">{t("ai.thinking")}</span>}
                 </div>
               )}
               {error && (
@@ -181,7 +181,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
           </ScrollArea>
 
           {/* Input + model picker */}
-          <div className="flex shrink-0 flex-col gap-2 border-t border-zinc-800 p-2">
+          <div className="flex shrink-0 flex-col gap-2 border-t border-border p-2">
             <div className="flex items-end gap-2">
               <textarea
                 value={input}
@@ -194,7 +194,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
                 }}
                 rows={2}
                 placeholder={t("ai.messagePlaceholder")}
-                className="min-h-[2.25rem] min-w-0 flex-1 resize-none rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1.5 text-[13px] text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-zinc-700"
+                className="min-h-[2.25rem] min-w-0 flex-1 resize-none rounded-md border border-border bg-card px-2 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-border"
               />
               <button
                 type="button"
@@ -210,7 +210,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
               value={ai.activeModelId ?? ""}
               onChange={e => updateAi({ ...ai, activeModelId: e.target.value })}
               title={t("ai.activeModel")}
-              className="h-6 w-full rounded border border-zinc-800 bg-zinc-900 px-1.5 text-[11px] text-zinc-400 outline-none focus:border-zinc-700"
+              className="h-6 w-full rounded border border-border bg-card px-1.5 text-[11px] text-muted-foreground outline-none focus:border-border"
             >
               {ai.models.length === 0 && <option value="">{t("ai.noModelsOpenSettings")}</option>}
               {ai.models.map(m => (

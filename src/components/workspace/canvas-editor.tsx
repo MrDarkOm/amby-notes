@@ -124,7 +124,7 @@ const SIDES: Array<{ side: "top" | "right" | "bottom" | "left"; pos: Position }>
 
 function SideHandles({ visible }: { visible: boolean }) {
   const base = cn(
-    "!size-3 !border-2 !border-zinc-400 !bg-zinc-700 transition-opacity",
+    "!size-3 !border-2 !border-muted-foreground !bg-accent transition-opacity",
     visible ? "!opacity-100" : "!opacity-0",
   )
   return (
@@ -153,8 +153,8 @@ function TextNode({ id, data, selected }: NodeProps) {
   return (
     <div
       className={cn(
-        "group relative flex h-full w-full flex-col overflow-hidden rounded-md border bg-zinc-900 text-zinc-100 shadow",
-        selected ? "border-zinc-300" : "border-zinc-700",
+        "group relative flex h-full w-full flex-col overflow-hidden rounded-md border bg-card text-foreground shadow",
+        selected ? "border-foreground/30" : "border-border",
       )}
       style={accent ? { borderLeft: `3px solid ${accent}` } : undefined}
       onMouseEnter={() => setHover(true)}
@@ -171,7 +171,7 @@ function TextNode({ id, data, selected }: NodeProps) {
           autoFocus
           value={d.text ?? ""}
           placeholder={t("canvas.textPlaceholder")}
-          className="nodrag nowheel h-full w-full resize-none bg-transparent p-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600"
+          className="nodrag nowheel h-full w-full resize-none bg-transparent p-2 text-sm text-foreground outline-none placeholder:text-muted-foreground"
           onChange={(e) => updateNodeData(id, { text: e.target.value })}
           onBlur={() => setEditing(false)}
           onKeyDown={(e) => {
@@ -183,7 +183,7 @@ function TextNode({ id, data, selected }: NodeProps) {
         />
       ) : html ? (
         <div
-          className="canvas-md nowheel h-full w-full overflow-auto p-2 text-sm leading-snug text-zinc-100"
+          className="canvas-md nowheel h-full w-full overflow-auto p-2 text-sm leading-snug text-foreground"
           dangerouslySetInnerHTML={{ __html: html }}
           onClick={(e) => {
             const el = (e.target as HTMLElement).closest("[data-wikilink]") as HTMLElement | null
@@ -194,7 +194,7 @@ function TextNode({ id, data, selected }: NodeProps) {
           }}
         />
       ) : (
-        <div className="flex h-full w-full items-center justify-center p-2 text-xs text-zinc-600">
+        <div className="flex h-full w-full items-center justify-center p-2 text-xs text-muted-foreground">
           {t("canvas.doubleClickText")}
         </div>
       )}
@@ -231,8 +231,8 @@ function FileNode({ data, selected }: NodeProps) {
   return (
     <div
       className={cn(
-        "group relative flex h-full w-full flex-col overflow-hidden rounded-md border bg-zinc-900 text-zinc-100 shadow",
-        selected ? "border-zinc-300" : "border-zinc-700",
+        "group relative flex h-full w-full flex-col overflow-hidden rounded-md border bg-card text-foreground shadow",
+        selected ? "border-foreground/30" : "border-border",
       )}
       style={accent ? { borderLeft: `3px solid ${accent}` } : undefined}
       onMouseEnter={() => setHover(true)}
@@ -249,9 +249,9 @@ function FileNode({ data, selected }: NodeProps) {
         <img src={imgUrl} alt={title} className="h-full w-full object-contain" draggable={false} />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
-          {isImage ? <ImageIcon className="size-5 text-zinc-400" /> : <FileText className="size-5 text-zinc-400" />}
-          <span className="line-clamp-3 text-sm font-medium text-zinc-200">{title || t("canvas.noteNotSelected")}</span>
-          {file && !isImage ? <span className="text-[10px] text-zinc-600">{t("canvas.doubleClickOpen")}</span> : null}
+          {isImage ? <ImageIcon className="size-5 text-muted-foreground" /> : <FileText className="size-5 text-muted-foreground" />}
+          <span className="line-clamp-3 text-sm font-medium text-foreground">{title || t("canvas.noteNotSelected")}</span>
+          {file && !isImage ? <span className="text-[10px] text-muted-foreground">{t("canvas.doubleClickOpen")}</span> : null}
         </div>
       )}
     </div>
@@ -283,7 +283,7 @@ function GroupNode({ id, data, selected }: NodeProps) {
           autoFocus
           value={d.label ?? ""}
           placeholder={t("canvas.groupPlaceholder")}
-          className="nodrag m-1 w-fit max-w-[90%] rounded bg-zinc-900/80 px-1 text-xs font-medium text-zinc-200 outline-none"
+          className="nodrag m-1 w-fit max-w-[90%] rounded bg-card/80 px-1 text-xs font-medium text-foreground outline-none"
           onChange={(e) => updateNodeData(id, { label: e.target.value })}
           onBlur={() => setEditing(false)}
           onKeyDown={(e) => {
@@ -363,12 +363,12 @@ function CanvasEdge({
                 setEditing(false)
               }
             }}
-            className="nodrag nopan absolute rounded border border-zinc-600 bg-zinc-900 px-1 text-[11px] text-zinc-100 outline-none"
+            className="nodrag nopan absolute rounded border border-border bg-card px-1 text-[11px] text-foreground outline-none"
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, pointerEvents: "all" }}
           />
         ) : d.label ? (
           <div
-            className="nodrag nopan absolute cursor-text rounded bg-zinc-900/90 px-1 text-[11px] text-zinc-200"
+            className="nodrag nopan absolute cursor-text rounded bg-card/90 px-1 text-[11px] text-foreground"
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, pointerEvents: "all" }}
             onDoubleClick={(e) => {
               e.stopPropagation()
@@ -395,7 +395,7 @@ function ColorSwatches({ onPick }: { onPick: (key: string | undefined) => void }
         type="button"
         title={t("canvas.reset")}
         onClick={() => onPick(undefined)}
-        className="size-4 rounded-full border border-zinc-600 bg-transparent"
+        className="size-4 rounded-full border border-border bg-transparent"
       />
       {PRESET_COLOR_KEYS.map((key) => (
         <button
@@ -434,8 +434,8 @@ function MenuItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[13px] hover:bg-zinc-800",
-        danger ? "text-red-400 hover:text-red-300" : "text-zinc-200",
+        "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[13px] hover:bg-accent",
+        danger ? "text-red-400 hover:text-red-300" : "text-foreground",
       )}
     >
       {children}
@@ -783,12 +783,12 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
           className="bg-background"
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3f3f46" />
-          <Controls className="!border-zinc-700 !bg-zinc-900" />
-          <MiniMap className="!bg-zinc-900" maskColor="rgba(0,0,0,0.6)" nodeColor="#52525b" pannable zoomable />
+          <Controls className="!border-border !bg-card" />
+          <MiniMap className="!bg-card" maskColor="rgba(0,0,0,0.6)" nodeColor="#52525b" pannable zoomable />
         </ReactFlow>
 
         {/* Floating add-node toolbar */}
-        <div className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-md border border-zinc-700 bg-zinc-900/90 p-1 shadow backdrop-blur">
+        <div className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-md border border-border bg-card/90 p-1 shadow backdrop-blur">
           <ToolbarButton title={t("canvas.textCard")} onClick={() => addNode("text")}>
             <StickyNote className="size-4" />
           </ToolbarButton>
@@ -798,7 +798,7 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
           <ToolbarButton title={t("canvas.group")} onClick={() => addNode("group")}>
             <GroupIcon className="size-4" />
           </ToolbarButton>
-          <div className="px-1 text-[10px] text-zinc-600">
+          <div className="px-1 text-[10px] text-muted-foreground">
             <Plus className="size-3" />
           </div>
         </div>
@@ -808,42 +808,42 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
           <>
             <div className="fixed inset-0 z-20" onClick={closeMenu} onContextMenu={(e) => { e.preventDefault(); closeMenu() }} />
             <div
-              className="fixed z-30 min-w-[180px] overflow-hidden rounded-md border border-zinc-700 bg-zinc-900 py-1 shadow-xl"
+              className="fixed z-30 min-w-[180px] overflow-hidden rounded-md border border-border bg-card py-1 shadow-xl"
               style={{ left: menu.x, top: menu.y }}
             >
               {menu.kind === "pane" ? (
                 <>
                   <MenuItem onClick={() => { addNode("text", menu.flow); closeMenu() }}>
-                    <StickyNote className="size-3.5 text-zinc-400" />{t("canvas.textCard")}
+                    <StickyNote className="size-3.5 text-muted-foreground" />{t("canvas.textCard")}
                   </MenuItem>
                   <MenuItem onClick={() => { addNode("file", menu.flow); closeMenu() }}>
-                    <FileText className="size-3.5 text-zinc-400" />{t("canvas.noteCard")}
+                    <FileText className="size-3.5 text-muted-foreground" />{t("canvas.noteCard")}
                   </MenuItem>
                   <MenuItem onClick={() => { addNode("group", menu.flow); closeMenu() }}>
-                    <GroupIcon className="size-3.5 text-zinc-400" />{t("canvas.group")}
+                    <GroupIcon className="size-3.5 text-muted-foreground" />{t("canvas.group")}
                   </MenuItem>
                   {clipboard.nodes.length > 0 ? (
                     <MenuItem onClick={() => { pasteClipboard(); closeMenu() }}>
-                      <Copy className="size-3.5 text-zinc-400" />{t("canvas.paste")}
+                      <Copy className="size-3.5 text-muted-foreground" />{t("canvas.paste")}
                     </MenuItem>
                   ) : null}
                 </>
               ) : menu.kind === "node" && menu.targetId ? (
                 <>
                   <MenuItem onClick={() => { duplicateSelectionOrOne(menu.targetId!); closeMenu() }}>
-                    <Copy className="size-3.5 text-zinc-400" />{t("canvas.duplicate")}
+                    <Copy className="size-3.5 text-muted-foreground" />{t("canvas.duplicate")}
                   </MenuItem>
                   <MenuItem onClick={() => { bringTo(menu.targetId!, "front"); closeMenu() }}>
-                    <ArrowUpToLine className="size-3.5 text-zinc-400" />{t("canvas.bringToFront")}
+                    <ArrowUpToLine className="size-3.5 text-muted-foreground" />{t("canvas.bringToFront")}
                   </MenuItem>
                   <MenuItem onClick={() => { bringTo(menu.targetId!, "back"); closeMenu() }}>
-                    <ArrowDownToLine className="size-3.5 text-zinc-400" />{t("canvas.sendToBack")}
+                    <ArrowDownToLine className="size-3.5 text-muted-foreground" />{t("canvas.sendToBack")}
                   </MenuItem>
-                  <div className="flex items-center gap-1 border-t border-zinc-800 px-1 pt-1 text-zinc-500">
+                  <div className="flex items-center gap-1 border-t border-border px-1 pt-1 text-muted-foreground">
                     <Palette className="ml-1.5 size-3.5" />
                     <ColorSwatches onPick={(c) => { setNodeColor(menu.targetId!, c); closeMenu() }} />
                   </div>
-                  <div className="border-t border-zinc-800" />
+                  <div className="border-t border-border" />
                   <MenuItem danger onClick={() => { removeNode(menu.targetId!); closeMenu() }}>
                     <Trash2 className="size-3.5" />{t("canvas.delete")}
                   </MenuItem>
@@ -851,19 +851,19 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
               ) : menu.kind === "edge" && menu.targetId ? (
                 <>
                   <MenuItem onClick={() => { cycleArrows(menu.targetId!, "to"); closeMenu() }}>
-                    <MoveRight className="size-3.5 text-zinc-400" />{t("canvas.arrowRight")}
+                    <MoveRight className="size-3.5 text-muted-foreground" />{t("canvas.arrowRight")}
                   </MenuItem>
                   <MenuItem onClick={() => { cycleArrows(menu.targetId!, "both"); closeMenu() }}>
-                    <MoveHorizontal className="size-3.5 text-zinc-400" />{t("canvas.arrowBoth")}
+                    <MoveHorizontal className="size-3.5 text-muted-foreground" />{t("canvas.arrowBoth")}
                   </MenuItem>
                   <MenuItem onClick={() => { cycleArrows(menu.targetId!, "none"); closeMenu() }}>
-                    <Minus className="size-3.5 text-zinc-400" />{t("canvas.noArrows")}
+                    <Minus className="size-3.5 text-muted-foreground" />{t("canvas.noArrows")}
                   </MenuItem>
-                  <div className="flex items-center gap-1 border-t border-zinc-800 px-1 pt-1 text-zinc-500">
+                  <div className="flex items-center gap-1 border-t border-border px-1 pt-1 text-muted-foreground">
                     <Palette className="ml-1.5 size-3.5" />
                     <ColorSwatches onPick={(c) => { setEdgeColor(menu.targetId!, c); closeMenu() }} />
                   </div>
-                  <div className="border-t border-zinc-800" />
+                  <div className="border-t border-border" />
                   <MenuItem danger onClick={() => { removeEdge(menu.targetId!); closeMenu() }}>
                     <Trash2 className="size-3.5" />{t("canvas.delete")}
                   </MenuItem>
@@ -891,7 +891,7 @@ function ToolbarButton({ title, onClick, children }: { title: string; onClick: (
       type="button"
       title={title}
       onClick={onClick}
-      className="flex size-7 items-center justify-center rounded text-zinc-300 hover:bg-zinc-800 hover:text-white"
+      className="flex size-7 items-center justify-center rounded text-foreground hover:bg-accent hover:text-white"
     >
       {children}
     </button>

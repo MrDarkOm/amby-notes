@@ -202,27 +202,27 @@ function FilesPanel(props: PanelRenderProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Toolbar */}
-      <div className="flex h-9 shrink-0 items-center border-b border-zinc-800 px-1 gap-px">
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title={t("filesPanel.createNote")}
+      <div className="flex h-9 shrink-0 items-center border-b border-border px-1 gap-px">
+        <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:bg-accent hover:text-white" title={t("filesPanel.createNote")}
           onClick={() => { if (!vault) onOpenVault(); else onNewFile?.(null) }}>
           <FilePlus className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title={t("filesPanel.createFolder")}
+        <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:bg-accent hover:text-white" title={t("filesPanel.createFolder")}
           onClick={() => { if (!vault) onOpenVault(); else onNewFolder?.(null) }}>
           <FolderPlus className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title={t("filesPanel.createCanvas")}
+        <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:bg-accent hover:text-white" title={t("filesPanel.createCanvas")}
           onClick={() => { if (!vault) onOpenVault(); else onNewCanvas?.(null) }}>
           <LayoutGrid className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title={t("filesPanel.sortOrder")}>
+        <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:bg-accent hover:text-white" title={t("filesPanel.sortOrder")}>
           <ArrowDownUp className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white" title={t("filesPanel.findActive")}
+        <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:bg-accent hover:text-white" title={t("filesPanel.findActive")}
           onClick={handleFindActive}>
           <LocateFixed className="size-3.5" />
         </Button>
-        <Button variant="ghost" size="icon" className="size-7 text-zinc-500 hover:bg-zinc-800 hover:text-white"
+        <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
           title={allOpen ? t("filesPanel.collapseAll") : t("filesPanel.expandAll")}
           onClick={handleToggleFolders}>
           {allOpen ? <ChevronsDownUp className="size-3.5" /> : <ChevronsUpDown className="size-3.5" />}
@@ -235,7 +235,7 @@ function FilesPanel(props: PanelRenderProps) {
             <ScrollArea className="flex-1 min-h-0">
               <div className="p-1.5">
                 {treeItems.length === 0 ? (
-                  <p className="px-2 py-3 text-[12px] text-zinc-600">
+                  <p className="px-2 py-3 text-[12px] text-muted-foreground">
                     {t("filesPanel.empty")}
                   </p>
                 ) : (
@@ -267,7 +267,7 @@ function FilesPanel(props: PanelRenderProps) {
 
             <div className="shrink-0 p-2">
               <Button
-                className="w-full gap-2 bg-zinc-100 text-zinc-900 hover:bg-white"
+                className="w-full gap-2 bg-secondary text-secondary-foreground hover:bg-secondary/80"
                 onClick={handleNewButtonClick}
               >
                 <FilePlus className="size-4" />
@@ -276,32 +276,32 @@ function FilesPanel(props: PanelRenderProps) {
             </div>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="w-52 border-zinc-800 bg-black text-zinc-300">
+        <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
           <ContextMenuItem
-            className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => { if (!vault) onOpenVault(); else onNewFile?.(null) }}
           >
-            <FileText className="size-3.5 text-zinc-500" />
+            <FileText className="size-3.5 text-muted-foreground" />
             {t("filesPanel.newNote")}
           </ContextMenuItem>
           <ContextMenuItem
-            className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => { if (!vault) onOpenVault(); else onNewFolder?.(null) }}
           >
-            <FolderPlus className="size-3.5 text-zinc-500" />
+            <FolderPlus className="size-3.5 text-muted-foreground" />
             {t("filesPanel.newFolder")}
           </ContextMenuItem>
           <ContextMenuItem
-            className="flex items-center gap-2 text-[13px] focus:bg-zinc-800 focus:text-white"
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => { if (!vault) onOpenVault(); else onNewCanvas?.(null) }}
           >
-            <LayoutGrid className="size-3.5 text-zinc-500" />
+            <LayoutGrid className="size-3.5 text-muted-foreground" />
             {t("filesPanel.newCanvas")}
           </ContextMenuItem>
-          <ContextMenuItem disabled className="flex items-center gap-2 text-[13px] text-zinc-600">
+          <ContextMenuItem disabled className="flex items-center gap-2 text-[13px] text-muted-foreground">
             <Database className="size-3.5" />
             {t("filesPanel.database")}
-            <span className="ml-auto text-[10px] text-zinc-700">{t("common.comingSoon")}</span>
+            <span className="ml-auto text-[10px] text-muted-foreground">{t("common.comingSoon")}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -328,9 +328,9 @@ function FavoritesPanel({ treeItems, favorites, onSelect, onToggleFavorite }: Pa
   if (favItems.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-4">
-        <Bookmark className="size-8 text-zinc-700" />
-        <p className="text-[12px] text-zinc-600">{t("favoritesPanel.empty")}</p>
-        <p className="text-[11px] text-zinc-700">{t("favoritesPanel.emptyHint")}</p>
+        <Bookmark className="size-8 text-muted-foreground" />
+        <p className="text-[12px] text-muted-foreground">{t("favoritesPanel.empty")}</p>
+        <p className="text-[11px] text-muted-foreground">{t("favoritesPanel.emptyHint")}</p>
       </div>
     )
   }
@@ -341,11 +341,11 @@ function FavoritesPanel({ treeItems, favorites, onSelect, onToggleFavorite }: Pa
         {favItems.map(item => (
           <div
             key={item.id}
-            className="group flex items-center gap-2 rounded px-2 py-1.5 hover:bg-zinc-800 cursor-pointer"
+            className="group flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent cursor-pointer"
             onClick={() => onSelect(item.id)}
           >
-            <FileText className="size-3.5 shrink-0 text-zinc-500" />
-            <span className="flex-1 truncate text-[13px] text-zinc-300">{item.name}</span>
+            <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="flex-1 truncate text-[13px] text-foreground">{item.name}</span>
             <button
               onClick={e => { e.stopPropagation(); onToggleFavorite?.(item.id) }}
               className="opacity-0 group-hover:opacity-100 transition-opacity"
@@ -364,8 +364,8 @@ function ComingSoonPanel({ labelKey }: { labelKey: string }) {
   const { t } = useTranslation()
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-      <p className="text-[12px] text-zinc-600">{t(labelKey)}</p>
-      <p className="text-[11px] text-zinc-700">{t("common.comingSoon")}</p>
+      <p className="text-[12px] text-muted-foreground">{t(labelKey)}</p>
+      <p className="text-[11px] text-muted-foreground">{t("common.comingSoon")}</p>
     </div>
   )
 }
@@ -380,11 +380,11 @@ function PropertyRow({
 }) {
   return (
     <div className="flex items-center justify-between py-2">
-      <div className="flex items-center gap-2 text-xs text-zinc-500">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Icon className="size-3.5" />
         <span>{label}</span>
       </div>
-      <div className={cn("text-xs text-zinc-300", valueClassName)}>{value}</div>
+      <div className={cn("text-xs text-foreground", valueClassName)}>{value}</div>
     </div>
   )
 }
@@ -393,36 +393,36 @@ function InfoPanel({ properties }: PanelRenderProps) {
   const [query, setQuery] = React.useState("")
   if (!properties) {
     return (
-      <div className="flex h-full items-center justify-center text-xs text-zinc-500">
+      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
         No document selected
       </div>
     )
   }
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-zinc-800 p-2">
+      <div className="border-b border-border p-2">
         <div className="relative">
-          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
+          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Search properties"
-            className="h-7 border-zinc-800 bg-zinc-900 pl-7 text-xs text-zinc-300 placeholder:text-zinc-600"
+            className="h-7 border-border bg-card pl-7 text-xs text-foreground placeholder:text-muted-foreground"
           />
         </div>
       </div>
       <ScrollArea className="flex-1">
         <div className="px-3 py-2">
-          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
             Properties
           </div>
-          <div className="divide-y divide-zinc-800">
+          <div className="divide-y divide-border">
             <PropertyRow icon={Circle} label="Type" value={properties.type} />
             <PropertyRow
               icon={Info}
               label="Status"
               value={
-                <span className="rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-zinc-300">
+                <span className="rounded-full border border-border bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground">
                   {properties.status}
                 </span>
               }
@@ -434,12 +434,12 @@ function InfoPanel({ properties }: PanelRenderProps) {
             <PropertyRow
               icon={Hash}
               label="ID"
-              value={<span className="font-mono text-[10px] text-zinc-500">{properties.id}</span>}
+              value={<span className="font-mono text-[10px] text-muted-foreground">{properties.id}</span>}
             />
           </div>
           <Button
             variant="ghost"
-            className="mt-3 h-7 w-full justify-start gap-1.5 px-0 text-xs text-zinc-500 hover:text-white"
+            className="mt-3 h-7 w-full justify-start gap-1.5 px-0 text-xs text-muted-foreground hover:text-white"
           >
             <Plus className="size-3.5" />
             Add a property
@@ -454,8 +454,8 @@ function HistoryPanel() {
   const { t } = useTranslation()
   return (
     <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center">
-      <History className="size-8 text-zinc-700" />
-      <p className="text-[12px] text-zinc-600">{t("panels.history")} — {t("common.comingSoon").toLowerCase()}</p>
+      <History className="size-8 text-muted-foreground" />
+      <p className="text-[12px] text-muted-foreground">{t("panels.history")} — {t("common.comingSoon").toLowerCase()}</p>
     </div>
   )
 }
@@ -485,14 +485,14 @@ function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps)
       <button
         disabled={!clickableNode || clickableNode.unresolved}
         onClick={() => clickableNode && !clickableNode.unresolved && onSelectLink?.(clickableNode.id)}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-zinc-800 disabled:cursor-default disabled:hover:bg-transparent"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent"
       >
-        <LinkIcon className={cn("size-3.5 shrink-0", edge.unresolved ? "text-zinc-700" : "text-sky-400")} />
+        <LinkIcon className={cn("size-3.5 shrink-0", edge.unresolved ? "text-muted-foreground" : "text-sky-400")} />
         <div className="min-w-0 flex-1">
-          <p className={cn("truncate text-[12px]", edge.unresolved ? "text-zinc-600" : "text-zinc-300")}>
+          <p className={cn("truncate text-[12px]", edge.unresolved ? "text-muted-foreground" : "text-foreground")}>
             {direction === "all" ? `${source?.label ?? edge.source} → ${target?.label ?? edge.label}` : clickableNode?.label ?? edge.label}
           </p>
-          <p className="truncate text-[10px] text-zinc-600">
+          <p className="truncate text-[10px] text-muted-foreground">
             {edge.unresolved ? "unresolved" : direction === "in" ? "backlink" : "wiki link"}
           </p>
         </div>
@@ -504,13 +504,13 @@ function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps)
     return (
       <div className="mb-4">
         <div className="mb-1.5 flex items-center justify-between px-2">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">{title}</p>
-          <span className="text-[10px] text-zinc-700">{list.length}</span>
+          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{title}</p>
+          <span className="text-[10px] text-muted-foreground">{list.length}</span>
         </div>
         {list.length ? list.map((edge, i) => (
           <LinkRow key={`${edge.source}-${edge.target}-${direction}-${i}`} edge={edge} direction={direction} />
         )) : (
-          <p className="px-2 py-1 text-[11px] text-zinc-700">{t("graph.noLinks")}</p>
+          <p className="px-2 py-1 text-[11px] text-muted-foreground">{t("graph.noLinks")}</p>
         )}
       </div>
     )
@@ -518,14 +518,14 @@ function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-zinc-800 p-2">
+      <div className="border-b border-border p-2">
         <div className="relative">
-          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
+          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Search links"
-            className="h-7 border-zinc-800 bg-zinc-900 pl-7 text-xs text-zinc-300 placeholder:text-zinc-600"
+            className="h-7 border-border bg-card pl-7 text-xs text-foreground placeholder:text-muted-foreground"
           />
         </div>
       </div>

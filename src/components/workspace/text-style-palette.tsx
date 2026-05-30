@@ -19,7 +19,7 @@ function ColorButton({
     <button
       type="button"
       title={title}
-      className="size-5 rounded border border-zinc-700 transition-transform hover:scale-110 focus:outline-none focus:ring-1 focus:ring-zinc-300"
+      className="size-5 rounded border border-border transition-transform hover:scale-110 focus:outline-none focus:ring-1 focus:ring-foreground/30"
       style={{ backgroundColor: color }}
       onMouseDown={e => e.preventDefault()}
       onClick={() => onClick(color)}
@@ -32,7 +32,7 @@ function ClearButton({ title, onClick }: { title: string; onClick: () => void })
     <button
       type="button"
       title={title}
-      className="flex h-6 items-center gap-1 rounded border border-zinc-800 px-1.5 text-[11px] text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+      className="flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
       onMouseDown={e => e.preventDefault()}
       onClick={onClick}
     >
@@ -57,7 +57,7 @@ export function TextStylePalette({
   return (
     <div className="w-[300px] space-y-2 p-1">
       <div className="flex items-center gap-2">
-        <div className="flex size-6 items-center justify-center rounded border border-zinc-800 bg-zinc-900 text-zinc-300">
+        <div className="flex size-6 items-center justify-center rounded border border-border bg-card text-foreground">
           <Type className="size-3.5" />
         </div>
         <div className="grid flex-1 grid-cols-9 gap-1">
@@ -68,7 +68,7 @@ export function TextStylePalette({
         <ClearButton title={t("palette.clearTextColor")} onClick={onClearTextColor} />
       </div>
       <div className="flex items-center gap-2">
-        <div className="flex size-6 items-center justify-center rounded border border-zinc-800 bg-zinc-900 text-zinc-300">
+        <div className="flex size-6 items-center justify-center rounded border border-border bg-card text-foreground">
           <Highlighter className="size-3.5" />
         </div>
         <div className="grid flex-1 grid-cols-9 gap-1">
