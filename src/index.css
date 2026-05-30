@@ -3,7 +3,145 @@
 @tailwind utilities;
 
 @layer base {
+    /* ── Light defaults (:root) ──────────────────────────────────────────────
+       next-themes sets class="dark" on <html> for dark mode.
+       All tokens default to light values here; .dark overrides below.
+       ────────────────────────────────────────────────────────────────────── */
     :root {
+        /* shadcn surface tokens */
+        --background: 0 0% 100%;
+        --foreground: 240 10% 3.9%;
+        --primary: 0 0% 9%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 240 4.8% 95.9%;
+        --secondary-foreground: 240 5.9% 10%;
+        --muted: 240 4.8% 95.9%;
+        --muted-foreground: 240 3.8% 46.1%;
+        --accent: 240 4.8% 95.9%;
+        --accent-foreground: 240 5.9% 10%;
+        --destructive: 0 84.2% 60.2%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 240 5.9% 90%;
+        --input: 240 5.9% 90%;
+        --ring: 262 83% 58%;
+        --radius: 0.5rem;
+        --popover: 0 0% 100%;
+        --popover-foreground: 240 10% 3.9%;
+        --card: 0 0% 100%;
+        --card-foreground: 240 10% 3.9%;
+
+        /* Editor/preview base font size — overridden at runtime by font-scale
+           preference (see use-settings-store.ts). */
+        --editor-font-size: 1.02rem;
+
+        /* ── Editor surface tokens ──────────────────────────────────────── */
+        --editor-bg: #ffffff;
+        --editor-fg: #1a1a1a;
+        --editor-heading:       #111111;
+        --editor-heading-h2:    #1f1f23;
+        --editor-heading-h3:    #2e2e35;
+        --editor-heading-h4:    #3f3f46;
+        --editor-heading-muted: #52525b;
+        --editor-strong: #111111;
+        --editor-em:     #52525b;
+        --editor-del:    #a1a1aa;
+
+        /* Inline code / pre */
+        --code-bg:     #f4f4f5;
+        --code-fg:     #7c3aed;
+        --code-border: #e4e4e7;
+        --pre-bg:      #fafafa;
+        --pre-border:  #e4e4e7;
+        --pre-fg:      #18181b;
+
+        /* Blockquote */
+        --blockquote-border-color: #14b8a6;
+        --blockquote-bg:           rgba(20, 184, 166, 0.07);
+        --blockquote-fg:           #374151;
+
+        /* Horizontal rule, table */
+        --rule-color:       #e4e4e7;
+        --table-header-bg:  #f4f4f5;
+        --table-header-fg:  #1f1f23;
+        --table-border:     #d4d4d8;
+        --table-cell-border:#e4e4e7;
+        --table-row-even:   #fafafa;
+
+        /* Inline elements */
+        --link-color:       #7c3aed;
+        --link-hover-color: #6d28d9;
+        --underline-color:  #38bdf8;
+        --placeholder-color:#a1a1aa;
+        --caret-color:      #0ea5e9;
+
+        /* Tags & wikilinks */
+        --tag-bg:            rgba(168, 85, 247, 0.12);
+        --tag-fg:            #7c3aed;
+        --wikilink-bg:       rgba(14, 165, 233, 0.10);
+        --wikilink-fg:       #0284c7;
+        --wikilink-underline:rgba(14, 165, 233, 0.45);
+
+        /* Image / drag */
+        --image-selected-border: #7c3aed;
+        --broken-stripe-1: #f4f4f5;
+        --broken-stripe-2: #e4e4e7;
+
+        /* ── Menu / popup tokens ────────────────────────────────────────── */
+        --menu-bg:           #ffffff;
+        --menu-border:       #e4e4e7;
+        --menu-item-fg:      #18181b;
+        --menu-item-hover-bg:#f4f4f5;
+        --menu-item-hover-fg:#111111;
+        --menu-shadow:       0 8px 28px rgba(0, 0, 0, 0.12);
+
+        /* ── Block panel tokens ─────────────────────────────────────────── */
+        --panel-bg:                  #ffffff;
+        --panel-border:              #e4e4e7;
+        --panel-header-border:       #f4f4f5;
+        --panel-input-bg:            #fafafa;
+        --panel-input-border:        #d4d4d8;
+        --panel-input-focus-border:  #a1a1aa;
+        --panel-section-fg:          #a1a1aa;
+        --panel-hint-fg:             #a1a1aa;
+        --panel-empty-fg:            #a1a1aa;
+        --panel-close-fg:            #a1a1aa;
+        --panel-close-hover-bg:      #f4f4f5;
+        --panel-row-fg:              #18181b;
+        --panel-row-hover-bg:        #f4f4f5;
+        --panel-row-hover-fg:        #111111;
+        --panel-row-active-bg:       #ede9ff;
+        --panel-primary-btn-bg:      #1d4ed8;
+        --panel-primary-btn-hover:   #2563eb;
+
+        /* ── Block handle / drag tokens ─────────────────────────────────── */
+        --block-handle-fg:       #a1a1aa;
+        --block-handle-hover-bg: #f4f4f5;
+        --block-handle-hover-fg: #52525b;
+        --drop-indicator-color:  #7c3aed;
+        --drop-indicator-shadow: rgba(124, 58, 237, 0.55);
+
+        /* ── Callout tokens ─────────────────────────────────────────────── */
+        --callout-border-alpha:    rgba(0, 0, 0, 0.10);
+        --callout-emoji-hover-bg:  rgba(0, 0, 0, 0.06);
+
+        /* ── Activity bar tokens ────────────────────────────────────────── */
+        --activity-ghost-bg:     #f4f4f5;
+        --activity-ghost-border: #e4e4e7;
+        --activity-drop-outline: #38bdf8;
+
+        /* ── Scrollbar ──────────────────────────────────────────────────── */
+        --scrollbar-thumb:       #d4d4d8;
+        --scrollbar-thumb-hover: #a1a1aa;
+
+        /* ── Source editor ──────────────────────────────────────────────── */
+        --source-editor-bg: #ffffff;
+    }
+
+    /* ── Dark overrides ─────────────────────────────────────────────────────
+       Applied when next-themes sets class="dark" on <html>.
+       ────────────────────────────────────────────────────────────────────── */
+    .dark {
+        /* shadcn surface tokens */
         --background: 0 0% 4%;
         --foreground: 0 0% 98%;
         --primary: 0 0% 98%;
@@ -12,21 +150,119 @@
         --secondary-foreground: 0 0% 98%;
         --muted: 240 3.7% 15.9%;
         --muted-foreground: 240 5% 64.9%;
-        --accent: 240 3.7% 15.9%;
+        --accent: 0 0% 14%;
         --accent-foreground: 0 0% 98%;
         --destructive: 0 62.8% 30.6%;
         --destructive-foreground: 0 0% 98%;
         --border: 240 3.7% 15.9%;
         --input: 240 3.7% 15.9%;
         --ring: 240 4.9% 83.9%;
-        --radius: 0.5rem;
         --popover: 0 0% 0%;
         --popover-foreground: 0 0% 98%;
-        --accent: 0 0% 14%;
-        --accent-foreground: 0 0% 98%;
-        /* Editor/preview base font size, overridden at runtime by the font-scale
-           preference (see use-settings-store.ts). */
-        --editor-font-size: 1.02rem;
+        --card: 0 0% 4%;
+        --card-foreground: 0 0% 98%;
+
+        /* ── Editor surface tokens ──────────────────────────────────────── */
+        --editor-bg: #0a0a0a;
+        --editor-fg: #d7d7dc;
+        --editor-heading:       #fafafa;
+        --editor-heading-h2:    #f4f4f5;
+        --editor-heading-h3:    #e4e4e7;
+        --editor-heading-h4:    #d4d4d8;
+        --editor-heading-muted: #a1a1aa;
+        --editor-strong: #fafafa;
+        --editor-em:     #a1a1aa;
+        --editor-del:    #71717a;
+
+        /* Inline code / pre */
+        --code-bg:     #18181b;
+        --code-fg:     #a78bfa;
+        --code-border: #3f3f46;
+        --pre-bg:      #0f0f12;
+        --pre-border:  #27272a;
+        --pre-fg:      #d4d4d8;
+
+        /* Blockquote */
+        --blockquote-border-color: #14b8a6;
+        --blockquote-bg:           rgba(20, 184, 166, 0.08);
+        --blockquote-fg:           #cbd5e1;
+
+        /* Horizontal rule, table */
+        --rule-color:       #27272a;
+        --table-header-bg:  #18181b;
+        --table-header-fg:  #e4e4e7;
+        --table-border:     #3f3f46;
+        --table-cell-border:#27272a;
+        --table-row-even:   #0f0f12;
+
+        /* Inline elements */
+        --link-color:       #7c3aed;
+        --link-hover-color: #a78bfa;
+        --underline-color:  #38bdf8;
+        --placeholder-color:#52525b;
+        --caret-color:      #22d3ee;
+
+        /* Tags & wikilinks */
+        --tag-bg:            rgba(168, 85, 247, 0.16);
+        --tag-fg:            #c084fc;
+        --wikilink-bg:       rgba(14, 165, 233, 0.13);
+        --wikilink-fg:       #7dd3fc;
+        --wikilink-underline:rgba(56, 189, 248, 0.55);
+
+        /* Image / drag */
+        --image-selected-border: #7c3aed;
+        --broken-stripe-1: #1a1a1f;
+        --broken-stripe-2: #232328;
+
+        /* ── Menu / popup tokens ────────────────────────────────────────── */
+        --menu-bg:           #000000;
+        --menu-border:       #1c1c1f;
+        --menu-item-fg:      #d4d4d8;
+        --menu-item-hover-bg:#27272a;
+        --menu-item-hover-fg:#fafafa;
+        --menu-shadow:       0 8px 28px rgba(0, 0, 0, 0.70);
+
+        /* ── Block panel tokens ─────────────────────────────────────────── */
+        --panel-bg:                  #000000;
+        --panel-border:              #1c1c1f;
+        --panel-header-border:       #18181b;
+        --panel-input-bg:            #0c0c0e;
+        --panel-input-border:        #232328;
+        --panel-input-focus-border:  #3f3f46;
+        --panel-section-fg:          #71717a;
+        --panel-hint-fg:             #52525b;
+        --panel-empty-fg:            #52525b;
+        --panel-close-fg:            #71717a;
+        --panel-close-hover-bg:      #18181b;
+        --panel-row-fg:              #d4d4d8;
+        --panel-row-hover-bg:        #1a1a1f;
+        --panel-row-hover-fg:        #fafafa;
+        --panel-row-active-bg:       #1a1a1f;
+        --panel-primary-btn-bg:      #1e3a8a;
+        --panel-primary-btn-hover:   #1e40af;
+
+        /* ── Block handle / drag tokens ─────────────────────────────────── */
+        --block-handle-fg:       #52525b;
+        --block-handle-hover-bg: #27272a;
+        --block-handle-hover-fg: #a1a1aa;
+        --drop-indicator-color:  #7c3aed;
+        --drop-indicator-shadow: rgba(124, 58, 237, 0.55);
+
+        /* ── Callout tokens ─────────────────────────────────────────────── */
+        --callout-border-alpha:    rgba(255, 255, 255, 0.10);
+        --callout-emoji-hover-bg:  rgba(255, 255, 255, 0.06);
+
+        /* ── Activity bar tokens ────────────────────────────────────────── */
+        --activity-ghost-bg:     #18181b;
+        --activity-ghost-border: #27272a;
+        --activity-drop-outline: #38bdf8;
+
+        /* ── Scrollbar ──────────────────────────────────────────────────── */
+        --scrollbar-thumb:       #3f3f46;
+        --scrollbar-thumb-hover: #52525b;
+
+        /* ── Source editor ──────────────────────────────────────────────── */
+        --source-editor-bg: #000000;
     }
 
     /* Accent palette — set via data-accent on <html> (useApplyPreferences).
@@ -82,59 +318,59 @@
     background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-    background: #3f3f46;
+    background: var(--scrollbar-thumb);
     border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #52525b;
+    background: var(--scrollbar-thumb-hover);
 }
 ::-webkit-scrollbar-corner {
     background: transparent;
 }
 
-/* Markdown preview styles (Obsidian-like dark theme) */
+/* Markdown preview styles */
 .md-body {
-    color: #d7d7dc;
+    color: var(--editor-fg);
     line-height: 1.78;
     font-size: var(--editor-font-size, 1.02rem);
 }
 
 .amby-read-body {
-    background: #0a0a0a;
+    background: var(--editor-bg);
     padding: 1.25rem 1.5rem 5rem;
 }
 
 .md-body h1 {
     font-size: 1.875rem;
     font-weight: 700;
-    color: #fafafa;
+    color: var(--editor-heading);
     margin: 1.5rem 0 0.75rem;
     line-height: 1.2;
-    border-bottom: 1px solid #27272a;
+    border-bottom: 1px solid var(--rule-color);
     padding-bottom: 0.4rem;
 }
 
 .md-body h2 {
     font-size: 1.5rem;
     font-weight: 600;
-    color: #f4f4f5;
+    color: var(--editor-heading-h2);
     margin: 1.4rem 0 0.6rem;
     line-height: 1.3;
-    border-bottom: 1px solid #27272a;
+    border-bottom: 1px solid var(--rule-color);
     padding-bottom: 0.3rem;
 }
 
 .md-body h3 {
     font-size: 1.25rem;
     font-weight: 600;
-    color: #e4e4e7;
+    color: var(--editor-heading-h3);
     margin: 1.2rem 0 0.5rem;
 }
 
 .md-body h4 {
     font-size: 1.1rem;
     font-weight: 600;
-    color: #d4d4d8;
+    color: var(--editor-heading-h4);
     margin: 1rem 0 0.4rem;
 }
 
@@ -142,7 +378,7 @@
 .md-body h6 {
     font-size: 1rem;
     font-weight: 600;
-    color: #a1a1aa;
+    color: var(--editor-heading-muted);
     margin: 0.8rem 0 0.3rem;
 }
 
@@ -151,19 +387,19 @@
 }
 
 .md-body strong {
-    color: #fafafa;
+    color: var(--editor-strong);
     font-weight: 700;
 }
 
 .md-body em {
-    color: #a1a1aa;
+    color: var(--editor-em);
     font-style: italic;
 }
 
 .md-body code {
-    background: #18181b;
-    color: #a78bfa;
-    border: 1px solid #3f3f46;
+    background: var(--code-bg);
+    color: var(--code-fg);
+    border: 1px solid var(--code-border);
     border-radius: 4px;
     padding: 0.15em 0.4em;
     font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
@@ -171,8 +407,8 @@
 }
 
 .md-body pre {
-    background: #0f0f12;
-    border: 1px solid #27272a;
+    background: var(--pre-bg);
+    border: 1px solid var(--pre-border);
     border-radius: 8px;
     padding: 1rem 1.25rem;
     overflow-x: auto;
@@ -183,34 +419,34 @@
     background: transparent;
     border: none;
     padding: 0;
-    color: #d4d4d8;
+    color: var(--pre-fg);
     font-size: 0.875em;
 }
 
 .md-body blockquote {
-    border-left: 3px solid #14b8a6;
+    border-left: 3px solid var(--blockquote-border-color);
     margin: 1rem 0;
     padding: 0.25rem 1rem;
-    color: #b8bcc6;
-    background: #111316;
+    color: var(--blockquote-fg);
+    background: var(--blockquote-bg);
     border-radius: 0 4px 4px 0;
 }
 
 .md-body blockquote.amby-callout {
-    border-left: 4px solid #14b8a6;
+    border-left: 4px solid var(--blockquote-border-color);
     border-top: none;
     border-right: none;
     border-bottom: none;
     background: rgba(20, 184, 166, 0.07);
     border-radius: 0 6px 6px 0;
-    color: #d7f5ef;
+    color: var(--blockquote-fg);
     padding: 0.75rem 1rem;
 }
 
 .md-body blockquote.amby-callout p:first-child {
     margin-top: 0;
     font-weight: 600;
-    color: #99f6e4;
+    color: var(--blockquote-border-color);
 }
 
 .md-body ul {
@@ -230,22 +466,22 @@
 }
 
 .md-body li input[type="checkbox"] {
-    accent-color: #7c3aed;
+    accent-color: hsl(var(--primary));
     margin-right: 0.4rem;
 }
 
 .md-body a {
-    color: #7c3aed;
+    color: var(--link-color);
     text-decoration: underline;
     text-underline-offset: 2px;
 }
 
 .md-body a:hover {
-    color: #a78bfa;
+    color: var(--link-hover-color);
 }
 
 .md-body u {
-    text-decoration-color: #38bdf8;
+    text-decoration-color: var(--underline-color);
     text-decoration-thickness: 2px;
     text-underline-offset: 3px;
 }
@@ -258,26 +494,26 @@
 }
 
 .md-body th {
-    background: #18181b;
-    color: #e4e4e7;
+    background: var(--table-header-bg);
+    color: var(--table-header-fg);
     font-weight: 600;
     padding: 0.5rem 0.75rem;
-    border: 1px solid #3f3f46;
+    border: 1px solid var(--table-border);
     text-align: left;
 }
 
 .md-body td {
     padding: 0.5rem 0.75rem;
-    border: 1px solid #27272a;
+    border: 1px solid var(--table-cell-border);
 }
 
 .md-body tr:nth-child(even) {
-    background: #0f0f12;
+    background: var(--table-row-even);
 }
 
 .md-body hr {
     border: none;
-    border-top: 1px solid #27272a;
+    border-top: 1px solid var(--rule-color);
     margin: 1.5rem 0;
 }
 
@@ -288,12 +524,12 @@
 }
 
 .md-body del {
-    color: #71717a;
+    color: var(--editor-del);
 }
 
 /* Tiptap editor (Live + Read) */
 .amby-tiptap {
-    background: #0a0a0a;
+    background: var(--editor-bg);
 }
 
 .amby-tiptap .ProseMirror {
@@ -301,9 +537,9 @@
     padding: 0.5rem 0.75rem 5rem;
     outline: none;
     line-height: 1.78;
-    color: #d7d7dc;
+    color: var(--editor-fg);
     font-size: var(--editor-font-size, 1.02rem);
-    caret-color: #22d3ee;
+    caret-color: var(--caret-color);
 }
 
 .amby-tiptap .ProseMirror p {
@@ -316,7 +552,7 @@
 .amby-tiptap .ProseMirror h4,
 .amby-tiptap .ProseMirror h5,
 .amby-tiptap .ProseMirror h6 {
-    color: #fafafa;
+    color: var(--editor-heading);
     font-weight: 600;
     letter-spacing: 0;
     line-height: 1.3;
@@ -326,81 +562,81 @@
     font-size: 1.875rem;
     font-weight: 700;
     margin: 1.5rem 0 0.75rem;
-    border-bottom: 1px solid #27272a;
+    border-bottom: 1px solid var(--rule-color);
     padding-bottom: 0.4rem;
 }
 
 .amby-tiptap .ProseMirror h2 {
     font-size: 1.5rem;
     margin: 1.4rem 0 0.6rem;
-    color: #f4f4f5;
-    border-bottom: 1px solid #27272a;
+    color: var(--editor-heading-h2);
+    border-bottom: 1px solid var(--rule-color);
     padding-bottom: 0.3rem;
 }
 
 .amby-tiptap .ProseMirror h3 {
     font-size: 1.25rem;
     margin: 1.2rem 0 0.5rem;
-    color: #e4e4e7;
+    color: var(--editor-heading-h3);
 }
 
 .amby-tiptap .ProseMirror h4 {
     font-size: 1.1rem;
     margin: 1rem 0 0.4rem;
-    color: #d4d4d8;
+    color: var(--editor-heading-h4);
 }
 
 .amby-tiptap .ProseMirror h5,
 .amby-tiptap .ProseMirror h6 {
     font-size: 1rem;
     margin: 0.8rem 0 0.3rem;
-    color: #a1a1aa;
+    color: var(--editor-heading-muted);
 }
 
 .amby-tiptap .ProseMirror strong {
-    color: #fafafa;
+    color: var(--editor-strong);
     font-weight: 700;
 }
 
 .amby-tiptap .ProseMirror em {
-    color: #a1a1aa;
+    color: var(--editor-em);
     font-style: italic;
 }
 
 .amby-tiptap .ProseMirror del {
-    color: #71717a;
+    color: var(--editor-del);
 }
 
 .amby-tiptap .ProseMirror u {
-    text-decoration-color: #38bdf8;
+    text-decoration-color: var(--underline-color);
     text-decoration-thickness: 2px;
     text-underline-offset: 3px;
 }
 
 .amby-tiptap .ProseMirror a {
-    color: #7c3aed;
+    color: var(--link-color);
     text-decoration: underline;
     text-underline-offset: 2px;
 }
 
 .amby-tiptap .ProseMirror a:hover {
-    color: #a78bfa;
+    color: var(--link-hover-color);
 }
 
 .amby-tiptap .ProseMirror code {
-    border: 1px solid #3f3f46;
+    border: 1px solid var(--code-border);
     border-radius: 4px;
-    background: #18181b;
-    color: #a78bfa;
+    background: var(--code-bg);
+    color: var(--code-fg);
     padding: 0.15em 0.4em;
     font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
     font-size: 0.85em;
 }
 
 .amby-tiptap .ProseMirror pre {
-    border: 1px solid #27272a;
+    border: 1px solid var(--pre-border);
     border-radius: 8px;
-    background: #0f0f12;
+    background: var(--pre-bg);
     padding: 1rem 1.25rem;
     overflow-x: auto;
     margin: 1rem 0;
@@ -410,15 +646,15 @@
     background: transparent;
     border: none;
     padding: 0;
-    color: #d4d4d8;
+    color: var(--pre-fg);
     font-size: 0.875em;
 }
 
 .amby-tiptap .ProseMirror blockquote {
-    border-left: 3px solid #14b8a6;
+    border-left: 3px solid var(--blockquote-border-color);
     border-radius: 0 5px 5px 0;
-    background: rgba(20, 184, 166, 0.08);
-    color: #cbd5e1;
+    background: var(--blockquote-bg);
+    color: var(--blockquote-fg);
     margin: 1rem 0;
     padding: 0.35rem 1rem;
 }
@@ -438,7 +674,7 @@
     gap: 12px;
     border-radius: 8px;
     padding: 12px 12px;
-    border-color: rgba(255, 255, 255, 0.1);
+    border-color: var(--callout-border-alpha);
     border-width: 1px;
     /* default NOTE — teal */
     background: rgba(20, 184, 166, 0.07);
@@ -460,7 +696,7 @@
 /* Explicit bg override (set via grip palette) takes precedence over callout-type. */
 .amby-callout-node[data-bg="none"] .amby-callout-inner {
     background: transparent;
-    border-color: rgba(255, 255, 255, 0.18);
+    border-color: var(--callout-border-alpha);
 }
 .amby-callout-node[data-bg="teal"] .amby-callout-inner {
     background: rgba(20, 184, 166, 0.12);
@@ -523,7 +759,7 @@
 }
 
 .amby-callout-emoji-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--callout-emoji-hover-bg);
     transform: scale(1.15);
 }
 
@@ -573,7 +809,7 @@
     width: 22px;
     height: 22px;
     border-radius: 4px;
-    color: #52525b;
+    color: var(--block-handle-fg);
     background: transparent;
     border: none;
     transition:
@@ -583,8 +819,8 @@
 }
 
 .amby-block-handle-btn:hover {
-    background: #27272a !important;
-    color: #a1a1aa !important;
+    background: var(--block-handle-hover-bg) !important;
+    color: var(--block-handle-hover-fg) !important;
 }
 
 .amby-block-handle-grip {
@@ -603,11 +839,11 @@
     min-width: 176px;
     max-height: 150px;
     overflow-y: auto;
-    background: #000000;
-    border: 1px solid #1c1c1f;
+    background: var(--menu-bg);
+    border: 1px solid var(--menu-border);
     border-radius: 8px;
     padding: 4px;
-    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.7);
+    box-shadow: var(--menu-shadow);
     z-index: 60;
 }
 
@@ -617,7 +853,7 @@
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    color: #71717a;
+    color: var(--panel-section-fg);
 }
 
 .amby-block-handle-menu-swatches {
@@ -631,7 +867,7 @@
     width: 22px;
     height: 22px;
     border-radius: 5px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--callout-border-alpha);
     cursor: pointer;
     padding: 0;
     transition:
@@ -641,12 +877,13 @@
 
 .amby-block-handle-swatch:hover {
     transform: scale(1.1);
-    border-color: rgba(255, 255, 255, 0.4);
+    border-color: var(--callout-border-alpha);
+    opacity: 0.85;
 }
 
 .amby-block-handle-swatch--none {
     background: transparent;
-    color: #a1a1aa;
+    color: var(--panel-section-fg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -661,7 +898,7 @@
     border-radius: 5px;
     text-align: left;
     font-size: 0.8rem;
-    color: #d4d4d8;
+    color: var(--menu-item-fg);
     background: transparent;
     border: none;
     cursor: pointer;
@@ -670,8 +907,8 @@
 }
 
 .amby-block-handle-menu-item:hover {
-    background: #27272a;
-    color: #fafafa;
+    background: var(--menu-item-hover-bg);
+    color: var(--menu-item-hover-fg);
 }
 
 .amby-block-handle-menu-item--danger {
@@ -688,11 +925,11 @@
 .amby-block-drop-indicator {
     position: fixed;
     height: 2px;
-    background: #7c3aed;
+    background: var(--drop-indicator-color);
     border-radius: 2px;
     pointer-events: none;
     z-index: 9998;
-    box-shadow: 0 0 6px rgba(124, 58, 237, 0.55);
+    box-shadow: 0 0 6px var(--drop-indicator-shadow);
 }
 
 /* Drag ghost — semi-transparent clone of source block, follows pointer. */
@@ -703,7 +940,7 @@
     z-index: 9999;
     opacity: 0.7;
     pointer-events: none;
-    background: #0a0a0a;
+    background: var(--editor-bg);
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
     border-radius: 6px;
     padding: 4px 8px;
@@ -720,10 +957,10 @@
 
 .amby-block-panel {
     width: 260px;
-    background: #000000;
-    border: 1px solid #1c1c1f;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
     border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    box-shadow: var(--menu-shadow);
     z-index: 60;
     display: flex;
     flex-direction: column;
@@ -750,14 +987,14 @@
 .amby-block-panel-header {
     flex: 0 0 auto;
     padding: 6px;
-    border-bottom: 1px solid #18181b;
+    border-bottom: 1px solid var(--panel-header-border);
 }
 
 .amby-block-panel-search {
     width: 100%;
-    background: #0c0c0e;
-    border: 1px solid #232328;
-    color: #fafafa;
+    background: var(--panel-input-bg);
+    border: 1px solid var(--panel-input-border);
+    color: var(--editor-heading);
     border-radius: 5px;
     padding: 4px 8px;
     font-size: 0.75rem;
@@ -765,7 +1002,7 @@
 }
 
 .amby-block-panel-search:focus {
-    border-color: #3f3f46;
+    border-color: var(--panel-input-focus-border);
 }
 
 .amby-block-panel-body {
@@ -776,7 +1013,7 @@
 
 .amby-block-panel-footer {
     flex: 0 0 auto;
-    border-top: 1px solid #18181b;
+    border-top: 1px solid var(--panel-header-border);
     padding: 4px;
 }
 
@@ -790,7 +1027,7 @@
     background: transparent;
     border: none;
     cursor: pointer;
-    color: #d4d4d8;
+    color: var(--panel-row-fg);
     font-size: 0.78rem;
     text-align: left;
     transition: background-color 0.1s;
@@ -798,8 +1035,8 @@
 
 .amby-block-row:hover,
 .amby-block-row.is-active {
-    background: #1a1a1f;
-    color: #fafafa;
+    background: var(--panel-row-hover-bg);
+    color: var(--panel-row-hover-fg);
 }
 
 .amby-block-row.is-disabled {
@@ -820,12 +1057,12 @@
     width: 14px;
     height: 14px;
     flex-shrink: 0;
-    color: #71717a;
+    color: var(--panel-section-fg);
 }
 
 .amby-block-row.is-active .amby-block-row-icon,
 .amby-block-row:hover .amby-block-row-icon {
-    color: #d4d4d8;
+    color: var(--panel-row-fg);
 }
 
 .amby-block-row-label {
@@ -838,7 +1075,7 @@
 
 .amby-block-row-hint {
     font-size: 0.66rem;
-    color: #52525b;
+    color: var(--panel-hint-fg);
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -847,21 +1084,21 @@
     padding: 4px 8px;
     background: transparent;
     border: 1px solid transparent;
-    color: #71717a;
+    color: var(--panel-close-fg);
     border-radius: 5px;
     font-size: 0.72rem;
     cursor: pointer;
 }
 
 .amby-block-panel-close:hover {
-    background: #18181b;
-    color: #fafafa;
+    background: var(--panel-close-hover-bg);
+    color: var(--panel-row-hover-fg);
 }
 
 .amby-block-panel-empty {
     padding: 16px 8px;
     text-align: center;
-    color: #52525b;
+    color: var(--panel-empty-fg);
     font-size: 0.74rem;
 }
 
@@ -871,7 +1108,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #71717a;
+    color: var(--panel-section-fg);
 }
 
 .amby-block-panel-url {
@@ -883,9 +1120,9 @@
 
 .amby-block-panel-url input {
     width: 100%;
-    background: #0c0c0e;
-    border: 1px solid #232328;
-    color: #fafafa;
+    background: var(--panel-input-bg);
+    border: 1px solid var(--panel-input-border);
+    color: var(--editor-heading);
     border-radius: 5px;
     padding: 4px 8px;
     font-size: 0.78rem;
@@ -893,7 +1130,7 @@
 }
 
 .amby-block-panel-url input:focus {
-    border-color: #3f3f46;
+    border-color: var(--panel-input-focus-border);
 }
 
 .amby-block-panel-url-actions {
@@ -906,25 +1143,25 @@
     flex: 1;
     padding: 4px 8px;
     border-radius: 5px;
-    border: 1px solid #232328;
+    border: 1px solid var(--panel-input-border);
     background: transparent;
-    color: #d4d4d8;
+    color: var(--panel-row-fg);
     cursor: pointer;
     font-size: 0.72rem;
 }
 
 .amby-block-panel-url-actions button:hover {
-    background: #18181b;
+    background: var(--panel-row-hover-bg);
 }
 
 .amby-block-panel-url-actions button.is-primary {
-    background: #1e3a8a;
-    border-color: #1e3a8a;
+    background: var(--panel-primary-btn-bg);
+    border-color: var(--panel-primary-btn-bg);
     color: #fafafa;
 }
 
 .amby-block-panel-url-actions button.is-primary:hover {
-    background: #1e40af;
+    background: var(--panel-primary-btn-hover);
 }
 
 .amby-block-panel-emoji {
@@ -949,7 +1186,7 @@
     width: 22px;
     height: 22px;
     border-radius: 5px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--callout-border-alpha);
     cursor: pointer;
     padding: 0;
     transition:
@@ -962,12 +1199,12 @@
 
 .amby-ctx-swatch:hover {
     transform: scale(1.1);
-    border-color: rgba(255, 255, 255, 0.4);
+    opacity: 0.85;
 }
 
 .amby-ctx-swatch--none {
     background: transparent;
-    color: #a1a1aa;
+    color: var(--panel-section-fg);
 }
 
 .amby-ctx-heading-grid {
@@ -980,22 +1217,22 @@
 .amby-ctx-heading-btn {
     padding: 6px 4px;
     border-radius: 5px;
-    border: 1px solid #232328;
+    border: 1px solid var(--panel-input-border);
     background: transparent;
-    color: #d4d4d8;
+    color: var(--panel-row-fg);
     cursor: pointer;
     font-size: 0.72rem;
     font-weight: 600;
 }
 
 .amby-ctx-heading-btn:hover {
-    background: #18181b;
-    color: #fafafa;
+    background: var(--panel-row-hover-bg);
+    color: var(--panel-row-hover-fg);
 }
 
 .amby-ctx-heading-btn.is-active {
-    background: #1e3a8a;
-    border-color: #1e3a8a;
+    background: var(--panel-primary-btn-bg);
+    border-color: var(--panel-primary-btn-bg);
     color: #fafafa;
 }
 
@@ -1009,9 +1246,9 @@
 .amby-ctx-type-btn {
     padding: 6px 4px;
     border-radius: 5px;
-    border: 1px solid #232328;
+    border: 1px solid var(--panel-input-border);
     background: transparent;
-    color: #d4d4d8;
+    color: var(--panel-row-fg);
     cursor: pointer;
     font-size: 0.95rem;
     display: flex;
@@ -1020,21 +1257,21 @@
 }
 
 .amby-ctx-type-btn:hover {
-    background: #18181b;
+    background: var(--panel-row-hover-bg);
 }
 
 .amby-ctx-type-btn.is-active {
-    background: #1e3a8a;
-    border-color: #1e3a8a;
+    background: var(--panel-primary-btn-bg);
+    border-color: var(--panel-primary-btn-bg);
 }
 
 .amby-ctx-input,
 .amby-ctx-text-input {
     width: calc(100% - 16px);
     margin: 0 8px 8px;
-    background: #0c0c0e;
-    border: 1px solid #232328;
-    color: #fafafa;
+    background: var(--panel-input-bg);
+    border: 1px solid var(--panel-input-border);
+    color: var(--editor-heading);
     border-radius: 5px;
     padding: 4px 8px;
     font-size: 0.75rem;
@@ -1043,7 +1280,7 @@
 
 .amby-ctx-input:focus,
 .amby-ctx-text-input:focus {
-    border-color: #3f3f46;
+    border-color: var(--panel-input-focus-border);
 }
 
 .amby-ctx-align-row {
@@ -1056,9 +1293,9 @@
     flex: 1;
     padding: 6px;
     border-radius: 5px;
-    border: 1px solid #232328;
+    border: 1px solid var(--panel-input-border);
     background: transparent;
-    color: #a1a1aa;
+    color: var(--panel-section-fg);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1066,13 +1303,13 @@
 }
 
 .amby-ctx-align-btn:hover {
-    background: #18181b;
-    color: #fafafa;
+    background: var(--panel-row-hover-bg);
+    color: var(--panel-row-hover-fg);
 }
 
 .amby-ctx-align-btn.is-active {
-    background: #1e3a8a;
-    border-color: #1e3a8a;
+    background: var(--panel-primary-btn-bg);
+    border-color: var(--panel-primary-btn-bg);
     color: #fafafa;
 }
 
@@ -1081,15 +1318,15 @@
     margin: 4px 8px 8px;
     padding: 6px;
     border-radius: 5px;
-    border: 1px solid #232328;
+    border: 1px solid var(--panel-input-border);
     background: transparent;
-    color: #d4d4d8;
+    color: var(--panel-row-fg);
     cursor: pointer;
     font-size: 0.74rem;
 }
 
 .amby-ctx-replace-btn:hover {
-    background: #18181b;
+    background: var(--panel-row-hover-bg);
 }
 
 /* ── Turn into submenu (right popover) ───────────────────────────────────── */
@@ -1099,11 +1336,11 @@
     width: 200px;
     max-height: 320px;
     overflow-y: auto;
-    background: #000000;
-    border: 1px solid #1c1c1f;
+    background: var(--menu-bg);
+    border: 1px solid var(--menu-border);
     border-radius: 8px;
     padding: 4px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+    box-shadow: var(--menu-shadow);
     z-index: 9000;
 }
 
@@ -1122,7 +1359,7 @@
 }
 
 .amby-image-wrap.is-selected img {
-    border-color: #7c3aed;
+    border-color: var(--image-selected-border);
 }
 
 .amby-image-wrap img.is-broken {
@@ -1131,10 +1368,10 @@
     min-height: 40px;
     background: repeating-linear-gradient(
         45deg,
-        #1a1a1f,
-        #1a1a1f 6px,
-        #232328 6px,
-        #232328 12px
+        var(--broken-stripe-1),
+        var(--broken-stripe-1) 6px,
+        var(--broken-stripe-2) 6px,
+        var(--broken-stripe-2) 12px
     );
 }
 
@@ -1153,36 +1390,13 @@
     text-align: right;
 }
 
-/* Drag ghost — semi-transparent clone of source block, follows pointer. */
-.amby-block-drag-ghost {
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 9999;
-    opacity: 0.7;
-    pointer-events: none;
-    background: #0a0a0a;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-    border-radius: 6px;
-    padding: 4px 8px;
-    will-change: transform;
-}
-
-/* Dim source block while drag is active. */
-.amby-block-drag-source {
-    opacity: 0.35;
-    transition: opacity 0.1s;
-}
-
-/* ── emoji-mart custom element — force pure-black background ─────────────────
-   CSS custom properties pierce shadow DOM so this overrides the picker's
-   internal dark-theme variables.
+/* ── emoji-mart custom element — CSS custom properties pierce shadow DOM ─────
    ────────────────────────────────────────────────────────────────────────── */
 
 em-emoji-picker {
-    --color-background: #000000;
-    --color-border: #1c1c1f;
-    --color-border-over: #27272a;
+    --color-background: var(--menu-bg);
+    --color-border: var(--menu-border);
+    --color-border-over: var(--panel-input-focus-border);
     height: 380px;
 }
 
@@ -1224,12 +1438,12 @@ em-emoji-picker {
 }
 
 .amby-tiptap .ProseMirror input[type="checkbox"] {
-    accent-color: #7c3aed;
+    accent-color: hsl(var(--primary));
 }
 
 .amby-tiptap .ProseMirror hr {
     border: none;
-    border-top: 1px solid #27272a;
+    border-top: 1px solid var(--rule-color);
     margin: 1.5rem 0;
 }
 
@@ -1247,26 +1461,26 @@ em-emoji-picker {
 }
 
 .amby-tiptap .ProseMirror th {
-    background: #18181b;
-    color: #e4e4e7;
+    background: var(--table-header-bg);
+    color: var(--table-header-fg);
     font-weight: 600;
     padding: 0.5rem 0.75rem;
-    border: 1px solid #3f3f46;
+    border: 1px solid var(--table-border);
     text-align: left;
 }
 
 .amby-tiptap .ProseMirror td {
     padding: 0.5rem 0.75rem;
-    border: 1px solid #27272a;
+    border: 1px solid var(--table-cell-border);
 }
 
 .amby-tiptap .ProseMirror tr:nth-child(even) {
-    background: #0f0f12;
+    background: var(--table-row-even);
 }
 
 .amby-tiptap .ProseMirror p.is-editor-empty:first-child::before {
     content: attr(data-placeholder);
-    color: #52525b;
+    color: var(--placeholder-color);
     float: left;
     height: 0;
     pointer-events: none;
@@ -1274,8 +1488,8 @@ em-emoji-picker {
 
 .amby-tiptap .amby-live-tag {
     border-radius: 999px;
-    background: rgba(168, 85, 247, 0.16);
-    color: #c084fc;
+    background: var(--tag-bg);
+    color: var(--tag-fg);
     padding: 0.05rem 0.35rem;
     font-size: 0.86em;
     font-weight: 600;
@@ -1283,10 +1497,10 @@ em-emoji-picker {
 
 .amby-tiptap .amby-live-wikilink {
     border-radius: 4px;
-    background: rgba(14, 165, 233, 0.13);
-    color: #7dd3fc;
+    background: var(--wikilink-bg);
+    color: var(--wikilink-fg);
     text-decoration: underline;
-    text-decoration-color: rgba(56, 189, 248, 0.55);
+    text-decoration-color: var(--wikilink-underline);
     text-underline-offset: 3px;
     padding: 0.03rem 0.2rem;
     cursor: pointer;
@@ -1298,7 +1512,7 @@ em-emoji-picker {
 
 /* CodeMirror source editor */
 .amby-source-editor {
-    background: #000000;
+    background: var(--source-editor-bg);
     padding: 1rem 1.25rem;
 }
 
@@ -1316,11 +1530,11 @@ em-emoji-picker {
     flex-direction: column;
     min-width: 180px;
     gap: 1px;
-    border: 1px solid #1c1c1f;
+    border: 1px solid var(--menu-border);
     border-radius: 8px;
-    background: #000000;
+    background: var(--menu-bg);
     padding: 4px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+    box-shadow: var(--menu-shadow);
 }
 
 .amby-slash-item {
@@ -1332,14 +1546,14 @@ em-emoji-picker {
     padding: 0.35rem 0.5rem;
     border-radius: 5px;
     text-align: left;
-    color: #d4d4d8;
+    color: var(--menu-item-fg);
     transition: background-color 0.12s;
 }
 
 .amby-slash-item:hover,
 .amby-slash-item.is-active {
-    background: #27272a;
-    color: #fafafa;
+    background: var(--menu-item-hover-bg);
+    color: var(--menu-item-hover-fg);
 }
 
 .amby-slash-title {
@@ -1349,7 +1563,7 @@ em-emoji-picker {
 
 .amby-slash-hint {
     font-size: 0.7rem;
-    color: #71717a;
+    color: var(--panel-section-fg);
     font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 }
 
@@ -1360,7 +1574,7 @@ em-emoji-picker {
 }
 
 .amby-activity-button[data-drop-target="true"] {
-    outline: 2px solid #38bdf8;
+    outline: 2px solid var(--activity-drop-outline);
     outline-offset: -2px;
 }
 
@@ -1370,8 +1584,8 @@ em-emoji-picker {
 
 .amby-activity-ghost {
     opacity: 0.7;
-    background: #18181b;
-    border: 1px solid #27272a;
+    background: var(--activity-ghost-bg);
+    border: 1px solid var(--activity-ghost-border);
     border-radius: 6px;
     box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
     padding: 4px;
