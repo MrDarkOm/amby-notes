@@ -95,9 +95,8 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="dark">{t("settings.appearance.themeDark")}</SelectItem>
-                    <SelectItem value="light" disabled>
-                      {t("settings.appearance.themeLight")} · {t("settings.appearance.lightSoon")}
-                    </SelectItem>
+                    <SelectItem value="light">{t("settings.appearance.themeLight")}</SelectItem>
+                    <SelectItem value="system">{t("settings.appearance.themeSystem")}</SelectItem>
                   </SelectContent>
                 </Select>
               </Row>

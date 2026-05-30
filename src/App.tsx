@@ -9,7 +9,7 @@ function PreferencesGate() {
 
 export default function App() {
   return (
-    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+    <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={true}>
       <PreferencesGate />
     </ThemeProvider>
   )
