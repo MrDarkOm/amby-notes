@@ -1,0 +1,14 @@
+# Runs ESLint + Prettier on staged files only (lint-staged model), so legacy
+# files are never reformatted unless they are touched. `lefthook install`
+# (also run by the package.json "prepare" script) activates the git hook.
+pre-commit:
+  parallel: false
+  commands:
+    eslint:
+      glob: "*.{ts,tsx}"
+      run: npx eslint --fix {staged_files}
+      stage_fixed: true
+    prettier:
+      glob: "*.{ts,tsx,json,css,md}"
+      run: npx prettier --write {staged_files}
+      stage_fixed: true
