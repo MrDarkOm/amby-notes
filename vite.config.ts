@@ -23,17 +23,17 @@ export default defineConfig(async () => ({
             "@tiptap/core",
             "@tiptap/react",
             "@tiptap/starter-kit",
-            "@tiptap/extension-bubble-menu",
+            // Direct deps
             "@tiptap/extension-image",
-            "@tiptap/extension-link",
             "@tiptap/extension-placeholder",
             "@tiptap/extension-table",
-            "@tiptap/extension-table-cell",
-            "@tiptap/extension-table-header",
-            "@tiptap/extension-table-row",
             "@tiptap/extension-task-item",
             "@tiptap/extension-task-list",
             "@tiptap/suggestion",
+            // Transitive deps pulled by StarterKit — force into this chunk so
+            // they don't land in the main index bundle.
+            "@tiptap/extension-bubble-menu",
+            "@tiptap/extension-link",
           ],
           // CodeMirror — used only in source-mode view.
           "vendor-codemirror": [
