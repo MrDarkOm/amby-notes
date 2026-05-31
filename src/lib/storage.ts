@@ -158,7 +158,7 @@ function webFindItem(items: TreeItem[], id: string): TreeItem | null {
 }
 
 function webMapTreeIds(items: TreeItem[], mapper: (id: string) => string): TreeItem[] {
-  return items.map(item => ({
+  return items.map((item) => ({
     ...item,
     id: mapper(item.id),
     path: mapper(item.path ?? item.id),
@@ -166,24 +166,31 @@ function webMapTreeIds(items: TreeItem[], mapper: (id: string) => string): TreeI
   }))
 }
 
-function webUpdateItem(items: TreeItem[], id: string, updater: (item: TreeItem) => TreeItem): TreeItem[] {
-  return items.map(item => {
+function webUpdateItem(
+  items: TreeItem[],
+  id: string,
+  updater: (item: TreeItem) => TreeItem,
+): TreeItem[] {
+  return items.map((item) => {
     if (item.id === id) return updater(item)
-    return { ...item, children: item.children ? webUpdateItem(item.children, id, updater) : undefined }
+    return {
+      ...item,
+      children: item.children ? webUpdateItem(item.children, id, updater) : undefined,
+    }
   })
 }
 
 function webRemoveItem(items: TreeItem[], id: string): { tree: TreeItem[]; item: TreeItem | null } {
   let removed: TreeItem | null = null
   const tree = items
-    .filter(item => {
+    .filter((item) => {
       if (item.id === id) {
         removed = item
         return false
       }
       return true
     })
-    .map(item => {
+    .map((item) => {
       if (!item.children) return item
       const result = webRemoveItem(item.children, id)
       if (result.item) removed = result.item
@@ -211,7 +218,11 @@ function webApplyPathChanges(changes: PathChange[]) {
   }
 }
 
-function webEnsureBundle(notePath: string): { notePath: string; changes: PathChange[]; tree: TreeItem[] } {
+function webEnsureBundle(notePath: string): {
+  notePath: string
+  changes: PathChange[]
+  tree: TreeItem[]
+} {
   const tree = webGetTree()
   const item = webFindItem(tree, notePath)
   if (!item || item.type !== "file") throw new Error(`Not a note: ${notePath}`)
@@ -221,14 +232,18 @@ function webEnsureBundle(notePath: string): { notePath: string; changes: PathCha
   const newPath = joinPath(joinPath(pathDir(notePath), stem), `${stem}.md`)
   const changes = [{ oldPath: notePath, newPath }]
   webApplyPathChanges(changes)
-  const nextTree = webUpdateItem(tree, notePath, current => ({ ...current, id: newPath, children: current.children ?? [] }))
+  const nextTree = webUpdateItem(tree, notePath, (current) => ({
+    ...current,
+    id: newPath,
+    children: current.children ?? [],
+  }))
   webSaveTree(nextTree)
   return { notePath: newPath, changes, tree: nextTree }
 }
 
 function webAddChild(items: TreeItem[], parentId: string | null, child: TreeItem): TreeItem[] {
   if (!parentId) return [...items, child]
-  return webUpdateItem(items, parentId, item => ({
+  return webUpdateItem(items, parentId, (item) => ({
     ...item,
     children: [...(item.children ?? []), child],
   }))
@@ -237,7 +252,7 @@ function webAddChild(items: TreeItem[], parentId: string | null, child: TreeItem
 function webCreateNote(parentPath: string, name: string): FsMutationResult {
   let tree = webGetTree()
   let targetParentId: string | null = null
-  let targetDir = parentPath
+  let targetDir: string
   const parent = webFindItem(tree, parentPath)
   const pathChanges: PathChange[] = []
 
@@ -277,14 +292,31 @@ export async function openVault(): Promise<string | null> {
   return WEB_VAULT
 }
 
+/**
+ * Start a Rust-side `notify` watcher on the vault directory.
+ * The watcher emits `vault-file-changed` Tauri events for external changes
+ * (creates / renames / deletes / edits by other apps).  Own writes from the
+ * app are suppressed via a self-write guard in Rust.
+ * No-op in browser mode (web dev server has no Tauri events).
+ */
+export async function startVaultWatcher(vaultPath: string): Promise<void> {
+  if (isTauri()) return invoke<void>("start_vault_watcher", { vaultPath })
+}
+
+/** Stop the active vault watcher (call on vault close or app teardown). */
+export async function stopVaultWatcher(): Promise<void> {
+  if (isTauri()) return invoke<void>("stop_vault_watcher")
+}
+
 export async function loadVaultData(vaultPath: string): Promise<LoadVaultResult> {
   if (isTauri()) return invoke<LoadVaultResult>("load_vault", { vaultPath })
   const tree = webGetTree()
-  const notes = flattenWebNotes(tree).map(item => ({
+  const notes = flattenWebNotes(tree).map((item) => ({
     id: item.id,
     path: item.path ?? item.id,
     title: item.name,
-    wordCount: (localStorage.getItem(FILE_PREFIX + item.id) ?? "").split(/\s+/).filter(Boolean).length,
+    wordCount: (localStorage.getItem(FILE_PREFIX + item.id) ?? "").split(/\s+/).filter(Boolean)
+      .length,
   }))
   return { tree, notes, sync: { inserted: 0, updated: 0, deleted: 0, warnings: [], pathToId: {} } }
 }
@@ -323,7 +355,11 @@ export async function writeNote(vaultPath: string, noteId: string, content: stri
   return writeFile(noteId, content)
 }
 
-export async function createNote(vaultPath: string, parentPath: string, name: string): Promise<FsMutationResult> {
+export async function createNote(
+  vaultPath: string,
+  parentPath: string,
+  name: string,
+): Promise<FsMutationResult> {
   if (isTauri()) return invoke<FsMutationResult>("create_note", { vaultPath, parentPath, name })
   return webCreateNote(parentPath, name)
 }
@@ -376,7 +412,13 @@ export async function createCanvasFile(
     i += 1
   }
   localStorage.setItem(FILE_PREFIX + path, "{}\n")
-  const item: TreeItem = { id: `canvas:${path}`, path, name: pathStem(path), type: "canvas", icon: "canvas" }
+  const item: TreeItem = {
+    id: `canvas:${path}`,
+    path,
+    name: pathStem(path),
+    type: "canvas",
+    icon: "canvas",
+  }
   webSaveTree(webAddChild(tree, parentFolderId, item))
   return path
 }
@@ -430,16 +472,19 @@ export async function noteLayers(notePath: string): Promise<NoteLayers> {
   }
 }
 
-export async function unlinkLayer(vaultPath: string, notePath: string, kind: LayerKind): Promise<FsMutationResult> {
+export async function unlinkLayer(
+  vaultPath: string,
+  notePath: string,
+  kind: LayerKind,
+): Promise<FsMutationResult> {
   if (isTauri()) return invoke<FsMutationResult>("unlink_layer", { vaultPath, notePath, kind })
   // Web fallback: rename layer key with _ul suffix and lift it out of the bundle dir.
   const dir = pathDir(notePath)
   const parentDir = pathDir(dir)
   const stem = pathStem(notePath)
   const ext = kind === "canvas" ? "canvas" : kind === "sketch" ? "excalidraw" : "md"
-  const oldPath = kind === "database"
-    ? joinPath(dir, "Metadata.md")
-    : joinPath(dir, `${stem}.${ext}`)
+  const oldPath =
+    kind === "database" ? joinPath(dir, "Metadata.md") : joinPath(dir, `${stem}.${ext}`)
   const newStem = kind === "database" ? `${stem}_metadata_ul` : `${stem}_ul`
   let newPath = joinPath(parentDir, `${newStem}.${ext}`)
   let i = 2
@@ -460,13 +505,18 @@ export async function unlinkLayer(vaultPath: string, notePath: string, kind: Lay
   }
 }
 
-export async function deleteLayer(vaultPath: string, notePath: string, kind: LayerKind): Promise<FsMutationResult> {
+export async function deleteLayer(
+  vaultPath: string,
+  notePath: string,
+  kind: LayerKind,
+): Promise<FsMutationResult> {
   if (isTauri()) return invoke<FsMutationResult>("delete_layer", { vaultPath, notePath, kind })
   const dir = pathDir(notePath)
   const stem = pathStem(notePath)
-  const layerPath = kind === "database"
-    ? joinPath(dir, "Metadata.md")
-    : joinPath(dir, `${stem}.${kind === "sketch" ? "excalidraw" : "canvas"}`)
+  const layerPath =
+    kind === "database"
+      ? joinPath(dir, "Metadata.md")
+      : joinPath(dir, `${stem}.${kind === "sketch" ? "excalidraw" : "canvas"}`)
   localStorage.removeItem(FILE_PREFIX + layerPath)
   return {
     primaryId: null,
@@ -483,14 +533,22 @@ export async function createLayer(notePath: string, kind: LayerKind): Promise<La
   const ensured = webEnsureBundle(notePath)
   const stem = pathStem(ensured.notePath)
   const dir = pathDir(ensured.notePath)
-  const layerPath = kind === "database"
-    ? joinPath(dir, "Metadata.md")
-    : joinPath(dir, `${stem}.${kind === "sketch" ? "excalidraw" : "canvas"}`)
-  localStorage.setItem(FILE_PREFIX + layerPath, kind === "database" ? "# Metadata\n\n```amby-db\n[]\n```\n" : "{}\n")
+  const layerPath =
+    kind === "database"
+      ? joinPath(dir, "Metadata.md")
+      : joinPath(dir, `${stem}.${kind === "sketch" ? "excalidraw" : "canvas"}`)
+  localStorage.setItem(
+    FILE_PREFIX + layerPath,
+    kind === "database" ? "# Metadata\n\n```amby-db\n[]\n```\n" : "{}\n",
+  )
   return { notePath: ensured.notePath, layerPath, kind, pathChanges: ensured.changes }
 }
 
-export async function renameItem(vaultPath: string, path: string, newName: string): Promise<FsMutationResult> {
+export async function renameItem(
+  vaultPath: string,
+  path: string,
+  newName: string,
+): Promise<FsMutationResult> {
   if (isTauri()) return invoke<FsMutationResult>("rename_item", { vaultPath, path, newName })
 
   const tree = webGetTree()
@@ -502,20 +560,16 @@ export async function renameItem(vaultPath: string, path: string, newName: strin
   const newPrefix = isBundleMainPath(path)
     ? joinPath(pathDir(pathDir(path)), newName)
     : joinPath(pathDir(path), item.type === "file" ? `${newName}.md` : newName)
-  const primaryPath = isBundleMainPath(path)
-    ? joinPath(newPrefix, `${newName}.md`)
-    : newPrefix
+  const primaryPath = isBundleMainPath(path) ? joinPath(newPrefix, `${newName}.md`) : newPrefix
 
-  const pathChanges = oldIds.map(oldPath => ({
+  const pathChanges = oldIds.map((oldPath) => ({
     oldPath,
-    newPath: oldPath === path
-      ? primaryPath
-      : oldPath.replace(oldPrefix, newPrefix),
+    newPath: oldPath === path ? primaryPath : oldPath.replace(oldPrefix, newPrefix),
   }))
   webApplyPathChanges(pathChanges)
 
-  const nextTree = webUpdateItem(tree, path, current => {
-    const updated = webMapTreeIds([current], id => {
+  const nextTree = webUpdateItem(tree, path, (current) => {
+    const updated = webMapTreeIds([current], (id) => {
       if (id === path) return primaryPath
       return id.replace(oldPrefix, newPrefix)
     })[0]
@@ -526,13 +580,18 @@ export async function renameItem(vaultPath: string, path: string, newName: strin
   return { primaryId: primaryPath, primaryPath, pathChanges, deletedPaths: [], deletedIds: [] }
 }
 
-export async function moveItem(vaultPath: string, sourcePath: string, targetPath: string): Promise<FsMutationResult> {
+export async function moveItem(
+  vaultPath: string,
+  sourcePath: string,
+  targetPath: string,
+): Promise<FsMutationResult> {
   if (isTauri()) return invoke<FsMutationResult>("move_item", { vaultPath, sourcePath, targetPath })
 
   let tree = webGetTree()
   const source = webFindItem(tree, sourcePath)
   const target = targetPath === vaultPath ? null : webFindItem(tree, targetPath)
-  if (!source || (targetPath !== vaultPath && !target)) throw new Error("Move source or target not found")
+  if (!source || (targetPath !== vaultPath && !target))
+    throw new Error("Move source or target not found")
 
   const pathChanges: PathChange[] = []
   let targetParentId: string | null = null
@@ -558,14 +617,14 @@ export async function moveItem(vaultPath: string, sourcePath: string, targetPath
     ? joinPath(newRoot, pathBase(sourcePath))
     : joinPath(targetDir, pathBase(sourcePath))
   const sourceIds = webCollectFileIds(removed.item)
-  const sourceChanges = sourceIds.map(oldPath => ({
+  const sourceChanges = sourceIds.map((oldPath) => ({
     oldPath,
     newPath: oldPath === sourcePath ? primaryPath : oldPath.replace(sourceRoot, newRoot),
   }))
   webApplyPathChanges(sourceChanges)
 
   const moved = {
-    ...webMapTreeIds([removed.item], id => {
+    ...webMapTreeIds([removed.item], (id) => {
       if (id === sourcePath) return primaryPath
       return id.replace(sourceRoot, newRoot)
     })[0],
@@ -573,7 +632,13 @@ export async function moveItem(vaultPath: string, sourcePath: string, targetPath
   const nextTree = webAddChild(removed.tree, targetParentId, moved)
   webSaveTree(nextTree)
 
-  return { primaryId: primaryPath, primaryPath, pathChanges: [...pathChanges, ...sourceChanges], deletedPaths: [], deletedIds: [] }
+  return {
+    primaryId: primaryPath,
+    primaryPath,
+    pathChanges: [...pathChanges, ...sourceChanges],
+    deletedPaths: [],
+    deletedIds: [],
+  }
 }
 
 export async function deleteItem(vaultPath: string, path: string): Promise<FsMutationResult> {
@@ -584,7 +649,13 @@ export async function deleteItem(vaultPath: string, path: string): Promise<FsMut
   const deletedPaths = removed.item ? webCollectFileIds(removed.item) : [path]
   for (const deletedPath of deletedPaths) localStorage.removeItem(FILE_PREFIX + deletedPath)
   webSaveTree(removed.tree)
-  return { primaryId: null, primaryPath: null, pathChanges: [], deletedPaths, deletedIds: deletedPaths }
+  return {
+    primaryId: null,
+    primaryPath: null,
+    pathChanges: [],
+    deletedPaths,
+    deletedIds: deletedPaths,
+  }
 }
 
 export async function getNoteMetadata(vaultPath: string, noteId: string): Promise<FileMetadata> {
@@ -657,7 +728,10 @@ export async function toAssetUrl(absPath: string): Promise<string> {
  * back to a browser blob download in web-only dev mode. Returns the saved
  * path (Tauri) or null (cancelled / web).
  */
-export async function exportTextFile(contents: string, defaultName: string): Promise<string | null> {
+export async function exportTextFile(
+  contents: string,
+  defaultName: string,
+): Promise<string | null> {
   if (isTauri()) {
     return invoke<string | null>("export_text_file", { contents, defaultName })
   }
@@ -678,7 +752,7 @@ export async function importTextFile(): Promise<string | null> {
   if (isTauri()) {
     return invoke<string | null>("import_text_file", {})
   }
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const input = document.createElement("input")
     input.type = "file"
     input.accept = "application/json,.json"

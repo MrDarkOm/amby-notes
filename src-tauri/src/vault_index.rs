@@ -911,16 +911,19 @@ pub fn upsert_note_index(vault: &Path, note_id: &str, body: &str, note_path: &Pa
     Ok(())
 }
 
-pub fn write_note(vault: &Path, note_id: &str, content: &str) -> Result<(), String> {
+/// Write content to the note and update the index.
+/// Returns the absolute path of the written file so callers can suppress
+/// the resulting fs-watcher event (self-write guard).
+pub fn write_note(vault: &Path, note_id: &str, content: &str) -> Result<PathBuf, String> {
     let note = note_by_id(vault, note_id)?;
-    let path = Path::new(&note.path);
-    let current = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let path = PathBuf::from(&note.path);
+    let current = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let next = frontmatter::replace_body_preserving_id(&current, content, note_id)?;
-    frontmatter::atomic_write(path, &next)?;
+    frontmatter::atomic_write(&path, &next)?;
     // Parse the body that was actually written (without frontmatter) to update the index.
     let written = frontmatter::parse_markdown(&next);
-    upsert_note_index(vault, note_id, &written.body, path)?;
-    Ok(())
+    upsert_note_index(vault, note_id, &written.body, &path)?;
+    Ok(path)
 }
 
 pub fn note_metadata(vault: &Path, note_id: &str) -> Result<IndexedNote, String> {

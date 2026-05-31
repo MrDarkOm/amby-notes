@@ -6,12 +6,47 @@ mod model;
 mod paths;
 mod vault_index;
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
+use std::sync::{Arc, Mutex};
+use std::time::{Instant, UNIX_EPOCH};
 
 use bundle::*;
 use model::*;
+
+// ── Rust-side file-system watcher ───────────────────────────────────────────
+
+/// How long (ms) after our own write we suppress the watcher event for that
+/// path. Covers the latency between `atomic_write` and the notify callback.
+const SELF_WRITE_GRACE_MS: u128 = 2_000;
+
+/// Payload emitted to the frontend when an external file-system change is
+/// detected in the vault (creates, modifies, deletes).
+#[derive(serde::Serialize, Clone)]
+struct VaultFileChangedPayload {
+    kind: String, // "create" | "modify" | "remove"
+    path: String,
+}
+
+/// Manages the active `notify` watcher for the open vault.  Stored in
+/// `tauri::State` so it lives for the whole app lifetime.
+pub struct WatcherState {
+    /// The active watcher (dropped → OS unregisters the watch).
+    watcher: Mutex<Option<notify::RecommendedWatcher>>,
+    /// Absolute paths written by our own commands + the write timestamp.
+    /// The watcher callback skips Modify events within SELF_WRITE_GRACE_MS.
+    own_writes: Arc<Mutex<HashMap<PathBuf, Instant>>>,
+}
+
+impl WatcherState {
+    fn new() -> Self {
+        Self {
+            watcher: Mutex::new(None),
+            own_writes: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+}
 
 fn deleted_ids_for_paths(vault_path: &Path, paths: &[String]) -> Result<Vec<String>, String> {
     let conn = vault_index::open_connection(vault_path)?;
@@ -107,8 +142,20 @@ fn read_note(vault_path: String, note_id: String) -> Result<String, String> {
 
 #[tauri::command]
 #[specta::specta]
-fn write_note(vault_path: String, note_id: String, content: String) -> Result<(), String> {
-    vault_index::write_note(Path::new(&vault_path), &note_id, &content)
+fn write_note(
+    watcher_state: tauri::State<'_, WatcherState>,
+    vault_path: String,
+    note_id: String,
+    content: String,
+) -> Result<(), String> {
+    let path = vault_index::write_note(Path::new(&vault_path), &note_id, &content)?;
+    // Record the written path so the watcher callback can suppress the
+    // resulting Modify event (autosave must not trigger a full tree refresh).
+    let mut guard = watcher_state.own_writes.lock().unwrap();
+    guard.insert(path, Instant::now());
+    // Prune stale entries opportunistically to avoid unbounded growth.
+    guard.retain(|_, at| at.elapsed().as_millis() < SELF_WRITE_GRACE_MS * 4);
+    Ok(())
 }
 
 #[tauri::command]
@@ -445,6 +492,93 @@ async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String> {
     Ok(result.map(|p| p.to_string()))
 }
 
+/// Start a Rust-side `notify` watcher on the open vault.
+///
+/// Any external file-system change (create / modify / remove) that is NOT
+/// caused by our own commands emits a `vault-file-changed` event to the
+/// frontend.  The frontend replaces the old JS `plugin-fs::watch()` call with
+/// a listener on that event.
+///
+/// Calling this again while a watcher is already running replaces the old one
+/// (handles vault-switch).
+#[tauri::command]
+#[specta::specta]
+fn start_vault_watcher(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, WatcherState>,
+    vault_path: String,
+) -> Result<(), String> {
+    use notify::Watcher;
+    use tauri::Emitter;
+
+    let vault = PathBuf::from(&vault_path);
+    let own_writes = Arc::clone(&state.own_writes);
+    let app_handle = app.clone();
+
+    let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        let Ok(event) = res else { return };
+
+        // Map to a frontend-visible kind string; ignore everything else
+        // (metadata-only touches, access times, etc.).
+        let kind_str = match &event.kind {
+            notify::EventKind::Create(_) => "create",
+            notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => "modify",
+            notify::EventKind::Remove(_) => "remove",
+            _ => return,
+        };
+
+        // Filter out .amby/ internals (DB WAL, lock files, etc.).
+        let relevant: Vec<&PathBuf> = event
+            .paths
+            .iter()
+            .filter(|p| !p.components().any(|c| c.as_os_str() == ".amby"))
+            .collect();
+        if relevant.is_empty() {
+            return;
+        }
+
+        // Self-write guard: skip Modify events on paths we just wrote ourselves.
+        if kind_str == "modify" {
+            let guard = own_writes.lock().unwrap();
+            if relevant.iter().all(|p| {
+                guard
+                    .get(*p)
+                    .map_or(false, |at| at.elapsed().as_millis() < SELF_WRITE_GRACE_MS)
+            }) {
+                return;
+            }
+        }
+
+        // Emit one event per changed path.
+        for path in relevant {
+            let _ = app_handle.emit(
+                "vault-file-changed",
+                VaultFileChangedPayload {
+                    kind: kind_str.to_string(),
+                    path: path.to_string_lossy().to_string(),
+                },
+            );
+        }
+    })
+    .map_err(|e| e.to_string())?;
+
+    watcher
+        .watch(&vault, notify::RecursiveMode::Recursive)
+        .map_err(|e| e.to_string())?;
+
+    // Storing drops (and stops) any previously active watcher.
+    *state.watcher.lock().unwrap() = Some(watcher);
+    Ok(())
+}
+
+/// Stop the active vault watcher (called on vault close / app teardown).
+#[tauri::command]
+#[specta::specta]
+fn stop_vault_watcher(state: tauri::State<'_, WatcherState>) -> Result<(), String> {
+    *state.watcher.lock().unwrap() = None;
+    Ok(())
+}
+
 /// Save arbitrary text to a user-chosen location via the native save dialog.
 /// The destination is picked here (never supplied by the webview), so there is
 /// no arbitrary-write-from-JS vector — used for exporting presets.
@@ -526,6 +660,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         delete_item,
         get_file_metadata,
         open_vault,
+        start_vault_watcher,
+        stop_vault_watcher,
         open_in_explorer,
         import_asset,
         import_asset_bytes,
@@ -559,6 +695,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(paths::VaultScope::default())
+        .manage(WatcherState::new())
         .invoke_handler(builder.invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application")
