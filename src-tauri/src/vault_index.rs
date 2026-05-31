@@ -412,11 +412,10 @@ fn scan_disk(
     Ok(notes)
 }
 
-pub fn sync_vault(vault: &Path) -> Result<SyncReport, String> {
+pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String> {
     if !vault.is_dir() {
         return Err(format!("Not a directory: {}", path_string(vault)));
     }
-    let conn = open_connection(vault)?;
     let (db_by_id, _db_by_path) = db_snapshot(&conn)?;
     let prev = db_path_stamps(&conn)?;
     let mut warnings = Vec::new();
@@ -681,10 +680,9 @@ fn resolve_links_for_note(conn: &Connection, note_id: &str) -> Result<(), String
     Ok(())
 }
 
-pub fn load_vault(vault: &Path) -> Result<LoadVaultResult, String> {
-    let sync = sync_vault(vault)?;
-    let conn = open_connection(vault)?;
-    let notes = list_notes(&conn, vault)?;
+pub fn load_vault(conn: &Connection, vault: &Path) -> Result<LoadVaultResult, String> {
+    let sync = sync_vault(conn, vault)?;
+    let notes = list_notes(conn, vault)?;
     let tree = build_tree(vault, &notes)?;
     Ok(LoadVaultResult { tree, notes, sync })
 }
@@ -820,8 +818,7 @@ fn build_tree(vault: &Path, notes: &[IndexedNote]) -> Result<Vec<TreeItem>, Stri
     scan_tree_dir(vault, vault, &note_map(notes, vault), false)
 }
 
-pub fn note_by_id(vault: &Path, note_id: &str) -> Result<IndexedNote, String> {
-    let conn = open_connection(vault)?;
+pub fn note_by_id(conn: &Connection, vault: &Path, note_id: &str) -> Result<IndexedNote, String> {
     conn.query_row(
         "SELECT id, path, title, mtime, word_count FROM notes WHERE id = ?1",
         [note_id],
@@ -841,16 +838,14 @@ pub fn note_by_id(vault: &Path, note_id: &str) -> Result<IndexedNote, String> {
     .ok_or_else(|| format!("Note not found: {note_id}"))
 }
 
-pub fn read_note(vault: &Path, note_id: &str) -> Result<String, String> {
-    let note = note_by_id(vault, note_id)?;
+pub fn read_note(conn: &Connection, vault: &Path, note_id: &str) -> Result<String, String> {
+    let note = note_by_id(conn, vault, note_id)?;
     frontmatter::read_markdown(Path::new(&note.path)).map(|parsed| parsed.body)
 }
 
 /// Update only the index entry for a single note after saving it.
 /// Avoids the O(N) full-vault scan done by `sync_vault`.
-pub fn upsert_note_index(vault: &Path, note_id: &str, body: &str, note_path: &Path) -> Result<(), String> {
-    let conn = open_connection(vault)?;
-
+pub fn upsert_note_index(conn: &Connection, vault: &Path, note_id: &str, body: &str, note_path: &Path) -> Result<(), String> {
     let (mtime, size) = metadata_stamp(note_path)?;
     let rel_path = note_path
         .strip_prefix(vault)
@@ -914,25 +909,25 @@ pub fn upsert_note_index(vault: &Path, note_id: &str, body: &str, note_path: &Pa
 /// Write content to the note and update the index.
 /// Returns the absolute path of the written file so callers can suppress
 /// the resulting fs-watcher event (self-write guard).
-pub fn write_note(vault: &Path, note_id: &str, content: &str) -> Result<PathBuf, String> {
-    let note = note_by_id(vault, note_id)?;
+pub fn write_note(conn: &Connection, vault: &Path, note_id: &str, content: &str) -> Result<PathBuf, String> {
+    let note = note_by_id(conn, vault, note_id)?;
     let path = PathBuf::from(&note.path);
     let current = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let next = frontmatter::replace_body_preserving_id(&current, content, note_id)?;
     frontmatter::atomic_write(&path, &next)?;
     // Parse the body that was actually written (without frontmatter) to update the index.
     let written = frontmatter::parse_markdown(&next);
-    upsert_note_index(vault, note_id, &written.body, &path)?;
+    upsert_note_index(conn, vault, note_id, &written.body, &path)?;
     Ok(path)
 }
 
-pub fn note_metadata(vault: &Path, note_id: &str) -> Result<IndexedNote, String> {
-    note_by_id(vault, note_id)
+pub fn note_metadata(conn: &Connection, vault: &Path, note_id: &str) -> Result<IndexedNote, String> {
+    note_by_id(conn, vault, note_id)
 }
 
-pub fn list_tags(vault: &Path) -> Result<Vec<TagEntry>, String> {
-    sync_vault(vault)?;
-    let conn = open_connection(vault)?;
+/// List all tags. Does NOT call sync_vault — the caller is responsible for
+/// keeping the index fresh (via the Rust-side notify watcher + load_vault).
+pub fn list_tags(conn: &Connection, vault: &Path) -> Result<Vec<TagEntry>, String> {
     let mut stmt = conn
         .prepare(
             r#"
@@ -988,9 +983,9 @@ fn snippet(content: &str, query: &str) -> Option<String> {
     ))
 }
 
-pub fn search_notes(vault: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
-    sync_vault(vault)?;
-    let conn = open_connection(vault)?;
+/// Search notes by title and content. Does NOT call sync_vault — the index
+/// is expected to be fresh (maintained by the notify watcher + load_vault).
+pub fn search_notes(conn: &Connection, vault: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
         return Ok(Vec::new());
@@ -1039,10 +1034,10 @@ pub fn search_notes(vault: &Path, query: &str) -> Result<Vec<SearchResult>, Stri
     Ok(results)
 }
 
-pub fn link_graph(vault: &Path) -> Result<LinkGraph, String> {
-    sync_vault(vault)?;
-    let conn = open_connection(vault)?;
-    let notes = list_notes(&conn, vault)?;
+/// Build the note link graph from the current index.  Does NOT call
+/// sync_vault — the index is expected to be fresh.
+pub fn link_graph(conn: &Connection, vault: &Path) -> Result<LinkGraph, String> {
+    let notes = list_notes(conn, vault)?;
     let mut nodes: HashMap<String, LinkGraphNode> = notes
         .iter()
         .map(|note| {

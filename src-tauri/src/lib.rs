@@ -29,6 +29,29 @@ struct VaultFileChangedPayload {
     path: String,
 }
 
+/// Holds the single open SQLite connection for the active vault.
+/// All Tauri commands that need the DB lock this mutex and pass `&conn`
+/// to vault_index functions, avoiding the per-command open/close overhead
+/// (WAL pragma + schema check) that the old pattern incurred.
+pub struct DbState {
+    conn: Mutex<Option<rusqlite::Connection>>,
+}
+
+impl DbState {
+    fn new() -> Self {
+        Self { conn: Mutex::new(None) }
+    }
+
+    /// Open (or replace) the connection for `vault`.  Called from `load_vault`
+    /// whenever a vault is activated.  Vault-switch is handled automatically:
+    /// the old connection is dropped when `Some` is replaced.
+    fn open(&self, vault: &std::path::Path) -> Result<(), String> {
+        let new_conn = vault_index::open_connection(vault)?;
+        *self.conn.lock().unwrap() = Some(new_conn);
+        Ok(())
+    }
+}
+
 /// Manages the active `notify` watcher for the open vault.  Stored in
 /// `tauri::State` so it lives for the whole app lifetime.
 pub struct WatcherState {
@@ -48,9 +71,12 @@ impl WatcherState {
     }
 }
 
-fn deleted_ids_for_paths(vault_path: &Path, paths: &[String]) -> Result<Vec<String>, String> {
-    let conn = vault_index::open_connection(vault_path)?;
-    let notes = vault_index::list_notes(&conn, vault_path)?;
+fn deleted_ids_for_paths(
+    conn: &rusqlite::Connection,
+    vault_path: &Path,
+    paths: &[String],
+) -> Result<Vec<String>, String> {
+    let notes = vault_index::list_notes(conn, vault_path)?;
     let by_path: std::collections::HashMap<_, _> =
         notes.into_iter().map(|note| (note.path, note.id)).collect();
     Ok(paths
@@ -59,8 +85,12 @@ fn deleted_ids_for_paths(vault_path: &Path, paths: &[String]) -> Result<Vec<Stri
         .collect())
 }
 
-fn sync_mutation_result(vault_path: &Path, mut result: FsMutationResult) -> Result<FsMutationResult, String> {
-    let loaded = vault_index::load_vault(vault_path)?;
+fn sync_mutation_result(
+    conn: &rusqlite::Connection,
+    vault_path: &Path,
+    mut result: FsMutationResult,
+) -> Result<FsMutationResult, String> {
+    let loaded = vault_index::load_vault(conn, vault_path)?;
     result.primary_id = result.primary_path.as_ref().and_then(|primary_path| {
         loaded
             .notes
@@ -92,25 +122,29 @@ fn activate_vault(
 
 #[tauri::command]
 #[specta::specta]
-async fn load_vault(
+fn load_vault(
     app: tauri::AppHandle,
     scope: tauri::State<'_, paths::VaultScope>,
+    db: tauri::State<'_, DbState>,
     vault_path: String,
 ) -> Result<vault_index::LoadVaultResult, String> {
-    activate_vault(&app, &scope, &vault_path)?;
-    tauri::async_runtime::spawn_blocking(move || vault_index::load_vault(Path::new(&vault_path)))
-        .await
-        .map_err(|e| e.to_string())?
+    let canonical = activate_vault(&app, &scope, &vault_path)?;
+    // Open (or replace) the persistent connection for this vault.
+    db.open(&canonical)?;
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().unwrap();
+    vault_index::load_vault(conn, &canonical)
 }
 
 #[tauri::command]
 #[specta::specta]
-async fn list_files(vault_path: String) -> Result<Vec<vault_index::TreeItem>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        vault_index::load_vault(Path::new(&vault_path)).map(|loaded| loaded.tree)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+fn list_files(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+) -> Result<Vec<vault_index::TreeItem>, String> {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    vault_index::load_vault(conn, Path::new(&vault_path)).map(|loaded| loaded.tree)
 }
 
 #[tauri::command]
@@ -136,19 +170,29 @@ fn write_file(
 
 #[tauri::command]
 #[specta::specta]
-fn read_note(vault_path: String, note_id: String) -> Result<String, String> {
-    vault_index::read_note(Path::new(&vault_path), &note_id)
+fn read_note(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    note_id: String,
+) -> Result<String, String> {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    vault_index::read_note(conn, Path::new(&vault_path), &note_id)
 }
 
 #[tauri::command]
 #[specta::specta]
 fn write_note(
+    db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     note_id: String,
     content: String,
 ) -> Result<(), String> {
-    let path = vault_index::write_note(Path::new(&vault_path), &note_id, &content)?;
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    let path = vault_index::write_note(conn, Path::new(&vault_path), &note_id, &content)?;
+    drop(conn_guard); // release DB lock before locking watcher state
     // Record the written path so the watcher callback can suppress the
     // resulting Modify event (autosave must not trigger a full tree refresh).
     let mut guard = watcher_state.own_writes.lock().unwrap();
@@ -160,8 +204,14 @@ fn write_note(
 
 #[tauri::command]
 #[specta::specta]
-fn get_note_metadata(vault_path: String, note_id: String) -> Result<NoteMetadata, String> {
-    let note = vault_index::note_metadata(Path::new(&vault_path), &note_id)?;
+fn get_note_metadata(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    note_id: String,
+) -> Result<NoteMetadata, String> {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    let note = vault_index::note_metadata(conn, Path::new(&vault_path), &note_id)?;
     Ok(NoteMetadata {
         created: None,
         modified: note.modified,
@@ -171,36 +221,50 @@ fn get_note_metadata(vault_path: String, note_id: String) -> Result<NoteMetadata
 
 #[tauri::command]
 #[specta::specta]
-async fn list_tags(vault_path: String) -> Result<Vec<vault_index::TagEntry>, String> {
-    tauri::async_runtime::spawn_blocking(move || vault_index::list_tags(Path::new(&vault_path)))
-        .await
-        .map_err(|e| e.to_string())?
+fn list_tags(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+) -> Result<Vec<vault_index::TagEntry>, String> {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    vault_index::list_tags(conn, Path::new(&vault_path))
 }
 
 #[tauri::command]
 #[specta::specta]
-async fn search_notes(vault_path: String, query: String) -> Result<Vec<vault_index::SearchResult>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        vault_index::search_notes(Path::new(&vault_path), &query)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+fn search_notes(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    query: String,
+) -> Result<Vec<vault_index::SearchResult>, String> {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    vault_index::search_notes(conn, Path::new(&vault_path), &query)
 }
 
 #[tauri::command]
 #[specta::specta]
-async fn get_link_graph(vault_path: String) -> Result<vault_index::LinkGraph, String> {
-    tauri::async_runtime::spawn_blocking(move || vault_index::link_graph(Path::new(&vault_path)))
-        .await
-        .map_err(|e| e.to_string())?
+fn get_link_graph(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+) -> Result<vault_index::LinkGraph, String> {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    vault_index::link_graph(conn, Path::new(&vault_path))
 }
 
 #[tauri::command]
 #[specta::specta]
-fn ensure_bundle(vault_path: String, path: String) -> Result<FsMutationResult, String> {
+fn ensure_bundle(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    path: String,
+) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
     let (primary, path_changes) = ensure_bundle_path(Path::new(&path))?;
-    sync_mutation_result(Path::new(&vault_path), FsMutationResult {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    sync_mutation_result(conn, Path::new(&vault_path), FsMutationResult {
         primary_id: None,
         primary_path: Some(path_string(&primary)),
         path_changes,
@@ -211,10 +275,17 @@ fn ensure_bundle(vault_path: String, path: String) -> Result<FsMutationResult, S
 
 #[tauri::command]
 #[specta::specta]
-fn create_note(vault_path: String, parent_path: String, name: String) -> Result<FsMutationResult, String> {
+fn create_note(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    parent_path: String,
+    name: String,
+) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &parent_path)?;
     let result = create_note_impl(Path::new(&parent_path), &name)?;
-    sync_mutation_result(Path::new(&vault_path), result)
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    sync_mutation_result(conn, Path::new(&vault_path), result)
 }
 
 #[tauri::command]
@@ -230,38 +301,65 @@ fn create_layer(
 
 #[tauri::command]
 #[specta::specta]
-fn create_canvas(vault_path: String, parent_path: String, name: String) -> Result<String, String> {
+fn create_canvas(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    parent_path: String,
+    name: String,
+) -> Result<String, String> {
     paths::guard_in(&vault_path, &parent_path)?;
     let path = create_canvas_impl(Path::new(&parent_path), &name)?;
-    vault_index::load_vault(Path::new(&vault_path))?;
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    vault_index::load_vault(conn, Path::new(&vault_path))?;
     Ok(path_string(&path))
 }
 
 #[tauri::command]
 #[specta::specta]
-fn attach_canvas_to_note(vault_path: String, canvas_path: String) -> Result<FsMutationResult, String> {
+fn attach_canvas_to_note(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    canvas_path: String,
+) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &canvas_path)?;
     let result = attach_canvas_impl(Path::new(&canvas_path))?;
-    sync_mutation_result(Path::new(&vault_path), result)
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    sync_mutation_result(conn, Path::new(&vault_path), result)
 }
 
 #[tauri::command]
 #[specta::specta]
-fn unlink_layer(vault_path: String, note_path: String, kind: String) -> Result<FsMutationResult, String> {
+fn unlink_layer(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    note_path: String,
+    kind: String,
+) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &note_path)?;
     let result = unlink_layer_impl(Path::new(&note_path), &kind)?;
-    sync_mutation_result(Path::new(&vault_path), result)
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    sync_mutation_result(conn, Path::new(&vault_path), result)
 }
 
 #[tauri::command]
 #[specta::specta]
-fn delete_layer(vault_path: String, note_path: String, kind: String) -> Result<FsMutationResult, String> {
+fn delete_layer(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    note_path: String,
+    kind: String,
+) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &note_path)?;
     let mut result = delete_layer_impl(Path::new(&note_path), &kind)?;
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
     if !result.deleted_paths.is_empty() {
-        result.deleted_ids = deleted_ids_for_paths(Path::new(&vault_path), &result.deleted_paths)?;
+        result.deleted_ids = deleted_ids_for_paths(conn, Path::new(&vault_path), &result.deleted_paths)?;
     }
-    vault_index::load_vault(Path::new(&vault_path))?;
+    vault_index::load_vault(conn, Path::new(&vault_path))?;
     Ok(result)
 }
 
@@ -295,11 +393,18 @@ fn note_layers(
 
 #[tauri::command]
 #[specta::specta]
-fn move_item(vault_path: String, source_path: String, target_path: String) -> Result<FsMutationResult, String> {
+fn move_item(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    source_path: String,
+    target_path: String,
+) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &source_path)?;
     paths::guard_in(&vault_path, &target_path)?;
     let result = move_item_impl(Path::new(&source_path), Path::new(&target_path))?;
-    sync_mutation_result(Path::new(&vault_path), result)
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    sync_mutation_result(conn, Path::new(&vault_path), result)
 }
 
 #[tauri::command]
@@ -327,19 +432,32 @@ fn create_folder(scope: tauri::State<paths::VaultScope>, path: String) -> Result
 
 #[tauri::command]
 #[specta::specta]
-fn rename_item(vault_path: String, path: String, new_name: String) -> Result<FsMutationResult, String> {
+fn rename_item(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    path: String,
+    new_name: String,
+) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
     let result = rename_item_impl(Path::new(&path), &new_name)?;
-    sync_mutation_result(Path::new(&vault_path), result)
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    sync_mutation_result(conn, Path::new(&vault_path), result)
 }
 
 #[tauri::command]
 #[specta::specta]
-fn delete_item(vault_path: String, path: String) -> Result<FsMutationResult, String> {
+fn delete_item(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    path: String,
+) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
     let mut result = delete_item_impl(Path::new(&path))?;
-    result.deleted_ids = deleted_ids_for_paths(Path::new(&vault_path), &result.deleted_paths)?;
-    vault_index::load_vault(Path::new(&vault_path))?;
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    result.deleted_ids = deleted_ids_for_paths(conn, Path::new(&vault_path), &result.deleted_paths)?;
+    vault_index::load_vault(conn, Path::new(&vault_path))?;
     Ok(result)
 }
 
@@ -695,6 +813,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(paths::VaultScope::default())
+        .manage(DbState::new())
         .manage(WatcherState::new())
         .invoke_handler(builder.invoke_handler())
         .run(tauri::generate_context!())
