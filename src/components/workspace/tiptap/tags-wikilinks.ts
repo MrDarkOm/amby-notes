@@ -42,7 +42,7 @@ export const TagsWikilinks = Extension.create<TagsWikilinksOptions>({
                 decorations.push(
                   Decoration.inline(pos + match.index, pos + match.index + match[0].length, {
                     class: match[1] ? "amby-live-tag" : "amby-live-wikilink",
-                  })
+                  }),
                 )
               }
             })
@@ -62,7 +62,9 @@ export const TagsWikilinks = Extension.create<TagsWikilinksOptions>({
                 cb.onTagClick?.(match[1])
               } else if (match[2]) {
                 const { target } = getWikiLinkParts(match[2])
-                if (target) cb.onWikiLinkClick?.(target)
+                // Pass the full raw inner content so the handler can extract
+                // the anchor (#heading / ^block-id) for scroll-on-open.
+                if (target) cb.onWikiLinkClick?.(match[2])
               }
               return true
             }

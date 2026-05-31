@@ -22,19 +22,13 @@ export function clamp(value: number, min: number, max: number) {
 }
 
 export function escapeHtml(text: string) {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 }
 
 // Reverses escapeHtml. Only the three entities escapeHtml produces are handled,
 // so this stays DOM-free (usable outside the browser, e.g. in tests).
 export function unescapeHtml(text: string) {
-  return text
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
+  return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
 }
 
 export function parseSafeStyle(style: string): { color?: string; backgroundColor?: string } {
@@ -59,9 +53,31 @@ export function styleAttrsToCss(attrs: { color?: string | null; backgroundColor?
   return parts.join(";")
 }
 
+/**
+ * Parse the inner content of a wiki-link (`[[…]]` without the brackets).
+ *
+ * Handles the three modifier forms used by Obsidian / Amby:
+ *   - alias:      `Note|Alias`          → target="Note",  anchor=null,    label="Alias"
+ *   - heading:    `Note#Heading`        → target="Note",  anchor="#Heading"
+ *   - block:      `Note^block-id`       → target="Note",  anchor="^block-id"
+ *   - combined:   `Note#Heading|Alias`  → target="Note",  anchor="#Heading", label="Alias"
+ */
 export function getWikiLinkParts(raw: string) {
   const [targetPart, aliasPart] = raw.split("|")
-  const target = (targetPart ?? "").split("#")[0].trim()
+  const clean = (targetPart ?? "").trim()
+  // Find the first anchor marker: '#' (heading) or '^' (block-id).
+  const hashIdx = clean.indexOf("#")
+  const caretIdx = clean.indexOf("^")
+  const anchorStart =
+    hashIdx !== -1 && caretIdx !== -1
+      ? Math.min(hashIdx, caretIdx)
+      : hashIdx !== -1
+        ? hashIdx
+        : caretIdx !== -1
+          ? caretIdx
+          : -1
+  const target = anchorStart !== -1 ? clean.slice(0, anchorStart).trim() : clean
+  const anchor: string | null = anchorStart !== -1 ? clean.slice(anchorStart) : null
   const label = (aliasPart ?? targetPart ?? "").trim()
-  return { target, label: label || target }
+  return { target, anchor, label: label || target }
 }

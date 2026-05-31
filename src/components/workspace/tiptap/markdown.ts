@@ -85,7 +85,12 @@ function normalizeTables(state: StateCore) {
   const out: Token[] = []
   for (const token of state.tokens) {
     const type = token.type
-    if (type === "thead_open" || type === "thead_close" || type === "tbody_open" || type === "tbody_close") {
+    if (
+      type === "thead_open" ||
+      type === "thead_close" ||
+      type === "tbody_open" ||
+      type === "tbody_close"
+    ) {
       continue
     }
     if (type === "th_open" || type === "td_open") {
@@ -137,18 +142,20 @@ function detectTaskLists(state: StateCore) {
         itemDepth--
       }
     }
-    if (!items.length || items.some(it => it.close < 0)) continue
+    if (!items.length || items.some((it) => it.close < 0)) continue
 
-    const checks = items.map(it => {
+    const checks = items.map((it) => {
       for (let j = it.open + 1; j < it.close; j++) {
         if (tokens[j].type === "inline") {
           const match = TASK_PREFIX_RE.exec(tokens[j].content)
-          return match ? { token: tokens[j], checked: match[1].toLowerCase() === "x", len: match[0].length } : null
+          return match
+            ? { token: tokens[j], checked: match[1].toLowerCase() === "x", len: match[0].length }
+            : null
         }
       }
       return null
     })
-    if (checks.some(c => c === null)) continue
+    if (checks.some((c) => c === null)) continue
 
     tokens[i].type = "task_list_open"
     tokens[close].type = "task_list_close"
@@ -210,29 +217,47 @@ function detectCallouts(state: StateCore) {
       if (tokens[j].type === "blockquote_open") depth++
       else if (tokens[j].type === "blockquote_close") {
         depth--
-        if (depth === 0) { bqClose = j; break }
+        if (depth === 0) {
+          bqClose = j
+          break
+        }
       }
     }
-    if (bqClose < 0) { out.push(tokens[i++]); continue }
+    if (bqClose < 0) {
+      out.push(tokens[i++])
+      continue
+    }
 
     // Find the first paragraph (open / inline / close) inside the blockquote
-    let firstParaOpen = -1, firstInlineIdx = -1, firstParaClose = -1
+    let firstParaOpen = -1,
+      firstInlineIdx = -1,
+      firstParaClose = -1
     for (let j = i + 1; j < bqClose; j++) {
       if (tokens[j].type === "paragraph_open" && firstParaOpen < 0) {
         firstParaOpen = j
       } else if (tokens[j].type === "inline" && firstParaOpen >= 0 && firstInlineIdx < 0) {
         firstInlineIdx = j
-      } else if (tokens[j].type === "paragraph_close" && firstInlineIdx >= 0 && firstParaClose < 0) {
+      } else if (
+        tokens[j].type === "paragraph_close" &&
+        firstInlineIdx >= 0 &&
+        firstParaClose < 0
+      ) {
         firstParaClose = j
         break
       }
     }
 
-    if (firstInlineIdx < 0) { out.push(tokens[i++]); continue }
+    if (firstInlineIdx < 0) {
+      out.push(tokens[i++])
+      continue
+    }
 
     const firstInline = tokens[firstInlineIdx]
     const match = CALLOUT_FIRST_LINE_RE.exec(firstInline.content)
-    if (!match) { out.push(tokens[i++]); continue }
+    if (!match) {
+      out.push(tokens[i++])
+      continue
+    }
 
     const calloutType = match[1].toUpperCase()
     const emojiRaw = (match[2] ?? "").trim()
@@ -252,8 +277,7 @@ function detectCallouts(state: StateCore) {
     }
 
     const skipFirstPara =
-      !firstInline.content.trim() &&
-      (!firstInline.children || firstInline.children.length === 0)
+      !firstInline.content.trim() && (!firstInline.children || firstInline.children.length === 0)
 
     const calloutOpen = new state.Token("callout_open", "div", 1)
     calloutOpen.attrSet("calloutType", calloutType)
@@ -304,12 +328,57 @@ function detectAmbyBlocks(state: StateCore) {
   }
 }
 
+// ── markdown-it: detect Obsidian-style transclusion embeds (`![[Note Name]]`) ─
+
+/**
+ * Scans the block-level token stream for paragraphs whose entire content is a
+ * single `![[Note Name]]` embed link and replaces the paragraph triplet
+ * (paragraph_open / inline / paragraph_close) with a single `transclusion`
+ * token.  This mirrors Obsidian's block-embed behaviour.
+ *
+ * Only the base note name is stored; aliases (`|`) and anchors (`#`/`^`) are
+ * stripped so the target matches the vault lookup key.
+ */
+const TRANSCLUSION_LINE_RE = /^!\[\[([^\]\r\n]+)\]\]\s*$/
+
+function detectTransclusions(state: StateCore) {
+  const out: typeof state.tokens = []
+  let i = 0
+  while (i < state.tokens.length) {
+    const tok = state.tokens[i]
+    // Paragraph triplet: paragraph_open → inline → paragraph_close
+    if (
+      tok.type === "paragraph_open" &&
+      i + 2 < state.tokens.length &&
+      state.tokens[i + 1].type === "inline" &&
+      state.tokens[i + 2].type === "paragraph_close"
+    ) {
+      const inline = state.tokens[i + 1]
+      const m = TRANSCLUSION_LINE_RE.exec(inline.content)
+      if (m) {
+        // Strip alias (|) and anchor (#/^) to get the base note name.
+        const raw = m[1].trim()
+        const base = raw.split("|")[0].split(/[#^]/)[0].trim()
+        const t = new state.Token("transclusion", "div", 0)
+        t.attrSet("target", base)
+        out.push(t)
+        i += 3 // consume paragraph_open + inline + paragraph_close
+        continue
+      }
+    }
+    out.push(tok)
+    i++
+  }
+  state.tokens = out
+}
+
 function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.inline.ruler.before("html_inline", "amby_html", ambyInlineRule)
   md.core.ruler.push("amby_tables", normalizeTables)
   md.core.ruler.push("amby_task_lists", detectTaskLists)
   md.core.ruler.push("amby_blocks", detectAmbyBlocks)
   md.core.ruler.push("amby_callouts", detectCallouts)
+  md.core.ruler.push("amby_transclusions", detectTransclusions)
   md.core.ruler.push("amby_softbreaks", softbreaksToText)
 }
 
@@ -332,7 +401,7 @@ export function markdownToHtml(markdown: string): string {
 const parser = new MarkdownParser(editorSchema, tokenizer, {
   callout: {
     block: "callout",
-    getAttrs: tok => ({
+    getAttrs: (tok) => ({
       calloutType: tok.attrGet("calloutType") ?? "NOTE",
       emoji: tok.attrGet("emoji") ?? "💡",
     }),
@@ -342,28 +411,28 @@ const parser = new MarkdownParser(editorSchema, tokenizer, {
   list_item: { block: "listItem" },
   bullet_list: {
     block: "bulletList",
-    getAttrs: tok => ({ markdownMarkup: tok.markup || null }),
+    getAttrs: (tok) => ({ markdownMarkup: tok.markup || null }),
   },
   ordered_list: {
     block: "orderedList",
-    getAttrs: tok => ({ start: tok.attrGet("start") ? Number(tok.attrGet("start")) : 1 }),
+    getAttrs: (tok) => ({ start: tok.attrGet("start") ? Number(tok.attrGet("start")) : 1 }),
   },
   task_list: { block: "taskList" },
   task_item: {
     block: "taskItem",
-    getAttrs: tok => ({ checked: Boolean(tok.meta?.checked) }),
+    getAttrs: (tok) => ({ checked: Boolean(tok.meta?.checked) }),
   },
-  heading: { block: "heading", getAttrs: tok => ({ level: Number(tok.tag.slice(1)) }) },
+  heading: { block: "heading", getAttrs: (tok) => ({ level: Number(tok.tag.slice(1)) }) },
   code_block: { block: "codeBlock", noCloseToken: true },
   fence: {
     block: "codeBlock",
-    getAttrs: tok => ({ language: tok.info ? tok.info.trim().split(/\s+/)[0] : null }),
+    getAttrs: (tok) => ({ language: tok.info ? tok.info.trim().split(/\s+/)[0] : null }),
     noCloseToken: true,
   },
   hr: { node: "horizontalRule" },
   image: {
     node: "image",
-    getAttrs: tok => ({
+    getAttrs: (tok) => ({
       src: tok.attrGet("src"),
       title: tok.attrGet("title") || null,
       alt: tok.children?.[0]?.content || null,
@@ -374,31 +443,39 @@ const parser = new MarkdownParser(editorSchema, tokenizer, {
   tr: { block: "tableRow" },
   th: { block: "tableHeader" },
   td: { block: "tableCell" },
-  em: { mark: "italic", getAttrs: tok => ({ markdownMarkup: tok.markup || null }) },
-  strong: { mark: "bold", getAttrs: tok => ({ markdownMarkup: tok.markup || null }) },
+  em: { mark: "italic", getAttrs: (tok) => ({ markdownMarkup: tok.markup || null }) },
+  strong: { mark: "bold", getAttrs: (tok) => ({ markdownMarkup: tok.markup || null }) },
   s: { mark: "strike" },
   link: {
     mark: "link",
-    getAttrs: tok => ({ href: tok.attrGet("href") }),
+    getAttrs: (tok) => ({ href: tok.attrGet("href") }),
   },
   code_inline: { mark: "code", noCloseToken: true },
-  html_inline: { node: "ambyHtml", noCloseToken: true, getAttrs: tok => ({ value: tok.content }) },
+  html_inline: {
+    node: "ambyHtml",
+    noCloseToken: true,
+    getAttrs: (tok) => ({ value: tok.content }),
+  },
   html_block: { ignore: true, noCloseToken: true },
   amby_block: {
     node: "ambyBlock",
-    getAttrs: tok => ({
+    getAttrs: (tok) => ({
       blockType: (tok.meta?.blockType as string) ?? "db",
       blockId: (tok.meta?.blockId as string) ?? "",
     }),
   },
   amby_span: {
     mark: "ambyTextStyle",
-    getAttrs: tok => ({
+    getAttrs: (tok) => ({
       color: (tok.meta?.color as string | null) ?? null,
       backgroundColor: (tok.meta?.backgroundColor as string | null) ?? null,
     }),
   },
   amby_u: { mark: "ambyUnderline" },
+  transclusion: {
+    node: "transclusion",
+    getAttrs: (tok) => ({ target: tok.attrGet("target") ?? "" }),
+  },
 })
 
 export function markdownToDoc(markdown: string): Record<string, unknown> {
@@ -449,8 +526,12 @@ function backticksFor(node: PMNode, side: number): string {
 // `out` / `marks` members as @internal, so the public types omit them. We
 // re-declare the bits we rely on locally.
 type MarkSerializerSpec = {
-  open: string | ((state: MarkdownSerializerState, mark: PMMark, parent: PMNode, index: number) => string)
-  close: string | ((state: MarkdownSerializerState, mark: PMMark, parent: PMNode, index: number) => string)
+  open:
+    | string
+    | ((state: MarkdownSerializerState, mark: PMMark, parent: PMNode, index: number) => string)
+  close:
+    | string
+    | ((state: MarkdownSerializerState, mark: PMMark, parent: PMNode, index: number) => string)
   mixable?: boolean
   expelEnclosingWhitespace?: boolean
   escape?: boolean
@@ -508,6 +589,10 @@ const nodeSerializers: Record<
     state.write("\n```")
     state.closeBlock(node)
   },
+  transclusion(state, node) {
+    state.write(`![[${node.attrs.target as string}]]`)
+    state.closeBlock(node)
+  },
   bulletList(state, node) {
     const bullet = node.attrs.markdownMarkup || "-"
     state.renderList(node, "  ", () => bullet + " ")
@@ -516,7 +601,7 @@ const nodeSerializers: Record<
     const start = node.attrs.start || 1
     const maxWidth = String(start + node.childCount - 1).length
     const indent = state.repeat(" ", maxWidth + 2)
-    state.renderList(node, indent, index => {
+    state.renderList(node, indent, (index) => {
       const numeral = String(start + index)
       return state.repeat(" ", maxWidth - numeral.length) + numeral + ". "
     })
@@ -525,7 +610,7 @@ const nodeSerializers: Record<
     state.renderContent(node)
   },
   taskList(state, node) {
-    state.renderList(node, "  ", index => `- [${node.child(index).attrs.checked ? "x" : " "}] `)
+    state.renderList(node, "  ", (index) => `- [${node.child(index).attrs.checked ? "x" : " "}] `)
   },
   taskItem(state, node) {
     state.renderContent(node)
@@ -545,7 +630,7 @@ const nodeSerializers: Record<
         "](" +
         String(node.attrs.src || "").replace(/[()]/g, "\\$&") +
         (node.attrs.title ? ' "' + String(node.attrs.title).replace(/"/g, '\\"') + '"' : "") +
-        ")"
+        ")",
     )
   },
   ambyHtml(state, node) {
@@ -553,17 +638,17 @@ const nodeSerializers: Record<
   },
   table(state, node) {
     const rows: string[][] = []
-    node.forEach(row => {
+    node.forEach((row) => {
       const cells: string[] = []
-      row.forEach(cell => cells.push(serializeTableCell(cell)))
+      row.forEach((cell) => cells.push(serializeTableCell(cell)))
       rows.push(cells)
     })
     if (!rows.length) {
       state.closeBlock(node)
       return
     }
-    const columnCount = Math.max(...rows.map(row => row.length))
-    const padded = rows.map(row => {
+    const columnCount = Math.max(...rows.map((row) => row.length))
+    const padded = rows.map((row) => {
       const next = row.slice()
       while (next.length < columnCount) next.push(" ")
       return next
@@ -610,10 +695,7 @@ const markSerializers: Record<string, MarkSerializerSpec> = {
   },
   link: {
     open: "[",
-    close: (_state, mark) =>
-      "](" +
-      String(mark.attrs.href || "").replace(/[()"]/g, "\\$&") +
-      ")",
+    close: (_state, mark) => "](" + String(mark.attrs.href || "").replace(/[()"]/g, "\\$&") + ")",
     mixable: true,
   },
 }
@@ -621,7 +703,7 @@ const markSerializers: Record<string, MarkSerializerSpec> = {
 const SerializerStateCtor = MarkdownSerializerState as unknown as new (
   nodes: typeof nodeSerializers,
   marks: typeof markSerializers,
-  options: { tightLists?: boolean }
+  options: { tightLists?: boolean },
 ) => SerializerState
 
 function createSerializerState(): SerializerState {
@@ -647,12 +729,14 @@ function serializeTableCell(cell: PMNode): string {
 // Build the on-disk HTML for a text node carrying style / underline marks,
 // matching the legacy Milkdown output exactly (underline nests inside the span).
 function buildStyledHtml(text: string, marks: readonly PMNode["marks"][number][]): string {
-  const textStyle = marks.find(mark => mark.type.name === "ambyTextStyle")
-  const underline = marks.find(mark => mark.type.name === "ambyUnderline")
+  const textStyle = marks.find((mark) => mark.type.name === "ambyTextStyle")
+  const underline = marks.find((mark) => mark.type.name === "ambyUnderline")
   let inner = escapeHtml(text)
   if (underline) inner = `<u>${inner}</u>`
   if (textStyle) {
-    const style = styleAttrsToCss(textStyle.attrs as { color?: string | null; backgroundColor?: string | null })
+    const style = styleAttrsToCss(
+      textStyle.attrs as { color?: string | null; backgroundColor?: string | null },
+    )
     if (style) inner = `<span style="${style}">${inner}</span>`
   }
   return inner
@@ -663,14 +747,16 @@ function buildStyledHtml(text: string, marks: readonly PMNode["marks"][number][]
 function transformForSerialization(node: PMNode): PMNode {
   if (node.isText) {
     const hasStyle = node.marks.some(
-      mark => mark.type.name === "ambyTextStyle" || mark.type.name === "ambyUnderline"
+      (mark) => mark.type.name === "ambyTextStyle" || mark.type.name === "ambyUnderline",
     )
     if (!hasStyle) return node
-    return editorSchema.nodes.ambyHtml.create({ value: buildStyledHtml(node.text ?? "", node.marks) })
+    return editorSchema.nodes.ambyHtml.create({
+      value: buildStyledHtml(node.text ?? "", node.marks),
+    })
   }
   if (node.childCount === 0) return node
   const children: PMNode[] = []
-  node.forEach(child => children.push(transformForSerialization(child)))
+  node.forEach((child) => children.push(transformForSerialization(child)))
   return node.copy(Fragment.fromArray(children))
 }
 

@@ -1,9 +1,9 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import path from "node:path";
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import path from "node:path"
 
 // @ts-expect-error process is a nodejs global
-const host = process.env.TAURI_DEV_HOST;
+const host = process.env.TAURI_DEV_HOST
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
@@ -45,6 +45,8 @@ export default defineConfig(async () => ({
           ],
           // d3-force — used only in the graph tab.
           "vendor-d3": ["d3-force"],
+          // @xyflow/react — used only in the canvas editor tab.
+          "vendor-xyflow": ["@xyflow/react"],
           // emoji-mart — used only in the emoji picker panel.
           "vendor-emoji": ["emoji-mart", "@emoji-mart/react", "@emoji-mart/data"],
         },
@@ -73,5 +75,4 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
-}));
-
+}))

@@ -12,6 +12,7 @@ import { BubbleToolbar } from "./BubbleToolbar"
 import { BlockHandles } from "./BlockHandles"
 import { BlockInsertPanel } from "./BlockInsertPanel"
 import { primeAssetConverter, setAssetContext } from "./asset-resolver"
+import { setTransclusionFetcher } from "./transclusion-context"
 import { bindTauriFileDrop } from "./media-drop"
 import {
   SLASH_TRIGGER_EVENT,
@@ -30,6 +31,8 @@ interface TiptapEditorProps {
   onWikiLinkClick?: (target: string) => void
   vaultPath?: string
   notePath?: string
+  /** Resolve a wiki-link target to its markdown content for transclusion embeds. */
+  fetchTransclusion?: (target: string) => Promise<string | null>
 }
 
 interface MenuState {
@@ -54,6 +57,7 @@ export function TiptapEditor({
   onWikiLinkClick,
   vaultPath,
   notePath,
+  fetchTransclusion,
 }: TiptapEditorProps) {
   const valueRef = React.useRef(value)
   const onChangeRef = React.useRef(onChange)
@@ -86,11 +90,11 @@ export function TiptapEditor({
     () => buildExtensions({ placeholder, callbacks: callbacksRef }),
     // placeholder is effectively static per mount; callbacks flow through the ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [],
   )
 
   const closeMenu = React.useCallback(() => {
-    setMenu(prev => (prev.open ? { ...prev, open: false } : prev))
+    setMenu((prev) => (prev.open ? { ...prev, open: false } : prev))
   }, [])
 
   const editor = useEditor({
@@ -116,7 +120,7 @@ export function TiptapEditor({
       const left = clamp(
         (start.left + end.right) / 2 - MENU_WIDTH / 2,
         8,
-        window.innerWidth - MENU_WIDTH - 8
+        window.innerWidth - MENU_WIDTH - 8,
       )
       const below = Math.max(start.bottom, end.bottom) + 10
       const above = Math.min(start.top, end.top) - MENU_HEIGHT - 6
@@ -177,6 +181,13 @@ export function TiptapEditor({
     setAssetContext(editor, { vaultPath: vaultPath ?? "", notePath: notePath ?? "" })
   }, [editor, vaultPath, notePath])
 
+  // Register the transclusion content fetcher so TransclusionNode NodeViews can
+  // resolve note content without prop-drilling through the extension system.
+  React.useEffect(() => {
+    if (!editor || !fetchTransclusion) return
+    setTransclusionFetcher(editor, fetchTransclusion)
+  }, [editor, fetchTransclusion])
+
   React.useEffect(() => {
     void primeAssetConverter()
   }, [])
@@ -187,7 +198,7 @@ export function TiptapEditor({
     void bindTauriFileDrop(editor.view, (clientX, clientY) => {
       const coords = editor.view.posAtCoords({ left: clientX, top: clientY })
       return coords?.pos ?? null
-    }).then(unsub => {
+    }).then((unsub) => {
       dispose = unsub
     })
     return () => {

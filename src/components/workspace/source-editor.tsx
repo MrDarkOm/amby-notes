@@ -61,7 +61,7 @@ const theme = EditorView.theme(
       cursor: "pointer",
     },
   },
-  { dark: true }
+  { dark: true },
 )
 
 const markdownHighlight = HighlightStyle.define([
@@ -89,7 +89,7 @@ function buildTokenDecorations(view: EditorView): DecorationSet {
     builder.add(
       match.index,
       match.index + match[0].length,
-      Decoration.mark({ class: match[1] ? "cm-amby-tag" : "cm-amby-wikilink" })
+      Decoration.mark({ class: match[1] ? "cm-amby-tag" : "cm-amby-wikilink" }),
     )
   }
   return builder.finish()
@@ -105,7 +105,7 @@ const tokenDecorations = ViewPlugin.fromClass(
       if (update.docChanged) this.decorations = buildTokenDecorations(update.view)
     }
   },
-  { decorations: plugin => plugin.decorations }
+  { decorations: (plugin) => plugin.decorations },
 )
 
 // Raw-markdown editor for "Source" mode. Shows the file byte-exact with
@@ -155,7 +155,8 @@ export function SourceEditor({
             callbacks.onTagClick?.(match[1])
           } else if (match[2]) {
             const { target } = getWikiLinkParts(match[2])
-            if (target) callbacks.onWikiLinkClick?.(target)
+            // Pass full raw inner content so the handler can scroll to anchors.
+            if (target) callbacks.onWikiLinkClick?.(match[2])
           }
           return true
         }
@@ -177,7 +178,7 @@ export function SourceEditor({
           clickHandler,
           EditorView.lineWrapping,
           cmPlaceholder(placeholder ?? ""),
-          EditorView.updateListener.of(update => {
+          EditorView.updateListener.of((update) => {
             if (!update.docChanged) return
             const next = update.state.doc.toString()
             valueRef.current = next

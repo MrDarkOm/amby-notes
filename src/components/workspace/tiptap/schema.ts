@@ -10,6 +10,7 @@ import { MarkdownMarkup } from "./markdown-markup"
 import { CalloutNode } from "./callout-node"
 import { AmbyBlockNode } from "./amby-block-node"
 import { AmbyImage } from "./amby-image"
+import { TransclusionNode } from "./transclusion-node"
 
 // Schema-defining extensions — identical for Live and Read, and the source of
 // truth for the standalone schema used by the markdown conversion layer.
@@ -36,6 +37,7 @@ export const schemaExtensions: Extensions = [
   AmbyHtml,
   CalloutNode,
   AmbyBlockNode,
+  TransclusionNode,
 ]
 
 export const editorSchema = getSchema(schemaExtensions)

@@ -1,7 +1,7 @@
-"use client";
+"use client"
 
-import * as React from "react";
-import { useTranslation } from "react-i18next";
+import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Code2,
   Database,
@@ -19,11 +19,11 @@ import {
   Redo2,
   PenLine,
   Undo2,
-} from "lucide-react";
-import { SourceEditor } from "./source-editor";
-import { TiptapEditor } from "./tiptap/TiptapEditor";
-import { CanvasEditor } from "./canvas-editor";
-import type { EditorHandle } from "./tiptap/constants";
+} from "lucide-react"
+import { SourceEditor } from "./source-editor"
+import { TiptapEditor } from "./tiptap/TiptapEditor"
+import { CanvasEditor } from "./canvas-editor"
+import type { EditorHandle } from "./tiptap/constants"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -31,74 +31,72 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-} from "@/components/ui/dialog";
+} from "@/components/ui/dropdown-menu"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 
-import { Button } from "@/components/ui/button";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { isTauri } from "@/lib/storage";
-import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel";
-import type { TreeItem } from "./sidebar-tree";
+import { Button } from "@/components/ui/button"
+import { getCurrentWindow } from "@tauri-apps/api/window"
+import { isTauri } from "@/lib/storage"
+import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel"
+import type { TreeItem } from "./sidebar-tree"
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuTrigger,
-} from "@/components/ui/context-menu";
+} from "@/components/ui/context-menu"
 
 interface Document {
-  id: string;
-  title: string;
-  content: string;
-  modified: string;
-  wordCount: number;
-  path: string;
+  id: string
+  title: string
+  content: string
+  modified: string
+  wordCount: number
+  path: string
 }
 
 interface DocumentEditorProps {
-  document: Document | null;
-  onContentChange?: (content: string) => void;
-  onBack?: () => void;
-  onForward?: () => void;
-  canGoBack?: boolean;
-  canGoForward?: boolean;
-  onRenameTitle?: (newName: string) => void;
-  vault?: string;
-  isFocusMode?: boolean;
-  onToggleFocusMode?: () => void;
-  fileIcon?: string;
-  onNewFile?: () => void;
-  onOpenVault?: () => void;
-  onTagClick?: (tag: string) => void;
-  onWikiLinkClick?: (target: string) => void;
-  activeLayer?: EditorLayer;
-  onLayerChange?: (layer: EditorLayer) => void;
-  viewMode?: DocumentViewMode;
-  onViewModeChange?: (mode: DocumentViewMode) => void;
-  onFileIconChange?: (emoji: string) => void;
-  linkedLayers?: { canvas: boolean; sketch: boolean; database: boolean };
-  isLocked?: boolean;
-  onToggleLock?: () => void;
-  treeItems?: TreeItem[];
-  onOpenItem?: (id: string) => void;
-  onUnlinkLayer?: (layer: "canvas" | "database" | "sketch") => void;
-  onDeleteLayer?: (layer: "canvas" | "database" | "sketch") => void;
-  canvasValue?: string;
-  onCanvasChange?: (json: string) => void;
-  onOpenCanvasNote?: (file: string) => void;
+  document: Document | null
+  onContentChange?: (content: string) => void
+  onBack?: () => void
+  onForward?: () => void
+  canGoBack?: boolean
+  canGoForward?: boolean
+  onRenameTitle?: (newName: string) => void
+  vault?: string
+  isFocusMode?: boolean
+  onToggleFocusMode?: () => void
+  fileIcon?: string
+  onNewFile?: () => void
+  onOpenVault?: () => void
+  onTagClick?: (tag: string) => void
+  onWikiLinkClick?: (target: string) => void
+  fetchTransclusion?: (target: string) => Promise<string | null>
+  activeLayer?: EditorLayer
+  onLayerChange?: (layer: EditorLayer) => void
+  viewMode?: DocumentViewMode
+  onViewModeChange?: (mode: DocumentViewMode) => void
+  onFileIconChange?: (emoji: string) => void
+  linkedLayers?: { canvas: boolean; sketch: boolean; database: boolean }
+  isLocked?: boolean
+  onToggleLock?: () => void
+  treeItems?: TreeItem[]
+  onOpenItem?: (id: string) => void
+  onUnlinkLayer?: (layer: "canvas" | "database" | "sketch") => void
+  onDeleteLayer?: (layer: "canvas" | "database" | "sketch") => void
+  canvasValue?: string
+  onCanvasChange?: (json: string) => void
+  onOpenCanvasNote?: (file: string) => void
 }
 
-type EditorLayer = "editor" | "canvas" | "database" | "sketch";
-export type DocumentViewMode = "source" | "live" | "read";
+type EditorLayer = "editor" | "canvas" | "database" | "sketch"
+export type DocumentViewMode = "source" | "live" | "read"
 
 const LAYER_OPTIONS: Array<{
-  id: EditorLayer;
-  label: string;
-  icon: React.ElementType;
-  title: string;
+  id: EditorLayer
+  label: string
+  icon: React.ElementType
+  title: string
 }> = [
   { id: "editor", label: "Editor", icon: FileText, title: "Markdown editor" },
   { id: "canvas", label: "Canvas", icon: LayoutGrid, title: "Canvas layer" },
@@ -109,43 +107,40 @@ const LAYER_OPTIONS: Array<{
     title: "Database layer",
   },
   { id: "sketch", label: "Sketch", icon: PenLine, title: "Sketch layer" },
-];
+]
 
 interface BreadcrumbSegment {
-  id: string;
-  name: string;
-  kind: "file" | "folder";
+  id: string
+  name: string
+  kind: "file" | "folder"
 }
 
 function stripMdExt(name: string): string {
-  return name.replace(/\.md$/iu, "");
+  return name.replace(/\.md$/iu, "")
 }
 
-function findBreadcrumbTrail(
-  items: TreeItem[],
-  targetId: string,
-): TreeItem[] | null {
+function findBreadcrumbTrail(items: TreeItem[], targetId: string): TreeItem[] | null {
   for (const item of items) {
-    if (item.id === targetId) return [item];
+    if (item.id === targetId) return [item]
     if (item.children) {
-      const sub = findBreadcrumbTrail(item.children, targetId);
-      if (sub) return [item, ...sub];
+      const sub = findBreadcrumbTrail(item.children, targetId)
+      if (sub) return [item, ...sub]
     }
   }
-  return null;
+  return null
 }
 
 function buildBreadcrumb(
   treeItems: TreeItem[] | undefined,
   docId: string | undefined,
 ): BreadcrumbSegment[] {
-  if (!treeItems || !docId) return [];
-  const trail = findBreadcrumbTrail(treeItems, docId);
-  if (!trail) return [];
-  const segments: BreadcrumbSegment[] = [];
+  if (!treeItems || !docId) return []
+  const trail = findBreadcrumbTrail(treeItems, docId)
+  if (!trail) return []
+  const segments: BreadcrumbSegment[] = []
   for (let i = 0; i < trail.length; i++) {
-    const item = trail[i];
-    const next = trail[i + 1];
+    const item = trail[i]
+    const next = trail[i + 1]
     // Bundle collapse: folder whose name matches the next (file) child's name.
     // The sidebar effectively presents these as one entry.
     if (
@@ -154,24 +149,24 @@ function buildBreadcrumb(
       next.type === "file" &&
       stripMdExt(item.name) === stripMdExt(next.name)
     ) {
-      continue;
+      continue
     }
     segments.push({
       id: item.id,
       name: stripMdExt(item.name),
       kind: item.type === "folder" ? "folder" : "file",
-    });
+    })
   }
-  return segments;
+  return segments
 }
 
 function handleDragStart(e: React.MouseEvent) {
-  if (e.button !== 0) return;
+  if (e.button !== 0) return
   if (isTauri()) {
-    e.preventDefault();
+    e.preventDefault()
     getCurrentWindow()
       .startDragging()
-      .catch(() => {});
+      .catch(() => {})
   }
 }
 
@@ -191,6 +186,7 @@ export function DocumentEditor({
   onOpenVault,
   onTagClick,
   onWikiLinkClick,
+  fetchTransclusion,
   activeLayer = "editor",
   onLayerChange,
   viewMode = "live",
@@ -207,303 +203,302 @@ export function DocumentEditor({
   onCanvasChange,
   onOpenCanvasNote,
 }: DocumentEditorProps) {
-  const [content, setContent] = React.useState(document?.content ?? "");
-  const [editingTitle, setEditingTitle] = React.useState(false);
-  const [titleValue, setTitleValue] = React.useState(document?.title ?? "");
-  const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false);
-  const [layerConfirm, setLayerConfirm] = React.useState<EditorLayer | null>(null);
-  const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle);
-  const { t } = useTranslation();
-  const titleInputRef = React.useRef<HTMLInputElement>(null);
+  const [content, setContent] = React.useState(document?.content ?? "")
+  const [editingTitle, setEditingTitle] = React.useState(false)
+  const [titleValue, setTitleValue] = React.useState(document?.title ?? "")
+  const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false)
+  const [layerConfirm, setLayerConfirm] = React.useState<EditorLayer | null>(null)
+  const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
+  const { t } = useTranslation()
+  const titleInputRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
-    setContent(document?.content ?? "");
-    setTitleValue(document?.title ?? "");
-    setEditingTitle(false);
-  }, [document?.id]);
+    setContent(document?.content ?? "")
+    setTitleValue(document?.title ?? "")
+    setEditingTitle(false)
+  }, [document?.id])
 
   React.useEffect(() => {
     if (editingTitle)
       setTimeout(() => {
-        titleInputRef.current?.select();
-        titleInputRef.current?.focus();
-      }, 0);
-  }, [editingTitle]);
+        titleInputRef.current?.select()
+        titleInputRef.current?.focus()
+      }, 0)
+  }, [editingTitle])
 
   function commitTitleRename() {
-    const trimmed = titleValue.trim();
-    if (trimmed && trimmed !== document?.title) onRenameTitle?.(trimmed);
-    setEditingTitle(false);
+    const trimmed = titleValue.trim()
+    if (trimmed && trimmed !== document?.title) onRenameTitle?.(trimmed)
+    setEditingTitle(false)
   }
 
   function handleTitleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") commitTitleRename();
+    if (e.key === "Enter") commitTitleRename()
     if (e.key === "Escape") {
-      setTitleValue(document?.title ?? "");
-      setEditingTitle(false);
+      setTitleValue(document?.title ?? "")
+      setEditingTitle(false)
     }
   }
 
   const handleContentChange = (v: string) => {
-    setContent(v);
-    onContentChange?.(v);
-  };
+    setContent(v)
+    onContentChange?.(v)
+  }
 
   const breadcrumb = React.useMemo(
     () => buildBreadcrumb(treeItems, document?.id),
     [treeItems, document?.id],
-  );
-
+  )
 
   const navBar = (
     <>
-    <div
-      className={`flex h-9 shrink-0 items-center justify-between border-border px-2 ${isFocusMode ? "bg-background/80 backdrop-blur-sm" : "bg-background"}`}
-    >
-      {/* Left: back/forward + drag zone for focus mode */}
-      <div className="flex items-center gap-0.5">
-        {isFocusMode && (
-          <div
-            className="w-6 h-9 cursor-default"
-            onMouseDown={handleDragStart}
-          />
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground hover:bg-accent hover:text-white disabled:opacity-30"
-          onClick={onBack}
-          disabled={!canGoBack}
-        >
-          <ChevronLeft className="size-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground hover:bg-accent hover:text-white disabled:opacity-30"
-          onClick={onForward}
-          disabled={!canGoForward}
-        >
-          <ChevronRight className="size-4" />
-        </Button>
-      </div>
-
-      {/* Center: breadcrumb mirroring the tree */}
-      <div className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-hidden px-2 text-xs">
-        {breadcrumb.length > 0 ? (
-          breadcrumb.map((seg, idx) => {
-            const isLast = idx === breadcrumb.length - 1;
-            const isClickable = !isLast && seg.kind === "file" && !!onOpenItem;
-            return (
-              <React.Fragment key={seg.id}>
-                {isClickable ? (
-                  <button
-                    type="button"
-                    className="max-w-[200px] truncate rounded px-1 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                    onClick={() => onOpenItem?.(seg.id)}
-                    title={seg.name}
-                  >
-                    {seg.name}
-                  </button>
-                ) : (
-                  <span
-                    className={`max-w-[260px] truncate px-1 ${isLast ? "text-foreground" : "text-muted-foreground"}`}
-                    title={seg.name}
-                  >
-                    {seg.name}
-                  </span>
-                )}
-                {!isLast && (
-                  <span className="shrink-0 text-muted-foreground">›</span>
-                )}
-              </React.Fragment>
-            );
-          })
-        ) : document ? (
-          <span className="truncate text-muted-foreground">{document.title}</span>
-        ) : null}
-      </div>
-
-      {/* Right: layer + focus + more */}
-      <div className="flex items-center gap-0.5">
-        {document && (
-          <div className="mr-1 flex items-center rounded bg-background p-0.5 gap-1">
-            {/* Editor layer — always visible */}
-            <button
-              type="button"
-              title="Markdown editor"
-              onClick={() => onLayerChange?.("editor")}
-              className={`flex size-6 items-center justify-center rounded transition-colors ${
-                activeLayer === "editor"
-                  ? "bg-accent text-foreground"
-                  : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
-              }`}
-            >
-              <FileText className="size-3.5" />
-            </button>
-            {/* Only show attached (linked) layers — right-click for unlink/delete */}
-            {linkedLayers?.canvas && (
-              <LayerButton
-                layer="canvas"
-                title="Canvas layer"
-                icon={<LayoutGrid className="size-3.5" />}
-                active={activeLayer === "canvas"}
-                onActivate={() => onLayerChange?.("canvas")}
-                onUnlink={onUnlinkLayer}
-                onDelete={onDeleteLayer}
-              />
-            )}
-            {linkedLayers?.database && (
-              <LayerButton
-                layer="database"
-                title="Database layer"
-                icon={<Database className="size-3.5" />}
-                active={activeLayer === "database"}
-                onActivate={() => onLayerChange?.("database")}
-                onUnlink={onUnlinkLayer}
-                onDelete={onDeleteLayer}
-              />
-            )}
-            {linkedLayers?.sketch && (
-              <LayerButton
-                layer="sketch"
-                title="Excalidraw layer"
-                icon={<PenLine className="size-3.5" />}
-                active={activeLayer === "sketch"}
-                onActivate={() => onLayerChange?.("sketch")}
-                onUnlink={onUnlinkLayer}
-                onDelete={onDeleteLayer}
-              />
-            )}
-          </div>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className={`size-7 hover:bg-accent ${isFocusMode ? "text-foreground" : "text-muted-foreground hover:text-white"}`}
-          onClick={onToggleFocusMode}
-          title={isFocusMode ? t("docEditor.focusModeExit") : t("docEditor.focusModeEnter")}
-        >
-          {isFocusMode ? (
-            <Minimize2 className="size-4" />
-          ) : (
-            <Maximize2 className="size-4" />
-          )}
-        </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-            >
-              <MoreVertical className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            className="w-52 border-border bg-popover text-foreground"
+      <div
+        className={`flex h-9 shrink-0 items-center justify-between border-border px-2 ${isFocusMode ? "bg-background/80 backdrop-blur-sm" : "bg-background"}`}
+      >
+        {/* Left: back/forward + drag zone for focus mode */}
+        <div className="flex items-center gap-0.5">
+          {isFocusMode && <div className="w-6 h-9 cursor-default" onMouseDown={handleDragStart} />}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground hover:bg-accent hover:text-white disabled:opacity-30"
+            onClick={onBack}
+            disabled={!canGoBack}
           >
-            <DropdownMenuCheckboxItem
-              checked={viewMode === "source"}
-              disabled={!document || activeLayer !== "editor" || isLocked}
-              onCheckedChange={() =>
-                onViewModeChange?.(viewMode === "source" ? "live" : "source")
-              }
-              className="text-[13px] focus:bg-accent focus:text-white"
+            <ChevronLeft className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground hover:bg-accent hover:text-white disabled:opacity-30"
+            onClick={onForward}
+            disabled={!canGoForward}
+          >
+            <ChevronRight className="size-4" />
+          </Button>
+        </div>
+
+        {/* Center: breadcrumb mirroring the tree */}
+        <div className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-hidden px-2 text-xs">
+          {breadcrumb.length > 0 ? (
+            breadcrumb.map((seg, idx) => {
+              const isLast = idx === breadcrumb.length - 1
+              const isClickable = !isLast && seg.kind === "file" && !!onOpenItem
+              return (
+                <React.Fragment key={seg.id}>
+                  {isClickable ? (
+                    <button
+                      type="button"
+                      className="max-w-[200px] truncate rounded px-1 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      onClick={() => onOpenItem?.(seg.id)}
+                      title={seg.name}
+                    >
+                      {seg.name}
+                    </button>
+                  ) : (
+                    <span
+                      className={`max-w-[260px] truncate px-1 ${isLast ? "text-foreground" : "text-muted-foreground"}`}
+                      title={seg.name}
+                    >
+                      {seg.name}
+                    </span>
+                  )}
+                  {!isLast && <span className="shrink-0 text-muted-foreground">›</span>}
+                </React.Fragment>
+              )
+            })
+          ) : document ? (
+            <span className="truncate text-muted-foreground">{document.title}</span>
+          ) : null}
+        </div>
+
+        {/* Right: layer + focus + more */}
+        <div className="flex items-center gap-0.5">
+          {document && (
+            <div className="mr-1 flex items-center rounded bg-background p-0.5 gap-1">
+              {/* Editor layer — always visible */}
+              <button
+                type="button"
+                title="Markdown editor"
+                onClick={() => onLayerChange?.("editor")}
+                className={`flex size-6 items-center justify-center rounded transition-colors ${
+                  activeLayer === "editor"
+                    ? "bg-accent text-foreground"
+                    : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+                }`}
+              >
+                <FileText className="size-3.5" />
+              </button>
+              {/* Only show attached (linked) layers — right-click for unlink/delete */}
+              {linkedLayers?.canvas && (
+                <LayerButton
+                  layer="canvas"
+                  title="Canvas layer"
+                  icon={<LayoutGrid className="size-3.5" />}
+                  active={activeLayer === "canvas"}
+                  onActivate={() => onLayerChange?.("canvas")}
+                  onUnlink={onUnlinkLayer}
+                  onDelete={onDeleteLayer}
+                />
+              )}
+              {linkedLayers?.database && (
+                <LayerButton
+                  layer="database"
+                  title="Database layer"
+                  icon={<Database className="size-3.5" />}
+                  active={activeLayer === "database"}
+                  onActivate={() => onLayerChange?.("database")}
+                  onUnlink={onUnlinkLayer}
+                  onDelete={onDeleteLayer}
+                />
+              )}
+              {linkedLayers?.sketch && (
+                <LayerButton
+                  layer="sketch"
+                  title="Excalidraw layer"
+                  icon={<PenLine className="size-3.5" />}
+                  active={activeLayer === "sketch"}
+                  onActivate={() => onLayerChange?.("sketch")}
+                  onUnlink={onUnlinkLayer}
+                  onDelete={onDeleteLayer}
+                />
+              )}
+            </div>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={`size-7 hover:bg-accent ${isFocusMode ? "text-foreground" : "text-muted-foreground hover:text-white"}`}
+            onClick={onToggleFocusMode}
+            title={isFocusMode ? t("docEditor.focusModeExit") : t("docEditor.focusModeEnter")}
+          >
+            {isFocusMode ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+              >
+                <MoreVertical className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-52 border-border bg-popover text-foreground"
             >
-              <Code2 className="size-3.5" />
-              Source Markdown
-            </DropdownMenuCheckboxItem>
-            <DropdownMenuCheckboxItem
-              checked={isLocked}
-              disabled={!document}
-              onCheckedChange={() => onToggleLock?.()}
-              className="text-[13px] focus:bg-accent focus:text-white"
-            >
-              <Lock className="size-3.5" />
-              {t("docEditor.lock")}
-            </DropdownMenuCheckboxItem>
-            {/* Attach layer options — only shown for layers not yet linked */}
-            {document && (!linkedLayers?.canvas || !linkedLayers?.database || !linkedLayers?.sketch) && (
-              <>
-                <DropdownMenuSeparator className="bg-accent" />
-                {!linkedLayers?.canvas && (
-                  <DropdownMenuItem
-                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                    onSelect={() => setLayerConfirm("canvas")}
-                  >
-                    <LayoutGrid className="size-3.5 text-muted-foreground" />
-                    {t("docEditor.attachCanvas")}
-                  </DropdownMenuItem>
+              <DropdownMenuCheckboxItem
+                checked={viewMode === "source"}
+                disabled={!document || activeLayer !== "editor" || isLocked}
+                onCheckedChange={() =>
+                  onViewModeChange?.(viewMode === "source" ? "live" : "source")
+                }
+                className="text-[13px] focus:bg-accent focus:text-white"
+              >
+                <Code2 className="size-3.5" />
+                Source Markdown
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem
+                checked={isLocked}
+                disabled={!document}
+                onCheckedChange={() => onToggleLock?.()}
+                className="text-[13px] focus:bg-accent focus:text-white"
+              >
+                <Lock className="size-3.5" />
+                {t("docEditor.lock")}
+              </DropdownMenuCheckboxItem>
+              {/* Attach layer options — only shown for layers not yet linked */}
+              {document &&
+                (!linkedLayers?.canvas || !linkedLayers?.database || !linkedLayers?.sketch) && (
+                  <>
+                    <DropdownMenuSeparator className="bg-accent" />
+                    {!linkedLayers?.canvas && (
+                      <DropdownMenuItem
+                        className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                        onSelect={() => setLayerConfirm("canvas")}
+                      >
+                        <LayoutGrid className="size-3.5 text-muted-foreground" />
+                        {t("docEditor.attachCanvas")}
+                      </DropdownMenuItem>
+                    )}
+                    {!linkedLayers?.database && (
+                      <DropdownMenuItem
+                        className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                        onSelect={() => setLayerConfirm("database")}
+                      >
+                        <Database className="size-3.5 text-muted-foreground" />
+                        {t("docEditor.attachDatabase")}
+                      </DropdownMenuItem>
+                    )}
+                    {!linkedLayers?.sketch && (
+                      <DropdownMenuItem
+                        className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                        onSelect={() => setLayerConfirm("sketch")}
+                      >
+                        <PenLine className="size-3.5 text-muted-foreground" />
+                        {t("docEditor.attachSketch")}
+                      </DropdownMenuItem>
+                    )}
+                  </>
                 )}
-                {!linkedLayers?.database && (
-                  <DropdownMenuItem
-                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                    onSelect={() => setLayerConfirm("database")}
-                  >
-                    <Database className="size-3.5 text-muted-foreground" />
-                    {t("docEditor.attachDatabase")}
-                  </DropdownMenuItem>
-                )}
-                {!linkedLayers?.sketch && (
-                  <DropdownMenuItem
-                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                    onSelect={() => setLayerConfirm("sketch")}
-                  >
-                    <PenLine className="size-3.5 text-muted-foreground" />
-                    {t("docEditor.attachSketch")}
-                  </DropdownMenuItem>
-                )}
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
-    </div>
-    {/* Layer attachment confirmation dialog */}
-    <Dialog
-      open={layerConfirm !== null}
-      onOpenChange={(open) => { if (!open) setLayerConfirm(null) }}
-    >
-      <DialogContent
-        showCloseButton={false}
-        className="w-72 border-border bg-popover p-4 text-foreground sm:max-w-xs"
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault()
-            if (layerConfirm) { onLayerChange?.(layerConfirm); setLayerConfirm(null) }
-          }
+      {/* Layer attachment confirmation dialog */}
+      <Dialog
+        open={layerConfirm !== null}
+        onOpenChange={(open) => {
+          if (!open) setLayerConfirm(null)
         }}
       >
-        <p className="text-[13px] leading-snug">
-          {layerConfirm === "canvas" ? t("docEditor.confirmCreateCanvas")
-            : layerConfirm === "sketch" ? t("docEditor.confirmCreateSketch")
-            : t("docEditor.confirmCreateDatabase")}
-        </p>
-        <div className="mt-1 flex justify-end gap-2">
-          <button
-            type="button"
-            className="rounded border border-border px-2.5 py-1 text-xs text-foreground hover:bg-card"
-            onClick={() => setLayerConfirm(null)}
-          >
-            {t("docEditor.cancel")}
-          </button>
-          <button
-            type="button"
-            autoFocus
-            className="rounded bg-foreground px-2.5 py-1 text-xs font-medium text-background hover:bg-foreground/90"
-            onClick={() => {
-              if (layerConfirm) { onLayerChange?.(layerConfirm); setLayerConfirm(null) }
-            }}
-          >
-            {t("docEditor.create")}
-          </button>
-        </div>
-      </DialogContent>
-    </Dialog>
+        <DialogContent
+          showCloseButton={false}
+          className="w-72 border-border bg-popover p-4 text-foreground sm:max-w-xs"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault()
+              if (layerConfirm) {
+                onLayerChange?.(layerConfirm)
+                setLayerConfirm(null)
+              }
+            }
+          }}
+        >
+          <p className="text-[13px] leading-snug">
+            {layerConfirm === "canvas"
+              ? t("docEditor.confirmCreateCanvas")
+              : layerConfirm === "sketch"
+                ? t("docEditor.confirmCreateSketch")
+                : t("docEditor.confirmCreateDatabase")}
+          </p>
+          <div className="mt-1 flex justify-end gap-2">
+            <button
+              type="button"
+              className="rounded border border-border px-2.5 py-1 text-xs text-foreground hover:bg-card"
+              onClick={() => setLayerConfirm(null)}
+            >
+              {t("docEditor.cancel")}
+            </button>
+            <button
+              type="button"
+              autoFocus
+              className="rounded bg-foreground px-2.5 py-1 text-xs font-medium text-background hover:bg-foreground/90"
+              onClick={() => {
+                if (layerConfirm) {
+                  onLayerChange?.(layerConfirm)
+                  setLayerConfirm(null)
+                }
+              }}
+            >
+              {t("docEditor.create")}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
-  );
+  )
 
   if (!document) {
     return (
@@ -511,12 +506,8 @@ export function DocumentEditor({
         {navBar}
         <div className="flex flex-1 flex-col items-center justify-center gap-6">
           <div className="text-center">
-            <p className="text-lg font-medium text-foreground">
-              {t("docEditor.noNotes")}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("docEditor.noNotesHint")}
-            </p>
+            <p className="text-lg font-medium text-foreground">{t("docEditor.noNotes")}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t("docEditor.noNotesHint")}</p>
           </div>
           <div className="flex gap-3">
             <button
@@ -536,7 +527,7 @@ export function DocumentEditor({
           </div>
         </div>
       </div>
-    );
+    )
   }
 
   // Canvas layer: borderless, full-bleed infinite canvas (no title / scroll column).
@@ -555,14 +546,13 @@ export function DocumentEditor({
           />
         </div>
       </div>
-    );
+    )
   }
 
-  const liveWordCount = content.split(/\s+/).filter(Boolean).length;
+  const liveWordCount = content.split(/\s+/).filter(Boolean).length
   const activeLayerMeta =
-    LAYER_OPTIONS.find((option) => option.id === activeLayer) ??
-    LAYER_OPTIONS[0];
-  const ActiveLayerIcon = activeLayerMeta.icon;
+    LAYER_OPTIONS.find((option) => option.id === activeLayer) ?? LAYER_OPTIONS[0]
+  const ActiveLayerIcon = activeLayerMeta.icon
 
   return (
     <div className="relative flex h-full flex-1 flex-col bg-background">
@@ -572,32 +562,29 @@ export function DocumentEditor({
         <div className="mx-auto px-10 py-8" style={{ maxWidth: "var(--content-max-width, 48rem)" }}>
           {/* Title */}
           <div className="mb-4 flex items-center gap-3">
-            {fileIcon &&
-              !/^(folder|file|workspace|canvas|draft|brain)$/.test(
-                fileIcon,
-              ) && (
-                <div className="relative shrink-0">
-                  <button
-                    type="button"
-                    className="text-3xl leading-none transition-transform hover:scale-110 focus:outline-none"
-                    title="Change icon"
-                    onClick={() => setEmojiPickerOpen((v) => !v)}
-                  >
-                    {fileIcon}
-                  </button>
-                  {emojiPickerOpen && (
-                    <div className="absolute left-0 top-full z-50 mt-1">
-                      <EmojiPickerPanel
-                        onSelect={(emojiData) => {
-                          onFileIconChange?.(emojiData.native);
-                          setEmojiPickerOpen(false);
-                        }}
-                        onClose={() => setEmojiPickerOpen(false)}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
+            {fileIcon && !/^(folder|file|workspace|canvas|draft|brain)$/.test(fileIcon) && (
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  className="text-3xl leading-none transition-transform hover:scale-110 focus:outline-none"
+                  title="Change icon"
+                  onClick={() => setEmojiPickerOpen((v) => !v)}
+                >
+                  {fileIcon}
+                </button>
+                {emojiPickerOpen && (
+                  <div className="absolute left-0 top-full z-50 mt-1">
+                    <EmojiPickerPanel
+                      onSelect={(emojiData) => {
+                        onFileIconChange?.(emojiData.native)
+                        setEmojiPickerOpen(false)
+                      }}
+                      onClose={() => setEmojiPickerOpen(false)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
             {editingTitle ? (
               <input
                 ref={titleInputRef}
@@ -611,8 +598,8 @@ export function DocumentEditor({
               <h1
                 className="text-3xl font-semibold tracking-tight text-foreground cursor-text hover:text-white"
                 onClick={() => {
-                  setTitleValue(document.title);
-                  setEditingTitle(true);
+                  setTitleValue(document.title)
+                  setEditingTitle(true)
                 }}
                 title={t("docEditor.renameHint")}
               >
@@ -629,9 +616,7 @@ export function DocumentEditor({
                 <ActiveLayerIcon className="size-5" />
               </div>
               <div>
-                <p className="text-sm font-medium text-foreground">
-                  {activeLayerMeta.label}
-                </p>
+                <p className="text-sm font-medium text-foreground">{activeLayerMeta.label}</p>
                 <p className="mt-1 max-w-sm text-xs text-muted-foreground">
                   {t("docEditor.layerCreated")}
                 </p>
@@ -656,6 +641,7 @@ export function DocumentEditor({
               editable={viewMode === "live" && !isLocked}
               onTagClick={onTagClick}
               onWikiLinkClick={onWikiLinkClick}
+              fetchTransclusion={fetchTransclusion}
               placeholder={t("editor.placeholder")}
               vaultPath={vault}
               notePath={document.path}
@@ -669,35 +655,27 @@ export function DocumentEditor({
         <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-background/90 px-3 py-1.5 shadow-lg backdrop-blur-sm">
           <span className="text-[11px] text-muted-foreground">{document.modified}</span>
           <span className="text-border">·</span>
-          <span className="text-[11px] text-muted-foreground">{t("docEditor.wordCount", { count: liveWordCount })}</span>
+          <span className="text-[11px] text-muted-foreground">
+            {t("docEditor.wordCount", { count: liveWordCount })}
+          </span>
           <div className="mx-1 h-3 w-px bg-accent" />
           <button
             type="button"
-            title={
-              viewMode === "read" ? t("docEditor.switchToLive") : t("docEditor.switchToRead")
-            }
-            disabled={
-              activeLayer !== "editor" || viewMode === "source" || isLocked
-            }
+            title={viewMode === "read" ? t("docEditor.switchToLive") : t("docEditor.switchToRead")}
+            disabled={activeLayer !== "editor" || viewMode === "source" || isLocked}
             className="flex size-5 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() =>
-              onViewModeChange?.(viewMode === "read" ? "live" : "read")
-            }
+            onClick={() => onViewModeChange?.(viewMode === "read" ? "live" : "read")}
           >
-            {viewMode === "read" ? (
-              <Eye className="size-3" />
-            ) : (
-              <PenLine className="size-3" />
-            )}
+            {viewMode === "read" ? <Eye className="size-3" /> : <PenLine className="size-3" />}
           </button>
           <div className="mx-1 h-3 w-px bg-accent" />
           <button
             title={t("docEditor.undo")}
             className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             onMouseDown={(e) => {
-              e.preventDefault();
-              editorRef.current?.undo();
+              e.preventDefault()
+              editorRef.current?.undo()
             }}
           >
             <Undo2 className="size-3" />
@@ -706,8 +684,8 @@ export function DocumentEditor({
             title={t("docEditor.redo")}
             className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             onMouseDown={(e) => {
-              e.preventDefault();
-              editorRef.current?.redo();
+              e.preventDefault()
+              editorRef.current?.redo()
             }}
           >
             <Redo2 className="size-3" />
@@ -715,10 +693,10 @@ export function DocumentEditor({
         </div>
       </div>
     </div>
-  );
+  )
 }
 
-type LayerKind = "canvas" | "database" | "sketch";
+type LayerKind = "canvas" | "database" | "sketch"
 
 function LayerButton({
   layer,
@@ -729,15 +707,15 @@ function LayerButton({
   onUnlink,
   onDelete,
 }: {
-  layer: LayerKind;
-  title: string;
-  icon: React.ReactNode;
-  active: boolean;
-  onActivate: () => void;
-  onUnlink?: (layer: LayerKind) => void;
-  onDelete?: (layer: LayerKind) => void;
+  layer: LayerKind
+  title: string
+  icon: React.ReactNode
+  active: boolean
+  onActivate: () => void
+  onUnlink?: (layer: LayerKind) => void
+  onDelete?: (layer: LayerKind) => void
 }) {
-  const { t } = useTranslation();
+  const { t } = useTranslation()
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -766,5 +744,5 @@ function LayerButton({
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
-  );
+  )
 }
