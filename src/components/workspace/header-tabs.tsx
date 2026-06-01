@@ -401,8 +401,8 @@ export function HeaderTabs({
           className="flex shrink-0 items-center"
           onMouseDown={handleDragStart}
         >
-          {rightSidebarToggle}
           <div className="min-w-0 flex-1" />
+          {rightSidebarToggle}
         </div>
       )}
 
@@ -419,13 +419,9 @@ export function HeaderTabs({
         </div>
       )}
 
-      {/* Non-mac window controls.
-          pr-4 keeps the close button ≥16px from the right window edge so it
-          doesn't land inside Tauri's borderless-window resize corner zone
-          (HTTOPRIGHT), where WM_NCHITTEST intercepts mouse events before they
-          reach the webview. */}
+      {/* Non-mac window controls */}
       {!isMac && (
-        <div className="flex shrink-0 items-center pr-4">
+        <div className="flex shrink-0 items-center">
           <button
             onClick={() => isTauri() && getCurrentWindow().minimize()}
             className="flex h-10 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
