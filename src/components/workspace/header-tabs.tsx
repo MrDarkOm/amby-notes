@@ -223,6 +223,74 @@ export function HeaderTabs({
     </button>
   )
 
+  const viewControls = (
+    <div className="flex shrink-0 items-center">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="flex size-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white">
+            <ChevronDown className="size-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56 border-border bg-popover text-foreground">
+          <DropdownMenuItem
+            disabled={!activeFileId}
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={() => activeFileId && onToggleFavorite?.(activeFileId)}
+          >
+            {activeFileId && favorites?.has(activeFileId) ? (
+              <>
+                <BookmarkCheck className="size-3.5 text-amber-400" />
+                {t("tabs.removeBookmark")}
+              </>
+            ) : (
+              <>
+                <Bookmark className="size-3.5 text-muted-foreground" />
+                {t("tabs.addBookmark")}
+              </>
+            )}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={onCloseAllTabs}
+          >
+            <X className="size-3.5 text-muted-foreground" />
+            {t("tabs.closeAll")}
+          </DropdownMenuItem>
+          {tabs.length > 0 && (
+            <>
+              <DropdownMenuSeparator className="bg-accent" />
+              {tabs.map((tab) => (
+                <DropdownMenuItem
+                  key={tab.key}
+                  className={cn(
+                    "flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white",
+                    activeTabKey === tab.key && "text-white",
+                  )}
+                  onSelect={() => onTabChange(tab.key)}
+                >
+                  <span className="truncate">{tab.title}</span>
+                </DropdownMenuItem>
+              ))}
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {onToggleSplit && (
+        <button
+          onClick={onToggleSplit}
+          title={t("tabs.splitEditor")}
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded transition-colors hover:bg-accent hover:text-white",
+            isSplit ? "text-sky-400" : "text-muted-foreground",
+          )}
+        >
+          <Columns2 className="size-4" />
+        </button>
+      )}
+      {rightSidebarToggle}
+    </div>
+  )
+
   return (
     <header className="relative z-50 flex h-10 select-none items-stretch border-b border-border bg-background">
       {/* macOS traffic light spacer — native buttons live here */}
@@ -270,7 +338,7 @@ export function HeaderTabs({
               </button>
             </WorkspacePicker>
           </div>
-          <div className="flex shrink-0 -translate-x-2">{leftSidebarToggle}</div>
+          <div className="flex shrink-0">{leftSidebarToggle}</div>
         </div>
       )}
 
@@ -323,91 +391,23 @@ export function HeaderTabs({
         </div>
 
         <div className="flex-1 h-full cursor-default" onMouseDown={handleEmptySpaceMouseDown} />
-
-        <div className="flex shrink-0 items-center">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className="flex size-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white">
-                <ChevronDown className="size-4" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="w-56 border-border bg-popover text-foreground"
-            >
-              <DropdownMenuItem
-                disabled={!activeFileId}
-                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                onSelect={() => activeFileId && onToggleFavorite?.(activeFileId)}
-              >
-                {activeFileId && favorites?.has(activeFileId) ? (
-                  <>
-                    <BookmarkCheck className="size-3.5 text-amber-400" />
-                    {t("tabs.removeBookmark")}
-                  </>
-                ) : (
-                  <>
-                    <Bookmark className="size-3.5 text-muted-foreground" />
-                    {t("tabs.addBookmark")}
-                  </>
-                )}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                onSelect={onCloseAllTabs}
-              >
-                <X className="size-3.5 text-muted-foreground" />
-                {t("tabs.closeAll")}
-              </DropdownMenuItem>
-              {tabs.length > 0 && (
-                <>
-                  <DropdownMenuSeparator className="bg-accent" />
-                  {tabs.map((tab) => (
-                    <DropdownMenuItem
-                      key={tab.key}
-                      className={cn(
-                        "flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white",
-                        activeTabKey === tab.key && "text-white",
-                      )}
-                      onSelect={() => onTabChange(tab.key)}
-                    >
-                      <span className="truncate">{tab.title}</span>
-                    </DropdownMenuItem>
-                  ))}
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          {onToggleSplit && (
-            <button
-              onClick={onToggleSplit}
-              title={t("tabs.splitEditor")}
-              className={cn(
-                "flex h-10 w-10 shrink-0 items-center justify-center rounded transition-colors hover:bg-accent hover:text-white",
-                isSplit ? "text-sky-400" : "text-muted-foreground",
-              )}
-            >
-              <Columns2 className="size-4" />
-            </button>
-          )}
-          {!isRightSidebarOpen && rightSidebarToggle}
-        </div>
       </div>
 
-      {/* Right panel header column (only when panel open) */}
-      {isRightSidebarOpen && (
-        <div
-          style={{ width: rightPanelWidth + ACTIVITY_BAR_WIDTH }}
-          className="flex shrink-0 items-center"
-          onMouseDown={handleDragStart}
-        >
-          <div className="min-w-0 flex-1" />
-          {rightSidebarToggle}
-        </div>
-      )}
-
-      {/* Right activity bar header column */}
-      <div style={{ width: 0 }} className="shrink-0" onMouseDown={handleDragStart} />
+      {/* Right-side drag region mirroring the body (panel + activity bar when
+          open). Window controls are absolutely positioned below, so this fills
+          the true layout width and the editor's view controls land exactly on
+          the panel divider — same as the left toggle on its panel. When closed
+          it just clears the (absolute) window controls. */}
+      {/* View controls — absolutely positioned so their right edge lands on the
+          panel divider (right offset = panel width + activity bar). Mirrors the
+          left toggle sitting on the left panel's inner edge, and is robust to
+          panel resizing. When closed they sit just left of the window controls. */}
+      <div
+        className="absolute top-0 z-10 flex h-10 items-center border-b border-border bg-background"
+        style={{ right: isRightSidebarOpen ? rightPanelWidth + ACTIVITY_BAR_WIDTH + 2 : 146 }}
+      >
+        {viewControls}
+      </div>
 
       {/* macOS: logo on the right */}
       {isMac && (
@@ -419,9 +419,11 @@ export function HeaderTabs({
         </div>
       )}
 
-      {/* Non-mac window controls */}
+      {/* Non-mac window controls — absolutely positioned so they don't consume
+          flex width (the body has no window controls on this side, so the
+          editor's view controls line up with the panel divider). */}
       {!isMac && (
-        <div className="flex shrink-0 items-center">
+        <div className="absolute right-0 top-0 flex h-10 items-center border-b border-border bg-background">
           <button
             onClick={() => isTauri() && getCurrentWindow().minimize()}
             className="flex h-10 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
