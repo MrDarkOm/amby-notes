@@ -206,6 +206,36 @@ async openVault() : Promise<Result<string | null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Start a Rust-side `notify` watcher on the open vault.
+ * 
+ * Any external file-system change (create / modify / remove) that is NOT
+ * caused by our own commands emits a `vault-file-changed` event to the
+ * frontend.  The frontend replaces the old JS `plugin-fs::watch()` call with
+ * a listener on that event.
+ * 
+ * Calling this again while a watcher is already running replaces the old one
+ * (handles vault-switch).
+ */
+async startVaultWatcher(vaultPath: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_vault_watcher", { vaultPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Stop the active vault watcher (called on vault close / app teardown).
+ */
+async stopVaultWatcher() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("stop_vault_watcher") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async openInExplorer(path: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("open_in_explorer", { path }) };
