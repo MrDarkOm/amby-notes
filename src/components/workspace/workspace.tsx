@@ -48,6 +48,7 @@ import { SettingsDialog } from "./settings-dialog"
 import { useSettingsStore } from "./use-settings-store"
 import type { TreeItem } from "./sidebar-tree"
 import { normalizeWikiLinkTarget, findWikiLinkItem, buildLinkGraph } from "./wiki-links"
+import { planMutation, applySessionRemap } from "./workspace-mutations"
 import type { VaultRecord } from "./workspace-picker"
 import {
   isTauri,
@@ -138,10 +139,6 @@ function flattenTree(items: TreeItem[]): Set<string> {
   }
   walk(items)
   return ids
-}
-
-function remapStoredId(id: string, pathToId: Record<string, string>): string {
-  return pathToId[id] ?? id
 }
 
 function findTreeItem(items: TreeItem[], id: string): TreeItem | null {
@@ -605,63 +602,57 @@ export function Workspace() {
     return loaded.tree
   }
 
-  function remapPath(path: string, changes: FsMutationResult["pathChanges"]): string {
-    const exact = changes.find((change) => change.oldPath && change.oldPath === path)
-    return exact?.newPath ?? path
-  }
-
   function applyMutationResult(result: FsMutationResult) {
-    const changes = result.pathChanges.filter((change) => change.oldPath && change.newPath)
-    const deleted = new Set(result.deletedIds ?? result.deletedPaths)
+    const { deletedIds, remapFn, hasChanges } = planMutation(result)
+    if (!hasChanges) return
 
-    if (changes.length > 0 || deleted.size > 0) {
-      applyMutation([...deleted], (path) => remapPath(path, changes))
+    const deleted = new Set(deletedIds)
+    applyMutation(deletedIds, remapFn)
 
-      setTabs((prev) => {
-        const next = prev
-          .filter((tab) => !deleted.has(tab.fileId))
-          .map((tab) => ({
-            ...tab,
-            fileId: tab.fileId,
-            history: tab.history.filter((path) => !deleted.has(path)).map((path) => path),
-          }))
-        if (next.length !== prev.length && activeTabKey) {
-          const stillExists = next.find((tab) => tab.key === activeTabKey)
-          if (!stillExists) setActiveTabKey(next[next.length - 1]?.key ?? "")
-        }
-        return next
-      })
+    setTabs((prev) => {
+      const next = prev
+        .filter((tab) => !deleted.has(tab.fileId))
+        .map((tab) => ({
+          ...tab,
+          fileId: tab.fileId,
+          history: tab.history.filter((path) => !deleted.has(path)).map((path) => path),
+        }))
+      if (next.length !== prev.length && activeTabKey) {
+        const stillExists = next.find((tab) => tab.key === activeTabKey)
+        if (!stillExists) setActiveTabKey(next[next.length - 1]?.key ?? "")
+      }
+      return next
+    })
 
-      setFavorites((prev) => {
-        const next = new Set<string>()
-        for (const id of prev) if (!deleted.has(id)) next.add(id)
-        return next
-      })
+    setFavorites((prev) => {
+      const next = new Set<string>()
+      for (const id of prev) if (!deleted.has(id)) next.add(id)
+      return next
+    })
 
-      setIconOverrides((prev) => {
-        const next: Record<string, string> = {}
-        for (const [id, icon] of Object.entries(prev)) {
-          if (!deleted.has(id)) next[id] = icon
-        }
-        return next
-      })
+    setIconOverrides((prev) => {
+      const next: Record<string, string> = {}
+      for (const [id, icon] of Object.entries(prev)) {
+        if (!deleted.has(id)) next[id] = icon
+      }
+      return next
+    })
 
-      setActiveLayers((prev) => {
-        const next: Record<string, EditorLayer> = {}
-        for (const [id, layer] of Object.entries(prev)) {
-          if (!deleted.has(id)) next[id] = layer
-        }
-        return next
-      })
+    setActiveLayers((prev) => {
+      const next: Record<string, EditorLayer> = {}
+      for (const [id, layer] of Object.entries(prev)) {
+        if (!deleted.has(id)) next[id] = layer
+      }
+      return next
+    })
 
-      setViewModes((prev) => {
-        const next: Record<string, DocumentViewMode> = {}
-        for (const [id, mode] of Object.entries(prev)) {
-          if (!deleted.has(id)) next[id] = mode
-        }
-        return next
-      })
-    }
+    setViewModes((prev) => {
+      const next: Record<string, DocumentViewMode> = {}
+      for (const [id, mode] of Object.entries(prev)) {
+        if (!deleted.has(id)) next[id] = mode
+      }
+      return next
+    })
   }
 
   function addVaultToList(path: string) {
@@ -798,42 +789,21 @@ export function Workspace() {
       sessionHydratedRef.current = false
       const session = await loadSession(path)
 
-      setIconOverrides(() => {
-        const next: Record<string, string> = {}
-        for (const [id, icon] of Object.entries(session.icons)) {
-          next[remapStoredId(id, pathToId)] = icon
-        }
-        return next
-      })
-
-      setFavorites(
-        new Set(
-          session.favorites.map((id) => remapStoredId(id, pathToId)).filter((id) => allIds.has(id)),
-        ),
-      )
-
-      {
-        const next: Record<string, DocumentViewMode> = {}
-        for (const [id, mode] of Object.entries(session.viewModes)) {
-          const nextId = remapStoredId(id, pathToId)
-          if (allIds.has(nextId)) next[nextId] = mode as DocumentViewMode
-        }
-        setViewModes(next)
-      }
-
-      setLockedFileIds(
-        new Set(
-          session.locked.map((id) => remapStoredId(id, pathToId)).filter((id) => allIds.has(id)),
-        ),
-      )
-
       // Restore open tabs (unless the user disabled session restore)
       const restoreSession = useSettingsStore.getState().prefs.startup.restoreSession
-      const mappedEntries = restoreSession
-        ? session.tabs.map((e) => ({ ...e, fileId: remapStoredId(e.fileId, pathToId) }))
-        : []
-      const mappedActiveFileId = remapStoredId(session.activeFileId, pathToId)
-      const valid = mappedEntries.filter((e) => allIds.has(e.fileId))
+      const remapped = applySessionRemap(session, pathToId, allIds, restoreSession)
+
+      setIconOverrides(() => remapped.icons)
+      setFavorites(new Set(remapped.favorites))
+      setViewModes(
+        Object.fromEntries(
+          Object.entries(remapped.viewModes).map(([k, v]) => [k, v as DocumentViewMode]),
+        ),
+      )
+      setLockedFileIds(new Set(remapped.lockedFileIds))
+
+      const valid = remapped.tabs
+      const mappedActiveFileId = remapped.activeFileId
       if (valid.length > 0) {
         const newTabs: Tab[] = valid.map((e) => ({
           key: newTabKey(),
