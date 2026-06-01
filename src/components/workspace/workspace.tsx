@@ -2,10 +2,10 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import i18n from "@/lib/i18n"
 import { FolderOpen } from "lucide-react"
 import { ActivityBar } from "./activity-bar"
 import { PanelHost } from "./panel-host"
+import { ResizeHandle } from "./resize-handle"
 // Lazy-loaded so @xyflow/react and d3-force are excluded from the initial bundle.
 // They are fetched from their own chunks the first time the user opens a Canvas
 // or Graph tab, then cached by the browser.
@@ -29,17 +29,6 @@ import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useVaultStore } from "./use-vault-store"
 import { loadSession, loadWorkspaces, saveSession, saveWorkspaces } from "./app-config"
 import { useActivityDnD } from "./use-activity-dnd"
-
-function ResizeHandle({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
-  return (
-    <div
-      className="relative z-10 w-px shrink-0 cursor-col-resize bg-accent transition-colors hover:bg-muted-foreground"
-      onMouseDown={onMouseDown}
-    >
-      <div className="absolute inset-y-0 -left-1 -right-1" />
-    </div>
-  )
-}
 import { DocumentEditor, type DocumentViewMode } from "./document-editor"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
@@ -49,6 +38,17 @@ import { useSettingsStore } from "./use-settings-store"
 import type { TreeItem } from "./sidebar-tree"
 import { normalizeWikiLinkTarget, findWikiLinkItem, buildLinkGraph } from "./wiki-links"
 import { planMutation, applySessionRemap } from "./workspace-mutations"
+import {
+  wsPathStem,
+  canvasLayerPath,
+  flattenFileItems,
+  flattenTree,
+  findTreeItem,
+  updateInTree,
+  formatModified,
+  newTabKey,
+  applyIconOverrides,
+} from "./workspace-tree-utils"
 import type { VaultRecord } from "./workspace-picker"
 import {
   isTauri,
@@ -95,89 +95,7 @@ function LazyEditorFallback() {
   )
 }
 
-function wsPathDir(path: string): string {
-  const idx = path.replace(/\\/g, "/").lastIndexOf("/")
-  return idx === -1 ? "" : path.slice(0, idx)
-}
-
-function wsPathBase(path: string): string {
-  return path.replace(/\\/g, "/").split("/").pop() ?? path
-}
-
-function wsPathStem(path: string): string {
-  return wsPathBase(path).replace(/\.[^.]+$/u, "")
-}
-
-/** Path of a note's canvas layer sidecar file (<dir>/<stem>.canvas). */
-function canvasLayerPath(notePath: string): string {
-  const dir = wsPathDir(notePath)
-  const stem = wsPathStem(notePath)
-  return `${dir}/${stem}.canvas`
-}
-
 type EditorLayer = "editor" | LayerKind
-
-function flattenFileItems(items: TreeItem[]): TreeItem[] {
-  const files: TreeItem[] = []
-  function walk(list: TreeItem[]) {
-    for (const item of list) {
-      if (item.type === "file") files.push(item)
-      if (item.children) walk(item.children)
-    }
-  }
-  walk(items)
-  return files
-}
-
-function flattenTree(items: TreeItem[]): Set<string> {
-  const ids = new Set<string>()
-  function walk(list: TreeItem[]) {
-    for (const item of list) {
-      ids.add(item.id)
-      if (item.children) walk(item.children)
-    }
-  }
-  walk(items)
-  return ids
-}
-
-function findTreeItem(items: TreeItem[], id: string): TreeItem | null {
-  for (const item of items) {
-    if (item.id === id) return item
-    if (item.children) {
-      const found = findTreeItem(item.children, id)
-      if (found) return found
-    }
-  }
-  return null
-}
-
-function formatModified(ts?: number): string {
-  const t = i18n.t.bind(i18n)
-  if (!ts) return t("time.justNow")
-  const date = new Date(ts * 1000)
-  const diffMs = Date.now() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  if (diffMins < 1) return t("time.justNow")
-  if (diffMins < 60) return t("time.minsAgo", { n: diffMins })
-  const diffHours = Math.floor(diffMins / 60)
-  if (diffHours < 24) return t("time.hoursAgo", { n: diffHours })
-  const diffDays = Math.floor(diffHours / 24)
-  if (diffDays === 1) return t("time.yesterday")
-  return t("time.daysAgo", { n: diffDays })
-}
-
-function newTabKey() {
-  return `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
-function applyIconOverrides(items: TreeItem[], overrides: Record<string, string>): TreeItem[] {
-  return items.map((item) => ({
-    ...item,
-    icon: overrides[item.id] ?? item.icon,
-    children: item.children ? applyIconOverrides(item.children, overrides) : undefined,
-  }))
-}
 
 export function Workspace() {
   const { t } = useTranslation()
@@ -1117,18 +1035,6 @@ export function Workspace() {
       const next = remaining[remaining.length - 1]
       setActiveTabKey(next?.key ?? "")
     }
-  }
-
-  function updateInTree(
-    items: TreeItem[],
-    id: string,
-    updater: (item: TreeItem) => TreeItem,
-  ): TreeItem[] {
-    return items.map((item) => {
-      if (item.id === id) return updater(item)
-      if (item.children) return { ...item, children: updateInTree(item.children, id, updater) }
-      return item
-    })
   }
 
   const handleRenameFile = React.useCallback(
