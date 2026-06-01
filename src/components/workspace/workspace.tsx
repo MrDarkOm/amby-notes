@@ -38,6 +38,7 @@ import { useSettingsStore } from "./use-settings-store"
 import type { TreeItem } from "./sidebar-tree"
 import { normalizeWikiLinkTarget, findWikiLinkItem, buildLinkGraph } from "./wiki-links"
 import { planMutation, applySessionRemap } from "./workspace-mutations"
+import { useViewStateStore, type EditorLayer } from "./use-view-state-store"
 import {
   wsPathStem,
   canvasLayerPath,
@@ -71,7 +72,6 @@ import {
   unlinkLayer,
   deleteLayer,
   noteLayers,
-  type NoteLayers,
   openInExplorer,
   exportTextFile,
   importTextFile,
@@ -95,8 +95,6 @@ function LazyEditorFallback() {
   )
 }
 
-type EditorLayer = "editor" | LayerKind
-
 export function Workspace() {
   const { t } = useTranslation()
   const vault = useVaultStore((s) => s.vault)
@@ -116,24 +114,32 @@ export function Workspace() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
   const [leftWidth, setLeftWidth] = React.useState(208)
   const [rightWidth, setRightWidth] = React.useState(256)
-  const [favorites, setFavorites] = React.useState<Set<string>>(new Set())
   const [linkGraph, setLinkGraph] = React.useState<LinkGraph>({ nodes: [], edges: [] })
-  const [activeLayers, setActiveLayers] = React.useState<Record<string, EditorLayer>>({})
-  const [viewModes, setViewModes] = React.useState<Record<string, DocumentViewMode>>({})
-  const [linkedLayersByDoc, setLinkedLayersByDoc] = React.useState<Record<string, NoteLayers>>({})
-  const [lockedFileIds, setLockedFileIds] = React.useState<Set<string>>(new Set())
   // Raw .canvas JSON keyed by canvas file path (covers both note layers and standalone canvases).
   const [openCanvases, setOpenCanvases] = React.useState<Record<string, string>>({})
   const canvasSaveTimers = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
-  const handleToggleFavorite = React.useCallback((id: string) => {
-    setFavorites((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
+  // Per-document view state lives in a zustand store so applyMutationResult can
+  // fan out to it with a single call (same pattern as useDocStore.applyMutation).
+  const favorites = useViewStateStore((s) => s.favorites)
+  const viewModes = useViewStateStore((s) => s.viewModes)
+  const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
+  const iconOverrides = useViewStateStore((s) => s.iconOverrides)
+  const activeLayers = useViewStateStore((s) => s.activeLayers)
+  const linkedLayersByDoc = useViewStateStore((s) => s.linkedLayersByDoc)
+  // Stable store actions (never change reference).
+  const {
+    toggleFavorite,
+    setIcon: setIconInStore,
+    setViewMode,
+    toggleLock,
+    setActiveLayer,
+    setLinkedLayers,
+    applyMutation: applyViewMutation,
+    hydrateFromSession,
+  } = useViewStateStore.getState()
+
+  const handleToggleFavorite = React.useCallback((id: string) => toggleFavorite(id), [])
 
   function startResize(side: "left" | "right") {
     return (e: React.MouseEvent) => {
@@ -240,8 +246,6 @@ export function Workspace() {
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
-  // Hydrated per-vault from session.json when a vault opens (see loadVault).
-  const [iconOverrides, setIconOverrides] = React.useState<Record<string, string>>({})
   const vaults = useVaultStore((s) => s.vaults)
 
   // One debounce timer per open file, so editing or closing one document never
@@ -488,26 +492,19 @@ export function Workspace() {
   const activeTreeItem = activeFileId ? findTreeItem(displayTreeItems, activeFileId) : null
   const currentFileIcon = activeTreeItem?.icon
 
-  const handleSetIcon = React.useCallback((id: string, icon: string) => {
-    setIconOverrides((prev) => ({ ...prev, [id]: icon }))
-  }, [])
+  const handleSetIcon = React.useCallback(
+    (id: string, icon: string) => setIconInStore(id, icon),
+    [],
+  )
 
   function saveVaults(next: VaultRecord[]) {
     setVaults(next)
   }
 
-  function saveViewModes(_path: string | null, next: Record<string, DocumentViewMode>) {
-    setViewModes(next)
-  }
-
-  function saveLockedFileIds(_path: string | null, next: Set<string>) {
-    setLockedFileIds(next)
-  }
-
   async function refreshLinkedLayers(docId: string, notePath: string) {
     try {
       const layers = await noteLayers(notePath)
-      setLinkedLayersByDoc((prev) => ({ ...prev, [docId]: layers }))
+      setLinkedLayers(docId, layers)
     } catch (err) {
       console.error("Failed to load note layers:", err)
     }
@@ -525,7 +522,9 @@ export function Workspace() {
     if (!hasChanges) return
 
     const deleted = new Set(deletedIds)
-    applyMutation(deletedIds, remapFn)
+    // Fan out to each store with the same deletedIds.
+    applyMutation(deletedIds, remapFn) // doc store: remaps content paths + drops deleted
+    applyViewMutation(deletedIds) // view state store: drops deleted from all maps/sets
 
     setTabs((prev) => {
       const next = prev
@@ -538,36 +537,6 @@ export function Workspace() {
       if (next.length !== prev.length && activeTabKey) {
         const stillExists = next.find((tab) => tab.key === activeTabKey)
         if (!stillExists) setActiveTabKey(next[next.length - 1]?.key ?? "")
-      }
-      return next
-    })
-
-    setFavorites((prev) => {
-      const next = new Set<string>()
-      for (const id of prev) if (!deleted.has(id)) next.add(id)
-      return next
-    })
-
-    setIconOverrides((prev) => {
-      const next: Record<string, string> = {}
-      for (const [id, icon] of Object.entries(prev)) {
-        if (!deleted.has(id)) next[id] = icon
-      }
-      return next
-    })
-
-    setActiveLayers((prev) => {
-      const next: Record<string, EditorLayer> = {}
-      for (const [id, layer] of Object.entries(prev)) {
-        if (!deleted.has(id)) next[id] = layer
-      }
-      return next
-    })
-
-    setViewModes((prev) => {
-      const next: Record<string, DocumentViewMode> = {}
-      for (const [id, mode] of Object.entries(prev)) {
-        if (!deleted.has(id)) next[id] = mode
       }
       return next
     })
@@ -711,14 +680,12 @@ export function Workspace() {
       const restoreSession = useSettingsStore.getState().prefs.startup.restoreSession
       const remapped = applySessionRemap(session, pathToId, allIds, restoreSession)
 
-      setIconOverrides(() => remapped.icons)
-      setFavorites(new Set(remapped.favorites))
-      setViewModes(
-        Object.fromEntries(
-          Object.entries(remapped.viewModes).map(([k, v]) => [k, v as DocumentViewMode]),
-        ),
-      )
-      setLockedFileIds(new Set(remapped.lockedFileIds))
+      hydrateFromSession({
+        icons: remapped.icons,
+        favorites: remapped.favorites,
+        viewModes: remapped.viewModes,
+        lockedFileIds: remapped.lockedFileIds,
+      })
 
       const valid = remapped.tabs
       const mappedActiveFileId = remapped.activeFileId
@@ -1194,7 +1161,7 @@ export function Workspace() {
       } catch {
         /* ignore */
       }
-      setActiveLayers((prev) => ({ ...prev, [id]: "canvas" }))
+      setActiveLayer(id, "canvas")
       const existing = tabs.find((t) => t.kind === "document" && t.fileId === id)
       if (existing) {
         setActiveTabKey(existing.key)
@@ -1249,7 +1216,7 @@ export function Workspace() {
     const doc = activeTab ? (openDocs[activeTab.fileId] ?? null) : null
     if (!doc) return
     if (layer === "editor") {
-      setActiveLayers((prev) => ({ ...prev, [doc.id]: "editor" }))
+      setActiveLayer(doc.id, "editor")
       return
     }
     try {
@@ -1259,7 +1226,7 @@ export function Workspace() {
         pathChanges: result.pathChanges,
         deletedPaths: [],
       })
-      setActiveLayers((prev) => ({ ...prev, [doc.id]: layer }))
+      setActiveLayer(doc.id, layer)
       await refreshTree()
       await refreshLinkedLayers(doc.id, result.notePath ?? doc.path)
     } catch (err) {
@@ -1269,15 +1236,12 @@ export function Workspace() {
 
   const handleViewModeChange = (mode: DocumentViewMode) => {
     if (!currentDoc) return
-    saveViewModes(vault, { ...viewModes, [currentDoc.id]: mode })
+    setViewMode(currentDoc.id, mode)
   }
 
   const handleToggleLock = () => {
     if (!currentDoc) return
-    const next = new Set(lockedFileIds)
-    if (next.has(currentDoc.id)) next.delete(currentDoc.id)
-    else next.add(currentDoc.id)
-    saveLockedFileIds(vault, next)
+    toggleLock(currentDoc.id)
   }
 
   const handleContentChange = (fileId: string, content: string) => {
@@ -1447,9 +1411,7 @@ export function Workspace() {
       await refreshTree()
       await refreshLinkedLayers(currentDoc.id, result.primaryPath ?? currentDoc.path)
       // If the unlinked layer was active, fall back to the editor.
-      setActiveLayers((prev) =>
-        prev[currentDoc.id] === layer ? { ...prev, [currentDoc.id]: "editor" } : prev,
-      )
+      if (activeLayers[currentDoc.id] === layer) setActiveLayer(currentDoc.id, "editor")
     } catch (err) {
       console.error("Failed to unlink layer:", err)
     }
@@ -1468,9 +1430,7 @@ export function Workspace() {
       applyMutationResult(result)
       await refreshTree()
       await refreshLinkedLayers(currentDoc.id, result.primaryPath ?? currentDoc.path)
-      setActiveLayers((prev) =>
-        prev[currentDoc.id] === layer ? { ...prev, [currentDoc.id]: "editor" } : prev,
-      )
+      if (activeLayers[currentDoc.id] === layer) setActiveLayer(currentDoc.id, "editor")
     } catch (err) {
       console.error("Failed to delete layer:", err)
     }
@@ -1582,7 +1542,7 @@ export function Workspace() {
       onViewModeChange: isPrimary
         ? handleViewModeChange
         : (mode: DocumentViewMode) => {
-            if (doc) saveViewModes(vault, { ...viewModes, [doc.id]: mode })
+            if (doc) setViewMode(doc.id, mode)
           },
       linkedLayers: isPrimary && doc ? (linkedLayersByDoc[doc.id] ?? NO_LAYERS) : NO_LAYERS,
       isLocked: doc ? lockedFileIds.has(doc.id) : false,
