@@ -32,6 +32,7 @@ import { useViewStateStore, type EditorLayer } from "./use-view-state-store"
 import { useVaultData } from "./use-vault-data"
 import { useFileActions } from "./use-file-actions"
 import { useSidebarLayout } from "./use-sidebar-layout"
+import { useLayers } from "./use-layers"
 import { wsPathStem, canvasLayerPath, findTreeItem, newTabKey } from "./workspace-tree-utils"
 import type { VaultRecord } from "./workspace-picker"
 import {
@@ -40,15 +41,10 @@ import {
   readFile,
   writeFile,
   readNote,
-  createLayer,
-  unlinkLayer,
-  deleteLayer,
-  noteLayers,
   openInExplorer,
   exportTextFile,
   importTextFile,
   type FsMutationResult,
-  type LayerKind,
 } from "@/lib/storage"
 
 const GRAPH_TAB_FILE_ID = "__graph__"
@@ -97,8 +93,6 @@ export function Workspace() {
     setIcon: setIconInStore,
     setViewMode,
     toggleLock,
-    setActiveLayer,
-    setLinkedLayers,
     applyMutation: applyViewMutation,
   } = useViewStateStore.getState()
 
@@ -267,15 +261,6 @@ export function Workspace() {
     setVaults(next)
   }
 
-  async function refreshLinkedLayers(docId: string, notePath: string) {
-    try {
-      const layers = await noteLayers(notePath)
-      setLinkedLayers(docId, layers)
-    } catch (err) {
-      console.error("Failed to load note layers:", err)
-    }
-  }
-
   function applyMutationResult(result: FsMutationResult) {
     const { deletedIds, remapFn, hasChanges } = planMutation(result)
     if (!hasChanges) return
@@ -300,6 +285,11 @@ export function Workspace() {
       return next
     })
   }
+
+  const currentDoc = activeTab ? (openDocs[activeTab.fileId] ?? null) : null
+
+  const { handleLayerChange, handleAttachLayerToFile, handleUnlinkLayer, handleDeleteLayer } =
+    useLayers({ vault, currentDoc, treeItems, refreshTree, applyMutationResult })
 
   const {
     handleSelect,
@@ -427,28 +417,6 @@ export function Workspace() {
     }
   }
 
-  const handleLayerChange = async (layer: EditorLayer) => {
-    const doc = activeTab ? (openDocs[activeTab.fileId] ?? null) : null
-    if (!doc) return
-    if (layer === "editor") {
-      setActiveLayer(doc.id, "editor")
-      return
-    }
-    try {
-      const result = await createLayer(doc.path, layer)
-      applyMutationResult({
-        primaryPath: result.notePath,
-        pathChanges: result.pathChanges,
-        deletedPaths: [],
-      })
-      setActiveLayer(doc.id, layer)
-      await refreshTree()
-      await refreshLinkedLayers(doc.id, result.notePath ?? doc.path)
-    } catch (err) {
-      console.error("Failed to create layer:", err)
-    }
-  }
-
   const handleViewModeChange = (mode: DocumentViewMode) => {
     if (!currentDoc) return
     setViewMode(currentDoc.id, mode)
@@ -458,15 +426,6 @@ export function Workspace() {
     if (!currentDoc) return
     toggleLock(currentDoc.id)
   }
-
-  const currentDoc = activeTab ? (openDocs[activeTab.fileId] ?? null) : null
-
-  React.useEffect(() => {
-    if (!currentDoc) return
-    if (linkedLayersByDoc[currentDoc.id]) return
-    refreshLinkedLayers(currentDoc.id, currentDoc.path)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDoc?.id, currentDoc?.path])
 
   // Debounced persistence of any open canvas (note layer or standalone), keyed by file path.
   const handleCanvasSave = React.useCallback((path: string, json: string) => {
@@ -560,70 +519,6 @@ export function Workspace() {
     fileId: t.fileId,
     title: t.title,
   }))
-
-  const handleAttachLayerToFile = React.useCallback(
-    async (fileId: string, layer: "canvas" | "database") => {
-      // Find the file path from the flat tree
-      function findPath(items: typeof treeItems): string | null {
-        for (const item of items) {
-          if (item.id === fileId && item.type === "file") return item.path
-          if (item.children) {
-            const found = findPath(item.children)
-            if (found) return found
-          }
-        }
-        return null
-      }
-      const filePath = findPath(treeItems)
-      if (!filePath) return
-      try {
-        const result = await createLayer(filePath, layer)
-        applyMutationResult({
-          primaryPath: result.notePath,
-          pathChanges: result.pathChanges,
-          deletedPaths: [],
-        })
-        await refreshTree()
-        await refreshLinkedLayers(fileId, result.notePath ?? filePath)
-      } catch (err) {
-        console.error("Failed to attach layer:", err)
-      }
-    },
-    [treeItems, vault],
-  )
-
-  const handleUnlinkLayer = async (layer: LayerKind) => {
-    if (!currentDoc || !vault) return
-    try {
-      const result = await unlinkLayer(vault, currentDoc.path, layer)
-      applyMutationResult(result)
-      await refreshTree()
-      await refreshLinkedLayers(currentDoc.id, result.primaryPath ?? currentDoc.path)
-      // If the unlinked layer was active, fall back to the editor.
-      if (activeLayers[currentDoc.id] === layer) setActiveLayer(currentDoc.id, "editor")
-    } catch (err) {
-      console.error("Failed to unlink layer:", err)
-    }
-  }
-
-  const handleDeleteLayer = async (layer: LayerKind) => {
-    if (!currentDoc || !vault) return
-    if (
-      !confirm(
-        t("workspace.deleteLayerConfirm", { layer: t(`layer.${layer}`), title: currentDoc.title }),
-      )
-    )
-      return
-    try {
-      const result = await deleteLayer(vault, currentDoc.path, layer)
-      applyMutationResult(result)
-      await refreshTree()
-      await refreshLinkedLayers(currentDoc.id, result.primaryPath ?? currentDoc.path)
-      if (activeLayers[currentDoc.id] === layer) setActiveLayer(currentDoc.id, "editor")
-    } catch (err) {
-      console.error("Failed to delete layer:", err)
-    }
-  }
 
   // panelRenderProps is memoised so that sidebar panels don't re-render when only
   // the editor content changes (openDocs/currentDoc). The deps list covers every value
