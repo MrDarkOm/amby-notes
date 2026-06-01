@@ -16,13 +16,14 @@ use tauri::Manager;
 
 use crate::paths::{self, VaultScope};
 
-/// Root of the global app-data area: `{local_data_dir}/Amby`. Created if missing.
+/// Root of the global app-data area: `{local_data_dir}/Amby/notes`. Created if missing.
 fn app_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let root = app
         .path()
         .local_data_dir()
         .map_err(|e| e.to_string())?
-        .join("Amby");
+        .join("Amby")
+        .join("notes");
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     Ok(root)
 }

@@ -8,7 +8,9 @@
       "PowerShell($procs = Get-NetTCPConnection -LocalPort 1420 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; if \\($procs\\) { $procs | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; \"Killed\" } else { \"Already free\" })",
       "Bash(git add *)",
       "Bash(node -e \"const c = require\\('/Users/paul/Codding/amby-notes/node_modules/@tiptap/pm/dist/index.js'\\); console.log\\(Object.keys\\(c\\).filter\\(k => k.toLowerCase\\(\\).includes\\('list'\\) || k.toLowerCase\\(\\).includes\\('sink'\\) || k.toLowerCase\\(\\).includes\\('lift'\\)\\)\\)\")",
-      "Bash(grep -E \"^\\(dialog|select|switch|tabs|form|input\\)\\\\.tsx$\")"
+      "Bash(grep -E \"^\\(dialog|select|switch|tabs|form|input\\)\\\\.tsx$\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); keys=list\\(d.get\\('definitions',{}\\).keys\\(\\)\\); print\\('\\\\n'.join\\(keys[:30]\\)\\)\")",
+      "Bash(cd ../amby-notes-editor-ux && ls node_modules/.bin/ 2>&1 | grep -i tsc | head-5)"
     ]
   }
 }

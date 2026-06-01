@@ -816,6 +816,37 @@ pub fn run() {
         .manage(DbState::new())
         .manage(WatcherState::new())
         .invoke_handler(builder.invoke_handler())
+        .setup(|app| {
+            use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+
+            // Keep the WebView2 / WebKitGTK cache under Amby\notes\ next to
+            // settings.json and workspaces.json, so nothing ends up scattered
+            // in AppData\Local\amby-notes\.
+            let data_dir = app
+                .path()
+                .local_data_dir()?
+                .join("Amby")
+                .join("notes")
+                .join("WebView");
+
+            // Start building the main window with properties that match the
+            // old tauri.conf.json entry.
+            let wb = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+                .title("Amby")
+                .inner_size(1280.0, 800.0)
+                .decorations(true)
+                .data_directory(data_dir);
+
+            // Traffic lights / overlay title bar are macOS-only APIs.
+            #[cfg(target_os = "macos")]
+            let wb = wb
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true)
+                .traffic_light_position(tauri::LogicalPosition::new(12.0, 20.0));
+
+            wb.build()?;
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application")
 }
