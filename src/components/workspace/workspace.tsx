@@ -27,7 +27,6 @@ import { usePresets } from "./use-presets"
 import { useDocStore, type Document } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useVaultStore } from "./use-vault-store"
-import { loadSession, loadWorkspaces, saveSession, saveWorkspaces } from "./app-config"
 import { useActivityDnD } from "./use-activity-dnd"
 import { DocumentEditor, type DocumentViewMode } from "./document-editor"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
@@ -36,19 +35,17 @@ import { SearchModal } from "./search-modal"
 import { SettingsDialog } from "./settings-dialog"
 import { useSettingsStore } from "./use-settings-store"
 import type { TreeItem } from "./sidebar-tree"
-import { normalizeWikiLinkTarget, findWikiLinkItem, buildLinkGraph } from "./wiki-links"
-import { planMutation, applySessionRemap } from "./workspace-mutations"
+import { normalizeWikiLinkTarget, findWikiLinkItem } from "./wiki-links"
+import { planMutation } from "./workspace-mutations"
 import { useViewStateStore, type EditorLayer } from "./use-view-state-store"
+import { useVaultData } from "./use-vault-data"
 import {
   wsPathStem,
   canvasLayerPath,
-  flattenFileItems,
-  flattenTree,
   findTreeItem,
   updateInTree,
   formatModified,
   newTabKey,
-  applyIconOverrides,
 } from "./workspace-tree-utils"
 import type { VaultRecord } from "./workspace-picker"
 import {
@@ -58,9 +55,7 @@ import {
   writeFile,
   readNote,
   writeNote,
-  loadVaultData,
   getNoteMetadata,
-  getLinkGraph,
   createNote,
   createFolder,
   renameItem,
@@ -75,13 +70,9 @@ import {
   openInExplorer,
   exportTextFile,
   importTextFile,
-  startVaultWatcher,
-  stopVaultWatcher,
   type FsMutationResult,
   type LayerKind,
-  type LinkGraph,
 } from "@/lib/storage"
-import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 
 const GRAPH_TAB_FILE_ID = "__graph__"
@@ -98,12 +89,15 @@ function LazyEditorFallback() {
 export function Workspace() {
   const { t } = useTranslation()
   const vault = useVaultStore((s) => s.vault)
-  const { setVault, setVaults } = useVaultStore.getState()
-  const [treeItems, setTreeItems] = React.useState<TreeItem[]>([])
+  const vaults = useVaultStore((s) => s.vaults)
+  const { setVaults } = useVaultStore.getState()
+
+  const { treeItems, setTreeItems, displayTreeItems, linkGraph, loadVault, refreshTree } =
+    useVaultData()
+
   const openDocs = useDocStore((s) => s.openDocs)
   // Actions are stable in zustand, so read them once without subscribing.
-  const { setDoc, patchDoc, clearDocs, markUnsaved, markSaved, applyMutation } =
-    useDocStore.getState()
+  const { setDoc, patchDoc, markUnsaved, markSaved, applyMutation } = useDocStore.getState()
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
   const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
@@ -114,17 +108,15 @@ export function Workspace() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
   const [leftWidth, setLeftWidth] = React.useState(208)
   const [rightWidth, setRightWidth] = React.useState(256)
-  const [linkGraph, setLinkGraph] = React.useState<LinkGraph>({ nodes: [], edges: [] })
   // Raw .canvas JSON keyed by canvas file path (covers both note layers and standalone canvases).
   const [openCanvases, setOpenCanvases] = React.useState<Record<string, string>>({})
   const canvasSaveTimers = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
-  // Per-document view state lives in a zustand store so applyMutationResult can
-  // fan out to it with a single call (same pattern as useDocStore.applyMutation).
+  // Per-document view state (favorites, viewModes, lockedFileIds, iconOverrides,
+  // activeLayers, linkedLayersByDoc) lives in useViewStateStore.
   const favorites = useViewStateStore((s) => s.favorites)
   const viewModes = useViewStateStore((s) => s.viewModes)
   const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
-  const iconOverrides = useViewStateStore((s) => s.iconOverrides)
   const activeLayers = useViewStateStore((s) => s.activeLayers)
   const linkedLayersByDoc = useViewStateStore((s) => s.linkedLayersByDoc)
   // Stable store actions (never change reference).
@@ -136,7 +128,6 @@ export function Workspace() {
     setActiveLayer,
     setLinkedLayers,
     applyMutation: applyViewMutation,
-    hydrateFromSession,
   } = useViewStateStore.getState()
 
   const handleToggleFavorite = React.useCallback((id: string) => toggleFavorite(id), [])
@@ -246,68 +237,10 @@ export function Workspace() {
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
-  const vaults = useVaultStore((s) => s.vaults)
 
   // One debounce timer per open file, so editing or closing one document never
   // cancels another's pending save (also what an editor split relies on).
   const saveTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
-
-  React.useEffect(() => {
-    if (!vault) {
-      setLinkGraph({ nodes: [], edges: [] })
-      return
-    }
-    let cancelled = false
-    const timer = setTimeout(async () => {
-      if (isTauri()) {
-        try {
-          const graph = await getLinkGraph(vault)
-          if (!cancelled) setLinkGraph(graph)
-        } catch {
-          /* index may be rebuilding */
-        }
-        return
-      }
-      const files = flattenFileItems(treeItems)
-      const contents: Record<string, string> = {}
-      await Promise.allSettled(
-        files.map(async (file) => {
-          contents[file.id] =
-            useDocStore.getState().openDocs[file.id]?.content ?? (await readFile(file.id))
-        }),
-      )
-      if (!cancelled) setLinkGraph(buildLinkGraph(treeItems, contents, vault))
-    }, 150)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-    // openDocs intentionally excluded: web-mode already reads via openDocsRef; Tauri-mode
-    // fetches from SQLite and doesn't need openDocs at all. Removing it prevents this effect
-    // from re-running on every keystroke.
-  }, [treeItems, vault])
-
-  // Debounced persistence of the whole per-vault session (tabs + favorites +
-  // view-modes + locked + icons) into {vault}/.amby/session.json. Gated on
-  // sessionHydratedRef so applying a freshly-restored session doesn't echo back.
-  const sessionHydratedRef = React.useRef(false)
-  React.useEffect(() => {
-    if (!vault || !sessionHydratedRef.current) return
-    const docTabs = tabs.filter((t) => t.kind === "document")
-    const entries = docTabs.map((t) => ({ fileId: t.fileId, title: t.title }))
-    const active = docTabs.find((t) => t.key === activeTabKey)
-    const timer = setTimeout(() => {
-      saveSession({
-        tabs: entries,
-        activeFileId: active?.fileId ?? entries[0]?.fileId ?? "",
-        favorites: [...favorites],
-        viewModes,
-        locked: [...lockedFileIds],
-        icons: iconOverrides,
-      })
-    }, 400)
-    return () => clearTimeout(timer)
-  }, [vault, tabs, activeTabKey, favorites, viewModes, lockedFileIds, iconOverrides])
 
   const activeTab = tabs.find((t) => t.key === activeTabKey) ?? null
   const selectedId = activeTab && activeTab.kind === "document" ? activeTab.fileId : ""
@@ -480,12 +413,6 @@ export function Workspace() {
   }
 
   const vaultName = vault?.replace(/\\/g, "/").split("/").pop() ?? undefined
-  // Memoised so a keystroke (which changes openDocs, not the tree) doesn't produce a
-  // fresh array and re-render every sidebar panel via panelRenderProps.
-  const displayTreeItems = React.useMemo(
-    () => applyIconOverrides(treeItems, iconOverrides),
-    [treeItems, iconOverrides],
-  )
 
   // Current file icon (from iconOverrides or tree)
   const activeFileId = activeTab?.fileId ?? null
@@ -510,13 +437,6 @@ export function Workspace() {
     }
   }
 
-  async function refreshTree(path = vault) {
-    if (!path) return []
-    const loaded = await loadVaultData(path)
-    setTreeItems(loaded.tree)
-    return loaded.tree
-  }
-
   function applyMutationResult(result: FsMutationResult) {
     const { deletedIds, remapFn, hasChanges } = planMutation(result)
     if (!hasChanges) return
@@ -539,14 +459,6 @@ export function Workspace() {
         if (!stillExists) setActiveTabKey(next[next.length - 1]?.key ?? "")
       }
       return next
-    })
-  }
-
-  function addVaultToList(path: string) {
-    setVaults((prev) => {
-      if (prev.find((v) => v.path === path)) return prev
-      const name = path.replace(/\\/g, "/").split("/").pop() ?? path
-      return [...prev, { id: crypto.randomUUID(), name, path }]
     })
   }
 
@@ -597,135 +509,6 @@ export function Workspace() {
   function handleCloseAllTabs() {
     setTabs([])
     setActiveTabKey("")
-  }
-
-  // Watch vault for external changes via the Rust-side notify watcher.
-  // The watcher suppresses events caused by our own autosave writes, so the
-  // tree only refreshes for genuine external changes (other apps, git ops,
-  // external editors).
-  React.useEffect(() => {
-    if (!vault || !isTauri()) return
-
-    startVaultWatcher(vault).catch(console.error)
-
-    let unlisten: (() => void) | undefined
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null
-
-    listen<{ kind: string; path: string }>("vault-file-changed", () => {
-      if (refreshTimer) clearTimeout(refreshTimer)
-      refreshTimer = setTimeout(async () => {
-        try {
-          await refreshTree(vault)
-        } catch {
-          /* vault may be temporarily inaccessible */
-        }
-      }, 300)
-    })
-      .then((fn) => {
-        unlisten = fn
-      })
-      .catch(console.error)
-
-    return () => {
-      if (refreshTimer) clearTimeout(refreshTimer)
-      unlisten?.()
-      stopVaultWatcher().catch(console.error)
-    }
-  }, [vault])
-
-  // On mount: hydrate the known-vaults list from the global workspaces.json
-  // (migrating pre-tier localStorage), then restore the last-opened vault.
-  const workspacesHydrated = React.useRef(false)
-  React.useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      await useSettingsStore.getState().hydrate()
-      const reopen = useSettingsStore.getState().prefs.startup.reopenLastVault
-      const file = await loadWorkspaces()
-      if (cancelled) return
-      setVaults(file.recent)
-      workspacesHydrated.current = true
-      if (file.lastOpened && reopen) loadVault(file.lastOpened)
-      else if (!isTauri()) loadVault("web-vault")
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // Persist the known-vaults list + last-opened together (after hydration, so we
-  // never clobber the file with the empty initial state).
-  React.useEffect(() => {
-    if (!workspacesHydrated.current) return
-    saveWorkspaces({ recent: vaults, lastOpened: vault })
-  }, [vaults, vault])
-
-  async function loadVault(path: string) {
-    try {
-      const loaded = await loadVaultData(path)
-      const tree = loaded.tree
-      const pathToId = loaded.sync.pathToId ?? {}
-      const allIds = flattenTree(tree)
-      setVault(path)
-      setTreeItems(tree)
-      addVaultToList(path)
-
-      // Restore the per-vault session from {vault}/.amby/session.json (migrating
-      // pre-tier localStorage on first read). Suppress session persistence until
-      // the restored state is applied, so we don't immediately overwrite the file.
-      sessionHydratedRef.current = false
-      const session = await loadSession(path)
-
-      // Restore open tabs (unless the user disabled session restore)
-      const restoreSession = useSettingsStore.getState().prefs.startup.restoreSession
-      const remapped = applySessionRemap(session, pathToId, allIds, restoreSession)
-
-      hydrateFromSession({
-        icons: remapped.icons,
-        favorites: remapped.favorites,
-        viewModes: remapped.viewModes,
-        lockedFileIds: remapped.lockedFileIds,
-      })
-
-      const valid = remapped.tabs
-      const mappedActiveFileId = remapped.activeFileId
-      if (valid.length > 0) {
-        const newTabs: Tab[] = valid.map((e) => ({
-          key: newTabKey(),
-          kind: "document" as const,
-          fileId: e.fileId,
-          title: e.title,
-          history: [e.fileId],
-          historyIndex: 0,
-        }))
-        setTabs(newTabs)
-        const activeTab = newTabs.find((t) => t.fileId === mappedActiveFileId) ?? newTabs[0]
-        setActiveTabKey(activeTab.key)
-        // Load docs for restored tabs
-        valid.forEach((e) => {
-          const item = findTreeItem(tree, e.fileId)
-          readNote(path, e.fileId)
-            .then((content) => {
-              setDoc(e.fileId, {
-                id: e.fileId,
-                title: e.title,
-                content,
-                modified: "",
-                wordCount: 0,
-                path: item?.path ?? e.fileId,
-              })
-            })
-            .catch(() => {})
-        })
-      } else {
-        setTabs([])
-        clearDocs()
-        setActiveTabKey("")
-      }
-      sessionHydratedRef.current = true
-    } catch (err) {
-      console.error("Failed to load vault:", err)
-    }
   }
 
   const handleOpenVault = React.useCallback(async () => {
