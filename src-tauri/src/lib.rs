@@ -816,35 +816,32 @@ pub fn run() {
         .manage(DbState::new())
         .manage(WatcherState::new())
         .invoke_handler(builder.invoke_handler())
-        .setup(|app| {
-            use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+        .setup(|_app| {
+            // In dev mode (`tauri dev`) the Tauri CLI force-creates the window
+            // from config before this hook runs, so we skip manual creation
+            // there — the WebView2 cache location doesn't matter for development.
+            //
+            // In release builds the CLI does NOT inject windows, so
+            // `"create": false` in tauri.conf.json is respected and we create
+            // the window here, allowing us to redirect the WebView2 / WebKitGTK
+            // cache to Amby\notes\WebView\ instead of the default amby-notes\.
+            #[cfg(not(debug_assertions))]
+            {
+                use tauri::{Manager, WebviewWindowBuilder};
 
-            // Keep the WebView2 / WebKitGTK cache under Amby\notes\ next to
-            // settings.json and workspaces.json, so nothing ends up scattered
-            // in AppData\Local\amby-notes\.
-            let data_dir = app
-                .path()
-                .local_data_dir()?
-                .join("Amby")
-                .join("notes")
-                .join("WebView");
+                let data_dir = _app
+                    .path()
+                    .local_data_dir()?
+                    .join("Amby")
+                    .join("notes")
+                    .join("WebView");
 
-            // Start building the main window with properties that match the
-            // old tauri.conf.json entry.
-            let wb = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
-                .title("Amby")
-                .inner_size(1280.0, 800.0)
-                .decorations(true)
-                .data_directory(data_dir);
+                let window_config = &_app.config().app.windows[0];
+                WebviewWindowBuilder::from_config(_app.handle(), window_config)?
+                    .data_directory(data_dir)
+                    .build()?;
+            }
 
-            // Traffic lights / overlay title bar are macOS-only APIs.
-            #[cfg(target_os = "macos")]
-            let wb = wb
-                .title_bar_style(tauri::TitleBarStyle::Overlay)
-                .hidden_title(true)
-                .traffic_light_position(tauri::LogicalPosition::new(12.0, 20.0));
-
-            wb.build()?;
             Ok(())
         })
         .run(tauri::generate_context!())
