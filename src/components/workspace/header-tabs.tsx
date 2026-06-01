@@ -1,7 +1,7 @@
-"use client";
+"use client"
 
-import * as React from "react";
-import { useTranslation } from "react-i18next";
+import * as React from "react"
+import { useTranslation } from "react-i18next"
 import {
   Bookmark,
   BookmarkCheck,
@@ -16,59 +16,58 @@ import {
   PanelRightOpen,
   Plus,
   X,
-} from "lucide-react";
+} from "lucide-react"
 
-const isMac =
-  typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
-import { cn } from "@/lib/utils";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { isTauri } from "@/lib/storage";
-import { WorkspacePicker, type VaultRecord } from "./workspace-picker";
+const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
+import { cn } from "@/lib/utils"
+import { getCurrentWindow } from "@tauri-apps/api/window"
+import { isTauri } from "@/lib/storage"
+import { WorkspacePicker, type VaultRecord } from "./workspace-picker"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@/components/ui/dropdown-menu"
 
 export interface HeaderTab {
-  key: string;
-  fileId: string;
-  title: string;
+  key: string
+  fileId: string
+  title: string
 }
 
 interface HeaderTabsProps {
-  tabs: HeaderTab[];
-  activeTabKey: string;
-  unsavedFileIds?: Set<string>;
-  onTabChange: (key: string) => void;
-  onTabClose: (key: string) => void;
-  onToggleLeftSidebar?: () => void;
-  onToggleRightSidebar?: () => void;
-  isLeftSidebarOpen?: boolean;
-  isRightSidebarOpen?: boolean;
-  onToggleSplit?: () => void;
-  isSplit?: boolean;
-  onOpenPlusModal?: () => void;
-  vaultName?: string;
-  vaults: VaultRecord[];
-  currentVaultPath: string | null;
-  onSwitchVault: (path: string) => void;
-  onAddVault: () => void;
-  onRenameVault: (id: string, name: string) => void;
-  onDeleteVault: (id: string) => void;
-  onMoveVault: (id: string) => void;
-  onOpenVaultInExplorer: (path: string) => void;
-  onCloseAllTabs?: () => void;
-  leftTreeWidth?: number;
-  rightPanelWidth?: number;
-  activeFileId?: string;
-  favorites?: Set<string>;
-  onToggleFavorite?: (id: string) => void;
+  tabs: HeaderTab[]
+  activeTabKey: string
+  unsavedFileIds?: Set<string>
+  onTabChange: (key: string) => void
+  onTabClose: (key: string) => void
+  onToggleLeftSidebar?: () => void
+  onToggleRightSidebar?: () => void
+  isLeftSidebarOpen?: boolean
+  isRightSidebarOpen?: boolean
+  onToggleSplit?: () => void
+  isSplit?: boolean
+  onOpenPlusModal?: () => void
+  vaultName?: string
+  vaults: VaultRecord[]
+  currentVaultPath: string | null
+  onSwitchVault: (path: string) => void
+  onAddVault: () => void
+  onRenameVault: (id: string, name: string) => void
+  onDeleteVault: (id: string) => void
+  onMoveVault: (id: string) => void
+  onOpenVaultInExplorer: (path: string) => void
+  onCloseAllTabs?: () => void
+  leftTreeWidth?: number
+  rightPanelWidth?: number
+  activeFileId?: string
+  favorites?: Set<string>
+  onToggleFavorite?: (id: string) => void
 }
 
-const ACTIVITY_BAR_WIDTH = 40;
+const ACTIVITY_BAR_WIDTH = 40
 
 function AmbyIcon({ className }: { className?: string }) {
   return (
@@ -99,16 +98,21 @@ function AmbyIcon({ className }: { className?: string }) {
         strokeLinecap="round"
       />
     </svg>
-  );
+  )
 }
 
 function handleDragStart(e: React.MouseEvent) {
-  if (e.button !== 0) return;
+  if (e.button !== 0) return
+  // Skip drag when the click originated on an interactive element.
+  // Without this guard the mousedown bubbles from e.g. a sidebar-toggle button
+  // up to the drag-region div, startDragging() captures the mouse pointer, and
+  // the button's click event never fires.
+  if ((e.target as HTMLElement).closest("button, a, input, select, [role='button']")) return
   if (isTauri()) {
-    e.preventDefault();
+    e.preventDefault()
     getCurrentWindow()
       .startDragging()
-      .catch(() => {});
+      .catch(() => {})
   }
 }
 
@@ -141,58 +145,60 @@ export function HeaderTabs({
   favorites,
   onToggleFavorite,
 }: HeaderTabsProps) {
-  const { t } = useTranslation();
+  const { t } = useTranslation()
   // activity bar in body = 44px (w-11);
   // mac traffic-light spacer = 72px;
   // non-mac logo on left = 44px. Picker width compensates so the editor area
   // in the header lines up with the body's main content area.
-  const pickerWidth = isMac ? leftTreeWidth - 28 : leftTreeWidth;
-  const [isMaximized, setIsMaximized] = React.useState(false);
-  const lastClickTimeRef = React.useRef(0);
+  const pickerWidth = isMac ? leftTreeWidth - 28 : leftTreeWidth
+  const [isMaximized, setIsMaximized] = React.useState(false)
+  const lastClickTimeRef = React.useRef(0)
 
   React.useEffect(() => {
-    if (!isTauri()) return;
-    const win = getCurrentWindow();
+    if (!isTauri()) return
+    const win = getCurrentWindow()
     win
       .isMaximized()
       .then(setIsMaximized)
-      .catch(() => {});
-    let unlisten: (() => void) | undefined;
+      .catch(() => {})
+    let unlisten: (() => void) | undefined
     win
       .onResized(() => {
         win
           .isMaximized()
           .then(setIsMaximized)
-          .catch(() => {});
+          .catch(() => {})
       })
       .then((fn) => {
-        unlisten = fn;
+        unlisten = fn
       })
-      .catch(() => {});
+      .catch(() => {})
     return () => {
-      unlisten?.();
-    };
-  }, []);
+      unlisten?.()
+    }
+  }, [])
 
   function handleEmptySpaceMouseDown(e: React.MouseEvent) {
-    if (e.button !== 0 || !isTauri()) return;
-    e.preventDefault();
-    const now = Date.now();
-    const since = now - lastClickTimeRef.current;
-    lastClickTimeRef.current = now;
+    if (e.button !== 0 || !isTauri()) return
+    if ((e.target as HTMLElement).closest("button, a, input, select, [role='button']")) return
+    e.preventDefault()
+    const now = Date.now()
+    const since = now - lastClickTimeRef.current
+    lastClickTimeRef.current = now
     if (since < 300) {
-      lastClickTimeRef.current = 0;
-      getCurrentWindow().toggleMaximize();
+      lastClickTimeRef.current = 0
+      getCurrentWindow().toggleMaximize()
     } else {
       getCurrentWindow()
         .startDragging()
-        .catch(() => {});
+        .catch(() => {})
     }
   }
 
   const leftSidebarToggle = (
     <button
       onClick={onToggleLeftSidebar}
+      onMouseDown={(e) => e.stopPropagation()}
       className="flex h-10 w-10 shrink-0 rounded items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
     >
       {isLeftSidebarOpen ? (
@@ -201,11 +207,12 @@ export function HeaderTabs({
         <PanelLeftOpen className="size-4 text-foreground" />
       )}
     </button>
-  );
+  )
 
   const rightSidebarToggle = (
     <button
       onClick={onToggleRightSidebar}
+      onMouseDown={(e) => e.stopPropagation()}
       className="flex h-10 w-10 shrink-0 rounded items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
     >
       {isRightSidebarOpen ? (
@@ -214,7 +221,7 @@ export function HeaderTabs({
         <PanelRightOpen className="size-4 text-foreground" />
       )}
     </button>
-  );
+  )
 
   return (
     <header className="relative z-50 flex h-10 select-none items-stretch border-b border-border bg-background">
@@ -224,7 +231,7 @@ export function HeaderTabs({
       ) : (
         /* Non-mac: logo on the left */
         <div
-          className="flex w-112 shrink-0 items-center justify-center"
+          className="flex w-11 shrink-0 items-center justify-center"
           onMouseDown={handleDragStart}
         >
           <AmbyIcon className="pointer-events-none size-5 text-foreground" />
@@ -232,11 +239,7 @@ export function HeaderTabs({
       )}
 
       {/* Left activity bar header column (always present, mirrors body) */}
-      <div
-        style={{ width: 0 }}
-        className="shrink-0"
-        onMouseDown={handleDragStart}
-      />
+      <div style={{ width: 0 }} className="shrink-0" onMouseDown={handleDragStart} />
 
       {/* Workspace switcher (left panel header column, only when panel open) */}
       {isLeftSidebarOpen && (
@@ -283,8 +286,8 @@ export function HeaderTabs({
                 onClick={() => onTabChange(tab.key)}
                 onMouseDown={(e) => {
                   if (e.button === 1) {
-                    e.preventDefault();
-                    onTabClose(tab.key);
+                    e.preventDefault()
+                    onTabClose(tab.key)
                   }
                 }}
                 className={cn(
@@ -300,8 +303,8 @@ export function HeaderTabs({
                 <span className="max-w-32 truncate">{tab.title}</span>
                 <button
                   onClick={(e) => {
-                    e.stopPropagation();
-                    onTabClose(tab.key);
+                    e.stopPropagation()
+                    onTabClose(tab.key)
                   }}
                   className="flex size-4 items-center justify-center rounded text-muted-foreground opacity-0 transition-all group-hover:opacity-100 hover:bg-accent hover:text-white"
                 >
@@ -319,10 +322,7 @@ export function HeaderTabs({
           </button>
         </div>
 
-        <div
-          className="flex-1 h-full cursor-default"
-          onMouseDown={handleEmptySpaceMouseDown}
-        />
+        <div className="flex-1 h-full cursor-default" onMouseDown={handleEmptySpaceMouseDown} />
 
         <div className="flex shrink-0 items-center">
           <DropdownMenu>
@@ -338,9 +338,7 @@ export function HeaderTabs({
               <DropdownMenuItem
                 disabled={!activeFileId}
                 className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                onSelect={() =>
-                  activeFileId && onToggleFavorite?.(activeFileId)
-                }
+                onSelect={() => activeFileId && onToggleFavorite?.(activeFileId)}
               >
                 {activeFileId && favorites?.has(activeFileId) ? (
                   <>
@@ -409,11 +407,7 @@ export function HeaderTabs({
       )}
 
       {/* Right activity bar header column */}
-      <div
-        style={{ width: 0 }}
-        className="shrink-0"
-        onMouseDown={handleDragStart}
-      />
+      <div style={{ width: 0 }} className="shrink-0" onMouseDown={handleDragStart} />
 
       {/* macOS: logo on the right */}
       {isMac && (
@@ -425,9 +419,13 @@ export function HeaderTabs({
         </div>
       )}
 
-      {/* Non-mac window controls */}
+      {/* Non-mac window controls.
+          pr-4 keeps the close button ≥16px from the right window edge so it
+          doesn't land inside Tauri's borderless-window resize corner zone
+          (HTTOPRIGHT), where WM_NCHITTEST intercepts mouse events before they
+          reach the webview. */}
       {!isMac && (
-        <div className="flex shrink-0 items-center">
+        <div className="flex shrink-0 items-center pr-4">
           <button
             onClick={() => isTauri() && getCurrentWindow().minimize()}
             className="flex h-10 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
@@ -438,11 +436,7 @@ export function HeaderTabs({
             onClick={() => isTauri() && getCurrentWindow().toggleMaximize()}
             className="flex h-10 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
           >
-            {isMaximized ? (
-              <Minimize2 className="size-3.5" />
-            ) : (
-              <Maximize2 className="size-3.5" />
-            )}
+            {isMaximized ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </button>
           <button
             onClick={() => isTauri() && getCurrentWindow().close()}
@@ -453,5 +447,5 @@ export function HeaderTabs({
         </div>
       )}
     </header>
-  );
+  )
 }
