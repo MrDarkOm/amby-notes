@@ -15,7 +15,7 @@ import MarkdownIt from "markdown-it"
 import type StateCore from "markdown-it/lib/rules_core/state_core.mjs"
 import type StateInline from "markdown-it/lib/rules_inline/state_inline.mjs"
 import type Token from "markdown-it/lib/token.mjs"
-import { MarkdownParser, MarkdownSerializerState } from "prosemirror-markdown"
+import { MarkdownParser, MarkdownSerializerState, type ParseSpec } from "prosemirror-markdown"
 
 import { editorSchema } from "./schema"
 import { CALLOUT_DEFAULTS } from "./callout-node"
@@ -398,7 +398,9 @@ export function markdownToHtml(markdown: string): string {
 
 // ── Parser ────────────────────────────────────────────────────────────────────
 
-const parser = new MarkdownParser(editorSchema, tokenizer, {
+// Token → node/mark mapping for the MarkdownParser. Declared separately so the
+// parser can be built lazily (see `getParser`).
+const parserTokens: { [token: string]: ParseSpec } = {
   callout: {
     block: "callout",
     getAttrs: (tok) => ({
@@ -476,10 +478,21 @@ const parser = new MarkdownParser(editorSchema, tokenizer, {
     node: "transclusion",
     getAttrs: (tok) => ({ target: tok.attrGet("target") ?? "" }),
   },
-})
+}
+
+// Built lazily on first use so that *loading* this module never touches
+// `editorSchema`. markdown.ts ⇄ schema.ts ⇄ transclusion-node.tsx form an
+// import cycle; an eager `new MarkdownParser(editorSchema, …)` at module scope
+// would hit `editorSchema` while it's still in its temporal dead zone whenever
+// transclusion-node is the entry into the cycle (white screen in dev ESM).
+let _parser: MarkdownParser | null = null
+function getParser(): MarkdownParser {
+  if (!_parser) _parser = new MarkdownParser(editorSchema, tokenizer, parserTokens)
+  return _parser
+}
 
 export function markdownToDoc(markdown: string): Record<string, unknown> {
-  const doc = parser.parse(markdown ?? "")
+  const doc = getParser().parse(markdown ?? "")
   return doc.toJSON() as Record<string, unknown>
 }
 
@@ -766,7 +779,7 @@ export function docToMarkdown(doc: PMNode): string {
 
 // Dev-only round-trip helper: parse then re-serialize and report drift.
 export function roundTripCheck(markdown: string): { ok: boolean; result: string } {
-  const doc = parser.parse(markdown ?? "")
+  const doc = getParser().parse(markdown ?? "")
   const result = docToMarkdown(doc)
   return { ok: result.trim() === (markdown ?? "").trim(), result }
 }
