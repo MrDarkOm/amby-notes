@@ -33,6 +33,7 @@ import { useVaultData } from "./use-vault-data"
 import { useFileActions } from "./use-file-actions"
 import { useSidebarLayout } from "./use-sidebar-layout"
 import { useLayers } from "./use-layers"
+import { useTabActions } from "./use-tab-actions"
 import { wsPathStem, canvasLayerPath, findTreeItem, newTabKey } from "./workspace-tree-utils"
 import type { VaultRecord } from "./workspace-picker"
 import {
@@ -74,7 +75,7 @@ export function Workspace() {
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
   const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
   // Stable setters (value-or-updater, like setState); see use-tabs-store.
-  const { setTabs, setActiveTabKey, setSecondaryTabKey } = useTabsStore.getState()
+  const { setTabs, setActiveTabKey } = useTabsStore.getState()
   const unsavedFileIds = useDocStore((s) => s.unsavedFileIds)
   // Raw .canvas JSON keyed by canvas file path (covers both note layers and standalone canvases).
   const [openCanvases, setOpenCanvases] = React.useState<Record<string, string>>({})
@@ -316,6 +317,25 @@ export function Workspace() {
     saveTimersRef,
   })
 
+  const {
+    handleBack,
+    handleForward,
+    handleTabChange,
+    toggleSplit,
+    handleTabClose,
+    handleCloseAllTabs,
+  } = useTabActions({
+    activeTab,
+    activeTabKey,
+    secondaryTabKey,
+    tabs,
+    treeItems,
+    canGoBack,
+    canGoForward,
+    navigateToFile,
+    saveTimersRef,
+  })
+
   function handleRenameVault(id: string, name: string) {
     saveVaults(vaults.map((v) => (v.id === id ? { ...v, name } : v)))
   }
@@ -336,11 +356,6 @@ export function Workspace() {
     if (target && vault === target.path) loadVault(path)
   }
 
-  function handleCloseAllTabs() {
-    setTabs([])
-    setActiveTabKey("")
-  }
-
   const handleOpenVault = React.useCallback(async () => {
     const path = await openVault()
     if (path) loadVault(path)
@@ -348,74 +363,6 @@ export function Workspace() {
     // async function declaration — does not close over changing state after our ref fixes).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  function handleBack() {
-    if (!activeTab || !canGoBack) return
-    const newIndex = activeTab.historyIndex - 1
-    const prevFileId = activeTab.history[newIndex]
-    const item = findTreeItem(treeItems, prevFileId)
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.key !== activeTabKey
-          ? t
-          : {
-              ...t,
-              fileId: prevFileId,
-              title: item?.name ?? t.title,
-              historyIndex: newIndex,
-            },
-      ),
-    )
-    navigateToFile(prevFileId)
-  }
-
-  function handleForward() {
-    if (!activeTab || !canGoForward) return
-    const newIndex = activeTab.historyIndex + 1
-    const nextFileId = activeTab.history[newIndex]
-    const item = findTreeItem(treeItems, nextFileId)
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.key !== activeTabKey
-          ? t
-          : {
-              ...t,
-              fileId: nextFileId,
-              title: item?.name ?? t.title,
-              historyIndex: newIndex,
-            },
-      ),
-    )
-    navigateToFile(nextFileId)
-  }
-
-  const handleTabChange = (key: string) => setActiveTabKey(key)
-
-  // Toggle the editor split: pin the active document into a second pane, or
-  // collapse back to a single pane.
-  function toggleSplit() {
-    setSecondaryTabKey((prev) =>
-      prev ? null : activeTab?.kind === "document" ? activeTabKey : null,
-    )
-  }
-
-  const handleTabClose = (key: string) => {
-    const closing = tabs.find((t) => t.key === key)
-    if (closing) {
-      const timer = saveTimersRef.current.get(closing.fileId)
-      if (timer) {
-        clearTimeout(timer)
-        saveTimersRef.current.delete(closing.fileId)
-      }
-    }
-    if (secondaryTabKey === key) setSecondaryTabKey(null)
-    const remaining = tabs.filter((t) => t.key !== key)
-    setTabs(remaining)
-    if (activeTabKey === key) {
-      const next = remaining[remaining.length - 1]
-      setActiveTabKey(next?.key ?? "")
-    }
-  }
 
   const handleViewModeChange = (mode: DocumentViewMode) => {
     if (!currentDoc) return
