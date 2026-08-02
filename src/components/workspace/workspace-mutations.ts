@@ -6,6 +6,7 @@
 
 import type { FsMutationResult, PathChange } from "@/lib/storage"
 import type { SessionFile } from "./app-config"
+import type { TreeItem } from "./sidebar-tree"
 
 // ── Filesystem mutation planning ────────────────────────────────────────────
 
@@ -107,4 +108,169 @@ export function applySessionRemap(
   const activeFileId = remap(session.activeFileId)
 
   return { icons, favorites, viewModes, lockedFileIds, tabs, activeFileId }
+}
+
+// ── Tree mutation patching ──────────────────────────────────────────────────
+
+function normalizeTreePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/u, "")
+}
+
+function dirname(path: string): string | null {
+  const normalized = normalizeTreePath(path)
+  const slash = normalized.lastIndexOf("/")
+  return slash > 0 ? normalized.slice(0, slash) : null
+}
+
+function basename(path: string): string {
+  return normalizeTreePath(path).split("/").pop() ?? path
+}
+
+function displayName(path: string): string {
+  return basename(path).replace(/\.(md|canvas|excalidraw)$/u, "") || basename(path)
+}
+
+function flattenTree(items: TreeItem[]): TreeItem[] {
+  return items.flatMap((item) => [
+    { ...item, children: undefined },
+    ...(item.children ? flattenTree(item.children) : []),
+  ])
+}
+
+function commonDir(paths: string[]): string | null {
+  if (paths.length < 2) return null
+  const dirs = paths.map(dirname)
+  if (dirs.some((dir) => dir === null)) return null
+  const parts = (dirs[0] ?? "").split("/")
+  let shared = parts.length
+  for (const dir of dirs.slice(1)) {
+    const current = (dir ?? "").split("/")
+    shared = Math.min(
+      shared,
+      current.findIndex((part, index) => part !== parts[index]),
+    )
+    if (shared === -1) shared = Math.min(parts.length, current.length)
+  }
+  const value = parts.slice(0, shared).join("/")
+  return value || null
+}
+
+function treeParentPath(item: TreeItem, allItems: TreeItem[]): string | null {
+  const parentDir = dirname(item.path)
+  if (!parentDir) return null
+  if (item.type === "file") {
+    const bundleMain = `${parentDir}/${basename(parentDir)}.md`
+    if (bundleMain === normalizeTreePath(item.path)) return dirname(parentDir)
+    if (allItems.some((candidate) => candidate.path === bundleMain)) {
+      return bundleMain
+    }
+  }
+  return parentDir
+}
+
+function sortTree(items: TreeItem[]): TreeItem[] {
+  return items
+    .map((item) => ({ ...item, children: item.children ? sortTree(item.children) : item.children }))
+    .sort((left, right) => {
+      const typeOrder = (item: TreeItem) => (item.type === "folder" ? 0 : 1)
+      return typeOrder(left) - typeOrder(right) || left.name.localeCompare(right.name)
+    })
+}
+
+/**
+ * Apply a filesystem mutation to the already-loaded tree. The operation never
+ * reads disk: it only moves/removes existing nodes and inserts a newly indexed
+ * markdown note. Complex operations without enough metadata (such as a raw
+ * standalone-canvas move) deliberately keep using refreshTree at the caller.
+ */
+export function applyTreePatch(items: TreeItem[], result: FsMutationResult): TreeItem[] {
+  const pathMap = new Map(
+    result.pathChanges
+      .filter((change) => change.oldPath && change.newPath)
+      .map((change) => [normalizeTreePath(change.oldPath), normalizeTreePath(change.newPath)]),
+  )
+  const deletedIds = new Set(result.deletedIds ?? [])
+  const deletedPaths = new Set(result.deletedPaths.map(normalizeTreePath))
+  const absorbedCanvasPaths = new Set(
+    result.primaryId
+      ? result.pathChanges
+          .filter(
+            (change) => change.oldPath.endsWith(".canvas") && change.newPath.endsWith(".canvas"),
+          )
+          .map((change) => normalizeTreePath(change.oldPath))
+      : [],
+  )
+
+  const flat = flattenTree(items).filter(
+    (item) =>
+      !deletedIds.has(item.id) &&
+      !deletedPaths.has(normalizeTreePath(item.path)) &&
+      !absorbedCanvasPaths.has(normalizeTreePath(item.path)),
+  )
+
+  const oldPaths = [...pathMap.keys()]
+  const newPaths = [...pathMap.values()]
+  const primaryPath = result.primaryPath ? normalizeTreePath(result.primaryPath) : null
+  const primaryIsFolder = primaryPath !== null && !basename(primaryPath).includes(".")
+  const oldFolder = commonDir(oldPaths) ?? (primaryIsFolder ? dirname(oldPaths[0] ?? "") : null)
+  const newFolder = primaryIsFolder ? primaryPath : commonDir(newPaths)
+  const hasMovedFolder =
+    oldFolder !== null &&
+    newFolder !== null &&
+    primaryIsFolder &&
+    primaryPath === newFolder &&
+    flat.some((item) => item.type === "folder" && normalizeTreePath(item.path) === oldFolder)
+
+  const next: TreeItem[] = flat.map((item) => {
+    const oldPath = normalizeTreePath(item.path)
+    const explicitPath = pathMap.get(oldPath)
+    const nextPath =
+      explicitPath ??
+      (hasMovedFolder &&
+      oldFolder &&
+      newFolder &&
+      (oldPath === oldFolder || oldPath.startsWith(`${oldFolder}/`))
+        ? `${newFolder}${oldPath.slice(oldFolder.length)}`
+        : oldPath)
+    return {
+      ...item,
+      id:
+        item.type === "folder"
+          ? `folder:${nextPath}`
+          : item.type === "canvas"
+            ? `canvas:${nextPath}`
+            : item.id,
+      path: nextPath,
+      name: displayName(nextPath),
+      children: undefined,
+    }
+  })
+
+  if (
+    result.primaryId &&
+    result.primaryPath &&
+    !next.some((item) => item.id === result.primaryId)
+  ) {
+    const path = normalizeTreePath(result.primaryPath)
+    next.push({ id: result.primaryId, path, name: displayName(path), type: "file", icon: "file" })
+  }
+
+  const byPath = new Map(next.map((item) => [item.path, { ...item, children: [] as TreeItem[] }]))
+  const roots: TreeItem[] = []
+  for (const item of byPath.values()) {
+    const parentPath = treeParentPath(item, [...byPath.values()])
+    const parent = parentPath ? byPath.get(parentPath) : undefined
+    if (parent) parent.children!.push(item)
+    else roots.push(item)
+  }
+
+  function restoreOptionalChildren(item: TreeItem): TreeItem {
+    const children = item.children?.map(restoreOptionalChildren)
+    return {
+      ...item,
+      children: children?.length ? children : item.type === "folder" ? [] : undefined,
+    }
+  }
+
+  return sortTree(roots).map(restoreOptionalChildren)
 }

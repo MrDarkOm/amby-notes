@@ -28,7 +28,7 @@ import { SearchModal } from "./search-modal"
 import { SettingsDialog } from "./settings-dialog"
 import { useSettingsStore } from "./use-settings-store"
 import { findWikiLinkItem } from "./wiki-links"
-import { planMutation } from "./workspace-mutations"
+import { applyTreePatch, planMutation } from "./workspace-mutations"
 import { useViewStateStore, type EditorLayer } from "./use-view-state-store"
 import { useVaultData } from "./use-vault-data"
 import { useFileActions } from "./use-file-actions"
@@ -351,6 +351,7 @@ export function Workspace() {
 
   function applyMutationResult(result: FsMutationResult) {
     const { deletedIds, remapFn, hasChanges } = planMutation(result)
+    setTreeItems((prev) => applyTreePatch(prev, result))
     if (!hasChanges) return
 
     const deleted = new Set(deletedIds)

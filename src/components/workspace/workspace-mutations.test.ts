@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest"
-import { remapPath, planMutation, remapStoredId, applySessionRemap } from "./workspace-mutations"
+import {
+  applySessionRemap,
+  applyTreePatch,
+  planMutation,
+  remapPath,
+  remapStoredId,
+} from "./workspace-mutations"
 import type { FsMutationResult } from "@/lib/storage"
 import type { SessionFile } from "./app-config"
+import type { TreeItem } from "./sidebar-tree"
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -104,6 +111,118 @@ describe("planMutation", () => {
       }),
     )
     expect(hasChanges).toBe(true)
+  })
+})
+
+// ── applyTreePatch ───────────────────────────────────────────────────────────
+
+function tree(items: TreeItem[] = []): TreeItem[] {
+  return items
+}
+
+describe("applyTreePatch", () => {
+  it("inserts a newly indexed note without a full refresh", () => {
+    const result = applyTreePatch(
+      tree(),
+      mutation({
+        primaryId: "note-1",
+        primaryPath: "/vault/New.md",
+        pathChanges: [{ oldPath: "", newPath: "/vault/New.md" }],
+      }),
+    )
+
+    expect(result).toEqual([
+      expect.objectContaining({ id: "note-1", path: "/vault/New.md", name: "New", type: "file" }),
+    ])
+  })
+
+  it("moves a bundle main note to its visual parent, not inside its bundle directory", () => {
+    const result = applyTreePatch(
+      tree([
+        {
+          id: "note-1",
+          path: "/vault/Old/Old.md",
+          name: "Old",
+          type: "file",
+          children: [{ id: "child", path: "/vault/Old/Child.md", name: "Child", type: "file" }],
+        },
+        {
+          id: "folder:/vault/Target",
+          path: "/vault/Target",
+          name: "Target",
+          type: "folder",
+          children: [],
+        },
+      ]),
+      mutation({
+        primaryId: "note-1",
+        primaryPath: "/vault/Target/Old/Old.md",
+        pathChanges: [
+          { oldPath: "/vault/Old/Old.md", newPath: "/vault/Target/Old/Old.md" },
+          { oldPath: "/vault/Old/Child.md", newPath: "/vault/Target/Old/Child.md" },
+        ],
+      }),
+    )
+
+    const target = result.find((item) => item.path === "/vault/Target")
+    expect(target?.children?.[0]).toMatchObject({ id: "note-1", path: "/vault/Target/Old/Old.md" })
+    expect(target?.children?.[0].children?.[0]).toMatchObject({
+      path: "/vault/Target/Old/Child.md",
+    })
+  })
+
+  it("moves a folder even when it contains only one markdown note", () => {
+    const result = applyTreePatch(
+      tree([
+        {
+          id: "folder:/vault/Old",
+          path: "/vault/Old",
+          name: "Old",
+          type: "folder",
+          children: [{ id: "note-1", path: "/vault/Old/A.md", name: "A", type: "file" }],
+        },
+        {
+          id: "folder:/vault/Target",
+          path: "/vault/Target",
+          name: "Target",
+          type: "folder",
+          children: [],
+        },
+      ]),
+      mutation({
+        primaryPath: "/vault/Target/Old",
+        pathChanges: [{ oldPath: "/vault/Old/A.md", newPath: "/vault/Target/Old/A.md" }],
+      }),
+    )
+
+    const target = result.find((item) => item.path === "/vault/Target")
+    expect(target?.children?.[0]).toMatchObject({ path: "/vault/Target/Old", type: "folder" })
+    expect(target?.children?.[0].children?.[0]).toMatchObject({ path: "/vault/Target/Old/A.md" })
+  })
+
+  it("removes a standalone canvas when it becomes a note layer", () => {
+    const result = applyTreePatch(
+      tree([
+        {
+          id: "canvas:/vault/Sketch.canvas",
+          path: "/vault/Sketch.canvas",
+          name: "Sketch",
+          type: "canvas",
+        },
+      ]),
+      mutation({
+        primaryId: "note-1",
+        primaryPath: "/vault/Sketch/Sketch.md",
+        pathChanges: [
+          { oldPath: "/vault/Sketch.canvas", newPath: "/vault/Sketch/Sketch.canvas" },
+          { oldPath: "", newPath: "/vault/Sketch/Sketch.md" },
+        ],
+      }),
+    )
+
+    expect(result).toEqual([
+      expect.objectContaining({ id: "note-1", path: "/vault/Sketch/Sketch.md", type: "file" }),
+    ])
   })
 })
 

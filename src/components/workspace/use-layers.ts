@@ -57,7 +57,6 @@ export function useLayers({
         deletedPaths: [],
       })
       setActiveLayer(doc.id, layer)
-      await refreshTree()
       await refreshLinkedLayers(doc.id, result.notePath ?? doc.path)
     } catch (err) {
       console.error("Failed to create layer:", err)
@@ -86,7 +85,6 @@ export function useLayers({
           pathChanges: result.pathChanges,
           deletedPaths: [],
         })
-        await refreshTree()
         await refreshLinkedLayers(fileId, result.notePath ?? filePath)
       } catch (err) {
         console.error("Failed to attach layer:", err)

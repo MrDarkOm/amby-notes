@@ -242,10 +242,8 @@ export function useFileActions({
     try {
       const result = await createNote(vault, vault, target.split("/").pop() ?? target)
       applyMutationResult(result)
-      const tree = await refreshTree()
       const id = result.primaryId ?? result.primaryPath
       if (!id) return
-      const item = findTreeItem(tree, id)
       const name = target.split("/").pop() ?? target
       const doc: Document = {
         id,
@@ -253,7 +251,7 @@ export function useFileActions({
         content: "",
         modified: t("time.justNow"),
         wordCount: 0,
-        path: item?.path ?? result.primaryPath ?? id,
+        path: result.primaryPath ?? id,
       }
       setDoc(id, doc)
       const key = newTabKey()
@@ -280,7 +278,6 @@ export function useFileActions({
         const newPath = result.primaryPath ?? item.path ?? id
         patchDoc(id, { title: newName, path: newPath })
         setTabs((prev) => prev.map((tb) => (tb.fileId === id ? { ...tb, title: newName } : tb)))
-        await refreshTree()
       } catch (err) {
         console.error("Failed to rename:", err)
       }
@@ -298,7 +295,7 @@ export function useFileActions({
       try {
         const result = await deleteItem(vault ?? "", item?.path ?? id)
         applyMutationResult(result)
-        await refreshTree()
+        if (item?.type !== "file") await refreshTree()
       } catch (err) {
         console.error("Failed to delete:", err)
       }
@@ -315,17 +312,15 @@ export function useFileActions({
       try {
         const result = await createNote(vault, parent?.path ?? basePath, "Untitled")
         applyMutationResult(result)
-        const tree = await refreshTree()
         const id = result.primaryId ?? result.primaryPath
         if (!id) return
-        const item = findTreeItem(tree, id)
         const doc: Document = {
           id,
           title: "Untitled",
           content: "",
           modified: t("time.justNow"),
           wordCount: 0,
-          path: item?.path ?? result.primaryPath ?? id,
+          path: result.primaryPath ?? id,
         }
         setDoc(id, doc)
         const key = newTabKey()
@@ -405,26 +400,12 @@ export function useFileActions({
     try {
       const result = await attachCanvasToNote(vault, canvasPath)
       applyMutationResult(result)
-      const tree = await refreshTree()
       // Close the now-promoted standalone canvas tab.
       setTabs((prev) => prev.filter((tb) => !(tb.kind === "canvas" && tb.fileId === canvasPath)))
       const notePath = result.primaryPath
       if (!notePath) return
-      // Resolve the new note's tree id (ULID in Tauri) by path.
-      const norm = notePath.replace(/\\/g, "/")
-      function findByPath(items: TreeItem[]): TreeItem | null {
-        for (const it of items) {
-          if (it.type === "file" && (it.path ?? it.id).replace(/\\/g, "/") === norm) return it
-          if (it.children) {
-            const found = findByPath(it.children)
-            if (found) return found
-          }
-        }
-        return null
-      }
-      const noteItem = findByPath(tree)
-      const id = noteItem?.id ?? result.primaryId ?? notePath
-      const name = noteItem?.name ?? wsPathStem(notePath)
+      const id = result.primaryId ?? notePath
+      const name = wsPathStem(notePath)
       try {
         await loadDoc(id, name)
       } catch {
@@ -473,7 +454,7 @@ export function useFileActions({
       try {
         const result = await moveItem(vault, sourceItem.path ?? sourceId, targetItem?.path ?? vault)
         applyMutationResult(result)
-        await refreshTree()
+        if (sourceItem.type === "canvas") await refreshTree()
       } catch (err) {
         console.error("Failed to move item:", err)
       }
