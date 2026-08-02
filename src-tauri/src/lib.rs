@@ -893,31 +893,26 @@ pub fn run() {
         .manage(DbState::new())
         .manage(WatcherState::new())
         .invoke_handler(builder.invoke_handler())
-        .setup(|_app| {
-            // In dev mode (`tauri dev`) the Tauri CLI force-creates the window
-            // from config before this hook runs, so we skip manual creation
-            // there — the WebView2 cache location doesn't matter for development.
-            //
-            // In release builds the CLI does NOT inject windows, so
-            // `"create": false` in tauri.conf.json is respected and we create
-            // the window here, allowing us to redirect the WebView2 / WebKitGTK
-            // cache to Amby\notes\WebView\ instead of the default amby-notes\.
-            #[cfg(not(debug_assertions))]
-            {
-                use tauri::{Manager, WebviewWindowBuilder};
+        .setup(|app| {
+            // The window has `create: false` in the config because release
+            // builds need a custom WebView data directory. Create it here in
+            // every build mode; Tauri does not create `create: false` windows
+            // automatically during `tauri dev`.
+            use tauri::WebviewWindowBuilder;
 
-                let data_dir = _app
-                    .path()
+            let window_config = &app.config().app.windows[0];
+            let window_builder = WebviewWindowBuilder::from_config(app.handle(), window_config)?;
+
+            #[cfg(not(debug_assertions))]
+            let window_builder = window_builder.data_directory(
+                app.path()
                     .local_data_dir()?
                     .join("Amby")
                     .join("notes")
-                    .join("WebView");
+                    .join("WebView"),
+            );
 
-                let window_config = &_app.config().app.windows[0];
-                WebviewWindowBuilder::from_config(_app.handle(), window_config)?
-                    .data_directory(data_dir)
-                    .build()?;
-            }
+            window_builder.build()?;
 
             Ok(())
         })
