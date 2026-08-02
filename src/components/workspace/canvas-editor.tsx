@@ -614,7 +614,7 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
 
   // ── group containment on drag ──
   const onNodeDragStart = React.useCallback(
-    (_e: React.MouseEvent, node: Node) => {
+    (_e: MouseEvent | TouchEvent, node: Node) => {
       if (node.type !== "group") {
         dragGroup.current = null
         return
@@ -632,7 +632,7 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
   )
 
   const onNodeDrag = React.useCallback(
-    (_e: React.MouseEvent, node: Node) => {
+    (_e: MouseEvent | TouchEvent, node: Node) => {
       const g = dragGroup.current
       if (!g || g.groupId !== node.id) return
       const dx = node.position.x - g.start.x

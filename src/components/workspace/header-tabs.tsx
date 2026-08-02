@@ -7,9 +7,6 @@ import {
   BookmarkCheck,
   ChevronDown,
   Columns2,
-  Minus,
-  Maximize2,
-  Minimize2,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -68,6 +65,11 @@ interface HeaderTabsProps {
 }
 
 const ACTIVITY_BAR_WIDTH = 40
+
+// Shared style for header toolbar icon buttons (sidebar toggles, dropdown,
+// split, plus) — keeps a uniform 32×32 hit area, rounding and hover highlight.
+const HEADER_ICON_BTN =
+  "flex size-8 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white"
 
 function AmbyIcon({ className }: { className?: string }) {
   return (
@@ -199,7 +201,7 @@ export function HeaderTabs({
     <button
       onClick={onToggleLeftSidebar}
       onMouseDown={(e) => e.stopPropagation()}
-      className="flex h-10 w-10 shrink-0 rounded items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
+      className={HEADER_ICON_BTN}
     >
       {isLeftSidebarOpen ? (
         <PanelLeftClose className="size-4" />
@@ -213,7 +215,7 @@ export function HeaderTabs({
     <button
       onClick={onToggleRightSidebar}
       onMouseDown={(e) => e.stopPropagation()}
-      className="flex h-10 w-10 shrink-0 rounded items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
+      className={HEADER_ICON_BTN}
     >
       {isRightSidebarOpen ? (
         <PanelRightClose className="size-4" />
@@ -224,10 +226,10 @@ export function HeaderTabs({
   )
 
   const viewControls = (
-    <div className="flex shrink-0 items-center">
+    <div className="flex shrink-0 items-center gap-1">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="flex size-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white">
+          <button className={HEADER_ICON_BTN}>
             <ChevronDown className="size-4" />
           </button>
         </DropdownMenuTrigger>
@@ -279,10 +281,7 @@ export function HeaderTabs({
         <button
           onClick={onToggleSplit}
           title={t("tabs.splitEditor")}
-          className={cn(
-            "flex h-10 w-10 shrink-0 items-center justify-center rounded transition-colors hover:bg-accent hover:text-white",
-            isSplit ? "text-sky-400" : "text-muted-foreground",
-          )}
+          className={cn(HEADER_ICON_BTN, isSplit && "text-sky-400")}
         >
           <Columns2 className="size-4" />
         </button>
@@ -342,72 +341,70 @@ export function HeaderTabs({
         </div>
       )}
 
-      {/* Editor area header (flex-1) */}
-      <div className="flex flex-1 items-center justify-between overflow-hidden">
-        <div className="flex h-full items-center overflow-hidden">
-          {!isLeftSidebarOpen && leftSidebarToggle}
+      {/* Editor area (flex-1). Tabs share the width and shrink with the window;
+          the strip ends right where the view-controls cluster begins. */}
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden pl-1">
+        {!isLeftSidebarOpen && leftSidebarToggle}
 
-          <div className="flex h-full items-center overflow-hidden">
-            {tabs.map((tab) => (
-              <div
-                key={tab.key}
-                onClick={() => onTabChange(tab.key)}
-                onMouseDown={(e) => {
-                  if (e.button === 1) {
-                    e.preventDefault()
-                    onTabClose(tab.key)
-                  }
+        <div className="flex h-full min-w-0 items-center gap-1 overflow-hidden">
+          {tabs.map((tab) => (
+            <div
+              key={tab.key}
+              onClick={() => onTabChange(tab.key)}
+              onMouseDown={(e) => {
+                if (e.button === 1) {
+                  e.preventDefault()
+                  onTabClose(tab.key)
+                }
+              }}
+              className={cn(
+                "group relative flex min-w-0 max-w-52 cursor-pointer items-center gap-2 px-3 text-sm transition-colors",
+                activeTabKey === tab.key
+                  ? "h-9 self-end rounded-t-lg bg-card text-white"
+                  : "h-8 rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+              )}
+            >
+              {unsavedFileIds?.has(tab.fileId) && (
+                <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />
+              )}
+              <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onTabClose(tab.key)
                 }}
                 className={cn(
-                  "group relative flex h-full shrink-0 cursor-pointer items-center gap-2 px-3 text-sm transition-colors",
-                  activeTabKey === tab.key
-                    ? "bg-card text-white"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  "flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white",
+                  activeTabKey === tab.key ? "opacity-100" : "opacity-0 group-hover:opacity-100",
                 )}
               >
-                {unsavedFileIds?.has(tab.fileId) && (
-                  <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />
-                )}
-                <span className="max-w-32 truncate">{tab.title}</span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onTabClose(tab.key)
-                  }}
-                  className="flex size-4 items-center justify-center rounded text-muted-foreground opacity-0 transition-all group-hover:opacity-100 hover:bg-accent hover:text-white"
-                >
-                  <X className="size-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <button
-            onClick={onOpenPlusModal}
-            className="flex shrink-0 size-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-white"
-          >
-            <Plus className="size-4" />
-          </button>
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ))}
         </div>
 
-        <div className="flex-1 h-full cursor-default" onMouseDown={handleEmptySpaceMouseDown} />
+        <button onClick={onOpenPlusModal} className={HEADER_ICON_BTN}>
+          <Plus className="size-4" />
+        </button>
+
+        <div className="h-full flex-1 cursor-default" onMouseDown={handleEmptySpaceMouseDown} />
       </div>
 
-      {/* Right-side drag region mirroring the body (panel + activity bar when
-          open). Window controls are absolutely positioned below, so this fills
-          the true layout width and the editor's view controls land exactly on
-          the panel divider — same as the left toggle on its panel. When closed
-          it just clears the (absolute) window controls. */}
-      {/* View controls — absolutely positioned so their right edge lands on the
-          panel divider (right offset = panel width + activity bar). Mirrors the
-          left toggle sitting on the left panel's inner edge, and is robust to
-          panel resizing. When closed they sit just left of the window controls. */}
+      {/* View controls cluster — kept in the flex flow, so the editor strip
+          (tabs + plus) ends exactly at its left edge. It still lands on the
+          panel divider because the window controls below are absolutely
+          positioned and don't consume flow width. */}
+      {viewControls}
+
+      {/* Drag region for the right panel + activity bar. Its width pushes the
+          cluster onto the panel divider when the panel is open, or just left of
+          the window controls when it is closed. */}
       <div
-        className="absolute top-0 z-10 flex h-10 items-center border-b border-border bg-background"
-        style={{ right: isRightSidebarOpen ? rightPanelWidth + ACTIVITY_BAR_WIDTH + 2 : 146 }}
-      >
-        {viewControls}
-      </div>
+        style={{ width: isRightSidebarOpen ? rightPanelWidth + ACTIVITY_BAR_WIDTH + 6 : 150 }}
+        className="shrink-0"
+        onMouseDown={handleDragStart}
+      />
 
       {/* macOS: logo on the right */}
       {isMac && (
@@ -428,13 +425,24 @@ export function HeaderTabs({
             onClick={() => isTauri() && getCurrentWindow().minimize()}
             className="flex h-10 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
           >
-            <Minus className="size-4" />
+            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+              <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
+            </svg>
           </button>
           <button
             onClick={() => isTauri() && getCurrentWindow().toggleMaximize()}
             className="flex h-10 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-white"
           >
-            {isMaximized ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+            {isMaximized ? (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                <rect x="0.5" y="2.5" width="7" height="7" stroke="currentColor" strokeWidth="1" />
+                <path d="M2.5 2.5V0.5h7v7H7.5" stroke="currentColor" strokeWidth="1" />
+              </svg>
+            ) : (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+                <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" strokeWidth="1" />
+              </svg>
+            )}
           </button>
           <button
             onClick={() => isTauri() && getCurrentWindow().close()}

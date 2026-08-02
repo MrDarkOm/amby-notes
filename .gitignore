@@ -13,6 +13,9 @@ build/
 src-tauri/target/
 dist-ssr
 *.local
+.env
+.env.*
+!.env.example
 
 # Editor directories and files
 .vscode/*
@@ -25,3 +28,6 @@ dist-ssr
 *.sln
 *.sw?
 .claude/worktrees/
+.claude/launch.json
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

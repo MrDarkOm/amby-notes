@@ -449,7 +449,7 @@ pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String>
 
         let mut id = note.parsed_id.clone().unwrap_or_default();
         if id.is_empty() || seen_ids.contains(&id) {
-            id = Ulid::new().to_string();
+            id = Ulid::generate().to_string();
             let content = fs::read_to_string(&note.path).map_err(|e| e.to_string())?;
             let next = frontmatter::body_with_id(&content, &id)?;
             frontmatter::atomic_write(&note.path, &next)?;

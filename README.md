@@ -30,7 +30,7 @@ A local-first desktop notes app built with Tauri 2, React 19, and Rust. Your not
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) 20+
+- [Node.js](https://nodejs.org/) 20.19+ or 22.12+
 - [Rust](https://www.rust-lang.org/tools/install) (stable toolchain)
 - Tauri CLI prerequisites for your OS — see the [Tauri docs](https://tauri.app/start/prerequisites/)
 
@@ -59,6 +59,14 @@ cd src-tauri && cargo check
 # Production desktop installer
 npm run tauri build
 ```
+
+## Branch workflow
+
+- `Dev` is the integration branch for active and experimental development.
+- `Beta` receives completed work from `Dev` for stabilization and release testing.
+- `Main` contains the current stable build. Until version 1.0, it only receives the completed 1.0 scope from `Beta`.
+
+Start all feature and fix work from `Dev`. Promote changes in one direction: `Dev` → `Beta` → `Main`.
 
 ## Project structure
 

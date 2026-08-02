@@ -2,63 +2,55 @@ import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
 import path from "node:path"
 
-// @ts-expect-error process is a nodejs global
+// @ts-expect-error process is a Node.js global
 const host = process.env.TAURI_DEV_HOST
 
-// https://vite.dev/config/
+const vendorChunks: Record<string, string[]> = {
+  "vendor-tiptap": [
+    "@tiptap/core",
+    "@tiptap/react",
+    "@tiptap/starter-kit",
+    "@tiptap/extension-image",
+    "@tiptap/extension-placeholder",
+    "@tiptap/extension-table",
+    "@tiptap/extension-task-item",
+    "@tiptap/extension-task-list",
+    "@tiptap/suggestion",
+    "@tiptap/extension-bubble-menu",
+    "@tiptap/extension-link",
+  ],
+  "vendor-codemirror": [
+    "@codemirror/commands",
+    "@codemirror/lang-markdown",
+    "@codemirror/language",
+    "@codemirror/state",
+    "@codemirror/view",
+  ],
+  "vendor-d3": ["d3-force"],
+  "vendor-xyflow": ["@xyflow/react"],
+  "vendor-emoji": ["emoji-mart", "@emoji-mart/react", "@emoji-mart/data"],
+}
+
 export default defineConfig(async () => ({
   plugins: [react()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
-
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Tiptap + ProseMirror — the largest single block (~400 kB).
-          "vendor-tiptap": [
-            "@tiptap/core",
-            "@tiptap/react",
-            "@tiptap/starter-kit",
-            // Direct deps
-            "@tiptap/extension-image",
-            "@tiptap/extension-placeholder",
-            "@tiptap/extension-table",
-            "@tiptap/extension-task-item",
-            "@tiptap/extension-task-list",
-            "@tiptap/suggestion",
-            // Transitive deps pulled by StarterKit — force into this chunk so
-            // they don't land in the main index bundle.
-            "@tiptap/extension-bubble-menu",
-            "@tiptap/extension-link",
-          ],
-          // CodeMirror — used only in source-mode view.
-          "vendor-codemirror": [
-            "@codemirror/commands",
-            "@codemirror/lang-markdown",
-            "@codemirror/language",
-            "@codemirror/state",
-            "@codemirror/view",
-          ],
-          // d3-force — used only in the graph tab.
-          "vendor-d3": ["d3-force"],
-          // @xyflow/react — used only in the canvas editor tab.
-          "vendor-xyflow": ["@xyflow/react"],
-          // emoji-mart — used only in the emoji picker panel.
-          "vendor-emoji": ["emoji-mart", "@emoji-mart/react", "@emoji-mart/data"],
+        manualChunks(id) {
+          for (const [chunk, packages] of Object.entries(vendorChunks)) {
+            if (packages.some((pkg) => id.includes(`/node_modules/${pkg}/`))) return chunk
+          }
+          return undefined
         },
       },
     },
   },
-
-  // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
-  //
-  // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
-  // 2. tauri expects a fixed port, fail if that port is not available
   server: {
     port: 1420,
     strictPort: true,
@@ -71,7 +63,6 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // 3. tell Vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
     },
   },
