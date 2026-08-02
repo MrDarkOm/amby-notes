@@ -1106,13 +1106,20 @@ mod tests {
         dir
     }
 
+    /// Open a persistent connection for the test vault, matching the app's
+    /// one-connection-per-vault lifecycle.
+    fn open_conn(vault: &Path) -> Connection {
+        open_connection(vault).unwrap()
+    }
+
     #[test]
     fn sync_adds_ulid_to_new_file() {
         let vault = temp_vault("new");
         let note = vault.join("A.md");
         fs::write(&note, "Hello #tag").unwrap();
 
-        let loaded = load_vault(&vault).unwrap();
+        let conn = open_conn(&vault);
+        let loaded = load_vault(&conn, &vault).unwrap();
 
         assert_eq!(loaded.notes.len(), 1);
         assert!(fs::read_to_string(note).unwrap().starts_with("---\nid: "));
@@ -1124,10 +1131,11 @@ mod tests {
         let vault = temp_vault("delete");
         let note = vault.join("A.md");
         fs::write(&note, "Hello").unwrap();
-        load_vault(&vault).unwrap();
+        let conn = open_conn(&vault);
+        load_vault(&conn, &vault).unwrap();
         fs::remove_file(&note).unwrap();
 
-        let loaded = load_vault(&vault).unwrap();
+        let loaded = load_vault(&conn, &vault).unwrap();
 
         assert!(loaded.notes.is_empty());
         assert_eq!(loaded.sync.deleted, 1);
@@ -1138,11 +1146,12 @@ mod tests {
         let vault = temp_vault("move");
         let note = vault.join("A.md");
         fs::write(&note, "Hello").unwrap();
-        let first = load_vault(&vault).unwrap();
+        let conn = open_conn(&vault);
+        let first = load_vault(&conn, &vault).unwrap();
         let id = first.notes[0].id.clone();
         fs::rename(&note, vault.join("B.md")).unwrap();
 
-        let loaded = load_vault(&vault).unwrap();
+        let loaded = load_vault(&conn, &vault).unwrap();
 
         assert_eq!(loaded.notes[0].id, id);
         assert!(loaded.notes[0].path.ends_with("B.md"));
@@ -1155,7 +1164,8 @@ mod tests {
         fs::write(vault.join("Parent/Parent.md"), "Parent").unwrap();
         fs::write(vault.join("Parent/Child.md"), "Child").unwrap();
 
-        let loaded = load_vault(&vault).unwrap();
+        let conn = open_conn(&vault);
+        let loaded = load_vault(&conn, &vault).unwrap();
 
         assert_eq!(loaded.tree.len(), 1);
         assert_eq!(loaded.tree[0].name, "Parent");
@@ -1169,14 +1179,15 @@ mod tests {
         fs::write(vault.join("A.md"), "Link to [[B]]").unwrap();
         fs::write(vault.join("B.md"), "# B").unwrap();
 
-        load_vault(&vault).unwrap();
-        let graph = link_graph(&vault).unwrap();
+        let conn = open_conn(&vault);
+        load_vault(&conn, &vault).unwrap();
+        let graph = link_graph(&conn, &vault).unwrap();
         assert_eq!(graph.edges.len(), 1);
         assert!(graph.edges.iter().all(|e| e.unresolved.is_none()));
 
         // Nothing changed: the unchanged-file fast path must not drop the
         // already-resolved target.
-        let graph2 = link_graph(&vault).unwrap();
+        let graph2 = link_graph(&conn, &vault).unwrap();
         assert!(graph2.edges.iter().all(|e| e.unresolved.is_none()));
     }
 
@@ -1201,8 +1212,9 @@ mod tests {
         fs::create_dir(vault.join("Bundle")).unwrap();
         fs::write(vault.join("Bundle/Bundle.md"), "# Bundle").unwrap();
 
-        load_vault(&vault).unwrap();
-        let graph = link_graph(&vault).unwrap();
+        let conn = open_conn(&vault);
+        load_vault(&conn, &vault).unwrap();
+        let graph = link_graph(&conn, &vault).unwrap();
 
         assert_eq!(graph.edges.len(), 3);
         assert!(
@@ -1217,17 +1229,20 @@ mod tests {
         let vault = temp_vault("unresolve");
         fs::write(vault.join("A.md"), "Link to [[B]]").unwrap();
         fs::write(vault.join("B.md"), "# B").unwrap();
-        load_vault(&vault).unwrap();
-        assert!(link_graph(&vault)
+        let conn = open_conn(&vault);
+        load_vault(&conn, &vault).unwrap();
+        assert!(link_graph(&conn, &vault)
             .unwrap()
             .edges
             .iter()
             .all(|e| e.unresolved.is_none()));
 
-        // A is untouched; only the target is removed. The link must re-resolve to
-        // unresolved even though A's row is skipped by the incremental scan.
+        // A is untouched; only the target is removed. Re-syncing must drop B and
+        // re-resolve A's link to unresolved, even though A's own row is skipped by
+        // the incremental scan.
         fs::remove_file(vault.join("B.md")).unwrap();
-        let graph = link_graph(&vault).unwrap();
+        load_vault(&conn, &vault).unwrap();
+        let graph = link_graph(&conn, &vault).unwrap();
         assert!(graph.edges.iter().any(|e| e.unresolved == Some(true)));
     }
 }
