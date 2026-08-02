@@ -320,6 +320,7 @@ export function Workspace() {
     rightWidth,
     startResize,
     isFocusMode,
+    isCompactLayout,
     focusShowLeft,
     setFocusShowLeft,
     focusShowRight,
@@ -837,8 +838,8 @@ export function Workspace() {
         onMoveVault={handleMoveVault}
         onOpenVaultInExplorer={openInExplorer}
         onCloseAllTabs={handleCloseAllTabs}
-        leftTreeWidth={leftWidth}
-        rightPanelWidth={rightWidth}
+        leftTreeWidth={isCompactLayout ? 0 : leftWidth}
+        rightPanelWidth={isCompactLayout ? 0 : rightWidth}
         activeFileId={activeTab?.fileId}
         favorites={favorites}
         onToggleFavorite={handleToggleFavorite}
@@ -863,10 +864,17 @@ export function Workspace() {
 
         {isLeftSidebarOpen && (
           <>
-            <div style={{ width: leftWidth }} className="shrink-0">
+            <div
+              style={{ width: leftWidth }}
+              className={
+                isCompactLayout
+                  ? "fixed inset-y-10 left-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
+                  : "shrink-0"
+              }
+            >
               <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
             </div>
-            <ResizeHandle onMouseDown={startResize("left")} />
+            {!isCompactLayout && <ResizeHandle onMouseDown={startResize("left")} />}
           </>
         )}
 
@@ -923,8 +931,15 @@ export function Workspace() {
 
         {isRightSidebarOpen && (
           <>
-            <ResizeHandle onMouseDown={startResize("right")} />
-            <div style={{ width: rightWidth }} className="shrink-0">
+            {!isCompactLayout && <ResizeHandle onMouseDown={startResize("right")} />}
+            <div
+              style={{ width: rightWidth }}
+              className={
+                isCompactLayout
+                  ? "fixed inset-y-10 right-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
+                  : "shrink-0"
+              }
+            >
               <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
             </div>
           </>

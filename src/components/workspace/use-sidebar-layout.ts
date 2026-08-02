@@ -5,6 +5,8 @@ import type { ActivityButton } from "./panel-registry"
 import { isTauri } from "@/lib/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 
+const COMPACT_LAYOUT_MAX_WIDTH = 960
+
 interface UseSidebarLayoutParams {
   activityButtons: ActivityButton[]
   setActivityButtons: React.Dispatch<React.SetStateAction<ActivityButton[]>>
@@ -36,7 +38,27 @@ export function useSidebarLayout({
   const [isFocusMode, setIsFocusMode] = React.useState(false)
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
+  const [isCompactLayout, setIsCompactLayout] = React.useState(
+    () => typeof window !== "undefined" && window.innerWidth < COMPACT_LAYOUT_MAX_WIDTH,
+  )
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
+  const wasCompactLayout = React.useRef(false)
+
+  React.useEffect(() => {
+    function updateLayoutMode() {
+      const compact = window.innerWidth < COMPACT_LAYOUT_MAX_WIDTH
+      setIsCompactLayout(compact)
+      if (compact && !wasCompactLayout.current) {
+        setIsLeftSidebarOpen(false)
+        setIsRightSidebarOpen(false)
+      }
+      wasCompactLayout.current = compact
+    }
+
+    updateLayoutMode()
+    window.addEventListener("resize", updateLayoutMode)
+    return () => window.removeEventListener("resize", updateLayoutMode)
+  }, [])
 
   function startResize(side: "left" | "right") {
     return (e: React.MouseEvent) => {
@@ -228,6 +250,7 @@ export function useSidebarLayout({
     rightWidth,
     startResize,
     isFocusMode,
+    isCompactLayout,
     focusShowLeft,
     setFocusShowLeft,
     focusShowRight,
