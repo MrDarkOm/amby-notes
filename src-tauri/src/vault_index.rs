@@ -1091,6 +1091,143 @@ pub fn link_graph(conn: &Connection, vault: &Path) -> Result<LinkGraph, String> 
     })
 }
 
+fn relative_path(vault: &Path, path: &Path) -> Result<String, String> {
+    path.strip_prefix(vault)
+        .map(normalize_rel_path)
+        .map_err(|e| e.to_string())
+}
+
+/// Read a note at `path`, assign it a unique ID if needed, and upsert it into
+/// the index. This is used for newly-created notes, so it never walks the vault.
+fn index_note_at_path(conn: &Connection, vault: &Path, path: &Path) -> Result<String, String> {
+    let rel_path = relative_path(vault, path)?;
+    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let parsed = frontmatter::parse_markdown(&content);
+
+    let mut id = parsed.id.filter(|id| !id.is_empty());
+    if let Some(existing_id) = &id {
+        let indexed_path: Option<String> = conn
+            .query_row(
+                "SELECT path FROM notes WHERE id = ?1",
+                [existing_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        if indexed_path.as_deref().is_some_and(|indexed| indexed != rel_path) {
+            id = None;
+        }
+    }
+
+    let (id, body) = if let Some(id) = id {
+        (id, parsed.body)
+    } else {
+        let id = Ulid::generate().to_string();
+        let next = frontmatter::body_with_id(&content, &id)?;
+        frontmatter::atomic_write(path, &next)?;
+        let reparsed = frontmatter::parse_markdown(&next);
+        (id, reparsed.body)
+    };
+
+    upsert_note_index(conn, vault, &id, &body, path)?;
+    Ok(id)
+}
+
+/// Apply the markdown path changes produced by a filesystem mutation without a
+/// full vault scan. Renamed notes retain their IDs; newly-created notes receive
+/// an ID and are indexed in place. Canvas and other sidecar files are ignored.
+pub fn index_apply_path_changes(
+    conn: &Connection,
+    vault: &Path,
+    changes: &[crate::model::PathChange],
+) -> Result<(), String> {
+    for change in changes {
+        if change.new_path.is_empty() {
+            continue;
+        }
+        let new_path = Path::new(&change.new_path);
+        if !is_markdown(new_path) {
+            continue;
+        }
+
+        if change.old_path.is_empty() {
+            index_note_at_path(conn, vault, new_path)?;
+            continue;
+        }
+
+        let old_path = Path::new(&change.old_path);
+        if !is_markdown(old_path) {
+            index_note_at_path(conn, vault, new_path)?;
+            continue;
+        }
+        let old_rel = relative_path(vault, old_path)?;
+        let id: Option<String> = conn
+            .query_row("SELECT id FROM notes WHERE path = ?1", [&old_rel], |row| row.get(0))
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        if let Some(id) = id {
+            let content = fs::read_to_string(new_path).map_err(|e| e.to_string())?;
+            let body = frontmatter::parse_markdown(&content).body;
+            upsert_note_index(conn, vault, &id, &body, new_path)?;
+        } else {
+            index_note_at_path(conn, vault, new_path)?;
+        }
+    }
+    Ok(())
+}
+
+/// Remove deleted markdown notes from the index and return their IDs. Inbound
+/// links are cleared so callers immediately see unresolved links instead of a
+/// stale reference to a deleted note.
+pub fn index_delete_paths(
+    conn: &Connection,
+    vault: &Path,
+    deleted_paths: &[String],
+) -> Result<Vec<String>, String> {
+    let mut deleted_ids = Vec::new();
+    for path in deleted_paths {
+        let path = Path::new(path);
+        if !is_markdown(path) {
+            continue;
+        }
+        let rel_path = relative_path(vault, path)?;
+        let id: Option<String> = conn
+            .query_row("SELECT id FROM notes WHERE path = ?1", [&rel_path], |row| row.get(0))
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let Some(id) = id else {
+            continue;
+        };
+
+        conn.execute(
+            "UPDATE links SET target_note_id = NULL WHERE target_note_id = ?1",
+            [&id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM tags WHERE note_id = ?1", [&id])
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM links WHERE note_id = ?1", [&id])
+            .map_err(|e| e.to_string())?;
+        conn.execute("DELETE FROM notes WHERE id = ?1", [&id])
+            .map_err(|e| e.to_string())?;
+        deleted_ids.push(id);
+    }
+    Ok(deleted_ids)
+}
+
+/// Look up a note ID from its absolute vault path without building the tree.
+pub fn note_id_for_path(
+    conn: &Connection,
+    vault: &Path,
+    path: &Path,
+) -> Result<Option<String>, String> {
+    let rel_path = relative_path(vault, path)?;
+    conn.query_row("SELECT id FROM notes WHERE path = ?1", [&rel_path], |row| row.get(0))
+        .optional()
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1155,6 +1292,92 @@ mod tests {
 
         assert_eq!(loaded.notes[0].id, id);
         assert!(loaded.notes[0].path.ends_with("B.md"));
+    }
+
+    #[test]
+    fn incremental_create_indexes_new_note_without_full_sync() {
+        let vault = temp_vault("incremental-create");
+        let note = vault.join("Created.md");
+        fs::write(&note, "Created #tag").unwrap();
+        let conn = open_conn(&vault);
+
+        index_apply_path_changes(
+            &conn,
+            &vault,
+            &[crate::model::PathChange {
+                old_path: String::new(),
+                new_path: path_string(&note),
+            }],
+        )
+        .unwrap();
+
+        let id = note_id_for_path(&conn, &vault, &note).unwrap().unwrap();
+        assert!(!id.is_empty());
+        assert!(fs::read_to_string(&note).unwrap().starts_with("---\nid: "));
+        assert_eq!(list_notes(&conn, &vault).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn incremental_move_preserves_note_id_and_link_targets() {
+        let vault = temp_vault("incremental-move");
+        let source = vault.join("A.md");
+        let target = vault.join("Renamed.md");
+        let incoming = vault.join("Incoming.md");
+        fs::write(&source, "A note without a heading").unwrap();
+        fs::write(&incoming, "Link to [[A]]").unwrap();
+        let conn = open_conn(&vault);
+        let initial = load_vault(&conn, &vault).unwrap();
+        let id = initial
+            .notes
+            .iter()
+            .find(|note| note.path.ends_with("A.md"))
+            .unwrap()
+            .id
+            .clone();
+
+        fs::rename(&source, &target).unwrap();
+        index_apply_path_changes(
+            &conn,
+            &vault,
+            &[crate::model::PathChange {
+                old_path: path_string(&source),
+                new_path: path_string(&target),
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(note_id_for_path(&conn, &vault, &target).unwrap(), Some(id));
+        let graph = link_graph(&conn, &vault).unwrap();
+        assert!(graph.edges.iter().any(|edge| edge.unresolved == Some(true)));
+    }
+
+    #[test]
+    fn incremental_delete_returns_id_and_unresolves_inbound_links() {
+        let vault = temp_vault("incremental-delete");
+        let source = vault.join("A.md");
+        let target = vault.join("B.md");
+        fs::write(&source, "Link to [[B]]").unwrap();
+        fs::write(&target, "# B").unwrap();
+        let conn = open_conn(&vault);
+        let initial = load_vault(&conn, &vault).unwrap();
+        let target_id = initial
+            .notes
+            .iter()
+            .find(|note| note.path.ends_with("B.md"))
+            .unwrap()
+            .id
+            .clone();
+
+        fs::remove_file(&target).unwrap();
+        let deleted = index_delete_paths(&conn, &vault, &[path_string(&target)]).unwrap();
+
+        assert_eq!(deleted, vec![target_id]);
+        assert!(note_id_for_path(&conn, &vault, &target).unwrap().is_none());
+        assert!(link_graph(&conn, &vault)
+            .unwrap()
+            .edges
+            .iter()
+            .any(|edge| edge.unresolved == Some(true)));
     }
 
     #[test]

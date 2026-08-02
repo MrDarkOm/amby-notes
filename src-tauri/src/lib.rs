@@ -114,33 +114,19 @@ fn mutation_paths(result: &FsMutationResult) -> Vec<PathBuf> {
     paths
 }
 
-fn deleted_ids_for_paths(
-    conn: &rusqlite::Connection,
-    vault_path: &Path,
-    paths: &[String],
-) -> Result<Vec<String>, String> {
-    let notes = vault_index::list_notes(conn, vault_path)?;
-    let by_path: std::collections::HashMap<_, _> =
-        notes.into_iter().map(|note| (note.path, note.id)).collect();
-    Ok(paths
-        .iter()
-        .filter_map(|path| by_path.get(path).cloned())
-        .collect())
-}
-
 fn sync_mutation_result(
     conn: &rusqlite::Connection,
     vault_path: &Path,
     mut result: FsMutationResult,
 ) -> Result<FsMutationResult, String> {
-    let loaded = vault_index::load_vault(conn, vault_path)?;
-    result.primary_id = result.primary_path.as_ref().and_then(|primary_path| {
-        loaded
-            .notes
-            .iter()
-            .find(|note| &note.path == primary_path)
-            .map(|note| note.id.clone())
-    });
+    vault_index::index_apply_path_changes(conn, vault_path, &result.path_changes)?;
+    result.deleted_ids = vault_index::index_delete_paths(conn, vault_path, &result.deleted_paths)?;
+    result.primary_id = result
+        .primary_path
+        .as_ref()
+        .map(|path| vault_index::note_id_for_path(conn, vault_path, Path::new(path)))
+        .transpose()?
+        .flatten();
     Ok(result)
 }
 
@@ -338,6 +324,7 @@ fn create_note(
 #[specta::specta]
 fn create_layer(
     scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
     note_path: String,
     kind: String,
@@ -354,13 +341,16 @@ fn create_layer(
         }
     }
     watcher_state.mark_write(paths);
+    let vault = scope.get()?;
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    vault_index::index_apply_path_changes(conn, &vault, &result.path_changes)?;
     Ok(result)
 }
 
 #[tauri::command]
 #[specta::specta]
 fn create_canvas(
-    db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     parent_path: String,
@@ -369,9 +359,6 @@ fn create_canvas(
     paths::guard_in(&vault_path, &parent_path)?;
     let path = create_canvas_impl(Path::new(&parent_path), &name)?;
     watcher_state.mark_write([path.as_path()]);
-    let conn_guard = db.conn.lock().unwrap();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    vault_index::load_vault(conn, Path::new(&vault_path))?;
     Ok(path_string(&path))
 }
 
@@ -418,15 +405,11 @@ fn delete_layer(
     kind: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &note_path)?;
-    let mut result = delete_layer_impl(Path::new(&note_path), &kind)?;
+    let result = delete_layer_impl(Path::new(&note_path), &kind)?;
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    if !result.deleted_paths.is_empty() {
-        result.deleted_ids = deleted_ids_for_paths(conn, Path::new(&vault_path), &result.deleted_paths)?;
-    }
-    vault_index::load_vault(conn, Path::new(&vault_path))?;
-    Ok(result)
+    sync_mutation_result(conn, Path::new(&vault_path), result)
 }
 
 #[tauri::command]
@@ -536,13 +519,11 @@ fn delete_item(
     path: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
-    let mut result = delete_item_impl(Path::new(&path))?;
+    let result = delete_item_impl(Path::new(&path))?;
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    result.deleted_ids = deleted_ids_for_paths(conn, Path::new(&vault_path), &result.deleted_paths)?;
-    vault_index::load_vault(conn, Path::new(&vault_path))?;
-    Ok(result)
+    sync_mutation_result(conn, Path::new(&vault_path), result)
 }
 
 #[tauri::command]
