@@ -16,12 +16,17 @@ const GraphTabView = React.lazy(() =>
 const CanvasEditor = React.lazy(() =>
   import("./canvas-editor").then((m) => ({ default: m.CanvasEditor })),
 )
+// The rich-text/source editor pulls in Tiptap, CodeMirror, and emoji-mart.
+// Keep those libraries out of the startup path until a document is rendered.
+const DocumentEditor = React.lazy(() =>
+  import("./document-editor").then((m) => ({ default: m.DocumentEditor })),
+)
 import { buttonsForSide, type ActionContext, type PanelRenderProps } from "./panel-registry"
 import { usePresets } from "./use-presets"
 import { useDocStore } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useVaultStore } from "./use-vault-store"
-import { DocumentEditor, type DocumentViewMode } from "./document-editor"
+import type { DocumentViewMode } from "./document-editor"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
 import { SearchModal } from "./search-modal"
@@ -732,11 +737,13 @@ export function Workspace() {
             />
           </React.Suspense>
         ) : (
-          <DocumentEditor
-            {...editorProps}
-            isFocusMode={true}
-            onToggleFocusMode={handleExitFocusMode}
-          />
+          <React.Suspense fallback={<LazyEditorFallback />}>
+            <DocumentEditor
+              {...editorProps}
+              isFocusMode={true}
+              onToggleFocusMode={handleExitFocusMode}
+            />
+          </React.Suspense>
         )}
 
         {/* Left sidebar overlay */}
@@ -882,29 +889,35 @@ export function Workspace() {
           ) : showSplit ? (
             <>
               <div className="flex min-w-0 flex-1">
-                <DocumentEditor
-                  key="pane-primary"
-                  {...editorProps}
-                  isFocusMode={false}
-                  onToggleFocusMode={handleEnterFocusMode}
-                />
+                <React.Suspense fallback={<LazyEditorFallback />}>
+                  <DocumentEditor
+                    key="pane-primary"
+                    {...editorProps}
+                    isFocusMode={false}
+                    onToggleFocusMode={handleEnterFocusMode}
+                  />
+                </React.Suspense>
               </div>
               <div className="w-px shrink-0 bg-accent" />
               <div className="flex min-w-0 flex-1">
-                <DocumentEditor
-                  key="pane-secondary"
-                  {...secondaryProps!}
-                  isFocusMode={false}
-                  onToggleFocusMode={() => {}}
-                />
+                <React.Suspense fallback={<LazyEditorFallback />}>
+                  <DocumentEditor
+                    key="pane-secondary"
+                    {...secondaryProps!}
+                    isFocusMode={false}
+                    onToggleFocusMode={() => {}}
+                  />
+                </React.Suspense>
               </div>
             </>
           ) : (
-            <DocumentEditor
-              {...editorProps}
-              isFocusMode={false}
-              onToggleFocusMode={handleEnterFocusMode}
-            />
+            <React.Suspense fallback={<LazyEditorFallback />}>
+              <DocumentEditor
+                {...editorProps}
+                isFocusMode={false}
+                onToggleFocusMode={handleEnterFocusMode}
+              />
+            </React.Suspense>
           )}
         </main>
 
