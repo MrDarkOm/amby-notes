@@ -58,7 +58,7 @@ pub struct WatcherState {
     /// The active watcher (dropped → OS unregisters the watch).
     watcher: Mutex<Option<notify::RecommendedWatcher>>,
     /// Absolute paths written by our own commands + the write timestamp.
-    /// The watcher callback skips Modify events within SELF_WRITE_GRACE_MS.
+    /// The watcher callback skips their events within SELF_WRITE_GRACE_MS.
     own_writes: Arc<Mutex<HashMap<PathBuf, Instant>>>,
 }
 
@@ -69,6 +69,49 @@ impl WatcherState {
             own_writes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
+
+    /// Record paths our own commands just wrote so the watcher callback can
+    /// suppress the resulting fs events within the grace window. Each path's
+    /// parent dir is registered too: that covers directory-create events (bundle
+    /// promotion, new folders) and macOS FSEvents that report the parent dir
+    /// instead of the changed file.
+    fn mark_write<I, P>(&self, paths: I)
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<Path>,
+    {
+        let mut guard = self.own_writes.lock().unwrap();
+        let now = Instant::now();
+        for p in paths {
+            let path = p.as_ref();
+            guard.insert(path.to_path_buf(), now);
+            if let Some(parent) = path.parent() {
+                guard.insert(parent.to_path_buf(), now);
+            }
+        }
+        guard.retain(|_, at| at.elapsed().as_millis() < SELF_WRITE_GRACE_MS * 4);
+    }
+}
+
+/// Every absolute path touched by a filesystem mutation (created, renamed, or
+/// deleted), so the caller can hand them all to `WatcherState::mark_write`.
+fn mutation_paths(result: &FsMutationResult) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(primary) = &result.primary_path {
+        paths.push(PathBuf::from(primary));
+    }
+    for change in &result.path_changes {
+        if !change.old_path.is_empty() {
+            paths.push(PathBuf::from(&change.old_path));
+        }
+        if !change.new_path.is_empty() {
+            paths.push(PathBuf::from(&change.new_path));
+        }
+    }
+    for deleted in &result.deleted_paths {
+        paths.push(PathBuf::from(deleted));
+    }
+    paths
 }
 
 fn deleted_ids_for_paths(
@@ -158,6 +201,7 @@ fn read_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result<Str
 #[specta::specta]
 fn write_file(
     scope: tauri::State<paths::VaultScope>,
+    watcher_state: tauri::State<'_, WatcherState>,
     path: String,
     content: String,
 ) -> Result<(), String> {
@@ -165,7 +209,9 @@ fn write_file(
     if let Some(parent) = Path::new(&path).parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(&path, content).map_err(|e| e.to_string())
+    fs::write(&path, content).map_err(|e| e.to_string())?;
+    watcher_state.mark_write([Path::new(&path)]);
+    Ok(())
 }
 
 #[tauri::command]
@@ -192,13 +238,8 @@ fn write_note(
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let path = vault_index::write_note(conn, Path::new(&vault_path), &note_id, &content)?;
-    drop(conn_guard); // release DB lock before locking watcher state
-    // Record the written path so the watcher callback can suppress the
-    // resulting Modify event (autosave must not trigger a full tree refresh).
-    let mut guard = watcher_state.own_writes.lock().unwrap();
-    guard.insert(path, Instant::now());
-    // Prune stale entries opportunistically to avoid unbounded growth.
-    guard.retain(|_, at| at.elapsed().as_millis() < SELF_WRITE_GRACE_MS * 4);
+    drop(conn_guard); // release DB lock before touching watcher state
+    watcher_state.mark_write([path]);
     Ok(())
 }
 
@@ -257,32 +298,37 @@ fn get_link_graph(
 #[specta::specta]
 fn ensure_bundle(
     db: tauri::State<'_, DbState>,
+    watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     path: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
     let (primary, path_changes) = ensure_bundle_path(Path::new(&path))?;
-    let conn_guard = db.conn.lock().unwrap();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    sync_mutation_result(conn, Path::new(&vault_path), FsMutationResult {
+    let result = FsMutationResult {
         primary_id: None,
         primary_path: Some(path_string(&primary)),
         path_changes,
         deleted_paths: Vec::new(),
         deleted_ids: Vec::new(),
-    })
+    };
+    watcher_state.mark_write(mutation_paths(&result));
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    sync_mutation_result(conn, Path::new(&vault_path), result)
 }
 
 #[tauri::command]
 #[specta::specta]
 fn create_note(
     db: tauri::State<'_, DbState>,
+    watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     parent_path: String,
     name: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &parent_path)?;
     let result = create_note_impl(Path::new(&parent_path), &name)?;
+    watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     sync_mutation_result(conn, Path::new(&vault_path), result)
@@ -292,23 +338,37 @@ fn create_note(
 #[specta::specta]
 fn create_layer(
     scope: tauri::State<paths::VaultScope>,
+    watcher_state: tauri::State<'_, WatcherState>,
     note_path: String,
     kind: String,
 ) -> Result<LayerResult, String> {
     paths::guard(&scope, &note_path)?;
-    create_layer_impl(Path::new(&note_path), &kind)
+    let result = create_layer_impl(Path::new(&note_path), &kind)?;
+    let mut paths = vec![PathBuf::from(&result.layer_path)];
+    for change in &result.path_changes {
+        if !change.old_path.is_empty() {
+            paths.push(PathBuf::from(&change.old_path));
+        }
+        if !change.new_path.is_empty() {
+            paths.push(PathBuf::from(&change.new_path));
+        }
+    }
+    watcher_state.mark_write(paths);
+    Ok(result)
 }
 
 #[tauri::command]
 #[specta::specta]
 fn create_canvas(
     db: tauri::State<'_, DbState>,
+    watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     parent_path: String,
     name: String,
 ) -> Result<String, String> {
     paths::guard_in(&vault_path, &parent_path)?;
     let path = create_canvas_impl(Path::new(&parent_path), &name)?;
+    watcher_state.mark_write([path.as_path()]);
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::load_vault(conn, Path::new(&vault_path))?;
@@ -319,11 +379,13 @@ fn create_canvas(
 #[specta::specta]
 fn attach_canvas_to_note(
     db: tauri::State<'_, DbState>,
+    watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     canvas_path: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &canvas_path)?;
     let result = attach_canvas_impl(Path::new(&canvas_path))?;
+    watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     sync_mutation_result(conn, Path::new(&vault_path), result)
@@ -333,12 +395,14 @@ fn attach_canvas_to_note(
 #[specta::specta]
 fn unlink_layer(
     db: tauri::State<'_, DbState>,
+    watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     note_path: String,
     kind: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &note_path)?;
     let result = unlink_layer_impl(Path::new(&note_path), &kind)?;
+    watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     sync_mutation_result(conn, Path::new(&vault_path), result)
@@ -348,12 +412,14 @@ fn unlink_layer(
 #[specta::specta]
 fn delete_layer(
     db: tauri::State<'_, DbState>,
+    watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     note_path: String,
     kind: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &note_path)?;
     let mut result = delete_layer_impl(Path::new(&note_path), &kind)?;
+    watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     if !result.deleted_paths.is_empty() {
@@ -395,6 +461,7 @@ fn note_layers(
 #[specta::specta]
 fn move_item(
     db: tauri::State<'_, DbState>,
+    watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     source_path: String,
     target_path: String,
@@ -402,6 +469,7 @@ fn move_item(
     paths::guard_in(&vault_path, &source_path)?;
     paths::guard_in(&vault_path, &target_path)?;
     let result = move_item_impl(Path::new(&source_path), Path::new(&target_path))?;
+    watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     sync_mutation_result(conn, Path::new(&vault_path), result)
@@ -409,7 +477,11 @@ fn move_item(
 
 #[tauri::command]
 #[specta::specta]
-fn create_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result<(), String> {
+fn create_file(
+    scope: tauri::State<paths::VaultScope>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    path: String,
+) -> Result<(), String> {
     paths::guard(&scope, &path)?;
     if Path::new(&path).exists() {
         return Err(format!("File already exists: {path}"));
@@ -417,29 +489,39 @@ fn create_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result<(
     if let Some(parent) = Path::new(&path).parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(&path, "").map_err(|e| e.to_string())
+    fs::write(&path, "").map_err(|e| e.to_string())?;
+    watcher_state.mark_write([Path::new(&path)]);
+    Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-fn create_folder(scope: tauri::State<paths::VaultScope>, path: String) -> Result<(), String> {
+fn create_folder(
+    scope: tauri::State<paths::VaultScope>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    path: String,
+) -> Result<(), String> {
     paths::guard(&scope, &path)?;
     if Path::new(&path).exists() {
         return Err(format!("Folder already exists: {path}"));
     }
-    fs::create_dir_all(&path).map_err(|e| e.to_string())
+    fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    watcher_state.mark_write([Path::new(&path)]);
+    Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
 fn rename_item(
     db: tauri::State<'_, DbState>,
+    watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     path: String,
     new_name: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
     let result = rename_item_impl(Path::new(&path), &new_name)?;
+    watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     sync_mutation_result(conn, Path::new(&vault_path), result)
@@ -449,11 +531,13 @@ fn rename_item(
 #[specta::specta]
 fn delete_item(
     db: tauri::State<'_, DbState>,
+    watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     path: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
     let mut result = delete_item_impl(Path::new(&path))?;
+    watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     result.deleted_ids = deleted_ids_for_paths(conn, Path::new(&vault_path), &result.deleted_paths)?;
@@ -526,6 +610,7 @@ fn open_in_explorer(
 #[tauri::command]
 #[specta::specta]
 fn import_asset(
+    watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     note_path: String,
     source_path: String,
@@ -550,12 +635,14 @@ fn import_asset(
     let name = unique_name(&dir, &stem, &ext);
     let dest = dir.join(&name);
     fs::copy(source, &dest).map_err(|e| e.to_string())?;
+    watcher_state.mark_write([dest.as_path()]);
     Ok(build_imported_asset(vault, note, dest, name))
 }
 
 #[tauri::command]
 #[specta::specta]
 fn import_asset_bytes(
+    watcher_state: tauri::State<'_, WatcherState>,
     vault_path: String,
     note_path: String,
     bytes: Vec<u8>,
@@ -572,6 +659,7 @@ fn import_asset_bytes(
     let name = unique_name(&dir, &stem, &ext);
     let dest = dir.join(&name);
     fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+    watcher_state.mark_write([dest.as_path()]);
     Ok(build_imported_asset(vault, note, dest, name))
 }
 
@@ -645,23 +733,31 @@ fn start_vault_watcher(
             _ => return,
         };
 
-        // Filter out .amby/ internals (DB WAL, lock files, etc.).
+        // Filter out .amby/ internals (DB WAL, lock files, etc.) and our own
+        // atomic-write temp files, which would otherwise surface as
+        // create/remove events on every save.
         let relevant: Vec<&PathBuf> = event
             .paths
             .iter()
-            .filter(|p| !p.components().any(|c| c.as_os_str() == ".amby"))
+            .filter(|p| {
+                !p.components().any(|c| c.as_os_str() == ".amby")
+                    && !p
+                        .file_name()
+                        .is_some_and(|name| name.to_string_lossy().ends_with(".amby-tmp"))
+            })
             .collect();
         if relevant.is_empty() {
             return;
         }
 
-        // Self-write guard: skip Modify events on paths we just wrote ourselves.
-        if kind_str == "modify" {
+        // Atomic writes and renames can surface as Create or Remove rather than
+        // Modify, so suppress every event kind for paths recently touched by us.
+        {
             let guard = own_writes.lock().unwrap();
             if relevant.iter().all(|p| {
                 guard
                     .get(*p)
-                    .map_or(false, |at| at.elapsed().as_millis() < SELF_WRITE_GRACE_MS)
+                    .is_some_and(|at| at.elapsed().as_millis() < SELF_WRITE_GRACE_MS)
             }) {
                 return;
             }
@@ -846,6 +942,57 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application")
+}
+
+#[cfg(test)]
+mod watcher_guard_tests {
+    use super::*;
+
+    #[test]
+    fn mutation_paths_collects_primary_changes_and_deletes() {
+        let result = FsMutationResult {
+            primary_id: None,
+            primary_path: Some("/v/New.md".into()),
+            path_changes: vec![
+                PathChange {
+                    old_path: "/v/Old.md".into(),
+                    new_path: "/v/Bundle/Bundle.md".into(),
+                },
+                PathChange {
+                    old_path: String::new(),
+                    new_path: "/v/Created.md".into(),
+                },
+            ],
+            deleted_paths: vec!["/v/Gone.md".into()],
+            deleted_ids: vec![],
+        };
+
+        let paths = mutation_paths(&result);
+
+        for expected in [
+            "/v/New.md",
+            "/v/Old.md",
+            "/v/Bundle/Bundle.md",
+            "/v/Created.md",
+            "/v/Gone.md",
+        ] {
+            assert!(
+                paths.contains(&PathBuf::from(expected)),
+                "missing {expected}"
+            );
+        }
+        assert!(!paths.iter().any(|p| p.as_os_str().is_empty()));
+    }
+
+    #[test]
+    fn mark_write_records_path_and_parent_dir() {
+        let state = WatcherState::new();
+        state.mark_write([Path::new("/vault/Folder/Note.md")]);
+
+        let guard = state.own_writes.lock().unwrap();
+        assert!(guard.contains_key(Path::new("/vault/Folder/Note.md")));
+        assert!(guard.contains_key(Path::new("/vault/Folder")));
+    }
 }
 
 #[cfg(test)]
