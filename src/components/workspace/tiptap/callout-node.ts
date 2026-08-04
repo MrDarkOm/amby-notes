@@ -32,6 +32,8 @@ export const CalloutNode = Node.create({
       calloutType: { default: "NOTE" },
       emoji: { default: "💡" },
       bgColor: { default: null as string | null },
+      headerSuffix: { default: "" },
+      hasRawHeader: { default: false },
     }
   },
 
@@ -39,12 +41,14 @@ export const CalloutNode = Node.create({
     return [
       {
         tag: "div[data-type=callout]",
-        getAttrs: el => {
+        getAttrs: (el) => {
           const div = el as HTMLElement
           return {
             calloutType: div.getAttribute("data-callout-type") ?? "NOTE",
             emoji: div.getAttribute("data-emoji") ?? "💡",
             bgColor: div.getAttribute("data-bg"),
+            headerSuffix: div.getAttribute("data-header-suffix") ?? "",
+            hasRawHeader: div.getAttribute("data-has-raw-header") === "true",
           }
         },
       },
@@ -58,6 +62,10 @@ export const CalloutNode = Node.create({
       "data-emoji": node.attrs.emoji,
     }
     if (node.attrs.bgColor) extras["data-bg"] = node.attrs.bgColor
+    if (node.attrs.hasRawHeader) {
+      extras["data-header-suffix"] = node.attrs.headerSuffix
+      extras["data-has-raw-header"] = "true"
+    }
     return ["div", mergeAttributes(HTMLAttributes, extras), 0]
   },
 

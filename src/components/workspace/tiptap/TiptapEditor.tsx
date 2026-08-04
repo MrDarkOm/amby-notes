@@ -5,15 +5,26 @@ import i18n from "@/lib/i18n"
 import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 
 import { buildExtensions } from "./extensions"
-import { markdownToDoc, docToMarkdown } from "./markdown"
+import { markdownToDoc, docToMarkdown, restoreSourceFormatting } from "./markdown"
 import { clamp, type EditorHandle } from "./constants"
-import type { TagsWikilinksCallbacks } from "./tags-wikilinks"
+import {
+  docSelectionToMarkdownSelection,
+  markdownSelectionToDocSelection,
+  type MarkdownSelection,
+} from "./markdown-selection"
+import {
+  WIKILINK_CONTEXT_EVENT,
+  type TagsWikilinksCallbacks,
+  type WikiLinkContextDetail,
+} from "./tags-wikilinks"
 import { BubbleToolbar } from "./BubbleToolbar"
 import { BlockHandles } from "./BlockHandles"
 import { BlockInsertPanel } from "./BlockInsertPanel"
+import { WikiLinkContextMenu } from "./WikiLinkContextMenu"
 import { primeAssetConverter, setAssetContext } from "./asset-resolver"
 import { setTransclusionFetcher } from "./transclusion-context"
 import { bindTauriFileDrop } from "./media-drop"
+import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
 import {
   SLASH_TRIGGER_EVENT,
   closeSlashMenu,
@@ -29,16 +40,25 @@ interface TiptapEditorProps {
   editable?: boolean
   onTagClick?: (tag: string) => void
   onWikiLinkClick?: (target: string) => void
+  resolveWikiLinkTarget?: (target: string) => string | null
   vaultPath?: string
   notePath?: string
   /** Resolve a wiki-link target to its markdown content for transclusion embeds. */
   fetchTransclusion?: (target: string) => Promise<string | null>
+  selection?: MarkdownSelection | null
+  onSelectionChange?: (selection: MarkdownSelection) => void
 }
 
 interface MenuState {
   open: boolean
   left: number
   top: number
+}
+
+interface CaretState {
+  left: number
+  top: number
+  height: number
 }
 
 const MENU_WIDTH = 290
@@ -55,15 +75,52 @@ export function TiptapEditor({
   editable = true,
   onTagClick,
   onWikiLinkClick,
+  resolveWikiLinkTarget,
   vaultPath,
   notePath,
   fetchTransclusion,
+  selection,
+  onSelectionChange,
 }: TiptapEditorProps) {
   const valueRef = React.useRef(value)
+  const originalValueRef = React.useRef(value)
   const onChangeRef = React.useRef(onChange)
-  const callbacksRef = React.useRef<TagsWikilinksCallbacks>({ onTagClick, onWikiLinkClick })
+  const onSelectionChangeRef = React.useRef(onSelectionChange)
+  const restoredSelectionRef = React.useRef(false)
+  const suppressSelectionMenuRef = React.useRef(false)
+  const callbacksRef = React.useRef<TagsWikilinksCallbacks>({
+    onTagClick,
+    onWikiLinkClick,
+    resolveWikiLinkTarget,
+  })
   const serializeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const [menu, setMenu] = React.useState<MenuState>({ open: false, left: 0, top: 0 })
+  const [wikiLinkContext, setWikiLinkContext] = React.useState<WikiLinkContextDetail | null>(null)
+  const [caret, setCaret] = React.useState<CaretState | null>(null)
+
+  const updateCaret = React.useCallback((ed: Editor) => {
+    if (!ed.isEditable || !ed.isFocused || !ed.state.selection.empty) {
+      setCaret(null)
+      return
+    }
+    try {
+      const { from } = ed.state.selection
+      const coords = ed.view.coordsAtPos(from)
+      const dom = ed.view.domAtPos(from).node
+      const element = dom.nodeType === Node.ELEMENT_NODE ? (dom as Element) : dom.parentElement
+      const fontSize =
+        Number.parseFloat(window.getComputedStyle(element ?? ed.view.dom).fontSize) || 16
+      // Keep the bar close to the glyph height, not the full paragraph line box.
+      const height = Math.max(12, Math.round(fontSize * 1.08))
+      setCaret({
+        left: Math.round(coords.left),
+        top: Math.round(coords.top + (coords.bottom - coords.top - height) / 2),
+        height,
+      })
+    } catch {
+      setCaret(null)
+    }
+  }, [])
 
   // docToMarkdown is O(doc size); running it on every keystroke lags large notes.
   // Debounce it, and flush on blur/unmount so the save path never loses edits.
@@ -72,7 +129,7 @@ export function TiptapEditor({
       clearTimeout(serializeTimerRef.current)
       serializeTimerRef.current = null
     }
-    const markdown = docToMarkdown(ed.state.doc)
+    const markdown = restoreSourceFormatting(docToMarkdown(ed.state.doc), originalValueRef.current)
     if (markdown === valueRef.current) return
     valueRef.current = markdown
     onChangeRef.current(markdown)
@@ -83,8 +140,12 @@ export function TiptapEditor({
   }, [onChange])
 
   React.useEffect(() => {
-    callbacksRef.current = { onTagClick, onWikiLinkClick }
-  }, [onTagClick, onWikiLinkClick])
+    onSelectionChangeRef.current = onSelectionChange
+  }, [onSelectionChange])
+
+  React.useEffect(() => {
+    callbacksRef.current = { onTagClick, onWikiLinkClick, resolveWikiLinkTarget }
+  }, [onTagClick, onWikiLinkClick, resolveWikiLinkTarget])
 
   const extensions = React.useMemo(
     () => buildExtensions({ placeholder, callbacks: callbacksRef }),
@@ -97,6 +158,19 @@ export function TiptapEditor({
     setMenu((prev) => (prev.open ? { ...prev, open: false } : prev))
   }, [])
 
+  React.useEffect(() => {
+    const onContextMenu = (event: Event) => {
+      const detail = (event as CustomEvent<WikiLinkContextDetail>).detail
+      if (!detail) return
+      window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
+      closeSlashMenu(editor)
+      closeMenu()
+      setWikiLinkContext(detail)
+    }
+    window.addEventListener(WIKILINK_CONTEXT_EVENT, onContextMenu)
+    return () => window.removeEventListener(WIKILINK_CONTEXT_EVENT, onContextMenu)
+  }, [closeMenu])
+
   const editor = useEditor({
     editable,
     extensions,
@@ -107,14 +181,26 @@ export function TiptapEditor({
     onUpdate: ({ editor }) => {
       if (serializeTimerRef.current) clearTimeout(serializeTimerRef.current)
       serializeTimerRef.current = setTimeout(() => flushSerialize(editor), 200)
+      updateCaret(editor)
     },
     onSelectionUpdate: ({ editor }) => {
+      updateCaret(editor)
+      onSelectionChangeRef.current?.(
+        docSelectionToMarkdownSelection(editor.state.doc, valueRef.current, editor.state.selection),
+      )
       if (!editor.isEditable) return
+      if (suppressSelectionMenuRef.current) {
+        closeMenu()
+        return
+      }
       const { from, to, empty } = editor.state.selection
       if (empty) {
         closeMenu()
         return
       }
+      window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
+      setWikiLinkContext(null)
+      closeSlashMenu(editor)
       const start = editor.view.coordsAtPos(from)
       const end = editor.view.coordsAtPos(to)
       const left = clamp(
@@ -131,7 +217,9 @@ export function TiptapEditor({
           : clamp(above, 8, window.innerHeight - MENU_HEIGHT - 8)
       setMenu({ open: true, left, top })
     },
+    onFocus: ({ editor }) => updateCaret(editor),
     onBlur: ({ editor }) => {
+      setCaret(null)
       flushSerialize(editor)
       window.setTimeout(() => {
         // Don't close if focus moved into the floating bubble toolbar (e.g. an
@@ -143,14 +231,39 @@ export function TiptapEditor({
     },
   })
 
+  React.useEffect(() => {
+    if (!editor || !editable) return
+    const refresh = () => updateCaret(editor)
+    const scrollParent = editor.view.dom.closest(".amby-editor-scroll")
+    window.addEventListener("resize", refresh)
+    scrollParent?.addEventListener("scroll", refresh, { passive: true })
+    refresh()
+    return () => {
+      window.removeEventListener("resize", refresh)
+      scrollParent?.removeEventListener("scroll", refresh)
+    }
+  }, [editable, editor, updateCaret])
+
   // Sync external `value` changes (e.g. switching tabs reuses the instance only
   // within a document; here it guards against parent-driven content resets).
   React.useEffect(() => {
     if (!editor) return
     if (value === valueRef.current) return
     valueRef.current = value
+    originalValueRef.current = value
     editor.commands.setContent(markdownToDoc(value), { emitUpdate: false })
   }, [value, editor])
+
+  // A Source <-> Live transition remounts the editor. Restore the source
+  // offset once, after parsing, without feeding a selection transaction back
+  // through the document or its undo history.
+  React.useEffect(() => {
+    if (!editor || restoredSelectionRef.current) return
+    restoredSelectionRef.current = true
+    const mapped = markdownSelectionToDocSelection(editor.state.doc, value, selection)
+    if (!mapped) return
+    editor.commands.setTextSelection(mapped)
+  }, [editor, selection, value])
 
   // Flush any pending serialization before this editor instance goes away
   // (document switch, view-mode toggle, tab close) so the latest edit is saved.
@@ -217,12 +330,40 @@ export function TiptapEditor({
         setSlashState(null)
         return
       }
+      if (s.open) {
+        window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
+        closeMenu()
+        setWikiLinkContext(null)
+      }
       // Snapshot so React diff fires.
       setSlashState({ ...s })
     }
     read()
     window.addEventListener(SLASH_TRIGGER_EVENT, read)
     return () => window.removeEventListener(SLASH_TRIGGER_EVENT, read)
+  }, [editor])
+
+  React.useEffect(() => {
+    const closeEditorMenus = () => {
+      suppressSelectionMenuRef.current = true
+      closeMenu()
+      setWikiLinkContext(null)
+      if (editor) closeSlashMenu(editor)
+    }
+    window.addEventListener(CLOSE_EDITOR_MENUS_EVENT, closeEditorMenus)
+    return () => window.removeEventListener(CLOSE_EDITOR_MENUS_EVENT, closeEditorMenus)
+  }, [closeMenu, editor])
+
+  React.useEffect(() => {
+    if (!editor) return
+    const resetSelectionMenuSuppression = (event: MouseEvent) => {
+      // A normal primary click begins a new text interaction. Ctrl+click on
+      // macOS is reserved for the block context menu and must stay suppressed.
+      if (event.button === 0 && !event.ctrlKey) suppressSelectionMenuRef.current = false
+    }
+    editor.view.dom.addEventListener("mousedown", resetSelectionMenuSuppression, true)
+    return () =>
+      editor.view.dom.removeEventListener("mousedown", resetSelectionMenuSuppression, true)
   }, [editor])
 
   const slashAnchor = React.useMemo(() => {
@@ -240,6 +381,13 @@ export function TiptapEditor({
 
   return (
     <div className="amby-tiptap relative min-h-[360px] pb-24">
+      {caret && (
+        <span
+          aria-hidden="true"
+          className="amby-editor-caret"
+          style={{ left: caret.left, top: caret.top, height: caret.height }}
+        />
+      )}
       {editor && editable && menu.open && (
         <BubbleToolbar editor={editor} left={menu.left} top={menu.top} />
       )}
@@ -247,6 +395,17 @@ export function TiptapEditor({
         <BlockHandles editor={editor} vaultPath={vaultPath} notePath={notePath} />
       )}
       <EditorContent editor={editor} />
+      {editor && (
+        <WikiLinkContextMenu
+          editor={editor}
+          context={wikiLinkContext}
+          onNavigate={(raw) => {
+            setWikiLinkContext(null)
+            onWikiLinkClick?.(raw)
+          }}
+          onClose={() => setWikiLinkContext(null)}
+        />
+      )}
       {editor && editable && slashState?.open && slashState.range && slashAnchor && (
         <BlockInsertPanel
           editor={editor}

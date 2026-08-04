@@ -2,11 +2,14 @@ mod ai;
 mod app_data;
 mod bundle;
 mod frontmatter;
+mod history;
 mod model;
 mod paths;
+mod recycle_bin;
 mod vault_index;
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -20,13 +23,71 @@ use model::*;
 /// How long (ms) after our own write we suppress the watcher event for that
 /// path. Covers the latency between `atomic_write` and the notify callback.
 const SELF_WRITE_GRACE_MS: u128 = 2_000;
+const MAIN_WINDOW_LABEL: &str = "main";
+
+fn init_logging() {
+    use tracing_subscriber::EnvFilter;
+
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .try_init()
+        .ok();
+}
+
+/// Bring the one application window back to the foreground. This is used at
+/// initial startup and when the OS forwards another launch request to the
+/// already-running process.
+fn show_and_focus_main_window<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<(), Box<dyn Error>> {
+    use tauri::Manager;
+
+    let window = app.get_webview_window(MAIN_WINDOW_LABEL).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Tauri did not create the main window",
+        )
+    })?;
+    window.show()?;
+    window.set_focus()?;
+    Ok(())
+}
+
+fn report_startup_error(error: &tauri::Error) {
+    let message = format!(
+        "Amby could not create its main window. On Windows, verify that the Microsoft Edge WebView2 Runtime is installed.\n\nDetails: {error}"
+    );
+    tracing::error!(event = "startup_error", error = %error);
+    rfd::MessageDialog::new()
+        .set_title("Amby could not start")
+        .set_description(&message)
+        .set_level(rfd::MessageLevel::Error)
+        .show();
+}
 
 /// Payload emitted to the frontend when an external file-system change is
 /// detected in the vault (creates, modifies, deletes).
 #[derive(serde::Serialize, Clone)]
 struct VaultFileChangedPayload {
-    kind: String, // "create" | "modify" | "remove"
+    kind: String, // "create" | "modify" | "remove" | "rename"
     path: String,
+}
+
+fn watched_event_kind(kind: &notify::EventKind) -> Option<&'static str> {
+    match kind {
+        notify::EventKind::Create(_) => Some("create"),
+        notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => Some("modify"),
+        notify::EventKind::Modify(notify::event::ModifyKind::Name(_)) => Some("rename"),
+        notify::EventKind::Remove(_) => Some("remove"),
+        _ => None,
+    }
+}
+
+fn is_amby_temporary_file(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name.to_string_lossy().contains(".amby-tmp-"))
 }
 
 /// Holds the single open SQLite connection for the active vault.
@@ -167,6 +228,26 @@ fn load_vault(
 
 #[tauri::command]
 #[specta::specta]
+fn preflight_vault(vault_path: String) -> Result<vault_index::VaultPreflight, String> {
+    let canonical = Path::new(&vault_path)
+        .canonicalize()
+        .map_err(|e| format!("Vault not accessible: {e}"))?;
+    vault_index::preflight_vault(&canonical)
+}
+
+#[tauri::command]
+#[specta::specta]
+fn apply_id_migration(
+    app: tauri::AppHandle,
+    scope: tauri::State<'_, paths::VaultScope>,
+    vault_path: String,
+) -> Result<vault_index::IdMigrationResult, String> {
+    let canonical = activate_vault(&app, &scope, &vault_path)?;
+    vault_index::apply_id_migration(&canonical)
+}
+
+#[tauri::command]
+#[specta::specta]
 fn list_files(
     db: tauri::State<'_, DbState>,
     vault_path: String,
@@ -192,12 +273,80 @@ fn write_file(
     content: String,
 ) -> Result<(), String> {
     paths::guard(&scope, &path)?;
-    if let Some(parent) = Path::new(&path).parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    fs::write(&path, content).map_err(|e| e.to_string())?;
+    let vault = scope.get()?;
+    history::snapshot_before_write(&vault, Path::new(&path), content.as_bytes(), "file-save")?;
+    frontmatter::atomic_write(Path::new(&path), &content)?;
     watcher_state.mark_write([Path::new(&path)]);
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+fn save_conflict_copy(
+    scope: tauri::State<paths::VaultScope>,
+    path: String,
+    content: String,
+) -> Result<String, String> {
+    paths::guard(&scope, &path)?;
+    let original = PathBuf::from(path);
+    let parent = original
+        .parent()
+        .ok_or_else(|| "Cannot create a copy without a parent directory".to_string())?;
+    let stem = original
+        .file_stem()
+        .ok_or_else(|| "Cannot create a copy without a filename".to_string())?
+        .to_string_lossy();
+    let extension = original
+        .extension()
+        .map(|extension| format!(".{}", extension.to_string_lossy()))
+        .unwrap_or_default();
+
+    for _ in 0..1_000 {
+        let conflict_id = ulid::Ulid::generate();
+        let candidate = parent.join(format!("{stem}.{conflict_id}-conflict{extension}"));
+        match frontmatter::atomic_write_new(&candidate, &content) {
+            Ok(()) => return Ok(candidate.to_string_lossy().to_string()),
+            Err(frontmatter::AtomicCreateError::AlreadyExists) => continue,
+            Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+        }
+    }
+    Err("Could not allocate a unique random conflict-copy filename".to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+fn list_snapshots(
+    scope: tauri::State<paths::VaultScope>,
+    source_path: String,
+) -> Result<Vec<history::SnapshotEntry>, String> {
+    paths::guard(&scope, &source_path)?;
+    history::list_snapshots(&scope.get()?, Path::new(&source_path))
+}
+
+#[tauri::command]
+#[specta::specta]
+fn restore_snapshot(
+    scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, DbState>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    snapshot_id: String,
+) -> Result<String, String> {
+    let vault = scope.get()?;
+    let path = history::restore_snapshot(&vault, &snapshot_id)?;
+    watcher_state.mark_write([&path]);
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    vault_index::sync_vault(conn, &vault)?;
+    Ok(path_string(&path))
+}
+
+#[tauri::command]
+#[specta::specta]
+fn read_snapshot_text(
+    scope: tauri::State<paths::VaultScope>,
+    snapshot_id: String,
+) -> Result<history::SnapshotText, String> {
+    history::read_snapshot_text(&scope.get()?, &snapshot_id)
 }
 
 #[tauri::command]
@@ -244,6 +393,18 @@ fn get_note_metadata(
         modified: note.modified,
         word_count: note.word_count,
     })
+}
+
+#[tauri::command]
+#[specta::specta]
+fn get_note_properties(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    note_id: String,
+) -> Result<NoteProperties, String> {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    vault_index::note_properties(conn, Path::new(&vault_path), &note_id)
 }
 
 #[tauri::command]
@@ -451,11 +612,57 @@ fn move_item(
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &source_path)?;
     paths::guard_in(&vault_path, &target_path)?;
-    let result = move_item_impl(Path::new(&source_path), Path::new(&target_path))?;
-    watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    sync_mutation_result(conn, Path::new(&vault_path), result)
+    // Build the entire reference plan while SQLite still maps the old paths.
+    // This avoids a post-move window where a failed plan leaves a partial
+    // filesystem mutation behind.
+    let preview = preview_move_item(Path::new(&source_path), Path::new(&target_path))?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(conn, Path::new(&vault_path), &preview.path_changes)?;
+    let result = move_item_impl(Path::new(&source_path), Path::new(&target_path))?;
+    let rewritten = match vault_index::apply_planned_wiki_rewrites(Path::new(&vault_path), &plan) {
+        Ok(rewritten) => rewritten,
+        Err(error) => {
+            if let Err(rollback_error) = rollback_move_item(
+                Path::new(&source_path),
+                Path::new(&target_path),
+                &result,
+            ) {
+                return Err(format!("Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"));
+            }
+            return Err(format!("Reference update failed; move was rolled back: {error}"));
+        }
+    };
+    let mut changed_paths = mutation_paths(&result);
+    changed_paths.extend(rewritten.iter().cloned());
+    watcher_state.mark_write(changed_paths);
+    let result = sync_mutation_result(conn, Path::new(&vault_path), result)?;
+    let rewritten_changes = rewritten
+        .into_iter()
+        .map(|path| PathChange {
+            old_path: path_string(&path),
+            new_path: path_string(&path),
+        })
+        .collect::<Vec<_>>();
+    vault_index::index_apply_path_changes(conn, Path::new(&vault_path), &rewritten_changes)?;
+    Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+fn preview_move_refactor(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    source_path: String,
+    target_path: String,
+) -> Result<vault_index::RefactorPreview, String> {
+    paths::guard_in(&vault_path, &source_path)?;
+    paths::guard_in(&vault_path, &target_path)?;
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    let preview = preview_move_item(Path::new(&source_path), Path::new(&target_path))?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(conn, Path::new(&vault_path), &preview.path_changes)?;
+    Ok(vault_index::refactor_preview(&plan))
 }
 
 #[tauri::command]
@@ -469,10 +676,7 @@ fn create_file(
     if Path::new(&path).exists() {
         return Err(format!("File already exists: {path}"));
     }
-    if let Some(parent) = Path::new(&path).parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    fs::write(&path, "").map_err(|e| e.to_string())?;
+    frontmatter::atomic_write(Path::new(&path), "")?;
     watcher_state.mark_write([Path::new(&path)]);
     Ok(())
 }
@@ -503,11 +707,49 @@ fn rename_item(
     new_name: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
-    let result = rename_item_impl(Path::new(&path), &new_name)?;
-    watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    sync_mutation_result(conn, Path::new(&vault_path), result)
+    let preview = preview_rename_item(Path::new(&path), &new_name)?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(conn, Path::new(&vault_path), &preview.path_changes)?;
+    let result = rename_item_impl(Path::new(&path), &new_name)?;
+    let rewritten = match vault_index::apply_planned_wiki_rewrites(Path::new(&vault_path), &plan) {
+        Ok(rewritten) => rewritten,
+        Err(error) => {
+            if let Err(rollback_error) = rollback_rename_item(Path::new(&path), &result) {
+                return Err(format!("Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"));
+            }
+            return Err(format!("Reference update failed; rename was rolled back: {error}"));
+        }
+    };
+    let mut changed_paths = mutation_paths(&result);
+    changed_paths.extend(rewritten.iter().cloned());
+    watcher_state.mark_write(changed_paths);
+    let result = sync_mutation_result(conn, Path::new(&vault_path), result)?;
+    let rewritten_changes = rewritten
+        .into_iter()
+        .map(|path| PathChange {
+            old_path: path_string(&path),
+            new_path: path_string(&path),
+        })
+        .collect::<Vec<_>>();
+    vault_index::index_apply_path_changes(conn, Path::new(&vault_path), &rewritten_changes)?;
+    Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+fn preview_rename_refactor(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    path: String,
+    new_name: String,
+) -> Result<vault_index::RefactorPreview, String> {
+    paths::guard_in(&vault_path, &path)?;
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    let preview = preview_rename_item(Path::new(&path), &new_name)?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(conn, Path::new(&vault_path), &preview.path_changes)?;
+    Ok(vault_index::refactor_preview(&plan))
 }
 
 #[tauri::command]
@@ -519,11 +761,33 @@ fn delete_item(
     path: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &path)?;
-    let result = delete_item_impl(Path::new(&path))?;
+    let result = recycle_bin::move_to_trash(Path::new(&vault_path), Path::new(&path))?;
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     sync_mutation_result(conn, Path::new(&vault_path), result)
+}
+
+#[tauri::command]
+#[specta::specta]
+fn list_trash(scope: tauri::State<paths::VaultScope>) -> Result<Vec<recycle_bin::TrashEntry>, String> {
+    Ok(recycle_bin::list(&scope.get()?))
+}
+
+#[tauri::command]
+#[specta::specta]
+fn restore_trash(
+    scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, DbState>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    trash_id: String,
+) -> Result<FsMutationResult, String> {
+    let vault = scope.get()?;
+    let result = recycle_bin::restore(&vault, &trash_id)?;
+    watcher_state.mark_write(mutation_paths(&result));
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    sync_mutation_result(conn, &vault, result)
 }
 
 #[tauri::command]
@@ -639,7 +903,7 @@ fn import_asset_bytes(
     let stem = format!("pasted-{}", now_millis());
     let name = unique_name(&dir, &stem, &ext);
     let dest = dir.join(&name);
-    fs::write(&dest, &bytes).map_err(|e| e.to_string())?;
+    frontmatter::atomic_write_bytes(&dest, &bytes)?;
     watcher_state.mark_write([dest.as_path()]);
     Ok(build_imported_asset(vault, note, dest, name))
 }
@@ -707,11 +971,8 @@ fn start_vault_watcher(
 
         // Map to a frontend-visible kind string; ignore everything else
         // (metadata-only touches, access times, etc.).
-        let kind_str = match &event.kind {
-            notify::EventKind::Create(_) => "create",
-            notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => "modify",
-            notify::EventKind::Remove(_) => "remove",
-            _ => return,
+        let Some(kind_str) = watched_event_kind(&event.kind) else {
+            return;
         };
 
         // Filter out .amby/ internals (DB WAL, lock files, etc.) and our own
@@ -722,9 +983,7 @@ fn start_vault_watcher(
             .iter()
             .filter(|p| {
                 !p.components().any(|c| c.as_os_str() == ".amby")
-                    && !p
-                        .file_name()
-                        .is_some_and(|name| name.to_string_lossy().ends_with(".amby-tmp"))
+                    && !is_amby_temporary_file(p)
             })
             .collect();
         if relevant.is_empty() {
@@ -798,7 +1057,7 @@ async fn export_text_file(
         return Ok(None);
     };
     let path = path.to_string();
-    fs::write(&path, contents).map_err(|e| e.to_string())?;
+    frontmatter::atomic_write(Path::new(&path), &contents)?;
     Ok(Some(path))
 }
 
@@ -831,12 +1090,21 @@ async fn import_text_file(app: tauri::AppHandle) -> Result<Option<String>, Strin
 fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         load_vault,
+        preflight_vault,
+        apply_id_migration,
         list_files,
         read_file,
         write_file,
+        save_conflict_copy,
+        list_snapshots,
+        restore_snapshot,
+        read_snapshot_text,
+        list_trash,
+        restore_trash,
         read_note,
         write_note,
         get_note_metadata,
+        get_note_properties,
         list_tags,
         search_notes,
         get_link_graph,
@@ -849,9 +1117,11 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         delete_layer,
         note_layers,
         move_item,
+        preview_move_refactor,
         create_file,
         create_folder,
         rename_item,
+        preview_rename_refactor,
         delete_item,
         get_file_metadata,
         open_vault,
@@ -874,6 +1144,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    init_logging();
+    tracing::info!(event = "app_starting");
     let builder = specta_builder();
     #[cfg(debug_assertions)]
     builder
@@ -885,39 +1157,30 @@ pub fn run() {
         )
         .ok();
 
-    tauri::Builder::default()
+    let result = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Err(error) = show_and_focus_main_window(app) {
+                tracing::warn!(event = "restore_window_failed", error = %error);
+            }
+        }))
         .manage(paths::VaultScope::default())
         .manage(DbState::new())
         .manage(WatcherState::new())
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
-            // The window has `create: false` in the config because release
-            // builds need a custom WebView data directory. Create it here in
-            // every build mode; Tauri does not create `create: false` windows
-            // automatically during `tauri dev`.
-            use tauri::WebviewWindowBuilder;
-
-            let window_config = &app.config().app.windows[0];
-            let window_builder = WebviewWindowBuilder::from_config(app.handle(), window_config)?;
-
-            #[cfg(not(debug_assertions))]
-            let window_builder = window_builder.data_directory(
-                app.path()
-                    .local_data_dir()?
-                    .join("Amby")
-                    .join("notes")
-                    .join("WebView"),
-            );
-
-            window_builder.build()?;
-
-            Ok(())
+            // Tauri creates this window from the configuration before calling
+            // `setup`. Keeping creation declarative avoids a dev-only window
+            // lifecycle and guarantees exactly one `main` window per process.
+            show_and_focus_main_window(app.handle())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application")
+        .run(tauri::generate_context!());
+
+    if let Err(error) = result {
+        report_startup_error(&error);
+    }
 }
 
 #[cfg(test)]
@@ -968,6 +1231,43 @@ mod watcher_guard_tests {
         let guard = state.own_writes.lock().unwrap();
         assert!(guard.contains_key(Path::new("/vault/Folder/Note.md")));
         assert!(guard.contains_key(Path::new("/vault/Folder")));
+    }
+
+    #[test]
+    fn watcher_ignores_atomic_write_temporary_files() {
+        assert!(is_amby_temporary_file(Path::new(
+            "/vault/.Note.md.amby-tmp-123-0"
+        )));
+        assert!(!is_amby_temporary_file(Path::new("/vault/Note.md")));
+    }
+
+    #[test]
+    fn watcher_keeps_rename_events() {
+        let kind = notify::EventKind::Modify(notify::event::ModifyKind::Name(
+            notify::event::RenameMode::Any,
+        ));
+        assert_eq!(watched_event_kind(&kind), Some("rename"));
+    }
+}
+
+#[cfg(test)]
+mod window_configuration_tests {
+    use super::MAIN_WINDOW_LABEL;
+
+    #[test]
+    fn main_window_is_created_by_tauri_configuration() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            .expect("tauri.conf.json must contain valid JSON");
+        let windows = config["app"]["windows"]
+            .as_array()
+            .expect("app.windows must be an array");
+        let main_window = windows
+            .iter()
+            .find(|window| window["label"] == MAIN_WINDOW_LABEL)
+            .expect("the main window must be configured");
+
+        assert_ne!(main_window["create"], false);
+        assert_eq!(main_window["dataDirectory"], "WebView");
     }
 }
 

@@ -3,6 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0 || >=22.12.0",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -15,6 +19,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "rust:check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "rust:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --check",
+    "rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
+    "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run rust:check",
     "knip": "knip",
     "prepare": "lefthook install"
   },

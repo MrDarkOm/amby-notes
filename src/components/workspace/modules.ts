@@ -1,16 +1,15 @@
 import type { PanelId } from "./panel-registry"
 
+/** Core workspace tools are always present and therefore are not modules. */
+export const BASE_DEF_IDS = new Set(["files", "search", "archive", "info", "refresh"])
+
 /**
  * A capability a module declares it needs. Today these are advisory and
  * enforced in-process; the same manifest is what a WASM/dynamic-lib sandbox
  * would gate against in a later phase, so modules declare them from day one.
  */
 export type ModulePermission =
-  | "read-notes"
-  | "write-notes"
-  | "read-vault-meta"
-  | "ui-panel"
-  | "ui-action"
+  "read-notes" | "write-notes" | "read-vault-meta" | "ui-panel" | "ui-action"
 
 export interface ModuleManifest {
   permissions: ModulePermission[]
@@ -23,7 +22,7 @@ export interface ModuleContext {
 
 export interface ModuleDef {
   id: string
-  label: string
+  labelKey: string
   manifest: ModuleManifest
   /** Panels (from panel-registry) this module contributes to the activity bar. */
   panels?: PanelId[]
@@ -38,34 +37,65 @@ export interface ModuleDef {
  * the seam the Preset Engine and (later) third-party plugins slot into.
  */
 export const MODULE_REGISTRY: ModuleDef[] = [
-  { id: "files", label: "Древо файлов", manifest: { permissions: ["ui-panel", "read-vault-meta"] }, panels: ["files"] },
-  { id: "search", label: "Поиск", manifest: { permissions: ["ui-action", "read-notes"] }, actions: ["search"] },
-  { id: "tags", label: "Теги", manifest: { permissions: ["ui-panel", "read-notes"] }, panels: ["tags"] },
-  { id: "favorites", label: "Избранное", manifest: { permissions: ["ui-panel", "read-vault-meta"] }, panels: ["favorites"] },
-  { id: "databases", label: "Базы данных", manifest: { permissions: ["ui-panel"] }, panels: ["databases"] },
-  { id: "archive", label: "Архив", manifest: { permissions: ["ui-panel"] }, panels: ["archive"] },
-  { id: "properties", label: "Свойства", manifest: { permissions: ["ui-panel", "read-notes"] }, panels: ["info"] },
-  { id: "history", label: "История", manifest: { permissions: ["ui-panel"] }, panels: ["history"] },
-  { id: "links", label: "Ссылки", manifest: { permissions: ["ui-panel", "read-vault-meta"] }, panels: ["links"] },
-  { id: "graph", label: "Граф связей", manifest: { permissions: ["ui-action", "read-vault-meta"] }, actions: ["network"] },
-  { id: "sync", label: "Синхронизация", manifest: { permissions: ["ui-action", "read-vault-meta"] }, actions: ["refresh"] },
-  { id: "ai", label: "AI", manifest: { permissions: ["ui-panel", "read-notes", "write-notes"] }, panels: ["ai"] },
+  {
+    id: "tags",
+    labelKey: "settings.modules.tags",
+    manifest: { permissions: ["ui-panel", "read-notes"] },
+    panels: ["tags"],
+  },
+  {
+    id: "favorites",
+    labelKey: "settings.modules.favorites",
+    manifest: { permissions: ["ui-panel", "read-vault-meta"] },
+    panels: ["favorites"],
+  },
+  {
+    id: "databases",
+    labelKey: "settings.modules.databases",
+    manifest: { permissions: ["ui-panel"] },
+    panels: ["databases"],
+  },
+  {
+    id: "history",
+    labelKey: "settings.modules.history",
+    manifest: { permissions: ["ui-panel"] },
+    panels: ["history"],
+  },
+  {
+    id: "links",
+    labelKey: "settings.modules.links",
+    manifest: { permissions: ["ui-panel", "read-vault-meta"] },
+    panels: ["links"],
+  },
+  {
+    id: "graph",
+    labelKey: "settings.modules.graph",
+    manifest: { permissions: ["ui-action", "read-vault-meta"] },
+    actions: ["network"],
+  },
+  { id: "sync", labelKey: "settings.modules.sync", manifest: { permissions: ["read-vault-meta"] } },
+  {
+    id: "ai",
+    labelKey: "settings.modules.ai",
+    manifest: { permissions: ["ui-panel", "read-notes", "write-notes"] },
+    panels: ["ai"],
+  },
 ]
 
-export const ALL_MODULE_IDS: string[] = MODULE_REGISTRY.map(m => m.id)
+export const ALL_MODULE_IDS: string[] = MODULE_REGISTRY.map((m) => m.id)
 
 export function findModule(id: string): ModuleDef | undefined {
-  return MODULE_REGISTRY.find(m => m.id === id)
+  return MODULE_REGISTRY.find((m) => m.id === id)
 }
 
 /** The panel + action defIds contributed by a set of active modules. */
 export function contributedDefIds(activeModuleIds: string[]): Set<string> {
-  const ids = new Set<string>()
+  const ids = new Set<string>(BASE_DEF_IDS)
   for (const moduleId of activeModuleIds) {
     const mod = findModule(moduleId)
     if (!mod) continue
-    mod.panels?.forEach(p => ids.add(p))
-    mod.actions?.forEach(a => ids.add(a))
+    mod.panels?.forEach((p) => ids.add(p))
+    mod.actions?.forEach((a) => ids.add(a))
   }
   return ids
 }

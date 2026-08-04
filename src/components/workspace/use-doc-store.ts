@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import i18n from "@/lib/i18n"
+import type { NoteProperties } from "@/lib/storage"
 
 /** An open document buffer (the in-memory copy being edited). */
 export interface Document {
@@ -9,11 +10,20 @@ export interface Document {
   modified: string
   wordCount: number
   path: string
+  noteProperties?: NoteProperties
+}
+
+export interface ExternalConflict {
+  fileId: string
+  path: string
+  localContent: string
+  externalContent: string | null
 }
 
 interface DocStore {
   openDocs: Record<string, Document>
   unsavedFileIds: Set<string>
+  externalConflicts: Record<string, ExternalConflict>
   /** Insert or replace an open document. */
   setDoc: (fileId: string, doc: Document) => void
   /** Patch fields of an already-open document (no-op if it isn't open). */
@@ -24,6 +34,9 @@ interface DocStore {
   markUnsaved: (fileId: string) => void
   /** Mark a document saved: clear its dirty flag and stamp "modified". */
   markSaved: (fileId: string) => void
+  /** Record an external change that must be resolved before autosave resumes. */
+  setExternalConflict: (conflict: ExternalConflict) => void
+  clearExternalConflict: (fileId: string) => void
   /** After a filesystem mutation, remap surviving docs' paths and drop deleted ones. */
   applyMutation: (deletedIds: string[], remapPath: (path: string) => string) => void
 }
@@ -36,9 +49,9 @@ interface DocStore {
 export const useDocStore = create<DocStore>((set) => ({
   openDocs: {},
   unsavedFileIds: new Set(),
+  externalConflicts: {},
 
-  setDoc: (fileId, doc) =>
-    set((s) => ({ openDocs: { ...s.openDocs, [fileId]: doc } })),
+  setDoc: (fileId, doc) => set((s) => ({ openDocs: { ...s.openDocs, [fileId]: doc } })),
 
   patchDoc: (fileId, patch) =>
     set((s) =>
@@ -47,7 +60,7 @@ export const useDocStore = create<DocStore>((set) => ({
         : {},
     ),
 
-  clearDocs: () => set({ openDocs: {}, unsavedFileIds: new Set() }),
+  clearDocs: () => set({ openDocs: {}, unsavedFileIds: new Set(), externalConflicts: {} }),
 
   markUnsaved: (fileId) =>
     set((s) => {
@@ -70,6 +83,16 @@ export const useDocStore = create<DocStore>((set) => ({
       }
     }),
 
+  setExternalConflict: (conflict) =>
+    set((s) => ({ externalConflicts: { ...s.externalConflicts, [conflict.fileId]: conflict } })),
+
+  clearExternalConflict: (fileId) =>
+    set((s) => {
+      if (!s.externalConflicts[fileId]) return {}
+      const { [fileId]: _cleared, ...externalConflicts } = s.externalConflicts
+      return { externalConflicts }
+    }),
+
   applyMutation: (deletedIds, remapPath) =>
     set((s) => {
       const deleted = new Set(deletedIds)
@@ -80,6 +103,10 @@ export const useDocStore = create<DocStore>((set) => ({
       }
       const unsavedFileIds = new Set<string>()
       for (const id of s.unsavedFileIds) if (!deleted.has(id)) unsavedFileIds.add(id)
-      return { openDocs, unsavedFileIds }
+      const externalConflicts: Record<string, ExternalConflict> = {}
+      for (const [id, conflict] of Object.entries(s.externalConflicts)) {
+        if (!deleted.has(id)) externalConflicts[id] = conflict
+      }
+      return { openDocs, unsavedFileIds, externalConflicts }
     }),
 }))

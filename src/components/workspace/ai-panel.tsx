@@ -34,7 +34,8 @@ function buildSystemPrompt(title: string | null, content: string | null): string
   if (!content || !content.trim()) {
     return `You are an assistant inside the Amby notes editor. Respond in ${lang}, concisely and to the point.`
   }
-  const clipped = content.length > MAX_CONTEXT_CHARS ? content.slice(0, MAX_CONTEXT_CHARS) + "\n…" : content
+  const clipped =
+    content.length > MAX_CONTEXT_CHARS ? content.slice(0, MAX_CONTEXT_CHARS) + "\n…" : content
   return [
     "You are an assistant inside the Amby notes editor. You have access to ONLY the text of the",
     `user's current note (below). Answer their questions based on it. Respond in ${lang}, concisely.`,
@@ -46,8 +47,8 @@ function buildSystemPrompt(title: string | null, content: string | null): string
 
 export function AiPanel({ currentDocId }: PanelRenderProps) {
   const { t } = useTranslation()
-  const openDocs = useDocStore(s => s.openDocs)
-  const currentDoc = currentDocId ? openDocs[currentDocId] ?? null : null
+  const openDocs = useDocStore((s) => s.openDocs)
+  const currentDoc = currentDocId ? (openDocs[currentDocId] ?? null) : null
 
   const [ai, setAi] = React.useState<AiSettings>(DEFAULT_AI)
   const [showSettings, setShowSettings] = React.useState(false)
@@ -59,7 +60,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
-    loadSettings().then(s => setAi(s.ai))
+    loadSettings().then((s) => setAi(s.ai))
   }, [])
 
   React.useEffect(() => {
@@ -88,9 +89,9 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
     try {
       const reply = await aiChat(resolveAiConfig(model), next, {
         system: buildSystemPrompt(currentDoc?.title ?? null, currentDoc?.content ?? null),
-        onToken: delta => setStreaming(s => (s ?? "") + delta),
+        onToken: (delta) => setStreaming((s) => (s ?? "") + delta),
       })
-      setMessages(prev => [...prev, { role: "assistant", content: reply }])
+      setMessages((prev) => [...prev, { role: "assistant", content: reply }])
     } catch (e) {
       setError(e instanceof AiUnavailableError ? e.message : String(e))
     } finally {
@@ -114,9 +115,9 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
               <ArrowLeft className="size-4" />
             </button>
           ) : (
-            <Sparkles className="size-4 text-sky-400" />
+            <Sparkles className="size-4 text-primary" />
           )}
-          {showSettings ? t("ai.models") : "AI"}
+          {showSettings ? t("ai.models") : t("settings.modules.ai")}
         </div>
         {!showSettings && (
           <button
@@ -139,9 +140,16 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
             <FileText className="size-3 shrink-0" />
             <span className="truncate">
               {currentDoc ? (
-                <>{t("ai.contextPrefix")} <span className="text-muted-foreground">{currentDoc.title || t("ai.untitled")}</span></>
+                <>
+                  {t("ai.contextPrefix")}{" "}
+                  <span className="text-muted-foreground">
+                    {currentDoc.title || t("ai.untitled")}
+                  </span>
+                </>
               ) : (
-                <>{t("ai.contextPrefix")} {t("ai.noNote")}</>
+                <>
+                  {t("ai.contextPrefix")} {t("ai.noNote")}
+                </>
               )}
             </span>
           </div>
@@ -185,8 +193,8 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
             <div className="flex items-end gap-2">
               <textarea
                 value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => {
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault()
                     void send()
@@ -201,19 +209,19 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
                 onClick={() => void send()}
                 disabled={loading || !input.trim()}
                 title={t("ai.send")}
-                className="flex size-8 shrink-0 items-center justify-center rounded-md bg-sky-600 text-white transition-opacity hover:bg-sky-500 disabled:opacity-40"
+                className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
               >
                 <Send className="size-4" />
               </button>
             </div>
             <select
               value={ai.activeModelId ?? ""}
-              onChange={e => updateAi({ ...ai, activeModelId: e.target.value })}
+              onChange={(e) => updateAi({ ...ai, activeModelId: e.target.value })}
               title={t("ai.activeModel")}
               className="h-6 w-full rounded border border-border bg-card px-1.5 text-[11px] text-muted-foreground outline-none focus:border-border"
             >
               {ai.models.length === 0 && <option value="">{t("ai.noModelsOpenSettings")}</option>}
-              {ai.models.map(m => (
+              {ai.models.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
                 </option>

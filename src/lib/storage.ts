@@ -1,9 +1,46 @@
 import type { TreeItem } from "@/components/workspace/sidebar-tree"
+import i18n from "@/lib/i18n"
 
 export interface FileMetadata {
   created?: number
   modified?: number
   word_count: number
+}
+
+export interface FrontmatterProperty {
+  key: string
+  value: string
+  valueKind: string
+}
+
+export interface NoteProperties {
+  hasFrontmatter: boolean
+  properties: FrontmatterProperty[]
+  parseError?: string
+}
+
+export interface SnapshotEntry {
+  id: string
+  createdAtMs: number
+  reason: string
+  sizeBytes: number
+}
+
+export interface SnapshotText {
+  sourcePath: string
+  content: string
+}
+
+export interface RefactorPreview {
+  notes: number
+  replacements: number
+}
+
+export interface TrashEntry {
+  id: string
+  originalPath: string
+  deletedAtMs: number
+  name: string
 }
 
 export interface IndexedNote {
@@ -26,6 +63,15 @@ export interface LoadVaultResult {
   tree: TreeItem[]
   notes: IndexedNote[]
   sync: SyncReport
+}
+
+export interface VaultPreflight {
+  notes: number
+  attachments: number
+  malformedFrontmatter: string[]
+  userManagedIds: string[]
+  duplicateIds: string[]
+  plannedIdWrites: string[]
 }
 
 export interface PathChange {
@@ -82,6 +128,25 @@ async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T
   return tauriInvoke<T>(cmd, args)
 }
 
+/**
+ * Tauri's dialog plugin replaces `window.confirm` with an async shim, while
+ * the DOM type and existing callers expect a synchronous boolean. Call the
+ * supported message command explicitly so destructive actions always wait for
+ * the user's choice. Browsers keep using their native confirmation dialog.
+ */
+export async function confirmAction(message: string): Promise<boolean> {
+  if (!isTauri()) {
+    return typeof window !== "undefined" ? window.confirm(message) : false
+  }
+  const result = await invoke<string>("plugin:dialog|message", {
+    message,
+    title: "Amby",
+    kind: "warning",
+    buttons: "OkCancel",
+  })
+  return result === "Ok"
+}
+
 // ── Web fallback (localStorage) ─────────────────────────────────────────────
 
 const WEB_VAULT = "web-vault"
@@ -127,14 +192,14 @@ function webDefaultTree(): TreeItem[] {
     {
       id: "web-vault/Welcome.md",
       path: "web-vault/Welcome.md",
-      name: "Welcome",
+      name: i18n.t("defaults.welcome"),
       type: "file" as const,
       icon: "brain" as const,
     },
     {
       id: "web-vault/Notes.md",
       path: "web-vault/Notes.md",
-      name: "Notes",
+      name: i18n.t("defaults.notes"),
       type: "file" as const,
       icon: "file" as const,
     },
@@ -143,7 +208,7 @@ function webDefaultTree(): TreeItem[] {
 
 function webDefaultContent(path: string): string {
   if (path.endsWith("Welcome.md")) {
-    return "# Welcome to Amby Notes\n\nThis is a web preview. Open the desktop app to save notes to your filesystem.\n\nStart writing your thoughts here..."
+    return i18n.t("defaults.welcomeContent")
   }
   return ""
 }
@@ -321,6 +386,22 @@ export async function loadVaultData(vaultPath: string): Promise<LoadVaultResult>
   return { tree, notes, sync: { inserted: 0, updated: 0, deleted: 0, warnings: [], pathToId: {} } }
 }
 
+export async function preflightVault(vaultPath: string): Promise<VaultPreflight> {
+  if (isTauri()) return invoke<VaultPreflight>("preflight_vault", { vaultPath })
+  return {
+    notes: 0,
+    attachments: 0,
+    malformedFrontmatter: [],
+    userManagedIds: [],
+    duplicateIds: [],
+    plannedIdWrites: [],
+  }
+}
+
+export async function applyIdMigration(vaultPath: string): Promise<void> {
+  if (isTauri()) await invoke("apply_id_migration", { vaultPath })
+}
+
 export async function listFiles(vaultPath: string): Promise<TreeItem[]> {
   if (isTauri()) return invoke<TreeItem[]>("list_files", { vaultPath })
   return webGetTree()
@@ -348,6 +429,65 @@ export async function readNote(vaultPath: string, noteId: string): Promise<strin
 export async function writeFile(path: string, content: string): Promise<void> {
   if (isTauri()) return invoke<void>("write_file", { path, content })
   localStorage.setItem(FILE_PREFIX + path, content)
+}
+
+/** Save a unique sibling copy of a conflicted local buffer without overwriting a file. */
+export async function saveConflictCopy(path: string, content: string): Promise<string> {
+  if (isTauri()) return invoke<string>("save_conflict_copy", { path, content })
+  const extensionStart = path.lastIndexOf(".")
+  const stem = extensionStart > path.lastIndexOf("/") ? path.slice(0, extensionStart) : path
+  const extension = extensionStart > path.lastIndexOf("/") ? path.slice(extensionStart) : ""
+  let copyPath = `${stem}.${crypto.randomUUID()}-conflict${extension}`
+  while (localStorage.getItem(FILE_PREFIX + copyPath) !== null) {
+    copyPath = `${stem}.${crypto.randomUUID()}-conflict${extension}`
+  }
+  localStorage.setItem(FILE_PREFIX + copyPath, content)
+  return copyPath
+}
+
+export async function listSnapshots(sourcePath: string): Promise<SnapshotEntry[]> {
+  if (isTauri()) return invoke<SnapshotEntry[]>("list_snapshots", { sourcePath })
+  return []
+}
+
+export async function restoreSnapshot(snapshotId: string): Promise<string> {
+  if (isTauri()) return invoke<string>("restore_snapshot", { snapshotId })
+  throw new Error("Local history is only available in the desktop app")
+}
+
+export async function readSnapshotText(snapshotId: string): Promise<SnapshotText> {
+  if (isTauri()) return invoke<SnapshotText>("read_snapshot_text", { snapshotId })
+  throw new Error("Local history is only available in the desktop app")
+}
+
+export async function listTrash(): Promise<TrashEntry[]> {
+  if (isTauri()) return invoke<TrashEntry[]>("list_trash")
+  return []
+}
+
+export async function restoreTrash(trashId: string): Promise<FsMutationResult> {
+  if (isTauri()) return invoke<FsMutationResult>("restore_trash", { trashId })
+  throw new Error("Trash restore is only available in the desktop app")
+}
+
+export async function previewRenameRefactor(
+  vaultPath: string,
+  path: string,
+  newName: string,
+): Promise<RefactorPreview> {
+  if (isTauri())
+    return invoke<RefactorPreview>("preview_rename_refactor", { vaultPath, path, newName })
+  return { notes: 0, replacements: 0 }
+}
+
+export async function previewMoveRefactor(
+  vaultPath: string,
+  sourcePath: string,
+  targetPath: string,
+): Promise<RefactorPreview> {
+  if (isTauri())
+    return invoke<RefactorPreview>("preview_move_refactor", { vaultPath, sourcePath, targetPath })
+  return { notes: 0, replacements: 0 }
 }
 
 export async function writeNote(vaultPath: string, noteId: string, content: string): Promise<void> {
@@ -404,7 +544,7 @@ export async function createCanvasFile(
     targetDir = parentPath
   }
 
-  const stem = name.trim() || "Untitled"
+  const stem = name.trim() || i18n.t("defaults.untitled")
   let path = joinPath(targetDir, `${stem}.canvas`)
   let i = 2
   while (localStorage.getItem(FILE_PREFIX + path) !== null) {
@@ -662,6 +802,14 @@ export async function getNoteMetadata(vaultPath: string, noteId: string): Promis
   if (isTauri()) return invoke<FileMetadata>("get_note_metadata", { vaultPath, noteId })
   const content = localStorage.getItem(FILE_PREFIX + noteId) ?? ""
   return { word_count: content.split(/\s+/).filter(Boolean).length }
+}
+
+export async function getNoteProperties(
+  vaultPath: string,
+  noteId: string,
+): Promise<NoteProperties> {
+  if (isTauri()) return invoke<NoteProperties>("get_note_properties", { vaultPath, noteId })
+  return { hasFrontmatter: false, properties: [] }
 }
 
 export async function getFileMetadata(path: string): Promise<FileMetadata> {

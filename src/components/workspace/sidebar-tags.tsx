@@ -53,10 +53,12 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
             const tag = m[1].toLowerCase()
             if (!tagMap.has(tag)) tagMap.set(tag, [])
             const list = tagMap.get(tag)!
-            if (!list.some(e => e.item.id === item.id)) list.push({ item, path })
+            if (!list.some((e) => e.item.id === item.id)) list.push({ item, path })
           }
-        } catch { /* skip */ }
-      })
+        } catch {
+          /* skip */
+        }
+      }),
     ).then(() => {
       const sorted = [...tagMap.entries()]
         .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
@@ -67,9 +69,10 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
   }, [items, readFile])
 
   function toggleTag(tag: string) {
-    setOpenTags(prev => {
+    setOpenTags((prev) => {
       const next = new Set(prev)
-      if (next.has(tag)) next.delete(tag); else next.add(tag)
+      if (next.has(tag)) next.delete(tag)
+      else next.add(tag)
       return next
     })
   }
@@ -112,8 +115,13 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
                 onClick={() => toggleTag(tag)}
                 className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left transition-colors hover:bg-accent"
               >
-                <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")} />
-                <Hash className="size-3.5 shrink-0 text-violet-400" />
+                <ChevronRight
+                  className={cn(
+                    "size-3 shrink-0 text-muted-foreground transition-transform",
+                    isOpen && "rotate-90",
+                  )}
+                />
+                <Hash className="size-3.5 shrink-0 text-primary" />
                 <span className="flex-1 truncate text-[13px] text-foreground">{tag}</span>
                 <span className="shrink-0 text-[11px] text-muted-foreground">{files.length}</span>
               </button>
@@ -128,7 +136,9 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
                       <FileText className="size-3.5 shrink-0 text-muted-foreground" />
                       <div className="min-w-0">
                         <p className="truncate text-[12px] text-foreground">{item.name}</p>
-                        {path && <p className="truncate text-[10px] text-muted-foreground">{path}</p>}
+                        {path && (
+                          <p className="truncate text-[10px] text-muted-foreground">{path}</p>
+                        )}
                       </div>
                     </button>
                   ))}

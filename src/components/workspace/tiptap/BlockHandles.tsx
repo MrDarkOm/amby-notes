@@ -4,10 +4,11 @@ import * as React from "react"
 import { createPortal } from "react-dom"
 import type { Editor } from "@tiptap/react"
 import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model"
-import { GripVertical, Plus } from "lucide-react"
+import { GripVertical } from "lucide-react"
 
 import { BlockActionsPanel } from "./BlockActionsPanel"
 import { BlockInsertPanel } from "./BlockInsertPanel"
+import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
 
 const DRAGGABLE_TYPES = new Set([
   "paragraph",
@@ -25,12 +26,23 @@ const DRAGGABLE_TYPES = new Set([
 function findDraggableAncestor(
   $pos: ResolvedPos,
 ): { pos: number; depth: number; node: PMNode } | null {
+  let fallback: { pos: number; depth: number; node: PMNode } | null = null
   for (let d = $pos.depth; d >= 1; d--) {
     const node = $pos.node(d)
     if (DRAGGABLE_TYPES.has(node.type.name)) {
-      return { pos: $pos.before(d), depth: d, node }
+      const found = { pos: $pos.before(d), depth: d, node }
+      // Callouts contain paragraphs. Their controls belong to the visual
+      // Callout container, never to a nested paragraph above it.
+      if (
+        node.type.name === "callout" ||
+        node.type.name === "listItem" ||
+        node.type.name === "taskItem"
+      )
+        return found
+      if (!fallback) fallback = found
     }
   }
+  if (fallback) return fallback
   if ($pos.depth === 0 && $pos.nodeAfter && DRAGGABLE_TYPES.has($pos.nodeAfter.type.name)) {
     return { pos: $pos.pos, depth: 1, node: $pos.nodeAfter }
   }
@@ -41,22 +53,35 @@ function findScrollAncestor(el: HTMLElement): HTMLElement {
   let node: HTMLElement | null = el.parentElement
   while (node) {
     const oy = window.getComputedStyle(node).overflowY
-    if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight)
-      return node
+    if ((oy === "auto" || oy === "scroll") && node.scrollHeight > node.clientHeight) return node
     node = node.parentElement
   }
   return (document.scrollingElement as HTMLElement | null) ?? document.documentElement
 }
 
-
 interface HandleState {
   visible: boolean
+  mode: "block" | "insert"
   nodePos: number
   nodeType: string
+  insertPos: number
 }
 
-const HANDLES_WIDTH = 46
+interface HoverTarget {
+  mode: "block" | "insert"
+  nodePos: number
+  nodeType: string
+  insertPos?: number
+  beforePos?: number
+  afterPos?: number
+}
+
+const HANDLE_WIDTH = 22
 const BUTTON_H = 22
+const GUTTER_GAP = 12
+// The mouse target is wider than the visible button so the affordance can be
+// discovered before the cursor reaches the text column.
+const GUTTER_HIT_SLOP = 48
 
 interface BlockHandlesProps {
   editor: Editor
@@ -67,8 +92,10 @@ interface BlockHandlesProps {
 export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps) {
   const [handle, setHandle] = React.useState<HandleState>({
     visible: false,
+    mode: "block",
     nodePos: -1,
     nodeType: "",
+    insertPos: -1,
   })
   // anchorPos is the doc position at which the just-inserted empty paragraph
   // sits. The panel uses item.inline(editor) which acts on current selection;
@@ -93,7 +120,8 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
   // Hover tracking: which block the mouse is over, plus presence flags so we
   // know when to show / hide handles and survive moves from row → gutter.
-  const hoveredPosRef = React.useRef<number>(-1)
+  const hoverTargetRef = React.useRef<HoverTarget | null>(null)
+  const pinnedTargetRef = React.useRef<HoverTarget | null>(null)
   const mouseInsideEditorRef = React.useRef(false)
   const mouseInsideWidgetRef = React.useRef(false)
   const hideTimerRef = React.useRef<number | null>(null)
@@ -104,52 +132,49 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
   const applyVisibility = React.useCallback(() => {
     if (!editor.isEditable) {
-      setHandle(h => (h.visible ? { ...h, visible: false } : h))
+      setHandle((h) => (h.visible ? { ...h, visible: false } : h))
       return
     }
     if (dragRef.current.active) return
 
     const { state, view } = editor
 
-    // Decide effective nodePos: hover wins when mouse is over editor/widget,
-    // otherwise fall back to cursor selection.
-    let nodePos = -1
+    // Controls are hover-only. The cursor selection must never leave a grab
+    // handle pinned in the gutter when the pointer is elsewhere.
     const mouseOver = mouseInsideEditorRef.current || mouseInsideWidgetRef.current
-    if (mouseOver && hoveredPosRef.current >= 0) {
-      nodePos = hoveredPosRef.current
-    } else {
-      const { $from } = state.selection
-      const found = findDraggableAncestor($from)
-      if (found) nodePos = found.pos
-    }
-
-    if (nodePos < 0) {
-      setHandle(h => (h.visible ? { ...h, visible: false } : h))
-      return
-    }
-
-    const node = state.doc.nodeAt(nodePos)
-    const nodeDom = view.nodeDOM(nodePos) as HTMLElement | null
-    if (!node || !nodeDom) {
-      setHandle(h => (h.visible ? { ...h, visible: false } : h))
+    const target = pinnedTargetRef.current ?? (mouseOver ? hoverTargetRef.current : null)
+    if (!target) {
+      setHandle((h) => (h.visible ? { ...h, visible: false } : h))
       return
     }
 
     const editorRect = view.dom.getBoundingClientRect()
-    const rect = nodeDom.getBoundingClientRect()
-
-    // Left: place handles 4 px to the left of the actual text content column,
-    // accounting for the ProseMirror element's own padding-left.
-    const editorPaddingLeft =
-      parseFloat(window.getComputedStyle(view.dom).paddingLeft) || 12
+    const editorPaddingLeft = parseFloat(window.getComputedStyle(view.dom).paddingLeft) || 12
     const contentLeft = editorRect.left + editorPaddingLeft
-    const left = Math.max(0, contentLeft - HANDLES_WIDTH - 4)
+    const left = Math.max(0, contentLeft - HANDLE_WIDTH - GUTTER_GAP)
+    let top: number
 
-    const cs = window.getComputedStyle(nodeDom)
-    const lineHeight = parseFloat(cs.lineHeight) || 28
-    const paddingTop = parseFloat(cs.paddingTop) || 0
-    const top =
-      rect.top + paddingTop + Math.max(0, Math.round((lineHeight - BUTTON_H) / 2))
+    if (target.mode === "insert") {
+      const beforeDom = view.nodeDOM(target.beforePos ?? -1)
+      const afterDom = view.nodeDOM(target.afterPos ?? -1)
+      if (!(beforeDom instanceof HTMLElement) || !(afterDom instanceof HTMLElement)) {
+        setHandle((h) => (h.visible ? { ...h, visible: false } : h))
+        return
+      }
+      const beforeRect = beforeDom.getBoundingClientRect()
+      const afterRect = afterDom.getBoundingClientRect()
+      top = (beforeRect.bottom + afterRect.top) / 2 - BUTTON_H / 2
+    } else {
+      const node = state.doc.nodeAt(target.nodePos)
+      const nodeDom = view.nodeDOM(target.nodePos)
+      if (!node || !(nodeDom instanceof HTMLElement)) {
+        setHandle((h) => (h.visible ? { ...h, visible: false } : h))
+        return
+      }
+      const rect = nodeDom.getBoundingClientRect()
+      // Centre the single drag control against the actual block.
+      top = rect.top + (rect.height - BUTTON_H) / 2
+    }
 
     posRef.current = { top, left }
     if (handlesRef.current) {
@@ -157,10 +182,23 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       handlesRef.current.style.left = `${left}px`
     }
 
-    setHandle(h => {
-      if (h.visible && h.nodePos === nodePos && h.nodeType === node.type.name)
+    setHandle((h) => {
+      const insertPos = target.insertPos ?? -1
+      if (
+        h.visible &&
+        h.mode === target.mode &&
+        h.nodePos === target.nodePos &&
+        h.nodeType === target.nodeType &&
+        h.insertPos === insertPos
+      )
         return h
-      return { visible: true, nodePos, nodeType: node.type.name }
+      return {
+        visible: true,
+        mode: target.mode,
+        nodePos: target.nodePos,
+        nodeType: target.nodeType,
+        insertPos,
+      }
     })
   }, [editor])
 
@@ -185,27 +223,60 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       cancelHide()
       hideTimerRef.current = window.setTimeout(() => {
         hideTimerRef.current = null
+        if (pinnedTargetRef.current) return
         if (mouseInsideEditorRef.current || mouseInsideWidgetRef.current) return
-        hoveredPosRef.current = -1
+        hoverTargetRef.current = null
         applyVisibility()
       }, 120)
     }
 
+    const setHoverTarget = (next: HoverTarget | null) => {
+      const current = hoverTargetRef.current
+      if (
+        current?.mode === next?.mode &&
+        current?.nodePos === next?.nodePos &&
+        current?.nodeType === next?.nodeType &&
+        current?.insertPos === next?.insertPos &&
+        current?.beforePos === next?.beforePos &&
+        current?.afterPos === next?.afterPos
+      )
+        return
+      hoverTargetRef.current = next
+      applyVisibility()
+    }
+
     const recomputeFromHover = (x: number, y: number) => {
       const view = editor.view
-      const pos = view.posAtCoords({ left: x, top: y })
-      if (!pos) return
-      const safe = Math.min(Math.max(pos.pos, 0), view.state.doc.content.size - 1)
+      const editorRect = view.dom.getBoundingClientRect()
+      const paddingLeft = parseFloat(window.getComputedStyle(view.dom).paddingLeft) || 12
+      const contentLeft = editorRect.left + paddingLeft
+      const withinGutter =
+        x >= contentLeft - HANDLE_WIDTH - GUTTER_GAP - GUTTER_HIT_SLOP && x <= contentLeft + 24
+      const pos = view.posAtCoords({ left: withinGutter ? contentLeft + 1 : x, top: y })
+      if (!pos) {
+        setHoverTarget(null)
+        return
+      }
+      const safe = Math.min(Math.max(pos.pos, 0), Math.max(0, view.state.doc.content.size - 1))
       const $pos = view.state.doc.resolve(safe)
       const target = findDraggableAncestor($pos)
-      if (!target) return
-      if (hoveredPosRef.current !== target.pos) {
-        hoveredPosRef.current = target.pos
-        applyVisibility()
+      if (!target) {
+        setHoverTarget(null)
+        return
       }
+      setHoverTarget({
+        mode: "block",
+        nodePos: target.pos,
+        nodeType: target.node.type.name,
+      })
     }
 
     const onMouseMove = (e: MouseEvent) => {
+      if (pinnedTargetRef.current) return
+      if ((e.target as HTMLElement).closest(".amby-live-wikilink-button")) {
+        setHoverTarget(null)
+        return
+      }
       lastMoveRef.current = { x: e.clientX, y: e.clientY }
       if (rafRef.current != null) return
       rafRef.current = window.requestAnimationFrame(() => {
@@ -213,6 +284,36 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         const p = lastMoveRef.current
         if (p) recomputeFromHover(p.x, p.y)
       })
+    }
+
+    // `view.dom` starts at the content column, while the Grab gutter sits to
+    // its left. Listen at document level as well so entering that outer gutter
+    // can reveal the controls before the pointer crosses the block edge.
+    const onDocumentMouseMove = (e: MouseEvent) => {
+      if (pinnedTargetRef.current) return
+      const rect = editorDom.getBoundingClientRect()
+      const paddingLeft = parseFloat(window.getComputedStyle(editorDom).paddingLeft) || 12
+      const contentLeft = rect.left + paddingLeft
+      const inExtendedGutter =
+        e.clientX >= contentLeft - HANDLE_WIDTH - GUTTER_GAP - GUTTER_HIT_SLOP &&
+        e.clientX <= contentLeft + 24 &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom
+
+      if (inExtendedGutter) {
+        mouseInsideEditorRef.current = true
+        cancelHide()
+        onMouseMove(e)
+        return
+      }
+
+      if (
+        !editorDom.contains(e.target as Node) &&
+        !handlesRef.current?.contains(e.target as Node)
+      ) {
+        mouseInsideEditorRef.current = false
+        scheduleHideIfNeeded()
+      }
     }
     const onEditorEnter = () => {
       mouseInsideEditorRef.current = true
@@ -222,10 +323,47 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       mouseInsideEditorRef.current = false
       scheduleHideIfNeeded()
     }
+    const onEditorContextMenu = (e: MouseEvent) => {
+      if ((e.target as HTMLElement).closest(".amby-live-wikilink-button")) return
+      const pos = editor.view.posAtCoords({ left: e.clientX, top: e.clientY })
+      if (!pos) return
+      const safe = Math.min(Math.max(pos.pos, 0), Math.max(0, editor.state.doc.content.size - 1))
+      const target = findDraggableAncestor(editor.state.doc.resolve(safe))
+      if (!target) return
 
+      e.preventDefault()
+      const blockTarget: HoverTarget = {
+        mode: "block",
+        nodePos: target.pos,
+        nodeType: target.node.type.name,
+      }
+      pinnedTargetRef.current = blockTarget
+      setHoverTarget(blockTarget)
+      window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
+      setInsertPanel({ open: false, anchorPos: -1 })
+      setActionsOpen(true)
+    }
+    // macOS Ctrl+click is dispatched as a primary-button mousedown before the
+    // later contextmenu event. Prevent that first event from moving the
+    // ProseMirror selection and opening the text bubble toolbar.
+    const onEditorMouseDownCapture = (e: MouseEvent) => {
+      if (e.button === 2 || (e.button === 0 && e.ctrlKey)) e.preventDefault()
+    }
+
+    editorDom.addEventListener("mousedown", onEditorMouseDownCapture, true)
     editorDom.addEventListener("mousemove", onMouseMove)
     editorDom.addEventListener("mouseenter", onEditorEnter)
     editorDom.addEventListener("mouseleave", onEditorLeave)
+    editorDom.addEventListener("contextmenu", onEditorContextMenu)
+    document.addEventListener("mousemove", onDocumentMouseMove)
+
+    const closeBlockMenus = () => {
+      pinnedTargetRef.current = null
+      setInsertPanel((p) => (p.open ? { open: false, anchorPos: -1 } : p))
+      setActionsOpen(false)
+      applyVisibility()
+    }
+    window.addEventListener(CLOSE_BLOCK_MENUS_EVENT, closeBlockMenus)
 
     // Expose enter/leave for the widget portal via refs read from JSX handlers.
     widgetEnterRef.current = () => {
@@ -242,9 +380,13 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       editor.off("transaction", onChange)
       editor.off("focus", onChange)
       window.removeEventListener("resize", onChange)
+      editorDom.removeEventListener("mousedown", onEditorMouseDownCapture, true)
       editorDom.removeEventListener("mousemove", onMouseMove)
       editorDom.removeEventListener("mouseenter", onEditorEnter)
       editorDom.removeEventListener("mouseleave", onEditorLeave)
+      editorDom.removeEventListener("contextmenu", onEditorContextMenu)
+      document.removeEventListener("mousemove", onDocumentMouseMove)
+      window.removeEventListener(CLOSE_BLOCK_MENUS_EVENT, closeBlockMenus)
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
       if (hideTimerRef.current != null) clearTimeout(hideTimerRef.current)
       widgetEnterRef.current = null
@@ -262,7 +404,8 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       if (target.closest(".amby-block-panel")) return
       if (target.closest(".amby-turn-into-menu")) return
       if (target.closest("em-emoji-picker")) return
-      setInsertPanel(p => (p.open ? { open: false, anchorPos: -1 } : p))
+      pinnedTargetRef.current = null
+      setInsertPanel((p) => (p.open ? { open: false, anchorPos: -1 } : p))
       setActionsOpen(false)
     }
     document.addEventListener("mousedown", onDown)
@@ -333,16 +476,15 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
       let indicatorEl: HTMLElement | null = null
 
-      function showIndicatorAt(rect: DOMRect, before: boolean) {
+      function showIndicatorAt(rect: DOMRect, top: number) {
         if (!indicatorEl) {
           indicatorEl = document.createElement("div")
           indicatorEl.className = "amby-block-drop-indicator"
           document.body.appendChild(indicatorEl)
         }
-        const y = before ? rect.top : rect.bottom
         indicatorEl.style.left = `${rect.left}px`
         indicatorEl.style.width = `${rect.width}px`
-        indicatorEl.style.top = `${y - 1}px`
+        indicatorEl.style.top = `${top - 1}px`
       }
       function hideIndicator() {
         if (indicatorEl) {
@@ -351,7 +493,10 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         }
       }
 
-      function updateIndicator(clientX: number, clientY: number): {
+      function updateIndicator(
+        clientX: number,
+        clientY: number,
+      ): {
         targetPos: number
         before: boolean
       } | null {
@@ -370,14 +515,35 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         const target = findDraggableAncestor($pos)
         if (!target) return null
         const targetPos = target.pos
-        const targetDom = view.nodeDOM(targetPos) as HTMLElement | null
-        if (!targetDom) {
+        const targetDom = view.nodeDOM(targetPos)
+        if (!(targetDom instanceof HTMLElement)) {
           hideIndicator()
           return null
         }
         const rect = targetDom.getBoundingClientRect()
         const before = clientY < rect.top + rect.height / 2
-        showIndicatorAt(rect, before)
+        const $target = doc.resolve(targetPos)
+        const parentDepth = target.depth - 1
+        const parent = $target.node(parentDepth)
+        const index = $target.index(parentDepth)
+        let lineTop = before ? rect.top : rect.bottom
+
+        if (before && index > 0) {
+          const previous = parent.child(index - 1)
+          const previousDom = view.nodeDOM(targetPos - previous.nodeSize)
+          if (previousDom instanceof HTMLElement) {
+            const previousRect = previousDom.getBoundingClientRect()
+            lineTop = (previousRect.bottom + rect.top) / 2
+          }
+        } else if (!before && index + 1 < parent.childCount) {
+          const nextDom = view.nodeDOM(targetPos + target.node.nodeSize)
+          if (nextDom instanceof HTMLElement) {
+            const nextRect = nextDom.getBoundingClientRect()
+            lineTop = (rect.bottom + nextRect.top) / 2
+          }
+        }
+
+        showIndicatorAt(rect, lineTop)
         return { targetPos, before }
       }
 
@@ -394,8 +560,8 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           document.body.style.cursor = "grabbing"
           editorDom.style.userSelect = "none"
 
-          const srcDom = view.nodeDOM(d.srcPos) as HTMLElement | null
-          if (srcDom) {
+          const srcDom = view.nodeDOM(d.srcPos)
+          if (srcDom instanceof HTMLElement) {
             const rect = srcDom.getBoundingClientRect()
             const ghost = srcDom.cloneNode(true) as HTMLElement
             ghost.classList.add("amby-block-drag-ghost")
@@ -420,7 +586,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         }
         document
           .querySelectorAll(".amby-block-drag-source")
-          .forEach(el => el.classList.remove("amby-block-drag-source"))
+          .forEach((el) => el.classList.remove("amby-block-drag-source"))
       }
 
       function onUp(ev: PointerEvent) {
@@ -439,7 +605,16 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
         if (!wasActive) {
           hideIndicator()
-          setActionsOpen(v => !v)
+          pinnedTargetRef.current = {
+            mode: "block",
+            nodePos: handle.nodePos,
+            nodeType: handle.nodeType,
+          }
+          window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
+          setActionsOpen((v) => {
+            if (v) pinnedTargetRef.current = null
+            return !v
+          })
           setInsertPanel({ open: false, anchorPos: -1 })
           return
         }
@@ -459,9 +634,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         if (!srcNode || !targetNode) return
 
         const srcEnd = srcPos + srcNode.nodeSize
-        const insertPos = target.before
-          ? target.targetPos
-          : target.targetPos + targetNode.nodeSize
+        const insertPos = target.before ? target.targetPos : target.targetPos + targetNode.nodeSize
 
         // No-op: dropping into our own slot (immediately before or after self).
         if (insertPos === srcPos || insertPos === srcEnd) return
@@ -470,8 +643,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
         const $src = doc.resolve(srcPos)
         const $ins = doc.resolve(insertPos)
-        const parentKey = ($p: ResolvedPos) =>
-          $p.depth === 0 ? -1 : $p.before($p.depth)
+        const parentKey = ($p: ResolvedPos) => ($p.depth === 0 ? -1 : $p.before($p.depth))
         // Same-parent siblings only in this round; cross-parent drops bail.
         if (parentKey($src) !== parentKey($ins)) return
 
@@ -501,36 +673,44 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   const anchorRect = {
     left: posRef.current.left,
     top: posRef.current.top,
-    right: posRef.current.left + HANDLES_WIDTH,
+    right: posRef.current.left + HANDLE_WIDTH,
     bottom: posRef.current.top + BUTTON_H,
-    width: HANDLES_WIDTH,
+    width: HANDLE_WIDTH,
     height: BUTTON_H,
   }
 
-  function openInsertFromPlus() {
-    const node = editor.state.doc.nodeAt(handle.nodePos)
-    if (!node) return
-
-    // If the current block is an empty paragraph, transform it in place
-    // (cursor moves inside it). Otherwise insert a new empty paragraph below
-    // and focus that.
-    const isEmptyPara = node.type.name === "paragraph" && node.content.size === 0
-
-    if (isEmptyPara) {
-      editor.chain().focus().setTextSelection(handle.nodePos + 1).run()
-      setActionsOpen(false)
-      setInsertPanel({ open: true, anchorPos: handle.nodePos })
-    } else {
-      const after = handle.nodePos + node.nodeSize
-      editor
-        .chain()
-        .focus()
-        .insertContentAt(after, { type: "paragraph" })
-        .setTextSelection(after + 1)
-        .run()
-      setActionsOpen(false)
-      setInsertPanel({ open: true, anchorPos: after })
+  function openInsertAt(insertPos: number) {
+    const listItem = handle.nodeType === "listItem" || handle.nodeType === "taskItem"
+    const newBlock = listItem
+      ? {
+          type: handle.nodeType,
+          attrs: handle.nodeType === "taskItem" ? { checked: false } : undefined,
+          content: [{ type: "paragraph" }],
+        }
+      : { type: "paragraph" }
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(insertPos, newBlock)
+      .setTextSelection(insertPos + (listItem ? 2 : 1))
+      .run()
+    pinnedTargetRef.current = {
+      mode: "block",
+      nodePos: insertPos,
+      nodeType: listItem ? handle.nodeType : "paragraph",
     }
+    window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
+    setActionsOpen(false)
+    setInsertPanel({ open: true, anchorPos: insertPos })
+  }
+
+  function insertAboveBlock() {
+    openInsertAt(handle.nodePos)
+  }
+
+  function insertBelowBlock() {
+    const node = editor.state.doc.nodeAt(handle.nodePos)
+    if (node) openInsertAt(handle.nodePos + node.nodeSize)
   }
 
   function duplicateBlock() {
@@ -548,7 +728,11 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   }
 
   function focusInsideBlock() {
-    editor.chain().focus().setTextSelection(handle.nodePos + 1).run()
+    editor
+      .chain()
+      .focus()
+      .setTextSelection(handle.nodePos + 1)
+      .run()
   }
 
   return createPortal(
@@ -561,20 +745,20 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     >
       <button
         type="button"
-        className="amby-block-handle-btn"
-        title="Insert block below"
-        onMouseDown={e => e.preventDefault()}
-        onClick={openInsertFromPlus}
-      >
-        <Plus className="size-3.5" />
-      </button>
-
-      <button
-        type="button"
         className="amby-block-handle-btn amby-block-handle-grip"
-        title="Drag to reorder · Click for block actions"
-        onMouseDown={e => e.preventDefault()}
+        onMouseDown={(e) => e.preventDefault()}
         onPointerDown={startDrag}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setInsertPanel({ open: false, anchorPos: -1 })
+          pinnedTargetRef.current = {
+            mode: "block",
+            nodePos: handle.nodePos,
+            nodeType: handle.nodeType,
+          }
+          window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
+          setActionsOpen(true)
+        }}
       >
         <GripVertical className="size-3.5" />
       </button>
@@ -585,7 +769,10 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           vaultPath={vaultPath}
           notePath={notePath}
           anchorRect={anchorRect}
-          onClose={() => setInsertPanel({ open: false, anchorPos: -1 })}
+          onClose={() => {
+            pinnedTargetRef.current = null
+            setInsertPanel({ open: false, anchorPos: -1 })
+          }}
         />
       )}
 
@@ -600,14 +787,21 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           anchorRect={anchorRect}
           onDuplicate={() => {
             duplicateBlock()
+            pinnedTargetRef.current = null
             setActionsOpen(false)
           }}
           onDelete={() => {
             deleteBlock()
+            pinnedTargetRef.current = null
             setActionsOpen(false)
           }}
+          onInsertAbove={insertAboveBlock}
+          onInsertBelow={insertBelowBlock}
           onFocusInsideBlock={focusInsideBlock}
-          onClose={() => setActionsOpen(false)}
+          onClose={() => {
+            pinnedTargetRef.current = null
+            setActionsOpen(false)
+          }}
         />
       )}
     </div>,

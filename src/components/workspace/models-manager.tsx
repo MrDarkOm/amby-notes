@@ -9,14 +9,20 @@ import { AI_PROVIDERS, blankModel, findProvider, type AiModel, type AiSettings }
 
 // ── Models library manager ────────────────────────────────────────────────────
 
-export function ModelsManager({ ai, onChange }: { ai: AiSettings; onChange: (next: AiSettings) => void }) {
+export function ModelsManager({
+  ai,
+  onChange,
+}: {
+  ai: AiSettings
+  onChange: (next: AiSettings) => void
+}) {
   const { t } = useTranslation()
   const updateModel = (next: AiModel) =>
-    onChange({ ...ai, models: ai.models.map(m => (m.id === next.id ? next : m)) })
+    onChange({ ...ai, models: ai.models.map((m) => (m.id === next.id ? next : m)) })
 
   const deleteModel = (id: string) => {
-    const models = ai.models.filter(m => m.id !== id)
-    const activeModelId = ai.activeModelId === id ? models[0]?.id ?? null : ai.activeModelId
+    const models = ai.models.filter((m) => m.id !== id)
+    const activeModelId = ai.activeModelId === id ? (models[0]?.id ?? null) : ai.activeModelId
     onChange({ models, activeModelId })
   }
 
@@ -33,7 +39,7 @@ export function ModelsManager({ ai, onChange }: { ai: AiSettings; onChange: (nex
             {t("models.empty")}
           </p>
         )}
-        {ai.models.map(m => (
+        {ai.models.map((m) => (
           <ModelEditor
             key={m.id}
             model={m}
@@ -69,25 +75,25 @@ function ModelEditor({
   const { t } = useTranslation()
   const provider = findProvider(model.provider)
   const field =
-    "h-7 w-full min-w-0 rounded border border-border bg-card px-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-sky-700"
+    "h-7 w-full min-w-0 rounded border border-border bg-card px-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
   const label = "text-[10px] uppercase tracking-wider text-muted-foreground"
   const set = (patch: Partial<AiModel>) => onChange({ ...model, ...patch })
 
-  const locals = AI_PROVIDERS.filter(p => p.kind === "local")
-  const clouds = AI_PROVIDERS.filter(p => p.kind === "cloud")
+  const locals = AI_PROVIDERS.filter((p) => p.kind === "local")
+  const clouds = AI_PROVIDERS.filter((p) => p.kind === "cloud")
 
   return (
     <div
       className={cn(
         "flex flex-col gap-2 rounded-lg border bg-background p-2.5",
-        active ? "border-sky-800/60" : "border-border",
+        active ? "border-ring/60" : "border-border",
       )}
     >
       <div className="flex items-center gap-2">
         <input
           className={cn(field, "flex-1 font-medium")}
           value={model.label}
-          onChange={e => set({ label: e.target.value })}
+          onChange={(e) => set({ label: e.target.value })}
           placeholder={t("models.namePlaceholder")}
         />
         <button
@@ -102,16 +108,20 @@ function ModelEditor({
 
       <div className="flex flex-col gap-1">
         <label className={label}>{t("models.provider")}</label>
-        <select className={field} value={model.provider} onChange={e => set({ provider: e.target.value })}>
+        <select
+          className={field}
+          value={model.provider}
+          onChange={(e) => set({ provider: e.target.value })}
+        >
           <optgroup label={t("models.local")}>
-            {locals.map(p => (
+            {locals.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
               </option>
             ))}
           </optgroup>
           <optgroup label={t("models.cloud")}>
-            {clouds.map(p => (
+            {clouds.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.label}
               </option>
@@ -121,11 +131,13 @@ function ModelEditor({
       </div>
 
       <div className="flex flex-col gap-1">
-        <label className={label}>{provider?.azure ? t("models.deploymentName") : t("models.model")}</label>
+        <label className={label}>
+          {provider?.azure ? t("models.deploymentName") : t("models.model")}
+        </label>
         <input
           className={field}
           value={model.model}
-          onChange={e => set({ model: e.target.value })}
+          onChange={(e) => set({ model: e.target.value })}
           placeholder={provider?.defaultModel || t("models.modelPlaceholder")}
         />
       </div>
@@ -135,9 +147,10 @@ function ModelEditor({
         <input
           className={field}
           value={model.baseUrl}
-          onChange={e => set({ baseUrl: e.target.value })}
+          onChange={(e) => set({ baseUrl: e.target.value })}
           placeholder={
-            provider?.defaultBaseUrl || (provider?.azure ? "https://<resource>.openai.azure.com" : t("models.optional"))
+            provider?.defaultBaseUrl ||
+            (provider?.azure ? "https://<resource>.openai.azure.com" : t("models.optional"))
           }
         />
       </div>
@@ -149,7 +162,7 @@ function ModelEditor({
             className={field}
             type="password"
             value={model.apiKey}
-            onChange={e => set({ apiKey: e.target.value })}
+            onChange={(e) => set({ apiKey: e.target.value })}
             placeholder={t("models.keyPlaceholder")}
           />
         </div>
@@ -157,20 +170,18 @@ function ModelEditor({
 
       {provider?.azure && (
         <div className="flex flex-col gap-1">
-          <label className={label}>API version</label>
+          <label className={label}>{t("models.apiVersion")}</label>
           <input
             className={field}
             value={model.apiVersion}
-            onChange={e => set({ apiVersion: e.target.value })}
+            onChange={(e) => set({ apiVersion: e.target.value })}
             placeholder="2024-06-01"
           />
         </div>
       )}
 
       {provider?.kind === "cloud" && (
-        <p className="text-[10px] leading-snug text-muted-foreground">
-          {t("models.privacyNote")}
-        </p>
+        <p className="text-[10px] leading-snug text-muted-foreground">{t("models.privacyNote")}</p>
       )}
     </div>
   )

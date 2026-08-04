@@ -258,7 +258,7 @@ const TreeNode = React.memo(
         onBlur={commitRename}
         onKeyDown={handleKeyDown}
         onClick={(e) => e.stopPropagation()}
-        className="w-full min-w-0 rounded bg-accent px-1 text-[13px] text-foreground outline-none ring-1 ring-blue-500"
+        className="w-full min-w-0 rounded bg-accent px-1 text-[13px] text-foreground outline-none ring-1 ring-ring"
       />
     ) : (
       <span className="truncate">{item.name}</span>
@@ -480,7 +480,7 @@ const TreeNode = React.memo(
         <>
           <div
             data-drag-target={item.type === "folder" || item.type === "file" ? item.id : undefined}
-            className={cn(isDragTarget && "rounded ring-1 ring-inset ring-blue-500 bg-blue-900/20")}
+            className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
           >
             <ContextMenu>
               <ContextMenuTrigger asChild>
@@ -529,9 +529,7 @@ const TreeNode = React.memo(
               data-drag-target={
                 item.type === "folder" || item.type === "file" ? item.id : undefined
               }
-              className={cn(
-                isDragTarget && "rounded ring-1 ring-inset ring-blue-500 bg-blue-900/20",
-              )}
+              className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
             >
               <button
                 onPointerDown={handlePointerDown}

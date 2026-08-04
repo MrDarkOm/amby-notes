@@ -9,23 +9,25 @@ export interface DnDState {
 export interface DropTarget {
   defId: string | "__end__"
   side: "left" | "right"
+  zone: "view" | "action"
 }
 
 interface UseActivityDnDOptions {
   /** Move a button to (side, beforeDefId | "__end__"). */
   onDrop: (defId: string, side: "left" | "right", beforeDefId: string | "__end__") => void
+  zoneForButton: (defId: string) => "view" | "action"
 }
 
 const DRAG_THRESHOLD = 4
 
 /** Pointer-based DnD for activity bar buttons. Buttons must carry data-activity-button="<defId>"
  * and live inside an element with data-activity-bar="left|right". */
-export function useActivityDnD({ onDrop }: UseActivityDnDOptions) {
+export function useActivityDnD({ onDrop, zoneForButton }: UseActivityDnDOptions) {
   const [draggingId, setDraggingId] = React.useState<string | null>(null)
   const ghostRef = React.useRef<HTMLDivElement | null>(null)
 
   const clearTargets = React.useCallback(() => {
-    document.querySelectorAll<HTMLElement>("[data-drop-target='true']").forEach(el => {
+    document.querySelectorAll<HTMLElement>("[data-drop-target='true']").forEach((el) => {
       el.removeAttribute("data-drop-target")
     })
   }, [])
@@ -34,6 +36,7 @@ export function useActivityDnD({ onDrop }: UseActivityDnDOptions) {
     (defId: string, fromEl: HTMLElement, startX: number, startY: number) => {
       let started = false
       let lastDrop: DropTarget | null = null
+      const movingZone = zoneForButton(defId)
 
       function ensureGhost() {
         if (ghostRef.current) return ghostRef.current
@@ -63,12 +66,21 @@ export function useActivityDnD({ onDrop }: UseActivityDnDOptions) {
           const id = btn.getAttribute("data-activity-button") ?? ""
           const sideEl = btn.closest<HTMLElement>("[data-activity-bar]")
           const side = (sideEl?.getAttribute("data-activity-bar") ?? "left") as "left" | "right"
-          return { defId: id, side }
+          const targetZone = btn.getAttribute("data-activity-zone")
+          return targetZone === movingZone
+            ? { defId: id, side, zone: movingZone }
+            : { defId: "__end__", side, zone: movingZone }
+        }
+        const zone = el.closest<HTMLElement>("[data-activity-zone]")
+        if (zone) {
+          const bar = zone.closest<HTMLElement>("[data-activity-bar]")
+          const side = (bar?.getAttribute("data-activity-bar") ?? "left") as "left" | "right"
+          return { defId: "__end__", side, zone: movingZone }
         }
         const bar = el.closest<HTMLElement>("[data-activity-bar]")
         if (bar) {
           const side = (bar.getAttribute("data-activity-bar") ?? "left") as "left" | "right"
-          return { defId: "__end__", side }
+          return { defId: "__end__", side, zone: movingZone }
         }
         return null
       }
@@ -77,8 +89,10 @@ export function useActivityDnD({ onDrop }: UseActivityDnDOptions) {
         clearTargets()
         if (!target) return
         if (target.defId === "__end__") {
-          const bar = document.querySelector<HTMLElement>(`[data-activity-bar='${target.side}']`)
-          bar?.setAttribute("data-drop-target", "true")
+          const zone = document.querySelector<HTMLElement>(
+            `[data-activity-bar='${target.side}'] [data-activity-zone='${target.zone}']`,
+          )
+          zone?.setAttribute("data-drop-target", "true")
           return
         }
         const btn = document.querySelector<HTMLElement>(`[data-activity-button='${target.defId}']`)
@@ -123,7 +137,7 @@ export function useActivityDnD({ onDrop }: UseActivityDnDOptions) {
       window.addEventListener("pointermove", onMove)
       window.addEventListener("pointerup", onUp)
     },
-    [clearTargets, onDrop],
+    [clearTargets, onDrop, zoneForButton],
   )
 
   const onPointerDown = React.useCallback(

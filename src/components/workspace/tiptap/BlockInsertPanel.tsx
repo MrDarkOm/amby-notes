@@ -49,18 +49,19 @@ export function BlockInsertPanel({
   const { t } = useTranslation()
   const tauri = isTauri()
 
-  const all = React.useMemo(
-    () => (source === "slash" ? getSlashItems() : getPlusItems()),
-    [source],
-  )
+  const all = React.useMemo(() => (source === "slash" ? getSlashItems() : getPlusItems()), [source])
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase()
     const list = q
-      ? all.filter(i => `${i.title} ${i.hint}`.toLowerCase().includes(q))
+      ? all.filter((i) =>
+          `${t(`blockItems.${i.id}.title`)} ${t(`blockItems.${i.id}.hint`)}`
+            .toLowerCase()
+            .includes(q),
+        )
       : all
     return list
-  }, [all, query])
+  }, [all, query, t])
 
   React.useEffect(() => {
     if (mode === "list") searchRef.current?.focus()
@@ -113,7 +114,11 @@ export function BlockInsertPanel({
   function applyUrl() {
     const url = urlValue.trim()
     if (!url) return
-    editor.chain().focus().insertContent({ type: "image", attrs: { src: url } }).run()
+    editor
+      .chain()
+      .focus()
+      .insertContent({ type: "image", attrs: { src: url } })
+      .run()
     onClose()
   }
 
@@ -133,10 +138,10 @@ export function BlockInsertPanel({
     if (filtered.length === 0) return
     if (e.key === "ArrowDown") {
       e.preventDefault()
-      setActive(a => Math.min(a + 1, filtered.length - 1))
+      setActive((a) => Math.min(a + 1, filtered.length - 1))
     } else if (e.key === "ArrowUp") {
       e.preventDefault()
-      setActive(a => Math.max(a - 1, 0))
+      setActive((a) => Math.max(a - 1, 0))
     }
   }
 
@@ -156,7 +161,7 @@ export function BlockInsertPanel({
       className="amby-block-panel amby-block-panel--insert"
       data-mode={mode}
       style={placementStyle}
-      onMouseDown={e => e.preventDefault()}
+      onMouseDown={(e) => e.preventDefault()}
     >
       {mode === "list" && (
         <>
@@ -165,7 +170,7 @@ export function BlockInsertPanel({
               ref={searchRef}
               type="text"
               value={query}
-              onChange={e => setQuery(e.target.value)}
+              onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onListKeyDown}
               placeholder={t("blockPanel.searchPlaceholder")}
               className="amby-block-panel-search"
@@ -191,8 +196,8 @@ export function BlockInsertPanel({
                     onClick={() => choose(item)}
                   >
                     <item.icon className="amby-block-row-icon" />
-                    <span className="amby-block-row-label">{item.title}</span>
-                    <span className="amby-block-row-hint">{item.hint}</span>
+                    <span className="amby-block-row-label">{t(`blockItems.${item.id}.title`)}</span>
+                    <span className="amby-block-row-hint">{t(`blockItems.${item.id}.hint`)}</span>
                   </button>
                 )
               })
@@ -212,10 +217,10 @@ export function BlockInsertPanel({
             ref={urlRef}
             type="url"
             value={urlValue}
-            onChange={e => setUrlValue(e.target.value)}
+            onChange={(e) => setUrlValue(e.target.value)}
             onKeyDown={onUrlKeyDown}
-            placeholder="https://example.com/image.png"
-            onMouseDown={e => e.stopPropagation()}
+            placeholder={t("blockPanel.imageUrlPlaceholder")}
+            onMouseDown={(e) => e.stopPropagation()}
           />
           <div className="amby-block-panel-url-actions">
             <button type="button" onClick={() => setMode("list")}>
@@ -229,9 +234,9 @@ export function BlockInsertPanel({
       )}
 
       {mode === "emoji" && (
-        <div className="amby-block-panel-emoji" onMouseDown={e => e.stopPropagation()}>
+        <div className="amby-block-panel-emoji" onMouseDown={(e) => e.stopPropagation()}>
           <EmojiPickerPanel
-            onSelect={emoji => {
+            onSelect={(emoji) => {
               editor.chain().focus().insertContent(emoji.native).run()
               onClose()
             }}

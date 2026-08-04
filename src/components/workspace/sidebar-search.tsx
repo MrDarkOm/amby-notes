@@ -43,7 +43,9 @@ function highlight(text: string, query: string): React.ReactNode {
   return (
     <>
       {text.slice(0, idx)}
-      <mark className="bg-transparent text-violet-400 font-semibold">{text.slice(idx, idx + query.length)}</mark>
+      <mark className="bg-transparent font-semibold text-primary">
+        {text.slice(idx, idx + query.length)}
+      </mark>
       {text.slice(idx + query.length)}
     </>
   )
@@ -74,14 +76,22 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
 
   React.useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    if (!query.trim()) { setResults([]); setSelectedIndex(0); return }
+    if (!query.trim()) {
+      setResults([])
+      setSelectedIndex(0)
+      return
+    }
 
     const flat = flattenTree(items)
-    const isTagQuery = query.startsWith('#')
+    const isTagQuery = query.startsWith("#")
 
     if (isTagQuery) {
       const tagQ = query.slice(1).trim().toLowerCase()
-      if (!tagQ) { setResults([]); setSelectedIndex(0); return }
+      if (!tagQ) {
+        setResults([])
+        setSelectedIndex(0)
+        return
+      }
 
       if (!readFile) return
       setSearching(true)
@@ -95,19 +105,21 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
           flat.map(async ({ item, path }) => {
             try {
               const content = await readFile(item.id)
-              const tags = [...content.matchAll(TAG_RE)].map(m => m[1].toLowerCase())
-              const matched = tags.filter(t => t.includes(tagQ))
+              const tags = [...content.matchAll(TAG_RE)].map((m) => m[1].toLowerCase())
+              const matched = tags.filter((t) => t.includes(tagQ))
               if (matched.length > 0) {
                 tagResults.push({
                   item,
                   path,
                   matchType: "tag" as const,
-                  snippet: [...new Set(matched)].map(t => `#${t}`).join('  '),
-                  score: matched.some(t => t === tagQ) ? 2 : 1,
+                  snippet: [...new Set(matched)].map((t) => `#${t}`).join("  "),
+                  score: matched.some((t) => t === tagQ) ? 2 : 1,
                 })
               }
-            } catch { /* skip */ }
-          })
+            } catch {
+              /* skip */
+            }
+          }),
         )
 
         setResults(tagResults.sort((a, b) => b.score - a.score))
@@ -135,7 +147,7 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
         setSearching(true)
         debounceRef.current = setTimeout(async () => {
           const contentResults: SearchResult[] = []
-          const nameMatchIds = new Set(nameResults.map(r => r.item.id))
+          const nameMatchIds = new Set(nameResults.map((r) => r.item.id))
 
           await Promise.allSettled(
             flat
@@ -152,11 +164,13 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
                       score: 0,
                     })
                   }
-                } catch { /* skip */ }
-              })
+                } catch {
+                  /* skip */
+                }
+              }),
           )
 
-          setResults(prev => [...prev, ...contentResults])
+          setResults((prev) => [...prev, ...contentResults])
           setSearching(false)
         }, 300)
       }
@@ -170,10 +184,10 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown") {
       e.preventDefault()
-      setSelectedIndex(i => Math.min(i + 1, results.length - 1))
+      setSelectedIndex((i) => Math.min(i + 1, results.length - 1))
     } else if (e.key === "ArrowUp") {
       e.preventDefault()
-      setSelectedIndex(i => Math.max(i - 1, 0))
+      setSelectedIndex((i) => Math.max(i - 1, 0))
     } else if (e.key === "Enter") {
       e.preventDefault()
       if (results[selectedIndex]) onSelect(results[selectedIndex].item.id)
@@ -184,7 +198,9 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
 
   // Scroll selected item into view
   React.useEffect(() => {
-    const el = listRef.current?.querySelector(`[data-result="${selectedIndex}"]`) as HTMLElement | null
+    const el = listRef.current?.querySelector(
+      `[data-result="${selectedIndex}"]`,
+    ) as HTMLElement | null
     el?.scrollIntoView({ block: "nearest" })
   }, [selectedIndex])
 
@@ -197,13 +213,16 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
           <input
             ref={inputRef}
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t("search.placeholder")}
             className="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground outline-none"
           />
           {query && (
-            <button onClick={() => setQuery("")} className="text-muted-foreground hover:text-muted-foreground">
+            <button
+              onClick={() => setQuery("")}
+              className="text-muted-foreground hover:text-muted-foreground"
+            >
               <X className="size-3" />
             </button>
           )}
@@ -216,13 +235,19 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
           <div className="flex flex-col items-center justify-center py-10 text-center px-4">
             <Search className="mb-2 size-8 text-muted-foreground" />
             <p className="text-[12px] text-muted-foreground">{t("search.prompt")}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">{t("search.tagHintPre")} <span className="text-violet-500">#{t("search.tagWord")}</span> {t("search.tagHintPost")}</p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {t("search.tagHintPre")} <span className="text-primary">#{t("search.tagWord")}</span>{" "}
+              {t("search.tagHintPost")}
+            </p>
           </div>
-        ) : query === '#' ? (
+        ) : query === "#" ? (
           <div className="flex flex-col items-center justify-center py-10 text-center px-4">
             <Hash className="mb-2 size-8 text-muted-foreground" />
             <p className="text-[12px] text-muted-foreground">{t("search.keepTyping")}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">{t("search.examplePrefix")} <span className="text-violet-500">#{t("search.exampleTag")}</span></p>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              {t("search.examplePrefix")}{" "}
+              <span className="text-primary">#{t("search.exampleTag")}</span>
+            </p>
           </div>
         ) : results.length === 0 && !searching ? (
           <div className="flex flex-col items-center justify-center py-10 text-center">
@@ -239,36 +264,44 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
                 onMouseEnter={() => setSelectedIndex(i)}
                 className={cn(
                   "flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left transition-colors",
-                  i === selectedIndex ? "bg-accent" : "hover:bg-accent/60"
+                  i === selectedIndex ? "bg-accent" : "hover:bg-accent/60",
                 )}
               >
                 <div className="flex items-center gap-1.5 w-full min-w-0">
-                  {result.matchType === "tag"
-                    ? <Hash className="size-3.5 shrink-0 text-violet-400" />
-                    : <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                  }
+                  {result.matchType === "tag" ? (
+                    <Hash className="size-3.5 shrink-0 text-primary" />
+                  ) : (
+                    <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+                  )}
                   <span className="truncate text-[13px] text-foreground">
                     {result.matchType === "tag"
                       ? result.item.name
-                      : highlight(result.item.name, query.trim())
-                    }
+                      : highlight(result.item.name, query.trim())}
                   </span>
                   {result.matchType === "content" && (
-                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{t("search.contentBadge")}</span>
+                    <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">
+                      {t("search.contentBadge")}
+                    </span>
                   )}
                 </div>
                 {result.path && (
-                  <span className="truncate pl-5 text-[11px] text-muted-foreground">{result.path}</span>
+                  <span className="truncate pl-5 text-[11px] text-muted-foreground">
+                    {result.path}
+                  </span>
                 )}
                 {result.snippet && (
-                  <p className="pl-5 text-[11px] leading-tight text-violet-400/70 line-clamp-1">
-                    {result.matchType === "tag" ? result.snippet : highlight(result.snippet, query.trim())}
+                  <p className="pl-5 text-[11px] leading-tight text-primary/70 line-clamp-1">
+                    {result.matchType === "tag"
+                      ? result.snippet
+                      : highlight(result.snippet, query.trim())}
                   </p>
                 )}
               </button>
             ))}
             {searching && (
-              <p className="px-2 py-1 text-[11px] text-muted-foreground">{t("search.searchingContent")}</p>
+              <p className="px-2 py-1 text-[11px] text-muted-foreground">
+                {t("search.searchingContent")}
+              </p>
             )}
           </div>
         )}

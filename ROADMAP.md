@@ -1,174 +1,244 @@
 # Amby — roadmap к версии 1.0
 
-> **Цель:** превратить Amby в надёжный, локальный и расширяемый desktop-заметник,
-> который может ежедневно использовать тот же vault, что и Obsidian, не повреждая
-> данные и не привязывая пользователя к закрытому формату.
+> **Цель:** создать полностью open-source local-first knowledge workspace для
+> личных заметок и проектов, который объединяет владение Markdown-файлами и
+> сильную навигацию в духе Obsidian с удобством Properties, Collections, views
+> и workspace-подхода в духе Notion. Amby не должен быть копией ни одного из
+> этих продуктов.
 
----
+Roadmap описывает продукт, а не набор обязательных клонов чужих функций.
+Совместимость с Obsidian важна как защита данных и способ постепенно открыть
+существующий vault, но глубокая совместимость не является блокером для каждой
+функции Amby.
 
 ## Содержание
 
-1. [Продуктовые решения](#1-продуктовые-решения)
+1. [Продуктовая позиция](#1-продуктовая-позиция)
 2. [Границы версии 1.0](#2-границы-версии-10)
-3. [Принципы разработки](#3-принципы-разработки)
+3. [Модель совместимости](#3-модель-совместимости)
 4. [Текущее состояние](#4-текущее-состояние)
 5. [Карта релизов](#5-карта-релизов)
 6. [Подробный план](#6-подробный-план)
 7. [Сквозные требования](#7-сквозные-требования)
 8. [Definition of Done](#8-definition-of-done)
-9. [Риски и сложные решения](#9-риски-и-сложные-решения)
+9. [Риски и решения](#9-риски-и-решения)
 10. [После версии 1.0](#10-после-версии-10)
 
 ---
 
-## 1. Продуктовые решения
+## 1. Продуктовая позиция
 
-Эти решения утверждены и являются исходными ограничениями roadmap.
+### 1.1. Что такое Amby
 
-| Область | Решение |
-|---|---|
-| Совместимость vault | Один vault должен попеременно открываться в Amby и Obsidian без повреждений |
-| Идентификаторы | Amby может добавлять служебный `id` во frontmatter заметок |
-| Приоритетные возможности | Canvas, Excalidraw, Templates и Databases |
-| Расширения | Отдельная экосистема и API плагинов Amby |
-| Мобильная версия | Не входит в 1.0 |
-| Синхронизация | Git и собственная E2EE-синхронизация |
-| Self-hosting | Пользователь может развернуть собственный сервер синхронизации |
-| Совместная работа | Нужна в будущем, но не входит в 1.0 |
-| Публикация | Нужна в будущем, но не входит в 1.0 |
+Amby — полностью open-source local-first рабочее пространство прежде всего для
+личных заметок и проектов. Архитектура должна оставаться модульной, чтобы
+разные люди могли включать собственные сценарии, модули и уровень сложности,
+не превращая продукт в перегруженную универсальную систему.
 
-### Главный инвариант
+Его основа:
 
-> Ни одна функция Amby не должна делать существующую заметку, вложение, Canvas или
-> Excalidraw-файл непригодными для дальнейшего использования в Obsidian.
+- пользователь владеет Markdown-файлами и вложениями;
+- быстрые ссылки, backlinks, граф и Canvas дают опыт knowledge management;
+- Properties, Collections, table/list/board views и составные workspace дают
+  структурированный опыт без необходимости превращать всё в отдельные базы;
+- блочный редактор на базе Tiptap и исходный Markdown-редактор остаются двумя
+  равноправными способами работы с одним документом;
+- заметка может оставаться обычным Markdown-файлом, а структурированные функции
+  добавляют удобство поверх него;
+- AI является помощником внутри рабочего процесса, а не обязательным облачным
+  сервисом.
+
+### 1.2. Принятые продуктовые решения
+
+| Область               | Решение                                                                                                                             |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Позиционирование      | Local-first гибрид Obsidian + Notion с самостоятельным UX Amby                                                                      |
+| Основной пользователь | Человек, ведущий личные заметки и проекты; модули расширяют сценарии для разных людей                                               |
+| Лицензирование        | Основной продукт полностью open-source, без закрытого ядра и обязательного облака                                                   |
+| Источник данных       | Markdown и вложения принадлежат пользователю; SQLite — только индекс                                                                |
+| Редактор              | Блочный редактор на Tiptap и исходный Markdown/source editor работают с одним документом                                            |
+| Совместимость         | Сначала сохранность и переносимость, затем удобство; идеальная совместимость не обязательна для каждой функции                      |
+| Уникальная ценность   | Open-source local-first UX, два режима редактирования, Properties/Collections, модульность и безопасная работа с локальными данными |
+| Внешний вид           | Собственная модель workspace, а не копирование интерфейса Obsidian или Notion                                                       |
+| Мобильная версия      | Не входит в 1.0                                                                                                                     |
+| Git                   | Обязателен в 1.0 как часть локального versioning/workflow; не заменяет Markdown как источник правды                                 |
+| E2EE sync             | Эксперимент после доказательства локальной модели; не обязательный release gate 1.0                                                 |
+| Self-hosting          | После стабилизации sync-протокола; не обязательный release gate 1.0                                                                 |
+| Plugin API            | Сначала внутренний module seam и first-party расширения; публичный runtime после стабилизации ядра                                  |
+| AI                    | В 1.0 доступны локальные и облачные провайдеры с явным выбором data flow                                                            |
+| Canvas                | В 1.0 нужен полноценный редактор собственного Canvas-формата; глубокая совместимость с Excalidraw — отдельный уровень               |
+| Совместная работа     | После 1.0                                                                                                                           |
+| Публикация            | После 1.0                                                                                                                           |
+
+### 1.3. Главный инвариант
+
+> Ни одна функция Amby не должна молча уничтожать или делать недоступными
+> пользовательские заметки, вложения или поддерживаемые визуальные файлы.
+
+Если Amby не умеет безопасно представить конструкцию в визуальном редакторе,
+он сохраняет её как Source-only, opaque block или предлагает отказаться от
+операции. Это важнее полноты списка поддерживаемых форматов.
+
+### 1.4. Рабочее решение по Collections
+
+Collection — это сохранённое представление набора Markdown-заметок и их
+Properties, а не отдельная закрытая база данных. Рабочее направление для 1.0:
+
+- определение Collection хранится в обычной Markdown-странице с документированным
+  frontmatter;
+- строки и значения берутся из заметок и Properties, а не копируются в отдельное
+  хранилище;
+- layout, фильтры, сортировка и grouping являются переносимым описанием view;
+- временный индекс SQLite остаётся производным и может быть пересоздан.
+
+То есть пользователь открывает Collection как страницу, а не получает новый
+закрытый database-файл. Формат можно уточнить после первого прототипа, но
+источник содержимого не должен измениться.
 
 ---
 
 ## 2. Границы версии 1.0
 
-### Входит в 1.0
+### 2.1. Обязательное ядро 1.0
 
-- Надёжная работа с локальным Markdown-vault.
-- Безопасное попеременное использование vault в Amby и Obsidian.
-- Lossless-редактирование поддерживаемого Markdown и сохранение неизвестной разметки.
-- Properties/frontmatter, wikilinks, backlinks, embeds, tags и граф.
-- Быстрый индексированный поиск с операторами.
-- Templates, Daily Notes, Periodic Notes и рабочий процесс задач.
-- Совместимый Canvas и полноценная работа с Excalidraw-файлами.
-- Databases/Collections поверх Markdown и properties.
-- Git-интеграция.
-- E2EE-синхронизация с официальным и self-hosted сервером.
-- Собственный безопасный plugin API Amby.
-- Стабильные Windows-сборки; архитектура без блокеров для macOS/Linux.
-- Импорт существующего Obsidian vault без необратимой миграции.
+- Надёжный локальный vault без аккаунта и интернета.
+- Markdown/source editor, Live Preview и безопасный режим чтения.
+- Properties: просмотр и редактирование основных типов без потери неизвестного
+  YAML.
+- Собственная модель блоков, которая остаётся переносимой и понятной как Markdown.
+- Collections поверх Markdown и Properties: table, list и board views; фильтры,
+  сортировка, grouping и сохранённые представления.
+- Wikilinks, backlinks, outgoing links, unresolved links и базовый граф.
+- Templates, Daily Notes и базовый task workflow.
+- Workspace: tabs, split, focus mode, named layouts/presets, recent items и
+  быстрый переход.
+- Полноценный Canvas-редактор собственного формата: создание и редактирование
+  nodes/edges, pan/zoom, selection, grouping, resize, undo/redo, search и
+  безопасное сохранение неизвестных полей.
+- AI-панель с локальными и подключаемыми внешними провайдерами; без требования
+  отправлять заметки в облако.
+- Git status/diff/commit, история, pull/push/fetch и понятный conflict workflow.
+- История, backup, recovery drafts, внешние конфликты и безопасные rename/move.
+- Импорт существующего Markdown-vault без необратимой миграции.
+- Стабильная Windows-сборка и рабочий путь на macOS/Linux без архитектурных
+  блокеров.
 
-### Не входит в 1.0
+### 2.2. Желательно, но не должно задерживать 1.0
 
-- Мобильное приложение.
-- Одновременное совместное редактирование документа несколькими людьми.
-- Публичная публикация vault в интернете.
+- Более глубокая совместимость Canvas.
+- Полный round-trip для Excalidraw и расширенных чужих Canvas-форматов.
+- Дополнительные view-типы: gallery и calendar.
+- Локальные semantic/AI queries за feature flag.
+
+### 2.3. После 1.0
+
+- Полноценный Excalidraw editor с round-trip неизвестных полей.
+- Полноценный E2EE sync и self-hosted server.
+- Публичный plugin runtime, marketplace и подписанные packages.
+- Одновременное редактирование, shared vault и роли.
+- Web client, mobile apps и публикация.
+
+### 2.4. Явно не является целью 1.0
+
 - Бинарная совместимость с плагинами Obsidian.
-- Облачный web-редактор.
-
-Эти возможности планируются после стабилизации форматов и API версии 1.0.
+- Полное повторение интерфейса Obsidian.
+- Полное повторение интерфейса Notion.
+- Закрытая база данных как единственный источник содержимого.
+- Обязательное облако или аккаунт.
 
 ---
 
-## 3. Принципы разработки
+## 3. Модель совместимости
 
-### 3.1. Local-first
+Совместимость разделяется на уровни. Для каждой функции в спецификации нужно
+явно указать, какой уровень она обещает.
 
-- Markdown и вложения принадлежат пользователю.
-- Приложение полностью работает без интернета и аккаунта.
-- SQLite является восстанавливаемым индексом, а не единственным источником данных.
-- Удаление `.amby/notes.db` не должно приводить к потере пользовательских данных.
+| Уровень              | Обещание                                                      | Пример                                                          |
+| -------------------- | ------------------------------------------------------------- | --------------------------------------------------------------- |
+| A — Preservation     | Неизвестное содержимое не теряется и не нормализуется молча   | Footnotes или неизвестный HTML открываются в Source-only        |
+| B — Interoperability | Amby и другие Markdown-приложения понимают общий смысл данных | Frontmatter, обычные ссылки, теги, задачи, базовые Canvas nodes |
+| C — Deep support     | Есть полноценный визуальный UX и проверенный round-trip       | Собственный Amby Canvas format или будущий Excalidraw editor    |
 
-### 3.2. Совместимость важнее удобства реализации
+Правила:
 
-- Неподдерживаемая разметка должна сохраняться без изменений.
-- Перед изменением формата создаётся backup и доступен rollback.
-- Новые конструкции Amby должны оставаться читаемыми как обычный Markdown.
-- Совместимые файлы Obsidian не переименовываются и не конвертируются без согласия пользователя.
-
-### 3.3. Безопасность данных
-
-- Запись файлов — атомарная.
-- Rename/move — транзакционный на уровне операции пользователя.
-- Конфликт никогда не разрешается молчаливой перезаписью.
-- Любое массовое изменение сначала показывает preview и количество затрагиваемых файлов.
-
-### 3.4. Измеримая готовность
-
-Каждая задача считается завершённой только после:
-
-1. реализации;
-2. автоматических тестов;
-3. ручной проверки критического сценария;
-4. документации поведения и ограничений;
-5. проверки на реальном тестовом vault.
+- Любая новая функция сначала обязана закрыть уровень A.
+- Уровень B нужен для основных пользовательских сценариев.
+- Уровень C реализуется только для функций, которые оправданы продуктовой
+  ценностью Amby и имеют тестовый формат.
+- «Совместимо» нельзя писать без указания уровня, версии формата и ограничений.
+- Obsidian используется как важный interop-тест, но не является единственным
+  эталоном UX.
 
 ---
 
 ## 4. Текущее состояние
 
-### Уже реализована сильная основа
+### 4.1. Уже есть
 
-- Tauri 2, React 19, TypeScript и Rust.
-- Markdown-vault и SQLite-индекс.
-- Инкрементальное сканирование файлов.
-- Отслеживание внешних изменений через Rust watcher.
-- Файловое дерево, вкладки, история навигации и split view.
-- WYSIWYG-редактор на Tiptap и source-редактор на CodeMirror.
-- Wikilinks, tags, embeds/transclusion, callouts, tasks и таблицы.
-- Глобальный граф связей.
-- Canvas-редактор.
-- Работа с изображениями и вложениями.
-- Сессии, layouts и presets.
-- AI-панель с несколькими провайдерами.
-- 80 существующих автоматических тестов проходят.
+- Tauri 2, React 19, TypeScript, Rust и SQLite index.
+- Локальный vault, файловое дерево, tabs, split view, navigation history.
+- Tiptap Live/Read mode и CodeMirror Source mode.
+- Wikilinks, transclusion, tags, callouts, tasks, tables и opaque Markdown nodes.
+- Базовый link graph, outgoing links, backlinks и unresolved nodes.
+- Canvas editor с text/file/group nodes, edges, drag-and-drop и autosave.
+- Слои Canvas, database и Excalidraw как архитектурная основа workspace.
+- Properties read-only panel; полноценного редактора Properties ещё нет.
+- History snapshots, retention, trash, conflict dialog и recovery drafts.
+- Preflight ID migration, atomic writes, Rust watcher и incremental index updates.
+- Workspace presets, layouts, focus mode, favorites, settings и AI panel.
+- CI, generated bindings, frontend/Rust tests и startup diagnostics.
 
-### Критические пробелы
+### 4.2. Недавние UI-изменения
 
-- Dev-конфигурация способна запустить Tauri без видимого окна.
-- Нет формальной гарантии lossless Markdown round-trip.
-- Нет истории версий и полноценного crash recovery.
-- Rename/move ещё не гарантирует обновление всех ссылок и embeds.
-- Текущий поиск линейно просматривает содержимое заметок вместо FTS.
-- Нет полноценного UI для properties.
-- Backlinks представлены ограниченно; нет unlinked mentions.
-- Нет Templates/Daily Notes/общего task dashboard.
-- Canvas ещё не подтверждён как полностью совместимый с форматом Obsidian.
-- Excalidraw и Databases не завершены как пользовательские функции.
-- Нет Git UI, E2EE sync и plugin runtime.
+В августе 2026 года завершена переработка поверхности workspace в сторону
+собственного современного desktop-интерфейса: floating tabs, unified note
+surface, dock-aware sidebars, resize feedback, focus mode, подсказки на русском
+и английском, а также production frontend build.
+
+### 4.3. Что сейчас считается незавершённым
+
+- Frontmatter safety для BOM/CRLF и полная транзакционность ID migration.
+- Политика добавления Amby IDs без неожиданной записи в vault.
+- mtime/index invalidation на высокой частоте изменений.
+- Настоящий редактируемый Properties слой.
+- Collections engine и сохранённые views.
+- Unlinked mentions, alias ambiguity и контекст backlinks.
+- FTS/operators/large-vault search.
+- Templates, Daily Notes и общий task dashboard.
+- Полный Amby Canvas editor, unknown-field preservation и golden compatibility fixtures.
+- Полноценный Excalidraw UX.
+- Git UI, sync protocol и публичный plugin runtime.
+- Performance, accessibility, security review и release engineering.
 
 ---
 
 ## 5. Карта релизов
 
-| Веха | Назначение | Главный результат |
-|---|---|---|
-| **M0 — Baseline** | Воспроизводимая разработка | Проект стабильно запускается и проверяется |
-| **M1 — Vault Safety** | Защита данных | Amby безопасен для реального vault |
-| **M2 — Markdown Parity** | Совместимость | Заметки не портятся между Amby и Obsidian |
-| **M3 — Knowledge Core** | Связи и поиск | Полноценная навигация по знаниям |
-| **M4 — Daily Workflow** | Ежедневная работа | Templates, Daily Notes, Tasks, команды |
-| **M5 — Visual & Structured** | Canvas/Excalidraw/DB | Замена обязательных плагинов |
-| **M6 — Versioning & Sync** | Несколько устройств | Git + E2EE + self-hosting |
-| **M7 — Extensibility** | Экосистема | Стабильный plugin API Amby |
-| **M8 — Release Candidate** | Полировка | Производительность, безопасность, миграция |
-| **M9 — 1.0** | Стабильный выпуск | Подписанный, документированный релиз |
+| Веха                                | Назначение                 | Главный результат                                      |
+| ----------------------------------- | -------------------------- | ------------------------------------------------------ |
+| **M0 — Baseline**                   | Воспроизводимая разработка | Проверки, окно, CI и диагностика                       |
+| **M1 — Vault Safety**               | Защита данных              | Безопасный локальный источник правды                   |
+| **M2 — Amby Editor**                | Собственный редактор       | Блоки, Properties и portable Markdown model            |
+| **M3 — Knowledge & Collections**    | Структура знаний           | Ссылки, поиск, Collections и views                     |
+| **M4 — Daily Workflow**             | Ежедневная работа          | Templates, Daily Notes, Tasks и commands               |
+| **M5 — Visual Workspace**           | Визуальное мышление        | Полный Amby Canvas editor, embeds и workspace surfaces |
+| **M6 — AI & Automation**            | Помощь в работе            | AI actions, local context и безопасные automations     |
+| **M7 — Portability & Integrations** | Переносимость              | Git baseline, import/export и interop reports          |
+| **M8 — Release Candidate**          | Стабилизация               | Performance, accessibility, security и migration       |
+| **M9 — Amby 1.0**                   | Выпуск                     | Подписанный и документированный релиз                  |
 
 ### Зависимости
 
 ```mermaid
 flowchart LR
     M0["M0: Baseline"] --> M1["M1: Vault Safety"]
-    M1 --> M2["M2: Markdown Parity"]
-    M2 --> M3["M3: Knowledge Core"]
-    M3 --> M4["M4: Daily Workflow"]
-    M3 --> M5["M5: Visual & Structured"]
-    M2 --> M6["M6: Versioning & Sync"]
-    M3 --> M7["M7: Extensibility"]
+    M1 --> M2["M2: Amby Editor"]
+    M2 --> M3["M3: Knowledge & Collections"]
+    M2 --> M4["M4: Daily Workflow"]
+    M3 --> M4
+    M2 --> M5["M5: Visual Workspace"]
+    M3 --> M6["M6: AI & Automation"]
+    M1 --> M7["M7: Portability & Integrations"]
     M4 --> M8["M8: Release Candidate"]
     M5 --> M8
     M6 --> M8
@@ -180,516 +250,289 @@ flowchart LR
 
 ## 6. Подробный план
 
-## M0 — Baseline: стабильный запуск и контроль качества
-
-### M0.1. Исправить жизненный цикл окна Tauri
-
-- [ ] Устранить зависимость dev-окна от неявного поведения Tauri CLI.
-- [ ] Создавать главное окно ровно один раз в dev и production.
-- [ ] Проверить Windows-конфигурацию с `decorations: false`.
-- [ ] Добавить корректное восстановление/фокусирование существующего окна.
-- [ ] Проверить повторный запуск приложения.
-- [ ] Проверить обработку ошибки создания WebView2.
-- [ ] Добавить smoke-тест наличия главного окна.
+## M0 — Baseline
 
-### M0.2. Стандартизировать команды
-
-- [ ] `npm run dev` — браузерная разработка UI.
-- [ ] `npm run tauri dev` — полноценный desktop-режим.
-- [ ] `npm run verify` — TypeScript, lint, tests и Rust check.
-- [ ] `npm run build` — frontend production build.
-- [ ] `npm run tauri build` — desktop bundle.
-- [ ] Документировать требования Node, Rust и WebView2.
-
-### M0.3. CI и качество
-
-- [ ] Настроить CI для TypeScript, ESLint, Prettier и Vitest.
-- [ ] Добавить `cargo fmt --check`, `cargo clippy` и `cargo test`.
-- [ ] Проверять генерацию Tauri bindings.
-- [ ] Запретить случайно устаревшие generated-файлы.
-- [ ] Добавить сборку Windows artifact на pull request/release.
-- [ ] Зафиксировать conventions для migrations и feature flags.
-
-### M0.4. Диагностика
-
-- [ ] Структурированные frontend/Rust logs.
-- [ ] Уровни `error`, `warn`, `info`, `debug`.
-- [ ] Экспорт диагностического отчёта без содержимого заметок и секретов.
-- [ ] Экран восстановления после критической ошибки запуска.
-
-**Критерий M0:** чистый clone запускается предсказуемо, окно всегда видно, все проверки выполняются одной командой.
-
----
-
-## M1 — Vault Safety: защита пользовательских данных
-
-### M1.1. Спецификация формата vault
-
-- [ ] Описать назначение `.amby/` и каждого служебного файла.
-- [ ] Подтвердить, что SQLite всегда можно перестроить из Markdown.
-- [ ] Формализовать `id` во frontmatter: имя поля, формат, уникальность и миграции.
-- [ ] Не перезаписывать существующий пользовательский `id`.
-- [ ] Обрабатывать дубликаты `id` через отчёт и безопасное исправление.
-- [ ] Исключить `.obsidian/`, `.git/`, `.trash/` и служебные папки из индекса.
-- [ ] Не изменять `.obsidian` settings и plugin data.
-
-### M1.2. Безопасное первое открытие
-
-- [ ] Сначала выполнять read-only scan.
-- [ ] Показывать отчёт: заметки, вложения, ошибки YAML, дубликаты и неподдерживаемые файлы.
-- [ ] Перед массовым добавлением `id` создавать backup/restore point.
-- [ ] Показывать список планируемых изменений.
-- [ ] Разрешить отменить миграцию до первой записи.
-- [ ] Сохранять журнал выполненной миграции.
-
-### M1.3. Атомарное сохранение
-
-- [ ] Единый Rust API атомарной записи для всех пользовательских файлов.
-- [ ] Запись во временный файл рядом с оригиналом.
-- [ ] Flush/sync, затем атомарная замена.
-- [ ] Сохранение исходных line endings и кодировки UTF-8/BOM.
-- [ ] Защита от сохранения устаревшей редакторской версии.
-- [ ] Очередь записи отдельно для каждого файла.
-- [ ] Тесты падения на каждом шаге записи.
-
-### M1.4. Внешние изменения и конфликты
-
-- [ ] Различать собственные и внешние события watcher.
-- [ ] Не терять события во время burst-изменений и Git checkout.
-- [ ] Автоматически перечитывать неоткрытый файл.
-- [ ] Для открытого изменённого файла показывать diff.
-- [ ] Действия: оставить локальное, принять внешнее, объединить, сохранить копию.
-- [ ] Не закрывать вкладку молча при внешнем удалении.
-- [ ] Корректно обрабатывать rename/move извне.
-
-### M1.5. История и восстановление
-
-- [ ] Локальные snapshots перед рискованной записью.
-- [ ] Политика retention по времени и объёму.
-- [ ] Просмотр diff между версиями.
-- [ ] Восстановление версии как новой операции.
-- [ ] Корзина для файлов и папок.
-- [ ] Восстановление удалённого дерева и вложений.
-- [ ] Crash recovery для несохранённого текста.
-
-### M1.6. Безопасный rename/move
-
-- [ ] До операции строить полный план изменений.
-- [ ] Обновлять wikilinks, Markdown links и embeds.
-- [ ] Обновлять heading/block links без потери anchor.
-- [ ] Обновлять Canvas и Excalidraw references.
-- [ ] Обновлять ссылки на вложения.
-- [ ] Учитывать aliases и неоднозначные имена файлов.
-- [ ] Откатывать всю операцию при ошибке.
-- [ ] Показывать preview массового refactor.
-
-**Критерий M1:** ни падение, ни внешнее изменение, ни rename/move не приводят к молчаливой потере данных.
-
----
-
-## M2 — Markdown Parity: совместимость с Obsidian
-
-### M2.1. Матрица синтаксиса
-
-- [ ] CommonMark и GitHub Flavored Markdown.
-- [ ] YAML frontmatter с сохранением неизвестных полей и порядка.
-- [ ] Wikilinks: path, alias, heading и block anchors.
-- [ ] Embeds заметок, заголовков, блоков и медиа.
-- [ ] Obsidian callouts, включая foldable-варианты.
-- [ ] Tags, nested tags и tags во frontmatter.
-- [ ] Tasks и вложенные списки.
-- [ ] Footnotes, comments и reference links.
-- [ ] MathJax inline/block math.
-- [ ] Mermaid diagrams.
-- [ ] Code fences и неизвестные языки.
-- [ ] Markdown tables и alignment.
-- [ ] Inline/raw HTML.
-- [ ] PDF, audio, video и iframe embeds.
-
-### M2.2. Lossless document model
-
-- [ ] Хранить неподдерживаемые конструкции как opaque nodes/tokens.
-- [ ] Не нормализовать синтаксис без пользовательского изменения.
-- [ ] Сохранять HTML, comments и whitespace там, где это влияет на данные.
-- [ ] Отделить визуальную модель редактора от on-disk Markdown AST.
-- [ ] Не использовать HTML как скрытый способ сохранения обычного Markdown.
-
-### M2.3. Режимы редактора
-
-- [ ] Source mode с полноценной подсветкой Markdown.
-- [ ] Live Preview с inline-разметкой и embeds.
-- [ ] Reading mode без возможности случайного редактирования.
-- [ ] Синхронизация cursor/selection при переключении режима.
-- [ ] Единая история undo/redo в пределах режима.
-- [ ] Предсказуемое поведение IME, Unicode и кириллицы.
-
-### M2.4. Compatibility tests
-
-- [ ] Golden fixtures из сложных Obsidian-документов.
-- [ ] Parse → serialize без изменений для нетронутого документа.
-- [ ] Редактирование одного блока не меняет соседние блоки.
-- [ ] Property-based/fuzz tests Markdown parser/serializer.
-- [ ] Fixtures с повреждённым YAML и частично валидной разметкой.
-- [ ] Сравнение результата повторного открытия в Obsidian.
-
-**Критерий M2:** нетронутая часть документа сохраняется побайтно или семантически эквивалентно согласно зафиксированной спецификации.
-
----
-
-## M3 — Knowledge Core: properties, ссылки, граф и поиск
-
-### M3.1. Properties
-
-- [ ] Визуальный редактор frontmatter.
-- [ ] Типы: text, number, checkbox, date, datetime, list, tags и links.
-- [ ] Сохранение неизвестных YAML-типов без потери.
-- [ ] Массовое изменение properties с preview.
-- [ ] Автодополнение имён и значений.
-- [ ] Aliases как системное property.
-- [ ] Валидация без блокировки ручного YAML.
-
-### M3.2. Ссылочная модель
-
-- [ ] Разрешение ссылок по path, title и alias.
-- [ ] Heading links и block IDs.
-- [ ] Backlinks с фрагментом контекста.
-- [ ] Outgoing links.
-- [ ] Unlinked mentions с возможностью создать ссылку.
-- [ ] Отдельное отображение unresolved links.
-- [ ] Создание отсутствующей заметки из ссылки.
-- [ ] Предупреждение о неоднозначном target.
-
-### M3.3. Навигация
-
-- [ ] Outline текущей заметки.
-- [ ] Bookmarks для заметок, заголовков и поисков.
-- [ ] Быстрый переход к heading/block.
-- [ ] Back/forward history на каждую вкладку.
-- [ ] Сохранение scroll и cursor position.
-- [ ] Настраиваемый split layout.
-
-### M3.4. Граф
-
-- [ ] Global и local graph.
-- [ ] Фильтры по path, tags и properties.
-- [ ] Управление глубиной local graph.
-- [ ] Скрытие orphan/unresolved nodes.
-- [ ] Цветовые группы.
-- [ ] Сохранение graph presets.
-- [ ] Производительность на больших vault.
-
-### M3.5. FTS-поиск
-
-- [ ] SQLite FTS5 индекс для title, content, path, tags и properties.
-- [ ] Инкрементальное обновление одной заметки.
-- [ ] Операторы `path:`, `file:`, `tag:`, `property:`, `task:` и `link:`.
-- [ ] Фразы, исключения, AND/OR и grouping.
-- [ ] Regex как отдельный контролируемый режим.
-- [ ] Несколько snippets и подсветка совпадений.
-- [ ] Сохранённые запросы.
-- [ ] Автоматическая диагностика и rebuild индекса.
-
-**Критерий M3:** основные связи доступны из интерфейса, а поиск остаётся интерактивным на vault из 100 000 заметок.
-
----
-
-## M4 — Daily Workflow: шаблоны, заметки и задачи
-
-### M4.1. Command Palette и hotkeys
-
-- [ ] Единый реестр команд.
-- [ ] Поиск команд и fuzzy matching.
-- [ ] Настройка горячих клавиш.
-- [ ] Обнаружение конфликтов shortcuts.
-- [ ] Контекстные команды редактора/файла/workspace.
-- [ ] Plugin-команды через тот же API.
-
-### M4.2. Templates
-
-- [ ] Настраиваемая папка шаблонов.
-- [ ] Вставка шаблона в текущую позицию.
-- [ ] Создание заметки из шаблона.
-- [ ] Переменные даты, времени, title, path и selection.
-- [ ] Пользовательские prompts/variables.
-- [ ] Безопасный preview результата.
-- [ ] Hooks для будущих plugins.
-
-### M4.3. Daily и Periodic Notes
-
-- [ ] Формат имени файла и папки.
-- [ ] Daily template.
-- [ ] Команды «открыть сегодня/вчера/завтра».
-- [ ] Weekly, monthly, quarterly и yearly notes.
-- [ ] Calendar navigation.
-- [ ] Создание пропущенной заметки по запросу.
-- [ ] Локаль и timezone без сдвига даты.
-
-### M4.4. Tasks
-
-- [ ] Индекс всех задач vault.
-- [ ] Статусы и пользовательские status characters.
-- [ ] Due, scheduled, start и completion dates.
-- [ ] Recurring tasks.
-- [ ] Фильтры по path, tags, properties и датам.
-- [ ] Группировка и сортировка.
-- [ ] Изменение task из dashboard с обновлением исходного Markdown.
-- [ ] Сохранённые task views.
-
-### M4.5. Workspace
-
-- [ ] Надёжное восстановление вкладок и split layout.
-- [ ] Named workspaces.
-- [ ] Focus mode.
-- [ ] Quick capture/inbox.
-- [ ] Недавние файлы и недавно изменённые заметки.
-- [ ] Закреплённые вкладки.
-
-**Критерий M4:** ежедневная работа с заметками, шаблонами и задачами не требует Obsidian.
-
----
-
-## M5 — Visual & Structured: Canvas, Excalidraw и Databases
-
-### M5.1. Canvas compatibility
-
-- [ ] Зафиксировать поддерживаемую версию Obsidian Canvas JSON.
-- [ ] Поддержать text, file, link, group и edge.
-- [ ] Сохранять неизвестные поля.
-- [ ] Не менять координаты/размеры без действия пользователя.
-- [ ] Поддержать цвета, labels и edge directions.
-- [ ] Drag & drop заметок, изображений и ссылок.
-- [ ] Поиск и навигация по Canvas.
-- [ ] Undo/redo и autosave.
-- [ ] Golden fixtures из Obsidian Canvas.
-
-### M5.2. Excalidraw
-
-- [ ] Открытие стандартных `.excalidraw` файлов.
-- [ ] Рендер и редактирование scene data без потери неизвестных полей.
-- [ ] Markdown Excalidraw compatibility при необходимости.
-- [ ] Ссылки на заметки и embeds внутри рисунка.
-- [ ] Библиотека элементов.
-- [ ] Export PNG/SVG/PDF.
-- [ ] Вставка рисунка как embed в заметку.
-- [ ] Тест попеременного редактирования в Amby и Obsidian Excalidraw.
-
-### M5.3. Databases/Collections
-
-- [ ] Определить совместимый on-disk формат базы.
-- [ ] Источник данных — Markdown properties, а не закрытая БД.
-- [ ] Table view.
+### M0.1. Runtime и окно
+
+- [x] Декларативно создавать главное окно ровно один раз.
+- [x] Восстанавливать и фокусировать существующее окно при повторном запуске.
+- [x] Иметь startup error path с понятным сообщением и diagnostic export.
+- [ ] Провести настоящий smoke-test окна на Windows, macOS и Linux.
+- [ ] Проверить WebView2 failure и повторный запуск на чистой машине.
+
+### M0.2. Команды и качество
+
+- [x] `npm run dev`, `npm run tauri dev`, `npm run build`, `npm run verify`.
+- [x] Rust check/test/clippy и generated IPC bindings.
+- [x] CI для frontend, Rust и Windows bundle.
+- [ ] Исправить расхождение регистра имён веток в CI и git workflow.
+- [ ] Сделать форматирование отдельным понятным blocking/non-blocking policy.
+
+### M0.3. Диагностика
+
+- [x] Structured frontend/Rust logs с уровнями error/warn/info/debug.
+- [x] Безопасный диагностический отчёт без note content, paths и secrets.
+- [x] Startup recovery screen.
+- [ ] Добавить ручной checklist для критических runtime-сценариев.
+
+**Критерий M0:** чистый clone проверяется одной командой, окно запускается
+предсказуемо, а failure path не оставляет пользователя без объяснения.
+
+## M1 — Vault Safety
+
+### M1.1. Источник правды и metadata
+
+- [x] Markdown/attachments остаются источником правды.
+- [x] `.amby/` и rebuildable SQLite index документированы.
+- [x] Служебные каталоги исключаются из индекса.
+- [x] User-managed и duplicate IDs не перезаписываются автоматически.
+- [ ] Разрешить BOM и LF/CRLF в frontmatter parser без потери envelope.
+- [ ] Запретить скрытое добавление ID во время обычного watcher/index refresh.
+
+### M1.2. Безопасные изменения
+
+- [x] Read-only preflight, backup, preview и migration journal.
+- [x] Atomic write с temporary sibling, sync и failure tests.
+- [x] Per-file autosave queue и stale-buffer guard.
+- [ ] Сделать ID migration транзакционной: rollback при частичном сбое.
+- [ ] Синхронизировать fsync/rename semantics с требуемой durability policy.
+
+### M1.3. Внешние изменения и восстановление
+
+- [x] Rust watcher отличает собственные события от внешних.
+- [x] Clean buffers перезагружаются, dirty buffers открывают conflict dialog.
+- [x] Есть accept external, keep local, manual merge и conflict copy.
+- [x] Snapshots, retention, restore, trash и recovery drafts.
+- [ ] Представлять настоящий diff, а не только два полных текста.
+- [ ] Не пропускать быстрые изменения одинакового размера: использовать точный mtime/content stamp.
+- [ ] Покрыть burst, Git checkout и external rename/move интеграционными тестами.
+
+### M1.4. Rename/move
+
+- [x] Preview плана и rollback filesystem mutation.
+- [x] Resolved wikilinks, базовые Markdown links и JSON references обновляются.
+- [ ] Полностью покрыть aliases, URL encoding, attachment refs и ambiguous targets.
+- [ ] Snapshot всех изменяемых источников до refactor.
+- [ ] Подтвердить операцию на реальном test vault.
+
+**Критерий M1:** приложение нельзя безопасно назвать готовым к реальному vault,
+пока BOM/CRLF, partial migration, watcher stamp и rollback не закрыты.
+
+## M2 — Amby Editor
+
+### M2.1. Portable document model
+
+- [x] Source mode и lossless guard для неподдерживаемых конструкций.
+- [x] Opaque nodes/tokens для HTML, embeds, callouts, math и Amby blocks.
+- [x] Cursor/selection mapping между Source и Live mode.
+- [ ] Отделить общий block model от Tiptap-specific representation.
+- [ ] Зафиксировать portable Markdown representation для собственных блоков.
+
+### M2.2. Properties
+
+- [ ] Редактирование text, number, checkbox, date, datetime, list, tags и links.
+- [ ] Сохранение неизвестных YAML keys, comments, ordering и formatting.
+- [ ] Безопасный preview изменения frontmatter.
+- [ ] Aliases как отдельная сущность, не только строка в YAML.
+- [ ] Validation warnings без запрета ручного Source editing.
+
+### M2.3. Amby blocks
+
+- [ ] Block handles, drag/reorder и block-level commands.
+- [ ] Перемещение блока без изменения соседнего Markdown.
+- [ ] Callout, quote, task, embed и database-view blocks.
+- [ ] Fallback Source-only для блока, который нельзя сериализовать безопасно.
+
+**Критерий M2:** пользователь получает самостоятельный редактор Amby, а
+неизвестная разметка не превращается в скрытую потерю данных.
+
+## M3 — Knowledge & Collections
+
+### M3.1. Knowledge core
+
+- [ ] Разрешение links по path, title и alias с отчётом об ambiguity.
+- [x] Outgoing links, backlinks и unresolved links в базовом виде.
+- [ ] Backlinks с контекстом и переходом к heading/block.
+- [ ] Unlinked mentions с предложением создать ссылку.
+- [ ] Outline, bookmarks, saved searches и scroll/cursor state.
+- [ ] Local graph, global graph, filters, depth и graph presets.
+
+### M3.2. Search
+
+- [ ] SQLite FTS5 для title, body, path, tags и properties.
+- [ ] Incremental update без полного чтения vault.
+- [ ] Операторы `path:`, `tag:`, `property:`, `task:` и `link:`.
+- [ ] Фразы, исключения, grouping, snippets и highlighted matches.
+- [ ] Rebuild/diagnostics для повреждённого индекса.
+- [ ] Benchmark на 1k, 10k и 100k notes.
+
+### M3.3. Collections
+
+- [ ] Определить on-disk описание Collection/view.
+- [ ] Источник строк — Markdown notes и Properties, не закрытая content database.
+- [ ] Table view с inline editing через безопасный Properties layer.
 - [ ] List view.
 - [ ] Board/Kanban view.
-- [ ] Gallery view.
-- [ ] Calendar view.
-- [ ] Фильтры, сортировка и grouping.
-- [ ] Вычисляемые поля и формулы.
-- [ ] Inline editing с безопасным обновлением исходной заметки.
-- [ ] Сохранённые представления.
+- [ ] Filters, sorting, grouping и saved views.
+- [ ] Empty/error/loading states и понятное объяснение происхождения данных.
 
-**Критерий M5:** обязательные сценарии Canvas, Excalidraw и Databases полностью выполняются внутри Amby.
+**Критерий M3:** пользователь может организовать проект как набор заметок,
+Properties и views, не превращая Amby в закрытую базу.
 
----
+## M4 — Daily Workflow
 
-## M6 — Versioning & Sync: Git и E2EE
+### M4.1. Commands и navigation
 
-### M6.1. Git foundation
+- [ ] Единый command registry и fuzzy command palette.
+- [ ] Контекстные команды для note, block, collection и workspace.
+- [ ] Настраиваемые shortcuts и conflict detection.
+- [ ] Quick open, recent items и quick capture/inbox.
 
-- [ ] Обнаружение Git repository.
-- [ ] Status для заметок, Canvas, Excalidraw и вложений.
-- [ ] Diff Markdown с читаемым UI.
-- [ ] Commit выбранных файлов.
-- [ ] Pull, push и fetch.
-- [ ] История файла и восстановление версии.
-- [ ] Визуальный конфликт-редактор.
-- [ ] Безопасное хранение credentials через OS keychain/SSH agent.
-- [ ] Автоматические commits как опциональная функция.
+### M4.2. Templates и periodic notes
 
-### M6.2. Протокол E2EE sync
+- [ ] Папка шаблонов и создание note из template.
+- [ ] Insert at cursor/selection.
+- [ ] Variables: date, time, title, path, selection.
+- [ ] Safe preview и пользовательские prompts.
+- [ ] Daily, weekly, monthly and yearly notes.
+- [ ] Locale/timezone без смещения даты.
 
-- [ ] Отдельная архитектурная спецификация и threat model.
-- [ ] Client-side encryption до отправки данных.
-- [ ] Сервер не имеет доступа к ключам и содержимому.
-- [ ] Version/vector metadata для обнаружения конфликтов.
-- [ ] Chunking и deduplication крупных вложений.
-- [ ] Offline operation queue.
-- [ ] Resume после обрыва соединения.
-- [ ] Удаление с tombstones и retention.
-- [ ] Восстановление предыдущей версии.
-- [ ] Ротация ключей и безопасное подключение нового устройства.
+### M4.3. Tasks
 
-### M6.3. Self-hosted server
+- [ ] Индекс всех задач vault.
+- [ ] Status characters, due/scheduled/start/completion dates.
+- [ ] Фильтры, группировка, сортировка и task views.
+- [ ] Изменение задачи из dashboard с записью в исходный Markdown.
+- [ ] Recurring tasks после определения portable representation.
 
-- [ ] Документированный HTTP/WebSocket protocol.
-- [ ] Контейнерный deployment.
-- [ ] PostgreSQL или другой утверждённый metadata store.
-- [ ] S3-compatible storage для blobs либо локальный volume.
-- [ ] Reverse proxy/TLS documentation.
-- [ ] Health checks, backup и restore.
-- [ ] Ограничения пользователей, vault и storage quota.
-- [ ] Версионированные server migrations.
+### M4.4. Workspace
 
-### M6.4. Клиентский UX
+- [x] Tabs, split, focus mode, presets и session restore foundation.
+- [ ] Named workspaces с независимыми layouts и collections.
+- [ ] Pinned tabs и недавние изменения.
+- [ ] Per-workspace command/context state.
 
-- [ ] Явный индикатор состояния синхронизации.
-- [ ] Очередь и последние операции.
-- [ ] Понятный экран конфликтов.
-- [ ] Pause/resume и selective sync.
-- [ ] Исключения файлов и папок.
-- [ ] Предупреждение перед опасной массовой синхронизацией.
-- [ ] Экспорт recovery key.
+**Критерий M4:** ежедневный сценарий заметка → структура → задача → обзор
+закрывается внутри Amby без обязательного перехода в другое приложение.
 
-**Критерий M6:** Git и E2EE выдерживают offline-редактирование, одновременные изменения и восстановление без молчаливой потери версии.
+## M5 — Visual Workspace
 
----
+### M5.1. Canvas
 
-## M7 — Extensibility: собственная экосистема Amby
+- [x] Базовые text/file/group nodes, edges, colors, drag/drop и autosave.
+- [ ] Зафиксировать поддерживаемую версию/подмножество Canvas JSON.
+- [ ] Полный редактор собственного Canvas-формата: pan/zoom, selection,
+      multi-select, grouping, resize, connectors, keyboard controls, copy/paste и
+      undo/redo.
+- [ ] Создание и редактирование Canvas nodes/edges без обязательного перехода
+      в другой инструмент.
+- [ ] Сохранять unknown root/node/edge fields.
+- [ ] Не менять координаты и размеры без действия пользователя.
+- [ ] Canvas search, navigation и golden fixtures.
+- [ ] Source-only fallback для неизвестных Canvas constructs.
 
-### M7.1. Plugin architecture
+### M5.2. Rich visual surfaces
 
-- [ ] Версионированный plugin manifest.
-- [ ] Уникальный plugin ID и semantic versioning.
-- [ ] Lifecycle: install, enable, disable, update и uninstall.
-- [ ] Изоляция plugin runtime от основного UI.
-- [ ] Контролируемый API вместо прямого доступа ко всему filesystem.
-- [ ] Отчёт об ошибке plugin без падения приложения.
+- [ ] Whiteboard/Canvas surface с собственными Amby blocks.
+- [ ] Embedding note, collection view и media без закрытой миграции.
+- [ ] Excalidraw — безопасный view/embed с сохранением исходника; глубокий
+      round-trip и полноценный редактор остаются отдельным compatibility scope.
+- [ ] Проверить, какие visual features действительно отличаются от Canvas и
+      оправдывают отдельный формат.
 
-### M7.2. Permissions
+**Критерий M5:** пользователь может полноценно создавать и редактировать
+собственные Canvas-документы внутри Amby, а визуальные поверхности усиливают
+Amby workflow и не являются простым копированием чужого приложения.
 
-- [ ] Read/write vault.
-- [ ] Network domains.
-- [ ] Commands и hotkeys.
-- [ ] Panels/views.
-- [ ] Editor extensions.
-- [ ] Clipboard и native dialogs.
-- [ ] Явное подтверждение опасных permissions.
-- [ ] Просмотр и отзыв permissions пользователем.
+## M6 — AI & Automation
 
-### M7.3. Public API
+- [x] AI panel с несколькими провайдерами.
+- [ ] Context picker: current block, note, selection, collection или workspace.
+- [ ] Actions: summarize, rewrite, extract properties, create tasks и query collection.
+- [ ] Preview перед записью AI-результата.
+- [ ] Явный индикатор, какие данные покидают устройство.
+- [ ] Локальные провайдеры (включая Ollama-путь) и облачные провайдеры доступны
+      в одной модели переключения.
+- [ ] Облачный режим явно требует подтверждения передачи контекста и не меняет
+      настройки приватности молча.
+- [ ] Feature flags для semantic search и автоматических действий.
 
-- [ ] Vault CRUD и события изменений.
-- [ ] Metadata/properties и index queries.
-- [ ] Commands и menus.
-- [ ] Editor decorations, actions и custom blocks.
-- [ ] Sidebar/panel/tab views.
-- [ ] Settings UI и persistent plugin storage.
-- [ ] Canvas/Database extension points.
-- [ ] API deprecation policy.
+**Критерий M6:** AI сокращает ручную работу, но не получает скрытый доступ к
+vault и не изменяет заметки без подтверждения пользователя.
 
-### M7.4. Marketplace
+## M7 — Portability & Integrations
 
-- [ ] Подписанные packages и checksum.
-- [ ] Совместимость по версии API.
-- [ ] Review/allowlist policy для первого релиза.
-- [ ] Безопасное автоматическое обновление.
-- [ ] Rollback plugin version.
-- [ ] Safe mode без сторонних plugins.
+### M7.1. Git baseline
 
-### M7.5. First-party plugins
+- [ ] Обнаружение repository и status по Markdown/assets/Canvas.
+- [ ] Readable diff и история файла.
+- [ ] Выбор файлов для commit, pull/push/fetch.
+- [ ] Conflict editor поверх уже существующего conflict model.
+- [ ] Credentials через OS keychain/SSH agent.
+- [ ] Git workflow входит в обязательный 1.0 release gate и проверен на реальном
+      test vault.
 
-- [ ] Templates.
-- [ ] Daily/Periodic Notes.
-- [ ] Tasks.
-- [ ] Git.
-- [ ] Excalidraw.
-- [ ] Databases.
+### M7.2. Import/export
 
-Первоначально они могут развиваться в основном репозитории, но должны использовать тот же API, который получат сторонние разработчики.
+- [ ] Compatibility report по уровням A/B/C.
+- [ ] Read-only preflight и backup перед изменениями.
+- [ ] Export portable Markdown + assets + documented Amby metadata.
+- [ ] Отчёт об unsupported features без ложного обещания полной совместимости.
 
-**Критерий M7:** сторонний plugin можно установить, отключить и удалить без перезапуска/повреждения vault, а его permissions понятны пользователю.
+### M7.3. Extension seam
 
----
+- [x] Внутренний module registry и lifecycle seam.
+- [ ] First-party modules для Collections, Tasks и Templates используют этот seam.
+- [ ] Зафиксировать минимальный API только после стабилизации core workflows.
+- [ ] Публичный sandboxed plugin runtime перенести после 1.0.
 
-## M8 — Release Candidate: производительность, безопасность и UX
+**Критерий M7:** переносимость и интеграции не заставляют Amby копировать чужую
+архитектуру и не создают новый закрытый lock-in.
 
-### M8.1. Performance program
+## M8 — Release Candidate
 
-- [ ] Генераторы vault на 1k, 10k и 100k заметок.
-- [ ] Бюджет cold start и warm start.
-- [ ] Бюджет памяти для каждого размера vault.
-- [ ] Виртуализация дерева, поиска, tags, backlinks и tasks.
-- [ ] Background indexing без блокировки UI.
-- [ ] Lazy loading тяжёлых редакторов Canvas/Excalidraw.
-- [ ] Профилирование Rust, React и WebView.
+- [ ] Vault generators: tiny, compat, broken, 1k, 10k и 100k.
+- [ ] Performance budgets для startup, indexing, switching, search и memory.
+- [ ] Background indexing и virtualization тяжёлых списков.
+- [ ] Keyboard navigation, focus management, screen-reader labels, contrast,
+      high-DPI и reduced motion.
+- [ ] Tauri permissions, path traversal, symlink, CSP и asset protocol review.
+- [ ] Dependency audit, SBOM и secrets review.
+- [ ] Migration/backup/restore на копиях реальных vault.
+- [ ] Onboarding и понятные empty/error/loading/progress states.
+- [ ] English/Russian localization; Ukrainian добавляется только если покрыта
+      реальная продуктовая потребность.
 
-### M8.2. Accessibility и управление
-
-- [ ] Полная клавиатурная навигация.
-- [ ] Правильный focus management.
-- [ ] Screen reader labels.
-- [ ] Contrast и forced-colors mode.
-- [ ] Масштабирование текста и UI.
-- [ ] Reduced motion.
-- [ ] High-DPI и несколько мониторов.
-
-### M8.3. Security review
-
-- [ ] Минимальные Tauri permissions.
-- [ ] Path traversal и symlink tests.
-- [ ] CSP и asset protocol review.
-- [ ] Secret storage только через OS keychain.
-- [ ] Plugin sandbox threat model.
-- [ ] Sync threat model и внешний аудит криптографии.
-- [ ] Dependency audit и SBOM.
-- [ ] Подписанные update manifests.
-
-### M8.4. Миграция из Obsidian
-
-- [ ] Read-only preflight scan.
-- [ ] Compatibility report.
-- [ ] Backup перед первым изменением.
-- [ ] Добавление Amby IDs отдельной подтверждаемой операцией.
-- [ ] Проверка links, attachments, Canvas и Excalidraw.
-- [ ] Отчёт об unsupported plugins/features.
-- [ ] Полный rollback.
-
-### M8.5. UX polish
-
-- [ ] Onboarding без создания закрытого формата.
-- [ ] Понятные empty/error/loading states.
-- [ ] Отмена долгих операций.
-- [ ] Progress для scan/index/sync/migration.
-- [ ] Локализация English/Russian/Ukrainian.
-- [ ] Единые термины и shortcuts во всём приложении.
-
-**Критерий M8:** нет блокирующих дефектов, завершены security/data-loss проверки и миграция протестирована на копиях реальных vault.
-
----
+**Критерий M8:** нет critical/high data-loss bugs, известные ограничения
+документированы, а core workflows подтверждены на копиях реальных данных.
 
 ## M9 — Amby 1.0
 
 ### M9.1. Release engineering
 
-- [ ] Версионирование приложения, plugin API, sync protocol и server API.
-- [ ] Подписанный Windows installer.
-- [ ] Автоматический updater с rollback.
-- [ ] Stable и beta channels.
-- [ ] Release notes и migration notes.
-- [ ] Reproducible release checklist.
-- [ ] Архив символов и crash diagnostics.
+- [ ] Versioning приложения и portable metadata format.
+- [ ] Подписанный installer и проверенный updater/rollback.
+- [ ] Stable/beta channels, release notes и migration notes.
+- [ ] Reproducible release checklist и crash diagnostics.
 
 ### M9.2. Документация
 
-- [ ] Начало работы.
-- [ ] Работа с существующим Obsidian vault.
-- [ ] Backup и восстановление.
-- [ ] Git workflow.
-- [ ] E2EE и recovery key.
-- [ ] Self-hosted sync server.
-- [ ] Plugin development guide.
-- [ ] Формат `.amby/` и политика совместимости.
-- [ ] Известные ограничения 1.0.
+- [ ] Начало работы и модель Amby workspace.
+- [ ] Работа с Markdown/Obsidian vault по уровням совместимости.
+- [ ] Properties, Collections, Templates, Tasks и Canvas guide.
+- [ ] Backup, history, conflict и recovery guide.
+- [ ] Git workflow и известные ограничения 1.0.
 
 ### M9.3. Финальные release gates
 
 - [ ] Нет известных critical/high data-loss bugs.
-- [ ] Все миграции обратимы.
-- [ ] Compatibility suite проходит полностью.
-- [ ] 100k vault проходит performance budgets.
-- [ ] Sync chaos/offline/conflict tests проходят.
-- [ ] Plugin safe mode работает.
+- [ ] Все миграции обратимы или имеют documented recovery path.
+- [ ] A-level preservation suite проходит полностью.
+- [ ] Основные B-level interop-сценарии проходят на тестовых vault.
+- [ ] Core Amby workflows закрываются без обязательного использования Obsidian.
+- [ ] Collections, Properties, Templates, Tasks, Workspace и полноценный Amby
+      Canvas editor соответствуют спецификациям.
 - [ ] Установщик, обновление и rollback проверены на чистой Windows VM.
-- [ ] Создан и восстановлен полный backup тестового vault.
 
 ---
 
@@ -697,57 +540,37 @@ flowchart LR
 
 ### 7.1. Стратегия тестирования
 
-| Уровень | Что проверяет |
-|---|---|
-| Unit | Парсеры, paths, migrations, queries, reducers и serializers |
-| Golden | Markdown, Canvas, Excalidraw и frontmatter round-trip |
-| Integration | Rust commands, SQLite index, watcher, Git и sync client |
-| Component | Editor, properties, search, tasks и dialogs |
-| E2E | Открытие vault, редактирование, rename, conflict, restore и update |
-| Chaos | Падения, обрыв sync, повреждённый индекс и частичная запись |
-| Performance | Startup, indexing, search, graph и memory budgets |
-| Security | Permissions, paths, secrets, plugins и protocol abuse |
+| Уровень     | Что проверяет                                                         |
+| ----------- | --------------------------------------------------------------------- |
+| Unit        | Parser, paths, migrations, queries, reducers, serializers             |
+| Golden      | Markdown, frontmatter, Amby Canvas format и portable blocks           |
+| Integration | Rust commands, SQLite, watcher, refactor и Git                        |
+| Component   | Editor, Properties, Collections, search, tasks и dialogs              |
+| E2E         | Vault open, edit, collection view, rename, conflict, restore и update |
+| Chaos       | Crash, partial write, corrupted index и external bursts               |
+| Performance | Startup, indexing, search, graph, collections и memory                |
+| Security    | Permissions, paths, secrets, AI data flow и future plugins            |
 
-### 7.2. Обязательные тестовые vault
+### 7.2. Обязательные test vaults
 
-- `tiny-vault`: все поддерживаемые конструкции в небольшом наборе файлов.
-- `compat-vault`: экспорт/копия реального Obsidian vault без приватных данных.
-- `broken-vault`: malformed YAML, duplicate IDs, broken links и invalid UTF-8 cases.
+- `tiny-vault`: базовые Markdown, Properties, links, tasks и blocks.
+- `compat-vault`: обезличенный реальный Markdown/Obsidian vault.
+- `broken-vault`: malformed YAML, duplicate IDs, broken links, BOM/CRLF и invalid UTF-8.
+- `collections-vault`: разнотипные Properties для table/list/board views.
 - `large-vault`: 10k заметок.
-- `stress-vault`: 100k заметок и большое количество вложений.
-- `sync-vault`: детерминированные конфликтные сценарии нескольких устройств.
+- `stress-vault`: 100k заметок и вложения.
+- `recovery-vault`: external edits, crashes, rename, trash и restore.
 
-### 7.3. Производительные бюджеты
+### 7.3. Feature flags
 
-Точные числа фиксируются после baseline-измерений, затем CI не позволяет им заметно ухудшаться.
+Экспериментальные возможности не меняют on-disk формат без явного согласия:
 
-- Время появления интерактивного окна.
-- Время открытия vault с готовым индексом.
-- Время полного rebuild индекса.
-- Задержка поиска.
-- Задержка переключения заметки.
-- Память на 1k/10k/100k заметок.
-- Время обработки внешнего burst-изменения.
-
-### 7.4. Миграции
-
-- Каждая миграция имеет номер версии.
-- До миграции создаётся backup.
-- Миграция повторяемая или безопасно обнаруживает уже выполненное состояние.
-- Есть rollback либо документированный путь восстановления.
-- Неудачная миграция не запускает приложение в частично обновлённом состоянии.
-
-### 7.5. Feature flags
-
-Экспериментальные возможности включаются отдельно:
-
-- E2EE sync;
-- plugin runtime;
-- Databases formulas;
-- semantic AI search;
-- новые Markdown nodes.
-
-Это позволяет тестировать их без риска для стабильного пользовательского пути.
+- `experimental.e2eeSync`;
+- `experimental.pluginRuntime`;
+- `experimental.semanticSearch`;
+- `experimental.formulaFields`;
+- новые Markdown/Canvas nodes;
+- AI actions, которые могут массово изменять заметки.
 
 ---
 
@@ -755,74 +578,93 @@ flowchart LR
 
 ### Для задачи
 
-- [ ] Поведение и edge cases согласованы.
+- [ ] Пользовательское поведение и edge cases согласованы.
+- [ ] Указано, относится ли функция к Amby UX, уровню A, B или C совместимости.
 - [ ] Реализация завершена.
-- [ ] Добавлены или обновлены тесты.
-- [ ] Ошибки понятны пользователю и диагностируются.
+- [ ] Есть автоматические тесты и ручной критический сценарий.
 - [ ] Нет необработанного риска потери данных.
-- [ ] Документация обновлена.
-- [ ] `npm run build` проходит.
-- [ ] Vitest проходит.
-- [ ] `cargo check` и Rust tests проходят при затронутом backend.
-- [ ] Ручной smoke test выполнен.
+- [ ] Ошибки, ограничения и data flow понятны пользователю.
+- [ ] Формат хранения документирован.
+- [ ] `npm run build`, Vitest и необходимые Rust checks проходят.
 
 ### Для milestone
 
-- [ ] Все задачи milestone имеют Definition of Done.
-- [ ] Нет critical/high bugs в его области.
-- [ ] Пройдены compatibility и regression tests.
-- [ ] Проверен upgrade с предыдущей milestone.
-- [ ] Зафиксированы метрики производительности.
-- [ ] Пользователь принял milestone на копии реального vault.
+- [ ] Все задачи имеют Definition of Done.
+- [ ] Нет critical/high bugs в области milestone.
+- [ ] Пройдены regression и compatibility tests соответствующего уровня.
+- [ ] Проверено обновление с предыдущего milestone.
+- [ ] Зафиксированы performance/security metrics, если они применимы.
+- [ ] Milestone принят на копии реального test vault.
 
 ### Для версии 1.0
 
-- [ ] Пользователь может неделю работать только в Amby без возврата в Obsidian для обязательных сценариев.
-- [ ] После этого тот же vault корректно открывается в Obsidian.
-- [ ] История/backup позволяют восстановиться после ошибочного изменения.
-- [ ] Git и E2EE sync не теряют конфликтующие версии.
-- [ ] Canvas, Excalidraw, Templates и Databases закрывают обязательные сценарии.
-- [ ] Форматы и API задокументированы и заморожены на период 1.x.
+- [ ] Пользователь может неделю работать в Amby в основных сценариях note,
+      Properties, Collections, tasks и workspace.
+- [ ] После этого исходные Markdown-файлы остаются пригодными для других
+      редакторов, включая Obsidian, в пределах заявленного уровня совместимости.
+- [ ] История, backup и recovery позволяют вернуться после ошибочного действия.
+- [ ] Core Amby UX не зависит от облака, аккаунта или закрытой базы.
+- [ ] Git является рабочей частью 1.0, а локальный AI остаётся доступным без
+      обязательного облака.
+- [ ] Полноценный Amby Canvas editor работает в пределах собственного
+      документированного формата.
+- [ ] Ограничения Excalidraw и Markdown явно документированы.
 
 ---
 
-## 9. Риски и сложные решения
+## 9. Риски и решения
 
-### Риск 1. WYSIWYG может менять Markdown
+### Риск 1. Amby превратится в неясную смесь Obsidian и Notion
 
-**Опасность:** ProseMirror/Tiptap представляет документ не так, как исходный текст, и serializer способен нормализовать или удалить неизвестные конструкции.
+**Опасность:** продукт будет копировать интерфейсы, но не даст цельного workflow.
 
-**Решение:** отдельный lossless Markdown AST, opaque nodes, golden fixtures и сохранение нетронутых диапазонов исходного текста.
+**Решение:** сначала описывать собственные сценарии и mental model Amby, затем
+выбирать знакомые паттерны только там, где они помогают.
 
-### Риск 2. Служебный `id` изменяет существующий vault
+### Риск 2. WYSIWYG меняет пользовательский Markdown
 
-**Опасность:** первое открытие массово переписывает заметки и создаёт большой Git diff.
+**Опасность:** serializer удалит неизвестную разметку или нормализует файл.
 
-**Решение:** read-only preflight, backup, единая подтверждаемая миграция и отчёт. Не добавлять IDs постепенно и неожиданно.
+**Решение:** уровень A Preservation, opaque nodes, Source-only fallback и
+golden round-trip tests. Полная визуальная поддержка не обязательна.
 
-### Риск 3. Полная Canvas/Excalidraw совместимость
+### Риск 3. Properties и Collections станут закрытой базой
 
-**Опасность:** форматы развиваются, содержат неизвестные поля и plugin-specific data.
+**Опасность:** пользователь потеряет переносимость и получит новый lock-in.
 
-**Решение:** schema versioning, passthrough неизвестных полей и golden round-trip tests с несколькими версиями файлов.
+**Решение:** Markdown/properties остаются источником данных; Collection — это
+описание view и индекс, который можно перестроить.
 
-### Риск 4. E2EE sync
+### Риск 4. Служебный ID изменит существующий vault
 
-**Опасность:** ошибки криптографии или conflict resolution способны сделать данные недоступными.
+**Опасность:** даже полезная миграция создаст неожиданный Git diff.
 
-**Решение:** публичная спецификация протокола, известные криптографические примитивы, recovery strategy, chaos tests и внешний аудит до stable-релиза.
+**Решение:** read-only preflight, backup, preview, явное подтверждение, journal
+и rollback. Обычный index refresh не должен писать новые IDs.
 
-### Риск 5. Plugin API слишком рано зафиксирует архитектуру
+### Риск 5. Canvas/Excalidraw займут весь срок разработки
 
-**Опасность:** нестабильные внутренние интерфейсы станут публичным контрактом.
+**Опасность:** визуальные форматы сложны и содержат неизвестные поля.
 
-**Решение:** сначала реализовать first-party plugins, затем извлечь минимальный стабильный API и заморозить его только перед RC.
+**Решение:** полноценный собственный Amby Canvas editor входит в 1.0 с
+preservation; Excalidraw view/embed может войти в 1.0, а глубокий round-trip и
+полноценный Excalidraw editor остаются отдельным compatibility scope.
 
-### Риск 6. Объём версии 1.0
+### Риск 6. E2EE и plugins преждевременно зафиксируют архитектуру
 
-**Опасность:** Canvas, Excalidraw, Databases, Git, E2EE и plugins одновременно значительно увеличивают срок до стабильного релиза.
+**Опасность:** сложные security-sensitive слои будут построены до проверки
+основного Amby workflow.
 
-**Решение:** выпускать milestone-сборки, не начинать следующий data-sensitive слой до завершения предыдущего и использовать release gates вместо календарных обещаний.
+**Решение:** сначала локальное ядро и внутренний module seam, затем threat model,
+публичные протоколы и внешний аудит.
+
+### Риск 7. Слишком широкий 1.0
+
+**Опасность:** Properties, Collections, Canvas, AI, Git, sync и plugins
+одновременно остановят выпуск.
+
+**Решение:** 1.0 определяется core workflow и сохранностью данных; E2EE,
+marketplace и глубокая Excalidraw-совместимость не являются release gates.
 
 ---
 
@@ -830,39 +672,36 @@ flowchart LR
 
 ### 1.1+
 
-- Совместное редактирование в реальном времени.
-- Роли, permissions и shared vault.
-- Комментарии и review workflow.
-- Публикация выбранных заметок и сайтов.
-- Расширение marketplace.
-- macOS/Linux production support при недостаточной готовности к 1.0.
+- Полноценный Excalidraw editor.
+- E2EE sync и self-hosted server.
+- Публичный plugin runtime и marketplace.
+- Advanced formulas, gallery/calendar views и semantic search.
+- Shared vault, comments и review workflow.
 
 ### 2.0-кандидаты
 
-- Мобильные приложения.
+- Совместное редактирование в реальном времени.
+- Mobile apps.
 - Web client.
-- Federation/self-hosted collaboration.
+- Публикация выбранных страниц.
 - Организационные пространства и команды.
-- Публичное API автоматизации.
 
 ---
 
-## Рекомендуемый порядок непосредственной работы
+## Рекомендуемый порядок работы
 
-Следующая задача начинается только после приёмки предыдущей контрольной точки.
+Следующая контрольная точка начинается только после приёмки предыдущей.
 
-1. **M0.1:** исправить создание и показ окна Tauri.
-2. **M0.2–M0.4:** единая проверка проекта, CI и диагностика.
-3. **M1.1:** утвердить спецификацию vault и стратегию IDs.
-4. **M1.2–M1.5:** preflight, atomic write, conflicts, history и trash.
-5. **M1.6:** транзакционный rename/move и обновление ссылок.
-6. **M2:** lossless Markdown compatibility suite.
-7. **M3:** properties, backlinks, FTS и knowledge navigation.
-8. **M4:** команды, Templates, Daily Notes и Tasks.
-9. **M5:** Canvas, затем Excalidraw, затем Databases.
-10. **M6:** сначала Git, затем спецификация и реализация E2EE/self-hosted sync.
-11. **M7:** извлечь plugin API из проверенных first-party модулей.
-12. **M8–M9:** performance/security program, migration, RC и выпуск 1.0.
+1. **M0:** runtime, CI, diagnostics и smoke tests.
+2. **M1:** frontmatter safety, ID policy, atomic writes, recovery и refactor.
+3. **M2:** Properties, portable blocks и собственный editor foundation.
+4. **M3:** links, FTS, Collections и saved views.
+5. **M4:** Templates, Daily Notes, Tasks и command workflow.
+6. **M5:** полноценный Amby Canvas editor и визуальные surfaces.
+7. **M6:** AI context/actions с preview и privacy controls.
+8. **M7:** Git baseline, import/export и compatibility reports.
+9. **M8–M9:** performance, accessibility, security, migration и выпуск.
+10. **После 1.0:** E2EE, full Excalidraw, public plugins и collaboration.
 
 > Roadmap является живым документом. Изменение scope должно фиксировать причину,
 > влияние на зависимости, новые риски и обновлённые release gates.

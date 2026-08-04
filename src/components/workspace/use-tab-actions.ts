@@ -12,7 +12,6 @@ interface UseTabActionsParams {
   canGoForward: boolean
   /** Loads the document for a fileId without changing tab structure. */
   navigateToFile: (fileId: string) => Promise<void>
-  saveTimersRef: React.MutableRefObject<Map<string, ReturnType<typeof setTimeout>>>
 }
 
 /**
@@ -32,7 +31,6 @@ export function useTabActions({
   canGoBack,
   canGoForward,
   navigateToFile,
-  saveTimersRef,
 }: UseTabActionsParams) {
   const { setTabs, setActiveTabKey, setSecondaryTabKey } = useTabsStore.getState()
 
@@ -77,14 +75,9 @@ export function useTabActions({
   }
 
   const handleTabClose = (key: string) => {
-    const closing = tabs.find((t) => t.key === key)
-    if (closing) {
-      const timer = saveTimersRef.current.get(closing.fileId)
-      if (timer) {
-        clearTimeout(timer)
-        saveTimersRef.current.delete(closing.fileId)
-      }
-    }
+    // Keep a pending autosave alive when a tab closes. The open document buffer
+    // remains available until the queued write finishes, and cancelling here
+    // could discard the last edit made just before closing the tab.
     if (secondaryTabKey === key) setSecondaryTabKey(null)
     const remaining = tabs.filter((t) => t.key !== key)
     setTabs(remaining)

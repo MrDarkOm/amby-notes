@@ -49,6 +49,24 @@ pub struct NoteMetadata {
     pub word_count: usize,
 }
 
+/// Read-only view of a single YAML frontmatter entry. The original YAML stays
+/// on disk untouched; `value` is only a display representation for the UI.
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FrontmatterProperty {
+    pub key: String,
+    pub value: String,
+    pub value_kind: String,
+}
+
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteProperties {
+    pub has_frontmatter: bool,
+    pub properties: Vec<FrontmatterProperty>,
+    pub parse_error: Option<String>,
+}
+
 #[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportedAsset {

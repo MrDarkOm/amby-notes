@@ -71,7 +71,11 @@ import { getTreeDragPayload, clearTreeDragPayload } from "@/lib/canvas-dnd"
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
 }
 
 function renderCardHtml(text: string): string {
@@ -84,7 +88,11 @@ function renderCardHtml(text: string): string {
     return `<span class="canvas-wikilink cursor-pointer text-sky-400 hover:underline" data-wikilink="${escapeHtml(t)}">${escapeHtml(label)}</span>`
   })
   // #tag → styled span
-  html = html.replace(/(^|\s)#([\p{L}\d/_-]+)/gu, (_m, pre: string, tag: string) => `${pre}<span class="text-amber-400">#${escapeHtml(tag)}</span>`)
+  html = html.replace(
+    /(^|\s)#([\p{L}\d/_-]+)/gu,
+    (_m, pre: string, tag: string) =>
+      `${pre}<span class="text-amber-400">#${escapeHtml(tag)}</span>`,
+  )
   return html
 }
 
@@ -249,9 +257,17 @@ function FileNode({ data, selected }: NodeProps) {
         <img src={imgUrl} alt={title} className="h-full w-full object-contain" draggable={false} />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 p-3 text-center">
-          {isImage ? <ImageIcon className="size-5 text-muted-foreground" /> : <FileText className="size-5 text-muted-foreground" />}
-          <span className="line-clamp-3 text-sm font-medium text-foreground">{title || t("canvas.noteNotSelected")}</span>
-          {file && !isImage ? <span className="text-[10px] text-muted-foreground">{t("canvas.doubleClickOpen")}</span> : null}
+          {isImage ? (
+            <ImageIcon className="size-5 text-muted-foreground" />
+          ) : (
+            <FileText className="size-5 text-muted-foreground" />
+          )}
+          <span className="line-clamp-3 text-sm font-medium text-foreground">
+            {title || t("canvas.noteNotSelected")}
+          </span>
+          {file && !isImage ? (
+            <span className="text-[10px] text-muted-foreground">{t("canvas.doubleClickOpen")}</span>
+          ) : null}
         </div>
       )}
     </div>
@@ -364,12 +380,18 @@ function CanvasEdge({
               }
             }}
             className="nodrag nopan absolute rounded border border-border bg-card px-1 text-[11px] text-foreground outline-none"
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, pointerEvents: "all" }}
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: "all",
+            }}
           />
         ) : d.label ? (
           <div
             className="nodrag nopan absolute cursor-text rounded bg-card/90 px-1 text-[11px] text-foreground"
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`, pointerEvents: "all" }}
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: "all",
+            }}
             onDoubleClick={(e) => {
               e.stopPropagation()
               setEditing(true)
@@ -464,7 +486,11 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
   const wrapRef = React.useRef<HTMLDivElement>(null)
   const mounted = React.useRef(false)
   const [menu, setMenu] = React.useState<MenuState | null>(null)
-  const dragGroup = React.useRef<{ groupId: string; start: { x: number; y: number }; members: Map<string, { x: number; y: number }> } | null>(null)
+  const dragGroup = React.useRef<{
+    groupId: string
+    start: { x: number; y: number }
+    members: Map<string, { x: number; y: number }>
+  } | null>(null)
 
   // ── persistence ──
   React.useEffect(() => {
@@ -507,21 +533,53 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
   )
 
   // ── add nodes ──
-  const makeNode = React.useCallback((type: "text" | "file" | "group", pos: { x: number; y: number }, extra?: Partial<FileNodeData>): CanvasFlowNode => {
-    const id = newCanvasId()
-    const base = { id, position: { x: Math.round(pos.x), y: Math.round(pos.y) }, selected: true }
-    if (type === "group") {
-      return { ...base, type: "group", data: { label: "" } as GroupNodeData, style: { width: 320, height: 240 }, width: 320, height: 240, zIndex: 0 }
-    }
-    if (type === "file") {
-      return { ...base, type: "file", data: { file: extra?.file ?? "" } as FileNodeData, style: { width: 240, height: 120 }, width: 240, height: 120, zIndex: 1 }
-    }
-    return { ...base, type: "text", data: { text: "" } as TextNodeData, style: { width: 240, height: 120 }, width: 240, height: 120, zIndex: 1 }
-  }, [])
+  const makeNode = React.useCallback(
+    (
+      type: "text" | "file" | "group",
+      pos: { x: number; y: number },
+      extra?: Partial<FileNodeData>,
+    ): CanvasFlowNode => {
+      const id = newCanvasId()
+      const base = { id, position: { x: Math.round(pos.x), y: Math.round(pos.y) }, selected: true }
+      if (type === "group") {
+        return {
+          ...base,
+          type: "group",
+          data: { label: "" } as GroupNodeData,
+          style: { width: 320, height: 240 },
+          width: 320,
+          height: 240,
+          zIndex: 0,
+        }
+      }
+      if (type === "file") {
+        return {
+          ...base,
+          type: "file",
+          data: { file: extra?.file ?? "" } as FileNodeData,
+          style: { width: 240, height: 120 },
+          width: 240,
+          height: 120,
+          zIndex: 1,
+        }
+      }
+      return {
+        ...base,
+        type: "text",
+        data: { text: "" } as TextNodeData,
+        style: { width: 240, height: 120 },
+        width: 240,
+        height: 120,
+        zIndex: 1,
+      }
+    },
+    [],
+  )
 
   const addNode = React.useCallback(
     (type: "text" | "file" | "group", pos?: { x: number; y: number }) => {
-      const p = pos ?? rf.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
+      const p =
+        pos ?? rf.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
       setNodes((nds) => [...nds.map((n) => ({ ...n, selected: false })), makeNode(type, p)])
     },
     [rf, setNodes, makeNode],
@@ -553,7 +611,10 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
   }, [setNodes, setEdges])
 
   // ── colors / z-order / arrows ──
-  const setNodeColor = React.useCallback((id: string, color?: string) => updateNodeData(id, { color }), [updateNodeData])
+  const setNodeColor = React.useCallback(
+    (id: string, color?: string) => updateNodeData(id, { color }),
+    [updateNodeData],
+  )
 
   const setEdgeColor = React.useCallback(
     (id: string, color?: string) => {
@@ -605,12 +666,18 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
     [rf, setNodes],
   )
 
-  const removeNode = React.useCallback((id: string) => {
-    setNodes((nds) => nds.filter((n) => n.id !== id))
-    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id))
-  }, [setNodes, setEdges])
+  const removeNode = React.useCallback(
+    (id: string) => {
+      setNodes((nds) => nds.filter((n) => n.id !== id))
+      setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id))
+    },
+    [setNodes, setEdges],
+  )
 
-  const removeEdge = React.useCallback((id: string) => setEdges((eds) => eds.filter((e) => e.id !== id)), [setEdges])
+  const removeEdge = React.useCallback(
+    (id: string) => setEdges((eds) => eds.filter((e) => e.id !== id)),
+    [setEdges],
+  )
 
   // ── group containment on drag ──
   const onNodeDragStart = React.useCallback(
@@ -624,9 +691,14 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
       const members = new Map<string, { x: number; y: number }>()
       for (const n of all) {
         if (n.id === node.id) continue
-        if (rectContains(outer, nodeRect(n))) members.set(n.id, { x: n.position.x, y: n.position.y })
+        if (rectContains(outer, nodeRect(n)))
+          members.set(n.id, { x: n.position.x, y: n.position.y })
       }
-      dragGroup.current = { groupId: node.id, start: { x: node.position.x, y: node.position.y }, members }
+      dragGroup.current = {
+        groupId: node.id,
+        start: { x: node.position.x, y: node.position.y },
+        members,
+      }
     },
     [rf],
   )
@@ -672,7 +744,11 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
           const hasSel = rf.getNodes().some((n) => n.selected)
           if (hasSel) {
             e.preventDefault()
-            setNodes((nds) => nds.map((n) => (n.selected ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n)))
+            setNodes((nds) =>
+              nds.map((n) =>
+                n.selected ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n,
+              ),
+            )
           }
         }
       }
@@ -685,7 +761,9 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
   // ── image paste ──
   React.useEffect(() => {
     async function onPaste(e: ClipboardEvent) {
-      const items = Array.from(e.clipboardData?.items ?? []).filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+      const items = Array.from(e.clipboardData?.items ?? []).filter(
+        (it) => it.kind === "file" && it.type.startsWith("image/"),
+      )
       if (items.length === 0 || !vault || !notePath) return
       e.preventDefault()
       const pos = rf.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
@@ -752,7 +830,13 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
   // ── context menu helpers ──
   const openMenu = (e: React.MouseEvent, kind: MenuState["kind"], targetId?: string) => {
     e.preventDefault()
-    setMenu({ x: e.clientX, y: e.clientY, kind, targetId, flow: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }) })
+    setMenu({
+      x: e.clientX,
+      y: e.clientY,
+      kind,
+      targetId,
+      flow: rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }),
+    })
   }
   const closeMenu = () => setMenu(null)
 
@@ -784,7 +868,13 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3f3f46" />
           <Controls className="!border-border !bg-card" />
-          <MiniMap className="!bg-card" maskColor="rgba(0,0,0,0.6)" nodeColor="#52525b" pannable zoomable />
+          <MiniMap
+            className="!bg-card"
+            maskColor="rgba(0,0,0,0.6)"
+            nodeColor="#52525b"
+            pannable
+            zoomable
+          />
         </ReactFlow>
 
         {/* Floating add-node toolbar */}
@@ -806,66 +896,157 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
         {/* Context menu */}
         {menu ? (
           <>
-            <div className="fixed inset-0 z-20" onClick={closeMenu} onContextMenu={(e) => { e.preventDefault(); closeMenu() }} />
+            <div
+              className="fixed inset-0 z-20"
+              onClick={closeMenu}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                closeMenu()
+              }}
+            />
             <div
               className="fixed z-30 min-w-[180px] overflow-hidden rounded-md border border-border bg-card py-1 shadow-xl"
               style={{ left: menu.x, top: menu.y }}
             >
               {menu.kind === "pane" ? (
                 <>
-                  <MenuItem onClick={() => { addNode("text", menu.flow); closeMenu() }}>
-                    <StickyNote className="size-3.5 text-muted-foreground" />{t("canvas.textCard")}
+                  <MenuItem
+                    onClick={() => {
+                      addNode("text", menu.flow)
+                      closeMenu()
+                    }}
+                  >
+                    <StickyNote className="size-3.5 text-muted-foreground" />
+                    {t("canvas.textCard")}
                   </MenuItem>
-                  <MenuItem onClick={() => { addNode("file", menu.flow); closeMenu() }}>
-                    <FileText className="size-3.5 text-muted-foreground" />{t("canvas.noteCard")}
+                  <MenuItem
+                    onClick={() => {
+                      addNode("file", menu.flow)
+                      closeMenu()
+                    }}
+                  >
+                    <FileText className="size-3.5 text-muted-foreground" />
+                    {t("canvas.noteCard")}
                   </MenuItem>
-                  <MenuItem onClick={() => { addNode("group", menu.flow); closeMenu() }}>
-                    <GroupIcon className="size-3.5 text-muted-foreground" />{t("canvas.group")}
+                  <MenuItem
+                    onClick={() => {
+                      addNode("group", menu.flow)
+                      closeMenu()
+                    }}
+                  >
+                    <GroupIcon className="size-3.5 text-muted-foreground" />
+                    {t("canvas.group")}
                   </MenuItem>
                   {clipboard.nodes.length > 0 ? (
-                    <MenuItem onClick={() => { pasteClipboard(); closeMenu() }}>
-                      <Copy className="size-3.5 text-muted-foreground" />{t("canvas.paste")}
+                    <MenuItem
+                      onClick={() => {
+                        pasteClipboard()
+                        closeMenu()
+                      }}
+                    >
+                      <Copy className="size-3.5 text-muted-foreground" />
+                      {t("canvas.paste")}
                     </MenuItem>
                   ) : null}
                 </>
               ) : menu.kind === "node" && menu.targetId ? (
                 <>
-                  <MenuItem onClick={() => { duplicateSelectionOrOne(menu.targetId!); closeMenu() }}>
-                    <Copy className="size-3.5 text-muted-foreground" />{t("canvas.duplicate")}
+                  <MenuItem
+                    onClick={() => {
+                      duplicateSelectionOrOne(menu.targetId!)
+                      closeMenu()
+                    }}
+                  >
+                    <Copy className="size-3.5 text-muted-foreground" />
+                    {t("canvas.duplicate")}
                   </MenuItem>
-                  <MenuItem onClick={() => { bringTo(menu.targetId!, "front"); closeMenu() }}>
-                    <ArrowUpToLine className="size-3.5 text-muted-foreground" />{t("canvas.bringToFront")}
+                  <MenuItem
+                    onClick={() => {
+                      bringTo(menu.targetId!, "front")
+                      closeMenu()
+                    }}
+                  >
+                    <ArrowUpToLine className="size-3.5 text-muted-foreground" />
+                    {t("canvas.bringToFront")}
                   </MenuItem>
-                  <MenuItem onClick={() => { bringTo(menu.targetId!, "back"); closeMenu() }}>
-                    <ArrowDownToLine className="size-3.5 text-muted-foreground" />{t("canvas.sendToBack")}
+                  <MenuItem
+                    onClick={() => {
+                      bringTo(menu.targetId!, "back")
+                      closeMenu()
+                    }}
+                  >
+                    <ArrowDownToLine className="size-3.5 text-muted-foreground" />
+                    {t("canvas.sendToBack")}
                   </MenuItem>
                   <div className="flex items-center gap-1 border-t border-border px-1 pt-1 text-muted-foreground">
                     <Palette className="ml-1.5 size-3.5" />
-                    <ColorSwatches onPick={(c) => { setNodeColor(menu.targetId!, c); closeMenu() }} />
+                    <ColorSwatches
+                      onPick={(c) => {
+                        setNodeColor(menu.targetId!, c)
+                        closeMenu()
+                      }}
+                    />
                   </div>
                   <div className="border-t border-border" />
-                  <MenuItem danger onClick={() => { removeNode(menu.targetId!); closeMenu() }}>
-                    <Trash2 className="size-3.5" />{t("canvas.delete")}
+                  <MenuItem
+                    danger
+                    onClick={() => {
+                      removeNode(menu.targetId!)
+                      closeMenu()
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                    {t("canvas.delete")}
                   </MenuItem>
                 </>
               ) : menu.kind === "edge" && menu.targetId ? (
                 <>
-                  <MenuItem onClick={() => { cycleArrows(menu.targetId!, "to"); closeMenu() }}>
-                    <MoveRight className="size-3.5 text-muted-foreground" />{t("canvas.arrowRight")}
+                  <MenuItem
+                    onClick={() => {
+                      cycleArrows(menu.targetId!, "to")
+                      closeMenu()
+                    }}
+                  >
+                    <MoveRight className="size-3.5 text-muted-foreground" />
+                    {t("canvas.arrowRight")}
                   </MenuItem>
-                  <MenuItem onClick={() => { cycleArrows(menu.targetId!, "both"); closeMenu() }}>
-                    <MoveHorizontal className="size-3.5 text-muted-foreground" />{t("canvas.arrowBoth")}
+                  <MenuItem
+                    onClick={() => {
+                      cycleArrows(menu.targetId!, "both")
+                      closeMenu()
+                    }}
+                  >
+                    <MoveHorizontal className="size-3.5 text-muted-foreground" />
+                    {t("canvas.arrowBoth")}
                   </MenuItem>
-                  <MenuItem onClick={() => { cycleArrows(menu.targetId!, "none"); closeMenu() }}>
-                    <Minus className="size-3.5 text-muted-foreground" />{t("canvas.noArrows")}
+                  <MenuItem
+                    onClick={() => {
+                      cycleArrows(menu.targetId!, "none")
+                      closeMenu()
+                    }}
+                  >
+                    <Minus className="size-3.5 text-muted-foreground" />
+                    {t("canvas.noArrows")}
                   </MenuItem>
                   <div className="flex items-center gap-1 border-t border-border px-1 pt-1 text-muted-foreground">
                     <Palette className="ml-1.5 size-3.5" />
-                    <ColorSwatches onPick={(c) => { setEdgeColor(menu.targetId!, c); closeMenu() }} />
+                    <ColorSwatches
+                      onPick={(c) => {
+                        setEdgeColor(menu.targetId!, c)
+                        closeMenu()
+                      }}
+                    />
                   </div>
                   <div className="border-t border-border" />
-                  <MenuItem danger onClick={() => { removeEdge(menu.targetId!); closeMenu() }}>
-                    <Trash2 className="size-3.5" />{t("canvas.delete")}
+                  <MenuItem
+                    danger
+                    onClick={() => {
+                      removeEdge(menu.targetId!)
+                      closeMenu()
+                    }}
+                  >
+                    <Trash2 className="size-3.5" />
+                    {t("canvas.delete")}
                   </MenuItem>
                 </>
               ) : null}
@@ -885,13 +1066,21 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
   }
 }
 
-function ToolbarButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+function ToolbarButton({
+  title,
+  onClick,
+  children,
+}: {
+  title: string
+  onClick: () => void
+  children: React.ReactNode
+}) {
   return (
     <button
       type="button"
       title={title}
       onClick={onClick}
-      className="flex size-7 items-center justify-center rounded text-foreground hover:bg-accent hover:text-white"
+      className="flex size-7 items-center justify-center rounded-md text-foreground hover:bg-accent hover:text-accent-foreground"
     >
       {children}
     </button>

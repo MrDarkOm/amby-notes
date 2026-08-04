@@ -4,6 +4,7 @@ import { findButtonDef, type ActionContext, type PanelId, type Side } from "./pa
 import type { ActivityButton } from "./panel-registry"
 import { isTauri } from "@/lib/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
+import type { DockPreferences } from "./app-config"
 
 const COMPACT_LAYOUT_MAX_WIDTH = 960
 
@@ -14,6 +15,8 @@ interface UseSidebarLayoutParams {
   setActiveBySide: React.Dispatch<React.SetStateAction<Record<Side, PanelId | null>>>
   /** Action handlers invoked when an activity-bar *action* button is clicked. */
   actionContext: ActionContext
+  dockPrefs: DockPreferences
+  onDockPrefsChange: (patch: Partial<DockPreferences>) => void
 }
 
 /**
@@ -30,6 +33,8 @@ export function useSidebarLayout({
   activeBySide,
   setActiveBySide,
   actionContext,
+  dockPrefs,
+  onDockPrefsChange,
 }: UseSidebarLayoutParams) {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
@@ -69,8 +74,8 @@ export function useSidebarLayout({
       const sign = side === "left" ? 1 : -1
 
       function nearEdge(x: number) {
-        // 44px activity bar + 20px threshold inside the panel.
-        return side === "left" ? x < 44 + 20 : x > window.innerWidth - 44 - 20
+        // 48px activity bar + 20px threshold inside the panel.
+        return side === "left" ? x < 48 + 20 : x > window.innerWidth - 48 - 20
       }
 
       // Coalesce mousemove updates to one setState per animation frame so dragging
@@ -139,7 +144,13 @@ export function useSidebarLayout({
       const button = prev.find((b) => b.defId === defId)
       if (!button) return prev
       if (button.side === targetSide) return prev
-      const targetOrders = prev.filter((b) => b.side === targetSide).map((b) => b.order)
+      const movingKind = findButtonDef(defId)?.kind
+      const targetOrders = prev
+        .filter(
+          (candidate) =>
+            candidate.side === targetSide && findButtonDef(candidate.defId)?.kind === movingKind,
+        )
+        .map((candidate) => candidate.order)
       const nextOrder = targetOrders.length ? Math.max(...targetOrders) + 1 : 0
       return prev.map((b) => (b.defId === defId ? { ...b, side: targetSide, order: nextOrder } : b))
     })
@@ -168,9 +179,15 @@ export function useSidebarLayout({
     setActivityButtons((prev) => {
       const moving = prev.find((b) => b.defId === defId)
       if (!moving) return prev
+      const movingKind = findButtonDef(defId)?.kind
       // Build the target-side list without the moving button, sorted by current order.
       const others = prev
-        .filter((b) => b.side === targetSide && b.defId !== defId)
+        .filter(
+          (button) =>
+            button.side === targetSide &&
+            button.defId !== defId &&
+            findButtonDef(button.defId)?.kind === movingKind,
+        )
         .sort((a, b) => a.order - b.order)
       let insertAt = others.length
       if (beforeDefId !== "__end__") {
@@ -182,12 +199,12 @@ export function useSidebarLayout({
         { ...moving, side: targetSide },
         ...others.slice(insertAt),
       ].map((b, i) => ({ ...b, order: i }))
-      const oppositeSide: Side = targetSide === "left" ? "right" : "left"
-      const opposite = prev
-        .filter((b) => b.side === oppositeSide && b.defId !== defId)
-        .sort((a, b) => a.order - b.order)
-        .map((b, i) => ({ ...b, order: i }))
-      return [...reorderedTarget, ...opposite]
+      const untouched = prev.filter(
+        (button) =>
+          button.defId !== defId &&
+          !(button.side === targetSide && findButtonDef(button.defId)?.kind === movingKind),
+      )
+      return [...untouched, ...reorderedTarget]
     })
     // Cross-side fallback for active view
     const movingDef = findButtonDef(defId)
@@ -210,7 +227,11 @@ export function useSidebarLayout({
     }
   }
 
-  const dnd = useActivityDnD({ onDrop: reorderButton })
+  const zoneForButton = React.useCallback(
+    (defId: string): "view" | "action" => findButtonDef(defId)?.kind ?? "view",
+    [],
+  )
+  const dnd = useActivityDnD({ onDrop: reorderButton, zoneForButton })
 
   function handleActivate(defId: string) {
     const def = findButtonDef(defId)
@@ -241,6 +262,28 @@ export function useSidebarLayout({
     setActiveBySide((prev) => ({ ...prev, [button.side]: panelId }))
   }
 
+  const isDockVisible = React.useCallback(
+    (side: Side) => dockPrefs[side === "left" ? "leftVisible" : "rightVisible"],
+    [dockPrefs],
+  )
+
+  const isDockPinned = React.useCallback(
+    (side: Side) => dockPrefs[side === "left" ? "leftPinned" : "rightPinned"],
+    [dockPrefs],
+  )
+
+  const setDockVisible = React.useCallback(
+    (side: Side, visible: boolean) =>
+      onDockPrefsChange({ [side === "left" ? "leftVisible" : "rightVisible"]: visible }),
+    [onDockPrefsChange],
+  )
+
+  const setDockPinned = React.useCallback(
+    (side: Side, pinned: boolean) =>
+      onDockPrefsChange({ [side === "left" ? "leftPinned" : "rightPinned"]: pinned }),
+    [onDockPrefsChange],
+  )
+
   return {
     isLeftSidebarOpen,
     setIsLeftSidebarOpen,
@@ -261,5 +304,9 @@ export function useSidebarLayout({
     dnd,
     handleActivate,
     activatePanelAnywhere,
+    isDockVisible,
+    isDockPinned,
+    setDockVisible,
+    setDockPinned,
   }
 }

@@ -10,10 +10,11 @@
 //! only ever supplies a relative file name; absolute paths and `..` are rejected.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tauri::Manager;
 
+use crate::frontmatter;
 use crate::paths::{self, VaultScope};
 
 /// Root of the global app-data area: `{local_data_dir}/Amby/notes`. Created if missing.
@@ -43,11 +44,11 @@ fn read_opt(path: &PathBuf) -> Result<Option<String>, String> {
     }
 }
 
-fn write_all(path: &PathBuf, contents: &str) -> Result<(), String> {
+fn write_all(path: &Path, contents: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(path, contents).map_err(|e| e.to_string())
+    frontmatter::atomic_write(path, contents)
 }
 
 #[tauri::command]

@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from "react"
-import { EditorState, RangeSetBuilder } from "@codemirror/state"
+import { EditorState } from "@codemirror/state"
 import {
   Decoration,
   type DecorationSet,
   EditorView,
+  MatchDecorator,
   ViewPlugin,
   type ViewUpdate,
   keymap,
@@ -17,6 +18,7 @@ import { markdown } from "@codemirror/lang-markdown"
 import { tags } from "@lezer/highlight"
 
 import { INLINE_TOKEN_RE, getWikiLinkParts, type EditorHandle } from "./tiptap/constants"
+import { normalizeMarkdownSelection, type MarkdownSelection } from "./tiptap/markdown-selection"
 
 interface SourceEditorProps {
   value: string
@@ -25,13 +27,17 @@ interface SourceEditorProps {
   onWikiLinkClick?: (target: string) => void
   editorRef?: React.RefObject<EditorHandle>
   placeholder?: string
+  selection?: MarkdownSelection | null
+  onSelectionChange?: (selection: MarkdownSelection) => void
 }
 
-// Dark theme tuned to match the app shell (see index.css .amby-source-editor).
+// Theme-aware source editor. The values intentionally come from the shared
+// CSS palette so Source mode follows the same light/dark theme and accent as
+// the rest of the application.
 const theme = EditorView.theme(
   {
     "&": {
-      color: "#d4d4d8",
+      color: "var(--editor-fg)",
       backgroundColor: "transparent",
       fontSize: "0.875rem",
     },
@@ -39,25 +45,25 @@ const theme = EditorView.theme(
       fontFamily: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace",
       lineHeight: "1.7",
       padding: "0.5rem 0 5rem",
-      caretColor: "#22d3ee",
+      caretColor: "var(--caret-color)",
     },
     "&.cm-focused": { outline: "none" },
-    ".cm-cursor, .cm-dropCursor": { borderLeftColor: "#22d3ee" },
+    ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--caret-color)" },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
-      backgroundColor: "rgba(56, 189, 248, 0.22)",
+      backgroundColor: "hsl(var(--primary) / 0.22)",
     },
     ".cm-line": { padding: "0" },
     ".cm-amby-tag": {
       borderRadius: "999px",
-      backgroundColor: "rgba(139, 92, 246, 0.22)",
-      color: "#c084fc",
+      backgroundColor: "var(--tag-bg)",
+      color: "var(--tag-fg)",
       cursor: "pointer",
     },
     ".cm-amby-wikilink": {
       borderRadius: "3px",
-      backgroundColor: "rgba(14, 165, 233, 0.18)",
-      color: "#7dd3fc",
-      borderBottom: "1px solid rgba(56, 189, 248, 0.45)",
+      backgroundColor: "var(--wikilink-bg)",
+      color: "var(--wikilink-fg)",
+      borderBottom: "1px solid var(--wikilink-underline)",
       cursor: "pointer",
     },
   },
@@ -65,44 +71,37 @@ const theme = EditorView.theme(
 )
 
 const markdownHighlight = HighlightStyle.define([
-  { tag: tags.heading, color: "#fafafa", fontWeight: "700" },
-  { tag: tags.strong, color: "#fafafa", fontWeight: "700" },
-  { tag: tags.emphasis, color: "#a1a1aa", fontStyle: "italic" },
-  { tag: tags.strikethrough, color: "#71717a", textDecoration: "line-through" },
-  { tag: tags.monospace, color: "#a78bfa" },
-  { tag: tags.link, color: "#7dd3fc" },
-  { tag: tags.url, color: "#38bdf8" },
-  { tag: tags.quote, color: "#b8bcc6" },
-  { tag: tags.list, color: "#22d3ee" },
-  { tag: tags.contentSeparator, color: "#52525b" },
-  { tag: tags.processingInstruction, color: "#52525b" },
-  { tag: tags.meta, color: "#71717a" },
+  { tag: tags.heading, color: "var(--editor-heading)", fontWeight: "700" },
+  { tag: tags.strong, color: "var(--editor-strong)", fontWeight: "700" },
+  { tag: tags.emphasis, color: "var(--editor-em)", fontStyle: "italic" },
+  { tag: tags.strikethrough, color: "var(--editor-del)", textDecoration: "line-through" },
+  { tag: tags.monospace, color: "var(--code-fg)" },
+  { tag: tags.link, color: "var(--link-color)" },
+  { tag: tags.url, color: "var(--link-hover-color)" },
+  { tag: tags.quote, color: "var(--blockquote-fg)" },
+  { tag: tags.list, color: "var(--primary)" },
+  { tag: tags.contentSeparator, color: "var(--panel-section-fg)" },
+  { tag: tags.processingInstruction, color: "var(--panel-section-fg)" },
+  { tag: tags.meta, color: "var(--panel-hint-fg)" },
 ])
 
-// Decorates #tags and [[wikilinks]] in the raw markdown source.
-function buildTokenDecorations(view: EditorView): DecorationSet {
-  const builder = new RangeSetBuilder<Decoration>()
-  const text = view.state.doc.toString()
-  INLINE_TOKEN_RE.lastIndex = 0
-  let match: RegExpExecArray | null
-  while ((match = INLINE_TOKEN_RE.exec(text)) !== null) {
-    builder.add(
-      match.index,
-      match.index + match[0].length,
-      Decoration.mark({ class: match[1] ? "cm-amby-tag" : "cm-amby-wikilink" }),
-    )
-  }
-  return builder.finish()
-}
+// Decorates #tags and [[wikilinks]] in the raw markdown source. MatchDecorator
+// rematches only changed/visible lines instead of scanning the entire document
+// after every keystroke, which keeps long source notes responsive.
+const tokenDecorator = new MatchDecorator({
+  regexp: INLINE_TOKEN_RE,
+  decoration: (match) => Decoration.mark({ class: match[1] ? "cm-amby-tag" : "cm-amby-wikilink" }),
+  maxLength: 4000,
+})
 
 const tokenDecorations = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
     constructor(view: EditorView) {
-      this.decorations = buildTokenDecorations(view)
+      this.decorations = tokenDecorator.createDeco(view)
     }
     update(update: ViewUpdate) {
-      if (update.docChanged) this.decorations = buildTokenDecorations(update.view)
+      this.decorations = tokenDecorator.updateDeco(update, this.decorations)
     }
   },
   { decorations: (plugin) => plugin.decorations },
@@ -117,16 +116,23 @@ export function SourceEditor({
   onWikiLinkClick,
   editorRef,
   placeholder,
+  selection,
+  onSelectionChange,
 }: SourceEditorProps) {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const viewRef = React.useRef<EditorView | null>(null)
   const valueRef = React.useRef(value)
   const onChangeRef = React.useRef(onChange)
+  const onSelectionChangeRef = React.useRef(onSelectionChange)
   const callbacksRef = React.useRef({ onTagClick, onWikiLinkClick })
 
   React.useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
+
+  React.useEffect(() => {
+    onSelectionChangeRef.current = onSelectionChange
+  }, [onSelectionChange])
 
   React.useEffect(() => {
     callbacksRef.current = { onTagClick, onWikiLinkClick }
@@ -168,6 +174,12 @@ export function SourceEditor({
       parent,
       state: EditorState.create({
         doc: value,
+        selection: (() => {
+          const initialSelection = normalizeMarkdownSelection(selection, value)
+          return initialSelection
+            ? { anchor: initialSelection.from, head: initialSelection.to }
+            : undefined
+        })(),
         extensions: [
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
@@ -179,6 +191,10 @@ export function SourceEditor({
           EditorView.lineWrapping,
           cmPlaceholder(placeholder ?? ""),
           EditorView.updateListener.of((update) => {
+            if (update.selectionSet) {
+              const range = update.state.selection.main
+              onSelectionChangeRef.current?.({ from: range.from, to: range.to })
+            }
             if (!update.docChanged) return
             const next = update.state.doc.toString()
             valueRef.current = next

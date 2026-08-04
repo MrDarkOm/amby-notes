@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { Node, mergeAttributes } from "@tiptap/core"
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react"
 import { markdownToHtml } from "./markdown"
@@ -14,6 +15,7 @@ type LoadState = "idle" | "loading" | "done" | "error"
  * read-only inline preview using the shared `markdownToHtml` renderer.
  */
 function TransclusionView({ node, editor }: NodeViewProps) {
+  const { t } = useTranslation()
   const target = node.attrs.target as string
   const [html, setHtml] = React.useState<string | null>(null)
   const [state, setState] = React.useState<LoadState>("idle")
@@ -84,10 +86,10 @@ function TransclusionView({ node, editor }: NodeViewProps) {
       {/* Content area */}
       <div className="px-3 py-2 text-[13px] leading-relaxed text-foreground">
         {state === "idle" || state === "loading" ? (
-          <span className="italic text-muted-foreground">Loading…</span>
+          <span className="italic text-muted-foreground">{t("dbBlock.loading")}</span>
         ) : state === "error" ? (
           <span className="italic text-muted-foreground">
-            Note not found:{" "}
+            {t("transclusion.notFound")}{" "}
             <code className="rounded bg-muted px-1 py-0.5 text-[11px]">{target}</code>
           </span>
         ) : (
@@ -122,6 +124,7 @@ export const TransclusionNode = Node.create({
   addAttributes() {
     return {
       target: { default: "" },
+      raw: { default: "" },
     }
   },
 
@@ -131,6 +134,7 @@ export const TransclusionNode = Node.create({
         tag: 'div[data-type="transclusion"]',
         getAttrs: (el) => ({
           target: (el as HTMLElement).getAttribute("data-target") ?? "",
+          raw: (el as HTMLElement).getAttribute("data-raw") ?? "",
         }),
       },
     ]
@@ -142,6 +146,7 @@ export const TransclusionNode = Node.create({
       mergeAttributes(HTMLAttributes, {
         "data-type": "transclusion",
         "data-target": node.attrs.target as string,
+        "data-raw": node.attrs.raw as string,
       }),
     ]
   },

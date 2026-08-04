@@ -24,6 +24,7 @@ import { SourceEditor } from "./source-editor"
 import { TiptapEditor } from "./tiptap/TiptapEditor"
 import { CanvasEditor } from "./canvas-editor"
 import type { EditorHandle } from "./tiptap/constants"
+import type { MarkdownSelection } from "./tiptap/markdown-selection"
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -71,6 +72,7 @@ interface DocumentEditorProps {
   onOpenVault?: () => void
   onTagClick?: (tag: string) => void
   onWikiLinkClick?: (target: string) => void
+  resolveWikiLinkTarget?: (target: string) => string | null
   fetchTransclusion?: (target: string) => Promise<string | null>
   activeLayer?: EditorLayer
   onLayerChange?: (layer: EditorLayer) => void
@@ -94,19 +96,17 @@ export type DocumentViewMode = "source" | "live" | "read"
 
 const LAYER_OPTIONS: Array<{
   id: EditorLayer
-  label: string
+  labelKey: string
   icon: React.ElementType
-  title: string
 }> = [
-  { id: "editor", label: "Editor", icon: FileText, title: "Markdown editor" },
-  { id: "canvas", label: "Canvas", icon: LayoutGrid, title: "Canvas layer" },
+  { id: "editor", labelKey: "docEditor.markdownEditor", icon: FileText },
+  { id: "canvas", labelKey: "docEditor.canvasLayer", icon: LayoutGrid },
   {
     id: "database",
-    label: "Database",
+    labelKey: "docEditor.databaseLayer",
     icon: Database,
-    title: "Database layer",
   },
-  { id: "sketch", label: "Sketch", icon: PenLine, title: "Sketch layer" },
+  { id: "sketch", labelKey: "docEditor.sketchLayer", icon: PenLine },
 ]
 
 interface BreadcrumbSegment {
@@ -186,6 +186,7 @@ export function DocumentEditor({
   onOpenVault,
   onTagClick,
   onWikiLinkClick,
+  resolveWikiLinkTarget,
   fetchTransclusion,
   activeLayer = "editor",
   onLayerChange,
@@ -208,6 +209,8 @@ export function DocumentEditor({
   const [titleValue, setTitleValue] = React.useState(document?.title ?? "")
   const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false)
   const [layerConfirm, setLayerConfirm] = React.useState<EditorLayer | null>(null)
+  const [editorSelection, setEditorSelection] = React.useState<MarkdownSelection | null>(null)
+  const editorSelectionRef = React.useRef<MarkdownSelection | null>(null)
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
   const { t } = useTranslation()
   const titleInputRef = React.useRef<HTMLInputElement>(null)
@@ -216,6 +219,8 @@ export function DocumentEditor({
     setContent(document?.content ?? "")
     setTitleValue(document?.title ?? "")
     setEditingTitle(false)
+    editorSelectionRef.current = null
+    setEditorSelection(null)
   }, [document?.id])
 
   React.useEffect(() => {
@@ -245,6 +250,28 @@ export function DocumentEditor({
     onContentChange?.(v)
   }
 
+  // Cursor movement is frequent. Keep the latest source offset in a ref so it
+  // does not re-render the whole document surface on every arrow key/keystroke.
+  // Copy it into state only when a view transition needs to remount an editor.
+  const handleEditorSelectionChange = React.useCallback((next: MarkdownSelection) => {
+    editorSelectionRef.current = next
+  }, [])
+
+  const handleEditorViewModeChange = React.useCallback(
+    (mode: DocumentViewMode) => {
+      setEditorSelection(editorSelectionRef.current)
+      onViewModeChange?.(mode)
+    },
+    [onViewModeChange],
+  )
+
+  // Keep non-essential statistics out of the urgent typing path for large notes.
+  const deferredContent = React.useDeferredValue(content)
+  const liveWordCount = React.useMemo(
+    () => deferredContent.split(/\s+/).filter(Boolean).length,
+    [deferredContent],
+  )
+
   const breadcrumb = React.useMemo(
     () => buildBreadcrumb(treeItems, document?.id),
     [treeItems, document?.id],
@@ -253,28 +280,28 @@ export function DocumentEditor({
   const navBar = (
     <>
       <div
-        className={`flex h-9 shrink-0 items-center justify-between border-border px-2 ${isFocusMode ? "bg-background/80 backdrop-blur-sm" : "bg-background"}`}
+        className={`flex h-10 shrink-0 items-center justify-between px-2 ${isFocusMode ? "bg-background/80 backdrop-blur-sm" : "bg-transparent"}`}
       >
         {/* Left: back/forward + drag zone for focus mode */}
         <div className="flex items-center gap-0.5">
-          {isFocusMode && <div className="w-6 h-9 cursor-default" onMouseDown={handleDragStart} />}
+          {isFocusMode && <div className="h-10 w-6 cursor-default" onMouseDown={handleDragStart} />}
           <Button
             variant="ghost"
             size="icon"
-            className="size-7 text-muted-foreground hover:bg-accent hover:text-white disabled:opacity-30"
+            className="size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30"
             onClick={onBack}
             disabled={!canGoBack}
           >
-            <ChevronLeft className="size-4" />
+            <ChevronLeft className="size-3.5" />
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            className="size-7 text-muted-foreground hover:bg-accent hover:text-white disabled:opacity-30"
+            className="size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30"
             onClick={onForward}
             disabled={!canGoForward}
           >
-            <ChevronRight className="size-4" />
+            <ChevronRight className="size-3.5" />
           </Button>
         </div>
 
@@ -315,13 +342,13 @@ export function DocumentEditor({
         {/* Right: layer + focus + more */}
         <div className="flex items-center gap-0.5">
           {document && (
-            <div className="mr-1 flex items-center rounded bg-background p-0.5 gap-1">
+            <div className="mr-1 flex items-center gap-1 rounded-full bg-background/70 p-0.5 shadow-sm">
               {/* Editor layer — always visible */}
               <button
                 type="button"
-                title="Markdown editor"
+                title={t("docEditor.markdownEditor")}
                 onClick={() => onLayerChange?.("editor")}
-                className={`flex size-6 items-center justify-center rounded transition-colors ${
+                className={`flex size-7 items-center justify-center rounded-full transition-colors ${
                   activeLayer === "editor"
                     ? "bg-accent text-foreground"
                     : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -333,7 +360,7 @@ export function DocumentEditor({
               {linkedLayers?.canvas && (
                 <LayerButton
                   layer="canvas"
-                  title="Canvas layer"
+                  title={t("docEditor.canvasLayer")}
                   icon={<LayoutGrid className="size-3.5" />}
                   active={activeLayer === "canvas"}
                   onActivate={() => onLayerChange?.("canvas")}
@@ -344,7 +371,7 @@ export function DocumentEditor({
               {linkedLayers?.database && (
                 <LayerButton
                   layer="database"
-                  title="Database layer"
+                  title={t("docEditor.databaseLayer")}
                   icon={<Database className="size-3.5" />}
                   active={activeLayer === "database"}
                   onActivate={() => onLayerChange?.("database")}
@@ -355,7 +382,7 @@ export function DocumentEditor({
               {linkedLayers?.sketch && (
                 <LayerButton
                   layer="sketch"
-                  title="Excalidraw layer"
+                  title={t("docEditor.sketchLayer")}
                   icon={<PenLine className="size-3.5" />}
                   active={activeLayer === "sketch"}
                   onActivate={() => onLayerChange?.("sketch")}
@@ -372,16 +399,16 @@ export function DocumentEditor({
             onClick={onToggleFocusMode}
             title={isFocusMode ? t("docEditor.focusModeExit") : t("docEditor.focusModeEnter")}
           >
-            {isFocusMode ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+            {isFocusMode ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+                className="size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               >
-                <MoreVertical className="size-4" />
+                <MoreVertical className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -392,12 +419,12 @@ export function DocumentEditor({
                 checked={viewMode === "source"}
                 disabled={!document || activeLayer !== "editor" || isLocked}
                 onCheckedChange={() =>
-                  onViewModeChange?.(viewMode === "source" ? "live" : "source")
+                  handleEditorViewModeChange(viewMode === "source" ? "live" : "source")
                 }
                 className="text-[13px] focus:bg-accent focus:text-white"
               >
                 <Code2 className="size-3.5" />
-                Source Markdown
+                {t("docEditor.sourceMarkdown")}
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
                 checked={isLocked}
@@ -549,110 +576,122 @@ export function DocumentEditor({
     )
   }
 
-  const liveWordCount = content.split(/\s+/).filter(Boolean).length
   const activeLayerMeta =
     LAYER_OPTIONS.find((option) => option.id === activeLayer) ?? LAYER_OPTIONS[0]
   const ActiveLayerIcon = activeLayerMeta.icon
 
   return (
-    <div className="relative flex h-full flex-1 flex-col bg-background">
-      {navBar}
-
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto px-10 py-8" style={{ maxWidth: "var(--content-max-width, 48rem)" }}>
-          {/* Title */}
-          <div className="mb-4 flex items-center gap-3">
-            {fileIcon && !/^(folder|file|workspace|canvas|draft|brain)$/.test(fileIcon) && (
-              <div className="relative shrink-0">
-                <button
-                  type="button"
-                  className="text-3xl leading-none transition-transform hover:scale-110 focus:outline-none"
-                  title="Change icon"
-                  onClick={() => setEmojiPickerOpen((v) => !v)}
+    <div className="relative flex h-full min-w-0 flex-1 flex-col bg-[var(--workspace-bg)]">
+      <div
+        className="mb-2 mt-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+        style={{ boxShadow: "var(--note-surface-shadow)" }}
+      >
+        {navBar}
+        <div className="amby-editor-scroll mr-2 min-h-0 flex-1 overscroll-none overflow-y-auto">
+          <div
+            className="mx-auto px-4 pb-8 pt-5 sm:px-8 sm:pt-6 lg:px-10"
+            style={{ maxWidth: "var(--content-max-width, 48rem)" }}
+          >
+            {/* Title */}
+            <div className="mb-4 flex items-center gap-3">
+              {fileIcon && !/^(folder|file|workspace|canvas|draft|brain)$/.test(fileIcon) && (
+                <div className="relative shrink-0">
+                  <button
+                    type="button"
+                    className="text-3xl leading-none transition-transform hover:scale-110 focus:outline-none"
+                    title={t("docEditor.changeIcon")}
+                    onClick={() => setEmojiPickerOpen((v) => !v)}
+                  >
+                    {fileIcon}
+                  </button>
+                  {emojiPickerOpen && (
+                    <div className="absolute left-0 top-full z-50 mt-1">
+                      <EmojiPickerPanel
+                        onSelect={(emojiData) => {
+                          onFileIconChange?.(emojiData.native)
+                          setEmojiPickerOpen(false)
+                        }}
+                        onClose={() => setEmojiPickerOpen(false)}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+              {editingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  value={titleValue}
+                  onChange={(e) => setTitleValue(e.target.value)}
+                  onBlur={commitTitleRename}
+                  onKeyDown={handleTitleKeyDown}
+                  className="h-8 flex-1 border-0 bg-transparent p-0 text-2xl font-semibold leading-none tracking-tight text-foreground outline-none sm:h-10 sm:text-3xl"
+                />
+              ) : (
+                <h1
+                  className="cursor-text text-2xl font-semibold leading-none tracking-tight text-foreground hover:text-primary sm:text-3xl"
+                  onClick={() => {
+                    setTitleValue(document.title)
+                    setEditingTitle(true)
+                  }}
                 >
-                  {fileIcon}
-                </button>
-                {emojiPickerOpen && (
-                  <div className="absolute left-0 top-full z-50 mt-1">
-                    <EmojiPickerPanel
-                      onSelect={(emojiData) => {
-                        onFileIconChange?.(emojiData.native)
-                        setEmojiPickerOpen(false)
-                      }}
-                      onClose={() => setEmojiPickerOpen(false)}
-                    />
-                  </div>
-                )}
+                  {document.title}
+                </h1>
+              )}
+            </div>
+
+            <div className="mb-5" />
+
+            {activeLayer !== "editor" ? (
+              <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded border border-dashed border-border bg-background/40 text-center">
+                <div className="flex size-12 items-center justify-center rounded border border-border bg-card text-foreground">
+                  <ActiveLayerIcon className="size-5" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {t(activeLayerMeta.labelKey)}
+                  </p>
+                  <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+                    {t("docEditor.layerCreated")}
+                  </p>
+                </div>
               </div>
-            )}
-            {editingTitle ? (
-              <input
-                ref={titleInputRef}
-                value={titleValue}
-                onChange={(e) => setTitleValue(e.target.value)}
-                onBlur={commitTitleRename}
-                onKeyDown={handleTitleKeyDown}
-                className="flex-1 bg-transparent text-3xl font-semibold tracking-tight text-foreground outline-none border-b border-border focus:border-muted-foreground"
+            ) : viewMode === "source" ? (
+              <SourceEditor
+                key={document.id}
+                value={content}
+                onChange={handleContentChange}
+                onTagClick={onTagClick}
+                onWikiLinkClick={onWikiLinkClick}
+                editorRef={editorRef}
+                placeholder={t("editor.placeholder")}
+                selection={editorSelection}
+                onSelectionChange={handleEditorSelectionChange}
               />
             ) : (
-              <h1
-                className="text-3xl font-semibold tracking-tight text-foreground cursor-text hover:text-white"
-                onClick={() => {
-                  setTitleValue(document.title)
-                  setEditingTitle(true)
-                }}
-                title={t("docEditor.renameHint")}
-              >
-                {document.title}
-              </h1>
+              <TiptapEditor
+                key={document.id}
+                value={content}
+                onChange={handleContentChange}
+                editorRef={editorRef}
+                editable={viewMode === "live" && !isLocked}
+                onTagClick={onTagClick}
+                onWikiLinkClick={onWikiLinkClick}
+                resolveWikiLinkTarget={resolveWikiLinkTarget}
+                fetchTransclusion={fetchTransclusion}
+                placeholder={t("editor.placeholder")}
+                vaultPath={vault}
+                notePath={document.path}
+                selection={editorSelection}
+                onSelectionChange={handleEditorSelectionChange}
+              />
             )}
           </div>
-
-          <div className="mb-6 h-px bg-accent" />
-
-          {activeLayer !== "editor" ? (
-            <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded border border-dashed border-border bg-background/40 text-center">
-              <div className="flex size-12 items-center justify-center rounded border border-border bg-card text-foreground">
-                <ActiveLayerIcon className="size-5" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-foreground">{activeLayerMeta.label}</p>
-                <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-                  {t("docEditor.layerCreated")}
-                </p>
-              </div>
-            </div>
-          ) : viewMode === "source" ? (
-            <SourceEditor
-              key={document.id}
-              value={content}
-              onChange={handleContentChange}
-              onTagClick={onTagClick}
-              onWikiLinkClick={onWikiLinkClick}
-              editorRef={editorRef}
-              placeholder={t("editor.placeholder")}
-            />
-          ) : (
-            <TiptapEditor
-              key={document.id}
-              value={content}
-              onChange={handleContentChange}
-              editorRef={editorRef}
-              editable={viewMode === "live" && !isLocked}
-              onTagClick={onTagClick}
-              onWikiLinkClick={onWikiLinkClick}
-              fetchTransclusion={fetchTransclusion}
-              placeholder={t("editor.placeholder")}
-              vaultPath={vault}
-              notePath={document.path}
-            />
-          )}
         </div>
       </div>
 
       {/* Floating stats widget */}
       <div className="pointer-events-none absolute bottom-4 right-4 z-10">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-background/90 px-3 py-1.5 shadow-lg backdrop-blur-sm">
+        <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-background/90 px-3 py-1.5 shadow-sm backdrop-blur-sm">
           <span className="text-[11px] text-muted-foreground">{document.modified}</span>
           <span className="text-border">·</span>
           <span className="text-[11px] text-muted-foreground">
@@ -665,7 +704,7 @@ export function DocumentEditor({
             disabled={activeLayer !== "editor" || viewMode === "source" || isLocked}
             className="flex size-5 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onViewModeChange?.(viewMode === "read" ? "live" : "read")}
+            onClick={() => handleEditorViewModeChange(viewMode === "read" ? "live" : "read")}
           >
             {viewMode === "read" ? <Eye className="size-3" /> : <PenLine className="size-3" />}
           </button>
@@ -723,7 +762,7 @@ function LayerButton({
           type="button"
           title={title}
           onClick={onActivate}
-          className={`flex size-6 items-center justify-center rounded transition-colors ${
+          className={`flex size-7 items-center justify-center rounded-full transition-colors ${
             active
               ? "bg-accent text-foreground"
               : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"

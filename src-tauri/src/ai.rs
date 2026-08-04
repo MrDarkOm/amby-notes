@@ -5,7 +5,7 @@
 //! Providers are reduced to four wire "families" (`config.provider`):
 //!   - "ollama"    — Ollama native chat (default http://localhost:11434)
 //!   - "openai"    — OpenAI-compatible /v1/chat/completions (OpenAI, LM Studio,
-//!                   MLX, llama.cpp, OpenRouter, Groq, Mistral, …)
+//!     MLX, llama.cpp, OpenRouter, Groq, Mistral, …)
 //!   - "anthropic" — Anthropic Messages API
 //!   - "azure"     — Azure OpenAI (deployment in URL, `api-key` header)
 //!

@@ -1,5 +1,8 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
+import { errorType, logger } from "@/lib/logger"
+import { PerKeySerialQueue } from "@/lib/per-key-queue"
+import { discardRecoveryDraft, readRecoveryDraft, saveRecoveryDraft } from "@/lib/recovery-drafts"
 import { useDocStore, type Document } from "./use-doc-store"
 import { useTabsStore } from "./use-tabs-store"
 import { useViewStateStore } from "./use-view-state-store"
@@ -20,13 +23,17 @@ import {
   writeFile,
   writeNote,
   getNoteMetadata,
+  getNoteProperties,
   createNote,
   createFolder,
   createCanvasFile,
   attachCanvasToNote,
   renameItem,
+  previewRenameRefactor,
   deleteItem,
   moveItem,
+  previewMoveRefactor,
+  confirmAction,
 } from "@/lib/storage"
 
 interface UseFileActionsParams {
@@ -61,6 +68,7 @@ export function useFileActions({
   saveTimersRef,
 }: UseFileActionsParams) {
   const t = i18n.t.bind(i18n)
+  const saveQueueRef = React.useRef(new PerKeySerialQueue())
 
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
@@ -74,18 +82,35 @@ export function useFileActions({
     // Read via getState() so this function doesn't close over the openDocs value.
     if (useDocStore.getState().openDocs[fileId]) return useDocStore.getState().openDocs[fileId]
     const item = findTreeItem(treeItems, fileId)
-    const [content, meta] = vault
-      ? await Promise.all([readNote(vault, fileId), getNoteMetadata(vault, fileId)])
-      : await Promise.all([readFile(item?.path ?? fileId), getNoteMetadata("", fileId)])
+    const [content, meta, noteProperties] = vault
+      ? await Promise.all([
+          readNote(vault, fileId),
+          getNoteMetadata(vault, fileId),
+          getNoteProperties(vault, fileId),
+        ])
+      : await Promise.all([
+          readFile(item?.path ?? fileId),
+          getNoteMetadata("", fileId),
+          getNoteProperties("", fileId),
+        ])
+    const path = item?.path ?? fileId
+    const recovered = readRecoveryDraft(path)
+    const shouldRecover =
+      recovered && recovered.content !== content
+        ? await confirmAction(t("recovery.restorePrompt"))
+        : false
     const doc: Document = {
       id: fileId,
       title: itemName,
-      content,
+      content: shouldRecover ? recovered!.content : content,
       modified: formatModified(meta.modified),
       wordCount: meta.word_count,
-      path: item?.path ?? fileId,
+      path,
+      noteProperties,
     }
     setDoc(fileId, doc)
+    if (shouldRecover) markUnsaved(fileId)
+    else if (recovered) discardRecoveryDraft(path)
     return doc
   }
 
@@ -242,6 +267,7 @@ export function useFileActions({
     try {
       const result = await createNote(vault, vault, target.split("/").pop() ?? target)
       applyMutationResult(result)
+      await refreshTree()
       const id = result.primaryId ?? result.primaryPath
       if (!id) return
       const name = target.split("/").pop() ?? target
@@ -273,11 +299,24 @@ export function useFileActions({
       const item = findTreeItem(treeItems, id)
       if (!item) return
       try {
-        const result = await renameItem(vault ?? "", item.path ?? id, newName)
+        const path = item.path ?? id
+        const preview = await previewRenameRefactor(vault ?? "", path, newName)
+        if (
+          preview.replacements > 0 &&
+          !(await confirmAction(
+            t("workspace.renameRefactorConfirm", {
+              replacements: preview.replacements,
+              notes: preview.notes,
+            }),
+          ))
+        )
+          return
+        const result = await renameItem(vault ?? "", path, newName)
         applyMutationResult(result)
         const newPath = result.primaryPath ?? item.path ?? id
         patchDoc(id, { title: newName, path: newPath })
         setTabs((prev) => prev.map((tb) => (tb.fileId === id ? { ...tb, title: newName } : tb)))
+        await refreshTree()
       } catch (err) {
         console.error("Failed to rename:", err)
       }
@@ -291,11 +330,11 @@ export function useFileActions({
   const handleDeleteFile = React.useCallback(
     async (id: string) => {
       const item = findTreeItem(treeItems, id)
-      if (!confirm(t("workspace.deleteConfirm", { name: item?.name ?? id }))) return
+      if (!(await confirmAction(t("workspace.deleteConfirm", { name: item?.name ?? id })))) return
       try {
         const result = await deleteItem(vault ?? "", item?.path ?? id)
         applyMutationResult(result)
-        if (item?.type !== "file") await refreshTree()
+        await refreshTree()
       } catch (err) {
         console.error("Failed to delete:", err)
       }
@@ -310,13 +349,15 @@ export function useFileActions({
       const basePath = parentId ?? vault
       const parent = parentId ? findTreeItem(treeItems, parentId) : null
       try {
-        const result = await createNote(vault, parent?.path ?? basePath, "Untitled")
+        const untitled = t("defaults.untitled")
+        const result = await createNote(vault, parent?.path ?? basePath, untitled)
         applyMutationResult(result)
+        await refreshTree()
         const id = result.primaryId ?? result.primaryPath
         if (!id) return
         const doc: Document = {
           id,
-          title: "Untitled",
+          title: untitled,
           content: "",
           modified: t("time.justNow"),
           wordCount: 0,
@@ -326,7 +367,7 @@ export function useFileActions({
         const key = newTabKey()
         setTabs((prev) => [
           ...prev,
-          { key, kind: "document", fileId: id, title: "Untitled", history: [id], historyIndex: 0 },
+          { key, kind: "document", fileId: id, title: untitled, history: [id], historyIndex: 0 },
         ])
         setActiveTabKey(key)
         setPendingRenameId(id)
@@ -345,11 +386,12 @@ export function useFileActions({
       const basePath = parentId ?? vault
       const parent = parentId ? findTreeItem(treeItems, parentId) : null
       try {
-        const path = await createFolder(parent?.path ?? basePath, "Untitled")
+        const untitled = t("defaults.untitled")
+        const path = await createFolder(parent?.path ?? basePath, untitled)
         const newItem: TreeItem = {
           id: `folder:${path}`,
           path,
-          name: "Untitled",
+          name: untitled,
           type: "folder",
           icon: "folder",
           children: [],
@@ -378,7 +420,11 @@ export function useFileActions({
     if (!vault) return
     const parent = parentId ? findTreeItem(treeItems, parentId) : null
     try {
-      const path = await createCanvasFile(vault, parent?.path ?? parentId ?? null, "Untitled")
+      const path = await createCanvasFile(
+        vault,
+        parent?.path ?? parentId ?? null,
+        t("defaults.untitled"),
+      )
       await refreshTree()
       setOpenCanvases((prev) => ({ ...prev, [path]: "{}\n" }))
       const title = wsPathStem(path)
@@ -400,6 +446,7 @@ export function useFileActions({
     try {
       const result = await attachCanvasToNote(vault, canvasPath)
       applyMutationResult(result)
+      await refreshTree()
       // Close the now-promoted standalone canvas tab.
       setTabs((prev) => prev.filter((tb) => !(tb.kind === "canvas" && tb.fileId === canvasPath)))
       const notePath = result.primaryPath
@@ -452,9 +499,22 @@ export function useFileActions({
       if (normTgt.startsWith(sourceRoot + "/") || normTgt === sourceRoot) return
       if (!targetFolderId && dirname(sourceRoot) === norm(vault)) return
       try {
-        const result = await moveItem(vault, sourceItem.path ?? sourceId, targetItem?.path ?? vault)
+        const sourcePath = sourceItem.path ?? sourceId
+        const targetPath = targetItem?.path ?? vault
+        const preview = await previewMoveRefactor(vault, sourcePath, targetPath)
+        if (
+          preview.replacements > 0 &&
+          !(await confirmAction(
+            t("workspace.moveRefactorConfirm", {
+              replacements: preview.replacements,
+              notes: preview.notes,
+            }),
+          ))
+        )
+          return
+        const result = await moveItem(vault, sourcePath, targetPath)
         applyMutationResult(result)
-        if (sourceItem.type === "canvas") await refreshTree()
+        await refreshTree()
       } catch (err) {
         console.error("Failed to move item:", err)
       }
@@ -470,23 +530,36 @@ export function useFileActions({
     // to avoid the O(n) split on every keystroke causing a Workspace re-render.
     patchDoc(fileId, { content })
     markUnsaved(fileId)
+    const path = useDocStore.getState().openDocs[fileId]?.path
+    if (path) saveRecoveryDraft(path, content)
 
     const timers = saveTimersRef.current
     const existing = timers.get(fileId)
     if (existing) clearTimeout(existing)
     timers.set(
       fileId,
-      setTimeout(async () => {
+      setTimeout(() => {
         timers.delete(fileId)
-        const doc = useDocStore.getState().openDocs[fileId]
-        if (!doc) return
-        try {
-          if (vault) await writeNote(vault, doc.id, content)
-          else await writeFile(doc.path, content)
-          markSaved(fileId)
-        } catch (err) {
-          console.error("Failed to save:", err)
-        }
+        void saveQueueRef.current
+          .enqueue(fileId, async () => {
+            const doc = useDocStore.getState().openDocs[fileId]
+            // A later edit has already replaced this timer's buffer. Its own
+            // timer will enqueue the current content, so never write stale text.
+            if (!doc || doc.content !== content) return
+            if (useDocStore.getState().externalConflicts[fileId]) return
+
+            if (vault) await writeNote(vault, doc.id, content)
+            else await writeFile(doc.path, content)
+
+            // An edit may have happened while the disk write was in flight.
+            // Only clear the dirty marker if this exact buffer remains current.
+            const current = useDocStore.getState().openDocs[fileId]
+            if (current?.content === content) {
+              discardRecoveryDraft(current.path)
+              markSaved(fileId)
+            }
+          })
+          .catch((err) => logger.error("autosave.failed", { errorType: errorType(err) }))
       }, useSettingsStore.getState().prefs.editor.autosaveMs),
     )
   }

@@ -22,9 +22,10 @@ const blockPath = (id: string) => `blocks/${id}.json`
 
 /** Make sure rows are rectangular against the column count. */
 function normalize(d: Partial<DbData> | null): DbData {
-  const columns = Array.isArray(d?.columns) && d!.columns.length ? d!.columns.map(String) : DEFAULT_DATA.columns
+  const columns =
+    Array.isArray(d?.columns) && d!.columns.length ? d!.columns.map(String) : DEFAULT_DATA.columns
   const rawRows = Array.isArray(d?.rows) ? d!.rows : []
-  const rows = (rawRows.length ? rawRows : DEFAULT_DATA.rows).map(row => {
+  const rows = (rawRows.length ? rawRows : DEFAULT_DATA.rows).map((row) => {
     const r = Array.isArray(row) ? row.map(String) : []
     while (r.length < columns.length) r.push("")
     return r.slice(0, columns.length)
@@ -45,7 +46,7 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
       setData(DEFAULT_DATA)
       return
     }
-    loadVaultJSON<Partial<DbData>>(blockPath(blockId), {}).then(d => {
+    loadVaultJSON<Partial<DbData>>(blockPath(blockId), {}).then((d) => {
       if (!cancelled) setData(normalize(d))
     })
     return () => {
@@ -93,7 +94,7 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
     if (!data) return
     persist({
       columns: [...data.columns, t("dbBlock.defaultColumn", { n: data.columns.length + 1 })],
-      rows: data.rows.map(row => [...row, ""]),
+      rows: data.rows.map((row) => [...row, ""]),
     })
   }
 
@@ -106,16 +107,16 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
     if (!data || data.columns.length <= 1) return
     persist({
       columns: data.columns.filter((_, ci) => ci !== c),
-      rows: data.rows.map(row => row.filter((_, ci) => ci !== c)),
+      rows: data.rows.map((row) => row.filter((_, ci) => ci !== c)),
     })
   }
 
   return (
     <NodeViewWrapper
-      className="amby-db-block my-2 rounded-md border border-border bg-[#0D0D0D]"
+      className="amby-db-block my-2 rounded-lg border border-border bg-card"
       data-block-type={node.attrs.blockType}
     >
-      <div contentEditable={false} onKeyDown={e => e.stopPropagation()}>
+      <div contentEditable={false} onKeyDown={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
           <Database className="size-3.5" />
           {t("dbBlock.database")}
@@ -134,7 +135,7 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
                         <input
                           value={col}
                           disabled={!editable}
-                          onChange={e => setColumn(c, e.target.value)}
+                          onChange={(e) => setColumn(c, e.target.value)}
                           className="w-full bg-transparent px-2 py-1.5 text-foreground outline-none placeholder:text-muted-foreground"
                           placeholder={t("dbBlock.columnPlaceholder")}
                         />
@@ -173,7 +174,7 @@ export function AmbyBlockView({ node, editor }: NodeViewProps) {
                         <input
                           value={cell}
                           disabled={!editable}
-                          onChange={e => setCell(r, c, e.target.value)}
+                          onChange={(e) => setCell(r, c, e.target.value)}
                           className="w-full bg-transparent px-2 py-1.5 outline-none"
                         />
                       </td>

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { FolderOpen, Maximize2, Minimize2, Minus, X } from "lucide-react"
+import { ChevronDown, FolderOpen, Maximize2, Minimize2, Minus, X } from "lucide-react"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { ActivityBar } from "./activity-bar"
 import { PanelHost } from "./panel-host"
@@ -41,7 +41,7 @@ import { useSidebarLayout } from "./use-sidebar-layout"
 import { useLayers } from "./use-layers"
 import { useTabActions } from "./use-tab-actions"
 import { wsPathStem, canvasLayerPath, findTreeItem, newTabKey } from "./workspace-tree-utils"
-import type { VaultRecord } from "./workspace-picker"
+import { WorkspacePicker, type VaultRecord } from "./workspace-picker"
 import {
   isTauri,
   openVault,
@@ -56,6 +56,13 @@ import {
 
 const GRAPH_TAB_FILE_ID = "__graph__"
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
+
+function workspaceRelativePath(path: string, workspacePath: string): string {
+  const normalizedPath = path.replace(/\\/g, "/")
+  const normalizedWorkspace = workspacePath.replace(/\\/g, "/").replace(/\/+$/u, "")
+  const prefix = `${normalizedWorkspace}/`
+  return normalizedPath.startsWith(prefix) ? normalizedPath.slice(prefix.length) : normalizedPath
+}
 
 /** Minimal draggable header shown on the empty-vault screen. */
 function EmptyStateHeader() {
@@ -157,12 +164,19 @@ export function Workspace() {
   const vaults = useVaultStore((s) => s.vaults)
   const { setVaults } = useVaultStore.getState()
 
-  const { treeItems, setTreeItems, displayTreeItems, linkGraph, loadVault, refreshTree } =
-    useVaultData()
+  const {
+    treeItems,
+    setTreeItems,
+    displayTreeItems,
+    linkGraph,
+    loadVault,
+    refreshTree,
+    reloadVaultData,
+  } = useVaultData()
 
   const openDocs = useDocStore((s) => s.openDocs)
   // Action is stable in zustand, so read it once without subscribing.
-  const { applyMutation } = useDocStore.getState()
+  const { applyMutation, patchDoc, markSaved } = useDocStore.getState()
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
   const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
@@ -195,6 +209,20 @@ export function Workspace() {
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const defaultViewMode = useSettingsStore((s) => s.prefs.editor.defaultViewMode)
+  const dockPrefs = useSettingsStore((s) => s.prefs.docks)
+  const setPrefs = useSettingsStore((s) => s.setPrefs)
+  const [dockNotice, setDockNotice] = React.useState<string | null>(null)
+
+  const updateDockPrefs = React.useCallback(
+    (patch: Partial<typeof dockPrefs>) => setPrefs({ docks: { ...dockPrefs, ...patch } }),
+    [dockPrefs, setPrefs],
+  )
+
+  React.useEffect(() => {
+    if (!dockNotice) return
+    const timer = window.setTimeout(() => setDockNotice(null), 5000)
+    return () => window.clearTimeout(timer)
+  }, [dockNotice])
 
   // Cmd/Ctrl + , opens application settings (desktop convention).
   React.useEffect(() => {
@@ -214,9 +242,11 @@ export function Workspace() {
     activeBySide,
     setActiveBySide,
     activePresetId,
+    activeModules,
     presets,
     panelScope,
     setPanelScope,
+    setModuleEnabled,
     switchPreset,
     importPreset,
     exportPreset,
@@ -297,9 +327,8 @@ export function Workspace() {
   }
 
   async function refreshVault() {
-    if (!vault) return
     try {
-      await refreshTree(vault)
+      await reloadVaultData()
     } catch {
       /* ignore */
     }
@@ -309,6 +338,17 @@ export function Workspace() {
     openGraphTab,
     refreshVault,
     openSearch: () => setSearchOpen(true),
+    openSettings: () => setSettingsOpen(true),
+  }
+
+  const activityBarPresetProps = {
+    presets: presetOptions,
+    activePresetId,
+    onSwitchPreset: (id: string) => switchPreset(id, { vault }),
+    onImportPreset: handleImportPreset,
+    onExportPreset: handleExportPreset,
+    panelScope,
+    onSetPanelScope: setPanelScope,
   }
 
   const {
@@ -331,13 +371,42 @@ export function Workspace() {
     dnd,
     handleActivate,
     activatePanelAnywhere,
+    isDockVisible,
+    isDockPinned,
+    setDockVisible,
+    setDockPinned,
   } = useSidebarLayout({
     activityButtons,
     setActivityButtons,
     activeBySide,
     setActiveBySide,
     actionContext,
+    dockPrefs,
+    onDockPrefsChange: updateDockPrefs,
   })
+
+  const handleHideDock = React.useCallback(
+    (side: "left" | "right") => {
+      setDockVisible(side, false)
+      setDockNotice(t("dock.hiddenNotice"))
+    },
+    [setDockVisible, t],
+  )
+
+  const activityDockProps = (side: "left" | "right") => ({
+    pinned: isDockPinned(side),
+    onPinnedChange: (pinned: boolean) => setDockPinned(side, pinned),
+    onHide: () => handleHideDock(side),
+  })
+
+  const dockNoticeToast = dockNotice && (
+    <div
+      role="status"
+      className="fixed bottom-5 left-1/2 z-[60] max-w-md -translate-x-1/2 rounded-lg border border-border bg-popover px-4 py-3 text-center text-[13px] text-foreground shadow-lg"
+    >
+      {dockNotice}
+    </div>
+  )
 
   const vaultName = vault?.replace(/\\/g, "/").split("/").pop() ?? undefined
 
@@ -427,7 +496,6 @@ export function Workspace() {
     canGoBack,
     canGoForward,
     navigateToFile,
-    saveTimersRef,
   })
 
   function handleRenameVault(id: string, name: string) {
@@ -467,6 +535,14 @@ export function Workspace() {
     if (!currentDoc) return
     toggleLock(currentDoc.id)
   }
+
+  const handleHistoryRestored = React.useCallback(async () => {
+    if (!vault || !currentDoc) return
+    const content = await readNote(vault, currentDoc.id)
+    patchDoc(currentDoc.id, { content })
+    markSaved(currentDoc.id)
+    await refreshTree(vault)
+  }, [vault, currentDoc?.id, patchDoc, markSaved, refreshTree])
 
   // Debounced persistence of any open canvas (note layer or standalone), keyed by file path.
   const handleCanvasSave = React.useCallback((path: string, json: string) => {
@@ -549,6 +625,7 @@ export function Workspace() {
             created: "—",
             modified: currentDoc.modified,
             id: currentDoc.id,
+            frontmatter: currentDoc.noteProperties ?? { hasFrontmatter: false, properties: [] },
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -590,7 +667,26 @@ export function Workspace() {
       properties: currentProperties,
       linkGraph,
       currentDocId: currentDoc?.id ?? null,
+      currentDocPath: currentDoc?.path ?? null,
       onSelectLink: handleSelect,
+      onHistoryRestored: handleHistoryRestored,
+      workspaceSwitcher: (
+        <WorkspacePicker
+          vaults={vaults}
+          currentPath={vault}
+          onSelect={loadVault}
+          onAdd={handleOpenVault}
+          onRename={handleRenameVault}
+          onDelete={handleDeleteVault}
+          onMove={handleMoveVault}
+          onOpenInExplorer={openInExplorer}
+        >
+          <button className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background/70 px-3 py-2 text-sm transition-colors hover:bg-accent">
+            <span className="truncate font-medium">{vaultName ?? t("workspace.name")}</span>
+            <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+          </button>
+        </WorkspacePicker>
+      ),
     }),
     [
       displayTreeItems,
@@ -613,6 +709,16 @@ export function Workspace() {
       currentProperties,
       linkGraph,
       currentDoc?.id,
+      currentDoc?.path,
+      handleHistoryRestored,
+      vaults,
+      vaultName,
+      loadVault,
+      handleRenameVault,
+      handleDeleteVault,
+      handleMoveVault,
+      openInExplorer,
+      t,
     ],
   )
 
@@ -645,12 +751,19 @@ export function Workspace() {
         : doc
           ? findTreeItem(displayTreeItems, doc.id)?.icon
           : undefined,
+      onFileIconChange:
+        isPrimary && doc ? (emoji: string) => handleSetIcon(doc.id, emoji) : undefined,
       onNewFile: () => handleNewFileIn(null),
       onOpenVault: handleOpenVault,
       onTagClick: (_tag: string) => {
         activatePanelAnywhere("tags")
       },
       onWikiLinkClick: handleWikiLinkClick,
+      resolveWikiLinkTarget: (target: string): string | null => {
+        if (!vault) return target
+        const item = findWikiLinkItem(treeItems, target, vault)
+        return item?.path ? workspaceRelativePath(item.path, vault) : (item?.name ?? target)
+      },
       fetchTransclusion: async (target: string): Promise<string | null> => {
         if (!vault) return null
         const item = findWikiLinkItem(treeItems, target, vault)
@@ -752,23 +865,19 @@ export function Workspace() {
           className={`fixed left-0 top-0 bottom-0 z-10 flex transition-transform duration-200 ease-out shadow-2xl ${focusShowLeft ? "translate-x-0" : "-translate-x-full"}`}
           onMouseLeave={() => setFocusShowLeft(false)}
         >
-          <ActivityBar
-            side="left"
-            buttons={leftButtons}
-            activeView={activeBySide.left}
-            onActivate={handleActivate}
-            onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
-            onPointerDownButton={dnd.onPointerDown}
-            draggingId={dnd.draggingId}
-            presets={presetOptions}
-            activePresetId={activePresetId}
-            onSwitchPreset={(id) => switchPreset(id, { vault })}
-            onImportPreset={handleImportPreset}
-            onExportPreset={handleExportPreset}
-            panelScope={panelScope}
-            onSetPanelScope={setPanelScope}
-            onOpenSettings={() => setSettingsOpen(true)}
-          />
+          {isDockVisible("left") && (
+            <ActivityBar
+              side="left"
+              buttons={leftButtons}
+              activeView={activeBySide.left}
+              onActivate={handleActivate}
+              onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
+              onPointerDownButton={dnd.onPointerDown}
+              draggingId={dnd.draggingId}
+              {...activityBarPresetProps}
+              {...activityDockProps("left")}
+            />
+          )}
           <div style={{ width: leftWidth }} className="shrink-0">
             <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
           </div>
@@ -782,15 +891,19 @@ export function Workspace() {
           <div style={{ width: rightWidth }} className="shrink-0">
             <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
           </div>
-          <ActivityBar
-            side="right"
-            buttons={rightButtons}
-            activeView={activeBySide.right}
-            onActivate={handleActivate}
-            onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
-            onPointerDownButton={dnd.onPointerDown}
-            draggingId={dnd.draggingId}
-          />
+          {isDockVisible("right") && (
+            <ActivityBar
+              side="right"
+              buttons={rightButtons}
+              activeView={activeBySide.right}
+              onActivate={handleActivate}
+              onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
+              onPointerDownButton={dnd.onPointerDown}
+              draggingId={dnd.draggingId}
+              {...activityBarPresetProps}
+              {...activityDockProps("right")}
+            />
+          )}
         </div>
 
         <QuickOpenModal
@@ -808,13 +921,23 @@ export function Workspace() {
           onSelect={handleSelect}
           readFile={readFile}
         />
+
+        <SettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          activeModules={activeModules}
+          onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
+          dockPrefs={dockPrefs}
+          onDockPrefsChange={updateDockPrefs}
+        />
+        {dockNoticeToast}
       </div>
     )
   }
 
   // ── Normal layout ──────────────────────────────────────────────
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background">
+    <div className="flex h-screen flex-col overflow-hidden bg-[var(--workspace-bg)]">
       <HeaderTabs
         tabs={headerTabs}
         activeTabKey={activeTabKey}
@@ -825,6 +948,14 @@ export function Workspace() {
         onToggleRightSidebar={() => setIsRightSidebarOpen((v) => !v)}
         isLeftSidebarOpen={isLeftSidebarOpen}
         isRightSidebarOpen={isRightSidebarOpen}
+        isLeftDockVisible={isDockVisible("left")}
+        isRightDockVisible={isDockVisible("right")}
+        isLeftDockPinned={isDockPinned("left")}
+        isRightDockPinned={isDockPinned("right")}
+        onSetLeftDockVisible={(visible) => setDockVisible("left", visible)}
+        onSetRightDockVisible={(visible) => setDockVisible("right", visible)}
+        onSetLeftDockPinned={(pinned) => setDockPinned("left", pinned)}
+        onSetRightDockPinned={(pinned) => setDockPinned("right", pinned)}
         onToggleSplit={toggleSplit}
         isSplit={!!secondaryTabKey}
         onOpenPlusModal={() => setQuickOpenOpen(true)}
@@ -843,24 +974,23 @@ export function Workspace() {
         activeFileId={activeTab?.fileId}
         favorites={favorites}
         onToggleFavorite={handleToggleFavorite}
+        showWorkspacePicker={false}
       />
 
-      <div className="flex flex-1 overflow-hidden">
-        <ActivityBar
-          side="left"
-          buttons={leftButtons}
-          activeView={activeBySide.left}
-          onActivate={handleActivate}
-          onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
-          onPointerDownButton={dnd.onPointerDown}
-          draggingId={dnd.draggingId}
-          presets={presetOptions}
-          activePresetId={activePresetId}
-          onSwitchPreset={(id) => switchPreset(id, { vault })}
-          onImportPreset={handleImportPreset}
-          onExportPreset={handleExportPreset}
-          onOpenSettings={() => setSettingsOpen(true)}
-        />
+      <div className="flex flex-1 overflow-hidden bg-[var(--workspace-bg)]">
+        {isDockVisible("left") && (
+          <ActivityBar
+            side="left"
+            buttons={leftButtons}
+            activeView={activeBySide.left}
+            onActivate={handleActivate}
+            onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
+            onPointerDownButton={dnd.onPointerDown}
+            draggingId={dnd.draggingId}
+            {...activityBarPresetProps}
+            {...activityDockProps("left")}
+          />
+        )}
 
         {isLeftSidebarOpen && (
           <>
@@ -868,17 +998,17 @@ export function Workspace() {
               style={{ width: leftWidth }}
               className={
                 isCompactLayout
-                  ? "fixed inset-y-10 left-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
-                  : "shrink-0"
+                  ? "fixed inset-y-11 left-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
+                  : "relative shrink-0"
               }
             >
               <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
+              {!isCompactLayout && <ResizeHandle side="right" onMouseDown={startResize("left")} />}
             </div>
-            {!isCompactLayout && <ResizeHandle onMouseDown={startResize("left")} />}
           </>
         )}
 
-        <main className="flex flex-1 overflow-hidden">
+        <main className="flex flex-1 gap-0 overflow-hidden bg-[var(--workspace-bg)]">
           {activeTab?.kind === "graph" ? (
             <React.Suspense fallback={<LazyEditorFallback />}>
               <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
@@ -906,7 +1036,6 @@ export function Workspace() {
                   />
                 </React.Suspense>
               </div>
-              <div className="w-px shrink-0 bg-accent" />
               <div className="flex min-w-0 flex-1">
                 <React.Suspense fallback={<LazyEditorFallback />}>
                   <DocumentEditor
@@ -931,29 +1060,33 @@ export function Workspace() {
 
         {isRightSidebarOpen && (
           <>
-            {!isCompactLayout && <ResizeHandle onMouseDown={startResize("right")} />}
             <div
               style={{ width: rightWidth }}
               className={
                 isCompactLayout
-                  ? "fixed inset-y-10 right-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
-                  : "shrink-0"
+                  ? "fixed inset-y-11 right-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
+                  : "relative shrink-0"
               }
             >
+              {!isCompactLayout && <ResizeHandle side="left" onMouseDown={startResize("right")} />}
               <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
             </div>
           </>
         )}
 
-        <ActivityBar
-          side="right"
-          buttons={rightButtons}
-          activeView={activeBySide.right}
-          onActivate={handleActivate}
-          onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
-          onPointerDownButton={dnd.onPointerDown}
-          draggingId={dnd.draggingId}
-        />
+        {isDockVisible("right") && (
+          <ActivityBar
+            side="right"
+            buttons={rightButtons}
+            activeView={activeBySide.right}
+            onActivate={handleActivate}
+            onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
+            onPointerDownButton={dnd.onPointerDown}
+            draggingId={dnd.draggingId}
+            {...activityBarPresetProps}
+            {...activityDockProps("right")}
+          />
+        )}
       </div>
 
       <QuickOpenModal
@@ -972,7 +1105,15 @@ export function Workspace() {
         readFile={readFile}
       />
 
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        activeModules={activeModules}
+        onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
+        dockPrefs={dockPrefs}
+        onDockPrefsChange={updateDockPrefs}
+      />
+      {dockNoticeToast}
     </div>
   )
 }

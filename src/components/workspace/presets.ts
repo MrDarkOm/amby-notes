@@ -1,6 +1,7 @@
 import {
   DEFAULT_BUTTONS,
   findButtonDef,
+  PERSISTENT_ACTION_BUTTONS,
   type ActivityButton,
   type PanelId,
   type Side,
@@ -25,18 +26,20 @@ export interface Preset {
 
 /**
  * Simple: hard-wired, zero-overhead, the emergency fallback. Pure Markdown —
- * just the file tree and search. Cannot be edited or removed, so a broken or
- * foreign preset always has a safe place to fall back to.
+ * the core file, archive, properties, and search tools. Cannot be edited or
+ * removed, so a broken or foreign preset always has a safe place to fall back to.
  */
 export const SIMPLE_PRESET: Preset = {
   id: "simple",
   label: "Simple",
   builtin: true,
   locked: true,
-  activeModules: ["files", "search"],
+  activeModules: [],
   layout: [
     { defId: "files", side: "left", order: 0 },
+    { defId: "archive", side: "left", order: 1 },
     { defId: "search", side: "left", order: 1 },
+    { defId: "info", side: "right", order: 0 },
   ],
   activeBySide: { left: "files", right: null },
 }
@@ -57,7 +60,7 @@ export const DEFAULT_PRESET_ID = STANDARD_PRESET.id
 
 /** Resolve a preset id, falling back to Standard for unknown ids. */
 export function getPreset(id: string | null | undefined): Preset {
-  return BUILTIN_PRESETS.find(p => p.id === id) ?? STANDARD_PRESET
+  return BUILTIN_PRESETS.find((p) => p.id === id) ?? STANDARD_PRESET
 }
 
 /**
@@ -100,7 +103,20 @@ export function validatePreset(raw: unknown): Preset | null {
  */
 export function visibleLayout(preset: Preset): ActivityButton[] {
   const allowed = contributedDefIds(preset.activeModules)
-  return preset.layout.filter(b => allowed.has(b.defId))
+  const visible = preset.layout.filter((button) => {
+    const def = findButtonDef(button.defId)
+    return allowed.has(button.defId) || (def?.kind === "action" && def.persistent)
+  })
+  const present = new Set(visible.map((button) => button.defId))
+  const seen = new Set<string>()
+  return [
+    ...visible,
+    ...PERSISTENT_ACTION_BUTTONS.filter((button) => !present.has(button.defId)),
+  ].filter((button) => {
+    if (seen.has(button.defId)) return false
+    seen.add(button.defId)
+    return true
+  })
 }
 
 // ── Import / export ─────────────────────────────────────────────────────────
@@ -142,4 +158,3 @@ export function parsePresetFile(text: string): Preset | null {
       : data
   return validatePreset(wrapped)
 }
-

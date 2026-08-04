@@ -83,7 +83,8 @@ function ambyInlineRule(state: StateInline, silent: boolean): boolean {
 // grouping tokens so they map cleanly onto the Tiptap table schema.
 function normalizeTables(state: StateCore) {
   const out: Token[] = []
-  for (const token of state.tokens) {
+  for (let i = 0; i < state.tokens.length; i++) {
+    const token = state.tokens[i]
     const type = token.type
     if (
       type === "thead_open" ||
@@ -92,6 +93,30 @@ function normalizeTables(state: StateCore) {
       type === "tbody_close"
     ) {
       continue
+    }
+    if (type === "table_open") {
+      const startLine = token.map?.[0]
+      const endLine = token.map?.[1]
+      if (typeof startLine === "number" && typeof endLine === "number" && endLine > startLine) {
+        const lines = state.src.split(/\r?\n/u)
+        const separator = lines[startLine + 1]
+        // Core rules receive tokens, not the block parser's bMarks/eMarks.
+        // Keep a canonical-LF copy here; restoreSourceFormatting reapplies a
+        // consistent CRLF convention at the document boundary.
+        const source = lines.slice(startLine, endLine).join("\n")
+        const signature: string[] = []
+        for (let index = i + 1; index < state.tokens.length; index++) {
+          const nested = state.tokens[index]
+          if (nested.type === "table_close") break
+          if (nested.type === "inline") signature.push(nested.content)
+        }
+        token.meta = {
+          ...(token.meta ?? {}),
+          markdownSeparator: separator ?? null,
+          markdownSource: source,
+          markdownSignature: JSON.stringify(signature),
+        }
+      }
     }
     if (type === "th_open" || type === "td_open") {
       out.push(token)
@@ -191,7 +216,7 @@ function softbreaksToText(state: StateCore) {
 
 // ── markdown-it: detect Obsidian-style callouts (`> [!NOTE] emoji`) ──────────
 
-const CALLOUT_FIRST_LINE_RE = /^\[!(NOTE|WARNING|INFO|TIP|DANGER)\](?:\s+(\S[^\n]*))?/i
+const CALLOUT_FIRST_LINE_RE = /^\[!([A-Z0-9_-]+)\]([+-])?([ \t]+[^\n]*)?/i
 
 /**
  * Transforms blockquotes whose first line is `[!TYPE] emoji` into `callout`
@@ -260,8 +285,9 @@ function detectCallouts(state: StateCore) {
     }
 
     const calloutType = match[1].toUpperCase()
-    const emojiRaw = (match[2] ?? "").trim()
+    const emojiRaw = (match[3] ?? "").trim()
     const emoji = emojiRaw || CALLOUT_DEFAULTS[calloutType] || "💡"
+    const headerSuffix = `${match[2] ?? ""}${match[3] ?? ""}`
 
     // Strip the "[!TYPE] emoji" prefix from the first inline token
     const markerLen = match[0].length
@@ -282,6 +308,8 @@ function detectCallouts(state: StateCore) {
     const calloutOpen = new state.Token("callout_open", "div", 1)
     calloutOpen.attrSet("calloutType", calloutType)
     calloutOpen.attrSet("emoji", emoji)
+    calloutOpen.attrSet("headerSuffix", headerSuffix)
+    calloutOpen.attrSet("hasRawHeader", "true")
     out.push(calloutOpen)
 
     // Emit inner tokens, optionally skipping the (now-empty) first paragraph
@@ -336,8 +364,10 @@ function detectAmbyBlocks(state: StateCore) {
  * (paragraph_open / inline / paragraph_close) with a single `transclusion`
  * token.  This mirrors Obsidian's block-embed behaviour.
  *
- * Only the base note name is stored; aliases (`|`) and anchors (`#`/`^`) are
- * stripped so the target matches the vault lookup key.
+ * The original inner wikilink is kept for serialization, while the base note
+ * name remains available separately for the preview lookup. This avoids losing
+ * aliases (`|`) and anchors (`#`/`^`) when an unrelated live-editor edit saves
+ * the document.
  */
 const TRANSCLUSION_LINE_RE = /^!\[\[([^\]\r\n]+)\]\]\s*$/
 
@@ -361,6 +391,7 @@ function detectTransclusions(state: StateCore) {
         const base = raw.split("|")[0].split(/[#^]/)[0].trim()
         const t = new state.Token("transclusion", "div", 0)
         t.attrSet("target", base)
+        t.attrSet("raw", raw)
         out.push(t)
         i += 3 // consume paragraph_open + inline + paragraph_close
         continue
@@ -372,6 +403,35 @@ function detectTransclusions(state: StateCore) {
   state.tokens = out
 }
 
+// Keep block math as an opaque source node. Without this, a TeX command at the
+// start of a line (for example `\int`) is treated as a Markdown escape during
+// visual serialization and gains an extra backslash on disk.
+const MATH_BLOCK_RE = /^\$\$\r?\n[\s\S]*\r?\n\$\$\s*$/u
+function detectMathBlocks(state: StateCore) {
+  const out: typeof state.tokens = []
+  let index = 0
+  while (index < state.tokens.length) {
+    const token = state.tokens[index]
+    if (
+      token.type === "paragraph_open" &&
+      state.tokens[index + 1]?.type === "inline" &&
+      state.tokens[index + 2]?.type === "paragraph_close"
+    ) {
+      const inline = state.tokens[index + 1]
+      if (MATH_BLOCK_RE.test(inline.content)) {
+        const opaque = new state.Token("opaque_markdown", "pre", 0)
+        opaque.meta = { kind: "math", value: inline.content.trimEnd() }
+        out.push(opaque)
+        index += 3
+        continue
+      }
+    }
+    out.push(token)
+    index++
+  }
+  state.tokens = out
+}
+
 function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.inline.ruler.before("html_inline", "amby_html", ambyInlineRule)
   md.core.ruler.push("amby_tables", normalizeTables)
@@ -379,6 +439,7 @@ function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.core.ruler.push("amby_blocks", detectAmbyBlocks)
   md.core.ruler.push("amby_callouts", detectCallouts)
   md.core.ruler.push("amby_transclusions", detectTransclusions)
+  md.core.ruler.push("amby_math_blocks", detectMathBlocks)
   md.core.ruler.push("amby_softbreaks", softbreaksToText)
 }
 
@@ -406,6 +467,8 @@ const parserTokens: { [token: string]: ParseSpec } = {
     getAttrs: (tok) => ({
       calloutType: tok.attrGet("calloutType") ?? "NOTE",
       emoji: tok.attrGet("emoji") ?? "💡",
+      headerSuffix: tok.attrGet("headerSuffix") ?? "",
+      hasRawHeader: tok.attrGet("hasRawHeader") === "true",
     }),
   },
   blockquote: { block: "blockquote" },
@@ -441,7 +504,14 @@ const parserTokens: { [token: string]: ParseSpec } = {
     }),
   },
   hardbreak: { node: "hardBreak" },
-  table: { block: "table" },
+  table: {
+    block: "table",
+    getAttrs: (tok) => ({
+      markdownSeparator: tok.meta?.markdownSeparator ?? null,
+      markdownSource: tok.meta?.markdownSource ?? null,
+      markdownSignature: tok.meta?.markdownSignature ?? null,
+    }),
+  },
   tr: { block: "tableRow" },
   th: { block: "tableHeader" },
   td: { block: "tableCell" },
@@ -458,7 +528,19 @@ const parserTokens: { [token: string]: ParseSpec } = {
     noCloseToken: true,
     getAttrs: (tok) => ({ value: tok.content }),
   },
-  html_block: { ignore: true, noCloseToken: true },
+  html_block: {
+    node: "opaqueHtmlBlock",
+    noCloseToken: true,
+    getAttrs: (tok) => ({ value: tok.content }),
+  },
+  opaque_markdown: {
+    node: "opaqueMarkdownBlock",
+    noCloseToken: true,
+    getAttrs: (tok) => ({
+      kind: (tok.meta?.kind as string) ?? "source",
+      value: (tok.meta?.value as string) ?? tok.content,
+    }),
+  },
   amby_block: {
     node: "ambyBlock",
     getAttrs: (tok) => ({
@@ -476,7 +558,7 @@ const parserTokens: { [token: string]: ParseSpec } = {
   amby_u: { mark: "ambyUnderline" },
   transclusion: {
     node: "transclusion",
-    getAttrs: (tok) => ({ target: tok.attrGet("target") ?? "" }),
+    getAttrs: (tok) => ({ target: tok.attrGet("target") ?? "", raw: tok.attrGet("raw") ?? "" }),
   },
 }
 
@@ -577,8 +659,8 @@ const nodeSerializers: Record<
   callout(state, node) {
     const type = (node.attrs.calloutType as string) || "NOTE"
     const emoji = (node.attrs.emoji as string) || CALLOUT_DEFAULTS[type] || "💡"
-    // Write the [!TYPE] header line with the emoji
-    state.write(`> [!${type}] ${emoji}\n`)
+    const header = node.attrs.hasRawHeader ? (node.attrs.headerSuffix as string) : ` ${emoji}`
+    state.write(`> [!${type}]${header}\n`)
     // Wrap the content lines with "> " prefix
     state.wrapBlock("> ", null, node, () => state.renderContent(node))
   },
@@ -603,7 +685,7 @@ const nodeSerializers: Record<
     state.closeBlock(node)
   },
   transclusion(state, node) {
-    state.write(`![[${node.attrs.target as string}]]`)
+    state.write(`![[${(node.attrs.raw as string) || (node.attrs.target as string)}]]`)
     state.closeBlock(node)
   },
   bulletList(state, node) {
@@ -649,6 +731,14 @@ const nodeSerializers: Record<
   ambyHtml(state, node) {
     state.text(node.attrs.value ?? "", false)
   },
+  opaqueHtmlBlock(state, node) {
+    state.write(node.attrs.value ?? "")
+    state.closeBlock(node)
+  },
+  opaqueMarkdownBlock(state, node) {
+    state.write(node.attrs.value ?? "")
+    state.closeBlock(node)
+  },
   table(state, node) {
     const rows: string[][] = []
     node.forEach((row) => {
@@ -660,6 +750,15 @@ const nodeSerializers: Record<
       state.closeBlock(node)
       return
     }
+    const originalSource = node.attrs.markdownSource
+    if (
+      typeof originalSource === "string" &&
+      node.attrs.markdownSignature === tableSignatureFromRows(rows)
+    ) {
+      state.write(originalSource)
+      state.closeBlock(node)
+      return
+    }
     const columnCount = Math.max(...rows.map((row) => row.length))
     const padded = rows.map((row) => {
       const next = row.slice()
@@ -668,7 +767,7 @@ const nodeSerializers: Record<
     })
     state.write("| " + padded[0].join(" | ") + " |")
     state.ensureNewLine()
-    state.write("| " + padded[0].map(() => "---").join(" | ") + " |")
+    state.write(tableSeparator(node, padded[0].length))
     state.ensureNewLine()
     for (let r = 1; r < padded.length; r++) {
       state.write("| " + padded[r].join(" | ") + " |")
@@ -739,6 +838,25 @@ function serializeTableCell(cell: PMNode): string {
   return md || " "
 }
 
+function tableSeparator(table: PMNode, columnCount: number): string {
+  const original = table.attrs.markdownSeparator
+  if (typeof original === "string") {
+    const cells = original
+      .trim()
+      .split("|")
+      .map((cell) => cell.trim())
+      .filter(Boolean)
+    if (cells.length === columnCount && cells.every((cell) => /^:?-{3,}:?$/u.test(cell))) {
+      return original
+    }
+  }
+  return "| " + Array.from({ length: columnCount }, () => "---").join(" | ") + " |"
+}
+
+function tableSignatureFromRows(rows: string[][]): string {
+  return JSON.stringify(rows.flat())
+}
+
 // Build the on-disk HTML for a text node carrying style / underline marks,
 // matching the legacy Milkdown output exactly (underline nests inside the span).
 function buildStyledHtml(text: string, marks: readonly PMNode["marks"][number][]): string {
@@ -777,9 +895,35 @@ export function docToMarkdown(doc: PMNode): string {
   return serializeFragment(transformForSerialization(doc))
 }
 
-// Dev-only round-trip helper: parse then re-serialize and report drift.
+const FOOTNOTE_SYNTAX_RE = /(?:\[\^[^\]\r\n]+\]|\^\[[^\]\r\n]+\])/u
+
+// ProseMirror documents represent neither a document's terminal line-breaks
+// nor its preferred line-ending form. Both are nevertheless file data: losing
+// them on an unrelated Live Preview edit is a silent Markdown normalization.
+// Restore them at the editor boundary. Mixed line endings remain Source-only —
+// their exact distribution needs a token-level on-disk model.
+export function restoreSourceFormatting(serialized: string, original: string): string {
+  const hasCrLf = original.includes("\r\n")
+  const hasLoneLf = /(^|[^\r])\n/.test(original)
+  const hasLoneCr = /\r(?!\n)/.test(original)
+  if (hasLoneCr || (hasCrLf && hasLoneLf)) return serialized
+
+  const leadingBreaks = original.match(/^(?:\r?\n)+/)?.[0] ?? ""
+  const terminalBreaks = original.match(/(?:\r?\n)+$/)?.[0] ?? ""
+  let body = serialized
+  if (leadingBreaks) body = body.replace(/^(?:\r?\n)+/, "")
+  if (terminalBreaks) body = body.replace(/(?:\r?\n)+$/, "")
+  const normalizedBody = hasCrLf ? body.replace(/\n/g, "\r\n") : body
+  return `${leadingBreaks}${normalizedBody}${terminalBreaks}`
+}
+
+// Round-trip helper: parse then re-serialize and report any byte-level drift.
 export function roundTripCheck(markdown: string): { ok: boolean; result: string } {
-  const doc = getParser().parse(markdown ?? "")
-  const result = docToMarkdown(doc)
-  return { ok: result.trim() === (markdown ?? "").trim(), result }
+  const original = markdown ?? ""
+  const doc = getParser().parse(original)
+  const result = restoreSourceFormatting(docToMarkdown(doc), original)
+  // markdown-it's built-in reference rule can reinterpret a footnote
+  // definition as a reference link depending on surrounding blocks. Until
+  // footnotes get dedicated opaque tokens, force the reliable Source path.
+  return { ok: result === original && !FOOTNOTE_SYNTAX_RE.test(original), result }
 }

@@ -4,7 +4,7 @@ import { useViewStateStore, type EditorLayer } from "./use-view-state-store"
 import type { Document } from "./use-doc-store"
 import type { TreeItem } from "./sidebar-tree"
 import type { FsMutationResult, LayerKind } from "@/lib/storage"
-import { createLayer, unlinkLayer, deleteLayer, noteLayers } from "@/lib/storage"
+import { confirmAction, createLayer, unlinkLayer, deleteLayer, noteLayers } from "@/lib/storage"
 
 interface UseLayersParams {
   vault: string | null
@@ -56,6 +56,7 @@ export function useLayers({
         pathChanges: result.pathChanges,
         deletedPaths: [],
       })
+      await refreshTree()
       setActiveLayer(doc.id, layer)
       await refreshLinkedLayers(doc.id, result.notePath ?? doc.path)
     } catch (err) {
@@ -85,6 +86,7 @@ export function useLayers({
           pathChanges: result.pathChanges,
           deletedPaths: [],
         })
+        await refreshTree()
         await refreshLinkedLayers(fileId, result.notePath ?? filePath)
       } catch (err) {
         console.error("Failed to attach layer:", err)
@@ -111,9 +113,9 @@ export function useLayers({
   const handleDeleteLayer = async (layer: LayerKind) => {
     if (!currentDoc || !vault) return
     if (
-      !confirm(
+      !(await confirmAction(
         t("workspace.deleteLayerConfirm", { layer: t(`layer.${layer}`), title: currentDoc.title }),
-      )
+      ))
     )
       return
     try {

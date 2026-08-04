@@ -4,10 +4,13 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { createPortal } from "react-dom"
 import type { Editor } from "@tiptap/react"
+import { Fragment, type Node as PMNode } from "@tiptap/pm/model"
 import {
   AlignCenter,
   AlignLeft,
   AlignRight,
+  ArrowDown,
+  ArrowUp,
   CheckSquare,
   ChevronRight,
   Copy,
@@ -15,6 +18,7 @@ import {
   Link as LinkIcon,
   List,
   ListOrdered,
+  Rows3,
   Trash2,
 } from "lucide-react"
 
@@ -33,19 +37,21 @@ interface Props {
   anchorRect: AnchorRect
   onDuplicate: () => void
   onDelete: () => void
+  onInsertAbove: () => void
+  onInsertBelow: () => void
   onFocusInsideBlock: () => void
   onClose: () => void
 }
 
-const CALLOUT_SWATCHES: Array<{ id: string; label: string; color?: string }> = [
-  { id: "teal", label: "Teal", color: "rgba(20, 184, 166, 0.45)" },
-  { id: "orange", label: "Orange", color: "rgba(245, 158, 11, 0.55)" },
-  { id: "blue", label: "Blue", color: "rgba(14, 165, 233, 0.55)" },
-  { id: "green", label: "Green", color: "rgba(34, 197, 94, 0.55)" },
-  { id: "red", label: "Red", color: "rgba(239, 68, 68, 0.55)" },
-  { id: "purple", label: "Purple", color: "rgba(168, 85, 247, 0.55)" },
-  { id: "zinc", label: "Zinc", color: "rgba(113, 113, 122, 0.55)" },
-  { id: "none", label: "Без фона" },
+const CALLOUT_SWATCHES: Array<{ id: string; color?: string }> = [
+  { id: "teal", color: "rgba(20, 184, 166, 0.45)" },
+  { id: "orange", color: "rgba(245, 158, 11, 0.55)" },
+  { id: "blue", color: "rgba(14, 165, 233, 0.55)" },
+  { id: "green", color: "rgba(34, 197, 94, 0.55)" },
+  { id: "red", color: "rgba(239, 68, 68, 0.55)" },
+  { id: "purple", color: "rgba(168, 85, 247, 0.55)" },
+  { id: "zinc", color: "rgba(113, 113, 122, 0.55)" },
+  { id: "none" },
 ]
 
 const TEXT_COLORS: Array<{ id: string; color: string | null }> = [
@@ -61,6 +67,53 @@ const TEXT_COLORS: Array<{ id: string; color: string | null }> = [
 
 const CALLOUT_TYPES = Object.keys(CALLOUT_DEFAULTS) as Array<keyof typeof CALLOUT_DEFAULTS>
 
+/**
+ * Turns the visual lines in one paragraph into sibling paragraph blocks while
+ * preserving inline marks and inline nodes. This is deliberately a separate
+ * action from "Turn into": a paragraph stays a paragraph.
+ */
+function splitParagraphIntoBlocks(editor: Editor, nodePos: number): boolean {
+  const paragraph = editor.state.doc.nodeAt(nodePos)
+  if (!paragraph || paragraph.type.name !== "paragraph") return false
+
+  const lines: PMNode[][] = [[]]
+  const nextLine = () => lines.push([])
+  const appendToCurrentLine = (child: PMNode) => {
+    lines[lines.length - 1]?.push(child)
+  }
+
+  paragraph.forEach((child) => {
+    if (child.type.name === "hardBreak") {
+      nextLine()
+      return
+    }
+
+    if (!child.isText || !child.text?.includes("\n")) {
+      appendToCurrentLine(child)
+      return
+    }
+
+    const parts = child.text.split(/\r?\n/u)
+    parts.forEach((part, index) => {
+      if (part) appendToCurrentLine(paragraph.type.schema.text(part, child.marks))
+      if (index < parts.length - 1) nextLine()
+    })
+  })
+
+  if (lines.length < 2) return false
+
+  const paragraphs = lines.map((line) =>
+    paragraph.type.create(paragraph.attrs, Fragment.fromArray(line)),
+  )
+  const transaction = editor.state.tr
+    .replaceWith(nodePos, nodePos + paragraph.nodeSize, Fragment.fromArray(paragraphs))
+    .scrollIntoView()
+
+  editor.view.dispatch(transaction)
+  editor.commands.focus()
+  return true
+}
+
 export function BlockActionsPanel({
   editor,
   nodePos,
@@ -71,6 +124,8 @@ export function BlockActionsPanel({
   anchorRect,
   onDuplicate,
   onDelete,
+  onInsertAbove,
+  onInsertBelow,
   onFocusInsideBlock,
   onClose,
 }: Props) {
@@ -97,8 +152,25 @@ export function BlockActionsPanel({
   )
 
   const turnIntoItems = React.useMemo(() => getTurnIntoItems(), [])
+  const canSplitParagraph = React.useMemo(() => {
+    const paragraph = nodeType === "paragraph" ? editor.state.doc.nodeAt(nodePos) : null
+    if (!paragraph) return false
+    let hasLineBreak = false
+    paragraph.forEach((child) => {
+      if (child.type.name === "hardBreak" || child.text?.includes("\n")) hasLineBreak = true
+    })
+    return hasLineBreak
+  }, [editor, nodePos, nodeType])
+  // Multi-line paragraphs can be separated first; a regular one-line text
+  // block has the same Turn into affordance as headings and other blocks.
+  const canTurnInto = nodeType !== "paragraph" || !canSplitParagraph
   const turnIntoVisible =
-    matches("turn into") || matches("превратить") || turnIntoItems.some(i => matches(i.title))
+    canTurnInto &&
+    (matches(t("blockPanel.turnInto")) ||
+      turnIntoItems.some((i) => matches(t(`blockItems.${i.id}.title`))))
+  const splitVisible =
+    canSplitParagraph && (matches("split") || matches("разделить") || matches("block"))
+  const insertVisible = matches("insert") || matches("вставить")
 
   function chooseTurnInto(item: BlockInsertItem) {
     onFocusInsideBlock()
@@ -120,15 +192,15 @@ export function BlockActionsPanel({
       ref={panelRef}
       className="amby-block-panel amby-block-panel--actions"
       style={placementStyle}
-      onMouseDown={e => e.preventDefault()}
+      onMouseDown={(e) => e.preventDefault()}
     >
       <div className="amby-block-panel-header">
         <input
           ref={searchRef}
           type="text"
           value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder="Search actions…"
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t("blockPanel.searchActions")}
           className="amby-block-panel-search"
         />
       </div>
@@ -136,9 +208,7 @@ export function BlockActionsPanel({
       <div className="amby-block-panel-body">
         {hasContext && (
           <>
-            {isCallout && (
-              <CalloutContext editor={editor} nodePos={nodePos} matches={matches} />
-            )}
+            {isCallout && <CalloutContext editor={editor} nodePos={nodePos} matches={matches} />}
             {nodeType === "heading" && (
               <HeadingContext editor={editor} nodePos={nodePos} matches={matches} />
             )}
@@ -154,17 +224,31 @@ export function BlockActionsPanel({
             {nodeType === "codeBlock" && (
               <CodeBlockContext editor={editor} nodePos={nodePos} matches={matches} />
             )}
-            {isListItem && (
-              <ListContext editor={editor} nodePos={nodePos} matches={matches} />
-            )}
+            {isListItem && <ListContext editor={editor} nodePos={nodePos} matches={matches} />}
           </>
         )}
-        {!hasContext && matches("turn into") === false && matches("duplicate") === false && matches("delete") === false && (
-          <div className="amby-block-panel-empty">{t("blockPanel.noSettings")}</div>
-        )}
+        {!hasContext &&
+          !splitVisible &&
+          !turnIntoVisible &&
+          matches("duplicate") === false &&
+          matches("delete") === false && (
+            <div className="amby-block-panel-empty">{t("blockPanel.noSettings")}</div>
+          )}
       </div>
 
       <div className="amby-block-panel-footer">
+        {insertVisible && (
+          <>
+            <button type="button" className="amby-block-row" onClick={onInsertAbove}>
+              <ArrowUp className="amby-block-row-icon" />
+              <span className="amby-block-row-label">{t("blockPanel.insertAbove")}</span>
+            </button>
+            <button type="button" className="amby-block-row" onClick={onInsertBelow}>
+              <ArrowDown className="amby-block-row-icon" />
+              <span className="amby-block-row-label">{t("blockPanel.insertBelow")}</span>
+            </button>
+          </>
+        )}
         {turnIntoVisible && (
           <button
             ref={turnIntoBtnRef}
@@ -182,37 +266,49 @@ export function BlockActionsPanel({
                   height: rect.height,
                 })
               }
-              setTurnIntoOpen(v => !v)
+              setTurnIntoOpen((v) => !v)
             }}
           >
             <ChevronRight className="amby-block-row-icon" />
-            <span className="amby-block-row-label">Turn into</span>
+            <span className="amby-block-row-label">{t("blockPanel.turnInto")}</span>
             <span className="amby-block-row-hint">▸</span>
+          </button>
+        )}
+        {splitVisible && (
+          <button
+            type="button"
+            className="amby-block-row"
+            onClick={() => {
+              if (splitParagraphIntoBlocks(editor, nodePos)) onClose()
+            }}
+          >
+            <Rows3 className="amby-block-row-icon" />
+            <span className="amby-block-row-label">{t("blockPanel.splitBlocks")}</span>
           </button>
         )}
         {matches("copy link") && (
           <button
             type="button"
             className="amby-block-row is-disabled"
-            title="Coming soon"
+            title={t("common.comingSoon")}
             disabled
           >
             <LinkIcon className="amby-block-row-icon" />
-            <span className="amby-block-row-label">Copy link</span>
+            <span className="amby-block-row-label">{t("blockPanel.copyLink")}</span>
             <span className="amby-block-row-hint">⌘L</span>
           </button>
         )}
         {matches("duplicate") && (
           <button type="button" className="amby-block-row" onClick={onDuplicate}>
             <Copy className="amby-block-row-icon" />
-            <span className="amby-block-row-label">Duplicate</span>
+            <span className="amby-block-row-label">{t("blockPanel.duplicate")}</span>
             <span className="amby-block-row-hint">⌘D</span>
           </button>
         )}
         {matches("delete") && (
           <button type="button" className="amby-block-row is-danger" onClick={onDelete}>
             <Trash2 className="amby-block-row-icon" />
-            <span className="amby-block-row-label">Delete</span>
+            <span className="amby-block-row-label">{t("blockPanel.delete")}</span>
             <span className="amby-block-row-hint">⌫</span>
           </button>
         )}
@@ -220,7 +316,7 @@ export function BlockActionsPanel({
       {turnIntoOpen && turnIntoAnchor && (
         <TurnIntoMenu
           anchorRect={turnIntoAnchor}
-          items={turnIntoItems.filter(i => matches(i.title))}
+          items={turnIntoItems.filter((i) => matches(t(`blockItems.${i.id}.title`)))}
           onChoose={chooseTurnInto}
         />
       )}
@@ -239,6 +335,7 @@ function TurnIntoMenu({
   items: BlockInsertItem[]
   onChoose: (item: BlockInsertItem) => void
 }) {
+  const { t } = useTranslation()
   const ref = React.useRef<HTMLDivElement>(null)
   const style = useSmartPlacement(anchorRect, ref)
   return createPortal(
@@ -246,9 +343,9 @@ function TurnIntoMenu({
       ref={ref}
       className="amby-turn-into-menu"
       style={style}
-      onMouseDown={e => e.preventDefault()}
+      onMouseDown={(e) => e.preventDefault()}
     >
-      {items.map(item => (
+      {items.map((item) => (
         <button
           key={item.id}
           type="button"
@@ -256,7 +353,7 @@ function TurnIntoMenu({
           onClick={() => onChoose(item)}
         >
           <item.icon className="amby-block-row-icon" />
-          <span className="amby-block-row-label">{item.title}</span>
+          <span className="amby-block-row-label">{t(`blockItems.${item.id}.title`)}</span>
         </button>
       ))}
     </div>,
@@ -308,7 +405,8 @@ function CalloutContext({
 
   const showBg = matches("background") || matches("фон") || matches("color")
   const showText = matches("text color") || matches("color") || matches("текст")
-  const showType = matches("type") || matches("emoji") || matches("тип") || matches("note") || matches("warning")
+  const showType =
+    matches("type") || matches("emoji") || matches("тип") || matches("note") || matches("warning")
 
   if (!showBg && !showText && !showType) return null
 
@@ -318,15 +416,13 @@ function CalloutContext({
         <>
           <div className="amby-block-panel-section">{t("blockPanel.bgCallout")}</div>
           <div className="amby-ctx-swatches">
-            {CALLOUT_SWATCHES.map(sw => (
+            {CALLOUT_SWATCHES.map((sw) => (
               <button
                 key={sw.id}
                 type="button"
-                title={sw.label}
+                title={t(`colors.${sw.id}`)}
                 className={
-                  sw.id === "none"
-                    ? "amby-ctx-swatch amby-ctx-swatch--none"
-                    : "amby-ctx-swatch"
+                  sw.id === "none" ? "amby-ctx-swatch amby-ctx-swatch--none" : "amby-ctx-swatch"
                 }
                 style={sw.color ? { background: sw.color } : undefined}
                 onClick={() => setBg(sw.id)}
@@ -341,15 +437,13 @@ function CalloutContext({
         <>
           <div className="amby-block-panel-section">{t("blockPanel.textColor")}</div>
           <div className="amby-ctx-swatches">
-            {TEXT_COLORS.map(c => (
+            {TEXT_COLORS.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 title={c.id}
                 className={
-                  c.color == null
-                    ? "amby-ctx-swatch amby-ctx-swatch--none"
-                    : "amby-ctx-swatch"
+                  c.color == null ? "amby-ctx-swatch amby-ctx-swatch--none" : "amby-ctx-swatch"
                 }
                 style={c.color ? { background: c.color } : undefined}
                 onClick={() => setTextColor(c.color)}
@@ -364,14 +458,12 @@ function CalloutContext({
         <>
           <div className="amby-block-panel-section">{t("blockPanel.type")}</div>
           <div className="amby-ctx-type-grid">
-            {CALLOUT_TYPES.map(t => (
+            {CALLOUT_TYPES.map((t) => (
               <button
                 key={t}
                 type="button"
                 title={t}
-                className={
-                  "amby-ctx-type-btn" + (t === calloutType ? " is-active" : "")
-                }
+                className={"amby-ctx-type-btn" + (t === calloutType ? " is-active" : "")}
                 onClick={() => setType(t)}
               >
                 {CALLOUT_DEFAULTS[t]}
@@ -399,7 +491,16 @@ function HeadingContext({
   const node = editor.state.doc.nodeAt(nodePos)
   const currentLevel = (node?.attrs.level as number) ?? 1
 
-  if (!matches("heading") && !matches("уровень") && !matches("level") && !matches("h1") && !matches("h2") && !matches("h3") && !matches("h4") && !matches("h5")) {
+  if (
+    !matches("heading") &&
+    !matches("уровень") &&
+    !matches("level") &&
+    !matches("h1") &&
+    !matches("h2") &&
+    !matches("h3") &&
+    !matches("h4") &&
+    !matches("h5")
+  ) {
     return null
   }
 
@@ -416,13 +517,11 @@ function HeadingContext({
     <>
       <div className="amby-block-panel-section">{t("blockPanel.headingLevel")}</div>
       <div className="amby-ctx-heading-grid">
-        {([1, 2, 3, 4, 5] as const).map(level => (
+        {([1, 2, 3, 4, 5] as const).map((level) => (
           <button
             key={level}
             type="button"
-            className={
-              "amby-ctx-heading-btn" + (level === currentLevel ? " is-active" : "")
-            }
+            className={"amby-ctx-heading-btn" + (level === currentLevel ? " is-active" : "")}
             onClick={() => setLevel(level)}
           >
             H{level}
@@ -504,16 +603,16 @@ function ImageContext({
           <input
             className="amby-ctx-text-input"
             value={alt}
-            onChange={e => setAlt(e.target.value)}
+            onChange={(e) => setAlt(e.target.value)}
             onBlur={commitAlt}
-            onKeyDown={e => {
+            onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault()
                 commitAlt()
               }
             }}
             placeholder={t("blockPanel.imagePlaceholder")}
-            onMouseDown={e => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
           />
         </>
       )}
@@ -525,9 +624,7 @@ function ImageContext({
               <button
                 key={id}
                 type="button"
-                className={
-                  "amby-ctx-align-btn" + (alignInit === id ? " is-active" : "")
-                }
+                className={"amby-ctx-align-btn" + (alignInit === id ? " is-active" : "")}
                 onClick={() => setAlign(id)}
               >
                 <Icon className="size-3.5" />
@@ -542,10 +639,13 @@ function ImageContext({
 
 // ── Context: List ────────────────────────────────────────────────────────────
 
-function findListParent(
-  editor: Editor,
-  pos: number,
-): "bulletList" | "orderedList" | "taskList" | null {
+type ListParent = {
+  type: "bulletList" | "orderedList" | "taskList"
+  pos: number
+  node: PMNode
+}
+
+function findListParent(editor: Editor, pos: number): ListParent | null {
   const doc = editor.state.doc
   const inside = Math.min(pos + 1, doc.content.size - 1)
   if (inside < 0) return null
@@ -554,7 +654,7 @@ function findListParent(
     const n = $pos.node(d)
     const name = n.type.name
     if (name === "bulletList" || name === "orderedList" || name === "taskList") {
-      return name
+      return { type: name, pos: $pos.before(d), node: n }
     }
   }
   return null
@@ -570,50 +670,78 @@ function ListContext({
   matches: (s: string) => boolean
 }) {
   const { t } = useTranslation()
-  const parentType = findListParent(editor, nodePos)
-
-  function focusInside() {
-    editor.chain().focus().setTextSelection(nodePos + 2).run()
-  }
-
-  function unwrapCurrent() {
-    if (parentType === "bulletList") editor.chain().focus().toggleBulletList().run()
-    else if (parentType === "orderedList") editor.chain().focus().toggleOrderedList().run()
-    else if (parentType === "taskList") editor.chain().focus().toggleTaskList().run()
-  }
-
-  function wrapTarget(target: "bullet" | "ordered" | "task") {
-    if (target === "bullet") editor.chain().focus().toggleBulletList().run()
-    else if (target === "ordered") editor.chain().focus().toggleOrderedList().run()
-    else editor.chain().focus().toggleTaskList().run()
-  }
+  const parent = findListParent(editor, nodePos)
+  const parentType = parent?.type ?? null
 
   function switchTo(target: "bullet" | "ordered" | "task") {
     const same =
       (target === "bullet" && parentType === "bulletList") ||
       (target === "ordered" && parentType === "orderedList") ||
       (target === "task" && parentType === "taskList")
-    if (same) return
-    focusInside()
-    unwrapCurrent()
-    wrapTarget(target)
+    if (same || !parent) return
+
+    const listType =
+      editor.schema.nodes[
+        target === "bullet" ? "bulletList" : target === "ordered" ? "orderedList" : "taskList"
+      ]
+    const itemType = editor.schema.nodes[target === "task" ? "taskItem" : "listItem"]
+    if (!listType || !itemType) return
+
+    const items: PMNode[] = []
+    parent.node.forEach((item) => {
+      items.push(
+        itemType.create(target === "task" ? { checked: false } : null, item.content, item.marks),
+      )
+    })
+    const replacement = listType.create(
+      target === "ordered" ? { start: 1 } : null,
+      Fragment.fromArray(items),
+    )
+    editor.view.dispatch(
+      editor.state.tr
+        .replaceWith(parent.pos, parent.pos + parent.node.nodeSize, replacement)
+        .scrollIntoView(),
+    )
+    editor.commands.focus()
   }
 
-  if (!matches("list") && !matches("список") && !matches("bullet") && !matches("ordered") && !matches("task") && !matches("тип")) {
+  if (
+    !matches("list") &&
+    !matches("список") &&
+    !matches("bullet") &&
+    !matches("ordered") &&
+    !matches("task") &&
+    !matches("тип")
+  ) {
     return null
   }
 
   const buttons = [
-    { id: "bullet", label: "Bullet", Icon: List, active: parentType === "bulletList" },
-    { id: "ordered", label: "Numbered", Icon: ListOrdered, active: parentType === "orderedList" },
-    { id: "task", label: "Task", Icon: CheckSquare, active: parentType === "taskList" },
+    {
+      id: "bullet",
+      label: t("blockPanel.bulletList"),
+      Icon: List,
+      active: parentType === "bulletList",
+    },
+    {
+      id: "ordered",
+      label: t("blockPanel.orderedList"),
+      Icon: ListOrdered,
+      active: parentType === "orderedList",
+    },
+    {
+      id: "task",
+      label: t("blockPanel.taskList"),
+      Icon: CheckSquare,
+      active: parentType === "taskList",
+    },
   ] as const
 
   return (
     <>
       <div className="amby-block-panel-section">{t("blockPanel.listType")}</div>
       <div className="amby-ctx-align-row">
-        {buttons.map(b => (
+        {buttons.map((b) => (
           <button
             key={b.id}
             type="button"
@@ -666,16 +794,16 @@ function CodeBlockContext({
       <input
         className="amby-ctx-text-input"
         value={lang}
-        onChange={e => setLang(e.target.value)}
+        onChange={(e) => setLang(e.target.value)}
         onBlur={commit}
-        onKeyDown={e => {
+        onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault()
             commit()
           }
         }}
-        placeholder="ts, py, rust, …"
-        onMouseDown={e => e.stopPropagation()}
+        placeholder={t("blockPanel.codeLanguagePlaceholder")}
+        onMouseDown={(e) => e.stopPropagation()}
       />
     </>
   )

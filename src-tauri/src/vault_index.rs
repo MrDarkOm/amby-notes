@@ -1,4 +1,4 @@
-use crate::frontmatter;
+use crate::{frontmatter, history};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -38,6 +38,25 @@ pub struct SyncReport {
     pub deleted: usize,
     pub warnings: Vec<String>,
     pub path_to_id: HashMap<String, String>,
+}
+
+#[derive(Serialize, Clone, Debug, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultPreflight {
+    pub notes: usize,
+    pub attachments: usize,
+    pub malformed_frontmatter: Vec<String>,
+    pub user_managed_ids: Vec<String>,
+    pub duplicate_ids: Vec<String>,
+    pub planned_id_writes: Vec<String>,
+}
+
+#[derive(Serialize, Clone, Debug, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct IdMigrationResult {
+    pub backup_path: String,
+    pub journal_path: String,
+    pub modified_paths: Vec<String>,
 }
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
@@ -117,11 +136,20 @@ fn abs_from_rel(vault: &Path, rel_path: &str) -> PathBuf {
 }
 
 fn is_markdown(path: &Path) -> bool {
-    path.extension().map_or(false, |ext| ext == "md")
+    path.extension().is_some_and(|ext| ext == "md")
 }
 
 fn is_canvas(path: &Path) -> bool {
-    path.extension().map_or(false, |ext| ext == "canvas")
+    path.extension().is_some_and(|ext| ext == "canvas")
+}
+
+/// The `id` frontmatter field belongs to Amby only when it is a canonical,
+/// uppercase ULID. Any other value may be user-managed and must never be
+/// replaced implicitly.
+fn is_amby_id(id: &str) -> bool {
+    Ulid::from_string(id)
+        .map(|parsed| parsed.to_string() == id)
+        .unwrap_or(false)
 }
 
 fn file_stem(path: &Path) -> String {
@@ -159,7 +187,7 @@ fn should_descend(entry: &DirEntry) -> bool {
         return false;
     }
     let name = entry.file_name().to_string_lossy();
-    name != ".amby" && name != "assets"
+    !matches!(name.as_ref(), ".amby" | ".obsidian" | ".git" | ".trash" | "assets")
 }
 
 fn metadata_stamp(path: &Path) -> Result<(i64, i64), String> {
@@ -221,7 +249,7 @@ fn normalize_wiki_target(raw: &str) -> String {
     // A `#heading` or `^block` anchor points within a note, not at a different
     // note, so it must be dropped before matching against note keys.
     let base = without_alias
-        .split(|c| c == '#' || c == '^')
+        .split(['#', '^'])
         .next()
         .unwrap_or(without_alias);
     base.trim()
@@ -307,7 +335,9 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-fn db_snapshot(conn: &Connection) -> Result<(HashMap<String, String>, HashMap<String, String>), String> {
+type DbSnapshot = (HashMap<String, String>, HashMap<String, String>);
+
+fn db_snapshot(conn: &Connection) -> Result<DbSnapshot, String> {
     let mut by_id = HashMap::new();
     let mut by_path = HashMap::new();
     let mut stmt = conn
@@ -412,12 +442,114 @@ fn scan_disk(
     Ok(notes)
 }
 
+/// Read-only vault inspection used before the first ID migration. It never
+/// opens SQLite, creates `.amby`, or changes a user file.
+pub fn preflight_vault(vault: &Path) -> Result<VaultPreflight, String> {
+    if !vault.is_dir() {
+        return Err(format!("Not a directory: {}", path_string(vault)));
+    }
+    let mut report = VaultPreflight {
+        notes: 0,
+        attachments: 0,
+        malformed_frontmatter: Vec::new(),
+        user_managed_ids: Vec::new(),
+        duplicate_ids: Vec::new(),
+        planned_id_writes: Vec::new(),
+    };
+    let mut ids = HashMap::<String, String>::new();
+
+    for entry in WalkDir::new(vault)
+        .into_iter()
+        .filter_entry(should_descend)
+        .filter_map(Result::ok)
+    {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if !is_markdown(path) || file_name(path) == "Metadata.md" {
+            report.attachments += 1;
+            continue;
+        }
+        let rel_path = path
+            .strip_prefix(vault)
+            .map(normalize_rel_path)
+            .map_err(|e| e.to_string())?;
+        report.notes += 1;
+        let parsed = frontmatter::read_markdown(path)?;
+        if parsed.has_frontmatter && !parsed.yaml_is_map {
+            report.malformed_frontmatter.push(rel_path);
+            continue;
+        }
+        match parsed.id.filter(|id| !id.is_empty()) {
+            None => report.planned_id_writes.push(rel_path),
+            Some(id) if !is_amby_id(&id) => report.user_managed_ids.push(rel_path),
+            Some(id) => {
+                if let Some(first_path) = ids.insert(id.clone(), rel_path.clone()) {
+                    report.duplicate_ids.push(format!("{id}: {first_path}, {rel_path}"));
+                }
+            }
+        }
+    }
+    report.planned_id_writes.sort();
+    Ok(report)
+}
+
+/// Add IDs only to files the preflight identified as missing them. Every
+/// changed note is copied into a timestamped `.amby/backups/` restore point
+/// before the atomic write, and a journal records the operation.
+pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
+    let preflight = preflight_vault(vault)?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis();
+    let backup_root = vault.join(".amby").join("backups").join(format!("id-migration-{stamp}"));
+    fs::create_dir_all(&backup_root).map_err(|e| e.to_string())?;
+
+    let mut modified_paths = Vec::new();
+    for rel_path in preflight.planned_id_writes {
+        let path = abs_from_rel(vault, &rel_path);
+        let backup = backup_root.join(&rel_path);
+        if let Some(parent) = backup.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::copy(&path, &backup).map_err(|e| e.to_string())?;
+        let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let with_id = frontmatter::body_with_id(&content, &Ulid::generate().to_string())?;
+        frontmatter::atomic_write(&path, &with_id)?;
+        modified_paths.push(rel_path);
+    }
+
+    let journal_path = vault.join(".amby").join("migrations").join(format!("id-migration-{stamp}.json"));
+    if let Some(parent) = journal_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let journal = serde_json::json!({
+        "version": 1,
+        "kind": "add-amby-ids",
+        "createdAtMs": stamp,
+        "backupPath": normalize_rel_path(backup_root.strip_prefix(vault).unwrap_or(&backup_root)),
+        "modifiedPaths": modified_paths,
+    });
+    frontmatter::atomic_write_bytes(
+        &journal_path,
+        &serde_json::to_vec_pretty(&journal).map_err(|e| e.to_string())?,
+    )?;
+
+    Ok(IdMigrationResult {
+        backup_path: path_string(&backup_root),
+        journal_path: path_string(&journal_path),
+        modified_paths,
+    })
+}
+
 pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String> {
     if !vault.is_dir() {
         return Err(format!("Not a directory: {}", path_string(vault)));
     }
-    let (db_by_id, _db_by_path) = db_snapshot(&conn)?;
-    let prev = db_path_stamps(&conn)?;
+    let (db_by_id, _db_by_path) = db_snapshot(conn)?;
+    let prev = db_path_stamps(conn)?;
     let mut warnings = Vec::new();
     let mut notes = scan_disk(vault, &prev, &mut warnings)?;
     notes.sort_by_key(|note| {
@@ -447,8 +579,26 @@ pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String>
             }
         }
 
-        let mut id = note.parsed_id.clone().unwrap_or_default();
-        if id.is_empty() || seen_ids.contains(&id) {
+        let existing_id = note.parsed_id.clone().filter(|id| !id.is_empty());
+        if let Some(id) = existing_id.as_deref() {
+            if !is_amby_id(id) {
+                warnings.push(format!(
+                    "Skipped {}: existing frontmatter id is not an Amby ULID",
+                    note.rel_path
+                ));
+                continue;
+            }
+            if seen_ids.contains(id) {
+                warnings.push(format!(
+                    "Skipped {}: duplicate Amby id {id} was left unchanged",
+                    note.rel_path
+                ));
+                continue;
+            }
+        }
+
+        let mut id = existing_id.unwrap_or_default();
+        if id.is_empty() {
             id = Ulid::generate().to_string();
             let content = fs::read_to_string(&note.path).map_err(|e| e.to_string())?;
             let next = frontmatter::body_with_id(&content, &id)?;
@@ -572,7 +722,7 @@ fn build_note_lookup(conn: &Connection) -> Result<HashMap<String, String>, Strin
         let (id, path, title) = row.map_err(|e| e.to_string())?;
         lookup.insert(title.to_lowercase(), id.clone());
         lookup.insert(path.trim_end_matches(".md").to_lowercase(), id.clone());
-        if let Some(name) = path.split('/').last() {
+        if let Some(name) = path.split('/').next_back() {
             lookup.insert(name.trim_end_matches(".md").to_lowercase(), id);
         }
     }
@@ -630,7 +780,7 @@ fn resolve_links_for_note(conn: &Connection, note_id: &str) -> Result<(), String
         title.to_lowercase(),
         path.trim_end_matches(".md").to_lowercase(),
     ];
-    if let Some(name) = path.split('/').last() {
+    if let Some(name) = path.split('/').next_back() {
         keys.push(name.trim_end_matches(".md").to_lowercase());
     }
     keys.sort();
@@ -843,6 +993,16 @@ pub fn read_note(conn: &Connection, vault: &Path, note_id: &str) -> Result<Strin
     frontmatter::read_markdown(Path::new(&note.path)).map(|parsed| parsed.body)
 }
 
+pub fn note_properties(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+) -> Result<crate::model::NoteProperties, String> {
+    let note = note_by_id(conn, vault, note_id)?;
+    let content = fs::read_to_string(&note.path).map_err(|error| error.to_string())?;
+    Ok(frontmatter::note_properties(&content))
+}
+
 /// Update only the index entry for a single note after saving it.
 /// Avoids the O(N) full-vault scan done by `sync_vault`.
 pub fn upsert_note_index(conn: &Connection, vault: &Path, note_id: &str, body: &str, note_path: &Path) -> Result<(), String> {
@@ -901,7 +1061,7 @@ pub fn upsert_note_index(conn: &Connection, vault: &Path, note_id: &str, body: &
     }
 
     // Resolve only this note's links and the links pointing at it.
-    resolve_links_for_note(&conn, note_id)?;
+    resolve_links_for_note(conn, note_id)?;
 
     Ok(())
 }
@@ -914,6 +1074,7 @@ pub fn write_note(conn: &Connection, vault: &Path, note_id: &str, content: &str)
     let path = PathBuf::from(&note.path);
     let current = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let next = frontmatter::replace_body_preserving_id(&current, content, note_id)?;
+    history::snapshot_before_write(vault, &path, next.as_bytes(), "note-save")?;
     frontmatter::atomic_write(&path, &next)?;
     // Parse the body that was actually written (without frontmatter) to update the index.
     let written = frontmatter::parse_markdown(&next);
@@ -1104,7 +1265,13 @@ fn index_note_at_path(conn: &Connection, vault: &Path, path: &Path) -> Result<St
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let parsed = frontmatter::parse_markdown(&content);
 
-    let mut id = parsed.id.filter(|id| !id.is_empty());
+    let existing_id = parsed.id.filter(|id| !id.is_empty());
+    if let Some(id) = existing_id.as_deref() {
+        if !is_amby_id(id) {
+            return Err("Refusing to replace an existing non-Amby frontmatter id".to_string());
+        }
+    }
+    let id = existing_id;
     if let Some(existing_id) = &id {
         let indexed_path: Option<String> = conn
             .query_row(
@@ -1115,7 +1282,9 @@ fn index_note_at_path(conn: &Connection, vault: &Path, path: &Path) -> Result<St
             .optional()
             .map_err(|e| e.to_string())?;
         if indexed_path.as_deref().is_some_and(|indexed| indexed != rel_path) {
-            id = None;
+            return Err(format!(
+                "Duplicate Amby id {existing_id}; the source file was left unchanged"
+            ));
         }
     }
 
@@ -1175,6 +1344,173 @@ pub fn index_apply_path_changes(
         }
     }
     Ok(())
+}
+
+#[derive(Clone, Debug)]
+pub struct PlannedWikiRewrite {
+    source_path: PathBuf,
+    replacements: Vec<(String, String)>,
+    literal_replacements: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RefactorPreview {
+    pub notes: usize,
+    pub replacements: usize,
+}
+
+pub fn refactor_preview(plan: &[PlannedWikiRewrite]) -> RefactorPreview {
+    RefactorPreview {
+        notes: plan.len(),
+        replacements: plan.iter().map(|rewrite| rewrite.replacements.len() + rewrite.literal_replacements.len()).sum(),
+    }
+}
+
+fn replace_wiki_target(raw: &str, target: &str) -> String {
+    let suffix_at = raw
+        .char_indices()
+        .find_map(|(index, character)| matches!(character, '#' | '^' | '|').then_some(index))
+        .unwrap_or(raw.len());
+    format!("{target}{}", &raw[suffix_at..])
+}
+
+/// Plan exact inbound wikilink rewrites before a rename or move. The index has
+/// already resolved each `target_note_id`, which lets this avoid changing an
+/// ambiguous `[[Title]]` that points at a different note with the same name.
+pub fn plan_inbound_wiki_rewrites(
+    conn: &Connection,
+    vault: &Path,
+    changes: &[crate::model::PathChange],
+) -> Result<Vec<PlannedWikiRewrite>, String> {
+    let mut moved_sources = HashMap::<String, String>::new();
+    let mut targets = HashMap::<String, String>::new();
+    for change in changes {
+        let old = Path::new(&change.old_path);
+        let new = Path::new(&change.new_path);
+        if change.old_path.is_empty() || change.new_path.is_empty() || !is_markdown(old) || !is_markdown(new) {
+            continue;
+        }
+        let old_rel = relative_path(vault, old)?;
+        let new_rel = relative_path(vault, new)?;
+        moved_sources.insert(old_rel.clone(), new_rel.clone());
+        let id: Option<String> = conn
+            .query_row("SELECT id FROM notes WHERE path = ?1", [&old_rel], |row| row.get(0))
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if let Some(id) = id {
+            targets.insert(id, new_rel.trim_end_matches(".md").to_string());
+        }
+    }
+
+    let mut by_source = HashMap::<PathBuf, Vec<(String, String)>>::new();
+    for (target_id, replacement) in targets {
+        let mut statement = conn
+            .prepare(
+                "SELECT notes.path, links.raw FROM links JOIN notes ON notes.id = links.note_id WHERE links.target_note_id = ?1",
+            )
+            .map_err(|error| error.to_string())?;
+        let rows = statement
+            .query_map([target_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        for (source_rel, raw) in rows {
+            let source_rel = moved_sources.get(&source_rel).unwrap_or(&source_rel);
+            let source = vault.join(source_rel);
+            let next = replace_wiki_target(&raw, &replacement);
+            if raw != next {
+                by_source.entry(source).or_default().push((raw, next));
+            }
+        }
+    }
+
+    // Exact vault-relative Markdown destinations and JSON string values are
+    // also safe to update. This covers normal Markdown links/embeds plus
+    // Canvas and Excalidraw references without guessing about filenames.
+    let mut literal_by_source = HashMap::<PathBuf, Vec<(String, String)>>::new();
+    let literal_changes = changes
+        .iter()
+        .filter(|change| !change.old_path.is_empty() && !change.new_path.is_empty())
+        .map(|change| Ok((relative_path(vault, Path::new(&change.old_path))?, relative_path(vault, Path::new(&change.new_path))?)))
+        .collect::<Result<Vec<_>, String>>()?;
+    let moved_absolute = changes.iter().map(|change| (PathBuf::from(&change.old_path), PathBuf::from(&change.new_path))).collect::<HashMap<_, _>>();
+    for entry in WalkDir::new(vault).into_iter().filter_map(Result::ok) {
+        let source = entry.path();
+        if !source.is_file() || !matches!(source.extension().and_then(|ext| ext.to_str()), Some("md" | "canvas" | "excalidraw")) {
+            continue;
+        }
+        let Ok(content) = fs::read_to_string(source) else { continue };
+        let rewritten_source = moved_absolute.get(source).cloned().unwrap_or_else(|| source.to_path_buf());
+        for (old_rel, new_rel) in &literal_changes {
+            for (old, new) in [
+                (format!("]({old_rel})"), format!("]({new_rel})")),
+                (format!("](/{old_rel})"), format!("](/{new_rel})")),
+                (format!("]({old_rel}#"), format!("]({new_rel}#")),
+                (format!("](/{old_rel}#"), format!("](/{new_rel}#")),
+                (format!("]({old_rel}^"), format!("]({new_rel}^")),
+                (format!("](/{old_rel}^"), format!("](/{new_rel}^")),
+                (format!("\"{old_rel}\""), format!("\"{new_rel}\"")),
+            ] {
+                if content.contains(&old) {
+                    literal_by_source.entry(rewritten_source.clone()).or_default().push((old, new));
+                }
+            }
+        }
+    }
+
+    let mut sources = HashSet::new();
+    sources.extend(by_source.keys().cloned());
+    sources.extend(literal_by_source.keys().cloned());
+    Ok(sources.into_iter()
+        .map(|source_path| {
+            let mut replacements = by_source.remove(&source_path).unwrap_or_default();
+            replacements.sort();
+            replacements.dedup();
+            let mut literal_replacements = literal_by_source.remove(&source_path).unwrap_or_default();
+            literal_replacements.sort();
+            literal_replacements.dedup();
+            PlannedWikiRewrite { source_path, replacements, literal_replacements }
+        })
+        .collect())
+}
+
+/// Apply a precomputed refactor plan atomically per source note. If any write
+/// fails, every completed source-note rewrite is restored from memory; the
+/// caller can then report the failed filesystem operation without half-updated
+/// links.
+pub fn apply_planned_wiki_rewrites(
+    vault: &Path,
+    plan: &[PlannedWikiRewrite],
+) -> Result<Vec<PathBuf>, String> {
+    let mut proposed = Vec::<(PathBuf, String, String)>::new();
+    for rewrite in plan {
+        let original = fs::read_to_string(&rewrite.source_path).map_err(|error| error.to_string())?;
+        let mut next = original.clone();
+        for (raw, replacement) in &rewrite.replacements {
+            next = next.replace(&format!("[[{raw}]]"), &format!("[[{replacement}]]"));
+        }
+        for (raw, replacement) in &rewrite.literal_replacements {
+            next = next.replace(raw, replacement);
+        }
+        if next != original {
+            proposed.push((rewrite.source_path.clone(), original, next));
+        }
+    }
+
+    let mut applied = Vec::<(PathBuf, String)>::new();
+    for (path, original, next) in proposed {
+        let result = history::snapshot_before_write(vault, &path, next.as_bytes(), "link-refactor")
+            .and_then(|_| frontmatter::atomic_write(&path, &next));
+        if let Err(error) = result {
+            for (applied_path, applied_original) in applied.into_iter().rev() {
+                let _ = frontmatter::atomic_write(&applied_path, &applied_original);
+            }
+            return Err(error);
+        }
+        applied.push((path, original));
+    }
+    Ok(applied.into_iter().map(|(path, _)| path).collect())
 }
 
 /// Remove deleted markdown notes from the index and return their IDs. Inbound
@@ -1261,6 +1597,119 @@ mod tests {
         assert_eq!(loaded.notes.len(), 1);
         assert!(fs::read_to_string(note).unwrap().starts_with("---\nid: "));
         assert_eq!(loaded.tree[0].id, loaded.notes[0].id);
+    }
+
+    #[test]
+    fn refactor_rewrites_resolved_wikilinks_without_losing_anchor_or_alias() {
+        let vault = temp_vault("refactor");
+        let source = vault.join("A.md");
+        let target = vault.join("B.md");
+        fs::write(&source, "Link [[B#Heading|Readable]]").unwrap();
+        fs::write(&target, "# B").unwrap();
+        let conn = open_conn(&vault);
+        sync_vault(&conn, &vault).unwrap();
+
+        let renamed = vault.join("C.md");
+        let changes = vec![crate::model::PathChange {
+            old_path: path_string(&target),
+            new_path: path_string(&renamed),
+        }];
+        let plan = plan_inbound_wiki_rewrites(&conn, &vault, &changes).unwrap();
+        fs::rename(&target, &renamed).unwrap();
+        apply_planned_wiki_rewrites(&vault, &plan).unwrap();
+
+        assert!(fs::read_to_string(&source)
+            .unwrap()
+            .contains("[[C#Heading|Readable]]"));
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn refactor_updates_exact_markdown_embed_and_canvas_references() {
+        let vault = temp_vault("refactor-assets");
+        let source = vault.join("A.md");
+        let target = vault.join("Folder/B.md");
+        let canvas = vault.join("Board.canvas");
+        fs::create_dir(vault.join("Folder")).unwrap();
+        fs::write(&source, "[note](Folder/B.md#Heading)\n![embed](/Folder/B.md^block)").unwrap();
+        fs::write(&target, "target").unwrap();
+        fs::write(&canvas, r#"{"file":"Folder/B.md"}"#).unwrap();
+        let conn = open_conn(&vault);
+        sync_vault(&conn, &vault).unwrap();
+
+        let renamed = vault.join("Folder/C.md");
+        let changes = vec![crate::model::PathChange {
+            old_path: path_string(&target),
+            new_path: path_string(&renamed),
+        }];
+        let plan = plan_inbound_wiki_rewrites(&conn, &vault, &changes).unwrap();
+        fs::rename(&target, &renamed).unwrap();
+        apply_planned_wiki_rewrites(&vault, &plan).unwrap();
+
+        let markdown = fs::read_to_string(source).unwrap();
+        assert!(markdown.contains("](Folder/C.md#Heading)"));
+        assert!(markdown.contains("](/Folder/C.md^block)"));
+        assert!(fs::read_to_string(canvas).unwrap().contains("Folder/C.md"));
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn sync_leaves_user_managed_and_duplicate_ids_unchanged() {
+        let vault = temp_vault("id-conflicts");
+        let user_managed = vault.join("UserManaged.md");
+        let first = vault.join("First.md");
+        let duplicate = vault.join("Duplicate.md");
+        let id = Ulid::generate().to_string();
+        fs::write(&user_managed, "---\nid: external-system\n---\nUser-managed").unwrap();
+        fs::write(&first, format!("---\nid: {id}\n---\nFirst")).unwrap();
+        fs::write(&duplicate, format!("---\nid: {id}\n---\nDuplicate")).unwrap();
+
+        let conn = open_conn(&vault);
+        let loaded = load_vault(&conn, &vault).unwrap();
+
+        assert_eq!(loaded.notes.len(), 1);
+        assert_eq!(fs::read_to_string(&user_managed).unwrap(), "---\nid: external-system\n---\nUser-managed");
+        assert_eq!(fs::read_to_string(&duplicate).unwrap(), format!("---\nid: {id}\n---\nDuplicate"));
+        assert!(loaded.sync.warnings.iter().any(|warning| warning.contains("not an Amby ULID")));
+        assert!(loaded.sync.warnings.iter().any(|warning| warning.contains("duplicate Amby id")));
+    }
+
+    #[test]
+    fn sync_excludes_obsidian_git_trash_and_amby_directories() {
+        let vault = temp_vault("excluded-directories");
+        fs::write(vault.join("Visible.md"), "Visible").unwrap();
+        for directory in [".obsidian", ".git", ".trash", ".amby", "assets"] {
+            let dir = vault.join(directory);
+            fs::create_dir(&dir).unwrap();
+            fs::write(dir.join("Hidden.md"), "Hidden").unwrap();
+        }
+
+        let conn = open_conn(&vault);
+        let loaded = load_vault(&conn, &vault).unwrap();
+
+        assert_eq!(loaded.notes.len(), 1);
+        for directory in [".obsidian", ".git", ".trash", ".amby", "assets"] {
+            assert_eq!(fs::read_to_string(vault.join(directory).join("Hidden.md")).unwrap(), "Hidden");
+        }
+    }
+
+    #[test]
+    fn preflight_is_read_only_and_id_migration_creates_a_restore_point() {
+        let vault = temp_vault("id-migration");
+        let note = vault.join("Untitled.md");
+        let original = "# Untitled\n";
+        fs::write(&note, original).unwrap();
+
+        let preflight = preflight_vault(&vault).unwrap();
+        assert_eq!(preflight.planned_id_writes, vec!["Untitled.md"]);
+        assert_eq!(fs::read_to_string(&note).unwrap(), original);
+        assert!(!vault.join(".amby").exists());
+
+        let migration = apply_id_migration(&vault).unwrap();
+        assert_eq!(migration.modified_paths, vec!["Untitled.md"]);
+        assert!(fs::read_to_string(&note).unwrap().starts_with("---\nid: "));
+        assert_eq!(fs::read_to_string(format!("{}/Untitled.md", migration.backup_path)).unwrap(), original);
+        assert!(Path::new(&migration.journal_path).is_file());
     }
 
     #[test]

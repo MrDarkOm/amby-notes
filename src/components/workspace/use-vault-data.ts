@@ -20,12 +20,16 @@ import {
   readFile,
   readNote,
   loadVaultData,
+  preflightVault,
+  applyIdMigration,
   getLinkGraph,
   startVaultWatcher,
   stopVaultWatcher,
+  confirmAction,
   type LinkGraph,
 } from "@/lib/storage"
 import { listen } from "@tauri-apps/api/event"
+import { errorType, logger } from "@/lib/logger"
 
 /**
  * Owns the vault tree, link graph, session persistence, and the Rust-side
@@ -40,7 +44,7 @@ export function useVaultData() {
   const vaults = useVaultStore((s) => s.vaults)
   const { setVault, setVaults } = useVaultStore.getState()
 
-  const { setDoc, clearDocs } = useDocStore.getState()
+  const { setDoc, patchDoc, markSaved, setExternalConflict, clearDocs } = useDocStore.getState()
   const { setTabs, setActiveTabKey } = useTabsStore.getState()
 
   // For the session persist effect we need reactive reads.
@@ -77,10 +81,37 @@ export function useVaultData() {
     return loaded.tree
   }
 
+  /** Re-scan the vault and clear the rendered link graph while its index rebuilds. */
+  async function reloadVaultData(): Promise<void> {
+    if (!vault) return
+    setLinkGraph({ nodes: [], edges: [] })
+    await refreshTree(vault)
+  }
+
   // ── loadVault ───────────────────────────────────────────────────────────────
 
   async function loadVault(path: string) {
     try {
+      if (isTauri()) {
+        const preflight = await preflightVault(path)
+        if (preflight.plannedIdWrites.length > 0) {
+          const preview = preflight.plannedIdWrites.slice(0, 8).join("\n")
+          const remaining = preflight.plannedIdWrites.length - 8
+          const conflicts = [
+            preflight.malformedFrontmatter.length > 0 &&
+              `${preflight.malformedFrontmatter.length} malformed frontmatter file(s)`,
+            preflight.userManagedIds.length > 0 &&
+              `${preflight.userManagedIds.length} user-managed id(s)`,
+            preflight.duplicateIds.length > 0 &&
+              `${preflight.duplicateIds.length} duplicate Amby id(s)`,
+          ].filter(Boolean)
+          const accepted = await confirmAction(
+            `Amby found ${preflight.notes} note(s) and will add IDs to ${preflight.plannedIdWrites.length} file(s).\n\n${preview}${remaining > 0 ? `\n… and ${remaining} more` : ""}\n\nA backup and migration journal will be created first.${conflicts.length ? `\n\nReported without changes: ${conflicts.join(", ")}` : ""}\n\nContinue?`,
+          )
+          if (!accepted) return
+          await applyIdMigration(path)
+        }
+      }
       const loaded = await loadVaultData(path)
       const tree = loaded.tree
       const pathToId = loaded.sync.pathToId ?? {}
@@ -204,7 +235,9 @@ export function useVaultData() {
   }, [vault, tabs, activeTabKey, favorites, viewModes, lockedFileIds, iconOverrides])
 
   // Vault watcher: start the Rust notify watcher when a vault is open and
-  // debounce-refresh the tree on external file changes.
+  // debounce-refresh the tree on external file changes. Open clean buffers are
+  // reloaded after the index refresh; dirty buffers are deliberately left alone
+  // until the conflict UI can ask the user what to keep.
   React.useEffect(() => {
     if (!vault || !isTauri()) return
 
@@ -212,14 +245,68 @@ export function useVaultData() {
 
     let unlisten: (() => void) | undefined
     let refreshTimer: ReturnType<typeof setTimeout> | null = null
+    const pending = new Map<string, { kind: string; path: string }>()
+    const normalize = (path: string) => path.replace(/\\/g, "/")
 
-    listen<{ kind: string; path: string }>("vault-file-changed", () => {
+    listen<{ kind: string; path: string }>("vault-file-changed", (event) => {
+      const change = event.payload
+      pending.set(`${change.kind}:${normalize(change.path)}`, change)
       if (refreshTimer) clearTimeout(refreshTimer)
       refreshTimer = setTimeout(async () => {
         try {
-          await refreshTree(vault)
-        } catch {
-          /* vault may be temporarily inaccessible */
+          const changes = [...pending.values()]
+          pending.clear()
+          const tree = await refreshTree(vault)
+          const openDocs = useDocStore.getState().openDocs
+
+          // A rename/move retains its frontmatter ID, so after rebuilding the
+          // tree we can update the open tab's path without closing it.
+          for (const [id, doc] of Object.entries(openDocs)) {
+            const item = findTreeItem(tree, id)
+            if (item?.type === "file" && item.path !== doc.path) {
+              patchDoc(id, { path: item.path, title: item.name })
+            }
+          }
+
+          for (const change of changes) {
+            for (const [id, doc] of Object.entries(useDocStore.getState().openDocs)) {
+              if (normalize(doc.path) !== normalize(change.path)) continue
+              if (change.kind === "remove") {
+                const latest = useDocStore.getState().openDocs[id] ?? doc
+                setExternalConflict({
+                  fileId: id,
+                  path: latest.path,
+                  localContent: latest.content,
+                  externalContent: null,
+                })
+                continue
+              }
+              try {
+                const content = await readNote(vault, id)
+                const latest = useDocStore.getState().openDocs[id]
+                if (!latest || content === latest.content) continue
+                if (useDocStore.getState().unsavedFileIds.has(id)) {
+                  setExternalConflict({
+                    fileId: id,
+                    path: latest.path,
+                    localContent: latest.content,
+                    externalContent: content,
+                  })
+                  continue
+                }
+                // Do not replace a buffer if the user started editing during
+                // the asynchronous refresh.
+                if (!useDocStore.getState().unsavedFileIds.has(id)) {
+                  patchDoc(id, { content })
+                  markSaved(id)
+                }
+              } catch (err) {
+                logger.warn("watcher.open_document_reload_failed", { errorType: errorType(err) })
+              }
+            }
+          }
+        } catch (err) {
+          logger.warn("watcher.refresh_failed", { errorType: errorType(err) })
         }
       }, 300)
     })
@@ -230,6 +317,7 @@ export function useVaultData() {
 
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer)
+      pending.clear()
       unlisten?.()
       stopVaultWatcher().catch(console.error)
     }
@@ -271,5 +359,13 @@ export function useVaultData() {
     [treeItems, iconOverrides],
   )
 
-  return { treeItems, setTreeItems, displayTreeItems, linkGraph, loadVault, refreshTree }
+  return {
+    treeItems,
+    setTreeItems,
+    displayTreeItems,
+    linkGraph,
+    loadVault,
+    refreshTree,
+    reloadVaultData,
+  }
 }

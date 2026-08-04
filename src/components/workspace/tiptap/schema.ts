@@ -1,6 +1,6 @@
 import { getSchema, type Extensions } from "@tiptap/core"
 import StarterKit from "@tiptap/starter-kit"
-import { Table, TableCell, TableHeader, TableRow } from "@tiptap/extension-table"
+import { TableCell, TableHeader, TableRow } from "@tiptap/extension-table"
 import { TaskList } from "@tiptap/extension-task-list"
 import { TaskItem } from "@tiptap/extension-task-item"
 import { AmbyTextStyle } from "./marks/amby-text-style"
@@ -11,6 +11,9 @@ import { CalloutNode } from "./callout-node"
 import { AmbyBlockNode } from "./amby-block-node"
 import { AmbyImage } from "./amby-image"
 import { TransclusionNode } from "./transclusion-node"
+import { OpaqueHtmlBlock } from "./opaque-html-node"
+import { MarkdownTable } from "./markdown-table"
+import { OpaqueMarkdownBlock } from "./opaque-markdown-node"
 
 // Schema-defining extensions — identical for Live and Read, and the source of
 // truth for the standalone schema used by the markdown conversion layer.
@@ -24,7 +27,7 @@ export const schemaExtensions: Extensions = [
     link: { openOnClick: false, autolink: true },
     heading: { levels: [1, 2, 3, 4, 5] },
   }),
-  Table.configure({ resizable: true }),
+  MarkdownTable.configure({ resizable: true }),
   TableRow,
   TableHeader,
   TableCell,
@@ -35,6 +38,8 @@ export const schemaExtensions: Extensions = [
   AmbyTextStyle,
   AmbyUnderline,
   AmbyHtml,
+  OpaqueHtmlBlock,
+  OpaqueMarkdownBlock,
   CalloutNode,
   AmbyBlockNode,
   TransclusionNode,

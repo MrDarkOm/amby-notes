@@ -1,13 +1,7 @@
 "use client"
 
 import { useTranslation } from "react-i18next"
-import { cn } from "@/lib/utils"
-import {
-  PANEL_DEFS,
-  type PanelId,
-  type PanelRenderProps,
-  type Side,
-} from "./panel-registry"
+import { PANEL_DEFS, type PanelId, type PanelRenderProps, type Side } from "./panel-registry"
 
 interface PanelHostProps {
   side: Side
@@ -18,14 +12,10 @@ interface PanelHostProps {
 /** Thin wrapper around the active PanelDef.render. Provides shared chrome. */
 export function PanelHost({ side, activeId, props }: PanelHostProps) {
   const { t } = useTranslation()
-  const def = activeId ? PANEL_DEFS.find(d => d.id === activeId) : undefined
+  const def = activeId ? PANEL_DEFS.find((d) => d.id === activeId) : undefined
   return (
     <div
-      className={cn(
-        "flex h-full min-h-0 w-full flex-col bg-background",
-        side === "left" ? "border-r" : "border-l",
-        "border-border",
-      )}
+      className={`amby-panel-host mb-2 mt-0 flex h-[calc(100%-0.5rem)] min-h-0 w-[calc(100%-0.5rem)] flex-col overflow-hidden rounded-2xl border border-border/80 bg-card/70 ${side === "left" ? "ml-0 mr-2" : "ml-2 mr-0"}`}
     >
       {def ? (
         def.render(props)

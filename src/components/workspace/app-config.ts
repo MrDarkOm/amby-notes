@@ -32,11 +32,18 @@ export type PanelScope = "global" | "workspace"
 /** The activity-bar arrangement that the panelScope toggle routes global ⟷ vault. */
 export interface LayoutConfig {
   activePresetId: string | null
+  /** Explicit module selection for the active layout. Falls back to its preset for older settings. */
+  activeModules: string[] | null
   buttons: ActivityButton[] | null
   activeBySide: Record<Side, PanelId | null> | null
 }
 
-const EMPTY_LAYOUT: LayoutConfig = { activePresetId: null, buttons: null, activeBySide: null }
+const EMPTY_LAYOUT: LayoutConfig = {
+  activePresetId: null,
+  activeModules: null,
+  buttons: null,
+  activeBySide: null,
+}
 
 function readLS(key: string): string | null {
   try {
@@ -104,20 +111,101 @@ export interface ProviderInfo {
 
 /** Local options first (most popular), then cloud. */
 export const AI_PROVIDERS: ProviderInfo[] = [
-  { id: "ollama", label: "Ollama", family: "ollama", kind: "local", defaultBaseUrl: "http://localhost:11434", defaultModel: "llama3.2", needsKey: false },
-  { id: "lmstudio", label: "LM Studio", family: "openai", kind: "local", defaultBaseUrl: "http://localhost:1234", defaultModel: "local-model", needsKey: false },
-  { id: "mlx", label: "MLX", family: "openai", kind: "local", defaultBaseUrl: "http://localhost:8080", defaultModel: "mlx-community/Llama-3.2-3B-Instruct-4bit", needsKey: false },
-  { id: "llamacpp", label: "llama.cpp", family: "openai", kind: "local", defaultBaseUrl: "http://localhost:8080", defaultModel: "default", needsKey: false },
-  { id: "openai", label: "OpenAI", family: "openai", kind: "cloud", defaultBaseUrl: "https://api.openai.com", defaultModel: "gpt-4o-mini", needsKey: true },
-  { id: "anthropic", label: "Anthropic", family: "anthropic", kind: "cloud", defaultBaseUrl: "https://api.anthropic.com", defaultModel: "claude-3-5-haiku-latest", needsKey: true },
-  { id: "azure", label: "Azure OpenAI", family: "azure", kind: "cloud", defaultBaseUrl: "", defaultModel: "", needsKey: true, azure: true },
-  { id: "openrouter", label: "OpenRouter", family: "openai", kind: "cloud", defaultBaseUrl: "https://openrouter.ai/api", defaultModel: "openai/gpt-4o-mini", needsKey: true },
-  { id: "groq", label: "Groq", family: "openai", kind: "cloud", defaultBaseUrl: "https://api.groq.com/openai", defaultModel: "llama-3.3-70b-versatile", needsKey: true },
-  { id: "mistral", label: "Mistral", family: "openai", kind: "cloud", defaultBaseUrl: "https://api.mistral.ai", defaultModel: "mistral-small-latest", needsKey: true },
+  {
+    id: "ollama",
+    label: "Ollama",
+    family: "ollama",
+    kind: "local",
+    defaultBaseUrl: "http://localhost:11434",
+    defaultModel: "llama3.2",
+    needsKey: false,
+  },
+  {
+    id: "lmstudio",
+    label: "LM Studio",
+    family: "openai",
+    kind: "local",
+    defaultBaseUrl: "http://localhost:1234",
+    defaultModel: "local-model",
+    needsKey: false,
+  },
+  {
+    id: "mlx",
+    label: "MLX",
+    family: "openai",
+    kind: "local",
+    defaultBaseUrl: "http://localhost:8080",
+    defaultModel: "mlx-community/Llama-3.2-3B-Instruct-4bit",
+    needsKey: false,
+  },
+  {
+    id: "llamacpp",
+    label: "llama.cpp",
+    family: "openai",
+    kind: "local",
+    defaultBaseUrl: "http://localhost:8080",
+    defaultModel: "default",
+    needsKey: false,
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    family: "openai",
+    kind: "cloud",
+    defaultBaseUrl: "https://api.openai.com",
+    defaultModel: "gpt-4o-mini",
+    needsKey: true,
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    family: "anthropic",
+    kind: "cloud",
+    defaultBaseUrl: "https://api.anthropic.com",
+    defaultModel: "claude-3-5-haiku-latest",
+    needsKey: true,
+  },
+  {
+    id: "azure",
+    label: "Azure OpenAI",
+    family: "azure",
+    kind: "cloud",
+    defaultBaseUrl: "",
+    defaultModel: "",
+    needsKey: true,
+    azure: true,
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    family: "openai",
+    kind: "cloud",
+    defaultBaseUrl: "https://openrouter.ai/api",
+    defaultModel: "openai/gpt-4o-mini",
+    needsKey: true,
+  },
+  {
+    id: "groq",
+    label: "Groq",
+    family: "openai",
+    kind: "cloud",
+    defaultBaseUrl: "https://api.groq.com/openai",
+    defaultModel: "llama-3.3-70b-versatile",
+    needsKey: true,
+  },
+  {
+    id: "mistral",
+    label: "Mistral",
+    family: "openai",
+    kind: "cloud",
+    defaultBaseUrl: "https://api.mistral.ai",
+    defaultModel: "mistral-small-latest",
+    needsKey: true,
+  },
 ]
 
 export function findProvider(id: string): ProviderInfo | undefined {
-  return AI_PROVIDERS.find(p => p.id === id)
+  return AI_PROVIDERS.find((p) => p.id === id)
 }
 
 /** One configured model in the user's library (the chat picks from these). */
@@ -142,14 +230,30 @@ export interface AiSettings {
 
 export const DEFAULT_AI: AiSettings = {
   models: [
-    { id: "default-ollama", label: "Ollama · llama3.2", provider: "ollama", model: "llama3.2", baseUrl: "", apiKey: "", apiVersion: "" },
+    {
+      id: "default-ollama",
+      label: "Ollama · llama3.2",
+      provider: "ollama",
+      model: "llama3.2",
+      baseUrl: "",
+      apiKey: "",
+      apiVersion: "",
+    },
   ],
   activeModelId: "default-ollama",
 }
 
 /** A fresh blank model entry (used by the "add model" button). */
 export function blankModel(): AiModel {
-  return { id: crypto.randomUUID(), label: i18n.t("workspace.newModel"), provider: "ollama", model: "llama3.2", baseUrl: "", apiKey: "", apiVersion: "" }
+  return {
+    id: crypto.randomUUID(),
+    label: i18n.t("workspace.newModel"),
+    provider: "ollama",
+    model: "llama3.2",
+    baseUrl: "",
+    apiKey: "",
+    apiVersion: "",
+  }
 }
 
 // ── App preferences (the user-facing Settings screen) ───────────────────────
@@ -177,6 +281,13 @@ export interface StartupPrefs {
   restoreSession: boolean
 }
 
+export interface DockPreferences {
+  leftVisible: boolean
+  rightVisible: boolean
+  leftPinned: boolean
+  rightPinned: boolean
+}
+
 /** Everything the Settings screen controls. Lives in the global settings.json
  *  so it is shared across vaults. */
 export interface AppPreferences {
@@ -187,6 +298,7 @@ export interface AppPreferences {
   language: Language
   editor: EditorPrefs
   startup: StartupPrefs
+  docks: DockPreferences
 }
 
 export const DEFAULT_PREFS: AppPreferences = {
@@ -197,6 +309,7 @@ export const DEFAULT_PREFS: AppPreferences = {
   language: "ru",
   editor: { defaultViewMode: "live", contentWidth: "normal", autosaveMs: 500 },
   startup: { reopenLastVault: true, restoreSession: true },
+  docks: { leftVisible: true, rightVisible: true, leftPinned: true, rightPinned: true },
 }
 
 function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
@@ -207,6 +320,7 @@ function normalizePrefs(raw: unknown, legacyTheme: string | null): AppPreference
   const d = (raw ?? {}) as Partial<AppPreferences>
   const ed = (d.editor ?? {}) as Partial<EditorPrefs>
   const su = (d.startup ?? {}) as Partial<StartupPrefs>
+  const dk = (d.docks ?? {}) as Partial<DockPreferences>
   const autosaveMs =
     typeof ed.autosaveMs === "number" && ed.autosaveMs >= 200 && ed.autosaveMs <= 10000
       ? ed.autosaveMs
@@ -226,6 +340,12 @@ function normalizePrefs(raw: unknown, legacyTheme: string | null): AppPreference
     startup: {
       reopenLastVault: typeof su.reopenLastVault === "boolean" ? su.reopenLastVault : true,
       restoreSession: typeof su.restoreSession === "boolean" ? su.restoreSession : true,
+    },
+    docks: {
+      leftVisible: typeof dk.leftVisible === "boolean" ? dk.leftVisible : true,
+      rightVisible: typeof dk.rightVisible === "boolean" ? dk.rightVisible : true,
+      leftPinned: typeof dk.leftPinned === "boolean" ? dk.leftPinned : true,
+      rightPinned: typeof dk.rightPinned === "boolean" ? dk.rightPinned : true,
     },
   }
 }
@@ -261,7 +381,7 @@ function normalizeAi(raw: unknown): AiSettings {
     : []
   if (models.length === 0) return DEFAULT_AI
   const activeModelId =
-    typeof d.activeModelId === "string" && models.some(m => m.id === d.activeModelId)
+    typeof d.activeModelId === "string" && models.some((m) => m.id === d.activeModelId)
       ? d.activeModelId
       : models[0].id
   return { models, activeModelId }
@@ -271,6 +391,7 @@ export async function loadSettings(): Promise<GlobalSettings> {
   if (await globalFileMissing(SETTINGS_FILE)) {
     const layout: LayoutConfig = {
       activePresetId: readLS("amby:active-preset:v1"),
+      activeModules: null,
       buttons: parseLS<ActivityButton[]>("amby:panel-buttons:v1", Array.isArray),
       activeBySide: parseLS<Record<Side, PanelId | null>>(
         "amby:active-views:v1",
@@ -302,7 +423,7 @@ export async function loadSettings(): Promise<GlobalSettings> {
 
 /** The currently-active model in the library, or null if none configured. */
 export function activeModel(ai: AiSettings): AiModel | null {
-  return ai.models.find(m => m.id === ai.activeModelId) ?? ai.models[0] ?? null
+  return ai.models.find((m) => m.id === ai.activeModelId) ?? ai.models[0] ?? null
 }
 
 /** Resolve a model entry to the flat `AiConfig` the `aiChat` command expects,

@@ -44,25 +44,29 @@ const AI_ACTIONS: AiAction[] = [
     id: "rewrite",
     labelKey: "ai.actions.rewrite",
     mode: "replace",
-    prompt: text => `Rewrite the text to be clearer and better, preserving its meaning and language. Return only the result:\n\n${text}`,
+    prompt: (text) =>
+      `Rewrite the text to be clearer and better, preserving its meaning and language. Return only the result:\n\n${text}`,
   },
   {
     id: "shorten",
     labelKey: "ai.actions.shorten",
     mode: "replace",
-    prompt: text => `Shorten the text, preserving its essence and language. Return only the result:\n\n${text}`,
+    prompt: (text) =>
+      `Shorten the text, preserving its essence and language. Return only the result:\n\n${text}`,
   },
   {
     id: "continue",
     labelKey: "ai.actions.continue",
     mode: "after",
-    prompt: text => `Continue the text in the same style and language. Return only the continuation:\n\n${text}`,
+    prompt: (text) =>
+      `Continue the text in the same style and language. Return only the continuation:\n\n${text}`,
   },
   {
     id: "explain",
     labelKey: "ai.actions.explain",
     mode: "after",
-    prompt: text => `Explain the following fragment in simple terms, in the same language as the fragment. Return only the explanation:\n\n${text}`,
+    prompt: (text) =>
+      `Explain the following fragment in simple terms, in the same language as the fragment. Return only the explanation:\n\n${text}`,
   },
 ]
 
@@ -88,9 +92,11 @@ function ToolbarButton({
       type="button"
       title={title}
       className={`flex size-7 items-center justify-center rounded transition-colors ${
-        active ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"
+        active
+          ? "bg-accent text-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground"
       }`}
-      onMouseDown={e => e.preventDefault()}
+      onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
       {children}
@@ -98,7 +104,11 @@ function ToolbarButton({
   )
 }
 
-const HEADINGS: Array<{ label: string; level: 1 | 2 | 3 | 4 | 5 | null; Icon?: React.ElementType }> = [
+const HEADINGS: Array<{
+  label: string
+  level: 1 | 2 | 3 | 4 | 5 | null
+  Icon?: React.ElementType
+}> = [
   { label: "P", level: null, Icon: Pilcrow },
   { label: "H1", level: 1 },
   { label: "H2", level: 2 },
@@ -117,7 +127,12 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
   const [aiBusy, setAiBusy] = React.useState(false)
   const [aiError, setAiError] = React.useState<string | null>(null)
   const mountedRef = React.useRef(true)
-  React.useEffect(() => () => { mountedRef.current = false }, [])
+  React.useEffect(
+    () => () => {
+      mountedRef.current = false
+    },
+    [],
+  )
 
   async function runAiAction(action: AiAction) {
     if (aiBusy) return
@@ -155,7 +170,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
   function openPanel(next: Exclude<Panel, null>) {
     setInputValue("")
     setLinkLabel("")
-    setPanel(prev => (prev === next ? null : next))
+    setPanel((prev) => (prev === next ? null : next))
   }
 
   function closePanel() {
@@ -247,18 +262,19 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
       wrapSelectionInCallout(editor)
       return
     }
-    editor.chain().focus().insertContent({
-      type: "callout",
-      attrs: { calloutType: "NOTE", emoji: CALLOUT_DEFAULTS.NOTE },
-      content: [{ type: "paragraph" }],
-    }).run()
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "callout",
+        attrs: { calloutType: "NOTE", emoji: CALLOUT_DEFAULTS.NOTE },
+        content: [{ type: "paragraph" }],
+      })
+      .run()
   }
 
   // Shared input key handler
-  function handleInputKey(
-    e: React.KeyboardEvent<HTMLInputElement>,
-    onEnter: () => void
-  ) {
+  function handleInputKey(e: React.KeyboardEvent<HTMLInputElement>, onEnter: () => void) {
     if (e.key === "Enter") {
       e.preventDefault()
       onEnter()
@@ -271,62 +287,70 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
     <div
       className="amby-floating-menu fixed z-50 flex items-center gap-1 rounded-md border border-border bg-popover p-1 shadow-xl backdrop-blur"
       style={{ left, top }}
-      onMouseDown={e => {
+      onMouseDown={(e) => {
         // Prevent editor blur when clicking toolbar buttons; allow it for
         // <input> elements so they can receive focus naturally.
         if (!(e.target instanceof HTMLInputElement)) e.preventDefault()
       }}
     >
-      <ToolbarButton title={t("editor.heading")} active={panel === "heading"} onClick={() => openPanel("heading")}>
+      <ToolbarButton
+        title={t("editor.heading")}
+        active={panel === "heading"}
+        onClick={() => openPanel("heading")}
+      >
         <Heading className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
-        title="Bold"
+        title={t("editorToolbar.bold")}
         active={editor.isActive("bold")}
         onClick={() => editor.chain().focus().toggleBold().run()}
       >
         <Bold className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
-        title="Italic"
+        title={t("editorToolbar.italic")}
         active={editor.isActive("italic")}
         onClick={() => editor.chain().focus().toggleItalic().run()}
       >
         <Italic className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
-        title="Underline"
+        title={t("editorToolbar.underline")}
         active={editor.isActive("ambyUnderline")}
         onClick={() => editor.chain().focus().toggleAmbyUnderline().run()}
       >
         <Underline className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
-        title="Strike"
+        title={t("editorToolbar.strike")}
         active={editor.isActive("strike")}
         onClick={() => editor.chain().focus().toggleStrike().run()}
       >
         <Strikethrough className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
-        title="Code"
+        title={t("editorToolbar.code")}
         active={editor.isActive("code")}
         onClick={() => editor.chain().focus().toggleCode().run()}
       >
         <Code2 className="size-3.5" />
       </ToolbarButton>
 
-      <ToolbarButton title="List" active={panel === "list"} onClick={() => openPanel("list")}>
+      <ToolbarButton
+        title={t("editorToolbar.list")}
+        active={panel === "list"}
+        onClick={() => openPanel("list")}
+      >
         <List className="size-3.5" />
       </ToolbarButton>
       <ToolbarButton
-        title="Quote"
+        title={t("editorToolbar.quote")}
         active={editor.isActive("blockquote")}
         onClick={() => editor.chain().focus().toggleBlockquote().run()}
       >
         <Quote className="size-3.5" />
       </ToolbarButton>
-      <ToolbarButton title="Callout" onClick={insertCallout}>
+      <ToolbarButton title={t("editorToolbar.callout")} onClick={insertCallout}>
         <MessageSquare className="size-3.5" />
       </ToolbarButton>
 
@@ -335,23 +359,39 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
       <ToolbarButton title={t("editor.tag")} active={panel === "tag"} onClick={openTagPanel}>
         <Hash className="size-3.5" />
       </ToolbarButton>
-      <ToolbarButton title="Backlink" active={panel === "wikilink"} onClick={openWikilinkPanel}>
+      <ToolbarButton
+        title={t("editorToolbar.wikiLink")}
+        active={panel === "wikilink"}
+        onClick={openWikilinkPanel}
+      >
         <span className="text-[10px] font-semibold">[[</span>
       </ToolbarButton>
-      <ToolbarButton title="URL link" active={panel === "link"} onClick={openLinkPanel}>
+      <ToolbarButton
+        title={t("editorToolbar.urlLink")}
+        active={panel === "link"}
+        onClick={openLinkPanel}
+      >
         <Link className="size-3.5" />
       </ToolbarButton>
 
       <div className="mx-1 h-5 w-px bg-accent" />
 
-      <ToolbarButton title={t("editor.color")} active={panel === "color"} onClick={() => openPanel("color")}>
+      <ToolbarButton
+        title={t("editor.color")}
+        active={panel === "color"}
+        onClick={() => openPanel("color")}
+      >
         <Palette className="size-3.5" />
       </ToolbarButton>
 
       <div className="mx-1 h-5 w-px bg-accent" />
 
-      <ToolbarButton title="AI" active={panel === "ai"} onClick={() => openPanel("ai")}>
-        <Sparkles className="size-3.5 text-sky-400" />
+      <ToolbarButton
+        title={t("editorToolbar.ai")}
+        active={panel === "ai"}
+        onClick={() => openPanel("ai")}
+      >
+        <Sparkles className="size-3.5 text-primary" />
       </ToolbarButton>
 
       {panel && (
@@ -364,7 +404,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
                   key={label}
                   type="button"
                   className="flex h-8 min-w-10 items-center justify-center rounded px-2 text-xs font-semibold text-foreground hover:bg-accent hover:text-white"
-                  onMouseDown={e => e.preventDefault()}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => setHeading(level)}
                 >
                   {Icon ? <Icon className="size-3.5" /> : label}
@@ -376,8 +416,8 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
           {/* ── Color palette ───────────────────────────────────────────────── */}
           {panel === "color" && (
             <TextStylePalette
-              onTextColor={color => applyTextColor(color)}
-              onBackgroundColor={color => applyBackgroundColor(color)}
+              onTextColor={(color) => applyTextColor(color)}
+              onBackgroundColor={(color) => applyBackgroundColor(color)}
               onClearTextColor={() => applyTextColor(null)}
               onClearBackgroundColor={() => applyBackgroundColor(null)}
             />
@@ -387,7 +427,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
           {panel === "list" && (
             <div className="flex items-center gap-1">
               <ToolbarButton
-                title="Bullet list"
+                title={t("editorToolbar.bulletList")}
                 onClick={() => {
                   editor.chain().focus().toggleBulletList().run()
                   closePanel()
@@ -396,7 +436,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
                 <List className="size-3.5" />
               </ToolbarButton>
               <ToolbarButton
-                title="Ordered list"
+                title={t("editorToolbar.orderedList")}
                 onClick={() => {
                   editor.chain().focus().toggleOrderedList().run()
                   closePanel()
@@ -405,7 +445,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
                 <ListOrdered className="size-3.5" />
               </ToolbarButton>
               <ToolbarButton
-                title="Task list"
+                title={t("editorToolbar.taskList")}
                 onClick={() => {
                   editor.chain().focus().toggleTaskList().run()
                   closePanel()
@@ -424,11 +464,13 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
                 autoFocus
                 type="text"
                 className="w-40 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-                placeholder="tagname"
+                placeholder={t("editorToolbar.tagPlaceholder")}
                 value={inputValue}
-                onChange={e => setInputValue(e.target.value)}
-                onKeyDown={e => handleInputKey(e, applyTag)}
-                onMouseDown={e => e.stopPropagation() /* let focus transfer; outer guard handles blur */}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => handleInputKey(e, applyTag)}
+                onMouseDown={
+                  (e) => e.stopPropagation() /* let focus transfer; outer guard handles blur */
+                }
               />
             </div>
           )}
@@ -437,49 +479,57 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
           {panel === "link" && (
             <div className="flex flex-col gap-1 px-1.5 py-1">
               <div className="flex items-center gap-1.5">
-                <span className="w-8 shrink-0 text-[10px] text-muted-foreground">URL</span>
+                <span className="w-8 shrink-0 text-[10px] text-muted-foreground">
+                  {t("editorToolbar.url")}
+                </span>
                 <input
                   autoFocus
                   type="url"
                   className="w-48 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                   placeholder="https://..."
                   value={inputValue}
-                  onChange={e => setInputValue(e.target.value)}
-                  onKeyDown={e => handleInputKey(e, applyLink)}
-                  onMouseDown={e => e.stopPropagation() /* let focus transfer; outer guard handles blur */}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={(e) => handleInputKey(e, applyLink)}
+                  onMouseDown={
+                    (e) => e.stopPropagation() /* let focus transfer; outer guard handles blur */
+                  }
                 />
               </div>
               {!linkHasSelection && (
                 <div className="flex items-center gap-1.5">
-                  <span className="w-8 shrink-0 text-[10px] text-muted-foreground">Text</span>
+                  <span className="w-8 shrink-0 text-[10px] text-muted-foreground">
+                    {t("editorToolbar.linkText")}
+                  </span>
                   <input
                     type="text"
                     className="w-48 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-                    placeholder="Link label"
+                    placeholder={t("editorToolbar.linkLabel")}
                     value={linkLabel}
-                    onChange={e => setLinkLabel(e.target.value)}
-                    onKeyDown={e => handleInputKey(e, applyLink)}
-                    onMouseDown={e => e.stopPropagation() /* let focus transfer; outer guard handles blur */}
+                    onChange={(e) => setLinkLabel(e.target.value)}
+                    onKeyDown={(e) => handleInputKey(e, applyLink)}
+                    onMouseDown={
+                      (e) => e.stopPropagation() /* let focus transfer; outer guard handles blur */
+                    }
                   />
                 </div>
               )}
-              <p className="text-[10px] text-muted-foreground">Enter to confirm · Esc to cancel</p>
+              <p className="text-[10px] text-muted-foreground">{t("editorToolbar.linkHint")}</p>
             </div>
           )}
 
           {/* ── AI actions ──────────────────────────────────────────────────── */}
           {panel === "ai" && (
             <div className="flex w-44 flex-col gap-0.5 p-0.5">
-              {AI_ACTIONS.map(action => (
+              {AI_ACTIONS.map((action) => (
                 <button
                   key={action.id}
                   type="button"
                   disabled={aiBusy}
                   className="flex items-center gap-2 rounded px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent hover:text-white disabled:opacity-50"
-                  onMouseDown={e => e.preventDefault()}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => void runAiAction(action)}
                 >
-                  <Sparkles className="size-3.5 text-sky-400" />
+                  <Sparkles className="size-3.5 text-primary" />
                   {t(action.labelKey)}
                 </button>
               ))}
@@ -489,9 +539,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
                   {t("ai.generating")}
                 </div>
               )}
-              {aiError && (
-                <div className="px-2 py-1.5 text-[11px] text-red-400">{aiError}</div>
-              )}
+              {aiError && <div className="px-2 py-1.5 text-[11px] text-red-400">{aiError}</div>}
             </div>
           )}
 
@@ -503,11 +551,13 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
                 autoFocus
                 type="text"
                 className="w-44 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-                placeholder="Note name"
+                placeholder={t("editorToolbar.noteName")}
                 value={inputValue}
-                onChange={e => setInputValue(e.target.value)}
-                onKeyDown={e => handleInputKey(e, applyWikilink)}
-                onMouseDown={e => e.stopPropagation() /* let focus transfer; outer guard handles blur */}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={(e) => handleInputKey(e, applyWikilink)}
+                onMouseDown={
+                  (e) => e.stopPropagation() /* let focus transfer; outer guard handles blur */
+                }
               />
               <span className="text-[10px] text-muted-foreground">]]</span>
             </div>

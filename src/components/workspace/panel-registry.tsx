@@ -4,6 +4,7 @@ import * as React from "react"
 import {
   Archive,
   ArrowDownUp,
+  Bell,
   Bookmark,
   BookmarkCheck,
   Calendar,
@@ -19,13 +20,16 @@ import {
   Hash,
   History,
   Info,
+  HelpCircle,
   LayoutGrid,
+  LayoutTemplate,
   Link as LinkIcon,
   LocateFixed,
   Network,
   Plus,
   RefreshCw,
   Search,
+  Settings,
   Sparkles,
   Tag,
 } from "lucide-react"
@@ -45,19 +49,20 @@ import { SidebarTree, type TreeItem } from "./sidebar-tree"
 import { SidebarTags } from "./sidebar-tags"
 import { NewItemModal } from "./new-item-modal"
 import { AiPanel } from "./ai-panel"
+import {
+  confirmAction,
+  listSnapshots,
+  readFile,
+  readSnapshotText,
+  restoreSnapshot,
+  type SnapshotEntry,
+} from "@/lib/storage"
+import type { NoteProperties } from "@/lib/storage"
 
 export type Side = "left" | "right"
 
 export type PanelId =
-  | "files"
-  | "tags"
-  | "favorites"
-  | "databases"
-  | "archive"
-  | "info"
-  | "history"
-  | "links"
-  | "ai"
+  "files" | "tags" | "favorites" | "databases" | "archive" | "info" | "history" | "links" | "ai"
 
 export interface DocumentProperties {
   type: string
@@ -67,6 +72,7 @@ export interface DocumentProperties {
   created: string
   modified: string
   id: string
+  frontmatter: NoteProperties
 }
 
 export interface LinkGraphNode {
@@ -120,7 +126,10 @@ export interface PanelRenderProps {
   properties?: DocumentProperties | null
   linkGraph?: LinkGraph
   currentDocId?: string | null
+  currentDocPath?: string | null
   onSelectLink?: (id: string) => void
+  onHistoryRestored?: () => Promise<void>
+  workspaceSwitcher?: React.ReactNode
 }
 
 /** Action button context — what actions can invoke. */
@@ -128,6 +137,7 @@ export interface ActionContext {
   openGraphTab: () => void
   refreshVault: () => void
   openSearch: () => void
+  openSettings: () => void
 }
 
 export interface PanelDef {
@@ -143,6 +153,8 @@ export interface ActionDef {
   labelKey: string
   icon: React.ComponentType<{ className?: string }>
   kind: "action"
+  /** Always available, even when a minimal preset disables optional modules. */
+  persistent?: boolean
   invoke: (ctx: ActionContext) => void
 }
 
@@ -191,6 +203,7 @@ function FilesPanel(props: PanelRenderProps) {
     onToggleFavorite,
     onAttachLayer,
     linkedLayersByDoc,
+    workspaceSwitcher,
   } = props
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
   const [folderResetKey, setFolderResetKey] = React.useState(0)
@@ -220,73 +233,48 @@ function FilesPanel(props: PanelRenderProps) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Toolbar */}
-      <div className="flex h-9 shrink-0 items-center border-b border-border px-1 gap-px">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-          title={t("filesPanel.createNote")}
-          onClick={() => {
-            if (!vault) onOpenVault()
-            else onNewFile?.(null)
-          }}
-        >
-          <FilePlus className="size-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-          title={t("filesPanel.createFolder")}
-          onClick={() => {
-            if (!vault) onOpenVault()
-            else onNewFolder?.(null)
-          }}
-        >
-          <FolderPlus className="size-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-          title={t("filesPanel.createCanvas")}
-          onClick={() => {
-            if (!vault) onOpenVault()
-            else onNewCanvas?.(null)
-          }}
-        >
-          <LayoutGrid className="size-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-          title={t("filesPanel.sortOrder")}
-        >
-          <ArrowDownUp className="size-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-          title={t("filesPanel.findActive")}
-          onClick={handleFindActive}
-        >
-          <LocateFixed className="size-3.5" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-          title={allOpen ? t("filesPanel.collapseAll") : t("filesPanel.expandAll")}
-          onClick={handleToggleFolders}
-        >
-          {allOpen ? (
-            <ChevronsDownUp className="size-3.5" />
-          ) : (
-            <ChevronsUpDown className="size-3.5" />
-          )}
-        </Button>
+      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+            title={t("filesPanel.create")}
+            onClick={handleNewButtonClick}
+          >
+            <FilePlus className="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+            title={t("filesPanel.sortOrder")}
+          >
+            <ArrowDownUp className="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+            title={t("filesPanel.findActive")}
+            onClick={handleFindActive}
+          >
+            <LocateFixed className="size-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+            title={allOpen ? t("filesPanel.collapseAll") : t("filesPanel.expandAll")}
+            onClick={handleToggleFolders}
+          >
+            {allOpen ? (
+              <ChevronsDownUp className="size-3.5" />
+            ) : (
+              <ChevronsUpDown className="size-3.5" />
+            )}
+          </Button>
+        </div>
       </div>
 
       <ContextMenu>
@@ -333,6 +321,7 @@ function FilesPanel(props: PanelRenderProps) {
                 <FilePlus className="size-4" />
                 {t("filesPanel.create")}
               </Button>
+              {workspaceSwitcher && <div className="mt-2">{workspaceSwitcher}</div>}
             </div>
           </div>
         </ContextMenuTrigger>
@@ -384,6 +373,8 @@ function FilesPanel(props: PanelRenderProps) {
         open={newItemModalOpen}
         onClose={() => setNewItemModalOpen(false)}
         onCreateNote={() => onNewFile?.(null)}
+        onCreateFolder={() => onNewFolder?.(null)}
+        onCreateCanvas={() => onNewCanvas?.(null)}
       />
     </div>
   )
@@ -469,14 +460,18 @@ function PropertyRow({
 }
 
 function InfoPanel({ properties }: PanelRenderProps) {
+  const { t } = useTranslation()
   const [query, setQuery] = React.useState("")
   if (!properties) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-        No document selected
+        {t("infoPanel.noDocument")}
       </div>
     )
   }
+  const frontmatter = properties.frontmatter.properties.filter((property) =>
+    `${property.key} ${property.value}`.toLowerCase().includes(query.trim().toLowerCase()),
+  )
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-b border-border p-2">
@@ -485,7 +480,7 @@ function InfoPanel({ properties }: PanelRenderProps) {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search properties"
+            placeholder={t("infoPanel.search")}
             className="h-7 border-border bg-card pl-7 text-xs text-foreground placeholder:text-muted-foreground"
           />
         </div>
@@ -493,13 +488,29 @@ function InfoPanel({ properties }: PanelRenderProps) {
       <ScrollArea className="flex-1">
         <div className="px-3 py-2">
           <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            Properties
+            {t("infoPanel.properties")}
           </div>
           <div className="divide-y divide-border">
-            <PropertyRow icon={Circle} label="Type" value={properties.type} />
+            {properties.frontmatter.parseError && (
+              <div className="py-2 text-xs text-amber-300">{t("infoPanel.parseError")}</div>
+            )}
+            {frontmatter.map((property) => (
+              <PropertyRow
+                key={property.key}
+                icon={property.valueKind === "checkbox" ? BookmarkCheck : Hash}
+                label={property.key}
+                value={
+                  <span className="max-w-36 whitespace-pre-wrap break-words text-right">
+                    {property.value}
+                  </span>
+                }
+                valueClassName="text-muted-foreground"
+              />
+            ))}
+            <PropertyRow icon={Circle} label={t("infoPanel.type")} value={properties.type} />
             <PropertyRow
               icon={Info}
-              label="Status"
+              label={t("infoPanel.status")}
               value={
                 <span className="rounded-full border border-border bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground">
                   {properties.status}
@@ -508,23 +519,23 @@ function InfoPanel({ properties }: PanelRenderProps) {
             />
             <PropertyRow
               icon={History}
-              label="Revisions"
+              label={t("infoPanel.revisions")}
               value={properties.revisions}
               valueClassName="text-blue-400"
             />
             <PropertyRow
               icon={LinkIcon}
-              label="Backlinks"
-              value={`${properties.backlinks} incoming`}
+              label={t("infoPanel.backlinks")}
+              value={`${properties.backlinks} ${t("infoPanel.incoming")}`}
               valueClassName="text-blue-400"
             />
             <PropertyRow
               icon={Calendar}
-              label="Created"
+              label={t("infoPanel.created")}
               value={properties.created}
               valueClassName="text-blue-400"
             />
-            <PropertyRow icon={Clock} label="Modified" value={properties.modified} />
+            <PropertyRow icon={Clock} label={t("infoPanel.modified")} value={properties.modified} />
             <PropertyRow
               icon={Hash}
               label="ID"
@@ -538,7 +549,7 @@ function InfoPanel({ properties }: PanelRenderProps) {
             className="mt-3 h-7 w-full justify-start gap-1.5 px-0 text-xs text-muted-foreground hover:text-white"
           >
             <Plus className="size-3.5" />
-            Add a property
+            {t("infoPanel.addProperty")}
           </Button>
         </div>
       </ScrollArea>
@@ -546,14 +557,168 @@ function InfoPanel({ properties }: PanelRenderProps) {
   )
 }
 
-function HistoryPanel() {
+function HistoryPanel({ currentDocPath, onHistoryRestored }: PanelRenderProps) {
   const { t } = useTranslation()
+  const [snapshots, setSnapshots] = React.useState<SnapshotEntry[]>([])
+  const [loading, setLoading] = React.useState(false)
+  const [restoringId, setRestoringId] = React.useState<string | null>(null)
+  const [trash, setTrash] = React.useState<import("@/lib/storage").TrashEntry[]>([])
+  const [comparison, setComparison] = React.useState<{
+    id: string
+    previous: string
+    current: string
+  } | null>(null)
+
+  const refresh = React.useCallback(async () => {
+    setLoading(true)
+    try {
+      setSnapshots(currentDocPath ? await listSnapshots(currentDocPath) : [])
+      const { listTrash } = await import("@/lib/storage")
+      setTrash(await listTrash())
+    } finally {
+      setLoading(false)
+    }
+  }, [currentDocPath])
+
+  React.useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  async function restore(entry: SnapshotEntry) {
+    if (!(await confirmAction(t("historyPanel.restoreConfirm")))) return
+    setRestoringId(entry.id)
+    try {
+      await restoreSnapshot(entry.id)
+      await onHistoryRestored?.()
+      await refresh()
+    } finally {
+      setRestoringId(null)
+    }
+  }
+
+  async function compare(entry: SnapshotEntry) {
+    if (!currentDocPath) return
+    const [snapshot, current] = await Promise.all([
+      readSnapshotText(entry.id),
+      readFile(currentDocPath),
+    ])
+    setComparison({ id: entry.id, previous: snapshot.content, current })
+  }
+
+  async function restoreTrashEntry(entry: import("@/lib/storage").TrashEntry) {
+    if (!(await confirmAction(t("historyPanel.restoreTrashConfirm", { name: entry.name })))) return
+    setRestoringId(entry.id)
+    try {
+      const { restoreTrash } = await import("@/lib/storage")
+      await restoreTrash(entry.id)
+      await onHistoryRestored?.()
+      await refresh()
+    } finally {
+      setRestoringId(null)
+    }
+  }
+
+  if (!currentDocPath && trash.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center">
+        <History className="size-8 text-muted-foreground" />
+        <p className="text-[12px] text-muted-foreground">{t("historyPanel.openNote")}</p>
+      </div>
+    )
+  }
   return (
-    <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center">
-      <History className="size-8 text-muted-foreground" />
-      <p className="text-[12px] text-muted-foreground">
-        {t("panels.history")} — {t("common.comingSoon").toLowerCase()}
-      </p>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center justify-between border-b px-3 py-2">
+        <span className="text-sm font-medium">{t("panels.history")}</span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={() => void refresh()}
+          disabled={loading}
+          title={t("historyPanel.refresh")}
+        >
+          <RefreshCw className={cn("size-3.5", loading && "animate-spin")} />
+        </Button>
+      </div>
+      <ScrollArea className="min-h-0 flex-1">
+        {snapshots.length === 0 && !loading ? (
+          <p className="px-4 py-8 text-center text-xs text-muted-foreground">
+            {t("historyPanel.empty")}
+          </p>
+        ) : (
+          <div className="divide-y">
+            {snapshots.map((entry) => (
+              <div key={entry.id} className="space-y-1.5 px-3 py-3">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span>{new Date(entry.createdAtMs).toLocaleString()}</span>
+                  <span className="text-muted-foreground">
+                    {Math.max(1, Math.ceil(entry.sizeBytes / 1024))} KB
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[11px] text-muted-foreground">{entry.reason}</span>
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="ghost" onClick={() => void compare(entry)}>
+                      {t("historyPanel.compare")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void restore(entry)}
+                      disabled={restoringId !== null}
+                    >
+                      {restoringId === entry.id
+                        ? t("historyPanel.restoring")
+                        : t("historyPanel.restore")}
+                    </Button>
+                  </div>
+                </div>
+                {comparison?.id === entry.id && (
+                  <div className="grid max-h-72 grid-cols-2 gap-2 overflow-auto rounded border bg-muted/30 p-2 text-[10px] leading-relaxed">
+                    <div>
+                      <p className="mb-1 font-medium text-muted-foreground">
+                        {t("historyPanel.version")}
+                      </p>
+                      <pre className="whitespace-pre-wrap break-words">{comparison.previous}</pre>
+                    </div>
+                    <div>
+                      <p className="mb-1 font-medium text-muted-foreground">
+                        {t("historyPanel.current")}
+                      </p>
+                      <pre className="whitespace-pre-wrap break-words">{comparison.current}</pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {trash.length > 0 && (
+          <div className="border-t">
+            <p className="px-3 pt-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t("historyPanel.trash")}
+            </p>
+            {trash.map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between gap-2 px-3 py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-xs">{entry.name}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">{entry.originalPath}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void restoreTrashEntry(entry)}
+                  disabled={restoringId !== null}
+                >
+                  {restoringId === entry.id
+                    ? t("historyPanel.restoring")
+                    : t("historyPanel.return")}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </ScrollArea>
     </div>
   )
 }
@@ -590,7 +755,7 @@ function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps)
         <LinkIcon
           className={cn(
             "size-3.5 shrink-0",
-            edge.unresolved ? "text-muted-foreground" : "text-sky-400",
+            edge.unresolved ? "text-muted-foreground" : "text-primary",
           )}
         />
         <div className="min-w-0 flex-1">
@@ -605,7 +770,11 @@ function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps)
               : (clickableNode?.label ?? edge.label)}
           </p>
           <p className="truncate text-[10px] text-muted-foreground">
-            {edge.unresolved ? "unresolved" : direction === "in" ? "backlink" : "wiki link"}
+            {edge.unresolved
+              ? t("linksPanel.unresolved")
+              : direction === "in"
+                ? t("linksPanel.backlink")
+                : t("linksPanel.wikiLink")}
           </p>
         </div>
       </button>
@@ -652,16 +821,16 @@ function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps)
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search links"
+            placeholder={t("linksPanel.search")}
             className="h-7 border-border bg-card pl-7 text-xs text-foreground placeholder:text-muted-foreground"
           />
         </div>
       </div>
       <ScrollArea className="flex-1">
         <div className="px-1 py-2">
-          <Section title="Outgoing" list={outgoing} direction="out" />
-          <Section title="Backlinks" list={backlinks} direction="in" />
-          <Section title="All vault links" list={allLinks} direction="all" />
+          <Section title={t("linksPanel.outgoing")} list={outgoing} direction="out" />
+          <Section title={t("linksPanel.backlinks")} list={backlinks} direction="in" />
+          <Section title={t("linksPanel.all")} list={allLinks} direction="all" />
         </div>
       </ScrollArea>
     </div>
@@ -718,7 +887,7 @@ export const PANEL_DEFS: PanelDef[] = [
     labelKey: "panels.history",
     icon: History,
     kind: "view",
-    render: () => <HistoryPanel />,
+    render: (p) => <HistoryPanel {...p} />,
   },
   {
     id: "links",
@@ -749,6 +918,7 @@ export const ACTION_DEFS: ActionDef[] = [
     labelKey: "actions.refresh",
     icon: RefreshCw,
     kind: "action",
+    persistent: true,
     invoke: (ctx) => ctx.refreshVault(),
   },
   {
@@ -758,30 +928,75 @@ export const ACTION_DEFS: ActionDef[] = [
     kind: "action",
     invoke: (ctx) => ctx.openGraphTab(),
   },
+  {
+    id: "notifications",
+    labelKey: "actions.notifications",
+    icon: Bell,
+    kind: "action",
+    persistent: true,
+    invoke: () => {},
+  },
+  {
+    id: "presets",
+    labelKey: "actions.presets",
+    icon: LayoutTemplate,
+    kind: "action",
+    persistent: true,
+    invoke: () => {},
+  },
+  {
+    id: "settings",
+    labelKey: "actions.settings",
+    icon: Settings,
+    kind: "action",
+    persistent: true,
+    invoke: (ctx) => ctx.openSettings(),
+  },
+  {
+    id: "help",
+    labelKey: "actions.help",
+    icon: HelpCircle,
+    kind: "action",
+    persistent: true,
+    invoke: () => {},
+  },
 ]
 
 export function findButtonDef(defId: string): ButtonDef | undefined {
   return PANEL_DEFS.find((d) => d.id === defId) ?? ACTION_DEFS.find((d) => d.id === defId)
 }
 
+export const PERSISTENT_ACTION_BUTTONS: ActivityButton[] = [
+  { defId: "refresh", side: "left", order: 1 },
+  { defId: "presets", side: "left", order: 3 },
+  { defId: "settings", side: "left", order: 4 },
+  { defId: "notifications", side: "right", order: 0 },
+  { defId: "help", side: "right", order: 1 },
+]
+
 export const DEFAULT_BUTTONS: ActivityButton[] = [
   { defId: "files", side: "left", order: 0 },
-  { defId: "search", side: "left", order: 1 },
-  { defId: "tags", side: "left", order: 2 },
-  { defId: "favorites", side: "left", order: 3 },
-  { defId: "databases", side: "left", order: 4 },
-  { defId: "archive", side: "left", order: 5 },
-  { defId: "refresh", side: "left", order: 6 },
-  { defId: "network", side: "left", order: 7 },
+  { defId: "tags", side: "left", order: 1 },
+  { defId: "favorites", side: "left", order: 2 },
+  { defId: "databases", side: "left", order: 3 },
+  { defId: "archive", side: "left", order: 4 },
+  { defId: "search", side: "left", order: 0 },
+  { defId: "network", side: "left", order: 2 },
   { defId: "info", side: "right", order: 0 },
   { defId: "history", side: "right", order: 1 },
   { defId: "links", side: "right", order: 2 },
   { defId: "ai", side: "right", order: 3 },
+  ...PERSISTENT_ACTION_BUTTONS,
 ]
 
 export function buttonsForSide(buttons: ActivityButton[], side: Side): ActivityButton[] {
+  const seen = new Set<string>()
   return buttons
-    .filter((b) => b.side === side)
+    .filter((button) => {
+      if (button.side !== side || seen.has(button.defId)) return false
+      seen.add(button.defId)
+      return true
+    })
     .slice()
     .sort((a, b) => a.order - b.order)
 }

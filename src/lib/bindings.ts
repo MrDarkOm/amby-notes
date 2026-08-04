@@ -14,6 +14,22 @@ async loadVault(vaultPath: string) : Promise<Result<LoadVaultResult, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async preflightVault(vaultPath: string) : Promise<Result<VaultPreflight, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preflight_vault", { vaultPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async applyIdMigration(vaultPath: string) : Promise<Result<IdMigrationResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("apply_id_migration", { vaultPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async listFiles(vaultPath: string) : Promise<Result<TreeItem[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_files", { vaultPath }) };
@@ -38,6 +54,54 @@ async writeFile(path: string, content: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async saveConflictCopy(path: string, content: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("save_conflict_copy", { path, content }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listSnapshots(sourcePath: string) : Promise<Result<SnapshotEntry[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_snapshots", { sourcePath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreSnapshot(snapshotId: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_snapshot", { snapshotId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async readSnapshotText(snapshotId: string) : Promise<Result<SnapshotText, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("read_snapshot_text", { snapshotId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listTrash() : Promise<Result<TrashEntry[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_trash") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreTrash(trashId: string) : Promise<Result<FsMutationResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_trash", { trashId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async readNote(vaultPath: string, noteId: string) : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("read_note", { vaultPath, noteId }) };
@@ -57,6 +121,14 @@ async writeNote(vaultPath: string, noteId: string, content: string) : Promise<Re
 async getNoteMetadata(vaultPath: string, noteId: string) : Promise<Result<NoteMetadata, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_note_metadata", { vaultPath, noteId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getNoteProperties(vaultPath: string, noteId: string) : Promise<Result<NoteProperties, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_note_properties", { vaultPath, noteId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -158,6 +230,14 @@ async moveItem(vaultPath: string, sourcePath: string, targetPath: string) : Prom
     else return { status: "error", error: e  as any };
 }
 },
+async previewMoveRefactor(vaultPath: string, sourcePath: string, targetPath: string) : Promise<Result<RefactorPreview, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_move_refactor", { vaultPath, sourcePath, targetPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async createFile(path: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_file", { path }) };
@@ -177,6 +257,14 @@ async createFolder(path: string) : Promise<Result<null, string>> {
 async renameItem(vaultPath: string, path: string, newName: string) : Promise<Result<FsMutationResult, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("rename_item", { vaultPath, path, newName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async previewRenameRefactor(vaultPath: string, path: string, newName: string) : Promise<Result<RefactorPreview, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_rename_refactor", { vaultPath, path, newName }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -373,7 +461,13 @@ export type AiMessage = {
  */
 role: string; content: string }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
+/**
+ * Read-only view of a single YAML frontmatter entry. The original YAML stays
+ * on disk untouched; `value` is only a display representation for the UI.
+ */
+export type FrontmatterProperty = { key: string; value: string; valueKind: string }
 export type FsMutationResult = { primaryId: string | null; primaryPath: string | null; pathChanges: PathChange[]; deletedPaths: string[]; deletedIds: string[] }
+export type IdMigrationResult = { backupPath: string; journalPath: string; modifiedPaths: string[] }
 export type ImportedAsset = { relPath: string; absPath: string; fileName: string; kind: string }
 export type IndexedNote = { id: string; path: string; title: string; modified: number | null; wordCount: number }
 export type LayerResult = { notePath: string; layerPath: string; kind: string; pathChanges: PathChange[] }
@@ -383,11 +477,17 @@ export type LinkGraphNode = { id: string; label: string; unresolved?: boolean | 
 export type LoadVaultResult = { tree: TreeItem[]; notes: IndexedNote[]; sync: SyncReport }
 export type NoteLayers = { canvas: boolean; sketch: boolean; database: boolean }
 export type NoteMetadata = { created: number | null; modified: number | null; wordCount: number }
+export type NoteProperties = { hasFrontmatter: boolean; properties: FrontmatterProperty[]; parseError: string | null }
 export type PathChange = { oldPath: string; newPath: string }
+export type RefactorPreview = { notes: number; replacements: number }
 export type SearchResult = { note: IndexedNote; matchType: string; snippet: string | null; score: number }
+export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }
+export type SnapshotText = { sourcePath: string; content: string }
 export type SyncReport = { inserted: number; updated: number; deleted: number; warnings: string[]; pathToId: Partial<{ [key in string]: string }> }
 export type TagEntry = { tag: string; notes: IndexedNote[] }
+export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; children?: TreeItem[] | null }
+export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[] }
 
 /** tauri-specta globals **/
 
