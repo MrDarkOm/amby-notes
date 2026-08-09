@@ -108,11 +108,7 @@ export function wrapSelectionInCallout(editor: Editor) {
     attrs: { calloutType: "NOTE", emoji: CALLOUT_DEFAULTS.NOTE },
     content: blocks,
   }
-  editor
-    .chain()
-    .focus()
-    .insertContentAt({ from: start, to: end }, callout)
-    .run()
+  editor.chain().focus().insertContentAt({ from: start, to: end }, callout).run()
 }
 
 async function pickAndImportImage(ctx?: BlockMediaContext): Promise<string | null> {
@@ -147,7 +143,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     category: "text",
     availableIn: COMMON,
     insertAfter: (e, pos) => insertAfterBlock(e, pos, { type: "paragraph" }),
-    inline: e => e.chain().focus().setParagraph().run(),
+    inline: (e) => e.chain().focus().setParagraph().run(),
   },
   {
     id: "h1",
@@ -158,7 +154,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     availableIn: COMMON,
     shortcut: "#",
     insertAfter: (e, pos) => insertAfterBlock(e, pos, { type: "heading", attrs: { level: 1 } }),
-    inline: e => e.chain().focus().setHeading({ level: 1 }).run(),
+    inline: (e) => e.chain().focus().setHeading({ level: 1 }).run(),
   },
   {
     id: "h2",
@@ -169,7 +165,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     availableIn: COMMON,
     shortcut: "##",
     insertAfter: (e, pos) => insertAfterBlock(e, pos, { type: "heading", attrs: { level: 2 } }),
-    inline: e => e.chain().focus().setHeading({ level: 2 }).run(),
+    inline: (e) => e.chain().focus().setHeading({ level: 2 }).run(),
   },
   {
     id: "h3",
@@ -180,7 +176,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     availableIn: COMMON,
     shortcut: "###",
     insertAfter: (e, pos) => insertAfterBlock(e, pos, { type: "heading", attrs: { level: 3 } }),
-    inline: e => e.chain().focus().setHeading({ level: 3 }).run(),
+    inline: (e) => e.chain().focus().setHeading({ level: 3 }).run(),
   },
   {
     id: "h4",
@@ -191,7 +187,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     availableIn: COMMON,
     shortcut: "####",
     insertAfter: (e, pos) => insertAfterBlock(e, pos, { type: "heading", attrs: { level: 4 } }),
-    inline: e => e.chain().focus().setHeading({ level: 4 }).run(),
+    inline: (e) => e.chain().focus().setHeading({ level: 4 }).run(),
   },
   {
     id: "h5",
@@ -202,7 +198,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     availableIn: COMMON,
     shortcut: "#####",
     insertAfter: (e, pos) => insertAfterBlock(e, pos, { type: "heading", attrs: { level: 5 } }),
-    inline: e => e.chain().focus().setHeading({ level: 5 }).run(),
+    inline: (e) => e.chain().focus().setHeading({ level: 5 }).run(),
   },
   {
     id: "bullet",
@@ -216,7 +212,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
         type: "bulletList",
         content: [{ type: "listItem", content: [{ type: "paragraph" }] }],
       }),
-    inline: e => e.chain().focus().toggleBulletList().run(),
+    inline: (e) => e.chain().focus().toggleBulletList().run(),
   },
   {
     id: "ordered",
@@ -230,7 +226,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
         type: "orderedList",
         content: [{ type: "listItem", content: [{ type: "paragraph" }] }],
       }),
-    inline: e => e.chain().focus().toggleOrderedList().run(),
+    inline: (e) => e.chain().focus().toggleOrderedList().run(),
   },
   {
     id: "task",
@@ -246,7 +242,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
           { type: "taskItem", attrs: { checked: false }, content: [{ type: "paragraph" }] },
         ],
       }),
-    inline: e => {
+    inline: (e) => {
       const ok = e.chain().focus().toggleTaskList().run()
       if (ok) return
       // Fallback: replace the current top-level block with a fresh taskList.
@@ -254,8 +250,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
       const depth = Math.max(1, $from.depth)
       const start = $from.before(depth)
       const end = $from.after(depth)
-      e
-        .chain()
+      e.chain()
         .focus()
         .insertContentAt(
           { from: start, to: end },
@@ -279,7 +274,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     category: "text",
     availableIn: COMMON,
     insertAfter: (e, pos) => insertAfterBlock(e, pos, { type: "codeBlock" }),
-    inline: e => e.chain().focus().setCodeBlock().run(),
+    inline: (e) => e.chain().focus().setCodeBlock().run(),
   },
   {
     id: "callout",
@@ -292,8 +287,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
       const node = e.state.doc.nodeAt(pos)
       if (!node) return
       const after = pos + node.nodeSize
-      e
-        .chain()
+      e.chain()
         .focus()
         .insertContentAt(after, {
           type: "callout",
@@ -304,7 +298,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
         .setTextSelection(after + 2)
         .run()
     },
-    inline: e => {
+    inline: (e) => {
       const { from, to } = e.state.selection
       if (from !== to) {
         wrapSelectionInCallout(e)
@@ -315,8 +309,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
       const depth = Math.max(1, $from.depth)
       const start = $from.before(depth)
       const end = $from.after(depth)
-      e
-        .chain()
+      e.chain()
         .focus()
         .insertContentAt(
           { from: start, to: end },
@@ -341,8 +334,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
       const node = e.state.doc.nodeAt(pos)
       if (!node) return
       const after = pos + node.nodeSize
-      e
-        .chain()
+      e.chain()
         .focus()
         .insertContentAt(after, {
           type: "ambyBlock",
@@ -350,7 +342,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
         })
         .run()
     },
-    inline: e =>
+    inline: (e) =>
       e
         .chain()
         .focus()
@@ -366,7 +358,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     availableIn: COMMON,
     insertAfter: (e, pos) =>
       insertAfterBlock(e, pos, { type: "blockquote", content: [{ type: "paragraph" }] }),
-    inline: e => e.chain().focus().toggleBlockquote().run(),
+    inline: (e) => e.chain().focus().toggleBlockquote().run(),
   },
   {
     id: "divider",
@@ -376,7 +368,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     category: "text",
     availableIn: COMMON,
     insertAfter: (e, pos) => insertAfterBlock(e, pos, { type: "horizontalRule" }),
-    inline: e => e.chain().focus().setHorizontalRule().run(),
+    inline: (e) => e.chain().focus().setHorizontalRule().run(),
   },
   {
     id: "image-local",
@@ -396,7 +388,10 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     inline: async (e, ctx) => {
       const rel = await pickAndImportImage(ctx)
       if (!rel) return
-      e.chain().focus().insertContent({ type: "image", attrs: { src: rel } }).run()
+      e.chain()
+        .focus()
+        .insertContent({ type: "image", attrs: { src: rel } })
+        .run()
     },
   },
   {
@@ -437,8 +432,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     inline: async (e, ctx) => {
       const picked = await pickAndImportFile(ctx)
       if (!picked) return
-      e
-        .chain()
+      e.chain()
         .focus()
         .insertContent({
           type: "text",
@@ -459,14 +453,13 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
       const node = e.state.doc.nodeAt(pos)
       if (!node) return
       const after = pos + node.nodeSize
-      e
-        .chain()
+      e.chain()
         .focus()
         .insertContentAt(after, { type: "paragraph", content: [{ type: "text", text: "#" }] })
         .setTextSelection(after + 2)
         .run()
     },
-    inline: e => {
+    inline: (e) => {
       const sel = slugifyTag(getSelectionText(e))
       if (sel) {
         replaceSelectionOrInsert(e, `#${sel} `)
@@ -487,8 +480,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
       const node = e.state.doc.nodeAt(pos)
       if (!node) return
       const after = pos + node.nodeSize
-      e
-        .chain()
+      e.chain()
         .focus()
         .insertContentAt(after, {
           type: "paragraph",
@@ -498,7 +490,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
         .setTextSelection(after + 3)
         .run()
     },
-    inline: e => {
+    inline: (e) => {
       const sel = getSelectionText(e)
       if (sel) {
         replaceSelectionOrInsert(e, `[[${sel}]]`)
@@ -506,8 +498,7 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
       }
       // Insert [[]] and place cursor between brackets.
       const { from } = e.state.selection
-      e
-        .chain()
+      e.chain()
         .focus()
         .insertContent("[[]]")
         .setTextSelection(from + 2)
@@ -533,16 +524,15 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
 const TURN_INTO_BLACKLIST = new Set(["divider", "image-local", "image-url", "file-local"])
 
 export function getPlusItems(): BlockInsertItem[] {
-  return INLINE_INSERT_ITEMS.filter(i => i.availableIn.includes("plus"))
+  return INLINE_INSERT_ITEMS.filter((i) => i.availableIn.includes("plus"))
 }
 
 export function getSlashItems(): BlockInsertItem[] {
-  return INLINE_INSERT_ITEMS.filter(i => i.availableIn.includes("slash"))
+  return INLINE_INSERT_ITEMS.filter((i) => i.availableIn.includes("slash"))
 }
 
 export function getTurnIntoItems(): BlockInsertItem[] {
   return INLINE_INSERT_ITEMS.filter(
-    i => i.availableIn.includes("turn-into") && !TURN_INTO_BLACKLIST.has(i.id),
+    (i) => i.availableIn.includes("turn-into") && !TURN_INTO_BLACKLIST.has(i.id),
   )
 }
-

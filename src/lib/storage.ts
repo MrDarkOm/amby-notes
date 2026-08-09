@@ -153,6 +153,36 @@ const WEB_VAULT = "web-vault"
 const TREE_KEY = "amby:tree"
 const FILE_PREFIX = "amby:file:"
 
+function splitWebFrontmatter(
+  content: string,
+): { envelope: string; yaml: string; body: string } | null {
+  const match = /^(---\n)([\s\S]*?)(\n---\n?)/u.exec(content)
+  if (!match) return null
+  return {
+    envelope: match[0],
+    yaml: match[2],
+    body: content.slice(match[0].length),
+  }
+}
+
+function webNoteProperties(content: string): NoteProperties {
+  const frontmatter = splitWebFrontmatter(content)
+  if (!frontmatter) return { hasFrontmatter: false, properties: [] }
+  const properties: FrontmatterProperty[] = []
+  for (const line of frontmatter.yaml.split("\n")) {
+    if (!line || /^\s/u.test(line) || line.trimStart().startsWith("#")) continue
+    const separator = line.indexOf(":")
+    if (separator < 1) continue
+    const key = line.slice(0, separator).trim()
+    const value = line
+      .slice(separator + 1)
+      .trim()
+      .replace(/^['"]|['"]$/gu, "")
+    properties.push({ key, value, valueKind: "text" })
+  }
+  return { hasFrontmatter: true, properties }
+}
+
 function pathDir(path: string): string {
   const idx = path.replace(/\\/g, "/").lastIndexOf("/")
   return idx === -1 ? "" : path.slice(0, idx)
@@ -337,7 +367,13 @@ function webCreateNote(parentPath: string, name: string): FsMutationResult {
   const primaryPath = joinPath(targetDir, `${name}.md`)
   if (webFindItem(tree, primaryPath)) throw new Error(`Note already exists: ${primaryPath}`)
 
-  const child: TreeItem = { id: primaryPath, path: primaryPath, name, type: "file", icon: "file" }
+  const child: TreeItem = {
+    id: primaryPath,
+    path: primaryPath,
+    name,
+    type: "file",
+    icon: "file",
+  }
   const nextTree = webAddChild(tree, targetParentId, child)
   localStorage.setItem(FILE_PREFIX + primaryPath, "")
   webSaveTree(nextTree)
@@ -423,7 +459,8 @@ export async function readFile(path: string): Promise<string> {
 
 export async function readNote(vaultPath: string, noteId: string): Promise<string> {
   if (isTauri()) return invoke<string>("read_note", { vaultPath, noteId })
-  return readFile(noteId)
+  const content = await readFile(noteId)
+  return splitWebFrontmatter(content)?.body ?? content
 }
 
 export async function writeFile(path: string, content: string): Promise<void> {
@@ -492,7 +529,9 @@ export async function previewMoveRefactor(
 
 export async function writeNote(vaultPath: string, noteId: string, content: string): Promise<void> {
   if (isTauri()) return invoke<void>("write_note", { vaultPath, noteId, content })
-  return writeFile(noteId, content)
+  const current = await readFile(noteId)
+  const frontmatter = splitWebFrontmatter(current)
+  return writeFile(noteId, `${frontmatter?.envelope ?? ""}${content}`)
 }
 
 export async function createNote(
@@ -809,7 +848,7 @@ export async function getNoteProperties(
   noteId: string,
 ): Promise<NoteProperties> {
   if (isTauri()) return invoke<NoteProperties>("get_note_properties", { vaultPath, noteId })
-  return { hasFrontmatter: false, properties: [] }
+  return webNoteProperties(localStorage.getItem(FILE_PREFIX + noteId) ?? "")
 }
 
 export async function getFileMetadata(path: string): Promise<FileMetadata> {
@@ -821,6 +860,22 @@ export async function getFileMetadata(path: string): Promise<FileMetadata> {
 export async function getLinkGraph(vaultPath: string): Promise<LinkGraph> {
   if (isTauri()) return invoke<LinkGraph>("get_link_graph", { vaultPath })
   return { nodes: [], edges: [] }
+}
+
+export interface VaultTagEntry {
+  tag: string
+  notes: Array<{
+    id: string
+    path: string
+    title: string
+    modified: number | null
+    wordCount: number
+  }>
+}
+
+export async function listTags(vaultPath: string): Promise<VaultTagEntry[]> {
+  if (isTauri()) return invoke<VaultTagEntry[]>("list_tags", { vaultPath })
+  return []
 }
 
 export async function openInExplorer(path: string): Promise<void> {

@@ -41,7 +41,7 @@ export const SlashMenu = Extension.create({
         },
         render: () => {
           return {
-            onStart: props => {
+            onStart: (props) => {
               const s = getSlashStorage(editor)
               s.open = true
               s.range = props.range
@@ -50,7 +50,7 @@ export const SlashMenu = Extension.create({
               s.version++
               notify()
             },
-            onUpdate: props => {
+            onUpdate: (props) => {
               const s = getSlashStorage(editor)
               s.open = true
               s.range = props.range

@@ -47,18 +47,14 @@ interface TiptapEditorProps {
   fetchTransclusion?: (target: string) => Promise<string | null>
   selection?: MarkdownSelection | null
   onSelectionChange?: (selection: MarkdownSelection) => void
+  /** Read uses the same Tiptap instance but must not inherit Live layout styles. */
+  isReadOnly?: boolean
 }
 
 interface MenuState {
   open: boolean
   left: number
   top: number
-}
-
-interface CaretState {
-  left: number
-  top: number
-  height: number
 }
 
 const MENU_WIDTH = 290
@@ -81,6 +77,7 @@ export function TiptapEditor({
   fetchTransclusion,
   selection,
   onSelectionChange,
+  isReadOnly = false,
 }: TiptapEditorProps) {
   const valueRef = React.useRef(value)
   const originalValueRef = React.useRef(value)
@@ -96,31 +93,6 @@ export function TiptapEditor({
   const serializeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const [menu, setMenu] = React.useState<MenuState>({ open: false, left: 0, top: 0 })
   const [wikiLinkContext, setWikiLinkContext] = React.useState<WikiLinkContextDetail | null>(null)
-  const [caret, setCaret] = React.useState<CaretState | null>(null)
-
-  const updateCaret = React.useCallback((ed: Editor) => {
-    if (!ed.isEditable || !ed.isFocused || !ed.state.selection.empty) {
-      setCaret(null)
-      return
-    }
-    try {
-      const { from } = ed.state.selection
-      const coords = ed.view.coordsAtPos(from)
-      const dom = ed.view.domAtPos(from).node
-      const element = dom.nodeType === Node.ELEMENT_NODE ? (dom as Element) : dom.parentElement
-      const fontSize =
-        Number.parseFloat(window.getComputedStyle(element ?? ed.view.dom).fontSize) || 16
-      // Keep the bar close to the glyph height, not the full paragraph line box.
-      const height = Math.max(12, Math.round(fontSize * 1.08))
-      setCaret({
-        left: Math.round(coords.left),
-        top: Math.round(coords.top + (coords.bottom - coords.top - height) / 2),
-        height,
-      })
-    } catch {
-      setCaret(null)
-    }
-  }, [])
 
   // docToMarkdown is O(doc size); running it on every keystroke lags large notes.
   // Debounce it, and flush on blur/unmount so the save path never loses edits.
@@ -148,7 +120,11 @@ export function TiptapEditor({
   }, [onTagClick, onWikiLinkClick, resolveWikiLinkTarget])
 
   const extensions = React.useMemo(
-    () => buildExtensions({ placeholder, callbacks: callbacksRef }),
+    () =>
+      buildExtensions({
+        placeholder,
+        callbacks: callbacksRef,
+      }),
     // placeholder is effectively static per mount; callbacks flow through the ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
@@ -157,19 +133,6 @@ export function TiptapEditor({
   const closeMenu = React.useCallback(() => {
     setMenu((prev) => (prev.open ? { ...prev, open: false } : prev))
   }, [])
-
-  React.useEffect(() => {
-    const onContextMenu = (event: Event) => {
-      const detail = (event as CustomEvent<WikiLinkContextDetail>).detail
-      if (!detail) return
-      window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
-      closeSlashMenu(editor)
-      closeMenu()
-      setWikiLinkContext(detail)
-    }
-    window.addEventListener(WIKILINK_CONTEXT_EVENT, onContextMenu)
-    return () => window.removeEventListener(WIKILINK_CONTEXT_EVENT, onContextMenu)
-  }, [closeMenu])
 
   const editor = useEditor({
     editable,
@@ -181,10 +144,8 @@ export function TiptapEditor({
     onUpdate: ({ editor }) => {
       if (serializeTimerRef.current) clearTimeout(serializeTimerRef.current)
       serializeTimerRef.current = setTimeout(() => flushSerialize(editor), 200)
-      updateCaret(editor)
     },
     onSelectionUpdate: ({ editor }) => {
-      updateCaret(editor)
       onSelectionChangeRef.current?.(
         docSelectionToMarkdownSelection(editor.state.doc, valueRef.current, editor.state.selection),
       )
@@ -217,9 +178,7 @@ export function TiptapEditor({
           : clamp(above, 8, window.innerHeight - MENU_HEIGHT - 8)
       setMenu({ open: true, left, top })
     },
-    onFocus: ({ editor }) => updateCaret(editor),
     onBlur: ({ editor }) => {
-      setCaret(null)
       flushSerialize(editor)
       window.setTimeout(() => {
         // Don't close if focus moved into the floating bubble toolbar (e.g. an
@@ -232,17 +191,17 @@ export function TiptapEditor({
   })
 
   React.useEffect(() => {
-    if (!editor || !editable) return
-    const refresh = () => updateCaret(editor)
-    const scrollParent = editor.view.dom.closest(".amby-editor-scroll")
-    window.addEventListener("resize", refresh)
-    scrollParent?.addEventListener("scroll", refresh, { passive: true })
-    refresh()
-    return () => {
-      window.removeEventListener("resize", refresh)
-      scrollParent?.removeEventListener("scroll", refresh)
+    const onContextMenu = (event: Event) => {
+      const detail = (event as CustomEvent<WikiLinkContextDetail>).detail
+      if (!detail) return
+      window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
+      if (editor) closeSlashMenu(editor)
+      closeMenu()
+      setWikiLinkContext(detail)
     }
-  }, [editable, editor, updateCaret])
+    window.addEventListener(WIKILINK_CONTEXT_EVENT, onContextMenu)
+    return () => window.removeEventListener(WIKILINK_CONTEXT_EVENT, onContextMenu)
+  }, [closeMenu, editor])
 
   // Sync external `value` changes (e.g. switching tabs reuses the instance only
   // within a document; here it guards against parent-driven content resets).
@@ -341,7 +300,7 @@ export function TiptapEditor({
     read()
     window.addEventListener(SLASH_TRIGGER_EVENT, read)
     return () => window.removeEventListener(SLASH_TRIGGER_EVENT, read)
-  }, [editor])
+  }, [closeMenu, editor])
 
   React.useEffect(() => {
     const closeEditorMenus = () => {
@@ -380,18 +339,14 @@ export function TiptapEditor({
   }, [slashState])
 
   return (
-    <div className="amby-tiptap relative min-h-[360px] pb-24">
-      {caret && (
-        <span
-          aria-hidden="true"
-          className="amby-editor-caret"
-          style={{ left: caret.left, top: caret.top, height: caret.height }}
-        />
-      )}
+    <div
+      className="amby-tiptap relative min-h-[360px] pb-24"
+      data-editor-readonly={isReadOnly ? "true" : "false"}
+    >
       {editor && editable && menu.open && (
         <BubbleToolbar editor={editor} left={menu.left} top={menu.top} />
       )}
-      {editor && editable && (
+      {editor && editable && !isReadOnly && (
         <BlockHandles editor={editor} vaultPath={vaultPath} notePath={notePath} />
       )}
       <EditorContent editor={editor} />

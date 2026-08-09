@@ -78,7 +78,11 @@ fn emit_token(app: &tauri::AppHandle, stream_id: &str, delta: &str) {
 
 // ── Ollama (native) ───────────────────────────────────────────────────────────
 
-async fn chat_ollama(config: &AiConfig, messages: &[AiMessage], system: Option<&str>) -> Result<String, String> {
+async fn chat_ollama(
+    config: &AiConfig,
+    messages: &[AiMessage],
+    system: Option<&str>,
+) -> Result<String, String> {
     let base = provider_base(config, "http://localhost:11434");
     let body = json!({ "model": config.model, "messages": role_messages(messages, system), "stream": false });
     let resp = reqwest::Client::new()
@@ -117,7 +121,10 @@ async fn stream_ollama(
         .map_err(|e| format!("Локальный сервер недоступен ({base}): {e}"))?;
     if !resp.status().is_success() {
         let status = resp.status();
-        return Err(format!("Ollama error {status}: {}", resp.text().await.unwrap_or_default()));
+        return Err(format!(
+            "Ollama error {status}: {}",
+            resp.text().await.unwrap_or_default()
+        ));
     }
     let mut stream = resp.bytes_stream();
     let mut buf = String::new();
@@ -131,7 +138,11 @@ async fn stream_ollama(
                 continue;
             }
             if let Ok(v) = serde_json::from_str::<Value>(line) {
-                if let Some(delta) = v.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_str()) {
+                if let Some(delta) = v
+                    .get("message")
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_str())
+                {
                     if !delta.is_empty() {
                         acc.push_str(delta);
                         emit_token(app, stream_id, delta);
@@ -165,7 +176,10 @@ async fn chat_openai_like(
         if let Some((name, value)) = &auth {
             req = req.header(*name, value.clone());
         }
-        let resp = req.send().await.map_err(|e| format!("Запрос не удался ({url}): {e}"))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| format!("Запрос не удался ({url}): {e}"))?;
         let status = resp.status();
         let text = resp.text().await.map_err(|e| e.to_string())?;
         if status.is_success() {
@@ -211,13 +225,19 @@ async fn stream_openai_like(
         if let Some((name, value)) = &auth {
             req = req.header(*name, value.clone());
         }
-        let resp = req.send().await.map_err(|e| format!("Запрос не удался ({url}): {e}"))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| format!("Запрос не удался ({url}): {e}"))?;
         if resp.status().is_success() {
             chosen = Some(resp);
             break;
         }
         let status = resp.status();
-        last_err = format!("Ошибка провайдера {status} ({url}): {}", resp.text().await.unwrap_or_default());
+        last_err = format!(
+            "Ошибка провайдера {status} ({url}): {}",
+            resp.text().await.unwrap_or_default()
+        );
         if status.as_u16() != 404 || i == last {
             return Err(last_err);
         }
@@ -317,7 +337,12 @@ fn azure_auth(config: &AiConfig) -> Result<(&'static str, String), String> {
 
 // ── Anthropic ─────────────────────────────────────────────────────────────────
 
-fn anthropic_body(config: &AiConfig, messages: &[AiMessage], system: Option<&str>, stream: bool) -> Value {
+fn anthropic_body(
+    config: &AiConfig,
+    messages: &[AiMessage],
+    system: Option<&str>,
+    stream: bool,
+) -> Value {
     let msgs: Vec<Value> = messages
         .iter()
         .map(|m| json!({ "role": m.role, "content": m.content }))
@@ -336,7 +361,11 @@ fn anthropic_body(config: &AiConfig, messages: &[AiMessage], system: Option<&str
     body
 }
 
-async fn chat_anthropic(config: &AiConfig, messages: &[AiMessage], system: Option<&str>) -> Result<String, String> {
+async fn chat_anthropic(
+    config: &AiConfig,
+    messages: &[AiMessage],
+    system: Option<&str>,
+) -> Result<String, String> {
     let base = provider_base(config, "https://api.anthropic.com");
     let key = clean_key(config).ok_or("Не задан API-ключ Anthropic")?;
     let resp = reqwest::Client::new()
@@ -391,7 +420,10 @@ async fn stream_anthropic(
         .map_err(|e| format!("Anthropic request failed: {e}"))?;
     if !resp.status().is_success() {
         let status = resp.status();
-        return Err(format!("Anthropic error {status}: {}", resp.text().await.unwrap_or_default()));
+        return Err(format!(
+            "Anthropic error {status}: {}",
+            resp.text().await.unwrap_or_default()
+        ));
     }
     let mut stream = resp.bytes_stream();
     let mut buf = String::new();
@@ -410,7 +442,11 @@ async fn stream_anthropic(
             }
             if let Ok(v) = serde_json::from_str::<Value>(data) {
                 if v.get("type").and_then(|t| t.as_str()) == Some("content_block_delta") {
-                    if let Some(delta) = v.get("delta").and_then(|d| d.get("text")).and_then(|t| t.as_str()) {
+                    if let Some(delta) = v
+                        .get("delta")
+                        .and_then(|d| d.get("text"))
+                        .and_then(|t| t.as_str())
+                    {
                         if !delta.is_empty() {
                             acc.push_str(delta);
                             emit_token(app, stream_id, delta);
@@ -440,26 +476,50 @@ pub async fn ai_chat(
         ("anthropic", Some(id)) => stream_anthropic(&app, &config, &messages, sys, id).await,
         ("anthropic", None) => chat_anthropic(&config, &messages, sys).await,
         ("azure", Some(id)) => match (azure_url(&config), azure_auth(&config)) {
-            (Ok(url), Ok(auth)) => stream_openai_like(&app, vec![url], Some(auth), &config, &messages, sys, id).await,
+            (Ok(url), Ok(auth)) => {
+                stream_openai_like(&app, vec![url], Some(auth), &config, &messages, sys, id).await
+            }
             (Err(e), _) | (_, Err(e)) => Err(e),
         },
         ("azure", None) => match (azure_url(&config), azure_auth(&config)) {
-            (Ok(url), Ok(auth)) => chat_openai_like(vec![url], Some(auth), &config, &messages, sys).await,
+            (Ok(url), Ok(auth)) => {
+                chat_openai_like(vec![url], Some(auth), &config, &messages, sys).await
+            }
             (Err(e), _) | (_, Err(e)) => Err(e),
         },
         ("openai", Some(id)) => {
-            stream_openai_like(&app, openai_urls(&config), openai_auth(&config), &config, &messages, sys, id).await
+            stream_openai_like(
+                &app,
+                openai_urls(&config),
+                openai_auth(&config),
+                &config,
+                &messages,
+                sys,
+                id,
+            )
+            .await
         }
         ("openai", None) => {
-            chat_openai_like(openai_urls(&config), openai_auth(&config), &config, &messages, sys).await
+            chat_openai_like(
+                openai_urls(&config),
+                openai_auth(&config),
+                &config,
+                &messages,
+                sys,
+            )
+            .await
         }
         (_, Some(id)) => stream_ollama(&app, &config, &messages, sys, id).await,
         (_, None) => chat_ollama(&config, &messages, sys).await,
     };
     if let Some(id) = streaming {
         match &result {
-            Ok(_) => { let _ = app.emit("ai:done", json!({ "streamId": id })); }
-            Err(e) => { let _ = app.emit("ai:error", json!({ "streamId": id, "error": e })); }
+            Ok(_) => {
+                let _ = app.emit("ai:done", json!({ "streamId": id }));
+            }
+            Err(e) => {
+                let _ = app.emit("ai:error", json!({ "streamId": id, "error": e }));
+            }
         }
     }
     result

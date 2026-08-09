@@ -172,8 +172,9 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         return
       }
       const rect = nodeDom.getBoundingClientRect()
-      // Centre the single drag control against the actual block.
-      top = rect.top + (rect.height - BUTTON_H) / 2
+      // Align the grip with the first line, rather than the visual centre of
+      // a tall block, matching Notion's block affordance.
+      top = rect.top + 1
     }
 
     posRef.current = { top, left }
@@ -662,7 +663,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       document.addEventListener("pointerup", onUp)
       document.addEventListener("pointercancel", onUp)
     },
-    [editor, handle.nodePos],
+    [editor, handle.nodePos, handle.nodeType],
   )
 
   if (!handle.visible || !editor.isEditable) return null

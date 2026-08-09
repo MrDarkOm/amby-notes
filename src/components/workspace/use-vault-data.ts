@@ -23,6 +23,7 @@ import {
   preflightVault,
   applyIdMigration,
   getLinkGraph,
+  getNoteProperties,
   startVaultWatcher,
   stopVaultWatcher,
   confirmAction,
@@ -152,8 +153,8 @@ export function useVaultData() {
         // Pre-load documents for all restored tabs in the background.
         valid.forEach((e) => {
           const item = findTreeItem(tree, e.fileId)
-          readNote(path, e.fileId)
-            .then((content) => {
+          Promise.all([readNote(path, e.fileId), getNoteProperties(path, e.fileId)])
+            .then(([content, noteProperties]) => {
               setDoc(e.fileId, {
                 id: e.fileId,
                 title: e.title,
@@ -161,6 +162,7 @@ export function useVaultData() {
                 modified: "",
                 wordCount: 0,
                 path: item?.path ?? e.fileId,
+                noteProperties,
               })
             })
             .catch(() => {})

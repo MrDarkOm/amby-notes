@@ -2,10 +2,7 @@
 
 import * as React from "react"
 import { FileText, Plus } from "lucide-react"
-import {
-  Dialog,
-  DialogContent,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import {
   Command,
   CommandEmpty,
@@ -35,7 +32,13 @@ function flattenFiles(items: TreeItem[]): TreeItem[] {
   return result
 }
 
-export function QuickOpenModal({ open, onClose, treeItems, onSelectFile, onNewNote }: QuickOpenModalProps) {
+export function QuickOpenModal({
+  open,
+  onClose,
+  treeItems,
+  onSelectFile,
+  onNewNote,
+}: QuickOpenModalProps) {
   const { t } = useTranslation()
   const files = React.useMemo(() => flattenFiles(treeItems), [treeItems])
 
@@ -50,7 +53,7 @@ export function QuickOpenModal({ open, onClose, treeItems, onSelectFile, onNewNo
   }
 
   return (
-    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="w-[480px] border-border bg-background p-0 shadow-2xl [&>button]:hidden">
         <Command className="rounded-lg bg-transparent">
           <CommandInput
@@ -62,7 +65,10 @@ export function QuickOpenModal({ open, onClose, treeItems, onSelectFile, onNewNo
               {t("quickOpen.noFiles")}
             </CommandEmpty>
 
-            <CommandGroup heading={t("quickOpen.actionsHeading")} className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
+            <CommandGroup
+              heading={t("quickOpen.actionsHeading")}
+              className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
+            >
               <CommandItem
                 onSelect={handleNewNote}
                 className="flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] text-foreground aria-selected:bg-accent aria-selected:text-white cursor-pointer"
@@ -77,8 +83,11 @@ export function QuickOpenModal({ open, onClose, treeItems, onSelectFile, onNewNo
             {files.length > 0 && (
               <>
                 <CommandSeparator className="bg-accent" />
-                <CommandGroup heading={t("quickOpen.filesHeading")} className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5">
-                  {files.map(file => (
+                <CommandGroup
+                  heading={t("quickOpen.filesHeading")}
+                  className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
+                >
+                  {files.map((file) => (
                     <CommandItem
                       key={file.id}
                       value={file.name}

@@ -4,6 +4,7 @@
 
 import { isTauri } from "./storage"
 import i18n from "./i18n"
+import { listen } from "@tauri-apps/api/event"
 
 /** Wire "family" the Rust backend dispatches on. */
 export type AiFamily = "ollama" | "openai" | "anthropic" | "azure"
@@ -62,8 +63,7 @@ export async function aiChat(
   }
 
   const streamId = crypto.randomUUID()
-  const { listen } = await import("@tauri-apps/api/event")
-  const unlisten = await listen<{ streamId: string; delta: string }>("ai:token", e => {
+  const unlisten = await listen<{ streamId: string; delta: string }>("ai:token", (e) => {
     if (e.payload.streamId === streamId) opts.onToken!(e.payload.delta)
   })
   try {

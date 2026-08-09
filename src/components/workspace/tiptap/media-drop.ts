@@ -21,12 +21,7 @@ async function insertImageAt(view: EditorView, pos: number, src: string) {
   view.dispatch(tr)
 }
 
-async function insertFileLinkAt(
-  view: EditorView,
-  pos: number,
-  href: string,
-  text: string,
-) {
+async function insertFileLinkAt(view: EditorView, pos: number, href: string, text: string) {
   const link = view.state.schema.marks.link
   const tr = view.state.tr.insertText(text, pos)
   if (link) {
@@ -46,8 +41,7 @@ function getCtx(view: EditorView): ImportCtx | null {
   // The Tiptap Editor sets the asset context keyed by `editor`, so we look it
   // up via the view's `editor` shim added by Tiptap when the view was built.
   const editor = (view as unknown as { editor?: unknown }).editor as
-    | import("@tiptap/core").Editor
-    | undefined
+    import("@tiptap/core").Editor | undefined
   const ctx = editor ? getAssetContext(editor) : undefined
   if (!ctx || !ctx.vaultPath || !ctx.notePath) return null
   return ctx
@@ -58,7 +52,9 @@ async function handleFileList(view: EditorView, files: FileList, dropPos: number
   if (!ctx || !isTauri()) return false
   for (const file of Array.from(files)) {
     const buf = new Uint8Array(await file.arrayBuffer())
-    const ext = file.name.includes(".") ? file.name.split(".").pop() ?? "" : extFromMime(file.type)
+    const ext = file.name.includes(".")
+      ? (file.name.split(".").pop() ?? "")
+      : extFromMime(file.type)
     const result = await importAssetBytes(ctx.vaultPath, ctx.notePath, buf, ext)
     if (!result) continue
     if (result.kind === "image") {
@@ -82,7 +78,10 @@ export const MediaDrop = Extension.create({
             if (moved) return false
             const dt = (event as DragEvent).dataTransfer
             if (!dt || dt.files.length === 0) return false
-            const coords = view.posAtCoords({ left: (event as DragEvent).clientX, top: (event as DragEvent).clientY })
+            const coords = view.posAtCoords({
+              left: (event as DragEvent).clientX,
+              top: (event as DragEvent).clientY,
+            })
             if (!coords) return false
             event.preventDefault()
             void handleFileList(view, dt.files, coords.pos)
@@ -92,7 +91,9 @@ export const MediaDrop = Extension.create({
             const ce = event as ClipboardEvent
             const cd = ce.clipboardData
             if (!cd) return false
-            const imageItems = Array.from(cd.items).filter(it => it.kind === "file" && it.type.startsWith("image/"))
+            const imageItems = Array.from(cd.items).filter(
+              (it) => it.kind === "file" && it.type.startsWith("image/"),
+            )
             if (imageItems.length > 0) {
               const ctx = getCtx(view)
               if (!ctx || !isTauri()) return false
@@ -136,8 +137,12 @@ export async function bindTauriFileDrop(
   if (!isTauri()) return () => {}
   const { getCurrentWebview } = await import("@tauri-apps/api/webview")
   const webview = getCurrentWebview()
-  const unlisten = await webview.onDragDropEvent(async event => {
-    const payload = event.payload as unknown as { type: string; paths?: string[]; position?: { x: number; y: number } }
+  const unlisten = await webview.onDragDropEvent(async (event) => {
+    const payload = event.payload as unknown as {
+      type: string
+      paths?: string[]
+      position?: { x: number; y: number }
+    }
     if (payload.type !== "drop" || !payload.paths) return
     const ctx = getCtx(view)
     if (!ctx) return

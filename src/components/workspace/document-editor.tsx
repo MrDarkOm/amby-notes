@@ -17,6 +17,7 @@ import {
   Minimize2,
   MoreVertical,
   Redo2,
+  SmilePlus,
   PenLine,
   Undo2,
 } from "lucide-react"
@@ -37,7 +38,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog"
 
 import { Button } from "@/components/ui/button"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { isTauri } from "@/lib/storage"
+import { isTauri, type NoteProperties } from "@/lib/storage"
 import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel"
 import type { TreeItem } from "./sidebar-tree"
 import {
@@ -54,11 +55,12 @@ interface Document {
   modified: string
   wordCount: number
   path: string
+  noteProperties?: NoteProperties
 }
 
 interface DocumentEditorProps {
   document: Document | null
-  onContentChange?: (content: string) => void
+  onContentChange?: (content: string, sourceDocumentId: string) => void
   onBack?: () => void
   onForward?: () => void
   canGoBack?: boolean
@@ -66,6 +68,9 @@ interface DocumentEditorProps {
   onRenameTitle?: (newName: string) => void
   vault?: string
   isFocusMode?: boolean
+  focusTopVisible?: boolean
+  onFocusTopMouseLeave?: () => void
+  hideNavigation?: boolean
   onToggleFocusMode?: () => void
   fileIcon?: string
   onNewFile?: () => void
@@ -180,6 +185,9 @@ export function DocumentEditor({
   onRenameTitle,
   vault,
   isFocusMode = false,
+  focusTopVisible = true,
+  onFocusTopMouseLeave,
+  hideNavigation = false,
   onToggleFocusMode,
   fileIcon,
   onNewFile,
@@ -216,12 +224,18 @@ export function DocumentEditor({
   const titleInputRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
-    setContent(document?.content ?? "")
-    setTitleValue(document?.title ?? "")
     setEditingTitle(false)
     editorSelectionRef.current = null
     setEditorSelection(null)
   }, [document?.id])
+
+  React.useEffect(() => {
+    setContent(document?.content ?? "")
+  }, [document?.content])
+
+  React.useEffect(() => {
+    setTitleValue(document?.title ?? "")
+  }, [document?.title])
 
   React.useEffect(() => {
     if (editingTitle)
@@ -246,8 +260,12 @@ export function DocumentEditor({
   }
 
   const handleContentChange = (v: string) => {
+    if (!document) return
     setContent(v)
-    onContentChange?.(v)
+    // Carry the editor's document identity with every change. A delayed child
+    // callback from a document that is being unmounted must never be accepted
+    // by the newly active tab.
+    onContentChange?.(v, document.id)
   }
 
   // Cursor movement is frequent. Keep the latest source offset in a ref so it
@@ -276,11 +294,19 @@ export function DocumentEditor({
     () => buildBreadcrumb(treeItems, document?.id),
     [treeItems, document?.id],
   )
+  const hasPageEmoji = Boolean(
+    fileIcon && !/^(folder|file|page|workspace|canvas|draft|brain)$/.test(fileIcon),
+  )
 
-  const navBar = (
+  const navBar = hideNavigation ? null : (
     <>
       <div
-        className={`flex h-10 shrink-0 items-center justify-between px-2 ${isFocusMode ? "bg-background/80 backdrop-blur-sm" : "bg-transparent"}`}
+        className={`flex h-10 shrink-0 items-center justify-between px-2 ${
+          isFocusMode
+            ? `absolute inset-x-0 top-0 z-30 bg-background/85 shadow-sm backdrop-blur-sm transition-transform duration-200 ease-out ${focusTopVisible ? "translate-y-0" : "-translate-y-full"}`
+            : "bg-transparent"
+        }`}
+        onMouseLeave={isFocusMode ? onFocusTopMouseLeave : undefined}
       >
         {/* Left: back/forward + drag zone for focus mode */}
         <div className="flex items-center gap-0.5">
@@ -406,6 +432,7 @@ export function DocumentEditor({
               <Button
                 variant="ghost"
                 size="icon"
+                aria-label={t("docEditor.moreActions")}
                 className="size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               >
                 <MoreVertical className="size-3.5" />
@@ -593,9 +620,9 @@ export function DocumentEditor({
             style={{ maxWidth: "var(--content-max-width, 48rem)" }}
           >
             {/* Title */}
-            <div className="mb-4 flex items-center gap-3">
-              {fileIcon && !/^(folder|file|workspace|canvas|draft|brain)$/.test(fileIcon) && (
-                <div className="relative shrink-0">
+            <div className="amby-page-title relative mb-4 flex items-center gap-3">
+              <div className={hasPageEmoji ? "relative shrink-0" : "absolute -left-10 top-0"}>
+                {hasPageEmoji ? (
                   <button
                     type="button"
                     className="text-3xl leading-none transition-transform hover:scale-110 focus:outline-none"
@@ -604,19 +631,34 @@ export function DocumentEditor({
                   >
                     {fileIcon}
                   </button>
-                  {emojiPickerOpen && (
-                    <div className="absolute left-0 top-full z-50 mt-1">
-                      <EmojiPickerPanel
-                        onSelect={(emojiData) => {
-                          onFileIconChange?.(emojiData.native)
-                          setEmojiPickerOpen(false)
-                        }}
-                        onClose={() => setEmojiPickerOpen(false)}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
+                ) : (
+                  <button
+                    type="button"
+                    className="amby-page-emoji-add flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent hover:text-foreground focus:outline-none"
+                    title={t("docEditor.changeIcon")}
+                    aria-label={t("docEditor.changeIcon")}
+                    onClick={() => setEmojiPickerOpen(true)}
+                  >
+                    <SmilePlus className="size-5" />
+                  </button>
+                )}
+                {emojiPickerOpen && (
+                  <div className="absolute left-0 top-full z-50 mt-1">
+                    <EmojiPickerPanel
+                      onSelect={(emojiData) => {
+                        onFileIconChange?.(emojiData.native)
+                        setEmojiPickerOpen(false)
+                      }}
+                      onClear={() => {
+                        onFileIconChange?.("file")
+                        setEmojiPickerOpen(false)
+                      }}
+                      clearLabel={t("tree.resetIcon")}
+                      onClose={() => setEmojiPickerOpen(false)}
+                    />
+                  </div>
+                )}
+              </div>
               {editingTitle ? (
                 <input
                   ref={titleInputRef}
@@ -657,7 +699,7 @@ export function DocumentEditor({
               </div>
             ) : viewMode === "source" ? (
               <SourceEditor
-                key={document.id}
+                key={`${document.id}:${isLocked}`}
                 value={content}
                 onChange={handleContentChange}
                 onTagClick={onTagClick}
@@ -666,6 +708,7 @@ export function DocumentEditor({
                 placeholder={t("editor.placeholder")}
                 selection={editorSelection}
                 onSelectionChange={handleEditorSelectionChange}
+                editable={!isLocked}
               />
             ) : (
               <TiptapEditor
@@ -674,6 +717,7 @@ export function DocumentEditor({
                 onChange={handleContentChange}
                 editorRef={editorRef}
                 editable={viewMode === "live" && !isLocked}
+                isReadOnly={viewMode === "read"}
                 onTagClick={onTagClick}
                 onWikiLinkClick={onWikiLinkClick}
                 resolveWikiLinkTarget={resolveWikiLinkTarget}
@@ -701,6 +745,9 @@ export function DocumentEditor({
           <button
             type="button"
             title={viewMode === "read" ? t("docEditor.switchToLive") : t("docEditor.switchToRead")}
+            aria-label={
+              viewMode === "read" ? t("docEditor.switchToLive") : t("docEditor.switchToRead")
+            }
             disabled={activeLayer !== "editor" || viewMode === "source" || isLocked}
             className="flex size-5 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
             onMouseDown={(e) => e.preventDefault()}

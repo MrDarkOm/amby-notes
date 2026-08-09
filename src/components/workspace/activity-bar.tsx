@@ -21,15 +21,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  ACTION_DEFS,
-  PANEL_DEFS,
-  type ActivityButton,
-  type ButtonDef,
-  type PanelId,
-  type Side,
-  buttonsForSide,
-} from "./panel-registry"
+import { type ActivityButton, type ButtonDef, type PanelId, type Side } from "./panel-registry"
+import { ACTION_DEFS, PANEL_DEFS, buttonsForSide } from "./panel-definitions"
 
 interface ActivityBarProps {
   side: Side

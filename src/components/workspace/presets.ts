@@ -1,11 +1,5 @@
-import {
-  DEFAULT_BUTTONS,
-  findButtonDef,
-  PERSISTENT_ACTION_BUTTONS,
-  type ActivityButton,
-  type PanelId,
-  type Side,
-} from "./panel-registry"
+import { type ActivityButton, type PanelId, type Side } from "./panel-registry"
+import { DEFAULT_BUTTONS, findButtonDef, PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
 import { ALL_MODULE_IDS, contributedDefIds } from "./modules"
 
 /**

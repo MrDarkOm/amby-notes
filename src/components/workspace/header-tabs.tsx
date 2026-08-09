@@ -361,7 +361,7 @@ export function HeaderTabs({
       ) : (
         /* Non-mac: right panel toggle in the former logo position */
         <div
-          className="flex w-11 shrink-0 items-center justify-center"
+          className="flex w-12 shrink-0 items-center justify-center"
           onMouseDown={handleDragStart}
         >
           {rightSidebarToggle}
@@ -408,7 +408,7 @@ export function HeaderTabs({
       <div
         className={cn(
           "flex min-w-0 flex-1 items-center gap-1 overflow-hidden pr-1",
-          isLeftSidebarOpen ? "pl-1" : "pl-10",
+          isLeftSidebarOpen ? "pl-0" : "pl-9",
         )}
       >
         <div className="flex h-full min-w-0 items-center gap-1 overflow-hidden">
@@ -464,7 +464,7 @@ export function HeaderTabs({
 
       {/* Sidebar toggles are window-edge controls: unlike panel content they
           never move when a sidebar opens, closes, or is resized. */}
-      <div className={cn("absolute top-1.5 z-20", isMac ? "left-[80px]" : "left-11")}>
+      <div className={cn("absolute top-1.5 z-20", isMac ? "left-[80px]" : "left-12")}>
         {leftSidebarToggle}
       </div>
       {/* Match the exact body dock width. This keeps the right toggle attached

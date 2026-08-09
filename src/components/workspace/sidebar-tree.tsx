@@ -13,6 +13,7 @@ import {
   FolderPlus,
   LayoutGrid,
   PenLine,
+  PanelsTopLeft,
   Smile,
   SquareArrowOutUpRight,
   Star,
@@ -49,7 +50,7 @@ export interface TreeItem {
   children?: TreeItem[]
 }
 
-const KNOWN_ICONS = new Set(["folder", "file", "workspace", "canvas", "draft", "brain"])
+const KNOWN_ICONS = new Set(["folder", "file", "page", "workspace", "canvas", "draft", "brain"])
 const ROOT_DROP_TARGET = "__amby_root__"
 
 interface PtrDrag {
@@ -145,6 +146,8 @@ function getIcon(icon: string | undefined, className?: string) {
       return <LayoutGrid className={cls} />
     case "draft":
       return <PenLine className={cls} />
+    case "page":
+      return <PanelsTopLeft className={cls} />
     default:
       return <FileText className={cls} />
   }
@@ -340,19 +343,13 @@ const TreeNode = React.memo(
             <Smile className="size-3.5 text-muted-foreground" />
             {t("tree.icon")}
           </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="border-border bg-popover p-0 shadow-xl">
+          <ContextMenuSubContent className="min-w-0 rounded-[10px] border-0 bg-transparent p-0 shadow-none">
             <EmojiPickerPanel
               onSelect={(emojiData) => onSetIcon?.(item.id, emojiData.native)}
+              onClear={() => onSetIcon?.(item.id, defaultIcon)}
+              clearLabel={t("tree.resetIcon")}
               onClose={() => {}}
             />
-            <div className="border-t border-border p-1">
-              <ContextMenuItem
-                onSelect={() => onSetIcon?.(item.id, defaultIcon)}
-                className="text-[12px] text-muted-foreground focus:bg-accent focus:text-foreground"
-              >
-                {t("tree.resetIcon")}
-              </ContextMenuItem>
-            </div>
           </ContextMenuSubContent>
         </ContextMenuSub>
 

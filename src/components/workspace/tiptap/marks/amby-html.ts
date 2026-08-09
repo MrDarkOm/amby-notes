@@ -20,8 +20,10 @@ export const AmbyHtml = Node.create({
     return [
       {
         tag: "span[data-amby-html]",
-        getAttrs: node =>
-          node instanceof HTMLElement ? { value: node.getAttribute("data-amby-html") ?? "" } : false,
+        getAttrs: (node) =>
+          node instanceof HTMLElement
+            ? { value: node.getAttribute("data-amby-html") ?? "" }
+            : false,
       },
     ]
   },

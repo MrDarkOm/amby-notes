@@ -2,36 +2,31 @@
 
 import * as React from "react"
 import {
-  Archive,
   ArrowDownUp,
-  Bell,
   Bookmark,
   BookmarkCheck,
-  Calendar,
+  Braces,
+  Check,
+  ChevronDown,
   ChevronsDownUp,
   ChevronsUpDown,
-  Circle,
   Clock,
+  Copy,
   Database,
+  FileCode2,
   FilePlus,
   FileText,
   FolderPlus,
-  FolderTree,
   Hash,
   History,
-  Info,
-  HelpCircle,
   LayoutGrid,
-  LayoutTemplate,
   Link as LinkIcon,
+  List as ListIcon,
   LocateFixed,
-  Network,
-  Plus,
   RefreshCw,
   Search,
-  Settings,
-  Sparkles,
-  Tag,
+  ToggleLeft,
+  Type as TypeIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -48,14 +43,16 @@ import {
 import { SidebarTree, type TreeItem } from "./sidebar-tree"
 import { SidebarTags } from "./sidebar-tags"
 import { NewItemModal } from "./new-item-modal"
-import { AiPanel } from "./ai-panel"
 import {
   confirmAction,
+  listTrash,
   listSnapshots,
   readFile,
   readSnapshotText,
+  restoreTrash,
   restoreSnapshot,
   type SnapshotEntry,
+  type TrashEntry,
 } from "@/lib/storage"
 import type { NoteProperties } from "@/lib/storage"
 
@@ -66,10 +63,7 @@ export type PanelId =
 
 export interface DocumentProperties {
   type: string
-  status: string
-  revisions: number
   backlinks: number
-  created: string
   modified: string
   id: string
   frontmatter: NoteProperties
@@ -180,7 +174,7 @@ function flattenTreeItems(items: TreeItem[]): TreeItem[] {
   return result
 }
 
-function FilesPanel(props: PanelRenderProps) {
+export function FilesPanel(props: PanelRenderProps) {
   const { t } = useTranslation()
   const {
     treeItems,
@@ -380,11 +374,16 @@ function FilesPanel(props: PanelRenderProps) {
   )
 }
 
-function TagsPanel({ treeItems, onSelect, readFile }: PanelRenderProps) {
-  return <SidebarTags items={treeItems} onSelect={onSelect} readFile={readFile} />
+export function TagsPanel({ treeItems, onSelect, readFile, vault }: PanelRenderProps) {
+  return <SidebarTags items={treeItems} onSelect={onSelect} readFile={readFile} vault={vault} />
 }
 
-function FavoritesPanel({ treeItems, favorites, onSelect, onToggleFavorite }: PanelRenderProps) {
+export function FavoritesPanel({
+  treeItems,
+  favorites,
+  onSelect,
+  onToggleFavorite,
+}: PanelRenderProps) {
   const { t } = useTranslation()
   const all = flattenTreeItems(treeItems)
   const favItems = all.filter((i) => i.type === "file" && favorites?.has(i.id))
@@ -427,7 +426,7 @@ function FavoritesPanel({ treeItems, favorites, onSelect, onToggleFavorite }: Pa
   )
 }
 
-function ComingSoonPanel({ labelKey }: { labelKey: string }) {
+export function ComingSoonPanel({ labelKey }: { labelKey: string }) {
   const { t } = useTranslation()
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
@@ -437,31 +436,98 @@ function ComingSoonPanel({ labelKey }: { labelKey: string }) {
   )
 }
 
-function PropertyRow({
-  icon: Icon,
-  label,
-  value,
-  valueClassName,
-}: {
-  icon: React.ElementType
-  label: string
-  value: React.ReactNode
-  valueClassName?: string
-}) {
+function PropertyTypeIcon({ kind }: { kind: string }) {
+  const Icon =
+    kind === "checkbox"
+      ? ToggleLeft
+      : kind === "list"
+        ? ListIcon
+        : kind === "object"
+          ? Braces
+          : kind === "number"
+            ? Hash
+            : TypeIcon
+
   return (
-    <div className="flex items-center justify-between py-2">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Icon className="size-3.5" />
-        <span>{label}</span>
+    <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent/70 text-muted-foreground">
+      <Icon className="size-3.5" />
+    </span>
+  )
+}
+
+function PropertyValue({ kind, value }: { kind: string; value: string }) {
+  if (kind === "checkbox") {
+    const enabled = value.trim().toLowerCase() === "true"
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
+          enabled ? "bg-emerald-500/10 text-emerald-400" : "bg-accent text-muted-foreground",
+        )}
+      >
+        {enabled && <Check className="size-3" />}
+        {enabled ? "True" : "False"}
+      </span>
+    )
+  }
+
+  if (kind === "list") {
+    const items = value
+      .split("\n")
+      .map((item) => item.replace(/^\s*-\s*/, "").trim())
+      .filter(Boolean)
+    if (items.length > 0 && items.every((item) => !item.includes(":"))) {
+      return (
+        <div className="flex flex-wrap justify-end gap-1">
+          {items.map((item, index) => (
+            <span
+              key={`${item}-${index}`}
+              className="max-w-full truncate rounded-md bg-accent px-1.5 py-0.5 text-[10px] text-foreground"
+            >
+              {item}
+            </span>
+          ))}
+        </div>
+      )
+    }
+  }
+
+  if (kind === "null") return <span className="text-muted-foreground">—</span>
+
+  return (
+    <span
+      className={cn(
+        "whitespace-pre-wrap break-words text-right text-xs text-foreground",
+        (kind === "object" || kind === "unknown") && "font-mono text-[10px] leading-relaxed",
+        kind === "number" && "tabular-nums text-blue-400",
+      )}
+    >
+      {value}
+    </span>
+  )
+}
+
+function PropertyRow({ property }: { property: NoteProperties["properties"][number] }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-2 px-2.5 py-2.5">
+      <div className="flex min-w-0 items-center gap-2">
+        <PropertyTypeIcon kind={property.valueKind} />
+        <span className="truncate text-xs text-muted-foreground" title={property.key}>
+          {property.key}
+        </span>
       </div>
-      <div className={cn("text-xs text-foreground", valueClassName)}>{value}</div>
+      <div className="flex min-w-0 items-center justify-end">
+        <PropertyValue kind={property.valueKind} value={property.value} />
+      </div>
     </div>
   )
 }
 
-function InfoPanel({ properties }: PanelRenderProps) {
+export function InfoPanel({ properties }: PanelRenderProps) {
   const { t } = useTranslation()
   const [query, setQuery] = React.useState("")
+  const [technicalOpen, setTechnicalOpen] = React.useState(false)
+  const [copied, setCopied] = React.useState(false)
   if (!properties) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
@@ -469,100 +535,169 @@ function InfoPanel({ properties }: PanelRenderProps) {
       </div>
     )
   }
-  const frontmatter = properties.frontmatter.properties.filter((property) =>
+
+  const customProperties = properties.frontmatter.properties.filter(
+    (property) => !["id", "amby-kind"].includes(property.key.trim().toLowerCase()),
+  )
+  const visibleProperties = customProperties.filter((property) =>
     `${property.key} ${property.value}`.toLowerCase().includes(query.trim().toLowerCase()),
   )
+
+  async function copyId(id: string) {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1400)
+    } catch {
+      // Clipboard access can be unavailable in browser previews.
+    }
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-border p-2">
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("infoPanel.search")}
-            className="h-7 border-border bg-card pl-7 text-xs text-foreground placeholder:text-muted-foreground"
-          />
+      <div className="border-b border-border px-3 py-3">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-medium text-foreground">{t("infoPanel.properties")}</h2>
+            <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+              {t("infoPanel.description")}
+            </p>
+          </div>
+          <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+            {customProperties.length}
+          </span>
         </div>
+        {customProperties.length >= 4 && (
+          <div className="relative mt-3">
+            <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t("infoPanel.search")}
+              className="h-7 border-border bg-background/50 pl-7 text-xs text-foreground placeholder:text-muted-foreground"
+            />
+          </div>
+        )}
       </div>
       <ScrollArea className="flex-1">
-        <div className="px-3 py-2">
-          <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            {t("infoPanel.properties")}
-          </div>
-          <div className="divide-y divide-border">
-            {properties.frontmatter.parseError && (
-              <div className="py-2 text-xs text-amber-300">{t("infoPanel.parseError")}</div>
+        <div className="space-y-5 px-3 py-3">
+          <section>
+            <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t("infoPanel.custom")}
+            </div>
+            {properties.frontmatter.parseError ? (
+              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber-300">
+                {t("infoPanel.parseError")}
+              </div>
+            ) : visibleProperties.length > 0 ? (
+              <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-background/30">
+                {visibleProperties.map((property) => (
+                  <PropertyRow key={property.key} property={property} />
+                ))}
+              </div>
+            ) : query ? (
+              <div className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-[11px] text-muted-foreground">
+                {t("infoPanel.noMatches")}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center">
+                <Braces className="mx-auto size-4 text-muted-foreground" />
+                <p className="mt-2 text-xs text-foreground">{t("infoPanel.noCustom")}</p>
+                <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                  {t("infoPanel.noCustomHint")}
+                </p>
+              </div>
             )}
-            {frontmatter.map((property) => (
-              <PropertyRow
-                key={property.key}
-                icon={property.valueKind === "checkbox" ? BookmarkCheck : Hash}
-                label={property.key}
-                value={
-                  <span className="max-w-36 whitespace-pre-wrap break-words text-right">
-                    {property.value}
-                  </span>
-                }
-                valueClassName="text-muted-foreground"
+          </section>
+
+          <section>
+            <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t("infoPanel.overview")}
+            </div>
+            <div className="overflow-hidden rounded-lg border border-border bg-background/30">
+              <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
+                <div className="px-3 py-2.5">
+                  <FileCode2 className="mb-1.5 size-3.5 text-muted-foreground" />
+                  <div className="text-[10px] text-muted-foreground">{t("infoPanel.type")}</div>
+                  <div className="mt-0.5 text-xs text-foreground">{properties.type}</div>
+                </div>
+                <div className="px-3 py-2.5">
+                  <LinkIcon className="mb-1.5 size-3.5 text-muted-foreground" />
+                  <div className="text-[10px] text-muted-foreground">
+                    {t("infoPanel.backlinks")}
+                  </div>
+                  <div className="mt-0.5 text-xs tabular-nums text-blue-400">
+                    {properties.backlinks}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5 px-3 py-2.5">
+                <Clock className="size-3.5 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] text-muted-foreground">{t("infoPanel.modified")}</div>
+                  <div className="truncate text-xs text-foreground">
+                    {properties.modified || "—"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="overflow-hidden rounded-lg border border-border bg-background/30">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between px-3 py-2.5 text-left"
+              aria-expanded={technicalOpen}
+              onClick={() => setTechnicalOpen((open) => !open)}
+            >
+              <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {t("infoPanel.technical")}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "size-3.5 text-muted-foreground transition-transform",
+                  technicalOpen && "rotate-180",
+                )}
               />
-            ))}
-            <PropertyRow icon={Circle} label={t("infoPanel.type")} value={properties.type} />
-            <PropertyRow
-              icon={Info}
-              label={t("infoPanel.status")}
-              value={
-                <span className="rounded-full border border-border bg-accent px-2 py-0.5 text-[10px] font-medium text-foreground">
-                  {properties.status}
-                </span>
-              }
-            />
-            <PropertyRow
-              icon={History}
-              label={t("infoPanel.revisions")}
-              value={properties.revisions}
-              valueClassName="text-blue-400"
-            />
-            <PropertyRow
-              icon={LinkIcon}
-              label={t("infoPanel.backlinks")}
-              value={`${properties.backlinks} ${t("infoPanel.incoming")}`}
-              valueClassName="text-blue-400"
-            />
-            <PropertyRow
-              icon={Calendar}
-              label={t("infoPanel.created")}
-              value={properties.created}
-              valueClassName="text-blue-400"
-            />
-            <PropertyRow icon={Clock} label={t("infoPanel.modified")} value={properties.modified} />
-            <PropertyRow
-              icon={Hash}
-              label="ID"
-              value={
-                <span className="font-mono text-[10px] text-muted-foreground">{properties.id}</span>
-              }
-            />
-          </div>
-          <Button
-            variant="ghost"
-            className="mt-3 h-7 w-full justify-start gap-1.5 px-0 text-xs text-muted-foreground hover:text-white"
-          >
-            <Plus className="size-3.5" />
-            {t("infoPanel.addProperty")}
-          </Button>
+            </button>
+            {technicalOpen && (
+              <div className="border-t border-border px-3 py-2.5">
+                <div className="text-[10px] text-muted-foreground">ID</div>
+                <div className="mt-1 flex items-start gap-2">
+                  <code className="min-w-0 flex-1 break-all font-mono text-[10px] leading-relaxed text-foreground">
+                    {properties.id}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => copyId(properties.id)}
+                    className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    title={t("infoPanel.copyId")}
+                  >
+                    {copied ? (
+                      <Check className="size-3.5 text-emerald-400" />
+                    ) : (
+                      <Copy className="size-3.5" />
+                    )}
+                  </button>
+                </div>
+                {copied && (
+                  <div className="mt-1 text-[10px] text-emerald-400">{t("infoPanel.copied")}</div>
+                )}
+              </div>
+            )}
+          </section>
         </div>
       </ScrollArea>
     </div>
   )
 }
 
-function HistoryPanel({ currentDocPath, onHistoryRestored }: PanelRenderProps) {
+export function HistoryPanel({ currentDocPath, onHistoryRestored }: PanelRenderProps) {
   const { t } = useTranslation()
   const [snapshots, setSnapshots] = React.useState<SnapshotEntry[]>([])
   const [loading, setLoading] = React.useState(false)
   const [restoringId, setRestoringId] = React.useState<string | null>(null)
-  const [trash, setTrash] = React.useState<import("@/lib/storage").TrashEntry[]>([])
+  const [trash, setTrash] = React.useState<TrashEntry[]>([])
   const [comparison, setComparison] = React.useState<{
     id: string
     previous: string
@@ -573,7 +708,6 @@ function HistoryPanel({ currentDocPath, onHistoryRestored }: PanelRenderProps) {
     setLoading(true)
     try {
       setSnapshots(currentDocPath ? await listSnapshots(currentDocPath) : [])
-      const { listTrash } = await import("@/lib/storage")
       setTrash(await listTrash())
     } finally {
       setLoading(false)
@@ -605,11 +739,10 @@ function HistoryPanel({ currentDocPath, onHistoryRestored }: PanelRenderProps) {
     setComparison({ id: entry.id, previous: snapshot.content, current })
   }
 
-  async function restoreTrashEntry(entry: import("@/lib/storage").TrashEntry) {
+  async function restoreTrashEntry(entry: TrashEntry) {
     if (!(await confirmAction(t("historyPanel.restoreTrashConfirm", { name: entry.name })))) return
     setRestoringId(entry.id)
     try {
-      const { restoreTrash } = await import("@/lib/storage")
       await restoreTrash(entry.id)
       await onHistoryRestored?.()
       await refresh()
@@ -723,7 +856,7 @@ function HistoryPanel({ currentDocPath, onHistoryRestored }: PanelRenderProps) {
   )
 }
 
-function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps) {
+export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps) {
   const { t } = useTranslation()
   const [query, setQuery] = React.useState("")
   const nodes = linkGraph?.nodes ?? []
@@ -835,177 +968,4 @@ function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps)
       </ScrollArea>
     </div>
   )
-}
-
-// ── Registries ──────────────────────────────────────────────────────────
-
-export const PANEL_DEFS: PanelDef[] = [
-  {
-    id: "files",
-    labelKey: "panels.files",
-    icon: FolderTree,
-    kind: "view",
-    render: (p) => <FilesPanel {...p} />,
-  },
-  {
-    id: "tags",
-    labelKey: "panels.tags",
-    icon: Tag,
-    kind: "view",
-    render: (p) => <TagsPanel {...p} />,
-  },
-  {
-    id: "favorites",
-    labelKey: "panels.favorites",
-    icon: Bookmark,
-    kind: "view",
-    render: (p) => <FavoritesPanel {...p} />,
-  },
-  {
-    id: "databases",
-    labelKey: "panels.databases",
-    icon: Database,
-    kind: "view",
-    render: () => <ComingSoonPanel labelKey="panels.databases" />,
-  },
-  {
-    id: "archive",
-    labelKey: "panels.archive",
-    icon: Archive,
-    kind: "view",
-    render: () => <ComingSoonPanel labelKey="panels.archive" />,
-  },
-  {
-    id: "info",
-    labelKey: "panels.info",
-    icon: Info,
-    kind: "view",
-    render: (p) => <InfoPanel {...p} />,
-  },
-  {
-    id: "history",
-    labelKey: "panels.history",
-    icon: History,
-    kind: "view",
-    render: (p) => <HistoryPanel {...p} />,
-  },
-  {
-    id: "links",
-    labelKey: "panels.links",
-    icon: LinkIcon,
-    kind: "view",
-    render: (p) => <LinksPanel {...p} />,
-  },
-  {
-    id: "ai",
-    labelKey: "panels.ai",
-    icon: Sparkles,
-    kind: "view",
-    render: (p) => <AiPanel {...p} />,
-  },
-]
-
-export const ACTION_DEFS: ActionDef[] = [
-  {
-    id: "search",
-    labelKey: "actions.search",
-    icon: Search,
-    kind: "action",
-    invoke: (ctx) => ctx.openSearch(),
-  },
-  {
-    id: "refresh",
-    labelKey: "actions.refresh",
-    icon: RefreshCw,
-    kind: "action",
-    persistent: true,
-    invoke: (ctx) => ctx.refreshVault(),
-  },
-  {
-    id: "network",
-    labelKey: "actions.network",
-    icon: Network,
-    kind: "action",
-    invoke: (ctx) => ctx.openGraphTab(),
-  },
-  {
-    id: "notifications",
-    labelKey: "actions.notifications",
-    icon: Bell,
-    kind: "action",
-    persistent: true,
-    invoke: () => {},
-  },
-  {
-    id: "presets",
-    labelKey: "actions.presets",
-    icon: LayoutTemplate,
-    kind: "action",
-    persistent: true,
-    invoke: () => {},
-  },
-  {
-    id: "settings",
-    labelKey: "actions.settings",
-    icon: Settings,
-    kind: "action",
-    persistent: true,
-    invoke: (ctx) => ctx.openSettings(),
-  },
-  {
-    id: "help",
-    labelKey: "actions.help",
-    icon: HelpCircle,
-    kind: "action",
-    persistent: true,
-    invoke: () => {},
-  },
-]
-
-export function findButtonDef(defId: string): ButtonDef | undefined {
-  return PANEL_DEFS.find((d) => d.id === defId) ?? ACTION_DEFS.find((d) => d.id === defId)
-}
-
-export const PERSISTENT_ACTION_BUTTONS: ActivityButton[] = [
-  { defId: "refresh", side: "left", order: 1 },
-  { defId: "presets", side: "left", order: 3 },
-  { defId: "settings", side: "left", order: 4 },
-  { defId: "notifications", side: "right", order: 0 },
-  { defId: "help", side: "right", order: 1 },
-]
-
-export const DEFAULT_BUTTONS: ActivityButton[] = [
-  { defId: "files", side: "left", order: 0 },
-  { defId: "tags", side: "left", order: 1 },
-  { defId: "favorites", side: "left", order: 2 },
-  { defId: "databases", side: "left", order: 3 },
-  { defId: "archive", side: "left", order: 4 },
-  { defId: "search", side: "left", order: 0 },
-  { defId: "network", side: "left", order: 2 },
-  { defId: "info", side: "right", order: 0 },
-  { defId: "history", side: "right", order: 1 },
-  { defId: "links", side: "right", order: 2 },
-  { defId: "ai", side: "right", order: 3 },
-  ...PERSISTENT_ACTION_BUTTONS,
-]
-
-export function buttonsForSide(buttons: ActivityButton[], side: Side): ActivityButton[] {
-  const seen = new Set<string>()
-  return buttons
-    .filter((button) => {
-      if (button.side !== side || seen.has(button.defId)) return false
-      seen.add(button.defId)
-      return true
-    })
-    .slice()
-    .sort((a, b) => a.order - b.order)
-}
-
-/** Returns the first view-button on a side, or null if none. */
-export function firstViewOnSide(buttons: ActivityButton[], side: Side): PanelId | null {
-  for (const b of buttonsForSide(buttons, side)) {
-    const def = findButtonDef(b.defId)
-    if (def?.kind === "view") return def.id
-  }
-  return null
 }

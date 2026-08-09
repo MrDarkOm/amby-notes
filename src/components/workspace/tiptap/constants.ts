@@ -1,10 +1,10 @@
 // Shared constants and helpers for the Tiptap editor, the CodeMirror source
 // editor, and the markdown conversion layer.
 
-// Unicode-aware: matches #тег/#tag/#タグ and [[Заметка]] wiki links.
-// The `#` must be at the start of the text node or preceded by whitespace —
-// otherwise hex colors like `#abc123` inside a word would be parsed as tags.
-export const INLINE_TOKEN_RE = /(?<=^|\s)#(\p{L}[\p{L}\p{N}_-]*)|\[\[([^\]\r\n]+)\]\]/gu
+// Unicode-aware Obsidian tags (including nested tags) and wiki links. The
+// non-numeric lookahead follows Obsidian's rule that `#1984` is not a tag.
+export const INLINE_TOKEN_RE =
+  /(?<=^|[\s([{>])#((?=[\p{L}\p{N}_/-]*[\p{L}_-])[\p{L}\p{N}_-]+(?:\/[\p{L}\p{N}_-]+)*)|\[\[([^\]\r\n]+)\]\]/gu
 
 export const HEX_RE = /^#[0-9a-fA-F]{6}$/
 export const SAFE_SPAN_RE = /^<span\s+style=["']([^"']*)["']>(.*?)<\/span>$/is

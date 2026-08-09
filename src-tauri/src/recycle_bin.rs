@@ -28,18 +28,22 @@ fn manifest_path(root: &Path, id: &str) -> PathBuf {
 
 fn collect_markdown_paths(path: &Path) -> Result<Vec<PathBuf>, String> {
     if path.is_file() {
-        return Ok(if path.extension().is_some_and(|extension| extension == "md") {
-            vec![path.to_path_buf()]
-        } else {
-            Vec::new()
-        });
+        return Ok(
+            if path.extension().is_some_and(|extension| extension == "md") {
+                vec![path.to_path_buf()]
+            } else {
+                Vec::new()
+            },
+        );
     }
     if !path.is_dir() {
         return Ok(Vec::new());
     }
     let mut paths = Vec::new();
     for entry in fs::read_dir(path).map_err(|error| error.to_string())? {
-        paths.extend(collect_markdown_paths(&entry.map_err(|error| error.to_string())?.path())?);
+        paths.extend(collect_markdown_paths(
+            &entry.map_err(|error| error.to_string())?.path(),
+        )?);
     }
     Ok(paths)
 }
@@ -112,17 +116,22 @@ pub fn list(vault: &Path) -> Vec<TrashEntry> {
 }
 
 pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
-    id.parse::<Ulid>().map_err(|_| "Invalid trash identifier".to_string())?;
+    id.parse::<Ulid>()
+        .map_err(|_| "Invalid trash identifier".to_string())?;
     let trash_root = root(vault);
     let manifest = manifest_path(&trash_root, id);
-    let entry: TrashEntry = serde_json::from_slice(&fs::read(&manifest).map_err(|error| error.to_string())?)
-        .map_err(|error| error.to_string())?;
+    let entry: TrashEntry =
+        serde_json::from_slice(&fs::read(&manifest).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
     if entry.id != id {
         return Err("Invalid trash manifest".to_string());
     }
     let destination = crate::paths::confine_rel(vault, &entry.original_path)?;
     if destination.exists() {
-        return Err(format!("Cannot restore because the original path is occupied: {}", destination.display()));
+        return Err(format!(
+            "Cannot restore because the original path is occupied: {}",
+            destination.display()
+        ));
     }
     let payload = trash_root.join(id).join(&entry.name);
     let restored_paths = collect_markdown_paths(&payload)?;
@@ -179,7 +188,10 @@ mod tests {
         let restored = restore(&vault, &entry.id).unwrap();
         assert_eq!(restored.path_changes.len(), 1);
         assert_eq!(fs::read_to_string(tree.join("Note.md")).unwrap(), "note");
-        assert_eq!(fs::read_to_string(tree.join("assets/image.png")).unwrap(), "image");
+        assert_eq!(
+            fs::read_to_string(tree.join("assets/image.png")).unwrap(),
+            "image"
+        );
         fs::remove_dir_all(vault).unwrap();
     }
 
@@ -203,14 +215,28 @@ mod tests {
         let restored = restore(&vault, &entry.id).unwrap();
 
         assert_eq!(
-            Path::new(restored.primary_path.as_deref().unwrap()).canonicalize().unwrap(),
+            Path::new(restored.primary_path.as_deref().unwrap())
+                .canonicalize()
+                .unwrap(),
             main.canonicalize().unwrap()
         );
         assert_eq!(fs::read_to_string(&main).unwrap(), "main");
-        assert_eq!(fs::read_to_string(bundle.join("Parent.canvas")).unwrap(), "canvas");
-        assert_eq!(fs::read_to_string(bundle.join("Parent.excalidraw")).unwrap(), "draw");
-        assert_eq!(fs::read_to_string(bundle.join("Child.md")).unwrap(), "child");
-        assert_eq!(fs::read_to_string(bundle.join("assets/image.png")).unwrap(), "image");
+        assert_eq!(
+            fs::read_to_string(bundle.join("Parent.canvas")).unwrap(),
+            "canvas"
+        );
+        assert_eq!(
+            fs::read_to_string(bundle.join("Parent.excalidraw")).unwrap(),
+            "draw"
+        );
+        assert_eq!(
+            fs::read_to_string(bundle.join("Child.md")).unwrap(),
+            "child"
+        );
+        assert_eq!(
+            fs::read_to_string(bundle.join("assets/image.png")).unwrap(),
+            "image"
+        );
         fs::remove_dir_all(vault).unwrap();
     }
 }

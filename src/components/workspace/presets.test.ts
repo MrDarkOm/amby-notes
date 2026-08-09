@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { PERSISTENT_ACTION_BUTTONS } from "./panel-registry"
+import { PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
 import { SIMPLE_PRESET, STANDARD_PRESET, visibleLayout } from "./presets"
 
 describe("preset activity zones", () => {

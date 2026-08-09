@@ -19,16 +19,28 @@ const vendorChunks: Record<string, string[]> = {
     "@tiptap/extension-bubble-menu",
     "@tiptap/extension-link",
   ],
-  "vendor-codemirror": [
-    "@codemirror/commands",
-    "@codemirror/lang-markdown",
-    "@codemirror/language",
-    "@codemirror/state",
-    "@codemirror/view",
+  "vendor-codemirror-core": ["@codemirror/commands", "@codemirror/state", "@codemirror/view"],
+  "vendor-codemirror-language": ["@codemirror/lang-markdown", "@codemirror/language"],
+  "vendor-react": ["react", "react-dom", "scheduler"],
+  "vendor-radix": ["@radix-ui"],
+  "vendor-i18n": ["i18next", "react-i18next"],
+  "vendor-state": ["zustand"],
+  "vendor-ui": [
+    "@tanstack/react-virtual",
+    "class-variance-authority",
+    "clsx",
+    "cmdk",
+    "lucide-react",
+    "next-themes",
+    "tailwind-merge",
   ],
+  "vendor-markdown": ["markdown-it", "prosemirror-markdown"],
+  "vendor-tauri": ["@tauri-apps/api"],
   "vendor-d3": ["d3-force"],
   "vendor-xyflow": ["@xyflow/react"],
-  "vendor-emoji": ["emoji-mart", "@emoji-mart/react", "@emoji-mart/data"],
+  "vendor-emoji-core": ["emoji-mart"],
+  "vendor-emoji-react": ["@emoji-mart/react"],
+  "vendor-emoji-data": ["@emoji-mart/data"],
 }
 
 export default defineConfig(async () => ({
@@ -39,6 +51,9 @@ export default defineConfig(async () => ({
     },
   },
   build: {
+    // Keep a useful warning threshold while allowing the deliberately split
+    // rich-editor vendor chunks.
+    chunkSizeWarningLimit: 1800,
     rollupOptions: {
       output: {
         manualChunks(id) {

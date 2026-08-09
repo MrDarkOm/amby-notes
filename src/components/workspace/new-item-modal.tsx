@@ -1,6 +1,6 @@
 "use client"
 
-import { Database, FileText, FolderPlus, LayoutGrid } from "lucide-react"
+import { FileText, FolderPlus, LayoutGrid } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
@@ -78,17 +78,6 @@ export function NewItemModal({
               <p className="mt-0.5 text-[11px] text-muted-foreground">{t("newItem.canvasDesc")}</p>
             </div>
           </button>
-
-          {/* Database — placeholder */}
-          <div className="flex flex-col items-center gap-2.5 rounded-lg border border-border/50 bg-card/40 px-4 py-5 text-center opacity-50 cursor-not-allowed select-none">
-            <div className="flex size-10 items-center justify-center rounded-lg bg-accent/60">
-              <Database className="size-5 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t("newItem.database")}</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{t("common.comingSoon")}</p>
-            </div>
-          </div>
         </div>
       </DialogContent>
     </Dialog>

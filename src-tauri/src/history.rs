@@ -73,7 +73,12 @@ fn read_metadata(root: &Path) -> Vec<SnapshotMetadata> {
     };
     entries
         .flatten()
-        .filter(|entry| entry.path().extension().is_some_and(|extension| extension == "json"))
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|extension| extension == "json")
+        })
         .filter_map(|entry| fs::read(entry.path()).ok())
         .filter_map(|raw| serde_json::from_slice::<SnapshotMetadata>(&raw).ok())
         .collect()
@@ -86,7 +91,9 @@ fn prune(root: &Path) {
     let mut total_bytes = 0_u64;
     let mut versions_per_file = std::collections::HashMap::<String, usize>::new();
     for snapshot in snapshots {
-        let versions = versions_per_file.entry(snapshot.source_path.clone()).or_default();
+        let versions = versions_per_file
+            .entry(snapshot.source_path.clone())
+            .or_default();
         let should_remove = *versions >= MAX_SNAPSHOTS_PER_FILE
             || total_bytes.saturating_add(snapshot.size_bytes) > MAX_TOTAL_SNAPSHOT_BYTES;
         if should_remove {
@@ -190,7 +197,10 @@ pub fn read_snapshot_text(vault: &Path, id: &str) -> Result<SnapshotText, String
     let bytes = fs::read(snapshot_data_path(&root, id)).map_err(|error| error.to_string())?;
     let content = String::from_utf8(bytes)
         .map_err(|_| "This historical version is not UTF-8 text".to_string())?;
-    Ok(SnapshotText { source_path: metadata.source_path, content })
+    Ok(SnapshotText {
+        source_path: metadata.source_path,
+        content,
+    })
 }
 
 #[cfg(test)]
@@ -213,10 +223,15 @@ mod tests {
             .unwrap()
             .unwrap();
         let root = history_root(&vault);
-        assert_eq!(fs::read(snapshot_data_path(&root, &id)).unwrap(), b"\xEF\xBB\xBFbefore\r\n");
-        assert!(snapshot_before_write(&vault, &note, b"\xEF\xBB\xBFbefore\r\n", "note-save")
-            .unwrap()
-            .is_none());
+        assert_eq!(
+            fs::read(snapshot_data_path(&root, &id)).unwrap(),
+            b"\xEF\xBB\xBFbefore\r\n"
+        );
+        assert!(
+            snapshot_before_write(&vault, &note, b"\xEF\xBB\xBFbefore\r\n", "note-save")
+                .unwrap()
+                .is_none()
+        );
         fs::remove_dir_all(vault).unwrap();
     }
 

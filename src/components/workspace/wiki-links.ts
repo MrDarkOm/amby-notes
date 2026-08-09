@@ -5,6 +5,7 @@
 
 import type { TreeItem } from "./sidebar-tree"
 import type { LinkGraph, LinkGraphNode, LinkGraphEdge } from "@/lib/storage"
+import { protectedMarkdownRanges } from "./markdown-tags"
 
 const WIKI_LINK_RE = /\[\[([^\]\r\n]+)\]\]/gu
 
@@ -31,9 +32,11 @@ export function extractWikiLinks(
   content: string,
 ): Array<{ raw: string; target: string; label: string }> {
   const links: Array<{ raw: string; target: string; label: string }> = []
+  const protectedRanges = protectedMarkdownRanges(content)
   WIKI_LINK_RE.lastIndex = 0
   let m: RegExpExecArray | null
   while ((m = WIKI_LINK_RE.exec(content)) !== null) {
+    if (protectedRanges.some((range) => m!.index >= range.from && m!.index < range.to)) continue
     const raw = m[1]
     const [targetPart, aliasPart] = raw.split("|")
     const target = normalizeWikiLinkTarget(targetPart ?? "")

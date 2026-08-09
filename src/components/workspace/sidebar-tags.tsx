@@ -5,6 +5,8 @@ import { ChevronRight, FileText, Hash, Loader2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import type { TreeItem } from "./sidebar-tree"
+import { extractObsidianTags } from "./markdown-tags"
+import { isTauri, listTags } from "@/lib/storage"
 
 interface TagEntry {
   tag: string
@@ -15,9 +17,8 @@ interface SidebarTagsProps {
   items: TreeItem[]
   onSelect: (id: string) => void
   readFile?: (path: string) => Promise<string>
+  vault?: string | null
 }
-
-const TAG_RE = /(?<=^|\s)#(\p{L}[\p{L}\p{N}_-]*)/gu
 
 function flattenFiles(items: TreeItem[], parentPath = ""): Array<{ item: TreeItem; path: string }> {
   const result: Array<{ item: TreeItem; path: string }> = []
@@ -29,44 +30,77 @@ function flattenFiles(items: TreeItem[], parentPath = ""): Array<{ item: TreeIte
   return result
 }
 
-export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
+export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsProps) {
   const { t } = useTranslation()
   const [tags, setTags] = React.useState<TagEntry[]>([])
   const [loading, setLoading] = React.useState(false)
   const [openTags, setOpenTags] = React.useState<Set<string>>(new Set())
-  const loadedRef = React.useRef(false)
-
   React.useEffect(() => {
-    if (loadedRef.current || !readFile) return
-    loadedRef.current = true
+    if (!readFile) return
+    const read = readFile
+    let cancelled = false
     setLoading(true)
 
     const flat = flattenFiles(items)
+    const itemById = new Map(flat.map(({ item, path }) => [item.id, { item, path }]))
     const tagMap = new Map<string, Array<{ item: TreeItem; path: string }>>()
 
-    Promise.allSettled(
-      flat.map(async ({ item, path }) => {
-        try {
-          const content = await readFile(item.id)
-          const matches = [...content.matchAll(TAG_RE)]
-          for (const m of matches) {
-            const tag = m[1].toLowerCase()
-            if (!tagMap.has(tag)) tagMap.set(tag, [])
-            const list = tagMap.get(tag)!
-            if (!list.some((e) => e.item.id === item.id)) list.push({ item, path })
+    async function load() {
+      if (vault && isTauri()) {
+        const indexed = await listTags(vault)
+        for (const entry of indexed) {
+          for (const note of entry.notes) {
+            const file = itemById.get(note.id)
+            if (!file) continue
+            if (!tagMap.has(entry.tag)) tagMap.set(entry.tag, [])
+            tagMap.get(entry.tag)!.push(file)
           }
-        } catch {
-          /* skip */
         }
-      }),
-    ).then(() => {
+      } else {
+        await Promise.allSettled(
+          flat.map(async ({ item, path }) => {
+            try {
+              const content = await read(item.id)
+              for (const match of extractObsidianTags(content)) {
+                if (!tagMap.has(match.normalized)) tagMap.set(match.normalized, [])
+                const list = tagMap.get(match.normalized)!
+                if (!list.some((entry) => entry.item.id === item.id)) list.push({ item, path })
+              }
+            } catch {
+              /* skip */
+            }
+          }),
+        )
+      }
+
+      // Parent tag queries include every descendant (`inbox` includes `inbox/to-read`).
+      for (const [tag, files] of [...tagMap.entries()]) {
+        const parts = tag.split("/")
+        for (let depth = 1; depth < parts.length; depth++) {
+          const parent = parts.slice(0, depth).join("/")
+          if (!tagMap.has(parent)) tagMap.set(parent, [])
+          const parentFiles = tagMap.get(parent)!
+          for (const file of files) {
+            if (!parentFiles.some((entry) => entry.item.id === file.item.id)) {
+              parentFiles.push(file)
+            }
+          }
+        }
+      }
+
+      if (cancelled) return
       const sorted = [...tagMap.entries()]
-        .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
+        .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([tag, files]) => ({ tag, files }))
       setTags(sorted)
       setLoading(false)
-    })
-  }, [items, readFile])
+    }
+
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [items, readFile, vault])
 
   function toggleTag(tag: string) {
     setOpenTags((prev) => {
@@ -109,11 +143,16 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
       <div className="flex flex-col gap-px p-1.5">
         {tags.map(({ tag, files }) => {
           const isOpen = openTags.has(tag)
+          const parts = tag.split("/")
+          const depth = parts.length - 1
+          const label = parts[parts.length - 1]
           return (
             <div key={tag}>
               <button
                 onClick={() => toggleTag(tag)}
                 className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left transition-colors hover:bg-accent"
+                style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
+                title={`#${tag}`}
               >
                 <ChevronRight
                   className={cn(
@@ -122,7 +161,7 @@ export function SidebarTags({ items, onSelect, readFile }: SidebarTagsProps) {
                   )}
                 />
                 <Hash className="size-3.5 shrink-0 text-primary" />
-                <span className="flex-1 truncate text-[13px] text-foreground">{tag}</span>
+                <span className="flex-1 truncate text-[13px] text-foreground">{label}</span>
                 <span className="shrink-0 text-[11px] text-muted-foreground">{files.length}</span>
               </button>
               {isOpen && (

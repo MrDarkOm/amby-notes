@@ -30,12 +30,12 @@ export const AmbyTextStyle = Mark.create({
     return {
       color: {
         default: null,
-        parseHTML: el => normalizeHex(el.style.color || el.getAttribute("data-color")),
+        parseHTML: (el) => normalizeHex(el.style.color || el.getAttribute("data-color")),
         renderHTML: () => ({}),
       },
       backgroundColor: {
         default: null,
-        parseHTML: el => normalizeHex(el.style.backgroundColor),
+        parseHTML: (el) => normalizeHex(el.style.backgroundColor),
         renderHTML: () => ({}),
       },
     }
@@ -45,7 +45,7 @@ export const AmbyTextStyle = Mark.create({
     return [
       {
         tag: "span[style]",
-        getAttrs: node => {
+        getAttrs: (node) => {
           if (!(node instanceof HTMLElement)) return false
           const attrs = parseSafeStyle(node.getAttribute("style") ?? "")
           return attrs.color || attrs.backgroundColor
@@ -64,13 +64,13 @@ export const AmbyTextStyle = Mark.create({
   addCommands() {
     return {
       setAmbyTextStyle:
-        attrs =>
+        (attrs) =>
         ({ chain, editor }) => {
           const current = editor.getAttributes(this.name) as Partial<AmbyTextStyleAttrs>
           const next: AmbyTextStyleAttrs = {
             color: normalizeHex(attrs.color !== undefined ? attrs.color : current.color),
             backgroundColor: normalizeHex(
-              attrs.backgroundColor !== undefined ? attrs.backgroundColor : current.backgroundColor
+              attrs.backgroundColor !== undefined ? attrs.backgroundColor : current.backgroundColor,
             ),
           }
           if (!next.color && !next.backgroundColor) {

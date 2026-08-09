@@ -2,19 +2,15 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Node, mergeAttributes } from "@tiptap/core"
-import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react"
+import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
+
 import { markdownToHtml } from "./markdown"
 import { getTransclusionFetcher } from "./transclusion-context"
 
 type LoadState = "idle" | "loading" | "done" | "error"
 
-/**
- * NodeView for an `![[Note]]` transclusion block.
- * Fetches the referenced note's markdown content and renders it as a
- * read-only inline preview using the shared `markdownToHtml` renderer.
- */
-function TransclusionView({ node, editor }: NodeViewProps) {
+/** Renders an Obsidian-compatible transclusion as a read-only preview. */
+export function TransclusionView({ node, editor }: NodeViewProps) {
   const { t } = useTranslation()
   const target = node.attrs.target as string
   const [html, setHtml] = React.useState<string | null>(null)
@@ -46,7 +42,7 @@ function TransclusionView({ node, editor }: NodeViewProps) {
     return () => {
       cancelled = true
     }
-  }, [target, editor])
+  }, [editor, target])
 
   return (
     <NodeViewWrapper
@@ -54,11 +50,9 @@ function TransclusionView({ node, editor }: NodeViewProps) {
       data-type="transclusion"
       data-target={target}
       contentEditable={false}
-      className="transclusion-embed my-2 rounded border border-border bg-card/40 overflow-hidden select-none"
+      className="transclusion-embed my-2 overflow-hidden rounded border border-border bg-card/40 select-none"
     >
-      {/* Header row */}
       <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground">
-        {/* Embed icon (two overlapping rectangles) */}
         <svg viewBox="0 0 16 16" fill="none" className="size-3 shrink-0" aria-hidden>
           <rect
             x="1"
@@ -83,7 +77,6 @@ function TransclusionView({ node, editor }: NodeViewProps) {
         <span className="truncate font-medium">{target}</span>
       </div>
 
-      {/* Content area */}
       <div className="px-3 py-2 text-[13px] leading-relaxed text-foreground">
         {state === "idle" || state === "loading" ? (
           <span className="italic text-muted-foreground">{t("dbBlock.loading")}</span>
@@ -108,50 +101,3 @@ function TransclusionView({ node, editor }: NodeViewProps) {
     </NodeViewWrapper>
   )
 }
-
-/**
- * Tiptap node for `![[Note Name]]` transclusion embeds.
- *
- * - On disk:  `![[Note Name]]` (Obsidian-compatible)
- * - In editor: renders as a read-only embed card showing the note's content
- * - atom: true — the block cannot be edited in place
- */
-export const TransclusionNode = Node.create({
-  name: "transclusion",
-  group: "block",
-  atom: true,
-
-  addAttributes() {
-    return {
-      target: { default: "" },
-      raw: { default: "" },
-    }
-  },
-
-  parseHTML() {
-    return [
-      {
-        tag: 'div[data-type="transclusion"]',
-        getAttrs: (el) => ({
-          target: (el as HTMLElement).getAttribute("data-target") ?? "",
-          raw: (el as HTMLElement).getAttribute("data-raw") ?? "",
-        }),
-      },
-    ]
-  },
-
-  renderHTML({ node, HTMLAttributes }) {
-    return [
-      "div",
-      mergeAttributes(HTMLAttributes, {
-        "data-type": "transclusion",
-        "data-target": node.attrs.target as string,
-        "data-raw": node.attrs.raw as string,
-      }),
-    ]
-  },
-
-  addNodeView() {
-    return ReactNodeViewRenderer(TransclusionView)
-  },
-})

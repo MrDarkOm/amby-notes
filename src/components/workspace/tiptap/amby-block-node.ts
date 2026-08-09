@@ -37,7 +37,7 @@ export const AmbyBlockNode = Node.create({
     return [
       {
         tag: "div[data-type=amby-block]",
-        getAttrs: el => {
+        getAttrs: (el) => {
           const div = el as HTMLElement
           return {
             blockType: div.getAttribute("data-block-type") ?? "db",

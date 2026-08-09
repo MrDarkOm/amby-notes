@@ -98,7 +98,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
       setStreaming(null)
       setLoading(false)
     }
-  }, [ai, currentDoc, input, loading, messages])
+  }, [ai, currentDoc, input, loading, messages, t])
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">

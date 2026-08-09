@@ -479,7 +479,7 @@ const clipboard: { nodes: CanvasFlowNode[]; edges: Edge[] } = { nodes: [], edges
 
 function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: CanvasEditorProps) {
   const { t } = useTranslation()
-  const initial = React.useMemo(() => toReactFlow(parseCanvas(value)), [])
+  const [initial] = React.useState(() => toReactFlow(parseCanvas(value)))
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasFlowNode>(initial.nodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges)
   const rf = useReactFlow()

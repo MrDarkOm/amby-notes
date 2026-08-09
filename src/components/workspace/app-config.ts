@@ -316,7 +316,10 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T)
   return typeof v === "string" && (allowed as readonly string[]).includes(v) ? (v as T) : fallback
 }
 
-function normalizePrefs(raw: unknown, legacyTheme: string | null): AppPreferences {
+export function normalizeAppPreferences(
+  raw: unknown,
+  legacyTheme: string | null = null,
+): AppPreferences {
   const d = (raw ?? {}) as Partial<AppPreferences>
   const ed = (d.editor ?? {}) as Partial<EditorPrefs>
   const su = (d.startup ?? {}) as Partial<StartupPrefs>
@@ -417,7 +420,7 @@ export async function loadSettings(): Promise<GlobalSettings> {
     defaultTheme: legacyTheme,
     layout: { ...EMPTY_LAYOUT, ...(d.layout ?? {}) },
     ai: normalizeAi(d.ai),
-    prefs: normalizePrefs(d.prefs, legacyTheme),
+    prefs: normalizeAppPreferences(d.prefs, legacyTheme),
   }
 }
 

@@ -47,7 +47,7 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
   React.useEffect(() => {
     const el = containerRef.current
     if (!el) return
-    const ro = new ResizeObserver(entries => {
+    const ro = new ResizeObserver((entries) => {
       const r = entries[0]?.contentRect
       if (r) setSize({ w: Math.max(200, r.width), h: Math.max(200, r.height) })
     })
@@ -68,7 +68,7 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
   // Build / sync sim nodes and links whenever graph topology changes.
   const { simNodes, simLinks } = React.useMemo(() => {
     const next = new Map<string, SimNode>()
-    nodes.forEach(n => {
+    nodes.forEach((n) => {
       const prev = nodeMapRef.current.get(n.id)
       if (prev) {
         prev.label = n.label
@@ -87,8 +87,8 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
     nodeMapRef.current = next
     const simNodes = Array.from(next.values())
     const simLinks: SimLink[] = edges
-      .filter(e => next.has(e.source) && next.has(e.target))
-      .map(e => ({ source: e.source, target: e.target, unresolved: e.unresolved }))
+      .filter((e) => next.has(e.source) && next.has(e.target))
+      .map((e) => ({ source: e.source, target: e.target, unresolved: e.unresolved }))
     return { simNodes, simLinks }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph])
@@ -100,7 +100,7 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
       .force(
         "link",
         forceLink<SimNode, SimLink>(simLinks)
-          .id(d => d.id)
+          .id((d) => d.id)
           .distance(60)
           .strength(0.8),
       )
@@ -117,7 +117,7 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
         if (rafRef.current !== null) return
         rafRef.current = requestAnimationFrame(() => {
           rafRef.current = null
-          setTick(t => (t + 1) & 0xffff)
+          setTick((t) => (t + 1) & 0xffff)
         })
       })
 
@@ -137,10 +137,17 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
   const [view, setView] = React.useState({ tx: 0, ty: 0, zoom: 1 })
   React.useEffect(() => {
     // Recenter when container resizes (first measurement).
-    setView(v => (v.tx === 0 && v.ty === 0 ? { tx: size.w / 2, ty: size.h / 2, zoom: v.zoom } : v))
+    setView((v) =>
+      v.tx === 0 && v.ty === 0 ? { tx: size.w / 2, ty: size.h / 2, zoom: v.zoom } : v,
+    )
   }, [size.w, size.h])
 
-  const panStateRef = React.useRef<{ startX: number; startY: number; baseTx: number; baseTy: number } | null>(null)
+  const panStateRef = React.useRef<{
+    startX: number
+    startY: number
+    baseTx: number
+    baseTy: number
+  } | null>(null)
   const dragStateRef = React.useRef<{
     nodeId: string
     pointerId: number
@@ -182,7 +189,7 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
     }
     const pan = panStateRef.current
     if (pan) {
-      setView(v => ({
+      setView((v) => ({
         ...v,
         tx: pan.baseTx + (e.clientX - pan.startX),
         ty: pan.baseTy + (e.clientY - pan.startY),
@@ -200,7 +207,7 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
       }
       // Treat near-zero movement as a click.
       if (drag.moved < 4) {
-        const n = nodes.find(x => x.id === drag.nodeId)
+        const n = nodes.find((x) => x.id === drag.nodeId)
         if (n && !n.unresolved) onSelect(drag.nodeId)
       }
       dragStateRef.current = null
@@ -232,7 +239,7 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
     const sx = e.clientX - rect.left
     const sy = e.clientY - rect.top
     const factor = Math.exp(-e.deltaY * 0.0015)
-    setView(v => {
+    setView((v) => {
       const nextZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom * factor))
       const k = nextZoom / v.zoom
       return {
@@ -244,7 +251,7 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
   }
 
   function recenter() {
-    nodeMapRef.current.forEach(n => {
+    nodeMapRef.current.forEach((n) => {
       n.fx = null
       n.fy = null
     })
@@ -258,7 +265,10 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
 
   if (nodes.length === 0 || edges.length === 0) {
     return (
-      <div ref={containerRef} className="flex h-full w-full flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+      <div
+        ref={containerRef}
+        className="flex h-full w-full flex-col items-center justify-center gap-3 bg-background px-6 text-center"
+      >
         <Network className="size-12 text-muted-foreground" />
         <p className="text-[14px] text-muted-foreground">{t("graph.noLinks")}</p>
         <p className="text-[12px] text-muted-foreground">{t("graph.noLinksHint")}</p>
@@ -271,7 +281,9 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2">
         <div>
           <p className="text-[13px] font-medium text-foreground">{t("graph.title")}</p>
-          <p className="text-[11px] text-muted-foreground">{t("graph.stats", { nodes: nodes.length, edges: edges.length })}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {t("graph.stats", { nodes: nodes.length, edges: edges.length })}
+          </p>
         </div>
         <button
           type="button"
@@ -313,7 +325,7 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
                 />
               )
             })}
-            {simNodes.map(node => {
+            {simNodes.map((node) => {
               if (node.x == null || node.y == null) return null
               const selected = node.id === selectedId
               const r = selected ? 12 : 8
@@ -322,13 +334,19 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
                   key={node.id}
                   data-node-id={node.id}
                   className={node.unresolved ? "cursor-default" : "cursor-pointer"}
-                  onPointerDown={e => handleNodePointerDown(e, node.id)}
+                  onPointerDown={(e) => handleNodePointerDown(e, node.id)}
                 >
                   <circle
                     cx={node.x}
                     cy={node.y}
                     r={r}
-                    className={selected ? "fill-sky-400" : node.unresolved ? "fill-zinc-700" : "fill-zinc-300"}
+                    className={
+                      selected
+                        ? "fill-sky-400"
+                        : node.unresolved
+                          ? "fill-zinc-700"
+                          : "fill-zinc-300"
+                    }
                   />
                   {(showLabels || selected) && (
                     <text

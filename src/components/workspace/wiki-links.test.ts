@@ -77,6 +77,12 @@ describe("extractWikiLinks", () => {
   it("handles unicode note names", () => {
     expect(extractWikiLinks("ссылка [[Заметка]]")[0].target).toBe("Заметка")
   })
+
+  it("ignores links inside YAML, code and Obsidian comments", () => {
+    const source =
+      "---\nalias: [[Yaml]]\n---\n[[Visible]] `[[Inline]]`\n```md\n[[Fence]]\n```\n%% [[Comment]] %%"
+    expect(extractWikiLinks(source).map((link) => link.target)).toEqual(["Visible"])
+  })
 })
 
 describe("findWikiLinkItem", () => {

@@ -14,6 +14,10 @@ export interface TagsWikilinksCallbacks {
 export interface TagsWikilinksOptions {
   // A ref-like holder so callbacks stay fresh without re-instantiating the editor.
   callbacks: { current: TagsWikilinksCallbacks }
+  /** Reveal the real `[[wikilink]]` text while its caret is active in Linear Live. */
+  isSourceSyntaxVisible: () => boolean
+  /** Linear Live uses click-to-edit and modifier-click-to-open, like Obsidian. */
+  isSourceSyntaxEditingAvailable: () => boolean
 }
 
 export const WIKILINK_CONTEXT_EVENT = "amby:wikilink-contextmenu"
@@ -34,6 +38,7 @@ function createWikiLinkButton(
   from: number,
   to: number,
   callbacks: { current: TagsWikilinksCallbacks },
+  editSource?: () => void,
 ): HTMLElement {
   const { target, label } = getWikiLinkParts(raw)
   const button = document.createElement("button")
@@ -49,10 +54,12 @@ function createWikiLinkButton(
   button.addEventListener("mousedown", (event) => {
     event.preventDefault()
     event.stopPropagation()
+    if (editSource && !event.metaKey && !event.ctrlKey) editSource()
   })
   button.addEventListener("click", (event) => {
     event.preventDefault()
     event.stopPropagation()
+    if (editSource && !event.metaKey && !event.ctrlKey) return
     if (target) callbacks.current.onWikiLinkClick?.(raw)
   })
   button.addEventListener("contextmenu", (event) => {
@@ -84,11 +91,14 @@ export const TagsWikilinks = Extension.create<TagsWikilinksOptions>({
   addOptions() {
     return {
       callbacks: { current: {} },
+      isSourceSyntaxVisible: () => false,
+      isSourceSyntaxEditingAvailable: () => false,
     }
   },
 
   addProseMirrorPlugins() {
-    const { callbacks } = this.options
+    const { callbacks, isSourceSyntaxVisible, isSourceSyntaxEditingAvailable } = this.options
+    const editor = this.editor
 
     return [
       new Plugin({
@@ -108,6 +118,15 @@ export const TagsWikilinks = Extension.create<TagsWikilinksOptions>({
                   continue
                 }
                 const raw = match[2] ?? ""
+                const caret = state.selection.from
+                const revealSource = isSourceSyntaxVisible() && caret >= from && caret <= to
+
+                if (revealSource) {
+                  decorations.push(
+                    Decoration.inline(from, to, { class: "amby-live-wikilink-editing" }),
+                  )
+                  continue
+                }
 
                 // Keep the Markdown token in the document, but render an atom
                 // widget over it in Live mode. This gives links button-like
@@ -115,16 +134,35 @@ export const TagsWikilinks = Extension.create<TagsWikilinksOptions>({
                 // Source mode remains the explicit place for raw Markdown edits.
                 decorations.push(
                   Decoration.inline(from, to, { class: "amby-live-wikilink-source" }),
-                  Decoration.widget(from, () => createWikiLinkButton(raw, from, to, callbacks), {
-                    side: -1,
-                    key: `wikilink:${from}:${to}:${raw}`,
-                  }),
+                  Decoration.widget(
+                    from,
+                    () =>
+                      createWikiLinkButton(
+                        raw,
+                        from,
+                        to,
+                        callbacks,
+                        isSourceSyntaxEditingAvailable()
+                          ? () => {
+                              editor
+                                .chain()
+                                .focus()
+                                .setTextSelection(Math.min(from + 2, to))
+                                .run()
+                            }
+                          : undefined,
+                      ),
+                    {
+                      side: -1,
+                      key: `wikilink:${from}:${to}:${raw}`,
+                    },
+                  ),
                 )
               }
             })
             return DecorationSet.create(state.doc, decorations)
           },
-          handleClickOn(_view, pos, node, nodePos) {
+          handleClickOn(_view, pos, node, nodePos, event) {
             if (!node.isText || !node.text) return false
             const offset = pos - nodePos
             INLINE_TOKEN_RE.lastIndex = 0
@@ -133,6 +171,14 @@ export const TagsWikilinks = Extension.create<TagsWikilinksOptions>({
               const start = match.index
               const end = match.index + match[0].length
               if (offset < start || offset > end) continue
+              if (
+                match[2] &&
+                isSourceSyntaxEditingAvailable() &&
+                !event.metaKey &&
+                !event.ctrlKey
+              ) {
+                return false
+              }
               const cb = callbacks.current
               if (match[1]) {
                 cb.onTagClick?.(match[1])

@@ -586,26 +586,23 @@
   line-height: 1.35;
   color: var(--editor-fg);
   font-size: var(--editor-font-size, 1.02rem);
-  /* The native WebKit caret always spans the whole line box. It is hidden
-       in favour of the compact overlay caret rendered by TiptapEditor. */
-  caret-color: transparent;
+  /* Keep a single browser-native caret. It follows text selection, IME and
+     drag interactions without drifting away from ProseMirror's real cursor. */
+  caret-color: var(--editor-caret-color, var(--caret-color));
   overflow-wrap: anywhere;
 }
 
-.amby-editor-caret {
-  position: fixed;
-  z-index: 40;
-  width: 1px;
-  border-radius: 999px;
-  pointer-events: none;
-  background: #ffffff;
-  animation: amby-caret-blink 1s steps(1, end) infinite;
+/* Page icons belong to the page itself, not to the block controls. Keep the
+   add affordance tucked beside an untitled icon slot until the title is in use. */
+.amby-page-emoji-add {
+  opacity: 0;
+  transform: scale(0.92);
 }
 
-@keyframes amby-caret-blink {
-  50% {
-    opacity: 0;
-  }
+.amby-page-title:hover .amby-page-emoji-add,
+.amby-page-emoji-add:focus-visible {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .amby-tiptap .ProseMirror p {
@@ -1474,7 +1471,16 @@ em-emoji-picker {
   --color-background: var(--menu-bg);
   --color-border: var(--menu-border);
   --color-border-over: var(--panel-input-focus-border);
+  --border-radius: 10px;
   height: 380px;
+}
+
+.amby-emoji-picker-panel {
+  overflow: hidden;
+  border: 1px solid var(--menu-border);
+  border-radius: 10px;
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
 }
 
 .amby-tiptap .ProseMirror ul,
@@ -1832,6 +1838,18 @@ em-emoji-picker {
   box-shadow: var(--menu-shadow);
 }
 
+/* The slash command input stays visually anchored in both themes. Its dark
+   field makes the typing destination unmistakable even on a light canvas. */
+.amby-block-panel--insert .amby-block-panel-search {
+  background: var(--slash-search-bg);
+  border-color: var(--slash-search-border);
+  color: var(--slash-search-fg);
+}
+
+.amby-block-panel--insert .amby-block-panel-search::placeholder {
+  color: var(--slash-search-placeholder);
+}
+
 .amby-slash-item {
   display: flex;
   align-items: baseline;
@@ -1958,6 +1976,7 @@ em-emoji-picker {
   --underline-color: hsl(var(--primary));
   --placeholder-color: #9aa3b1;
   --caret-color: hsl(var(--primary));
+  --editor-caret-color: hsl(var(--primary));
   --tag-bg: hsl(var(--primary) / 0.08);
   --tag-fg: hsl(var(--primary));
   --wikilink-bg: hsl(var(--primary) / 0.065);
@@ -2002,6 +2021,10 @@ em-emoji-picker {
   --scrollbar-thumb: #c7cdd6;
   --scrollbar-thumb-hover: #aeb6c2;
   --source-editor-bg: var(--note-surface);
+  --slash-search-bg: #252a33;
+  --slash-search-border: #3c4554;
+  --slash-search-fg: #f7f8fa;
+  --slash-search-placeholder: #b7bfcb;
 }
 
 .dark {
@@ -2059,6 +2082,7 @@ em-emoji-picker {
   --underline-color: hsl(var(--primary));
   --placeholder-color: #777b86;
   --caret-color: hsl(var(--primary));
+  --editor-caret-color: hsl(var(--primary));
   --tag-bg: hsl(var(--primary) / 0.12);
   --tag-fg: hsl(var(--primary));
   --wikilink-bg: hsl(var(--primary) / 0.1);
@@ -2103,6 +2127,10 @@ em-emoji-picker {
   --scrollbar-thumb: #4a4a4a;
   --scrollbar-thumb-hover: #5b5b5b;
   --source-editor-bg: var(--note-surface);
+  --slash-search-bg: #171717;
+  --slash-search-border: #424242;
+  --slash-search-fg: #f0f0f2;
+  --slash-search-placeholder: #9699a3;
 }
 
 /* Keep all selectable accent colors on the same interaction scale. */

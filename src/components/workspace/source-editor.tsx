@@ -29,6 +29,7 @@ interface SourceEditorProps {
   placeholder?: string
   selection?: MarkdownSelection | null
   onSelectionChange?: (selection: MarkdownSelection) => void
+  editable?: boolean
 }
 
 // Theme-aware source editor. The values intentionally come from the shared
@@ -45,10 +46,13 @@ const theme = EditorView.theme(
       fontFamily: "'JetBrains Mono', 'Fira Code', ui-monospace, monospace",
       lineHeight: "1.7",
       padding: "0.5rem 0 5rem",
-      caretColor: "var(--caret-color)",
+      caretColor: "var(--editor-caret-color, var(--caret-color))",
     },
     "&.cm-focused": { outline: "none" },
-    ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--caret-color)" },
+    ".cm-cursor, .cm-dropCursor": {
+      borderLeftColor: "var(--editor-caret-color, var(--caret-color))",
+      borderLeftWidth: "2px",
+    },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
       backgroundColor: "hsl(var(--primary) / 0.22)",
     },
@@ -118,10 +122,12 @@ export function SourceEditor({
   placeholder,
   selection,
   onSelectionChange,
+  editable = true,
 }: SourceEditorProps) {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const viewRef = React.useRef<EditorView | null>(null)
   const valueRef = React.useRef(value)
+  const applyingExternalValueRef = React.useRef(false)
   const onChangeRef = React.useRef(onChange)
   const onSelectionChangeRef = React.useRef(onSelectionChange)
   const callbacksRef = React.useRef({ onTagClick, onWikiLinkClick })
@@ -184,6 +190,8 @@ export function SourceEditor({
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           markdown(),
+          EditorState.readOnly.of(!editable),
+          EditorView.editable.of(editable),
           syntaxHighlighting(markdownHighlight),
           theme,
           tokenDecorations,
@@ -198,6 +206,7 @@ export function SourceEditor({
             if (!update.docChanged) return
             const next = update.state.doc.toString()
             valueRef.current = next
+            if (applyingExternalValueRef.current) return
             onChangeRef.current(next)
           }),
         ],
@@ -209,7 +218,7 @@ export function SourceEditor({
       view.destroy()
       viewRef.current = null
     }
-    // Created once per mount; document switches remount via the React `key`.
+    // Created once per mount; document/lock switches remount via the React `key`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -219,9 +228,14 @@ export function SourceEditor({
     if (!view) return
     if (value === valueRef.current) return
     valueRef.current = value
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: value },
-    })
+    applyingExternalValueRef.current = true
+    try {
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: value },
+      })
+    } finally {
+      applyingExternalValueRef.current = false
+    }
   }, [value])
 
   // Expose undo/redo to the parent's floating widget.

@@ -210,7 +210,15 @@ export function useFileActions({
     if (!anchor) return
     // Give the editor 250 ms to paint the new content before scrolling.
     setTimeout(() => {
-      const prose = document.querySelector<HTMLElement>(".amby-tiptap-prose")
+      const source = document.querySelector<HTMLElement>(".amby-source-editor")
+      if (source) {
+        source.dispatchEvent(new CustomEvent("amby:navigate-markdown-anchor", { detail: anchor }))
+        return
+      }
+
+      const prose = document.querySelector<HTMLElement>(
+        ".obsidian-reading-view, .amby-tiptap-prose",
+      )
       if (!prose) return
 
       if (anchor.startsWith("#")) {
@@ -224,6 +232,13 @@ export function useFileActions({
         }
       } else if (anchor.startsWith("^")) {
         const blockId = anchor.slice(1).toLowerCase()
+        const indexedBlocks = prose.querySelectorAll<HTMLElement>("[data-block-id]")
+        for (const block of Array.from(indexedBlocks)) {
+          if (block.dataset.blockId?.toLowerCase() === blockId) {
+            block.scrollIntoView({ behavior: "smooth", block: "start" })
+            return
+          }
+        }
         // Obsidian appends ` ^block-id` at the very end of a paragraph's text.
         const blocks = prose.querySelectorAll("p, li, blockquote")
         for (const el of Array.from(blocks)) {
@@ -343,7 +358,7 @@ export function useFileActions({
     [treeItems, vault],
   )
 
-  const handleNewFileIn = React.useCallback(
+  const createDocumentIn = React.useCallback(
     async (parentId: string | null) => {
       if (!vault) return
       const basePath = parentId ?? vault
@@ -378,6 +393,11 @@ export function useFileActions({
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [vault, treeItems],
+  )
+
+  const handleNewFileIn = React.useCallback(
+    (parentId: string | null) => createDocumentIn(parentId),
+    [createDocumentIn],
   )
 
   const handleNewFolderIn = React.useCallback(
@@ -526,11 +546,16 @@ export function useFileActions({
   // ── Content autosave ──────────────────────────────────────────────────────────
 
   const handleContentChange = (fileId: string, content: string) => {
+    const editedDoc = useDocStore.getState().openDocs[fileId]
+    if (!editedDoc || editedDoc.id !== fileId) {
+      logger.error("autosave.rejected_document_mismatch", { fileId })
+      return
+    }
     // Store only content here; wordCount is derived lazily inside DocumentEditor
     // to avoid the O(n) split on every keystroke causing a Workspace re-render.
     patchDoc(fileId, { content })
     markUnsaved(fileId)
-    const path = useDocStore.getState().openDocs[fileId]?.path
+    const path = editedDoc.path
     if (path) saveRecoveryDraft(path, content)
 
     const timers = saveTimersRef.current
@@ -545,7 +570,7 @@ export function useFileActions({
             const doc = useDocStore.getState().openDocs[fileId]
             // A later edit has already replaced this timer's buffer. Its own
             // timer will enqueue the current content, so never write stale text.
-            if (!doc || doc.content !== content) return
+            if (!doc || doc.id !== fileId || doc.content !== content) return
             if (useDocStore.getState().externalConflicts[fileId]) return
 
             if (vault) await writeNote(vault, doc.id, content)

@@ -19,7 +19,7 @@ export const AmbyUnderline = Mark.create({
       {
         style: "text-decoration",
         consuming: false,
-        getAttrs: value => (String(value).includes("underline") ? null : false),
+        getAttrs: (value) => (String(value).includes("underline") ? null : false),
       },
     ]
   },

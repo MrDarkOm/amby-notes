@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ChevronDown, FolderOpen, Maximize2, Minimize2, Minus, X } from "lucide-react"
+import { ChevronDown, Columns2, FolderOpen, Maximize2, Minimize2, Minus, X } from "lucide-react"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { ActivityBar } from "./activity-bar"
 import { PanelHost } from "./panel-host"
@@ -21,13 +21,20 @@ const CanvasEditor = React.lazy(() =>
 const DocumentEditor = React.lazy(() =>
   import("./document-editor").then((m) => ({ default: m.DocumentEditor })),
 )
-import { buttonsForSide, type ActionContext, type PanelRenderProps } from "./panel-registry"
+import type { ActionContext, PanelRenderProps } from "./panel-registry"
+import { buttonsForSide } from "./panel-definitions"
 import { usePresets } from "./use-presets"
 import { useDocStore } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useVaultStore } from "./use-vault-store"
 import type { DocumentViewMode } from "./document-editor"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { QuickOpenModal } from "./quick-open-modal"
 import { SearchModal } from "./search-modal"
 import { SettingsDialog } from "./settings-dialog"
@@ -41,7 +48,7 @@ import { useSidebarLayout } from "./use-sidebar-layout"
 import { useLayers } from "./use-layers"
 import { useTabActions } from "./use-tab-actions"
 import { wsPathStem, canvasLayerPath, findTreeItem, newTabKey } from "./workspace-tree-utils"
-import { WorkspacePicker, type VaultRecord } from "./workspace-picker"
+import { WorkspacePicker } from "./workspace-picker"
 import {
   isTauri,
   openVault,
@@ -203,7 +210,10 @@ export function Workspace() {
     applyMutation: applyViewMutation,
   } = useViewStateStore.getState()
 
-  const handleToggleFavorite = React.useCallback((id: string) => toggleFavorite(id), [])
+  const handleToggleFavorite = React.useCallback(
+    (id: string) => toggleFavorite(id),
+    [toggleFavorite],
+  )
 
   const [quickOpenOpen, setQuickOpenOpen] = React.useState(false)
   const [searchOpen, setSearchOpen] = React.useState(false)
@@ -365,6 +375,8 @@ export function Workspace() {
     setFocusShowLeft,
     focusShowRight,
     setFocusShowRight,
+    focusShowTop,
+    setFocusShowTop,
     handleEnterFocusMode,
     handleExitFocusMode,
     moveButtonToSide,
@@ -417,12 +429,8 @@ export function Workspace() {
 
   const handleSetIcon = React.useCallback(
     (id: string, icon: string) => setIconInStore(id, icon),
-    [],
+    [setIconInStore],
   )
-
-  function saveVaults(next: VaultRecord[]) {
-    setVaults(next)
-  }
 
   function applyMutationResult(result: FsMutationResult) {
     const { deletedIds, remapFn, hasChanges } = planMutation(result)
@@ -451,6 +459,8 @@ export function Workspace() {
   }
 
   const currentDoc = activeTab ? (openDocs[activeTab.fileId] ?? null) : null
+  const currentDocId = currentDoc?.id ?? null
+  const currentDocPath = currentDoc?.path ?? null
 
   const { handleLayerChange, handleAttachLayerToFile, handleUnlinkLayer, handleDeleteLayer } =
     useLayers({ vault, currentDoc, treeItems, refreshTree, applyMutationResult })
@@ -498,25 +508,40 @@ export function Workspace() {
     navigateToFile,
   })
 
-  function handleRenameVault(id: string, name: string) {
-    saveVaults(vaults.map((v) => (v.id === id ? { ...v, name } : v)))
-  }
+  const handleRenameVault = React.useCallback(
+    (id: string, name: string) => {
+      setVaults(vaults.map((record) => (record.id === id ? { ...record, name } : record)))
+    },
+    [setVaults, vaults],
+  )
 
-  function handleDeleteVault(id: string) {
-    saveVaults(vaults.filter((v) => v.id !== id))
-  }
+  const handleDeleteVault = React.useCallback(
+    (id: string) => {
+      setVaults(vaults.filter((record) => record.id !== id))
+    },
+    [setVaults, vaults],
+  )
 
-  async function handleMoveVault(id: string) {
-    const path = await openVault()
-    if (!path) return
-    saveVaults(
-      vaults.map((v) =>
-        v.id === id ? { ...v, path, name: path.replace(/\\/g, "/").split("/").pop() ?? v.name } : v,
-      ),
-    )
-    const target = vaults.find((v) => v.id === id)
-    if (target && vault === target.path) loadVault(path)
-  }
+  const handleMoveVault = React.useCallback(
+    async (id: string) => {
+      const path = await openVault()
+      if (!path) return
+      setVaults(
+        vaults.map((record) =>
+          record.id === id
+            ? {
+                ...record,
+                path,
+                name: path.replace(/\\/g, "/").split("/").pop() ?? record.name,
+              }
+            : record,
+        ),
+      )
+      const target = vaults.find((record) => record.id === id)
+      if (target && vault === target.path) loadVault(path)
+    },
+    [loadVault, setVaults, vault, vaults],
+  )
 
   const handleOpenVault = React.useCallback(async () => {
     const path = await openVault()
@@ -537,12 +562,12 @@ export function Workspace() {
   }
 
   const handleHistoryRestored = React.useCallback(async () => {
-    if (!vault || !currentDoc) return
-    const content = await readNote(vault, currentDoc.id)
-    patchDoc(currentDoc.id, { content })
-    markSaved(currentDoc.id)
+    if (!vault || !currentDocId) return
+    const content = await readNote(vault, currentDocId)
+    patchDoc(currentDocId, { content })
+    markSaved(currentDocId)
     await refreshTree(vault)
-  }, [vault, currentDoc?.id, patchDoc, markSaved, refreshTree])
+  }, [vault, currentDocId, patchDoc, markSaved, refreshTree])
 
   // Debounced persistence of any open canvas (note layer or standalone), keyed by file path.
   const handleCanvasSave = React.useCallback((path: string, json: string) => {
@@ -560,9 +585,9 @@ export function Workspace() {
 
   // Lazily load the canvas layer file when the canvas layer becomes active.
   React.useEffect(() => {
-    if (!currentDoc) return
-    if ((activeLayers[currentDoc.id] ?? "editor") !== "canvas") return
-    const path = canvasLayerPath(currentDoc.path)
+    if (!currentDocId || !currentDocPath) return
+    if ((activeLayers[currentDocId] ?? "editor") !== "canvas") return
+    const path = canvasLayerPath(currentDocPath)
     if (openCanvases[path] !== undefined) return
     let cancelled = false
     readFile(path)
@@ -581,7 +606,7 @@ export function Workspace() {
     return () => {
       cancelled = true
     }
-  }, [currentDoc?.id, currentDoc?.path, activeLayers, openCanvases])
+  }, [currentDocId, currentDocPath, activeLayers, openCanvases])
 
   // Resolve an Obsidian vault-relative file ref to a tree item and open it.
   const handleOpenCanvasNote = React.useCallback(
@@ -608,7 +633,7 @@ export function Workspace() {
       const target = find(treeItems)
       if (target) handleSelect(target.id)
     },
-    [treeItems],
+    [handleSelect, treeItems],
   )
 
   // Memoised on the fields it actually reads — `currentDoc` gets a new identity on
@@ -619,17 +644,14 @@ export function Workspace() {
       currentDoc
         ? {
             type: "Markdown",
-            status: "Draft",
-            revisions: 0,
             backlinks: linkGraph.edges.filter((e) => e.target === currentDoc.id).length,
-            created: "—",
             modified: currentDoc.modified,
             id: currentDoc.id,
             frontmatter: currentDoc.noteProperties ?? { hasFrontmatter: false, properties: [] },
           }
         : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [currentDoc?.id, currentDoc?.modified, linkGraph],
+    [currentDoc?.id, currentDoc?.modified, currentDoc?.noteProperties, linkGraph, t],
   )
 
   const headerTabs: HeaderTab[] = tabs.map((t) => ({
@@ -698,6 +720,8 @@ export function Workspace() {
       handleDeleteFile,
       handleNewFileIn,
       handleNewFolderIn,
+      handleNewCanvasIn,
+      handleAttachCanvasToNote,
       handleOpenInNewTab,
       handleMoveItem,
       handleSetIcon,
@@ -717,7 +741,6 @@ export function Workspace() {
       handleRenameVault,
       handleDeleteVault,
       handleMoveVault,
-      openInExplorer,
       t,
     ],
   )
@@ -735,8 +758,10 @@ export function Workspace() {
     const isPrimary = !!tab && tab.key === activeTabKey
     return {
       document: doc,
-      onContentChange: (content: string) => {
-        if (tab) handleContentChange(tab.fileId, content)
+      onContentChange: (content: string, sourceDocumentId: string) => {
+        if (tab && sourceDocumentId === tab.fileId) {
+          handleContentChange(tab.fileId, content)
+        }
       },
       onBack: isPrimary ? handleBack : () => {},
       onForward: isPrimary ? handleForward : () => {},
@@ -833,6 +858,7 @@ export function Workspace() {
           const w = window.innerWidth
           if (e.clientX < 20) setFocusShowLeft(true)
           if (e.clientX > w - 20) setFocusShowRight(true)
+          if (e.clientY < 16) setFocusShowTop(true)
         }}
       >
         {activeTab?.kind === "graph" ? (
@@ -850,36 +876,104 @@ export function Workspace() {
               onOpenNote={handleOpenCanvasNote}
             />
           </React.Suspense>
+        ) : showSplit ? (
+          <div className="flex min-h-0 flex-1">
+            <div className="flex min-w-0 flex-1">
+              <React.Suspense fallback={<LazyEditorFallback />}>
+                <DocumentEditor
+                  key={`focus-pane-primary:${activeTab?.fileId ?? "empty"}`}
+                  {...editorProps}
+                  isFocusMode={true}
+                  focusTopVisible={focusShowTop}
+                  onFocusTopMouseLeave={() => setFocusShowTop(false)}
+                  onToggleFocusMode={handleExitFocusMode}
+                />
+              </React.Suspense>
+            </div>
+            <div className="flex min-w-0 flex-1">
+              <React.Suspense fallback={<LazyEditorFallback />}>
+                <DocumentEditor
+                  key={`focus-pane-secondary:${secondaryTab?.fileId ?? "empty"}`}
+                  {...secondaryProps!}
+                  isFocusMode={true}
+                  hideNavigation={true}
+                  onToggleFocusMode={handleExitFocusMode}
+                />
+              </React.Suspense>
+            </div>
+          </div>
         ) : (
           <React.Suspense fallback={<LazyEditorFallback />}>
             <DocumentEditor
+              key={`focus:${activeTab?.fileId ?? "empty"}`}
               {...editorProps}
               isFocusMode={true}
+              focusTopVisible={focusShowTop}
+              onFocusTopMouseLeave={() => setFocusShowTop(false)}
               onToggleFocusMode={handleExitFocusMode}
             />
           </React.Suspense>
         )}
 
-        {/* Left sidebar overlay */}
+        {/* Left sidebar overlay. Focus mode keeps tabs out of the document
+            chrome: select one from this compact arrow menu instead. */}
         <div
-          className={`fixed left-0 top-0 bottom-0 z-10 flex transition-transform duration-200 ease-out shadow-2xl ${focusShowLeft ? "translate-x-0" : "-translate-x-full"}`}
+          className={`fixed left-0 top-0 bottom-0 z-40 flex flex-col transition-transform duration-200 ease-out shadow-2xl ${focusShowLeft ? "translate-x-0" : "-translate-x-full"}`}
           onMouseLeave={() => setFocusShowLeft(false)}
         >
-          {isDockVisible("left") && (
-            <ActivityBar
-              side="left"
-              buttons={leftButtons}
-              activeView={activeBySide.left}
-              onActivate={handleActivate}
-              onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
-              onPointerDownButton={dnd.onPointerDown}
-              draggingId={dnd.draggingId}
-              {...activityBarPresetProps}
-              {...activityDockProps("left")}
-            />
-          )}
-          <div style={{ width: leftWidth }} className="shrink-0">
-            <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
+          <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border bg-background/95 px-2 backdrop-blur-sm">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex min-w-0 max-w-52 items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground hover:bg-accent"
+                  title={t("tabs.tabMenu")}
+                >
+                  <span className="truncate">{activeTab?.title ?? t("tabs.tabMenu")}</span>
+                  <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="w-56 border-border bg-popover text-foreground"
+              >
+                {tabs.map((tab) => (
+                  <DropdownMenuItem
+                    key={tab.key}
+                    className={tab.key === activeTabKey ? "bg-accent" : undefined}
+                    onSelect={() => handleTabChange(tab.key)}
+                  >
+                    <span className="truncate">{tab.title}</span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <button
+              type="button"
+              className={`flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground ${secondaryTabKey ? "text-primary" : ""}`}
+              title={t("tabs.splitEditor")}
+              onClick={toggleSplit}
+            >
+              <Columns2 className="size-4" />
+            </button>
+          </div>
+          <div className="flex min-h-0 flex-1">
+            {isDockVisible("left") && (
+              <ActivityBar
+                side="left"
+                buttons={leftButtons}
+                activeView={activeBySide.left}
+                onActivate={handleActivate}
+                onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
+                onPointerDownButton={dnd.onPointerDown}
+                draggingId={dnd.draggingId}
+                {...activityBarPresetProps}
+                {...activityDockProps("left")}
+              />
+            )}
+            <div style={{ width: leftWidth }} className="min-h-0 shrink-0">
+              <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
+            </div>
           </div>
         </div>
 
@@ -1029,7 +1123,7 @@ export function Workspace() {
               <div className="flex min-w-0 flex-1">
                 <React.Suspense fallback={<LazyEditorFallback />}>
                   <DocumentEditor
-                    key="pane-primary"
+                    key={`pane-primary:${activeTab?.fileId ?? "empty"}`}
                     {...editorProps}
                     isFocusMode={false}
                     onToggleFocusMode={handleEnterFocusMode}
@@ -1039,7 +1133,7 @@ export function Workspace() {
               <div className="flex min-w-0 flex-1">
                 <React.Suspense fallback={<LazyEditorFallback />}>
                   <DocumentEditor
-                    key="pane-secondary"
+                    key={`pane-secondary:${secondaryTab?.fileId ?? "empty"}`}
                     {...secondaryProps!}
                     isFocusMode={false}
                     onToggleFocusMode={() => {}}
@@ -1050,6 +1144,7 @@ export function Workspace() {
           ) : (
             <React.Suspense fallback={<LazyEditorFallback />}>
               <DocumentEditor
+                key={`document:${activeTab?.fileId ?? "empty"}`}
                 {...editorProps}
                 isFocusMode={false}
                 onToggleFocusMode={handleEnterFocusMode}

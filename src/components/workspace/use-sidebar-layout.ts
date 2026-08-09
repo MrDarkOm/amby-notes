@@ -1,7 +1,8 @@
 import * as React from "react"
 import { useActivityDnD } from "./use-activity-dnd"
-import { findButtonDef, type ActionContext, type PanelId, type Side } from "./panel-registry"
+import type { ActionContext, PanelId, Side } from "./panel-registry"
 import type { ActivityButton } from "./panel-registry"
+import { findButtonDef } from "./panel-definitions"
 import { isTauri } from "@/lib/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import type { DockPreferences } from "./app-config"
@@ -43,6 +44,7 @@ export function useSidebarLayout({
   const [isFocusMode, setIsFocusMode] = React.useState(false)
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
+  const [focusShowTop, setFocusShowTop] = React.useState(false)
   const [isCompactLayout, setIsCompactLayout] = React.useState(
     () => typeof window !== "undefined" && window.innerWidth < COMPACT_LAYOUT_MAX_WIDTH,
   )
@@ -118,6 +120,7 @@ export function useSidebarLayout({
     preFocusSidebars.current = { left: isLeftSidebarOpen, right: isRightSidebarOpen }
     setIsLeftSidebarOpen(false)
     setIsRightSidebarOpen(false)
+    setFocusShowTop(false)
     setIsFocusMode(true)
     if (isTauri())
       await getCurrentWindow()
@@ -127,6 +130,9 @@ export function useSidebarLayout({
 
   async function handleExitFocusMode() {
     setIsFocusMode(false)
+    setFocusShowLeft(false)
+    setFocusShowRight(false)
+    setFocusShowTop(false)
     if (preFocusSidebars.current) {
       setIsLeftSidebarOpen(preFocusSidebars.current.left)
       setIsRightSidebarOpen(preFocusSidebars.current.right)
@@ -298,6 +304,8 @@ export function useSidebarLayout({
     setFocusShowLeft,
     focusShowRight,
     setFocusShowRight,
+    focusShowTop,
+    setFocusShowTop,
     handleEnterFocusMode,
     handleExitFocusMode,
     moveButtonToSide,

@@ -21,7 +21,7 @@ export function SearchModal({ open, onClose, items, onSelect, readFile }: Search
   }
 
   return (
-    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent
         showCloseButton={false}
         className="top-[14%] left-1/2 w-[560px] max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-0 gap-0 overflow-hidden border-border bg-background p-0 shadow-2xl"

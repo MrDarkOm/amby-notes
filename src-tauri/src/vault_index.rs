@@ -113,6 +113,7 @@ struct ScannedNote {
     rel_path: String,
     parsed_id: Option<String>,
     body: String,
+    frontmatter_tags: Vec<String>,
     mtime: i64,
     size: i64,
     /// Set when the file's mtime+size match the index, so its body was not read
@@ -187,7 +188,10 @@ fn should_descend(entry: &DirEntry) -> bool {
         return false;
     }
     let name = entry.file_name().to_string_lossy();
-    !matches!(name.as_ref(), ".amby" | ".obsidian" | ".git" | ".trash" | "assets")
+    !matches!(
+        name.as_ref(),
+        ".amby" | ".obsidian" | ".git" | ".trash" | "assets"
+    )
 }
 
 fn metadata_stamp(path: &Path) -> Result<(i64, i64), String> {
@@ -213,32 +217,131 @@ fn title_for(path: &Path, body: &str) -> String {
         .unwrap_or_else(|| file_stem(path))
 }
 
-fn extract_tags(content: &str) -> Vec<String> {
+fn is_tag_character(character: char) -> bool {
+    character.is_alphanumeric() || matches!(character, '_' | '-' | '/')
+}
+
+fn is_valid_tag(tag: &str) -> bool {
+    !tag.is_empty()
+        && !tag.starts_with('/')
+        && !tag.ends_with('/')
+        && !tag.contains("//")
+        && tag.chars().all(is_tag_character)
+        && tag
+            .chars()
+            .any(|character| character.is_alphabetic() || matches!(character, '_' | '-'))
+}
+
+fn extract_tags(content: &str, frontmatter_tags: &[String]) -> Vec<String> {
     let mut tags = HashSet::new();
     let chars: Vec<char> = content.chars().collect();
     let mut i = 0;
+    let mut line_start = true;
+    let mut fence: Option<(char, usize)> = None;
+    let mut in_comment = false;
     while i < chars.len() {
-        let prev_is_boundary = i == 0 || chars[i - 1].is_whitespace();
-        if prev_is_boundary
-            && chars[i] == '#'
-            && i + 1 < chars.len()
-            && chars[i + 1].is_alphabetic()
-        {
+        if chars[i] == '\n' {
+            line_start = true;
+            i += 1;
+            continue;
+        }
+
+        if line_start {
+            let mut marker_start = i;
+            while marker_start < chars.len() && matches!(chars[marker_start], ' ' | '\t') {
+                marker_start += 1;
+            }
+            if marker_start < chars.len() && matches!(chars[marker_start], '`' | '~') {
+                let marker = chars[marker_start];
+                let mut marker_end = marker_start;
+                while marker_end < chars.len() && chars[marker_end] == marker {
+                    marker_end += 1;
+                }
+                let marker_len = marker_end - marker_start;
+                if marker_len >= 3 {
+                    match fence {
+                        Some((open_marker, open_len))
+                            if marker == open_marker && marker_len >= open_len =>
+                        {
+                            fence = None;
+                        }
+                        None => fence = Some((marker, marker_len)),
+                        _ => {}
+                    }
+                    i = marker_end;
+                    line_start = false;
+                    continue;
+                }
+            }
+            line_start = false;
+        }
+
+        if fence.is_some() {
+            i += 1;
+            continue;
+        }
+
+        if i + 1 < chars.len() && chars[i] == '%' && chars[i + 1] == '%' {
+            in_comment = !in_comment;
+            i += 2;
+            continue;
+        }
+        if in_comment {
+            i += 1;
+            continue;
+        }
+
+        if chars[i] == '`' {
+            let mut delimiter_end = i;
+            while delimiter_end < chars.len() && chars[delimiter_end] == '`' {
+                delimiter_end += 1;
+            }
+            let delimiter_len = delimiter_end - i;
+            let mut cursor = delimiter_end;
+            while cursor < chars.len() && chars[cursor] != '\n' {
+                if chars[cursor] == '`' {
+                    let mut close_end = cursor;
+                    while close_end < chars.len() && chars[close_end] == '`' {
+                        close_end += 1;
+                    }
+                    if close_end - cursor == delimiter_len {
+                        cursor = close_end;
+                        break;
+                    }
+                    cursor = close_end;
+                } else {
+                    cursor += 1;
+                }
+            }
+            i = cursor;
+            continue;
+        }
+
+        let prev_is_boundary = i == 0
+            || (!chars[i - 1].is_alphanumeric() && !matches!(chars[i - 1], '_' | '/' | '#' | '\\'));
+        if prev_is_boundary && chars[i] == '#' && i + 1 < chars.len() {
             let start = i + 1;
             let mut end = start;
-            while end < chars.len()
-                && (chars[end].is_alphanumeric() || chars[end] == '_' || chars[end] == '-')
-            {
+            while end < chars.len() && is_tag_character(chars[end]) {
                 end += 1;
             }
-            if end > start {
-                tags.insert(chars[start..end].iter().collect::<String>().to_lowercase());
+            let tag = chars[start..end].iter().collect::<String>();
+            if is_valid_tag(&tag) {
+                tags.insert(tag.to_lowercase());
             }
             i = end;
         } else {
             i += 1;
         }
     }
+
+    for raw in frontmatter_tags {
+        let tag = raw.trim().trim_start_matches('#');
+        if is_valid_tag(tag) {
+            tags.insert(tag.to_lowercase());
+        }
+    }
+
     let mut tags: Vec<_> = tags.into_iter().collect();
     tags.sort();
     tags
@@ -258,15 +361,121 @@ fn normalize_wiki_target(raw: &str) -> String {
         .to_lowercase()
 }
 
+fn protected_markdown_ranges(content: &str) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+
+    if content.starts_with("---\n") || content.starts_with("---\r\n") {
+        let mut offset = content
+            .find('\n')
+            .map(|index| index + 1)
+            .unwrap_or(content.len());
+        for line in content[offset..].split_inclusive('\n') {
+            offset += line.len();
+            if matches!(line.trim_end_matches(['\r', '\n']), "---" | "...") {
+                ranges.push((0, offset));
+                break;
+            }
+        }
+    }
+
+    let mut fenced: Option<(char, usize, usize)> = None;
+    let mut offset = 0;
+
+    for line in content.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let marker = trimmed.chars().next();
+        let marker_len = marker
+            .filter(|character| matches!(character, '`' | '~'))
+            .map(|character| {
+                trimmed
+                    .chars()
+                    .take_while(|current| *current == character)
+                    .count()
+            })
+            .unwrap_or_default();
+
+        if let Some((fence_character, fence_len, start)) = fenced {
+            if marker == Some(fence_character) && marker_len >= fence_len {
+                ranges.push((start, offset + line.len()));
+                fenced = None;
+            }
+        } else if let Some(fence_character) = marker.filter(|_| marker_len >= 3) {
+            fenced = Some((fence_character, marker_len, offset));
+        }
+        offset += line.len();
+    }
+    if let Some((_, _, start)) = fenced {
+        ranges.push((start, content.len()));
+    }
+
+    let mut cursor = 0;
+    while cursor < content.len() {
+        if let Some((_, to)) = ranges
+            .iter()
+            .find(|(from, to)| cursor >= *from && cursor < *to)
+        {
+            cursor = *to;
+            continue;
+        }
+
+        if content[cursor..].starts_with("%%") {
+            let end = content[cursor + 2..]
+                .find("%%")
+                .map(|relative| cursor + 2 + relative + 2)
+                .unwrap_or(content.len());
+            ranges.push((cursor, end));
+            cursor = end;
+            continue;
+        }
+
+        if content[cursor..].starts_with('`') {
+            let delimiter_len = content[cursor..]
+                .chars()
+                .take_while(|character| *character == '`')
+                .count();
+            let delimiter = "`".repeat(delimiter_len);
+            let line_end = content[cursor..]
+                .find('\n')
+                .map(|relative| cursor + relative)
+                .unwrap_or(content.len());
+            let search_start = cursor + delimiter_len;
+            if let Some(relative) = content[search_start..line_end].find(&delimiter) {
+                let end = search_start + relative + delimiter_len;
+                ranges.push((cursor, end));
+                cursor = end;
+                continue;
+            }
+        }
+
+        cursor += content[cursor..]
+            .chars()
+            .next()
+            .map(char::len_utf8)
+            .unwrap_or(1);
+    }
+
+    ranges.sort_unstable_by_key(|range| range.0);
+    ranges
+}
+
 fn extract_links(content: &str) -> Vec<(String, String, String)> {
     let mut links = Vec::new();
-    let mut rest = content;
-    while let Some(start) = rest.find("[[") {
-        rest = &rest[start + 2..];
-        let Some(end) = rest.find("]]") else {
+    let protected_ranges = protected_markdown_ranges(content);
+    let mut cursor = 0;
+    while let Some(relative_start) = content[cursor..].find("[[") {
+        let start = cursor + relative_start;
+        cursor = start + 2;
+        if protected_ranges
+            .iter()
+            .any(|(from, to)| start >= *from && start < *to)
+        {
+            continue;
+        }
+        let Some(relative_end) = content[cursor..].find("]]") else {
             break;
         };
-        let raw = &rest[..end];
+        let end = cursor + relative_end;
+        let raw = &content[cursor..end];
         let target = normalize_wiki_target(raw);
         if !target.is_empty() {
             let label = raw
@@ -277,7 +486,7 @@ fn extract_links(content: &str) -> Vec<(String, String, String)> {
                 .to_string();
             links.push((raw.to_string(), target, label));
         }
-        rest = &rest[end + 2..];
+        cursor = end + 2;
     }
     links
 }
@@ -344,7 +553,9 @@ fn db_snapshot(conn: &Connection) -> Result<DbSnapshot, String> {
         .prepare("SELECT id, path FROM notes")
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|e| e.to_string())?;
     for row in rows {
         let (id, path) = row.map_err(|e| e.to_string())?;
@@ -406,6 +617,7 @@ fn scan_disk(
                     rel_path,
                     parsed_id: Some(id.clone()),
                     body: String::new(),
+                    frontmatter_tags: Vec::new(),
                     mtime,
                     size,
                     unchanged: true,
@@ -433,6 +645,7 @@ fn scan_disk(
             rel_path,
             parsed_id: parsed.id,
             body: parsed.body,
+            frontmatter_tags: parsed.frontmatter_tags,
             mtime,
             size,
             unchanged: false,
@@ -486,7 +699,9 @@ pub fn preflight_vault(vault: &Path) -> Result<VaultPreflight, String> {
             Some(id) if !is_amby_id(&id) => report.user_managed_ids.push(rel_path),
             Some(id) => {
                 if let Some(first_path) = ids.insert(id.clone(), rel_path.clone()) {
-                    report.duplicate_ids.push(format!("{id}: {first_path}, {rel_path}"));
+                    report
+                        .duplicate_ids
+                        .push(format!("{id}: {first_path}, {rel_path}"));
                 }
             }
         }
@@ -504,7 +719,10 @@ pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_millis();
-    let backup_root = vault.join(".amby").join("backups").join(format!("id-migration-{stamp}"));
+    let backup_root = vault
+        .join(".amby")
+        .join("backups")
+        .join(format!("id-migration-{stamp}"));
     fs::create_dir_all(&backup_root).map_err(|e| e.to_string())?;
 
     let mut modified_paths = Vec::new();
@@ -521,7 +739,10 @@ pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
         modified_paths.push(rel_path);
     }
 
-    let journal_path = vault.join(".amby").join("migrations").join(format!("id-migration-{stamp}.json"));
+    let journal_path = vault
+        .join(".amby")
+        .join("migrations")
+        .join(format!("id-migration-{stamp}.json"));
     if let Some(parent) = journal_path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
@@ -611,7 +832,9 @@ pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String>
         }
 
         let existed: Option<String> = tx
-            .query_row("SELECT id FROM notes WHERE id = ?1", [&id], |row| row.get(0))
+            .query_row("SELECT id FROM notes WHERE id = ?1", [&id], |row| {
+                row.get(0)
+            })
             .optional()
             .map_err(|e| e.to_string())?;
         if existed.is_some() {
@@ -648,7 +871,7 @@ pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String>
 
         tx.execute("DELETE FROM tags WHERE note_id = ?1", [&id])
             .map_err(|e| e.to_string())?;
-        for tag in extract_tags(&note.body) {
+        for tag in extract_tags(&note.body, &note.frontmatter_tags) {
             tx.execute(
                 "INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?1, ?2)",
                 params![id, tag],
@@ -676,9 +899,13 @@ pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String>
         .map_err(|e| e.to_string())?;
     let seen_vec: Vec<String> = seen_ids.into_iter().collect();
     if seen_vec.is_empty() {
-        tx.execute("DELETE FROM notes", []).map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM notes", [])
+            .map_err(|e| e.to_string())?;
     } else {
-        let placeholders = (0..seen_vec.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+        let placeholders = (0..seen_vec.len())
+            .map(|_| "?")
+            .collect::<Vec<_>>()
+            .join(",");
         let sql = format!("DELETE FROM notes WHERE id NOT IN ({placeholders})");
         tx.execute(&sql, rusqlite::params_from_iter(seen_vec.iter()))
             .map_err(|e| e.to_string())?;
@@ -742,7 +969,9 @@ fn resolve_links(conn: &Connection) -> Result<(), String> {
         .prepare("SELECT rowid, target FROM links")
         .map_err(|e| e.to_string())?;
     let links = link_stmt
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
@@ -892,7 +1121,11 @@ fn tree_item_for_note(path: &Path, note: &IndexedNote, children: Vec<TreeItem>) 
         name: file_stem(path),
         item_type: "file".to_string(),
         icon: "file".to_string(),
-        children: if children.is_empty() { None } else { Some(children) },
+        children: if children.is_empty() {
+            None
+        } else {
+            Some(children)
+        },
     }
 }
 
@@ -1005,7 +1238,13 @@ pub fn note_properties(
 
 /// Update only the index entry for a single note after saving it.
 /// Avoids the O(N) full-vault scan done by `sync_vault`.
-pub fn upsert_note_index(conn: &Connection, vault: &Path, note_id: &str, body: &str, note_path: &Path) -> Result<(), String> {
+pub fn upsert_note_index(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+    body: &str,
+    note_path: &Path,
+) -> Result<(), String> {
     let (mtime, size) = metadata_stamp(note_path)?;
     let rel_path = note_path
         .strip_prefix(vault)
@@ -1041,7 +1280,10 @@ pub fn upsert_note_index(conn: &Connection, vault: &Path, note_id: &str, body: &
     // Re-index tags for this note.
     conn.execute("DELETE FROM tags WHERE note_id = ?1", [note_id])
         .map_err(|e| e.to_string())?;
-    for tag in extract_tags(body) {
+    let frontmatter_tags = frontmatter::read_markdown(note_path)
+        .map(|parsed| parsed.frontmatter_tags)
+        .unwrap_or_default();
+    for tag in extract_tags(body, &frontmatter_tags) {
         conn.execute(
             "INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?1, ?2)",
             rusqlite::params![note_id, tag],
@@ -1069,7 +1311,12 @@ pub fn upsert_note_index(conn: &Connection, vault: &Path, note_id: &str, body: &
 /// Write content to the note and update the index.
 /// Returns the absolute path of the written file so callers can suppress
 /// the resulting fs-watcher event (self-write guard).
-pub fn write_note(conn: &Connection, vault: &Path, note_id: &str, content: &str) -> Result<PathBuf, String> {
+pub fn write_note(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+    content: &str,
+) -> Result<PathBuf, String> {
     let note = note_by_id(conn, vault, note_id)?;
     let path = PathBuf::from(&note.path);
     let current = fs::read_to_string(&path).map_err(|e| e.to_string())?;
@@ -1082,7 +1329,11 @@ pub fn write_note(conn: &Connection, vault: &Path, note_id: &str, content: &str)
     Ok(path)
 }
 
-pub fn note_metadata(conn: &Connection, vault: &Path, note_id: &str) -> Result<IndexedNote, String> {
+pub fn note_metadata(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+) -> Result<IndexedNote, String> {
     note_by_id(conn, vault, note_id)
 }
 
@@ -1146,7 +1397,11 @@ fn snippet(content: &str, query: &str) -> Option<String> {
 
 /// Search notes by title and content. Does NOT call sync_vault — the index
 /// is expected to be fresh (maintained by the notify watcher + load_vault).
-pub fn search_notes(conn: &Connection, vault: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
+pub fn search_notes(
+    conn: &Connection,
+    vault: &Path,
+    query: &str,
+) -> Result<Vec<SearchResult>, String> {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
         return Ok(Vec::new());
@@ -1281,7 +1536,10 @@ fn index_note_at_path(conn: &Connection, vault: &Path, path: &Path) -> Result<St
             )
             .optional()
             .map_err(|e| e.to_string())?;
-        if indexed_path.as_deref().is_some_and(|indexed| indexed != rel_path) {
+        if indexed_path
+            .as_deref()
+            .is_some_and(|indexed| indexed != rel_path)
+        {
             return Err(format!(
                 "Duplicate Amby id {existing_id}; the source file was left unchanged"
             ));
@@ -1331,7 +1589,9 @@ pub fn index_apply_path_changes(
         }
         let old_rel = relative_path(vault, old_path)?;
         let id: Option<String> = conn
-            .query_row("SELECT id FROM notes WHERE path = ?1", [&old_rel], |row| row.get(0))
+            .query_row("SELECT id FROM notes WHERE path = ?1", [&old_rel], |row| {
+                row.get(0)
+            })
             .optional()
             .map_err(|e| e.to_string())?;
 
@@ -1363,7 +1623,10 @@ pub struct RefactorPreview {
 pub fn refactor_preview(plan: &[PlannedWikiRewrite]) -> RefactorPreview {
     RefactorPreview {
         notes: plan.len(),
-        replacements: plan.iter().map(|rewrite| rewrite.replacements.len() + rewrite.literal_replacements.len()).sum(),
+        replacements: plan
+            .iter()
+            .map(|rewrite| rewrite.replacements.len() + rewrite.literal_replacements.len())
+            .sum(),
     }
 }
 
@@ -1388,14 +1651,20 @@ pub fn plan_inbound_wiki_rewrites(
     for change in changes {
         let old = Path::new(&change.old_path);
         let new = Path::new(&change.new_path);
-        if change.old_path.is_empty() || change.new_path.is_empty() || !is_markdown(old) || !is_markdown(new) {
+        if change.old_path.is_empty()
+            || change.new_path.is_empty()
+            || !is_markdown(old)
+            || !is_markdown(new)
+        {
             continue;
         }
         let old_rel = relative_path(vault, old)?;
         let new_rel = relative_path(vault, new)?;
         moved_sources.insert(old_rel.clone(), new_rel.clone());
         let id: Option<String> = conn
-            .query_row("SELECT id FROM notes WHERE path = ?1", [&old_rel], |row| row.get(0))
+            .query_row("SELECT id FROM notes WHERE path = ?1", [&old_rel], |row| {
+                row.get(0)
+            })
             .optional()
             .map_err(|error| error.to_string())?;
         if let Some(id) = id {
@@ -1411,7 +1680,9 @@ pub fn plan_inbound_wiki_rewrites(
             )
             .map_err(|error| error.to_string())?;
         let rows = statement
-            .query_map([target_id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .query_map([target_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
             .map_err(|error| error.to_string())?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| error.to_string())?;
@@ -1432,16 +1703,39 @@ pub fn plan_inbound_wiki_rewrites(
     let literal_changes = changes
         .iter()
         .filter(|change| !change.old_path.is_empty() && !change.new_path.is_empty())
-        .map(|change| Ok((relative_path(vault, Path::new(&change.old_path))?, relative_path(vault, Path::new(&change.new_path))?)))
+        .map(|change| {
+            Ok((
+                relative_path(vault, Path::new(&change.old_path))?,
+                relative_path(vault, Path::new(&change.new_path))?,
+            ))
+        })
         .collect::<Result<Vec<_>, String>>()?;
-    let moved_absolute = changes.iter().map(|change| (PathBuf::from(&change.old_path), PathBuf::from(&change.new_path))).collect::<HashMap<_, _>>();
+    let moved_absolute = changes
+        .iter()
+        .map(|change| {
+            (
+                PathBuf::from(&change.old_path),
+                PathBuf::from(&change.new_path),
+            )
+        })
+        .collect::<HashMap<_, _>>();
     for entry in WalkDir::new(vault).into_iter().filter_map(Result::ok) {
         let source = entry.path();
-        if !source.is_file() || !matches!(source.extension().and_then(|ext| ext.to_str()), Some("md" | "canvas" | "excalidraw")) {
+        if !source.is_file()
+            || !matches!(
+                source.extension().and_then(|ext| ext.to_str()),
+                Some("md" | "canvas" | "excalidraw")
+            )
+        {
             continue;
         }
-        let Ok(content) = fs::read_to_string(source) else { continue };
-        let rewritten_source = moved_absolute.get(source).cloned().unwrap_or_else(|| source.to_path_buf());
+        let Ok(content) = fs::read_to_string(source) else {
+            continue;
+        };
+        let rewritten_source = moved_absolute
+            .get(source)
+            .cloned()
+            .unwrap_or_else(|| source.to_path_buf());
         for (old_rel, new_rel) in &literal_changes {
             for (old, new) in [
                 (format!("]({old_rel})"), format!("]({new_rel})")),
@@ -1453,7 +1747,10 @@ pub fn plan_inbound_wiki_rewrites(
                 (format!("\"{old_rel}\""), format!("\"{new_rel}\"")),
             ] {
                 if content.contains(&old) {
-                    literal_by_source.entry(rewritten_source.clone()).or_default().push((old, new));
+                    literal_by_source
+                        .entry(rewritten_source.clone())
+                        .or_default()
+                        .push((old, new));
                 }
             }
         }
@@ -1462,15 +1759,21 @@ pub fn plan_inbound_wiki_rewrites(
     let mut sources = HashSet::new();
     sources.extend(by_source.keys().cloned());
     sources.extend(literal_by_source.keys().cloned());
-    Ok(sources.into_iter()
+    Ok(sources
+        .into_iter()
         .map(|source_path| {
             let mut replacements = by_source.remove(&source_path).unwrap_or_default();
             replacements.sort();
             replacements.dedup();
-            let mut literal_replacements = literal_by_source.remove(&source_path).unwrap_or_default();
+            let mut literal_replacements =
+                literal_by_source.remove(&source_path).unwrap_or_default();
             literal_replacements.sort();
             literal_replacements.dedup();
-            PlannedWikiRewrite { source_path, replacements, literal_replacements }
+            PlannedWikiRewrite {
+                source_path,
+                replacements,
+                literal_replacements,
+            }
         })
         .collect())
 }
@@ -1485,7 +1788,8 @@ pub fn apply_planned_wiki_rewrites(
 ) -> Result<Vec<PathBuf>, String> {
     let mut proposed = Vec::<(PathBuf, String, String)>::new();
     for rewrite in plan {
-        let original = fs::read_to_string(&rewrite.source_path).map_err(|error| error.to_string())?;
+        let original =
+            fs::read_to_string(&rewrite.source_path).map_err(|error| error.to_string())?;
         let mut next = original.clone();
         for (raw, replacement) in &rewrite.replacements {
             next = next.replace(&format!("[[{raw}]]"), &format!("[[{replacement}]]"));
@@ -1529,7 +1833,9 @@ pub fn index_delete_paths(
         }
         let rel_path = relative_path(vault, path)?;
         let id: Option<String> = conn
-            .query_row("SELECT id FROM notes WHERE path = ?1", [&rel_path], |row| row.get(0))
+            .query_row("SELECT id FROM notes WHERE path = ?1", [&rel_path], |row| {
+                row.get(0)
+            })
             .optional()
             .map_err(|e| e.to_string())?;
         let Some(id) = id else {
@@ -1559,9 +1865,11 @@ pub fn note_id_for_path(
     path: &Path,
 ) -> Result<Option<String>, String> {
     let rel_path = relative_path(vault, path)?;
-    conn.query_row("SELECT id FROM notes WHERE path = ?1", [&rel_path], |row| row.get(0))
-        .optional()
-        .map_err(|e| e.to_string())
+    conn.query_row("SELECT id FROM notes WHERE path = ?1", [&rel_path], |row| {
+        row.get(0)
+    })
+    .optional()
+    .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -1631,7 +1939,11 @@ mod tests {
         let target = vault.join("Folder/B.md");
         let canvas = vault.join("Board.canvas");
         fs::create_dir(vault.join("Folder")).unwrap();
-        fs::write(&source, "[note](Folder/B.md#Heading)\n![embed](/Folder/B.md^block)").unwrap();
+        fs::write(
+            &source,
+            "[note](Folder/B.md#Heading)\n![embed](/Folder/B.md^block)",
+        )
+        .unwrap();
         fs::write(&target, "target").unwrap();
         fs::write(&canvas, r#"{"file":"Folder/B.md"}"#).unwrap();
         let conn = open_conn(&vault);
@@ -1668,10 +1980,24 @@ mod tests {
         let loaded = load_vault(&conn, &vault).unwrap();
 
         assert_eq!(loaded.notes.len(), 1);
-        assert_eq!(fs::read_to_string(&user_managed).unwrap(), "---\nid: external-system\n---\nUser-managed");
-        assert_eq!(fs::read_to_string(&duplicate).unwrap(), format!("---\nid: {id}\n---\nDuplicate"));
-        assert!(loaded.sync.warnings.iter().any(|warning| warning.contains("not an Amby ULID")));
-        assert!(loaded.sync.warnings.iter().any(|warning| warning.contains("duplicate Amby id")));
+        assert_eq!(
+            fs::read_to_string(&user_managed).unwrap(),
+            "---\nid: external-system\n---\nUser-managed"
+        );
+        assert_eq!(
+            fs::read_to_string(&duplicate).unwrap(),
+            format!("---\nid: {id}\n---\nDuplicate")
+        );
+        assert!(loaded
+            .sync
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("not an Amby ULID")));
+        assert!(loaded
+            .sync
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("duplicate Amby id")));
     }
 
     #[test]
@@ -1689,7 +2015,10 @@ mod tests {
 
         assert_eq!(loaded.notes.len(), 1);
         for directory in [".obsidian", ".git", ".trash", ".amby", "assets"] {
-            assert_eq!(fs::read_to_string(vault.join(directory).join("Hidden.md")).unwrap(), "Hidden");
+            assert_eq!(
+                fs::read_to_string(vault.join(directory).join("Hidden.md")).unwrap(),
+                "Hidden"
+            );
         }
     }
 
@@ -1708,7 +2037,10 @@ mod tests {
         let migration = apply_id_migration(&vault).unwrap();
         assert_eq!(migration.modified_paths, vec!["Untitled.md"]);
         assert!(fs::read_to_string(&note).unwrap().starts_with("---\nid: "));
-        assert_eq!(fs::read_to_string(format!("{}/Untitled.md", migration.backup_path)).unwrap(), original);
+        assert_eq!(
+            fs::read_to_string(format!("{}/Untitled.md", migration.backup_path)).unwrap(),
+            original
+        );
         assert!(Path::new(&migration.journal_path).is_file());
     }
 
@@ -1916,5 +2248,28 @@ mod tests {
         load_vault(&conn, &vault).unwrap();
         let graph = link_graph(&conn, &vault).unwrap();
         assert!(graph.edges.iter().any(|e| e.unresolved == Some(true)));
+    }
+
+    #[test]
+    fn extracts_obsidian_tags_and_ignores_code_comments_and_numeric_tags() {
+        let body = "#visible #inbox/to-read #1984\n`#inline`\n```md\n#fenced\n```\n%% #hidden %%";
+        assert_eq!(
+            extract_tags(body, &["YamlTag".to_string(), "1984".to_string()]),
+            vec![
+                "inbox/to-read".to_string(),
+                "visible".to_string(),
+                "yamltag".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn extracts_links_only_from_markdown_content() {
+        let body = "---\nalias: [[Yaml]]\n---\n[[Visible]] `[[Inline]]`\n```md\n[[Fence]]\n```\n%% [[Comment]] %%";
+        let targets: Vec<_> = extract_links(body)
+            .into_iter()
+            .map(|(_, target, _)| target)
+            .collect();
+        assert_eq!(targets, vec!["visible".to_string()]);
     }
 }

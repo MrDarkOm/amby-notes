@@ -41,11 +41,7 @@ export interface CanvasGroupNode extends CanvasNodeBase {
   backgroundStyle?: "cover" | "ratio" | "repeat"
 }
 
-export type CanvasNode =
-  | CanvasTextNode
-  | CanvasFileNode
-  | CanvasLinkNode
-  | CanvasGroupNode
+export type CanvasNode = CanvasTextNode | CanvasFileNode | CanvasLinkNode | CanvasGroupNode
 
 export interface CanvasEdge {
   id: string
@@ -198,7 +194,9 @@ export function toReactFlow(file: CanvasFile): {
 }
 
 export function arrowMarker(end: CanvasEdgeEnd, css?: string): EdgeMarker | undefined {
-  return end === "arrow" ? { type: MarkerType.ArrowClosed, color: css, width: 18, height: 18 } : undefined
+  return end === "arrow"
+    ? { type: MarkerType.ArrowClosed, color: css, width: 18, height: 18 }
+    : undefined
 }
 
 export interface CanvasEdgeData {
@@ -330,7 +328,9 @@ export function nodeRect(node: CanvasFlowNode): Rect {
 export function rectContains(outer: Rect, inner: Rect): boolean {
   const cx = inner.x + inner.width / 2
   const cy = inner.y + inner.height / 2
-  return cx >= outer.x && cx <= outer.x + outer.width && cy >= outer.y && cy <= outer.y + outer.height
+  return (
+    cx >= outer.x && cx <= outer.x + outer.width && cy >= outer.y && cy <= outer.y + outer.height
+  )
 }
 
 // ── Duplication (remap ids, offset) ──────────────────────────────────────────

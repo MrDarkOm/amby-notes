@@ -1,7 +1,8 @@
 "use client"
 
 import { useTranslation } from "react-i18next"
-import { PANEL_DEFS, type PanelId, type PanelRenderProps, type Side } from "./panel-registry"
+import type { PanelId, PanelRenderProps, Side } from "./panel-registry"
+import { PANEL_DEFS } from "./panel-definitions"
 
 interface PanelHostProps {
   side: Side
@@ -15,7 +16,7 @@ export function PanelHost({ side, activeId, props }: PanelHostProps) {
   const def = activeId ? PANEL_DEFS.find((d) => d.id === activeId) : undefined
   return (
     <div
-      className={`amby-panel-host mb-2 mt-0 flex h-[calc(100%-0.5rem)] min-h-0 w-[calc(100%-0.5rem)] flex-col overflow-hidden rounded-2xl border border-border/80 bg-card/70 ${side === "left" ? "ml-0 mr-2" : "ml-2 mr-0"}`}
+      className={`amby-panel-host mb-2 mt-0 flex h-[calc(100%-0.5rem)] min-h-0 w-[calc(100%-0.5rem)] flex-col overflow-hidden rounded-xl border border-border/80 bg-card/70 ${side === "left" ? "ml-0 mr-2" : "ml-2 mr-0"}`}
     >
       {def ? (
         def.render(props)

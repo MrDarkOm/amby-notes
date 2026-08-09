@@ -100,7 +100,9 @@ pub struct DbState {
 
 impl DbState {
     fn new() -> Self {
-        Self { conn: Mutex::new(None) }
+        Self {
+            conn: Mutex::new(None),
+        }
     }
 
     /// Open (or replace) the connection for `vault`.  Called from `load_vault`
@@ -372,8 +374,14 @@ fn write_note(
 ) -> Result<(), String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    // Register the destination before the atomic write. On fast filesystems
+    // notify may deliver the rename/create event before `write_note` returns;
+    // marking afterwards made our own autosaves occasionally look external.
+    let destination = vault_index::note_metadata(conn, Path::new(&vault_path), &note_id)?;
+    watcher_state.mark_write([Path::new(&destination.path)]);
     let path = vault_index::write_note(conn, Path::new(&vault_path), &note_id, &content)?;
     drop(conn_guard); // release DB lock before touching watcher state
+                      // Keep the returned path registered too in case the index normalised it.
     watcher_state.mark_write([path]);
     Ok(())
 }
@@ -474,7 +482,7 @@ fn create_note(
     name: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &parent_path)?;
-    let result = create_note_impl(Path::new(&parent_path), &name)?;
+    let result = bundle::create_note_impl(Path::new(&parent_path), &name)?;
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
@@ -618,19 +626,23 @@ fn move_item(
     // This avoids a post-move window where a failed plan leaves a partial
     // filesystem mutation behind.
     let preview = preview_move_item(Path::new(&source_path), Path::new(&target_path))?;
-    let plan = vault_index::plan_inbound_wiki_rewrites(conn, Path::new(&vault_path), &preview.path_changes)?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(
+        conn,
+        Path::new(&vault_path),
+        &preview.path_changes,
+    )?;
     let result = move_item_impl(Path::new(&source_path), Path::new(&target_path))?;
     let rewritten = match vault_index::apply_planned_wiki_rewrites(Path::new(&vault_path), &plan) {
         Ok(rewritten) => rewritten,
         Err(error) => {
-            if let Err(rollback_error) = rollback_move_item(
-                Path::new(&source_path),
-                Path::new(&target_path),
-                &result,
-            ) {
+            if let Err(rollback_error) =
+                rollback_move_item(Path::new(&source_path), Path::new(&target_path), &result)
+            {
                 return Err(format!("Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"));
             }
-            return Err(format!("Reference update failed; move was rolled back: {error}"));
+            return Err(format!(
+                "Reference update failed; move was rolled back: {error}"
+            ));
         }
     };
     let mut changed_paths = mutation_paths(&result);
@@ -661,7 +673,11 @@ fn preview_move_refactor(
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let preview = preview_move_item(Path::new(&source_path), Path::new(&target_path))?;
-    let plan = vault_index::plan_inbound_wiki_rewrites(conn, Path::new(&vault_path), &preview.path_changes)?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(
+        conn,
+        Path::new(&vault_path),
+        &preview.path_changes,
+    )?;
     Ok(vault_index::refactor_preview(&plan))
 }
 
@@ -710,7 +726,11 @@ fn rename_item(
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let preview = preview_rename_item(Path::new(&path), &new_name)?;
-    let plan = vault_index::plan_inbound_wiki_rewrites(conn, Path::new(&vault_path), &preview.path_changes)?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(
+        conn,
+        Path::new(&vault_path),
+        &preview.path_changes,
+    )?;
     let result = rename_item_impl(Path::new(&path), &new_name)?;
     let rewritten = match vault_index::apply_planned_wiki_rewrites(Path::new(&vault_path), &plan) {
         Ok(rewritten) => rewritten,
@@ -718,7 +738,9 @@ fn rename_item(
             if let Err(rollback_error) = rollback_rename_item(Path::new(&path), &result) {
                 return Err(format!("Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"));
             }
-            return Err(format!("Reference update failed; rename was rolled back: {error}"));
+            return Err(format!(
+                "Reference update failed; rename was rolled back: {error}"
+            ));
         }
     };
     let mut changed_paths = mutation_paths(&result);
@@ -748,7 +770,11 @@ fn preview_rename_refactor(
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let preview = preview_rename_item(Path::new(&path), &new_name)?;
-    let plan = vault_index::plan_inbound_wiki_rewrites(conn, Path::new(&vault_path), &preview.path_changes)?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(
+        conn,
+        Path::new(&vault_path),
+        &preview.path_changes,
+    )?;
     Ok(vault_index::refactor_preview(&plan))
 }
 
@@ -770,7 +796,9 @@ fn delete_item(
 
 #[tauri::command]
 #[specta::specta]
-fn list_trash(scope: tauri::State<paths::VaultScope>) -> Result<Vec<recycle_bin::TrashEntry>, String> {
+fn list_trash(
+    scope: tauri::State<paths::VaultScope>,
+) -> Result<Vec<recycle_bin::TrashEntry>, String> {
     Ok(recycle_bin::list(&scope.get()?))
 }
 
@@ -821,10 +849,7 @@ fn get_file_metadata(
 
 #[tauri::command]
 #[specta::specta]
-fn open_in_explorer(
-    scope: tauri::State<paths::VaultScope>,
-    path: String,
-) -> Result<(), String> {
+fn open_in_explorer(scope: tauri::State<paths::VaultScope>, path: String) -> Result<(), String> {
     paths::guard(&scope, &path)?;
     #[cfg(target_os = "windows")]
     {
@@ -899,7 +924,11 @@ fn import_asset_bytes(
     let dir = assets_dir_for(vault, note);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let ext = suggested_ext.trim_start_matches('.').to_lowercase();
-    let ext = if ext.is_empty() { "png".to_string() } else { ext };
+    let ext = if ext.is_empty() {
+        "png".to_string()
+    } else {
+        ext
+    };
     let stem = format!("pasted-{}", now_millis());
     let name = unique_name(&dir, &stem, &ext);
     let dest = dir.join(&name);
@@ -982,8 +1011,7 @@ fn start_vault_watcher(
             .paths
             .iter()
             .filter(|p| {
-                !p.components().any(|c| c.as_os_str() == ".amby")
-                    && !is_amby_temporary_file(p)
+                !p.components().any(|c| c.as_os_str() == ".amby") && !is_amby_temporary_file(p)
             })
             .collect();
         if relevant.is_empty() {

@@ -218,7 +218,9 @@ fn collect_refactor_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
     }
     let mut paths = Vec::new();
     for entry in fs::read_dir(root).map_err(|error| error.to_string())? {
-        paths.extend(collect_refactor_paths(&entry.map_err(|error| error.to_string())?.path())?);
+        paths.extend(collect_refactor_paths(
+            &entry.map_err(|error| error.to_string())?.path(),
+        )?);
     }
     Ok(paths)
 }
@@ -333,7 +335,9 @@ pub(crate) fn create_note_impl(parent_path: &Path, name: &str) -> Result<FsMutat
             (
                 parent_path
                     .parent()
-                    .ok_or_else(|| format!("Bundle note has no parent: {}", path_string(parent_path)))?
+                    .ok_or_else(|| {
+                        format!("Bundle note has no parent: {}", path_string(parent_path))
+                    })?
                     .to_path_buf(),
                 false,
             )
@@ -371,7 +375,10 @@ pub(crate) fn create_note_impl(parent_path: &Path, name: &str) -> Result<FsMutat
         return Err("A child note cannot have the same name as its parent note".to_string());
     }
     if planned_note.exists() || sibling_bundle.exists() {
-        return Err(format!("Note already exists: {}", path_string(&planned_note)));
+        return Err(format!(
+            "Note already exists: {}",
+            path_string(&planned_note)
+        ));
     }
 
     let (container, mut path_changes, promoted_main) = if should_promote {
@@ -609,7 +616,10 @@ fn unique_path(base_dir: &Path, stem: &str, ext: &str) -> PathBuf {
 pub(crate) fn unlink_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutationResult, String> {
     let layer_path = layer_file_path(note_path, kind)?;
     if !layer_path.exists() {
-        return Err(format!("Layer file not found: {}", path_string(&layer_path)));
+        return Err(format!(
+            "Layer file not found: {}",
+            path_string(&layer_path)
+        ));
     }
     let bundle_dir = layer_path
         .parent()
@@ -648,7 +658,10 @@ pub(crate) fn unlink_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutati
 pub(crate) fn delete_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutationResult, String> {
     let layer_path = layer_file_path(note_path, kind)?;
     if !layer_path.exists() {
-        return Err(format!("Layer file not found: {}", path_string(&layer_path)));
+        return Err(format!(
+            "Layer file not found: {}",
+            path_string(&layer_path)
+        ));
     }
     let deleted_paths = if is_markdown(&layer_path) {
         vec![path_string(&layer_path)]
@@ -728,13 +741,8 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
         }
 
         let old_paths = collect_refactor_paths(bundle_dir)?;
-        let path_changes = bundle_rename_path_changes(
-            &old_paths,
-            bundle_dir,
-            &new_dir,
-            &old_stem,
-            trimmed,
-        );
+        let path_changes =
+            bundle_rename_path_changes(&old_paths, bundle_dir, &new_dir, &old_stem, trimmed);
 
         let rename_specs = ["md", "canvas", "excalidraw"]
             .into_iter()
@@ -765,16 +773,18 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
                 continue;
             }
             if let Err(error) = fs::rename(&current, &renamed) {
-                return Err(match rollback_partial_bundle_rename(
-                    &new_dir,
-                    bundle_dir,
-                    &renamed_inside_new_dir,
-                ) {
-                    Ok(()) => format!("Could not rename bundle file: {error}"),
-                    Err(rollback_error) => format!(
+                return Err(
+                    match rollback_partial_bundle_rename(
+                        &new_dir,
+                        bundle_dir,
+                        &renamed_inside_new_dir,
+                    ) {
+                        Ok(()) => format!("Could not rename bundle file: {error}"),
+                        Err(rollback_error) => format!(
                         "Could not rename bundle file: {error}; rollback failed: {rollback_error}"
                     ),
-                });
+                    },
+                );
             }
             renamed_inside_new_dir.push((renamed, current));
         }
@@ -842,8 +852,12 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
     }
 
     if is_bundle_main_note(path) {
-        let bundle_dir = path.parent().ok_or_else(|| "Bundle note has no parent".to_string())?;
-        let parent = bundle_dir.parent().ok_or_else(|| "Bundle has no parent".to_string())?;
+        let bundle_dir = path
+            .parent()
+            .ok_or_else(|| "Bundle note has no parent".to_string())?;
+        let parent = bundle_dir
+            .parent()
+            .ok_or_else(|| "Bundle has no parent".to_string())?;
         let old_stem = file_stem(path)?;
         let new_dir = parent.join(trimmed);
         let new_main = new_dir.join(format!("{trimmed}.md"));
@@ -851,13 +865,8 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
             return Err(format!("Target already exists: {}", path_string(&new_dir)));
         }
         let old_paths = collect_refactor_paths(bundle_dir)?;
-        let path_changes = bundle_rename_path_changes(
-            &old_paths,
-            bundle_dir,
-            &new_dir,
-            &old_stem,
-            trimmed,
-        );
+        let path_changes =
+            bundle_rename_path_changes(&old_paths, bundle_dir, &new_dir, &old_stem, trimmed);
         Ok(FsMutationResult {
             primary_id: None,
             primary_path: Some(path_string(&new_main)),
@@ -866,8 +875,13 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
             deleted_ids: Vec::new(),
         })
     } else if path.is_file() {
-        let parent = path.parent().ok_or_else(|| "File has no parent".to_string())?;
-        let ext = path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+        let parent = path
+            .parent()
+            .ok_or_else(|| "File has no parent".to_string())?;
+        let ext = path
+            .extension()
+            .map(|e| format!(".{}", e.to_string_lossy()))
+            .unwrap_or_default();
         let new_path = parent.join(format!("{trimmed}{ext}"));
         if new_path.exists() {
             return Err(format!("Target already exists: {}", path_string(&new_path)));
@@ -875,12 +889,17 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
         Ok(FsMutationResult {
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
-            path_changes: vec![PathChange { old_path: path_string(path), new_path: path_string(&new_path) }],
+            path_changes: vec![PathChange {
+                old_path: path_string(path),
+                new_path: path_string(&new_path),
+            }],
             deleted_paths: Vec::new(),
             deleted_ids: Vec::new(),
         })
     } else if path.is_dir() {
-        let parent = path.parent().ok_or_else(|| "Folder has no parent".to_string())?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| "Folder has no parent".to_string())?;
         let new_path = parent.join(trimmed);
         if new_path.exists() {
             return Err(format!("Target already exists: {}", path_string(&new_path)));
@@ -898,7 +917,10 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
     }
 }
 
-pub(crate) fn move_item_impl(source_path: &Path, target_path: &Path) -> Result<FsMutationResult, String> {
+pub(crate) fn move_item_impl(
+    source_path: &Path,
+    target_path: &Path,
+) -> Result<FsMutationResult, String> {
     let target_dir = if target_path.is_file() {
         let promoted_target = !is_bundle_main_note(target_path);
         let (main_note, mut target_changes) = ensure_bundle_path(target_path)?;
@@ -910,7 +932,8 @@ pub(crate) fn move_item_impl(source_path: &Path, target_path: &Path) -> Result<F
             Ok(result) => result,
             Err(error) => {
                 if promoted_target {
-                    if let Err(rollback_error) = rollback_bundle_promotion(target_path, &main_note) {
+                    if let Err(rollback_error) = rollback_bundle_promotion(target_path, &main_note)
+                    {
                         return Err(format!(
                             "Move failed: {error}; target bundle rollback failed: {rollback_error}"
                         ));
@@ -930,28 +953,51 @@ pub(crate) fn move_item_impl(source_path: &Path, target_path: &Path) -> Result<F
 
 /// Calculate a move before it is applied.  In particular, this predicts the
 /// bundle conversion used when dropping onto a standalone note.
-pub(crate) fn preview_move_item(source_path: &Path, target_path: &Path) -> Result<FsMutationResult, String> {
+pub(crate) fn preview_move_item(
+    source_path: &Path,
+    target_path: &Path,
+) -> Result<FsMutationResult, String> {
     let (target_dir, mut target_changes) = if target_path.is_file() {
         if !is_markdown(target_path) {
             return Err(format!("Not a markdown note: {}", path_string(target_path)));
         }
         if is_bundle_main_note(target_path) {
-            (target_path.parent().ok_or_else(|| "Bundle note has no parent".to_string())?.to_path_buf(), Vec::new())
+            (
+                target_path
+                    .parent()
+                    .ok_or_else(|| "Bundle note has no parent".to_string())?
+                    .to_path_buf(),
+                Vec::new(),
+            )
         } else {
             let stem = file_stem(target_path)?;
-            let parent = target_path.parent().ok_or_else(|| "Note has no parent".to_string())?;
+            let parent = target_path
+                .parent()
+                .ok_or_else(|| "Note has no parent".to_string())?;
             let bundle_dir = parent.join(&stem);
             if bundle_dir.exists() {
-                return Err(format!("Bundle container already exists: {}", path_string(&bundle_dir)));
+                return Err(format!(
+                    "Bundle container already exists: {}",
+                    path_string(&bundle_dir)
+                ));
             }
             let new_note = bundle_dir.join(format!("{stem}.md"));
-            (bundle_dir, vec![PathChange { old_path: path_string(target_path), new_path: path_string(&new_note) }])
+            (
+                bundle_dir,
+                vec![PathChange {
+                    old_path: path_string(target_path),
+                    new_path: path_string(&new_note),
+                }],
+            )
         }
     } else {
         (target_path.to_path_buf(), Vec::new())
     };
     if !target_path.is_file() && !target_dir.is_dir() {
-        return Err(format!("Target is not a directory: {}", path_string(&target_dir)));
+        return Err(format!(
+            "Target is not a directory: {}",
+            path_string(&target_dir)
+        ));
     }
 
     let source_root = resolve_item_root(source_path);
@@ -963,13 +1009,22 @@ pub(crate) fn preview_move_item(source_path: &Path, target_path: &Path) -> Resul
     }
     let destination = target_dir.join(file_name(&source_root)?);
     if destination.exists() {
-        return Err(format!("Target already exists: {}", path_string(&destination)));
+        return Err(format!(
+            "Target already exists: {}",
+            path_string(&destination)
+        ));
     }
 
     let markdown_paths = collect_refactor_paths(&source_root)?;
-    target_changes.extend(path_changes_for_prefix(&markdown_paths, &source_root, &destination));
+    target_changes.extend(path_changes_for_prefix(
+        &markdown_paths,
+        &source_root,
+        &destination,
+    ));
     let primary_path = if is_bundle_main_note(source_path) {
-        Some(path_string(&destination.join(format!("{}.md", file_stem(source_path)?))))
+        Some(path_string(
+            &destination.join(format!("{}.md", file_stem(source_path)?)),
+        ))
     } else {
         Some(path_string(&destination))
     };
@@ -984,14 +1039,23 @@ pub(crate) fn preview_move_item(source_path: &Path, target_path: &Path) -> Resul
 
 /// Undo a completed rename after a later transaction stage (for example link
 /// refactoring) fails.  This never overwrites an existing user path.
-pub(crate) fn rollback_rename_item(original_path: &Path, result: &FsMutationResult) -> Result<(), String> {
-    let current = result.primary_path.as_deref().map(Path::new).ok_or("Rename result has no primary path")?;
+pub(crate) fn rollback_rename_item(
+    original_path: &Path,
+    result: &FsMutationResult,
+) -> Result<(), String> {
+    let current = result
+        .primary_path
+        .as_deref()
+        .map(Path::new)
+        .ok_or("Rename result has no primary path")?;
     if is_markdown(original_path)
         && original_path.parent().and_then(|parent| parent.file_name()) == original_path.file_stem()
     {
         let old_dir = original_path.parent().ok_or("Bundle note has no parent")?;
         let old_stem = file_stem(original_path)?;
-        let new_dir = current.parent().ok_or("Renamed bundle note has no parent")?;
+        let new_dir = current
+            .parent()
+            .ok_or("Renamed bundle note has no parent")?;
         let new_stem = file_stem(current)?;
         for ext in ["canvas", "excalidraw"] {
             let current_sidecar = new_dir.join(format!("{new_stem}.{ext}"));
@@ -1028,7 +1092,9 @@ pub(crate) fn rollback_move_item(
         && result.path_changes.iter().any(|change| {
             change.old_path == path_string(original_target)
                 && Path::new(&change.new_path).parent()
-                    == original_target.parent().map(|parent| parent.join(file_stem(original_target).unwrap_or_default()))
+                    == original_target
+                        .parent()
+                        .map(|parent| parent.join(file_stem(original_target).unwrap_or_default()))
                         .as_deref()
         });
     let target_dir = if converted_target {
@@ -1038,9 +1104,15 @@ pub(crate) fn rollback_move_item(
             .join(file_stem(original_target)?)
     } else if original_target.is_file() {
         if is_bundle_main_note(original_target) {
-            original_target.parent().ok_or("Bundle note has no parent")?.to_path_buf()
+            original_target
+                .parent()
+                .ok_or("Bundle note has no parent")?
+                .to_path_buf()
         } else {
-            original_target.parent().ok_or("Note has no parent")?.join(file_stem(original_target)?)
+            original_target
+                .parent()
+                .ok_or("Note has no parent")?
+                .join(file_stem(original_target)?)
         }
     } else {
         original_target.to_path_buf()
@@ -1135,9 +1207,19 @@ pub(crate) fn assets_dir_for(vault: &Path, note: &Path) -> PathBuf {
 pub(crate) fn unique_name(dir: &Path, stem: &str, ext: &str) -> String {
     let safe_stem: String = stem
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect();
-    let safe_stem = if safe_stem.is_empty() { "asset".to_string() } else { safe_stem };
+    let safe_stem = if safe_stem.is_empty() {
+        "asset".to_string()
+    } else {
+        safe_stem
+    };
     let initial = if ext.is_empty() {
         safe_stem.clone()
     } else {
@@ -1365,8 +1447,14 @@ mod tests {
             .unwrap();
 
         assert!(error.contains("Target already exists"));
-        assert_eq!(fs::read_to_string(vault.join("Old/Old.md")).unwrap(), "main");
-        assert_eq!(fs::read_to_string(vault.join("Old/New.md")).unwrap(), "child");
+        assert_eq!(
+            fs::read_to_string(vault.join("Old/Old.md")).unwrap(),
+            "main"
+        );
+        assert_eq!(
+            fs::read_to_string(vault.join("Old/New.md")).unwrap(),
+            "child"
+        );
         assert!(!vault.join("New").exists());
     }
 
@@ -1382,9 +1470,18 @@ mod tests {
         let result = rename_item_impl(&original, "New").unwrap();
         rollback_rename_item(&original, &result).unwrap();
 
-        assert_eq!(fs::read_to_string(vault.join("Old/Old.md")).unwrap(), "main");
-        assert_eq!(fs::read_to_string(vault.join("Old/Old.canvas")).unwrap(), "canvas");
-        assert_eq!(fs::read_to_string(vault.join("Old/Child.md")).unwrap(), "child");
+        assert_eq!(
+            fs::read_to_string(vault.join("Old/Old.md")).unwrap(),
+            "main"
+        );
+        assert_eq!(
+            fs::read_to_string(vault.join("Old/Old.canvas")).unwrap(),
+            "canvas"
+        );
+        assert_eq!(
+            fs::read_to_string(vault.join("Old/Child.md")).unwrap(),
+            "child"
+        );
         assert!(!vault.join("New").exists());
     }
 
@@ -1420,8 +1517,14 @@ mod tests {
         rollback_move_item(&main, &target, &result).unwrap();
 
         assert_eq!(fs::read_to_string(&main).unwrap(), "main");
-        assert_eq!(fs::read_to_string(bundle.join("A.canvas")).unwrap(), "canvas");
-        assert_eq!(fs::read_to_string(bundle.join("Child.md")).unwrap(), "child");
+        assert_eq!(
+            fs::read_to_string(bundle.join("A.canvas")).unwrap(),
+            "canvas"
+        );
+        assert_eq!(
+            fs::read_to_string(bundle.join("Child.md")).unwrap(),
+            "child"
+        );
         assert!(!target.join("A").exists());
     }
 
@@ -1440,7 +1543,10 @@ mod tests {
         rollback_move_item(&main, &target, &result).unwrap();
 
         assert_eq!(fs::read_to_string(&main).unwrap(), "main");
-        assert_eq!(fs::read_to_string(bundle.join("A.canvas")).unwrap(), "canvas");
+        assert_eq!(
+            fs::read_to_string(bundle.join("A.canvas")).unwrap(),
+            "canvas"
+        );
         assert_eq!(fs::read_to_string(&target).unwrap(), "target");
         assert!(!vault.join("B").exists());
     }
@@ -1455,10 +1561,16 @@ mod tests {
 
         let preview = preview_move_item(&source, &target).unwrap();
 
-        assert!(preview.path_changes.iter().any(|change| change.old_path == path_string(&source)
-            && change.new_path == path_string(&vault.join("B/A.md"))));
-        assert!(preview.path_changes.iter().any(|change| change.old_path == path_string(&target)
-            && change.new_path == path_string(&vault.join("B/B.md"))));
+        assert!(preview
+            .path_changes
+            .iter()
+            .any(|change| change.old_path == path_string(&source)
+                && change.new_path == path_string(&vault.join("B/A.md"))));
+        assert!(preview
+            .path_changes
+            .iter()
+            .any(|change| change.old_path == path_string(&target)
+                && change.new_path == path_string(&vault.join("B/B.md"))));
         assert!(source.exists());
         assert!(target.exists());
     }

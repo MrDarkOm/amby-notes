@@ -39,6 +39,7 @@ pub enum AtomicCreateError {
 pub struct ParsedMarkdown {
     pub id: Option<String>,
     pub body: String,
+    pub frontmatter_tags: Vec<String>,
     pub has_frontmatter: bool,
     pub yaml_is_map: bool,
     pub parse_error: Option<String>,
@@ -71,6 +72,7 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
         return ParsedMarkdown {
             id: None,
             body: content.to_string(),
+            frontmatter_tags: Vec::new(),
             has_frontmatter: false,
             yaml_is_map: true,
             parse_error: None,
@@ -84,6 +86,16 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
                 .and_then(Value::as_str)
                 .map(str::to_string),
             body: body.to_string(),
+            frontmatter_tags: map
+                .get(Value::String("tags".to_string()))
+                .and_then(Value::as_sequence)
+                .map(|tags| {
+                    tags.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
             has_frontmatter: true,
             yaml_is_map: true,
             parse_error: None,
@@ -91,6 +103,7 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
         Ok(_) => ParsedMarkdown {
             id: None,
             body: body.to_string(),
+            frontmatter_tags: Vec::new(),
             has_frontmatter: true,
             yaml_is_map: false,
             parse_error: None,
@@ -98,6 +111,7 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
         Err(err) => ParsedMarkdown {
             id: None,
             body: body.to_string(),
+            frontmatter_tags: Vec::new(),
             has_frontmatter: true,
             yaml_is_map: false,
             parse_error: Some(err.to_string()),
@@ -175,7 +189,10 @@ pub fn body_with_id(content: &str, id: &str) -> Result<String, String> {
 
     if let Some((yaml, body)) = split_frontmatter(content) {
         let mut map = serde_yaml::from_str::<Mapping>(yaml).map_err(|e| e.to_string())?;
-        map.insert(Value::String("id".to_string()), Value::String(id.to_string()));
+        map.insert(
+            Value::String("id".to_string()),
+            Value::String(id.to_string()),
+        );
         let yaml = serde_yaml::to_string(&map).map_err(|e| e.to_string())?;
         Ok(format!("---\n{}---\n{}", yaml, body))
     } else {
@@ -216,15 +233,28 @@ pub fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
 fn preserve_text_format(path: &Path, content: &str) -> Result<Vec<u8>, String> {
     let existing = match fs::read(path) {
         Ok(existing) => existing,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(content.as_bytes().to_vec()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(content.as_bytes().to_vec())
+        }
         Err(err) => return Err(err.to_string()),
     };
     let has_bom = existing.starts_with(&[0xEF, 0xBB, 0xBF]);
-    let text = if has_bom { &existing[3..] } else { &existing[..] };
-    std::str::from_utf8(text)
-        .map_err(|_| format!("Refusing to overwrite non-UTF-8 text file: {}", path.display()))?;
+    let text = if has_bom {
+        &existing[3..]
+    } else {
+        &existing[..]
+    };
+    std::str::from_utf8(text).map_err(|_| {
+        format!(
+            "Refusing to overwrite non-UTF-8 text file: {}",
+            path.display()
+        )
+    })?;
 
-    let mut normalized = content.strip_prefix('\u{feff}').unwrap_or(content).replace("\r\n", "\n");
+    let mut normalized = content
+        .strip_prefix('\u{feff}')
+        .unwrap_or(content)
+        .replace("\r\n", "\n");
     normalized = normalized.replace('\r', "\n");
     let crlf_count = text.windows(2).filter(|pair| *pair == b"\r\n").count();
     let lone_lf_count = text
@@ -281,9 +311,9 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
 /// hard link is created in the same directory as the prepared temporary file,
 /// so it is an all-or-nothing publication of the complete synced content.
 pub fn atomic_write_new(path: &Path, content: &str) -> Result<(), AtomicCreateError> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| AtomicCreateError::Other(format!("Path has no parent: {}", path.display())))?;
+    let parent = path.parent().ok_or_else(|| {
+        AtomicCreateError::Other(format!("Path has no parent: {}", path.display()))
+    })?;
     fs::create_dir_all(parent).map_err(|err| AtomicCreateError::Other(err.to_string()))?;
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let suffix = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -458,12 +488,26 @@ mod tests {
         let path = dir.join("note.md");
         fs::write(&path, "original").unwrap();
 
-        assert_eq!(atomic_write_new(&path, "replacement"), Err(AtomicCreateError::AlreadyExists));
+        assert_eq!(
+            atomic_write_new(&path, "replacement"),
+            Err(AtomicCreateError::AlreadyExists)
+        );
         assert_eq!(fs::read_to_string(&path).unwrap(), "original");
 
         let new_path = dir.join("copy.md");
         atomic_write_new(&new_path, "copy").unwrap();
         assert_eq!(fs::read_to_string(&new_path).unwrap(), "copy");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn reads_yaml_tag_lists_without_changing_frontmatter() {
+        let source = "---\nid: 01ABC\ntags:\n  - Project\n  - inbox/to-read\n---\nBody";
+        let parsed = parse_markdown(source);
+        assert_eq!(
+            parsed.frontmatter_tags,
+            vec!["Project".to_string(), "inbox/to-read".to_string()]
+        );
+        assert_eq!(parsed.body, "Body");
     }
 }
