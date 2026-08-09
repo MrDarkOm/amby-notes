@@ -748,7 +748,14 @@ pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
         if let Some(parent) = backup.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        fs::copy(&path, &backup).map_err(|e| e.to_string())?;
+        let original_bytes = fs::read(&path).map_err(|e| e.to_string())?;
+        match frontmatter::atomic_write_bytes_new(&backup, &original_bytes) {
+            Ok(()) => {}
+            Err(frontmatter::AtomicCreateError::AlreadyExists) => {
+                return Err(format!("Migration backup already exists: {}", path_string(&backup)));
+            }
+            Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+        }
         let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
         let with_id = frontmatter::body_with_id(&content, &Ulid::generate().to_string())?;
         frontmatter::atomic_write(&path, &with_id)?;
@@ -839,6 +846,7 @@ pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String>
             id = Ulid::generate().to_string();
             let content = fs::read_to_string(&note.path).map_err(|e| e.to_string())?;
             let next = frontmatter::body_with_id(&content, &id)?;
+            history::snapshot_before_write(vault, &note.path, next.as_bytes(), "id-assignment")?;
             frontmatter::atomic_write(&note.path, &next)?;
             let parsed = frontmatter::parse_markdown(&next);
             let (mtime, size) = metadata_stamp(&note.path)?;
@@ -1576,6 +1584,7 @@ fn index_note_at_path(conn: &Connection, vault: &Path, path: &Path) -> Result<St
     } else {
         let id = Ulid::generate().to_string();
         let next = frontmatter::body_with_id(&content, &id)?;
+        history::snapshot_before_write(vault, path, next.as_bytes(), "id-assignment")?;
         frontmatter::atomic_write(path, &next)?;
         let reparsed = frontmatter::parse_markdown(&next);
         (id, reparsed.body)

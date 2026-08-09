@@ -26,6 +26,7 @@ import { getTurnIntoItems, type BlockInsertItem } from "./block-insert-items"
 import { CALLOUT_DEFAULTS } from "./callout-node"
 import { importAsset, pickAssetFile } from "@/lib/storage"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
+import { BLOCK_TEXT_COLORS as TEXT_COLORS, CALLOUT_SWATCHES } from "@/lib/themes"
 
 interface Props {
   editor: Editor
@@ -42,28 +43,6 @@ interface Props {
   onFocusInsideBlock: () => void
   onClose: () => void
 }
-
-const CALLOUT_SWATCHES: Array<{ id: string; color?: string }> = [
-  { id: "teal", color: "rgba(20, 184, 166, 0.45)" },
-  { id: "orange", color: "rgba(245, 158, 11, 0.55)" },
-  { id: "blue", color: "rgba(14, 165, 233, 0.55)" },
-  { id: "green", color: "rgba(34, 197, 94, 0.55)" },
-  { id: "red", color: "rgba(239, 68, 68, 0.55)" },
-  { id: "purple", color: "rgba(168, 85, 247, 0.55)" },
-  { id: "zinc", color: "rgba(113, 113, 122, 0.55)" },
-  { id: "none" },
-]
-
-const TEXT_COLORS: Array<{ id: string; color: string | null }> = [
-  { id: "red", color: "#ef4444" },
-  { id: "orange", color: "#f59e0b" },
-  { id: "green", color: "#22c55e" },
-  { id: "blue", color: "#3b82f6" },
-  { id: "purple", color: "#a855f7" },
-  { id: "pink", color: "#ec4899" },
-  { id: "zinc", color: "#a1a1aa" },
-  { id: "clear", color: null },
-]
 
 const CALLOUT_TYPES = Object.keys(CALLOUT_DEFAULTS) as Array<keyof typeof CALLOUT_DEFAULTS>
 

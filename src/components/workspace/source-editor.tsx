@@ -13,6 +13,7 @@ import {
   placeholder as cmPlaceholder,
 } from "@codemirror/view"
 import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands"
+import { CODE_EDITOR_THEME } from "@/lib/themes"
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language"
 import { markdown } from "@codemirror/lang-markdown"
 import { tags } from "@lezer/highlight"
@@ -54,7 +55,7 @@ const theme = EditorView.theme(
       borderLeftWidth: "2px",
     },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
-      backgroundColor: "hsl(var(--primary) / 0.22)",
+      backgroundColor: CODE_EDITOR_THEME.selectionBackground,
     },
     ".cm-line": { padding: "0" },
     ".cm-amby-tag": {

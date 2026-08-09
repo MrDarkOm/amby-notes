@@ -574,7 +574,7 @@ fn delete_layer(
     kind: String,
 ) -> Result<FsMutationResult, String> {
     paths::guard_in(&vault_path, &note_path)?;
-    let result = delete_layer_impl(Path::new(&note_path), &kind)?;
+    let result = delete_layer_impl(Path::new(&vault_path), Path::new(&note_path), &kind)?;
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
@@ -692,7 +692,13 @@ fn create_file(
     if Path::new(&path).exists() {
         return Err(format!("File already exists: {path}"));
     }
-    frontmatter::atomic_write(Path::new(&path), "")?;
+    match frontmatter::atomic_write_new(Path::new(&path), "") {
+        Ok(()) => {}
+        Err(frontmatter::AtomicCreateError::AlreadyExists) => {
+            return Err(format!("File already exists: {path}"));
+        }
+        Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+    }
     watcher_state.mark_write([Path::new(&path)]);
     Ok(())
 }
@@ -902,11 +908,22 @@ fn import_asset(
         .extension()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_default();
-    let name = unique_name(&dir, &stem, &ext);
-    let dest = dir.join(&name);
-    fs::copy(source, &dest).map_err(|e| e.to_string())?;
-    watcher_state.mark_write([dest.as_path()]);
-    Ok(build_imported_asset(vault, note, dest, name))
+    // Publish attachments atomically too: a crash during an import must never
+    // leave a truncated asset referenced by an otherwise valid note.
+    let bytes = fs::read(source).map_err(|e| e.to_string())?;
+    for _ in 0..1_000 {
+        let name = unique_name(&dir, &stem, &ext);
+        let dest = dir.join(&name);
+        match frontmatter::atomic_write_bytes_new(&dest, &bytes) {
+            Ok(()) => {
+                watcher_state.mark_write([dest.as_path()]);
+                return Ok(build_imported_asset(vault, note, dest, name));
+            }
+            Err(frontmatter::AtomicCreateError::AlreadyExists) => continue,
+            Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+        }
+    }
+    Err("Could not allocate a unique asset filename".to_string())
 }
 
 #[tauri::command]
@@ -930,11 +947,19 @@ fn import_asset_bytes(
         ext
     };
     let stem = format!("pasted-{}", now_millis());
-    let name = unique_name(&dir, &stem, &ext);
-    let dest = dir.join(&name);
-    frontmatter::atomic_write_bytes(&dest, &bytes)?;
-    watcher_state.mark_write([dest.as_path()]);
-    Ok(build_imported_asset(vault, note, dest, name))
+    for _ in 0..1_000 {
+        let name = unique_name(&dir, &stem, &ext);
+        let dest = dir.join(&name);
+        match frontmatter::atomic_write_bytes_new(&dest, &bytes) {
+            Ok(()) => {
+                watcher_state.mark_write([dest.as_path()]);
+                return Ok(build_imported_asset(vault, note, dest, name));
+            }
+            Err(frontmatter::AtomicCreateError::AlreadyExists) => continue,
+            Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+        }
+    }
+    Err("Could not allocate a unique asset filename".to_string())
 }
 
 #[tauri::command]

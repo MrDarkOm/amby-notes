@@ -3,6 +3,7 @@ import {
   wsPathDir,
   wsPathBase,
   wsPathStem,
+  isSuperNoteItem,
   canvasLayerPath,
   flattenFileItems,
   flattenTree,
@@ -62,6 +63,21 @@ describe("wsPathStem", () => {
   })
   it("handles filenames without extension", () => {
     expect(wsPathStem("/vault/README")).toBe("README")
+  })
+})
+
+describe("isSuperNoteItem", () => {
+  it("recognizes a bundle's same-named main note", () => {
+    expect(isSuperNoteItem({ type: "file", path: "/vault/Project/Project.md" })).toBe(true)
+  })
+
+  it("does not mark a loose note or a note in an unrelated folder as a supernote", () => {
+    expect(isSuperNoteItem({ type: "file", path: "/vault/Project.md" })).toBe(false)
+    expect(isSuperNoteItem({ type: "file", path: "/vault/Projects/Project.md" })).toBe(false)
+  })
+
+  it("never marks folders as supernotes", () => {
+    expect(isSuperNoteItem({ type: "folder", path: "/vault/Project/Project.md" })).toBe(false)
   })
 })
 

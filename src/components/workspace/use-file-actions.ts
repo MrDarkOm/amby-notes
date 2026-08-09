@@ -7,6 +7,7 @@ import { useDocStore, type Document } from "./use-doc-store"
 import { useTabsStore } from "./use-tabs-store"
 import { useViewStateStore } from "./use-view-state-store"
 import { useSettingsStore } from "./use-settings-store"
+import { loadWorkspaceConfig, saveWorkspaceConfigPatch } from "./app-config"
 import { DeleteConfirmationDialog } from "./delete-confirmation-dialog"
 import { normalizeWikiLinkTarget, findWikiLinkItem } from "./wiki-links"
 import {
@@ -76,19 +77,16 @@ export function useFileActions({
     resolve: (approved: boolean) => void
   } | null>(null)
 
-  function requestDeleteConfirmation(id: string, name: string): Promise<boolean> {
-    if (!useSettingsStore.getState().prefs.confirmations.confirmFileDelete)
-      return Promise.resolve(true)
+  async function requestDeleteConfirmation(id: string, name: string): Promise<boolean> {
+    const { confirmations } = await loadWorkspaceConfig()
+    if (!confirmations.confirmFileDelete) return true
     return new Promise((resolve) => setPendingDelete({ id, name, resolve }))
   }
 
   function settleDeleteConfirmation(approved: boolean, dontAskAgain = false) {
     if (!pendingDelete) return
     if (dontAskAgain) {
-      const { prefs, setPrefs } = useSettingsStore.getState()
-      setPrefs({
-        confirmations: { ...prefs.confirmations, confirmFileDelete: false },
-      })
+      void saveWorkspaceConfigPatch({ confirmations: { confirmFileDelete: false } })
     }
     pendingDelete.resolve(approved)
     setPendingDelete(null)

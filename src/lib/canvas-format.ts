@@ -1,4 +1,5 @@
 import { MarkerType, type Edge, type EdgeMarker, type Node } from "@xyflow/react"
+import { OBSIDIAN_CANVAS_PRESET_COLORS } from "@/lib/themes"
 
 // ── Obsidian Canvas JSON schema (subset) ─────────────────────────────────────
 // https://jsoncanvas.org/spec/1.0/
@@ -284,19 +285,10 @@ function handleToSide(
 
 // ── Color mapping (Obsidian presets → CSS) ────────────────────────────────────
 
-const PRESET_COLORS: Record<string, string> = {
-  "1": "#e93147", // red
-  "2": "#ec7500", // orange
-  "3": "#e0ac00", // yellow
-  "4": "#08b94e", // green
-  "5": "#00bfbc", // cyan
-  "6": "#7852ee", // purple
-}
-
 export function colorToCss(color: string | undefined): string | undefined {
   if (!color) return undefined
   if (color.startsWith("#")) return color
-  return PRESET_COLORS[color] ?? undefined
+  return OBSIDIAN_CANVAS_PRESET_COLORS[color] ?? undefined
 }
 
 export const PRESET_COLOR_KEYS = ["1", "2", "3", "4", "5", "6"] as const

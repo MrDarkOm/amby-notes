@@ -20,12 +20,19 @@ import type { VaultRecord } from "./workspace-picker"
 import type { ActivityButton, PanelId, Side } from "./panel-registry"
 import type { Preset } from "./presets"
 import type { AiConfig, AiFamily } from "@/lib/ai"
-import i18n from "@/lib/i18n"
+import i18n, { SUPPORTED_LANGUAGES, type LanguageCode } from "@/lib/i18n"
+import { BUILTIN_THEMES, isThemeId, parseThemeDefinition, type ThemeDefinition } from "@/lib/themes"
 
 export const WORKSPACES_FILE = "workspaces.json"
 export const SETTINGS_FILE = "settings.json"
 export const WORKSPACE_FILE = "workspace.json"
 export const SESSION_FILE = "session.json"
+
+// Several controls can update separate settings fields during the same event
+// (for example, importing a theme selects it and adds it to the library).
+// Serialize read-modify-write cycles so one asynchronous save cannot erase the
+// other field from settings.json.
+let settingsWriteChain: Promise<void> = Promise.resolve()
 
 export type PanelScope = "global" | "workspace"
 
@@ -261,11 +268,12 @@ export function blankModel(): AiModel {
 /** Editor view modes — kept as a local union to avoid importing the heavy
  *  document-editor module just for its type. Mirrors DocumentViewMode. */
 export type ViewModePref = "source" | "live" | "read"
-export type ThemePref = "dark" | "light" | "system"
+/** `system`, a bundled id, or an imported portable theme id. */
+export type ThemePref = string
 export type AccentId = "violet" | "sky" | "teal" | "emerald" | "amber" | "rose"
 export type FontScale = "sm" | "md" | "lg"
 export type Density = "comfortable" | "compact"
-export type Language = "ru" | "en"
+export type Language = LanguageCode
 export type ContentWidth = "normal" | "wide" | "full"
 
 export const ACCENTS: AccentId[] = ["violet", "sky", "teal", "emerald", "amber", "rose"]
@@ -288,11 +296,6 @@ export interface DockPreferences {
   rightPinned: boolean
 }
 
-export interface ConfirmationPreferences {
-  /** Keep destructive file-delete confirmation visible unless the user opts out. */
-  confirmFileDelete: boolean
-}
-
 /** Everything the Settings screen controls. Lives in the global settings.json
  *  so it is shared across vaults. */
 export interface AppPreferences {
@@ -304,7 +307,6 @@ export interface AppPreferences {
   editor: EditorPrefs
   startup: StartupPrefs
   docks: DockPreferences
-  confirmations: ConfirmationPreferences
 }
 
 export const DEFAULT_PREFS: AppPreferences = {
@@ -316,7 +318,6 @@ export const DEFAULT_PREFS: AppPreferences = {
   editor: { defaultViewMode: "live", contentWidth: "normal", autosaveMs: 500 },
   startup: { reopenLastVault: true, restoreSession: true },
   docks: { leftVisible: true, rightVisible: true, leftPinned: true, rightPinned: true },
-  confirmations: { confirmFileDelete: true },
 }
 
 function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
@@ -331,18 +332,22 @@ export function normalizeAppPreferences(
   const ed = (d.editor ?? {}) as Partial<EditorPrefs>
   const su = (d.startup ?? {}) as Partial<StartupPrefs>
   const dk = (d.docks ?? {}) as Partial<DockPreferences>
-  const cf = (d.confirmations ?? {}) as Partial<ConfirmationPreferences>
+  const storedTheme = d.theme ?? legacyTheme
   const autosaveMs =
     typeof ed.autosaveMs === "number" && ed.autosaveMs >= 200 && ed.autosaveMs <= 10000
       ? ed.autosaveMs
       : DEFAULT_PREFS.editor.autosaveMs
   return {
     // Migrate pre-prefs `defaultTheme` if no explicit theme was stored yet.
-    theme: oneOf<ThemePref>(d.theme ?? legacyTheme, ["dark", "light", "system"], "dark"),
+    theme: isThemeId(storedTheme) || storedTheme === "system" ? storedTheme : "dark",
     accent: oneOf<AccentId>(d.accent, ACCENTS, DEFAULT_PREFS.accent),
     fontScale: oneOf<FontScale>(d.fontScale, ["sm", "md", "lg"], DEFAULT_PREFS.fontScale),
     density: oneOf<Density>(d.density, ["comfortable", "compact"], DEFAULT_PREFS.density),
-    language: oneOf<Language>(d.language, ["ru", "en"], DEFAULT_PREFS.language),
+    language: oneOf<Language>(
+      d.language,
+      SUPPORTED_LANGUAGES.map((language) => language.code),
+      DEFAULT_PREFS.language,
+    ),
     editor: {
       defaultViewMode: oneOf<ViewModePref>(ed.defaultViewMode, ["source", "live", "read"], "live"),
       contentWidth: oneOf<ContentWidth>(ed.contentWidth, ["normal", "wide", "full"], "normal"),
@@ -358,9 +363,6 @@ export function normalizeAppPreferences(
       leftPinned: typeof dk.leftPinned === "boolean" ? dk.leftPinned : true,
       rightPinned: typeof dk.rightPinned === "boolean" ? dk.rightPinned : true,
     },
-    confirmations: {
-      confirmFileDelete: typeof cf.confirmFileDelete === "boolean" ? cf.confirmFileDelete : true,
-    },
   }
 }
 
@@ -371,6 +373,8 @@ export interface GlobalSettings {
   layout: LayoutConfig
   ai: AiSettings
   prefs: AppPreferences
+  /** Globally installed user themes. Only validated portable JSON is persisted. */
+  themes: ThemeDefinition[]
 }
 
 function normalizeModel(raw: unknown): AiModel | null {
@@ -418,6 +422,7 @@ export async function loadSettings(): Promise<GlobalSettings> {
       layout,
       ai: DEFAULT_AI,
       prefs: DEFAULT_PREFS,
+      themes: [],
     }
     if (layout.activePresetId || layout.buttons || layout.activeBySide) {
       await saveGlobalJSON(SETTINGS_FILE, settings)
@@ -426,12 +431,23 @@ export async function loadSettings(): Promise<GlobalSettings> {
   }
   const d = await loadGlobalJSON<Partial<GlobalSettings>>(SETTINGS_FILE, {})
   const legacyTheme = typeof d.defaultTheme === "string" ? d.defaultTheme : null
+  const themes = Array.isArray(d.themes)
+    ? d.themes.map(parseThemeDefinition).filter((theme): theme is ThemeDefinition => !!theme)
+    : []
+  const prefs = normalizeAppPreferences(d.prefs, legacyTheme)
+  if (
+    !BUILTIN_THEMES.some((theme) => theme.id === prefs.theme) &&
+    !themes.some((theme) => theme.id === prefs.theme)
+  ) {
+    prefs.theme = "dark"
+  }
   return {
     panelScope: d.panelScope === "workspace" ? "workspace" : "global",
     defaultTheme: legacyTheme,
     layout: { ...EMPTY_LAYOUT, ...(d.layout ?? {}) },
     ai: normalizeAi(d.ai),
-    prefs: normalizeAppPreferences(d.prefs, legacyTheme),
+    prefs,
+    themes,
   }
 }
 
@@ -455,9 +471,13 @@ export function resolveAiConfig(model: AiModel): AiConfig {
   }
 }
 
-export async function saveSettingsPatch(patch: Partial<GlobalSettings>): Promise<void> {
-  const cur = await loadSettings()
-  await saveGlobalJSON(SETTINGS_FILE, { ...cur, ...patch })
+export function saveSettingsPatch(patch: Partial<GlobalSettings>): Promise<void> {
+  const pending = settingsWriteChain.then(async () => {
+    const cur = await loadSettings()
+    await saveGlobalJSON(SETTINGS_FILE, { ...cur, ...patch })
+  })
+  settingsWriteChain = pending.catch(() => {})
+  return pending
 }
 
 // ── Per-vault: workspace.json (requires an open vault) ───────────────────────
@@ -467,13 +487,22 @@ export interface WorkspaceConfig {
   customPresets: Preset[]
   /** Used when panelScope === "workspace". */
   layout: LayoutConfig
+  confirmations: {
+    /** Keep destructive file-delete confirmation visible unless this workspace opts out. */
+    confirmFileDelete: boolean
+  }
 }
 
 export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
   if (await vaultFileMissing(WORKSPACE_FILE)) {
     // Custom presets were a single global list pre-tier; each vault inherits a copy.
     const customPresets = parseLS<Preset[]>("amby:user-presets:v1", Array.isArray) ?? []
-    const cfg: WorkspaceConfig = { theme: null, customPresets, layout: EMPTY_LAYOUT }
+    const cfg: WorkspaceConfig = {
+      theme: null,
+      customPresets,
+      layout: EMPTY_LAYOUT,
+      confirmations: { confirmFileDelete: true },
+    }
     if (customPresets.length) await saveVaultJSON(WORKSPACE_FILE, cfg)
     return cfg
   }
@@ -482,6 +511,12 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
     theme: typeof d.theme === "string" ? d.theme : null,
     customPresets: Array.isArray(d.customPresets) ? d.customPresets : [],
     layout: { ...EMPTY_LAYOUT, ...(d.layout ?? {}) },
+    confirmations: {
+      confirmFileDelete:
+        typeof d.confirmations?.confirmFileDelete === "boolean"
+          ? d.confirmations.confirmFileDelete
+          : true,
+    },
   }
 }
 

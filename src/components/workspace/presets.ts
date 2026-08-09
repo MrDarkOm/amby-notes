@@ -1,6 +1,7 @@
 import { type ActivityButton, type PanelId, type Side } from "./panel-registry"
 import { DEFAULT_BUTTONS, findButtonDef, PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
 import { ALL_MODULE_IDS, contributedDefIds } from "./modules"
+import i18n from "@/lib/i18n"
 
 /**
  * A preset is a declarative description of which modules are active and how the
@@ -8,7 +9,9 @@ import { ALL_MODULE_IDS, contributedDefIds } from "./modules"
  */
 export interface Preset {
   id: string
-  label: string
+  /** Custom/user label. Built-ins resolve labelKey at render/export time. */
+  label?: string
+  labelKey?: string
   /** Ships with the app. */
   builtin?: boolean
   /** Cannot be edited or removed (the Simple fallback). */
@@ -25,7 +28,7 @@ export interface Preset {
  */
 export const SIMPLE_PRESET: Preset = {
   id: "simple",
-  label: "Simple",
+  labelKey: "presets.simple",
   builtin: true,
   locked: true,
   activeModules: [],
@@ -41,7 +44,7 @@ export const SIMPLE_PRESET: Preset = {
 /** Standard: the balanced default (tree, tags, favorites, properties, links, graph). */
 export const STANDARD_PRESET: Preset = {
   id: "standard",
-  label: "Standard",
+  labelKey: "presets.standard",
   builtin: true,
   activeModules: ALL_MODULE_IDS,
   layout: DEFAULT_BUTTONS,
@@ -119,7 +122,13 @@ export function visibleLayout(preset: Preset): ActivityButton[] {
 interface PresetFile {
   format: "amby-preset"
   version: 1
-  preset: Pick<Preset, "id" | "label" | "activeModules" | "layout" | "activeBySide">
+  preset: {
+    id: string
+    label: string
+    activeModules: string[]
+    layout: ActivityButton[]
+    activeBySide: Record<Side, PanelId | null>
+  }
 }
 
 /** Serialize a preset to the shareable JSON file format. */
@@ -129,7 +138,7 @@ export function serializePreset(preset: Preset): string {
     version: 1,
     preset: {
       id: preset.id,
-      label: preset.label,
+      label: preset.label ?? i18n.t(preset.labelKey ?? "presets.standard"),
       activeModules: preset.activeModules,
       layout: preset.layout,
       activeBySide: preset.activeBySide,

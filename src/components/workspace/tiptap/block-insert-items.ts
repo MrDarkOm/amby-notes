@@ -1,5 +1,4 @@
 import type { Editor } from "@tiptap/core"
-import i18n from "@/lib/i18n"
 import {
   AtSign,
   CheckSquare,
@@ -42,8 +41,6 @@ export interface BlockMediaContext {
 
 export interface BlockInsertItem {
   id: string
-  title: string
-  hint: string
   icon: ElementType
   category: BlockItemCategory
   availableIn: ReadonlyArray<BlockItemSurface>
@@ -137,8 +134,6 @@ const SLASH_ONLY: ReadonlyArray<BlockItemSurface> = ["slash"]
 export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   {
     id: "paragraph",
-    title: "Paragraph",
-    hint: "Plain text",
     icon: Pilcrow,
     category: "text",
     availableIn: COMMON,
@@ -147,8 +142,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "h1",
-    title: "Heading 1",
-    hint: "# Title",
     icon: Heading1,
     category: "text",
     availableIn: COMMON,
@@ -158,8 +151,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "h2",
-    title: "Heading 2",
-    hint: "## Section",
     icon: Heading2,
     category: "text",
     availableIn: COMMON,
@@ -169,8 +160,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "h3",
-    title: "Heading 3",
-    hint: "### Subsection",
     icon: Heading3,
     category: "text",
     availableIn: COMMON,
@@ -180,8 +169,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "h4",
-    title: "Heading 4",
-    hint: "#### Section",
     icon: Heading4,
     category: "text",
     availableIn: COMMON,
@@ -191,8 +178,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "h5",
-    title: "Heading 5",
-    hint: "##### Aside",
     icon: Heading5,
     category: "text",
     availableIn: COMMON,
@@ -202,8 +187,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "bullet",
-    title: "Bullet list",
-    hint: "- item",
     icon: List,
     category: "list",
     availableIn: COMMON,
@@ -216,8 +199,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "ordered",
-    title: "Numbered list",
-    hint: "1. item",
     icon: ListOrdered,
     category: "list",
     availableIn: COMMON,
@@ -230,8 +211,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "task",
-    title: "Task list",
-    hint: "[ ] todo",
     icon: CheckSquare,
     category: "list",
     availableIn: COMMON,
@@ -268,8 +247,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "code",
-    title: "Code block",
-    hint: "``` code",
     icon: Code2,
     category: "text",
     availableIn: COMMON,
@@ -278,8 +255,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "callout",
-    title: "Callout",
-    hint: "> [!NOTE]",
     icon: MessageSquare,
     category: "text",
     availableIn: COMMON,
@@ -325,8 +300,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "database",
-    title: i18n.t("blockPanel.database"),
-    hint: i18n.t("blockPanel.databaseHint"),
     icon: Table2,
     category: "embed",
     availableIn: PLUS_SLASH,
@@ -351,8 +324,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "blockquote",
-    title: "Blockquote",
-    hint: "> quote",
     icon: Quote,
     category: "text",
     availableIn: COMMON,
@@ -362,8 +333,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "divider",
-    title: "Divider",
-    hint: "---",
     icon: Minus,
     category: "text",
     availableIn: COMMON,
@@ -372,8 +341,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "image-local",
-    title: "Image",
-    hint: "From device",
     icon: ImageIcon,
     category: "media",
     availableIn: PLUS_SLASH,
@@ -396,8 +363,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "image-url",
-    title: "Image from URL",
-    hint: "https://…",
     icon: LinkIcon,
     category: "media",
     availableIn: PLUS_SLASH,
@@ -410,8 +375,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "file-local",
-    title: "File",
-    hint: "Attach any file",
     icon: Paperclip,
     category: "media",
     availableIn: PLUS_SLASH,
@@ -444,8 +407,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "tag",
-    title: "Tag",
-    hint: "#tag",
     icon: AtSign,
     category: "embed",
     availableIn: SLASH_ONLY,
@@ -471,8 +432,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "backlink",
-    title: "Backlink",
-    hint: "[[Note]]",
     icon: Link2,
     category: "embed",
     availableIn: SLASH_ONLY,
@@ -507,8 +466,6 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
   {
     id: "emoji",
-    title: "Emoji",
-    hint: "Pick",
     icon: Smile,
     category: "embed",
     availableIn: PLUS_SLASH,

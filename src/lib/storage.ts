@@ -140,7 +140,7 @@ export async function confirmAction(message: string): Promise<boolean> {
   }
   const result = await invoke<string>("plugin:dialog|message", {
     message,
-    title: "Amby",
+    title: i18n.t("app.name"),
     kind: "warning",
     buttons: "OkCancel",
   })
@@ -320,7 +320,7 @@ function webEnsureBundle(notePath: string): {
 } {
   const tree = webGetTree()
   const item = webFindItem(tree, notePath)
-  if (!item || item.type !== "file") throw new Error(`Not a note: ${notePath}`)
+  if (!item || item.type !== "file") throw new Error(i18n.t("errors.notANote", { path: notePath }))
   if (isBundleMainPath(notePath)) return { notePath, changes: [], tree }
 
   const stem = pathStem(notePath)
@@ -365,7 +365,8 @@ function webCreateNote(parentPath: string, name: string): FsMutationResult {
   }
 
   const primaryPath = joinPath(targetDir, `${name}.md`)
-  if (webFindItem(tree, primaryPath)) throw new Error(`Note already exists: ${primaryPath}`)
+  if (webFindItem(tree, primaryPath))
+    throw new Error(i18n.t("errors.noteExists", { path: primaryPath }))
 
   const child: TreeItem = {
     id: primaryPath,
@@ -489,12 +490,12 @@ export async function listSnapshots(sourcePath: string): Promise<SnapshotEntry[]
 
 export async function restoreSnapshot(snapshotId: string): Promise<string> {
   if (isTauri()) return invoke<string>("restore_snapshot", { snapshotId })
-  throw new Error("Local history is only available in the desktop app")
+  throw new Error(i18n.t("errors.localHistoryDesktopOnly"))
 }
 
 export async function readSnapshotText(snapshotId: string): Promise<SnapshotText> {
   if (isTauri()) return invoke<SnapshotText>("read_snapshot_text", { snapshotId })
-  throw new Error("Local history is only available in the desktop app")
+  throw new Error(i18n.t("errors.localHistoryDesktopOnly"))
 }
 
 export async function listTrash(): Promise<TrashEntry[]> {
@@ -504,7 +505,7 @@ export async function listTrash(): Promise<TrashEntry[]> {
 
 export async function restoreTrash(trashId: string): Promise<FsMutationResult> {
   if (isTauri()) return invoke<FsMutationResult>("restore_trash", { trashId })
-  throw new Error("Trash restore is only available in the desktop app")
+  throw new Error(i18n.t("errors.trashDesktopOnly"))
 }
 
 export async function previewRenameRefactor(
@@ -672,7 +673,7 @@ export async function unlinkLayer(
     i += 1
   }
   const content = localStorage.getItem(FILE_PREFIX + oldPath)
-  if (content === null) throw new Error(`Layer file not found: ${oldPath}`)
+  if (content === null) throw new Error(i18n.t("errors.layerNotFound", { path: oldPath }))
   localStorage.setItem(FILE_PREFIX + newPath, content)
   localStorage.removeItem(FILE_PREFIX + oldPath)
   return {
@@ -732,7 +733,7 @@ export async function renameItem(
 
   const tree = webGetTree()
   const item = webFindItem(tree, path)
-  if (!item) throw new Error(`Path not found: ${path}`)
+  if (!item) throw new Error(i18n.t("errors.pathNotFound", { path }))
 
   const oldIds = webCollectFileIds(item)
   const oldPrefix = isBundleMainPath(path) ? pathDir(path) : path
@@ -770,7 +771,7 @@ export async function moveItem(
   const source = webFindItem(tree, sourcePath)
   const target = targetPath === vaultPath ? null : webFindItem(tree, targetPath)
   if (!source || (targetPath !== vaultPath && !target))
-    throw new Error("Move source or target not found")
+    throw new Error(i18n.t("errors.moveTargetNotFound"))
 
   const pathChanges: PathChange[] = []
   let targetParentId: string | null = null
@@ -788,7 +789,7 @@ export async function moveItem(
   }
 
   const removed = webRemoveItem(tree, sourcePath)
-  if (!removed.item) throw new Error(`Source not found: ${sourcePath}`)
+  if (!removed.item) throw new Error(i18n.t("errors.sourceNotFound", { path: sourcePath }))
   const sourceRoot = isBundleMainPath(sourcePath) ? pathDir(sourcePath) : sourcePath
   const sourceRootName = pathBase(sourceRoot)
   const newRoot = joinPath(targetDir, sourceRootName)

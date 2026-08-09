@@ -743,7 +743,7 @@ export function InfoPanel({ properties }: PanelRenderProps) {
             </button>
             {technicalOpen && (
               <div className="border-t border-border px-3 py-2.5">
-                <div className="text-[10px] text-muted-foreground">ID</div>
+                <div className="text-[10px] text-muted-foreground">{t("infoPanel.id")}</div>
                 <div className="mt-1 flex items-start gap-2">
                   <code className="min-w-0 flex-1 break-all font-mono text-[10px] leading-relaxed text-foreground">
                     {properties.id}
@@ -866,7 +866,9 @@ export function HistoryPanel({ currentDocPath, onHistoryRestored }: PanelRenderP
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <span>{new Date(entry.createdAtMs).toLocaleString()}</span>
                   <span className="text-muted-foreground">
-                    {Math.max(1, Math.ceil(entry.sizeBytes / 1024))} KB
+                    {t("historyPanel.kilobytes", {
+                      count: Math.max(1, Math.ceil(entry.sizeBytes / 1024)),
+                    })}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-2">

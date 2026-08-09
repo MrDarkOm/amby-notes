@@ -7,6 +7,8 @@ import {
   Bot,
   Check,
   Command,
+  Download,
+  ExternalLink,
   FolderCog,
   FolderOpen,
   Monitor,
@@ -15,6 +17,7 @@ import {
   PlugZap,
   RotateCcw,
   Trash2,
+  Upload,
   UserRound,
 } from "lucide-react"
 
@@ -29,7 +32,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { confirmAction, openInExplorer, isTauri } from "@/lib/storage"
+import {
+  confirmAction,
+  exportTextFile,
+  importTextFile,
+  openInExplorer,
+  isTauri,
+} from "@/lib/storage"
+import {
+  BUILTIN_THEMES,
+  parseThemeDefinition,
+  themeById,
+  withUniqueThemeId,
+  type BuiltinTheme,
+  type ThemeDefinition,
+  ACCENT_HEX,
+  THEME_PREVIEW_FALLBACK,
+} from "@/lib/themes"
+import { SUPPORTED_LANGUAGES } from "@/lib/i18n"
 import { useSettingsStore } from "./use-settings-store"
 import { useVaultStore } from "./use-vault-store"
 import { ModelsManager } from "./models-manager"
@@ -41,7 +61,6 @@ import {
   loadSettings,
   saveSettingsPatch,
   saveWorkspaces,
-  type AccentId,
   type AiSettings,
   type ContentWidth,
   type Density,
@@ -51,15 +70,6 @@ import {
   type ThemePref,
   type ViewModePref,
 } from "./app-config"
-
-const ACCENT_HEX: Record<AccentId, string> = {
-  violet: "#8b5cf6",
-  sky: "#0ea5e9",
-  teal: "#14b8a6",
-  emerald: "#10b981",
-  amber: "#f59e0b",
-  rose: "#f43f5e",
-}
 
 function Row({
   label,
@@ -102,7 +112,9 @@ export function SettingsDialog({
 }: SettingsDialogProps) {
   const { t } = useTranslation()
   const prefs = useSettingsStore((s) => s.prefs)
+  const themes = useSettingsStore((s) => s.themes)
   const setPrefs = useSettingsStore((s) => s.setPrefs)
+  const setThemes = useSettingsStore((s) => s.setThemes)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -194,8 +206,11 @@ export function SettingsDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ru">{t("settings.appearance.russian")}</SelectItem>
-                    <SelectItem value="en">{t("settings.appearance.english")}</SelectItem>
+                    {SUPPORTED_LANGUAGES.map((language) => (
+                      <SelectItem key={language.code} value={language.code}>
+                        {t(language.labelKey)}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </Row>
@@ -231,9 +246,25 @@ export function SettingsDialog({
                     <SelectItem value="dark">{t("settings.appearance.themeDark")}</SelectItem>
                     <SelectItem value="light">{t("settings.appearance.themeLight")}</SelectItem>
                     <SelectItem value="system">{t("settings.appearance.themeSystem")}</SelectItem>
+                    <SelectItem value="midnight">
+                      {t("settings.appearance.themeMidnight")}
+                    </SelectItem>
+                    <SelectItem value="paper">{t("settings.appearance.themePaper")}</SelectItem>
+                    {themes.map((theme) => (
+                      <SelectItem key={theme.id} value={theme.id}>
+                        {theme.name}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </Row>
+
+              <ThemeLibrary
+                selectedThemeId={prefs.theme}
+                themes={themes}
+                onSelect={(theme) => setPrefs({ theme })}
+                onThemesChange={setThemes}
+              />
 
               <Row label={t("settings.appearance.accent")}>
                 <div className="flex items-center gap-1.5">
@@ -385,6 +416,188 @@ export function SettingsDialog({
     </Dialog>
   )
 }
+
+function builtinThemeName(theme: BuiltinTheme, t: (key: string) => string): string {
+  const key: Record<BuiltinTheme["id"], string> = {
+    dark: "settings.appearance.themeDark",
+    light: "settings.appearance.themeLight",
+    system: "settings.appearance.themeSystem",
+    midnight: "settings.appearance.themeMidnight",
+    paper: "settings.appearance.themePaper",
+  }
+  return t(key[theme.id])
+}
+
+function ThemePreview({ theme }: { theme: BuiltinTheme | ThemeDefinition }) {
+  const background =
+    theme.tokens["--workspace-bg"] ??
+    (theme.mode === "dark"
+      ? THEME_PREVIEW_FALLBACK.dark.background
+      : THEME_PREVIEW_FALLBACK.light.background)
+  const surface =
+    theme.tokens["--note-surface"] ??
+    (theme.mode === "dark"
+      ? THEME_PREVIEW_FALLBACK.dark.surface
+      : THEME_PREVIEW_FALLBACK.light.surface)
+  const borderToken = theme.tokens["--border"]
+  const border = borderToken
+    ? /^\d+(?:\.\d+)?\s+\d+(?:\.\d+)?%\s+\d+(?:\.\d+)?%$/u.test(borderToken)
+      ? `hsl(${borderToken})`
+      : borderToken
+    : theme.mode === "dark"
+      ? THEME_PREVIEW_FALLBACK.dark.border
+      : THEME_PREVIEW_FALLBACK.light.border
+  return (
+    <span
+      className="grid h-8 w-12 grid-cols-3 gap-1 rounded border p-1"
+      style={{ background, borderColor: border }}
+    >
+      <span className="col-span-1 rounded-sm opacity-75" style={{ background: surface }} />
+      <span className="col-span-2 rounded-sm" style={{ background: surface }} />
+    </span>
+  )
+}
+
+function ThemeLibrary({
+  selectedThemeId,
+  themes,
+  onSelect,
+  onThemesChange,
+}: {
+  selectedThemeId: string
+  themes: ThemeDefinition[]
+  onSelect: (id: string) => void
+  onThemesChange: (themes: ThemeDefinition[]) => void
+}) {
+  const { t } = useTranslation()
+  const [error, setError] = React.useState<string | null>(null)
+  const selected = themeById(selectedThemeId, themes)
+
+  async function importTheme() {
+    setError(null)
+    try {
+      const text = await importTextFile()
+      if (!text) return
+      const parsed = parseThemeDefinition(JSON.parse(text))
+      if (!parsed) {
+        setError(t("settings.appearance.themeImportFailed"))
+        return
+      }
+      const theme = withUniqueThemeId(parsed, themes)
+      onThemesChange([...themes, theme])
+      onSelect(theme.id)
+    } catch {
+      setError(t("settings.appearance.themeImportFailed"))
+    }
+  }
+
+  async function exportTheme(theme: ThemeDefinition) {
+    try {
+      await exportTextFile(`${JSON.stringify(theme, null, 2)}\n`, `${theme.id}.amby-theme.json`)
+    } catch {
+      // A cancelled native dialog intentionally leaves the library untouched.
+    }
+  }
+
+  async function removeTheme(theme: ThemeDefinition) {
+    if (!(await confirmAction(t("settings.appearance.themeRemoveConfirm", { name: theme.name }))))
+      return
+    onThemesChange(themes.filter((item) => item.id !== theme.id))
+    if (selectedThemeId === theme.id) onSelect("dark")
+  }
+
+  return (
+    <section className="space-y-3 py-3">
+      <div>
+        <p className="text-[13px] text-foreground">{t("settings.appearance.themeLibrary")}</p>
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          {t("settings.appearance.themeLibraryHint")}
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {BUILTIN_THEMES.map((theme) => (
+          <button
+            key={theme.id}
+            type="button"
+            onClick={() => onSelect(theme.id)}
+            className={cn(
+              "flex items-center gap-2 rounded-md border p-2 text-left transition-colors hover:bg-card",
+              selected.id === theme.id ? "border-primary ring-1 ring-primary" : "border-border",
+            )}
+          >
+            <ThemePreview theme={theme} />
+            <span className="min-w-0 text-[12px] text-foreground">
+              {builtinThemeName(theme, t)}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={themeActionClass} onClick={() => void importTheme()}>
+          <Upload className="size-3.5" />
+          {t("settings.appearance.importTheme")}
+        </button>
+        <a
+          className={themeActionClass}
+          href="https://github.com/search?q=amby-theme.json&type=code"
+          target="_blank"
+          rel="noreferrer"
+        >
+          <ExternalLink className="size-3.5" />
+          {t("settings.appearance.discoverThemes")}
+        </a>
+      </div>
+      {error && <p className="text-[11px] text-destructive">{error}</p>}
+
+      {themes.length > 0 && (
+        <div className="space-y-1 rounded-md border border-border p-2">
+          <p className="px-1 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t("settings.appearance.importedThemes")}
+          </p>
+          {themes.map((theme) => (
+            <div key={theme.id} className="flex items-center gap-2 rounded px-1 py-1">
+              <button
+                type="button"
+                className="min-w-0 flex flex-1 items-center gap-2 text-left"
+                onClick={() => onSelect(theme.id)}
+              >
+                <ThemePreview theme={theme} />
+                <span className="min-w-0">
+                  <span className="block truncate text-[12px] text-foreground">{theme.name}</span>
+                  {theme.author && (
+                    <span className="block truncate text-[10px] text-muted-foreground">
+                      {t("settings.appearance.themeAuthor", { author: theme.author })}
+                    </span>
+                  )}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="rounded p-1 text-muted-foreground hover:bg-card hover:text-foreground"
+                title={t("settings.appearance.exportTheme")}
+                onClick={() => void exportTheme(theme)}
+              >
+                <Download className="size-3.5" />
+              </button>
+              <button
+                type="button"
+                className="rounded p-1 text-muted-foreground hover:bg-card hover:text-destructive"
+                title={t("settings.appearance.removeTheme")}
+                onClick={() => void removeTheme(theme)}
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+const themeActionClass =
+  "inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] text-foreground transition-colors hover:bg-card"
 
 function NavLabel({ children }: { children: React.ReactNode }) {
   return (

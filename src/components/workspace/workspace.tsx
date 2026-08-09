@@ -67,6 +67,7 @@ function workspaceRelativePath(path: string, workspacePath: string): string {
 
 /** Minimal draggable header shown on the empty-vault screen. */
 function EmptyStateHeader() {
+  const { t } = useTranslation()
   const [isMaximized, setIsMaximized] = React.useState(false)
   const lastClickRef = React.useRef(0)
 
@@ -117,7 +118,7 @@ function EmptyStateHeader() {
 
       {/* Logo / app name */}
       <div className="flex shrink-0 items-center gap-2 px-3" onMouseDown={handleMouseDown}>
-        <span className="text-sm font-semibold text-foreground">Amby</span>
+        <span className="text-sm font-semibold text-foreground">{t("app.name")}</span>
       </div>
 
       {/* Drag region fills the rest */}
@@ -256,8 +257,12 @@ export function Workspace() {
     exportPreset,
   } = usePresets(vault)
   const presetOptions = React.useMemo(
-    () => presets.map((p) => ({ id: p.id, label: p.label })),
-    [presets],
+    () =>
+      presets.map((p) => ({
+        id: p.id,
+        label: p.label ?? t(p.labelKey ?? "presets.standard"),
+      })),
+    [presets, t],
   )
 
   async function handleExportPreset() {

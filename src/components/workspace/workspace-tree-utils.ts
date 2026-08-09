@@ -19,6 +19,13 @@ export function wsPathStem(path: string): string {
   return wsPathBase(path).replace(/\.[^.]+$/u, "")
 }
 
+/** A supernote is the main Markdown file inside its same-named bundle folder. */
+export function isSuperNoteItem(item: Pick<TreeItem, "path" | "type">): boolean {
+  if (item.type !== "file") return false
+  const parent = wsPathDir(item.path).replace(/[\\/]+$/u, "")
+  return wsPathBase(parent) === wsPathStem(item.path)
+}
+
 /** Path of a note's canvas layer sidecar file (<dir>/<stem>.canvas). */
 export function canvasLayerPath(notePath: string): string {
   const dir = wsPathDir(notePath)

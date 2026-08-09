@@ -44,6 +44,7 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { CANVAS_UI_COLORS } from "@/lib/themes"
 import {
   parseCanvas,
   toReactFlow,
@@ -280,7 +281,7 @@ function GroupNode({ id, data, selected }: NodeProps) {
   const { updateNodeData } = useCanvasCtx()
   const [editing, setEditing] = React.useState(false)
   const [hover, setHover] = React.useState(false)
-  const accent = colorToCss(d.color) ?? "#52525b"
+  const accent = colorToCss(d.color) ?? CANVAS_UI_COLORS.fallbackAccent
   return (
     <div
       className="group relative flex h-full w-full flex-col rounded-md border-2 border-dashed"
@@ -866,12 +867,17 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
           onEdgeContextMenu={(e, ed) => openMenu(e, "edge", ed.id)}
           className="bg-background"
         >
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#3f3f46" />
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={20}
+            size={1}
+            color={CANVAS_UI_COLORS.backgroundDots}
+          />
           <Controls className="!border-border !bg-card" />
           <MiniMap
             className="!bg-card"
-            maskColor="rgba(0,0,0,0.6)"
-            nodeColor="#52525b"
+            maskColor={CANVAS_UI_COLORS.minimapMask}
+            nodeColor={CANVAS_UI_COLORS.minimapNode}
             pannable
             zoomable
           />

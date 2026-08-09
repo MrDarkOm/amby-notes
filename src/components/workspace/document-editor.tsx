@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
+  BookOpenText,
   Code2,
   Database,
   ChevronDown,
@@ -44,6 +45,7 @@ import { isTauri, type NoteProperties } from "@/lib/storage"
 import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./tiptap/floating-menu-events"
 import type { TreeItem } from "./sidebar-tree"
+import { isSuperNoteItem } from "./workspace-tree-utils"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -309,8 +311,9 @@ export function DocumentEditor({
   const hasPageEmoji = Boolean(
     fileIcon && !/^(folder|file|page|workspace|canvas|draft|brain)$/.test(fileIcon),
   )
+  const isSuperNote = Boolean(document && isSuperNoteItem({ path: document.path, type: "file" }))
 
-  const breadcrumbContent =
+  const breadcrumbTrail =
     breadcrumb.length > 0 ? (
       breadcrumb.map((seg, idx) => {
         const isLast = idx === breadcrumb.length - 1
@@ -341,6 +344,22 @@ export function DocumentEditor({
     ) : document ? (
       <span className="truncate text-muted-foreground">{document.title}</span>
     ) : null
+  const breadcrumbContent = document ? (
+    <>
+      {isSuperNote ? (
+        <BookOpenText
+          className="size-3.5 shrink-0 text-muted-foreground"
+          aria-label={t("docEditor.supernote")}
+        />
+      ) : (
+        <FileText
+          className="size-3.5 shrink-0 text-muted-foreground"
+          aria-label={t("docEditor.note")}
+        />
+      )}
+      {breadcrumbTrail}
+    </>
+  ) : null
 
   const navBar = hideNavigation ? null : (
     <>

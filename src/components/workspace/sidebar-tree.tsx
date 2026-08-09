@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import {
   Bookmark,
   BookmarkCheck,
+  BookOpenText,
   ChevronRight,
   Database,
   FileText,
@@ -33,6 +34,7 @@ import {
 } from "@/components/ui/context-menu"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { setTreeDragPayload, clearTreeDragPayload } from "@/lib/canvas-dnd"
+import { isSuperNoteItem } from "./workspace-tree-utils"
 
 type AttachableLayer = "canvas" | "database"
 interface NodeLayers {
@@ -53,7 +55,16 @@ export interface TreeItem {
   children?: TreeItem[]
 }
 
-const KNOWN_ICONS = new Set(["folder", "file", "page", "workspace", "canvas", "draft", "brain"])
+const KNOWN_ICONS = new Set([
+  "folder",
+  "file",
+  "supernote",
+  "page",
+  "workspace",
+  "canvas",
+  "draft",
+  "brain",
+])
 const ROOT_DROP_TARGET = "__amby_root__"
 
 interface PtrDrag {
@@ -141,6 +152,8 @@ function getIcon(icon: string | undefined, className?: string) {
   switch (icon) {
     case "folder":
       return <Folder className={cls} />
+    case "supernote":
+      return <BookOpenText className={cls} />
     case "workspace":
       return <WorkspaceIcon className={cls} />
     case "brain":
@@ -154,6 +167,11 @@ function getIcon(icon: string | undefined, className?: string) {
     default:
       return <FileText className={cls} />
   }
+}
+
+function itemIcon(item: TreeItem): string | undefined {
+  if (item.icon && item.icon !== "file") return item.icon
+  return isSuperNoteItem(item) ? "supernote" : item.type === "folder" ? "folder" : "file"
 }
 
 // ── TreeNode props ────────────────────────────────────────────────────────────
@@ -507,7 +525,7 @@ const TreeNode = React.memo(
                     }}
                     className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                   >
-                    {getIcon(item.icon || "folder", "text-muted-foreground")}
+                    {getIcon(itemIcon(item), "text-muted-foreground")}
                     {nameNode}
                   </button>
                 </div>
@@ -540,7 +558,7 @@ const TreeNode = React.memo(
                 style={{ paddingLeft: paddingLeft + 15 }}
                 {...selectedAttr}
               >
-                {getIcon(item.icon || "file", "text-muted-foreground")}
+                {getIcon(itemIcon(item), "text-muted-foreground")}
                 {nameNode}
                 {favorites?.has(item.id) && (
                   <Star className="ml-auto size-3 shrink-0 text-amber-400 fill-amber-400" />

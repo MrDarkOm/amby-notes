@@ -392,7 +392,13 @@ pub(crate) fn create_note_impl(parent_path: &Path, name: &str) -> Result<FsMutat
         (prospective_container, Vec::new(), None)
     };
     let new_note = container.join(format!("{trimmed}.md"));
-    if let Err(error) = frontmatter::atomic_write(&new_note, "") {
+    if let Err(error) = frontmatter::atomic_write_new(&new_note, "") {
+        let error = match error {
+            frontmatter::AtomicCreateError::AlreadyExists => {
+                format!("Note already exists: {}", path_string(&new_note))
+            }
+            frontmatter::AtomicCreateError::Other(error) => error,
+        };
         if let Some(main_note) = promoted_main {
             if let Err(rollback_error) = rollback_bundle_promotion(parent_path, &main_note) {
                 return Err(format!(
@@ -438,7 +444,20 @@ pub(crate) fn create_layer_impl(note_path: &Path, kind: &str) -> Result<LayerRes
     };
 
     if !layer_path.exists() {
-        if let Err(error) = frontmatter::atomic_write(&layer_path, default_content) {
+        if let Err(error) = frontmatter::atomic_write_new(&layer_path, default_content) {
+            // Another process may have created the layer after the existence
+            // check. Its file is now the authoritative layer; never replace it.
+            if matches!(error, frontmatter::AtomicCreateError::AlreadyExists) {
+                return Ok(LayerResult {
+                    note_path: path_string(&main_note),
+                    layer_path: path_string(&layer_path),
+                    kind: kind.to_string(),
+                    path_changes,
+                });
+            }
+            let frontmatter::AtomicCreateError::Other(error) = error else {
+                unreachable!("AlreadyExists was handled above");
+            };
             if !path_changes.is_empty() {
                 if let Err(rollback_error) = rollback_bundle_promotion(note_path, &main_note) {
                     return Err(format!(
@@ -537,7 +556,13 @@ pub(crate) fn create_canvas_impl(parent_path: &Path, name: &str) -> Result<PathB
         return Err(format!("Not a directory: {}", path_string(&container)));
     }
     let path = unique_canvas_path(&container, trimmed);
-    frontmatter::atomic_write(&path, "{}\n")?;
+    match frontmatter::atomic_write_new(&path, "{}\n") {
+        Ok(()) => {}
+        Err(frontmatter::AtomicCreateError::AlreadyExists) => {
+            return Err(format!("Canvas already exists: {}", path_string(&path)));
+        }
+        Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+    }
     Ok(path)
 }
 
@@ -553,7 +578,13 @@ pub(crate) fn attach_canvas_impl(canvas_path: &Path) -> Result<FsMutationResult,
 
     // Create a sibling note (unique name), then turn it into a bundle that owns the canvas.
     let note_path = unique_note_path(dir, &stem);
-    frontmatter::atomic_write(&note_path, "")?;
+    match frontmatter::atomic_write_new(&note_path, "") {
+        Ok(()) => {}
+        Err(frontmatter::AtomicCreateError::AlreadyExists) => {
+            return Err(format!("Note already exists: {}", path_string(&note_path)));
+        }
+        Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+    }
     let (main_note, mut path_changes) = match ensure_bundle_path(&note_path) {
         Ok(result) => result,
         Err(error) => {
@@ -655,7 +686,14 @@ pub(crate) fn unlink_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutati
     })
 }
 
-pub(crate) fn delete_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutationResult, String> {
+/// Move a layer to Amby's vault-local recycle bin. Layer data is often binary
+/// (Canvas/Excalidraw), so relying on the OS recycle bin made recovery depend
+/// on a separate, user-emptyable store and left no entry in the app history.
+pub(crate) fn delete_layer_impl(
+    vault: &Path,
+    note_path: &Path,
+    kind: &str,
+) -> Result<FsMutationResult, String> {
     let layer_path = layer_file_path(note_path, kind)?;
     if !layer_path.exists() {
         return Err(format!(
@@ -663,19 +701,9 @@ pub(crate) fn delete_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutati
             path_string(&layer_path)
         ));
     }
-    let deleted_paths = if is_markdown(&layer_path) {
-        vec![path_string(&layer_path)]
-    } else {
-        Vec::new()
-    };
-    trash::delete(&layer_path).map_err(|e| e.to_string())?;
-    Ok(FsMutationResult {
-        primary_id: None,
-        primary_path: Some(path_string(note_path)),
-        path_changes: Vec::new(),
-        deleted_paths,
-        deleted_ids: Vec::new(),
-    })
+    let mut result = crate::recycle_bin::move_to_trash(vault, &layer_path)?;
+    result.primary_path = Some(path_string(note_path));
+    Ok(result)
 }
 
 fn bundle_rename_path_changes(
@@ -1364,6 +1392,24 @@ mod tests {
         assert!(error.contains("Unknown layer kind"));
         assert!(note.exists());
         assert!(!vault.join("Note").exists());
+    }
+
+    #[test]
+    fn deleting_a_layer_keeps_a_vault_local_recoverable_copy() {
+        let vault = temp_vault("delete-layer");
+        let bundle = vault.join("Note");
+        fs::create_dir(&bundle).unwrap();
+        let note = bundle.join("Note.md");
+        let layer = bundle.join("Note.canvas");
+        fs::write(&note, "note").unwrap();
+        fs::write(&layer, "canvas data").unwrap();
+
+        delete_layer_impl(&vault, &note, "canvas").unwrap();
+
+        assert!(!layer.exists());
+        let entry = crate::recycle_bin::list(&vault).pop().unwrap();
+        crate::recycle_bin::restore(&vault, &entry.id).unwrap();
+        assert_eq!(fs::read_to_string(&layer).unwrap(), "canvas data");
     }
 
     #[test]

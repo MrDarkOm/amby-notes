@@ -2,29 +2,7 @@
 
 import { Eraser, Highlighter, Type } from "lucide-react"
 import { useTranslation } from "react-i18next"
-
-const TEXT_COLORS = [
-  "#ef4444",
-  "#f97316",
-  "#eab308",
-  "#22c55e",
-  "#06b6d4",
-  "#3b82f6",
-  "#a855f7",
-  "#f472b6",
-  "#e5e7eb",
-]
-const BACKGROUND_COLORS = [
-  "#7f1d1d",
-  "#7c2d12",
-  "#713f12",
-  "#14532d",
-  "#164e63",
-  "#1e3a8a",
-  "#4c1d95",
-  "#831843",
-  "#3f3f46",
-]
+import { EDITOR_BACKGROUND_COLORS, EDITOR_TEXT_COLORS } from "@/lib/themes"
 
 function ColorButton({
   color,
@@ -47,7 +25,15 @@ function ColorButton({
   )
 }
 
-function ClearButton({ title, onClick }: { title: string; onClick: () => void }) {
+function ClearButton({
+  title,
+  label,
+  onClick,
+}: {
+  title: string
+  label: string
+  onClick: () => void
+}) {
   return (
     <button
       type="button"
@@ -57,7 +43,7 @@ function ClearButton({ title, onClick }: { title: string; onClick: () => void })
       onClick={onClick}
     >
       <Eraser className="size-3" />
-      Clear
+      {label}
     </button>
   )
 }
@@ -81,7 +67,7 @@ export function TextStylePalette({
           <Type className="size-3.5" />
         </div>
         <div className="grid flex-1 grid-cols-9 gap-1">
-          {TEXT_COLORS.map((color) => (
+          {EDITOR_TEXT_COLORS.map((color) => (
             <ColorButton
               key={color}
               color={color}
@@ -90,14 +76,18 @@ export function TextStylePalette({
             />
           ))}
         </div>
-        <ClearButton title={t("palette.clearTextColor")} onClick={onClearTextColor} />
+        <ClearButton
+          title={t("palette.clearTextColor")}
+          label={t("palette.clear")}
+          onClick={onClearTextColor}
+        />
       </div>
       <div className="flex items-center gap-2">
         <div className="flex size-6 items-center justify-center rounded border border-border bg-card text-foreground">
           <Highlighter className="size-3.5" />
         </div>
         <div className="grid flex-1 grid-cols-9 gap-1">
-          {BACKGROUND_COLORS.map((color) => (
+          {EDITOR_BACKGROUND_COLORS.map((color) => (
             <ColorButton
               key={color}
               color={color}
@@ -106,7 +96,11 @@ export function TextStylePalette({
             />
           ))}
         </div>
-        <ClearButton title={t("palette.clearBg")} onClick={onClearBackgroundColor} />
+        <ClearButton
+          title={t("palette.clearBg")}
+          label={t("palette.clear")}
+          onClick={onClearBackgroundColor}
+        />
       </div>
     </div>
   )

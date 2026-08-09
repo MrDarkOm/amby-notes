@@ -6,8 +6,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use ulid::Ulid;
 
 const HISTORY_DIR: &str = "history";
-const MAX_SNAPSHOTS_PER_FILE: usize = 30;
-const MAX_TOTAL_SNAPSHOT_BYTES: u64 = 200 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct SnapshotMetadata {
@@ -17,6 +15,11 @@ struct SnapshotMetadata {
     created_at_ms: u64,
     reason: String,
     size_bytes: u64,
+    /// Non-cryptographic integrity check for accidental disk corruption. This
+    /// is deliberately stored with the snapshot, not inferred from its file
+    /// name, so a damaged version can never be restored silently.
+    #[serde(default)]
+    content_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, specta::Type)]
@@ -84,26 +87,35 @@ fn read_metadata(root: &Path) -> Vec<SnapshotMetadata> {
         .collect()
 }
 
-fn prune(root: &Path) {
-    let mut snapshots = read_metadata(root);
-    snapshots.sort_by_key(|snapshot| std::cmp::Reverse(snapshot.created_at_ms));
+fn content_hash(bytes: &[u8]) -> String {
+    // FNV-1a is compact and stable across platforms. It is not a security
+    // boundary; it detects accidental corruption before a restore operation.
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
 
-    let mut total_bytes = 0_u64;
-    let mut versions_per_file = std::collections::HashMap::<String, usize>::new();
-    for snapshot in snapshots {
-        let versions = versions_per_file
-            .entry(snapshot.source_path.clone())
-            .or_default();
-        let should_remove = *versions >= MAX_SNAPSHOTS_PER_FILE
-            || total_bytes.saturating_add(snapshot.size_bytes) > MAX_TOTAL_SNAPSHOT_BYTES;
-        if should_remove {
-            let _ = fs::remove_file(snapshot_data_path(root, &snapshot.id));
-            let _ = fs::remove_file(snapshot_meta_path(root, &snapshot.id));
-        } else {
-            *versions += 1;
-            total_bytes = total_bytes.saturating_add(snapshot.size_bytes);
+fn validate_snapshot_bytes(metadata: &SnapshotMetadata, bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() as u64 != metadata.size_bytes {
+        return Err(format!(
+            "Historical version {} is incomplete (expected {} bytes, found {})",
+            metadata.id,
+            metadata.size_bytes,
+            bytes.len()
+        ));
+    }
+    if let Some(expected) = &metadata.content_hash {
+        if content_hash(bytes) != *expected {
+            return Err(format!(
+                "Historical version {} failed its integrity check",
+                metadata.id
+            ));
         }
     }
+    Ok(())
 }
 
 /// Store the pre-write bytes of an existing vault file. Snapshots use opaque
@@ -133,12 +145,13 @@ pub fn snapshot_before_write(
         .map_err(|error| error.to_string())?
         .as_millis() as u64;
     let metadata = SnapshotMetadata {
-        version: 1,
+        version: 2,
         id: id.clone(),
         source_path,
         created_at_ms,
         reason: reason.to_string(),
         size_bytes: current.len() as u64,
+        content_hash: Some(content_hash(&current)),
     };
 
     frontmatter::atomic_write_bytes(&snapshot_data_path(&root, &id), &current)?;
@@ -146,7 +159,6 @@ pub fn snapshot_before_write(
         &snapshot_meta_path(&root, &id),
         &serde_json::to_vec_pretty(&metadata).map_err(|error| error.to_string())?,
     )?;
-    prune(&root);
     Ok(Some(id))
 }
 
@@ -171,11 +183,12 @@ pub fn restore_snapshot(vault: &Path, id: &str) -> Result<PathBuf, String> {
         &fs::read(snapshot_meta_path(&root, id)).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
-    if metadata.id != id || metadata.version != 1 {
+    if metadata.id != id || !matches!(metadata.version, 1 | 2) {
         return Err("Invalid snapshot metadata".to_string());
     }
     let source = crate::paths::confine_rel(vault, &metadata.source_path)?;
     let bytes = fs::read(snapshot_data_path(&root, id)).map_err(|error| error.to_string())?;
+    validate_snapshot_bytes(&metadata, &bytes)?;
     snapshot_before_write(vault, &source, &bytes, "restore")?;
     frontmatter::atomic_write_bytes(&source, &bytes)?;
     Ok(source)
@@ -191,10 +204,11 @@ pub fn read_snapshot_text(vault: &Path, id: &str) -> Result<SnapshotText, String
         &fs::read(snapshot_meta_path(&root, id)).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
-    if metadata.id != id || metadata.version != 1 {
+    if metadata.id != id || !matches!(metadata.version, 1 | 2) {
         return Err("Invalid snapshot metadata".to_string());
     }
     let bytes = fs::read(snapshot_data_path(&root, id)).map_err(|error| error.to_string())?;
+    validate_snapshot_bytes(&metadata, &bytes)?;
     let content = String::from_utf8(bytes)
         .map_err(|_| "This historical version is not UTF-8 text".to_string())?;
     Ok(SnapshotText {
@@ -249,6 +263,22 @@ mod tests {
 
         assert_eq!(fs::read_to_string(&note).unwrap(), "before");
         assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn rejects_a_corrupted_snapshot_before_restore() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "before").unwrap();
+        let id = snapshot_before_write(&vault, &note, b"after", "note-save")
+            .unwrap()
+            .unwrap();
+        let root = history_root(&vault);
+        fs::write(snapshot_data_path(&root, &id), "damaged").unwrap();
+
+        assert!(restore_snapshot(&vault, &id).is_err());
+        assert_eq!(fs::read_to_string(&note).unwrap(), "before");
         fs::remove_dir_all(vault).unwrap();
     }
 }

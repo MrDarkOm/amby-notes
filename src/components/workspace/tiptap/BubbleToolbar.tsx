@@ -498,7 +498,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
                   autoFocus
                   type="url"
                   className="w-48 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-                  placeholder="https://..."
+                  placeholder={t("editorToolbar.urlPlaceholder")}
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyDown={(e) => handleInputKey(e, applyLink)}

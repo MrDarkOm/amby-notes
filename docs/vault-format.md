@@ -51,6 +51,11 @@ truncates the original note. Existing UTF-8 BOM and the dominant line-ending
 style (LF or CRLF) are preserved. Amby refuses to rewrite a non-UTF-8 text file
 through the text editor rather than silently changing its encoding.
 
+Creation uses a separate no-replace publication path: a file or attachment
+cannot replace a path that appeared after Amby checked whether a name was free.
+Imported binary assets are fully written and synced before they become visible
+at their final path.
+
 Autosave work is serialized per file. A completed older write cannot clear the
 unsaved state of a newer in-memory buffer, and a stale queued buffer is skipped.
 
@@ -69,8 +74,29 @@ local version can be restored by an explicit save.
 
 Before Amby replaces an existing note or text file, it stores the original raw
 bytes in `.amby/history/`. Snapshots preserve BOM and line endings exactly and
-are pruned to at most 30 versions per source file and 200 MiB in total. This
-history is application metadata; the Markdown vault remains the source of truth.
+include the original byte count plus an integrity hash; a damaged version is
+never restored silently. History is append-only and is **not automatically
+pruned**. Cleanup must be an explicit, user-visible action once a retention UI
+exists. This history is application metadata; the Markdown vault remains the
+source of truth.
+
+Deletes made through Amby are moves to `.amby/trash/`, including Canvas,
+Excalidraw, and database layers. They remain restorable from the History panel
+and are never delegated solely to an OS recycle bin that may be emptied outside
+the app.
+
+## Backup and Git policy
+
+Local history protects against accidental application actions and failed saves;
+it is not a substitute for a second physical copy. A protected vault should be
+backed up by the operating system or a sync service with version history.
+
+Git is a useful optional third layer for Markdown-first vaults: initialise it
+only with the user's explicit choice, commit the user-visible note and asset
+files, and keep `.amby/` ignored because it contains rebuildable indexes and
+local recovery data. Amby must not silently initialise repositories, create
+commits, rewrite history, or push to a remote: each can conflict with a user's
+existing workflow and is itself a data-changing operation.
 
 ## Rename and move
 

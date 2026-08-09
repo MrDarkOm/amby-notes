@@ -8,6 +8,23 @@ use crate::model::{FrontmatterProperty, NoteProperties};
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Flush the containing directory after publishing a rename. On Unix this
+/// makes the rename durable across a sudden power loss, rather than merely
+/// visible to the running process. Windows does not allow opening directories
+/// as files through the standard library, so the renamed file's own sync is
+/// still the strongest portable guarantee there.
+#[cfg(unix)]
+fn sync_parent_directory(parent: &Path) -> Result<(), String> {
+    fs::File::open(parent)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_parent: &Path) -> Result<(), String> {
+    Ok(())
+}
+
 // Test-only fault injection makes every atomic-write boundary observable. It
 // is deliberately compiled out of release builds, so no environment variable
 // or hidden production switch can interrupt a user save.
@@ -299,7 +316,8 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
         fail_if_requested(3)?;
         drop(file);
         fail_if_requested(4)?;
-        fs::rename(&tmp, path).map_err(|e| e.to_string())
+        fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+        sync_parent_directory(parent)
     })();
     if write_result.is_err() {
         let _ = fs::remove_file(&tmp);
@@ -307,10 +325,10 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
     write_result
 }
 
-/// Atomically create a new file without ever replacing an existing one. The
-/// hard link is created in the same directory as the prepared temporary file,
-/// so it is an all-or-nothing publication of the complete synced content.
-pub fn atomic_write_new(path: &Path, content: &str) -> Result<(), AtomicCreateError> {
+/// Atomically create a new binary file without ever replacing an existing one.
+/// The hard link is created in the same directory as the prepared temporary
+/// file, so it is an all-or-nothing publication of complete synced bytes.
+pub fn atomic_write_bytes_new(path: &Path, content: &[u8]) -> Result<(), AtomicCreateError> {
     let parent = path.parent().ok_or_else(|| {
         AtomicCreateError::Other(format!("Path has no parent: {}", path.display()))
     })?;
@@ -325,7 +343,7 @@ pub fn atomic_write_new(path: &Path, content: &str) -> Result<(), AtomicCreateEr
             .create_new(true)
             .open(&tmp)
             .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
-        file.write_all(content.as_bytes())
+        file.write_all(content)
             .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
         file.sync_all()
             .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
@@ -340,12 +358,18 @@ pub fn atomic_write_new(path: &Path, content: &str) -> Result<(), AtomicCreateEr
         // The target is now safely published. A stale temp link is harmless,
         // but remove it eagerly so it cannot clutter the user vault.
         let _ = fs::remove_file(&tmp);
+        sync_parent_directory(parent).map_err(AtomicCreateError::Other)?;
         Ok(())
     })();
     if write_result.is_err() {
         let _ = fs::remove_file(&tmp);
     }
     write_result
+}
+
+/// Text wrapper for [`atomic_write_bytes_new`].
+pub fn atomic_write_new(path: &Path, content: &str) -> Result<(), AtomicCreateError> {
+    atomic_write_bytes_new(path, content.as_bytes())
 }
 
 #[cfg(test)]
