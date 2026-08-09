@@ -153,6 +153,19 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(roundTripCheck(callout)).toEqual({ ok: true, result: callout })
   })
 
+  it("keeps a plain callout title out of the emoji field and parses nested callouts", () => {
+    const callout = "> [!NOTE] Parent title\n> > [!TODO] Nested title\n> > Nested body"
+    const doc = markdownToDoc(callout)
+    const first = (
+      doc as {
+        content?: Array<{ attrs?: Record<string, unknown>; content?: Array<{ type?: string }> }>
+      }
+    ).content?.[0]
+    expect(first?.attrs?.emoji).toBe("💡")
+    expect(first?.content?.[0]?.type).toBe("callout")
+    expect(roundTripCheck(callout)).toEqual({ ok: true, result: callout })
+  })
+
   it("preserves a note with tags, wiki links, and separate callouts", () => {
     const note =
       "#Тег #привет\n\nПросто  для [[теста]]\n\n> [!NOTE] 😍\n> \n\n> [!NOTE] ☺️\n> asdsadasdsad\n\n[[Назуар]] [[Тестовая]]"

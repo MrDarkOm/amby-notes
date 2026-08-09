@@ -1,6 +1,6 @@
 "use client"
 
-import { FileText, FolderPlus, LayoutGrid } from "lucide-react"
+import { Database, FileText, FolderPlus, LayoutGrid } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
@@ -22,29 +22,25 @@ export function NewItemModal({
   const { t } = useTranslation()
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="w-80 border-border bg-background p-0 text-foreground shadow-2xl">
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-sm border-border bg-background p-0 text-foreground shadow-2xl">
         <DialogHeader className="border-b border-border px-4 py-3">
           <DialogTitle className="text-sm font-medium text-foreground">
             {t("newItem.title")}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3 p-4">
+        <div className="grid grid-cols-5 gap-2 p-4">
           {/* Note */}
           <button
             onClick={() => {
               onClose()
               onCreateNote()
             }}
-            className="flex flex-col items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-5 text-center transition-colors hover:border-border hover:bg-accent"
+            title={t("newItem.note")}
+            aria-label={t("newItem.note")}
+            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center transition-colors hover:border-border hover:bg-accent"
           >
-            <div className="flex size-10 items-center justify-center rounded-lg bg-accent">
-              <FileText className="size-5 text-foreground" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">{t("newItem.note")}</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{t("newItem.noteDesc")}</p>
-            </div>
+            <FileText className="size-5 text-foreground" />
           </button>
 
           <button
@@ -52,15 +48,11 @@ export function NewItemModal({
               onClose()
               onCreateFolder()
             }}
-            className="flex flex-col items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-5 text-center transition-colors hover:border-border hover:bg-accent"
+            title={t("newItem.folder")}
+            aria-label={t("newItem.folder")}
+            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center transition-colors hover:border-border hover:bg-accent"
           >
-            <div className="flex size-10 items-center justify-center rounded-lg bg-accent">
-              <FolderPlus className="size-5 text-foreground" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">{t("newItem.folder")}</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{t("newItem.folderDesc")}</p>
-            </div>
+            <FolderPlus className="size-5 text-foreground" />
           </button>
 
           <button
@@ -68,15 +60,21 @@ export function NewItemModal({
               onClose()
               onCreateCanvas()
             }}
-            className="flex flex-col items-center gap-2.5 rounded-lg border border-border bg-card px-4 py-5 text-center transition-colors hover:border-border hover:bg-accent"
+            title={t("newItem.canvas")}
+            aria-label={t("newItem.canvas")}
+            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center transition-colors hover:border-border hover:bg-accent"
           >
-            <div className="flex size-10 items-center justify-center rounded-lg bg-accent">
-              <LayoutGrid className="size-5 text-foreground" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">{t("newItem.canvas")}</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{t("newItem.canvasDesc")}</p>
-            </div>
+            <LayoutGrid className="size-5 text-foreground" />
+          </button>
+
+          <button
+            type="button"
+            disabled
+            title={`${t("newItem.database")} · ${t("common.comingSoon")}`}
+            aria-label={t("newItem.database")}
+            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-muted-foreground opacity-50"
+          >
+            <Database className="size-5" />
           </button>
         </div>
       </DialogContent>

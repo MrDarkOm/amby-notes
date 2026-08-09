@@ -101,6 +101,7 @@ export function TiptapEditor({
       clearTimeout(serializeTimerRef.current)
       serializeTimerRef.current = null
     }
+    if (ed.isDestroyed) return
     const markdown = restoreSourceFormatting(docToMarkdown(ed.state.doc), originalValueRef.current)
     if (markdown === valueRef.current) return
     valueRef.current = markdown
@@ -206,7 +207,7 @@ export function TiptapEditor({
   // Sync external `value` changes (e.g. switching tabs reuses the instance only
   // within a document; here it guards against parent-driven content resets).
   React.useEffect(() => {
-    if (!editor) return
+    if (!editor || editor.isDestroyed) return
     if (value === valueRef.current) return
     valueRef.current = value
     originalValueRef.current = value
@@ -217,7 +218,7 @@ export function TiptapEditor({
   // offset once, after parsing, without feeding a selection transaction back
   // through the document or its undo history.
   React.useEffect(() => {
-    if (!editor || restoredSelectionRef.current) return
+    if (!editor || editor.isDestroyed || restoredSelectionRef.current) return
     restoredSelectionRef.current = true
     const mapped = markdownSelectionToDocSelection(editor.state.doc, value, selection)
     if (!mapped) return
@@ -227,13 +228,13 @@ export function TiptapEditor({
   // Flush any pending serialization before this editor instance goes away
   // (document switch, view-mode toggle, tab close) so the latest edit is saved.
   React.useEffect(() => {
-    if (!editor) return
+    if (!editor || editor.isDestroyed) return
     return () => flushSerialize(editor)
   }, [editor, flushSerialize])
 
   // Toggle Live <-> Read in place without re-instantiating the editor.
   React.useEffect(() => {
-    if (!editor) return
+    if (!editor || editor.isDestroyed) return
     if (editor.isEditable !== editable) editor.setEditable(editable)
     if (!editable) closeMenu()
   }, [editable, editor, closeMenu])
@@ -256,7 +257,7 @@ export function TiptapEditor({
   // Register the transclusion content fetcher so TransclusionNode NodeViews can
   // resolve note content without prop-drilling through the extension system.
   React.useEffect(() => {
-    if (!editor || !fetchTransclusion) return
+    if (!editor || editor.isDestroyed || !fetchTransclusion) return
     setTransclusionFetcher(editor, fetchTransclusion)
   }, [editor, fetchTransclusion])
 
@@ -265,15 +266,20 @@ export function TiptapEditor({
   }, [])
 
   React.useEffect(() => {
-    if (!editor || !editable) return
+    if (!editor || editor.isDestroyed || !editable) return
     let dispose: (() => void) | undefined
-    void bindTauriFileDrop(editor.view, (clientX, clientY) => {
-      const coords = editor.view.posAtCoords({ left: clientX, top: clientY })
+    let cancelled = false
+    const view = editor.view
+    void bindTauriFileDrop(view, (clientX, clientY) => {
+      if (editor.isDestroyed) return null
+      const coords = view.posAtCoords({ left: clientX, top: clientY })
       return coords?.pos ?? null
     }).then((unsub) => {
-      dispose = unsub
+      if (cancelled) unsub()
+      else dispose = unsub
     })
     return () => {
+      cancelled = true
       dispose?.()
     }
   }, [editor, editable])
@@ -282,8 +288,9 @@ export function TiptapEditor({
   // SlashMenu extension publishes state to editor.storage.slashMenu. ─────────
   const [slashState, setSlashState] = React.useState<SlashTriggerState | null>(null)
   React.useEffect(() => {
-    if (!editor) return
+    if (!editor || editor.isDestroyed) return
     const read = () => {
+      if (editor.isDestroyed) return
       const s = readSlashStorage(editor)
       if (!s) {
         setSlashState(null)
@@ -307,22 +314,22 @@ export function TiptapEditor({
       suppressSelectionMenuRef.current = true
       closeMenu()
       setWikiLinkContext(null)
-      if (editor) closeSlashMenu(editor)
+      if (editor && !editor.isDestroyed) closeSlashMenu(editor)
     }
     window.addEventListener(CLOSE_EDITOR_MENUS_EVENT, closeEditorMenus)
     return () => window.removeEventListener(CLOSE_EDITOR_MENUS_EVENT, closeEditorMenus)
   }, [closeMenu, editor])
 
   React.useEffect(() => {
-    if (!editor) return
+    if (!editor || editor.isDestroyed) return
+    const editorDom = editor.view.dom
     const resetSelectionMenuSuppression = (event: MouseEvent) => {
       // A normal primary click begins a new text interaction. Ctrl+click on
       // macOS is reserved for the block context menu and must stay suppressed.
       if (event.button === 0 && !event.ctrlKey) suppressSelectionMenuRef.current = false
     }
-    editor.view.dom.addEventListener("mousedown", resetSelectionMenuSuppression, true)
-    return () =>
-      editor.view.dom.removeEventListener("mousedown", resetSelectionMenuSuppression, true)
+    editorDom.addEventListener("mousedown", resetSelectionMenuSuppression, true)
+    return () => editorDom.removeEventListener("mousedown", resetSelectionMenuSuppression, true)
   }, [editor])
 
   const slashAnchor = React.useMemo(() => {

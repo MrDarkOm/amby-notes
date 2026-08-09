@@ -288,6 +288,11 @@ export interface DockPreferences {
   rightPinned: boolean
 }
 
+export interface ConfirmationPreferences {
+  /** Keep destructive file-delete confirmation visible unless the user opts out. */
+  confirmFileDelete: boolean
+}
+
 /** Everything the Settings screen controls. Lives in the global settings.json
  *  so it is shared across vaults. */
 export interface AppPreferences {
@@ -299,6 +304,7 @@ export interface AppPreferences {
   editor: EditorPrefs
   startup: StartupPrefs
   docks: DockPreferences
+  confirmations: ConfirmationPreferences
 }
 
 export const DEFAULT_PREFS: AppPreferences = {
@@ -310,6 +316,7 @@ export const DEFAULT_PREFS: AppPreferences = {
   editor: { defaultViewMode: "live", contentWidth: "normal", autosaveMs: 500 },
   startup: { reopenLastVault: true, restoreSession: true },
   docks: { leftVisible: true, rightVisible: true, leftPinned: true, rightPinned: true },
+  confirmations: { confirmFileDelete: true },
 }
 
 function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
@@ -324,6 +331,7 @@ export function normalizeAppPreferences(
   const ed = (d.editor ?? {}) as Partial<EditorPrefs>
   const su = (d.startup ?? {}) as Partial<StartupPrefs>
   const dk = (d.docks ?? {}) as Partial<DockPreferences>
+  const cf = (d.confirmations ?? {}) as Partial<ConfirmationPreferences>
   const autosaveMs =
     typeof ed.autosaveMs === "number" && ed.autosaveMs >= 200 && ed.autosaveMs <= 10000
       ? ed.autosaveMs
@@ -349,6 +357,9 @@ export function normalizeAppPreferences(
       rightVisible: typeof dk.rightVisible === "boolean" ? dk.rightVisible : true,
       leftPinned: typeof dk.leftPinned === "boolean" ? dk.leftPinned : true,
       rightPinned: typeof dk.rightPinned === "boolean" ? dk.rightPinned : true,
+    },
+    confirmations: {
+      confirmFileDelete: typeof cf.confirmFileDelete === "boolean" ? cf.confirmFileDelete : true,
     },
   }
 }

@@ -7,6 +7,7 @@ import { useDocStore, type Document } from "./use-doc-store"
 import { useTabsStore } from "./use-tabs-store"
 import { useViewStateStore } from "./use-view-state-store"
 import { useSettingsStore } from "./use-settings-store"
+import { DeleteConfirmationDialog } from "./delete-confirmation-dialog"
 import { normalizeWikiLinkTarget, findWikiLinkItem } from "./wiki-links"
 import {
   findTreeItem,
@@ -69,6 +70,29 @@ export function useFileActions({
 }: UseFileActionsParams) {
   const t = i18n.t.bind(i18n)
   const saveQueueRef = React.useRef(new PerKeySerialQueue())
+  const [pendingDelete, setPendingDelete] = React.useState<{
+    id: string
+    name: string
+    resolve: (approved: boolean) => void
+  } | null>(null)
+
+  function requestDeleteConfirmation(id: string, name: string): Promise<boolean> {
+    if (!useSettingsStore.getState().prefs.confirmations.confirmFileDelete)
+      return Promise.resolve(true)
+    return new Promise((resolve) => setPendingDelete({ id, name, resolve }))
+  }
+
+  function settleDeleteConfirmation(approved: boolean, dontAskAgain = false) {
+    if (!pendingDelete) return
+    if (dontAskAgain) {
+      const { prefs, setPrefs } = useSettingsStore.getState()
+      setPrefs({
+        confirmations: { ...prefs.confirmations, confirmFileDelete: false },
+      })
+    }
+    pendingDelete.resolve(approved)
+    setPendingDelete(null)
+  }
 
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
@@ -345,7 +369,7 @@ export function useFileActions({
   const handleDeleteFile = React.useCallback(
     async (id: string) => {
       const item = findTreeItem(treeItems, id)
-      if (!(await confirmAction(t("workspace.deleteConfirm", { name: item?.name ?? id })))) return
+      if (!(await requestDeleteConfirmation(id, item?.name ?? id))) return
       try {
         const result = await deleteItem(vault ?? "", item?.path ?? id)
         applyMutationResult(result)
@@ -604,5 +628,12 @@ export function useFileActions({
     handleAttachCanvasToNote,
     handleMoveItem,
     handleContentChange,
+    deleteConfirmationDialog: pendingDelete
+      ? React.createElement(DeleteConfirmationDialog, {
+          name: pendingDelete.name,
+          onCancel: () => settleDeleteConfirmation(false),
+          onConfirm: (dontAskAgain: boolean) => settleDeleteConfirmation(true, dontAskAgain),
+        })
+      : null,
   }
 }

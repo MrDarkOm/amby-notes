@@ -131,6 +131,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   const widgetLeaveRef = React.useRef<(() => void) | null>(null)
 
   const applyVisibility = React.useCallback(() => {
+    if (editor.isDestroyed) return
     if (!editor.isEditable) {
       setHandle((h) => (h.visible ? { ...h, visible: false } : h))
       return
@@ -204,6 +205,10 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   }, [editor])
 
   React.useEffect(() => {
+    if (editor.isDestroyed) return
+    const view = editor.view
+    const editorDom = view.dom as HTMLElement
+
     applyVisibility()
     const onChange = () => applyVisibility()
     editor.on("selectionUpdate", onChange)
@@ -211,8 +216,6 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     editor.on("focus", onChange)
     window.addEventListener("resize", onChange)
     window.addEventListener("scroll", onChange, true)
-
-    const editorDom = editor.view.dom as HTMLElement
 
     const cancelHide = () => {
       if (hideTimerRef.current != null) {
@@ -247,7 +250,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     }
 
     const recomputeFromHover = (x: number, y: number) => {
-      const view = editor.view
+      if (editor.isDestroyed) return
       const editorRect = view.dom.getBoundingClientRect()
       const paddingLeft = parseFloat(window.getComputedStyle(view.dom).paddingLeft) || 12
       const contentLeft = editorRect.left + paddingLeft
@@ -325,11 +328,12 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       scheduleHideIfNeeded()
     }
     const onEditorContextMenu = (e: MouseEvent) => {
+      if (editor.isDestroyed) return
       if ((e.target as HTMLElement).closest(".amby-live-wikilink-button")) return
-      const pos = editor.view.posAtCoords({ left: e.clientX, top: e.clientY })
+      const pos = view.posAtCoords({ left: e.clientX, top: e.clientY })
       if (!pos) return
-      const safe = Math.min(Math.max(pos.pos, 0), Math.max(0, editor.state.doc.content.size - 1))
-      const target = findDraggableAncestor(editor.state.doc.resolve(safe))
+      const safe = Math.min(Math.max(pos.pos, 0), Math.max(0, view.state.doc.content.size - 1))
+      const target = findDraggableAncestor(view.state.doc.resolve(safe))
       if (!target) return
 
       e.preventDefault()
@@ -338,11 +342,17 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         nodePos: target.pos,
         nodeType: target.node.type.name,
       }
-      pinnedTargetRef.current = blockTarget
-      setHoverTarget(blockTarget)
       window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
       setInsertPanel({ open: false, anchorPos: -1 })
-      setActionsOpen(true)
+      setActionsOpen((open) => {
+        if (open) {
+          pinnedTargetRef.current = null
+          return false
+        }
+        pinnedTargetRef.current = blockTarget
+        setHoverTarget(blockTarget)
+        return true
+      })
     }
     // macOS Ctrl+click is dispatched as a primary-button mousedown before the
     // later contextmenu event. Prevent that first event from moving the
@@ -416,7 +426,8 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   // ── Pointer-based drag ────────────────────────────────────────────────────
   const startDrag = React.useCallback(
     (e: React.PointerEvent) => {
-      if (e.button !== 0) return
+      // macOS Ctrl+click is a context-menu gesture, not the start of a drag.
+      if (e.button !== 0 || e.ctrlKey) return
       e.preventDefault()
       ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
       dragRef.current = {
@@ -748,17 +759,36 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         type="button"
         className="amby-block-handle-btn amby-block-handle-grip"
         onMouseDown={(e) => e.preventDefault()}
-        onPointerDown={startDrag}
+        onPointerDown={(event) => {
+          // Close an already-open menu synchronously. Waiting for pointerup is
+          // unreliable on macOS once the menu's focused input and pointer
+          // capture are involved, and can leave the same menu open.
+          if (actionsOpen || insertPanel.open) {
+            event.preventDefault()
+            event.stopPropagation()
+            pinnedTargetRef.current = null
+            setActionsOpen(false)
+            setInsertPanel({ open: false, anchorPos: -1 })
+            return
+          }
+          startDrag(event)
+        }}
         onContextMenu={(e) => {
           e.preventDefault()
           setInsertPanel({ open: false, anchorPos: -1 })
-          pinnedTargetRef.current = {
-            mode: "block",
-            nodePos: handle.nodePos,
-            nodeType: handle.nodeType,
-          }
           window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
-          setActionsOpen(true)
+          setActionsOpen((open) => {
+            if (open) {
+              pinnedTargetRef.current = null
+              return false
+            }
+            pinnedTargetRef.current = {
+              mode: "block",
+              nodePos: handle.nodePos,
+              nodeType: handle.nodeType,
+            }
+            return true
+          })
         }}
       >
         <GripVertical className="size-3.5" />

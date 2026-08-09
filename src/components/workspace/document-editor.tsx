@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import {
   Code2,
   Database,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -35,11 +36,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { TabsMenu, type HeaderTab } from "./header-tabs"
 
 import { Button } from "@/components/ui/button"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri, type NoteProperties } from "@/lib/storage"
 import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel"
+import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./tiptap/floating-menu-events"
 import type { TreeItem } from "./sidebar-tree"
 import {
   ContextMenu,
@@ -68,10 +71,14 @@ interface DocumentEditorProps {
   onRenameTitle?: (newName: string) => void
   vault?: string
   isFocusMode?: boolean
-  focusTopVisible?: boolean
-  onFocusTopMouseLeave?: () => void
   hideNavigation?: boolean
   onToggleFocusMode?: () => void
+  focusTabs?: HeaderTab[]
+  activeTabKey?: string
+  onFocusTabChange?: (key: string) => void
+  focusFavorites?: Set<string>
+  onFocusToggleFavorite?: (id: string) => void
+  onFocusCloseAllTabs?: () => void
   fileIcon?: string
   onNewFile?: () => void
   onOpenVault?: () => void
@@ -185,10 +192,14 @@ export function DocumentEditor({
   onRenameTitle,
   vault,
   isFocusMode = false,
-  focusTopVisible = true,
-  onFocusTopMouseLeave,
   hideNavigation = false,
   onToggleFocusMode,
+  focusTabs = [],
+  activeTabKey,
+  onFocusTabChange,
+  focusFavorites,
+  onFocusToggleFavorite,
+  onFocusCloseAllTabs,
   fileIcon,
   onNewFile,
   onOpenVault,
@@ -216,6 +227,7 @@ export function DocumentEditor({
   const [editingTitle, setEditingTitle] = React.useState(false)
   const [titleValue, setTitleValue] = React.useState(document?.title ?? "")
   const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false)
+  const emojiSlotRef = React.useRef<HTMLDivElement>(null)
   const [layerConfirm, setLayerConfirm] = React.useState<EditorLayer | null>(null)
   const [editorSelection, setEditorSelection] = React.useState<MarkdownSelection | null>(null)
   const editorSelectionRef = React.useRef<MarkdownSelection | null>(null)
@@ -298,18 +310,49 @@ export function DocumentEditor({
     fileIcon && !/^(folder|file|page|workspace|canvas|draft|brain)$/.test(fileIcon),
   )
 
+  const breadcrumbContent =
+    breadcrumb.length > 0 ? (
+      breadcrumb.map((seg, idx) => {
+        const isLast = idx === breadcrumb.length - 1
+        const isClickable = !isLast && seg.kind === "file" && !!onOpenItem
+        return (
+          <React.Fragment key={seg.id}>
+            {isClickable ? (
+              <button
+                type="button"
+                className="max-w-[200px] truncate rounded px-1 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={() => onOpenItem?.(seg.id)}
+                title={seg.name}
+              >
+                {seg.name}
+              </button>
+            ) : (
+              <span
+                className={`max-w-[260px] truncate px-1 ${isLast ? "text-foreground" : "text-muted-foreground"}`}
+                title={seg.name}
+              >
+                {seg.name}
+              </span>
+            )}
+            {!isLast && <span className="shrink-0 text-muted-foreground">›</span>}
+          </React.Fragment>
+        )
+      })
+    ) : document ? (
+      <span className="truncate text-muted-foreground">{document.title}</span>
+    ) : null
+
   const navBar = hideNavigation ? null : (
     <>
       <div
-        className={`flex h-10 shrink-0 items-center justify-between px-2 ${
+        className={`h-10 shrink-0 items-center px-2 ${
           isFocusMode
-            ? `absolute inset-x-0 top-0 z-30 bg-background/85 shadow-sm backdrop-blur-sm transition-transform duration-200 ease-out ${focusTopVisible ? "translate-y-0" : "-translate-y-full"}`
-            : "bg-transparent"
+            ? "z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] bg-transparent"
+            : "flex justify-between bg-transparent"
         }`}
-        onMouseLeave={isFocusMode ? onFocusTopMouseLeave : undefined}
       >
-        {/* Left: back/forward + drag zone for focus mode */}
-        <div className="flex items-center gap-0.5">
+        {/* Left: back/forward and, in focus mode, the document path. */}
+        <div className="flex min-w-0 items-center gap-0.5">
           {isFocusMode && <div className="h-10 w-6 cursor-default" onMouseDown={handleDragStart} />}
           <Button
             variant="ghost"
@@ -329,44 +372,43 @@ export function DocumentEditor({
           >
             <ChevronRight className="size-3.5" />
           </Button>
+          {isFocusMode && (
+            <div className="ml-1 flex min-w-0 items-center gap-1 overflow-hidden text-xs">
+              {breadcrumbContent}
+            </div>
+          )}
         </div>
 
-        {/* Center: breadcrumb mirroring the tree */}
+        {/* Center: current tab menu in focus mode; breadcrumb otherwise. */}
         <div className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-hidden px-2 text-xs">
-          {breadcrumb.length > 0 ? (
-            breadcrumb.map((seg, idx) => {
-              const isLast = idx === breadcrumb.length - 1
-              const isClickable = !isLast && seg.kind === "file" && !!onOpenItem
-              return (
-                <React.Fragment key={seg.id}>
-                  {isClickable ? (
-                    <button
-                      type="button"
-                      className="max-w-[200px] truncate rounded px-1 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                      onClick={() => onOpenItem?.(seg.id)}
-                      title={seg.name}
-                    >
-                      {seg.name}
-                    </button>
-                  ) : (
-                    <span
-                      className={`max-w-[260px] truncate px-1 ${isLast ? "text-foreground" : "text-muted-foreground"}`}
-                      title={seg.name}
-                    >
-                      {seg.name}
-                    </span>
-                  )}
-                  {!isLast && <span className="shrink-0 text-muted-foreground">›</span>}
-                </React.Fragment>
-              )
-            })
-          ) : document ? (
-            <span className="truncate text-muted-foreground">{document.title}</span>
-          ) : null}
+          {isFocusMode ? (
+            <TabsMenu
+              trigger={
+                <button
+                  type="button"
+                  className="flex max-w-[320px] items-center gap-1 rounded-md px-2 py-1 font-medium text-foreground transition-colors hover:bg-accent"
+                  title={t("tabs.tabMenu")}
+                >
+                  <span className="truncate">{document?.title ?? ""}</span>
+                  <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                </button>
+              }
+              tabs={focusTabs}
+              activeTabKey={activeTabKey ?? ""}
+              activeFileId={document?.id}
+              favorites={focusFavorites}
+              onTabChange={(key) => onFocusTabChange?.(key)}
+              onToggleFavorite={onFocusToggleFavorite}
+              onCloseAllTabs={onFocusCloseAllTabs}
+              align="center"
+            />
+          ) : (
+            breadcrumbContent
+          )}
         </div>
 
         {/* Right: layer + focus + more */}
-        <div className="flex items-center gap-0.5">
+        <div className={`flex items-center gap-0.5 ${isFocusMode ? "justify-self-end" : ""}`}>
           {document && (
             <div className="mr-1 flex items-center gap-1 rounded-full bg-background/70 p-0.5 shadow-sm">
               {/* Editor layer — always visible */}
@@ -610,7 +652,7 @@ export function DocumentEditor({
   return (
     <div className="relative flex h-full min-w-0 flex-1 flex-col bg-[var(--workspace-bg)]">
       <div
-        className="mb-2 mt-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+        className={`${isFocusMode ? "" : "mb-2"} mt-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]`}
         style={{ boxShadow: "var(--note-surface-shadow)" }}
       >
         {navBar}
@@ -621,13 +663,24 @@ export function DocumentEditor({
           >
             {/* Title */}
             <div className="amby-page-title relative mb-4 flex items-center gap-3">
-              <div className={hasPageEmoji ? "relative shrink-0" : "absolute -left-10 top-0"}>
+              <div
+                ref={emojiSlotRef}
+                className={hasPageEmoji ? "relative shrink-0" : "absolute -left-10 top-0"}
+              >
                 {hasPageEmoji ? (
                   <button
                     type="button"
                     className="text-3xl leading-none transition-transform hover:scale-110 focus:outline-none"
                     title={t("docEditor.changeIcon")}
-                    onClick={() => setEmojiPickerOpen((v) => !v)}
+                    onClick={() => {
+                      if (emojiPickerOpen) {
+                        setEmojiPickerOpen(false)
+                      } else {
+                        window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
+                        window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
+                        setEmojiPickerOpen(true)
+                      }
+                    }}
                   >
                     {fileIcon}
                   </button>
@@ -637,7 +690,15 @@ export function DocumentEditor({
                     className="amby-page-emoji-add flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent hover:text-foreground focus:outline-none"
                     title={t("docEditor.changeIcon")}
                     aria-label={t("docEditor.changeIcon")}
-                    onClick={() => setEmojiPickerOpen(true)}
+                    onClick={() => {
+                      if (emojiPickerOpen) {
+                        setEmojiPickerOpen(false)
+                      } else {
+                        window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
+                        window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
+                        setEmojiPickerOpen(true)
+                      }
+                    }}
                   >
                     <SmilePlus className="size-5" />
                   </button>
@@ -645,6 +706,7 @@ export function DocumentEditor({
                 {emojiPickerOpen && (
                   <div className="absolute left-0 top-full z-50 mt-1">
                     <EmojiPickerPanel
+                      triggerRef={emojiSlotRef}
                       onSelect={(emojiData) => {
                         onFileIconChange?.(emojiData.native)
                         setEmojiPickerOpen(false)
@@ -742,19 +804,48 @@ export function DocumentEditor({
             {t("docEditor.wordCount", { count: liveWordCount })}
           </span>
           <div className="mx-1 h-3 w-px bg-accent" />
-          <button
-            type="button"
-            title={viewMode === "read" ? t("docEditor.switchToLive") : t("docEditor.switchToRead")}
-            aria-label={
-              viewMode === "read" ? t("docEditor.switchToLive") : t("docEditor.switchToRead")
-            }
-            disabled={activeLayer !== "editor" || viewMode === "source" || isLocked}
-            className="flex size-5 items-center justify-center rounded border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => handleEditorViewModeChange(viewMode === "read" ? "live" : "read")}
-          >
-            {viewMode === "read" ? <Eye className="size-3" /> : <PenLine className="size-3" />}
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                title={t("docEditor.viewMode")}
+                aria-label={t("docEditor.viewMode")}
+                disabled={activeLayer !== "editor" || isLocked}
+                className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                {viewMode === "source" ? (
+                  <Code2 className="size-3" />
+                ) : viewMode === "read" ? (
+                  <Eye className="size-3" />
+                ) : (
+                  <PenLine className="size-3" />
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="w-40 border-border bg-popover text-foreground"
+            >
+              {(
+                [
+                  ["live", PenLine, "docEditor.viewLive"],
+                  ["read", Eye, "docEditor.viewRead"],
+                  ["source", Code2, "docEditor.viewSource"],
+                ] as const
+              ).map(([mode, Icon, labelKey]) => (
+                <DropdownMenuItem
+                  key={mode}
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                  onSelect={() => handleEditorViewModeChange(mode)}
+                >
+                  <Icon className="size-3.5 text-muted-foreground" />
+                  <span className="flex-1">{t(labelKey)}</span>
+                  {viewMode === mode && <span className="text-primary">✓</span>}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div className="mx-1 h-3 w-px bg-accent" />
           <button
             title={t("docEditor.undo")}

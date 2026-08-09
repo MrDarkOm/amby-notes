@@ -47,6 +47,9 @@ export interface TreeItem {
   name: string
   type: "folder" | "file" | "canvas"
   icon?: string
+  /** Filesystem timestamps in Unix seconds, used by the file-panel sorter. */
+  created?: number
+  modified?: number
   children?: TreeItem[]
 }
 

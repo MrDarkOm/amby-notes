@@ -40,6 +40,13 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { SidebarTree, type TreeItem } from "./sidebar-tree"
 import { SidebarTags } from "./sidebar-tags"
 import { NewItemModal } from "./new-item-modal"
@@ -174,6 +181,47 @@ function flattenTreeItems(items: TreeItem[]): TreeItem[] {
   return result
 }
 
+type TreeSortKey = "name" | "type" | "created" | "modified"
+type TreeSortDirection = "asc" | "desc"
+
+const TREE_SORT_OPTIONS: Array<{
+  key: TreeSortKey
+  direction: TreeSortDirection
+  labelKey: string
+  icon: React.ElementType
+}> = [
+  { key: "name", direction: "asc", labelKey: "filesPanel.sortNameAsc", icon: FileText },
+  { key: "name", direction: "desc", labelKey: "filesPanel.sortNameDesc", icon: FileText },
+  { key: "type", direction: "asc", labelKey: "filesPanel.sortTypeAsc", icon: TypeIcon },
+  { key: "type", direction: "desc", labelKey: "filesPanel.sortTypeDesc", icon: TypeIcon },
+  { key: "modified", direction: "desc", labelKey: "filesPanel.sortModifiedDesc", icon: History },
+  { key: "modified", direction: "asc", labelKey: "filesPanel.sortModifiedAsc", icon: History },
+  { key: "created", direction: "desc", labelKey: "filesPanel.sortCreatedDesc", icon: Clock },
+  { key: "created", direction: "asc", labelKey: "filesPanel.sortCreatedAsc", icon: Clock },
+]
+
+function sortTreeItems(
+  items: TreeItem[],
+  key: TreeSortKey,
+  direction: TreeSortDirection,
+): TreeItem[] {
+  const multiplier = direction === "asc" ? 1 : -1
+  return items
+    .map((item) => ({
+      ...item,
+      children: item.children ? sortTreeItems(item.children, key, direction) : item.children,
+    }))
+    .sort((a, b) => {
+      const result =
+        key === "name"
+          ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+          : key === "type"
+            ? a.type.localeCompare(b.type)
+            : (a[key] ?? 0) - (b[key] ?? 0)
+      return result * multiplier || a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+    })
+}
+
 export function FilesPanel(props: PanelRenderProps) {
   const { t } = useTranslation()
   const {
@@ -204,6 +252,12 @@ export function FilesPanel(props: PanelRenderProps) {
   const [folderTargetOpen, setFolderTargetOpen] = React.useState(true)
   const [allOpen, setAllOpen] = React.useState(true)
   const [findActiveKey, setFindActiveKey] = React.useState(0)
+  const [sortKey, setSortKey] = React.useState<TreeSortKey>("name")
+  const [sortDirection, setSortDirection] = React.useState<TreeSortDirection>("asc")
+  const sortedTreeItems = React.useMemo(
+    () => sortTreeItems(treeItems, sortKey, sortDirection),
+    [treeItems, sortKey, sortDirection],
+  )
 
   function handleNewButtonClick() {
     if (!vault) {
@@ -238,14 +292,41 @@ export function FilesPanel(props: PanelRenderProps) {
           >
             <FilePlus className="size-3.5" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-            title={t("filesPanel.sortOrder")}
-          >
-            <ArrowDownUp className="size-3.5" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+                title={t("filesPanel.sortOrder")}
+              >
+                <ArrowDownUp className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              className="w-80 border-border bg-popover text-foreground"
+            >
+              {TREE_SORT_OPTIONS.map(({ key, direction, labelKey, icon: Icon }, index) => (
+                <React.Fragment key={`${key}:${direction}`}>
+                  {index > 0 && index % 2 === 0 && <DropdownMenuSeparator className="bg-accent" />}
+                  <DropdownMenuItem
+                    className="relative flex items-center gap-2 pr-9 text-[13px] whitespace-nowrap focus:bg-accent focus:text-white"
+                    onSelect={() => {
+                      setSortKey(key)
+                      setSortDirection(direction)
+                    }}
+                  >
+                    <Icon className="size-3.5 text-muted-foreground" />
+                    <span className="flex-1">{t(labelKey)}</span>
+                    {sortKey === key && sortDirection === direction && (
+                      <Check className="absolute right-2 size-3.5 text-primary" />
+                    )}
+                  </DropdownMenuItem>
+                </React.Fragment>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="ghost"
             size="icon"
@@ -276,13 +357,13 @@ export function FilesPanel(props: PanelRenderProps) {
           <div className="flex flex-1 min-h-0 flex-col">
             {/* SidebarTree owns its own scroll container for virtualizer access */}
             <div className="flex-1 min-h-0">
-              {treeItems.length === 0 ? (
+              {sortedTreeItems.length === 0 ? (
                 <p className="px-4 py-3 text-[12px] text-muted-foreground">
                   {t("filesPanel.empty")}
                 </p>
               ) : (
                 <SidebarTree
-                  items={treeItems}
+                  items={sortedTreeItems}
                   selectedId={selectedId}
                   onSelect={onSelect}
                   onRename={onRename}

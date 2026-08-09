@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ChevronDown, Columns2, FolderOpen, Maximize2, Minimize2, Minus, X } from "lucide-react"
+import { ChevronDown, FolderOpen, Maximize2, Minimize2, Minus, X } from "lucide-react"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { ActivityBar } from "./activity-bar"
 import { PanelHost } from "./panel-host"
@@ -29,12 +29,6 @@ import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useVaultStore } from "./use-vault-store"
 import type { DocumentViewMode } from "./document-editor"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { QuickOpenModal } from "./quick-open-modal"
 import { SearchModal } from "./search-modal"
 import { SettingsDialog } from "./settings-dialog"
@@ -375,8 +369,6 @@ export function Workspace() {
     setFocusShowLeft,
     focusShowRight,
     setFocusShowRight,
-    focusShowTop,
-    setFocusShowTop,
     handleEnterFocusMode,
     handleExitFocusMode,
     moveButtonToSide,
@@ -478,6 +470,7 @@ export function Workspace() {
     handleAttachCanvasToNote,
     handleMoveItem,
     handleContentChange,
+    deleteConfirmationDialog,
   } = useFileActions({
     vault,
     treeItems,
@@ -490,23 +483,17 @@ export function Workspace() {
     saveTimersRef,
   })
 
-  const {
-    handleBack,
-    handleForward,
-    handleTabChange,
-    toggleSplit,
-    handleTabClose,
-    handleCloseAllTabs,
-  } = useTabActions({
-    activeTab,
-    activeTabKey,
-    secondaryTabKey,
-    tabs,
-    treeItems,
-    canGoBack,
-    canGoForward,
-    navigateToFile,
-  })
+  const { handleBack, handleForward, handleTabChange, handleTabClose, handleCloseAllTabs } =
+    useTabActions({
+      activeTab,
+      activeTabKey,
+      secondaryTabKey,
+      tabs,
+      treeItems,
+      canGoBack,
+      canGoForward,
+      navigateToFile,
+    })
 
   const handleRenameVault = React.useCallback(
     (id: string, name: string) => {
@@ -858,7 +845,6 @@ export function Workspace() {
           const w = window.innerWidth
           if (e.clientX < 20) setFocusShowLeft(true)
           if (e.clientX > w - 20) setFocusShowRight(true)
-          if (e.clientY < 16) setFocusShowTop(true)
         }}
       >
         {activeTab?.kind === "graph" ? (
@@ -884,9 +870,13 @@ export function Workspace() {
                   key={`focus-pane-primary:${activeTab?.fileId ?? "empty"}`}
                   {...editorProps}
                   isFocusMode={true}
-                  focusTopVisible={focusShowTop}
-                  onFocusTopMouseLeave={() => setFocusShowTop(false)}
                   onToggleFocusMode={handleExitFocusMode}
+                  focusTabs={headerTabs}
+                  activeTabKey={activeTabKey}
+                  onFocusTabChange={handleTabChange}
+                  focusFavorites={favorites}
+                  onFocusToggleFavorite={handleToggleFavorite}
+                  onFocusCloseAllTabs={handleCloseAllTabs}
                 />
               </React.Suspense>
             </div>
@@ -908,55 +898,22 @@ export function Workspace() {
               key={`focus:${activeTab?.fileId ?? "empty"}`}
               {...editorProps}
               isFocusMode={true}
-              focusTopVisible={focusShowTop}
-              onFocusTopMouseLeave={() => setFocusShowTop(false)}
               onToggleFocusMode={handleExitFocusMode}
+              focusTabs={headerTabs}
+              activeTabKey={activeTabKey}
+              onFocusTabChange={handleTabChange}
+              focusFavorites={favorites}
+              onFocusToggleFavorite={handleToggleFavorite}
+              onFocusCloseAllTabs={handleCloseAllTabs}
             />
           </React.Suspense>
         )}
 
-        {/* Left sidebar overlay. Focus mode keeps tabs out of the document
-            chrome: select one from this compact arrow menu instead. */}
+        {/* Left sidebar overlay. */}
         <div
-          className={`fixed left-0 top-0 bottom-0 z-40 flex flex-col transition-transform duration-200 ease-out shadow-2xl ${focusShowLeft ? "translate-x-0" : "-translate-x-full"}`}
+          className={`fixed inset-y-0 left-0 z-40 flex flex-col transition-transform duration-200 ease-out shadow-2xl ${focusShowLeft ? "translate-x-0" : "-translate-x-full"}`}
           onMouseLeave={() => setFocusShowLeft(false)}
         >
-          <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border bg-background/95 px-2 backdrop-blur-sm">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex min-w-0 max-w-52 items-center gap-2 rounded-md px-2 py-1.5 text-sm text-foreground hover:bg-accent"
-                  title={t("tabs.tabMenu")}
-                >
-                  <span className="truncate">{activeTab?.title ?? t("tabs.tabMenu")}</span>
-                  <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="w-56 border-border bg-popover text-foreground"
-              >
-                {tabs.map((tab) => (
-                  <DropdownMenuItem
-                    key={tab.key}
-                    className={tab.key === activeTabKey ? "bg-accent" : undefined}
-                    onSelect={() => handleTabChange(tab.key)}
-                  >
-                    <span className="truncate">{tab.title}</span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <button
-              type="button"
-              className={`flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground ${secondaryTabKey ? "text-primary" : ""}`}
-              title={t("tabs.splitEditor")}
-              onClick={toggleSplit}
-            >
-              <Columns2 className="size-4" />
-            </button>
-          </div>
           <div className="flex min-h-0 flex-1">
             {isDockVisible("left") && (
               <ActivityBar
@@ -972,18 +929,18 @@ export function Workspace() {
               />
             )}
             <div style={{ width: leftWidth }} className="min-h-0 shrink-0">
-              <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
+              <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} flush />
             </div>
           </div>
         </div>
 
         {/* Right sidebar overlay */}
         <div
-          className={`fixed right-0 top-0 bottom-0 z-10 flex transition-transform duration-200 ease-out shadow-2xl ${focusShowRight ? "translate-x-0" : "translate-x-full"}`}
+          className={`fixed inset-y-0 right-0 z-40 flex transition-transform duration-200 ease-out shadow-2xl ${focusShowRight ? "translate-x-0" : "translate-x-full"}`}
           onMouseLeave={() => setFocusShowRight(false)}
         >
           <div style={{ width: rightWidth }} className="shrink-0">
-            <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
+            <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} flush />
           </div>
           {isDockVisible("right") && (
             <ActivityBar
@@ -1025,6 +982,7 @@ export function Workspace() {
           onDockPrefsChange={updateDockPrefs}
         />
         {dockNoticeToast}
+        {deleteConfirmationDialog}
       </div>
     )
   }
@@ -1050,8 +1008,6 @@ export function Workspace() {
         onSetRightDockVisible={(visible) => setDockVisible("right", visible)}
         onSetLeftDockPinned={(pinned) => setDockPinned("left", pinned)}
         onSetRightDockPinned={(pinned) => setDockPinned("right", pinned)}
-        onToggleSplit={toggleSplit}
-        isSplit={!!secondaryTabKey}
         onOpenPlusModal={() => setQuickOpenOpen(true)}
         vaultName={vaultName}
         vaults={vaults}
@@ -1070,6 +1026,7 @@ export function Workspace() {
         onToggleFavorite={handleToggleFavorite}
         showWorkspacePicker={false}
       />
+      {deleteConfirmationDialog}
 
       <div className="flex flex-1 overflow-hidden bg-[var(--workspace-bg)]">
         {isDockVisible("left") && (

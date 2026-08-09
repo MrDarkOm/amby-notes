@@ -486,7 +486,7 @@ export type SnapshotText = { sourcePath: string; content: string }
 export type SyncReport = { inserted: number; updated: number; deleted: number; warnings: string[]; pathToId: Partial<{ [key in string]: string }> }
 export type TagEntry = { tag: string; notes: IndexedNote[] }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
-export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; children?: TreeItem[] | null }
+export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
 export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[] }
 
 /** tauri-specta globals **/

@@ -17,7 +17,23 @@ pub struct TreeItem {
     pub item_type: String,
     pub icon: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub created: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<TreeItem>>,
+}
+
+fn filesystem_timestamps(path: &Path) -> (Option<u64>, Option<u64>) {
+    let Ok(metadata) = fs::metadata(path) else {
+        return (None, None);
+    };
+    let to_unix_seconds = |time: std::io::Result<std::time::SystemTime>| {
+        time.ok()
+            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+            .map(|value| value.as_secs())
+    };
+    (to_unix_seconds(metadata.created()), to_unix_seconds(metadata.modified()))
 }
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
@@ -1115,12 +1131,15 @@ fn read_visible_entries(dir: &Path) -> Result<Vec<fs::DirEntry>, String> {
 }
 
 fn tree_item_for_note(path: &Path, note: &IndexedNote, children: Vec<TreeItem>) -> TreeItem {
+    let (created, filesystem_modified) = filesystem_timestamps(path);
     TreeItem {
         id: note.id.clone(),
         path: path_string(path),
         name: file_stem(path),
         item_type: "file".to_string(),
         icon: "file".to_string(),
+        created,
+        modified: note.modified.or(filesystem_modified),
         children: if children.is_empty() {
             None
         } else {
@@ -1161,12 +1180,15 @@ fn scan_tree_dir(
                 }
             } else {
                 let children = scan_tree_dir(vault, &path, notes, false)?;
+                let (created, modified) = filesystem_timestamps(&path);
                 items.push(TreeItem {
                     id: format!("folder:{}", path_string(&path)),
                     path: path_string(&path),
                     name: raw_name,
                     item_type: "folder".to_string(),
                     icon: "folder".to_string(),
+                    created,
+                    modified,
                     children: Some(children),
                 });
             }
@@ -1183,12 +1205,15 @@ fn scan_tree_dir(
             // surface every other .canvas as a standalone canvas item.
             let is_layer_sidecar = in_bundle && file_stem(&path) == file_name(dir);
             if !is_layer_sidecar {
+                let (created, modified) = filesystem_timestamps(&path);
                 items.push(TreeItem {
                     id: format!("canvas:{}", path_string(&path)),
                     path: path_string(&path),
                     name: file_stem(&path),
                     item_type: "canvas".to_string(),
                     icon: "canvas".to_string(),
+                    created,
+                    modified,
                     children: None,
                 });
             }

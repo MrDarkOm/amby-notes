@@ -195,6 +195,10 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
 
   // ── Tag panel ──────────────────────────────────────────────────────────────
   function openTagPanel() {
+    if (panel === "tag") {
+      closePanel()
+      return
+    }
     const { from, to } = editor.state.selection
     if (from !== to) {
       // Selection exists: wrap immediately without opening the input panel
@@ -217,6 +221,10 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
 
   // ── Link panel ─────────────────────────────────────────────────────────────
   function openLinkPanel() {
+    if (panel === "link") {
+      closePanel()
+      return
+    }
     const isEmpty = editor.state.selection.empty
     setLinkHasSelection(!isEmpty)
     setInputValue("")
@@ -237,6 +245,10 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
 
   // ── Wikilink panel ─────────────────────────────────────────────────────────
   function openWikilinkPanel() {
+    if (panel === "wikilink") {
+      closePanel()
+      return
+    }
     const { from, to } = editor.state.selection
     const selected = editor.state.doc.textBetween(from, to, " ").trim()
     if (from !== to && selected) {

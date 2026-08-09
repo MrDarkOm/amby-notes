@@ -6,7 +6,6 @@ import {
   Bookmark,
   BookmarkCheck,
   ChevronDown,
-  Columns2,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -39,6 +38,82 @@ export interface HeaderTab {
   fileId: string
   title: string
 }
+
+interface TabsMenuProps {
+  trigger: React.ReactNode
+  tabs: HeaderTab[]
+  activeTabKey: string
+  activeFileId?: string
+  favorites?: Set<string>
+  onTabChange: (key: string) => void
+  onToggleFavorite?: (id: string) => void
+  onCloseAllTabs?: () => void
+  align?: "start" | "center" | "end"
+}
+
+/** Shared tabs menu used by both the normal header and focus mode. */
+export function TabsMenu({
+  trigger,
+  tabs,
+  activeTabKey,
+  activeFileId,
+  favorites,
+  onTabChange,
+  onToggleFavorite,
+  onCloseAllTabs,
+  align = "end",
+}: TabsMenuProps) {
+  const { t } = useTranslation()
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      <DropdownMenuContent align={align} className="w-56 border-border bg-popover text-foreground">
+        <DropdownMenuItem
+          disabled={!activeFileId}
+          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+          onSelect={() => activeFileId && onToggleFavorite?.(activeFileId)}
+        >
+          {activeFileId && favorites?.has(activeFileId) ? (
+            <>
+              <BookmarkCheck className="size-3.5 text-amber-400" />
+              {t("tabs.removeBookmark")}
+            </>
+          ) : (
+            <>
+              <Bookmark className="size-3.5 text-muted-foreground" />
+              {t("tabs.addBookmark")}
+            </>
+          )}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+          onSelect={onCloseAllTabs}
+        >
+          <X className="size-3.5 text-muted-foreground" />
+          {t("tabs.closeAll")}
+        </DropdownMenuItem>
+        {tabs.length > 0 && (
+          <>
+            <DropdownMenuSeparator className="bg-accent" />
+            {tabs.map((tab) => (
+              <DropdownMenuItem
+                key={tab.key}
+                className={cn(
+                  "flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white",
+                  activeTabKey === tab.key && "bg-accent text-foreground",
+                )}
+                onSelect={() => onTabChange(tab.key)}
+              >
+                <span className="truncate">{tab.title}</span>
+              </DropdownMenuItem>
+            ))}
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 interface HeaderTabsProps {
   tabs: HeaderTab[]
   activeTabKey: string
@@ -57,8 +132,6 @@ interface HeaderTabsProps {
   onSetRightDockVisible?: (visible: boolean) => void
   onSetLeftDockPinned?: (pinned: boolean) => void
   onSetRightDockPinned?: (pinned: boolean) => void
-  onToggleSplit?: () => void
-  isSplit?: boolean
   onOpenPlusModal?: () => void
   vaultName?: string
   vaults: VaultRecord[]
@@ -86,7 +159,7 @@ const WINDOW_CONTROLS_WIDTH = 144
 const MACOS_SIDEBAR_TOGGLE_WIDTH = 44
 
 // Shared style for header toolbar icon buttons (sidebar toggles, dropdown,
-// split, plus) — keeps a uniform 32×32 hit area, rounding and hover highlight.
+// plus) — keeps a uniform 32×32 hit area, rounding and hover highlight.
 const HEADER_ICON_BTN =
   "flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
 
@@ -123,8 +196,6 @@ export function HeaderTabs({
   onSetRightDockVisible,
   onSetLeftDockPinned,
   onSetRightDockPinned,
-  onToggleSplit,
-  isSplit = false,
   onOpenPlusModal,
   vaultName,
   vaults,
@@ -291,65 +362,20 @@ export function HeaderTabs({
       className="absolute top-1.5 z-10 flex items-center gap-1"
       style={{ right: rightHeaderInset }}
     >
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+      <TabsMenu
+        trigger={
           <button title={t("tabs.tabMenu")} className={HEADER_ICON_BTN}>
             <ChevronDown className="size-4" />
           </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56 border-border bg-popover text-foreground">
-          <DropdownMenuItem
-            disabled={!activeFileId}
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-            onSelect={() => activeFileId && onToggleFavorite?.(activeFileId)}
-          >
-            {activeFileId && favorites?.has(activeFileId) ? (
-              <>
-                <BookmarkCheck className="size-3.5 text-amber-400" />
-                {t("tabs.removeBookmark")}
-              </>
-            ) : (
-              <>
-                <Bookmark className="size-3.5 text-muted-foreground" />
-                {t("tabs.addBookmark")}
-              </>
-            )}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-            onSelect={onCloseAllTabs}
-          >
-            <X className="size-3.5 text-muted-foreground" />
-            {t("tabs.closeAll")}
-          </DropdownMenuItem>
-          {tabs.length > 0 && (
-            <>
-              <DropdownMenuSeparator className="bg-accent" />
-              {tabs.map((tab) => (
-                <DropdownMenuItem
-                  key={tab.key}
-                  className={cn(
-                    "flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white",
-                    activeTabKey === tab.key && "text-white",
-                  )}
-                  onSelect={() => onTabChange(tab.key)}
-                >
-                  <span className="truncate">{tab.title}</span>
-                </DropdownMenuItem>
-              ))}
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {onToggleSplit && (
-        <button
-          onClick={onToggleSplit}
-          title={t("tabs.splitEditor")}
-          className={cn(HEADER_ICON_BTN, isSplit && "text-primary")}
-        >
-          <Columns2 className="size-4" />
-        </button>
-      )}
+        }
+        tabs={tabs}
+        activeTabKey={activeTabKey}
+        activeFileId={activeFileId}
+        favorites={favorites}
+        onTabChange={onTabChange}
+        onToggleFavorite={onToggleFavorite}
+        onCloseAllTabs={onCloseAllTabs}
+      />
     </div>
   )
 
@@ -425,7 +451,7 @@ export function HeaderTabs({
               className={cn(
                 "group relative flex h-8 min-w-0 max-w-52 cursor-pointer items-center gap-2 self-center rounded-lg border border-border/80 px-3 text-sm transition-colors",
                 activeTabKey === tab.key
-                  ? "bg-card text-foreground shadow-sm"
+                  ? "bg-accent text-foreground shadow-sm"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
               )}
             >

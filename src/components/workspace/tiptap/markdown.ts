@@ -227,9 +227,14 @@ const CALLOUT_FIRST_LINE_RE = /^\[!([A-Z0-9_-]+)\]([+-])?([ \t]+[^\n]*)?/i
 function detectCallouts(state: StateCore) {
   const tokens = state.tokens
   const out: Token[] = []
+  const skippedTokenIndexes = new Set<number>()
   let i = 0
 
   while (i < tokens.length) {
+    if (skippedTokenIndexes.has(i)) {
+      i++
+      continue
+    }
     if (tokens[i].type !== "blockquote_open") {
       out.push(tokens[i++])
       continue
@@ -285,8 +290,13 @@ function detectCallouts(state: StateCore) {
     }
 
     const calloutType = match[1].toUpperCase()
-    const emojiRaw = (match[3] ?? "").trim()
-    const emoji = emojiRaw || CALLOUT_DEFAULTS[calloutType] || "💡"
+    const headerText = (match[3] ?? "").trim()
+    // A plain callout title is not an emoji. Keeping the entire suffix in the
+    // emoji button is what caused every letter of a title to become a vertical
+    // column. Only accept a real leading emoji; the NodeView renders any title.
+    const leadingEmoji =
+      /^\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/u.exec(headerText)?.[0]
+    const emoji = leadingEmoji || CALLOUT_DEFAULTS[calloutType] || "💡"
     const headerSuffix = `${match[2] ?? ""}${match[3] ?? ""}`
 
     // Strip the "[!TYPE] emoji" prefix from the first inline token
@@ -303,7 +313,9 @@ function detectCallouts(state: StateCore) {
     }
 
     const skipFirstPara =
-      !firstInline.content.trim() && (!firstInline.children || firstInline.children.length === 0)
+      !firstInline.content.trim() &&
+      (!firstInline.children || firstInline.children.length === 0) &&
+      firstParaClose < bqClose - 1
 
     const calloutOpen = new state.Token("callout_open", "div", 1)
     calloutOpen.attrSet("calloutType", calloutType)
@@ -311,26 +323,14 @@ function detectCallouts(state: StateCore) {
     calloutOpen.attrSet("headerSuffix", headerSuffix)
     calloutOpen.attrSet("hasRawHeader", "true")
     out.push(calloutOpen)
-
-    // Emit inner tokens, optionally skipping the (now-empty) first paragraph
-    for (let j = i + 1; j < bqClose; j++) {
-      if (skipFirstPara && j >= firstParaOpen && j <= firstParaClose) continue
-      out.push(tokens[j])
+    if (skipFirstPara) {
+      for (let index = firstParaOpen; index <= firstParaClose; index++)
+        skippedTokenIndexes.add(index)
     }
-
-    // Guarantee at least one block in the callout (ProseMirror requires block+)
-    const innerCount = bqClose - i - 1 - (skipFirstPara ? firstParaClose - firstParaOpen + 1 : 0)
-    if (innerCount <= 0) {
-      out.push(new state.Token("paragraph_open", "p", 1))
-      const empty = new state.Token("inline", "", 0)
-      empty.content = ""
-      empty.children = []
-      out.push(empty)
-      out.push(new state.Token("paragraph_close", "p", -1))
-    }
-
-    out.push(new state.Token("callout_close", "div", -1))
-    i = bqClose + 1
+    // Continue through the original inner tokens instead of copying them as a
+    // single block. This lets nested blockquotes be recognized as callouts too.
+    tokens[bqClose] = new state.Token("callout_close", "div", -1)
+    i++
   }
 
   state.tokens = out

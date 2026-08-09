@@ -8,23 +8,30 @@ interface PanelHostProps {
   side: Side
   activeId: PanelId | null
   props: PanelRenderProps
+  flush?: boolean
 }
 
 /** Thin wrapper around the active PanelDef.render. Provides shared chrome. */
-export function PanelHost({ side, activeId, props }: PanelHostProps) {
+export function PanelHost({ side, activeId, props, flush = false }: PanelHostProps) {
   const { t } = useTranslation()
   const def = activeId ? PANEL_DEFS.find((d) => d.id === activeId) : undefined
   return (
     <div
-      className={`amby-panel-host mb-2 mt-0 flex h-[calc(100%-0.5rem)] min-h-0 w-[calc(100%-0.5rem)] flex-col overflow-hidden rounded-xl border border-border/80 bg-card/70 ${side === "left" ? "ml-0 mr-2" : "ml-2 mr-0"}`}
+      className={`amby-panel-shell mt-0 min-h-0 rounded-xl ${
+        flush
+          ? "h-full w-full"
+          : `mb-2 h-[calc(100%-0.5rem)] w-[calc(100%-0.5rem)] ${side === "left" ? "ml-0 mr-2" : "ml-2 mr-0"}`
+      }`}
     >
-      {def ? (
-        def.render(props)
-      ) : (
-        <div className="flex h-full items-center justify-center px-4 text-center">
-          <p className="text-[11px] text-muted-foreground">{t("panelHost.noPanel")}</p>
-        </div>
-      )}
+      <div className="amby-panel-host flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/80 bg-card/70">
+        {def ? (
+          def.render(props)
+        ) : (
+          <div className="flex h-full items-center justify-center px-4 text-center">
+            <p className="text-[11px] text-muted-foreground">{t("panelHost.noPanel")}</p>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
