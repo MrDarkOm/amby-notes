@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from "react"
+import { createPortal } from "react-dom"
+import { Link2Off } from "lucide-react"
 import i18n from "@/lib/i18n"
 import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 
@@ -57,6 +59,14 @@ interface MenuState {
   top: number
 }
 
+interface InlineUnlinkState {
+  from: number
+  to: number
+  replacement: string
+  left: number
+  top: number
+}
+
 const MENU_WIDTH = 290
 const MENU_HEIGHT = 44
 
@@ -94,6 +104,8 @@ export function TiptapEditor({
   const documentDirtyRef = React.useRef(false)
   const [menu, setMenu] = React.useState<MenuState>({ open: false, left: 0, top: 0 })
   const [wikiLinkContext, setWikiLinkContext] = React.useState<WikiLinkContextDetail | null>(null)
+  const [inlineUnlink, setInlineUnlink] = React.useState<InlineUnlinkState | null>(null)
+  const unlinkCloseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // docToMarkdown is O(doc size); running it on every keystroke lags large notes.
   // Debounce it, and flush on blur/unmount so the save path never loses edits.
@@ -189,6 +201,7 @@ export function TiptapEditor({
     },
     onBlur: ({ editor }) => {
       flushSerialize(editor)
+      setInlineUnlink(null)
       window.setTimeout(() => {
         // Don't close if focus moved into the floating bubble toolbar (e.g. an
         // input field for tag / link / wikilink panels).
@@ -224,6 +237,7 @@ export function TiptapEditor({
     }
     valueRef.current = value
     originalValueRef.current = value
+    setInlineUnlink(null)
     editor.commands.setContent(markdownToDoc(value), { emitUpdate: false })
   }, [value, editor])
 
@@ -249,7 +263,10 @@ export function TiptapEditor({
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return
     if (editor.isEditable !== editable) editor.setEditable(editable)
-    if (!editable) closeMenu()
+    if (!editable) {
+      closeMenu()
+      setInlineUnlink(null)
+    }
   }, [editable, editor, closeMenu])
 
   // Expose undo/redo to the parent's floating widget.
@@ -336,6 +353,7 @@ export function TiptapEditor({
       suppressSelectionMenuRef.current = true
       closeMenu()
       setWikiLinkContext(null)
+      setInlineUnlink(null)
       if (editor && !editor.isDestroyed) closeSlashMenu(editor)
     }
     window.addEventListener(CLOSE_EDITOR_MENUS_EVENT, closeEditorMenus)
@@ -353,6 +371,69 @@ export function TiptapEditor({
     editorDom.addEventListener("mousedown", resetSelectionMenuSuppression, true)
     return () => editorDom.removeEventListener("mousedown", resetSelectionMenuSuppression, true)
   }, [editor])
+
+  const keepInlineUnlinkOpen = React.useCallback(() => {
+    if (!unlinkCloseTimerRef.current) return
+    clearTimeout(unlinkCloseTimerRef.current)
+    unlinkCloseTimerRef.current = null
+  }, [])
+
+  const closeInlineUnlinkSoon = React.useCallback(() => {
+    keepInlineUnlinkOpen()
+    unlinkCloseTimerRef.current = setTimeout(() => setInlineUnlink(null), 160)
+  }, [keepInlineUnlinkOpen])
+
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed || !editable) return
+    const editorDom = editor.view.dom
+    const onPointerOver = (event: PointerEvent) => {
+      const source = event.target
+      if (!(source instanceof Element)) return
+      const token = source.closest<HTMLElement>("[data-amby-inline-unlink=true]")
+      if (!token || !editorDom.contains(token)) return
+      keepInlineUnlinkOpen()
+      const from = Number(token.dataset.ambyFrom)
+      const to = Number(token.dataset.ambyTo)
+      const replacement = token.dataset.ambyReplacement
+      if (!Number.isInteger(from) || !Number.isInteger(to) || replacement == null) return
+      const rect = token.getBoundingClientRect()
+      setInlineUnlink({
+        from,
+        to,
+        replacement,
+        left: clamp((rect.left + rect.right) / 2, 70, window.innerWidth - 70),
+        top: Math.min(rect.bottom + 6, window.innerHeight - 38),
+      })
+    }
+    const onPointerOut = (event: PointerEvent) => {
+      const source = event.target
+      if (!(source instanceof Element)) return
+      const token = source.closest<HTMLElement>("[data-amby-inline-unlink=true]")
+      if (!token) return
+      const next = event.relatedTarget
+      if (next instanceof Node && token.contains(next)) return
+      closeInlineUnlinkSoon()
+    }
+    editorDom.addEventListener("pointerover", onPointerOver)
+    editorDom.addEventListener("pointerout", onPointerOut)
+    return () => {
+      editorDom.removeEventListener("pointerover", onPointerOver)
+      editorDom.removeEventListener("pointerout", onPointerOut)
+      keepInlineUnlinkOpen()
+    }
+  }, [closeInlineUnlinkSoon, editable, editor, keepInlineUnlinkOpen])
+
+  function unlinkInlineToken() {
+    if (!editor || editor.isDestroyed || !inlineUnlink) return
+    const { from, to, replacement } = inlineUnlink
+    if (from < 0 || to <= from || to > editor.state.doc.content.size) {
+      setInlineUnlink(null)
+      return
+    }
+    editor.view.dispatch(editor.state.tr.insertText(replacement, from, to))
+    editor.view.focus()
+    setInlineUnlink(null)
+  }
 
   const slashAnchor = React.useMemo(() => {
     const r = slashState?.rect
@@ -375,6 +456,24 @@ export function TiptapEditor({
       {editor && editable && menu.open && (
         <BubbleToolbar editor={editor} left={menu.left} top={menu.top} />
       )}
+      {editor &&
+        editable &&
+        inlineUnlink &&
+        createPortal(
+          <button
+            type="button"
+            className="fixed z-[85] flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-border bg-popover px-2.5 py-1.5 text-xs font-medium text-foreground shadow-lg hover:bg-accent"
+            style={{ left: inlineUnlink.left, top: inlineUnlink.top }}
+            onPointerEnter={keepInlineUnlinkOpen}
+            onPointerLeave={closeInlineUnlinkSoon}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={unlinkInlineToken}
+          >
+            <Link2Off className="size-3.5 text-muted-foreground" />
+            {i18n.t("editor.unlink")}
+          </button>,
+          document.body,
+        )}
       {editor && editable && !isReadOnly && (
         <BlockHandles editor={editor} vaultPath={vaultPath} notePath={notePath} />
       )}

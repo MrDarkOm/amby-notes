@@ -140,6 +140,44 @@ export function useFileActions({
   const handleSelect = React.useCallback(
     async (fileId: string) => {
       const item = findTreeItem(treeItems, fileId)
+      if (item?.type === "folder") {
+        const active = tabs.find((tab) => tab.key === activeTabKey)
+        if (active?.kind === "folder") {
+          setTabs((prev) =>
+            prev.map((tab) =>
+              tab.key === activeTabKey
+                ? {
+                    ...tab,
+                    fileId,
+                    title: item.name,
+                    history: [...tab.history.slice(0, tab.historyIndex + 1), fileId],
+                    historyIndex: tab.historyIndex + 1,
+                  }
+                : tab,
+            ),
+          )
+        } else {
+          const existing = tabs.find((tab) => tab.kind === "folder" && tab.fileId === fileId)
+          if (existing) {
+            setActiveTabKey(existing.key)
+          } else {
+            const key = newTabKey()
+            setTabs((prev) => [
+              ...prev,
+              {
+                key,
+                kind: "folder",
+                fileId,
+                title: item.name,
+                history: [fileId],
+                historyIndex: 0,
+              },
+            ])
+            setActiveTabKey(key)
+          }
+        }
+        return
+      }
       if (item && item.type === "canvas") {
         openCanvasTab(item.path, item.name)
         return
@@ -186,6 +224,22 @@ export function useFileActions({
   const handleOpenInNewTab = React.useCallback(
     async (fileId: string) => {
       const item = findTreeItem(treeItems, fileId)
+      if (item?.type === "folder") {
+        const key = newTabKey()
+        setTabs((prev) => [
+          ...prev,
+          {
+            key,
+            kind: "folder",
+            fileId,
+            title: item.name,
+            history: [fileId],
+            historyIndex: 0,
+          },
+        ])
+        setActiveTabKey(key)
+        return
+      }
       if (item && item.type === "canvas") {
         openCanvasTab(item.path, item.name)
         return

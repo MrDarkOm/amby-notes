@@ -1,6 +1,6 @@
 import { create } from "zustand"
 
-export type TabKind = "document" | "graph" | "canvas"
+export type TabKind = "document" | "folder" | "graph" | "canvas"
 
 export interface Tab {
   key: string

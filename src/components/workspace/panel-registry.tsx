@@ -15,6 +15,7 @@ import {
   Database,
   FilePlus,
   FileText,
+  Folder,
   FolderPlus,
   History,
   LayoutGrid,
@@ -70,12 +71,23 @@ export type PanelId =
   "files" | "tags" | "favorites" | "databases" | "archive" | "info" | "history" | "links" | "ai"
 
 export interface DocumentProperties {
+  kind?: "document"
   type: string
   backlinks: number
   created: string
   modified: string
   id: string
   frontmatter: NoteProperties
+  nestedNotes: Array<{ id: string; name: string; icon?: string }>
+}
+
+export interface FolderProperties {
+  kind: "folder"
+  type: string
+  id: string
+  path: string
+  noteCount: number
+  folderCount: number
   nestedNotes: Array<{ id: string; name: string; icon?: string }>
 }
 
@@ -129,7 +141,7 @@ export interface PanelRenderProps {
   linkedLayersByDoc?: Record<string, { canvas: boolean; database: boolean; sketch: boolean }>
 
   // Right side
-  properties?: DocumentProperties | null
+  properties?: DocumentProperties | FolderProperties | null
   linkGraph?: LinkGraph
   currentDocId?: string | null
   currentDocPath?: string | null
@@ -867,7 +879,8 @@ export function InfoPanel({
     )
   }
   const nestedNotes = properties.nestedNotes ?? []
-  const customProperties = properties.frontmatter.customProperties ?? []
+  const customProperties =
+    properties.kind === "folder" ? [] : (properties.frontmatter.customProperties ?? [])
 
   async function copyId(id: string) {
     try {
@@ -877,6 +890,89 @@ export function InfoPanel({
     } catch {
       // Clipboard access can be unavailable in browser previews.
     }
+  }
+
+  if (properties.kind === "folder") {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="border-b border-border px-3 py-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-medium text-foreground">
+                {t("infoPanel.folderProperties")}
+              </h2>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+                {t("infoPanel.folderDescription")}
+              </p>
+            </div>
+            <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+              {properties.noteCount}
+            </span>
+          </div>
+        </div>
+        <ScrollArea className="flex-1">
+          <div className="space-y-5 px-3 py-3">
+            {nestedNotes.length > 0 && (
+              <section>
+                <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {t("infoPanel.nestedNotes")}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {nestedNotes.map((note) => (
+                    <button
+                      key={note.id}
+                      type="button"
+                      className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background/40 px-2 py-1.5 text-xs text-foreground transition-colors hover:bg-accent"
+                      onClick={() => onSelectLink?.(note.id)}
+                    >
+                      <IconValue
+                        value={
+                          note.icon && !["file", "supernote"].includes(note.icon)
+                            ? note.icon
+                            : undefined
+                        }
+                        fallback="📄"
+                        className="size-4"
+                      />
+                      <span className="truncate">{note.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+            <section className="overflow-hidden rounded-lg border border-border bg-background/30">
+              <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+                <Folder className="size-4 text-muted-foreground" />
+                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {t("infoPanel.aboutFolder")}
+                </span>
+              </div>
+              <div className="divide-y divide-border text-[10px]">
+                {[
+                  [t("infoPanel.type"), properties.type],
+                  [t("infoPanel.notesCount"), String(properties.noteCount)],
+                  [t("infoPanel.foldersCount"), String(properties.folderCount)],
+                  [t("infoPanel.path"), properties.path || "—"],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="min-w-0 truncate text-right text-foreground" title={value}>
+                      {value}
+                    </span>
+                  </div>
+                ))}
+                <div className="flex items-start gap-2 px-3 py-2">
+                  <span className="text-muted-foreground">{t("infoPanel.id")}</span>
+                  <code className="min-w-0 flex-1 break-all text-right font-mono text-[10px] text-foreground">
+                    {properties.id}
+                  </code>
+                </div>
+              </div>
+            </section>
+          </div>
+        </ScrollArea>
+      </div>
+    )
   }
 
   return (

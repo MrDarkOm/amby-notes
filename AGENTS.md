@@ -47,6 +47,10 @@ Use TypeScript, React function components, existing local patterns, and the `@/`
 
 Keep reusable primitives in `components/ui`, workspace behavior in `components/workspace`, editor-format logic in `components/workspace/tiptap`, and filesystem/domain behavior in the relevant Rust module. Keep `lib.rs` focused on Tauri state, command boundaries, and registration rather than growing domain implementations there.
 
+Folder selection opens a `folder` workspace tab rendered by `folder-view.tsx`; derive its cards, counts, and properties from the current `TreeItem` hierarchy instead of reading the filesystem or creating a second folder-state model. Folder icon changes use the shared `EmojiPickerPanel`, `IconValue`, and view-state icon overrides, exactly like note icons.
+
+Rendered tags and wiki links may expose editor-only controls such as unlink-on-hover, but the resulting mutation must replace the mark/node with ordinary text without changing the visible label. Keep these controls out of serialized Markdown and preserve normal click navigation outside the control.
+
 The repository has legacy Prettier and Rustfmt drift. Do not perform unrelated repository-wide formatting. Format touched frontend files with Prettier and touched Rust files with Rustfmt. Lefthook runs ESLint fixes and Prettier on staged frontend files.
 
 ## Localization and Themes

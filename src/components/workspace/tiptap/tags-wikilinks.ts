@@ -46,7 +46,10 @@ function createWikiLinkButton(
   button.type = "button"
   button.className = "amby-live-wikilink-button"
   button.textContent = label
-  button.title = resolvedTarget
+  button.dataset.ambyInlineUnlink = "true"
+  button.dataset.ambyFrom = String(from)
+  button.dataset.ambyTo = String(to)
+  button.dataset.ambyReplacement = label
   button.setAttribute("contenteditable", "false")
   button.setAttribute("aria-label", `Open note ${resolvedTarget}`)
   button.draggable = false
@@ -114,7 +117,15 @@ export const TagsWikilinks = Extension.create<TagsWikilinksOptions>({
                 const from = pos + match.index
                 const to = from + match[0].length
                 if (match[1]) {
-                  decorations.push(Decoration.inline(from, to, { class: "amby-live-tag" }))
+                  decorations.push(
+                    Decoration.inline(from, to, {
+                      class: "amby-live-tag",
+                      "data-amby-inline-unlink": "true",
+                      "data-amby-from": String(from),
+                      "data-amby-to": String(to),
+                      "data-amby-replacement": match[1],
+                    }),
+                  )
                   continue
                 }
                 const raw = match[2] ?? ""

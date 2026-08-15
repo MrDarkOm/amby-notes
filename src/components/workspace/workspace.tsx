@@ -44,6 +44,8 @@ import { useLayers } from "./use-layers"
 import { useTabActions } from "./use-tab-actions"
 import { wsPathStem, canvasLayerPath, findTreeItem, newTabKey } from "./workspace-tree-utils"
 import { WorkspacePicker } from "./workspace-picker"
+import { FolderView } from "./folder-view"
+import { countFolderContents } from "./folder-view-utils"
 import {
   isTauri,
   openVault,
@@ -284,7 +286,10 @@ export function Workspace() {
   const saveTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 
   const activeTab = tabs.find((t) => t.key === activeTabKey) ?? null
-  const selectedId = activeTab && activeTab.kind === "document" ? activeTab.fileId : ""
+  const selectedId =
+    activeTab && (activeTab.kind === "document" || activeTab.kind === "folder")
+      ? activeTab.fileId
+      : ""
   const canGoBack = (activeTab?.historyIndex ?? 0) > 0
   const canGoForward = activeTab ? activeTab.historyIndex < activeTab.history.length - 1 : false
 
@@ -704,12 +709,33 @@ export function Workspace() {
   // panelRenderProps stable while typing.
   const currentProperties = React.useMemo(
     () => {
+      if (activeTab?.kind === "folder") {
+        const folder = findTreeItem(displayTreeItems, activeTab.fileId)
+        if (!folder || folder.type !== "folder") return null
+        const counts = countFolderContents(folder)
+        return {
+          kind: "folder" as const,
+          type: t("infoPanel.folderType"),
+          id: folder.id,
+          path: workspaceRelativePath(folder.path, vault ?? ""),
+          noteCount: counts.notes,
+          folderCount: counts.folders,
+          nestedNotes: (folder.children ?? [])
+            .filter((item) => item.type === "file")
+            .map((item) => ({
+              id: item.id,
+              name: item.name.replace(/\.md$/iu, ""),
+              icon: item.icon,
+            })),
+        }
+      }
       if (!currentDoc) return null
       const treeItem = findTreeItem(displayTreeItems, currentDoc.id)
       const nestedNotes = (treeItem?.children ?? [])
         .filter((item) => item.type === "file")
         .map((item) => ({ id: item.id, name: item.name.replace(/\.md$/iu, ""), icon: item.icon }))
       return {
+        kind: "document" as const,
         type: "Markdown",
         backlinks: linkGraph.edges.filter((e) => e.target === currentDoc.id).length,
         created: currentDoc.created,
@@ -728,9 +754,12 @@ export function Workspace() {
       currentDoc?.id,
       currentDoc?.modified,
       currentDoc?.noteProperties,
+      activeTab?.kind,
+      activeTab?.fileId,
       displayTreeItems,
       linkGraph,
       t,
+      vault,
     ],
   )
 
@@ -771,12 +800,15 @@ export function Workspace() {
     [currentDoc, vault],
   )
 
-  const headerTabs: HeaderTab[] = tabs.map((t) => ({
-    key: t.key,
-    fileId: t.fileId,
-    title: t.title,
-    icon: findTreeItem(displayTreeItems, t.fileId)?.icon,
-  }))
+  const headerTabs: HeaderTab[] = tabs.map((tab) => {
+    const item = findTreeItem(displayTreeItems, tab.fileId)
+    return {
+      key: tab.key,
+      fileId: tab.fileId,
+      title: tab.title,
+      icon: tab.kind === "folder" ? (item?.icon ?? "📁") : item?.icon,
+    }
+  })
 
   // panelRenderProps is memoised so that sidebar panels don't re-render when only
   // the editor content changes (openDocs/currentDoc). The deps list covers every value
@@ -968,6 +1000,8 @@ export function Workspace() {
   }
 
   const editorProps = paneEditorProps(activeTab)
+  const activeFolder =
+    activeTab?.kind === "folder" ? findTreeItem(displayTreeItems, activeTab.fileId) : null
   const secondaryTab = secondaryTabKey
     ? (tabs.find((t) => t.key === secondaryTabKey && t.kind === "document") ?? null)
     : null
@@ -1018,6 +1052,14 @@ export function Workspace() {
               onOpenNote={handleOpenCanvasNote}
             />
           </React.Suspense>
+        ) : activeFolder?.type === "folder" ? (
+          <FolderView
+            folder={activeFolder}
+            onOpenItem={handleSelect}
+            onNewNote={handleNewFileIn}
+            onNewFolder={handleNewFolderIn}
+            onIconChange={(icon) => handleSetIcon(activeFolder.id, icon)}
+          />
         ) : showSplit ? (
           <div className="flex min-h-0 flex-1">
             <div className="flex min-w-0 flex-1">
@@ -1231,6 +1273,14 @@ export function Workspace() {
                 onOpenNote={handleOpenCanvasNote}
               />
             </React.Suspense>
+          ) : activeFolder?.type === "folder" ? (
+            <FolderView
+              folder={activeFolder}
+              onOpenItem={handleSelect}
+              onNewNote={handleNewFileIn}
+              onNewFolder={handleNewFolderIn}
+              onIconChange={(icon) => handleSetIcon(activeFolder.id, icon)}
+            />
           ) : showSplit ? (
             <>
               <div className="flex min-w-0 flex-1">

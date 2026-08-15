@@ -810,8 +810,7 @@ export function SidebarTree({
         case " ":
           if (!current) break
           event.preventDefault()
-          if (current.item.type === "folder") toggleOpen(current.item.id)
-          else onSelect(current.item.id)
+          onSelect(current.item.id)
           break
         case "F2":
           if (!current) break
