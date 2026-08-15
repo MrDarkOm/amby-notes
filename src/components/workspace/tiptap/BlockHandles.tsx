@@ -9,6 +9,12 @@ import { GripVertical } from "lucide-react"
 import { BlockActionsPanel } from "./BlockActionsPanel"
 import { BlockInsertPanel } from "./BlockInsertPanel"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
+import {
+  createColumnsFromDrop,
+  moveBlockAcrossColumns,
+  removeSoleBlockColumn,
+  type ColumnDropSide,
+} from "./columns-transaction"
 
 const DRAGGABLE_TYPES = new Set([
   "paragraph",
@@ -140,19 +146,24 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
     const { state, view } = editor
 
-    // Controls are hover-only. The cursor selection must never leave a grab
-    // handle pinned in the gutter when the pointer is elsewhere.
     const mouseOver = mouseInsideEditorRef.current || mouseInsideWidgetRef.current
-    const target = pinnedTargetRef.current ?? (mouseOver ? hoverTargetRef.current : null)
+    const selectionTarget = view.hasFocus() ? findDraggableAncestor(state.selection.$from) : null
+    const target =
+      pinnedTargetRef.current ??
+      (mouseOver ? hoverTargetRef.current : null) ??
+      (selectionTarget
+        ? {
+            mode: "block" as const,
+            nodePos: selectionTarget.pos,
+            nodeType: selectionTarget.node.type.name,
+          }
+        : null)
     if (!target) {
       setHandle((h) => (h.visible ? { ...h, visible: false } : h))
       return
     }
 
-    const editorRect = view.dom.getBoundingClientRect()
-    const editorPaddingLeft = parseFloat(window.getComputedStyle(view.dom).paddingLeft) || 12
-    const contentLeft = editorRect.left + editorPaddingLeft
-    const left = Math.max(0, contentLeft - HANDLE_WIDTH - GUTTER_GAP)
+    let left: number
     let top: number
 
     if (target.mode === "insert") {
@@ -164,8 +175,15 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       }
       const beforeRect = beforeDom.getBoundingClientRect()
       const afterRect = afterDom.getBoundingClientRect()
+      left = Math.max(0, Math.min(beforeRect.left, afterRect.left) - HANDLE_WIDTH - GUTTER_GAP)
       top = (beforeRect.bottom + afterRect.top) / 2 - BUTTON_H / 2
     } else {
+      if (target.nodePos < 0 || target.nodePos > state.doc.content.size) {
+        hoverTargetRef.current = null
+        pinnedTargetRef.current = null
+        setHandle((h) => (h.visible ? { ...h, visible: false } : h))
+        return
+      }
       const node = state.doc.nodeAt(target.nodePos)
       const nodeDom = view.nodeDOM(target.nodePos)
       if (!node || !(nodeDom instanceof HTMLElement)) {
@@ -173,9 +191,25 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         return
       }
       const rect = nodeDom.getBoundingClientRect()
+      // Nested column blocks own a local gutter. Anchoring every handle to the
+      // document's far-left edge made the second/third columns nearly
+      // impossible to drag.
+      const taskLabel =
+        target.nodeType === "taskItem" ? nodeDom.querySelector<HTMLElement>(":scope > label") : null
+      const anchorRect = taskLabel?.getBoundingClientRect() ?? rect
+      const column = nodeDom.closest<HTMLElement>(".amby-column")
+      const columnContent = column?.querySelector<HTMLElement>(":scope > .amby-column-content")
+      if (column && columnContent) {
+        // Every column owns a local gutter. Anchor beside its visible content,
+        // not on the resize divider at the column edge.
+        left = Math.max(0, columnContent.getBoundingClientRect().left - HANDLE_WIDTH - 8)
+      } else {
+        const listMarkerClearance = target.nodeType === "listItem" ? 28 : 0
+        left = Math.max(0, anchorRect.left - HANDLE_WIDTH - GUTTER_GAP - listMarkerClearance)
+      }
       // Align the grip with the first line, rather than the visual centre of
       // a tall block, matching Notion's block affordance.
-      top = rect.top + 1
+      top = taskLabel ? anchorRect.top + (anchorRect.height - BUTTON_H) / 2 : anchorRect.top + 1
     }
 
     posRef.current = { top, left }
@@ -231,7 +265,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         if (mouseInsideEditorRef.current || mouseInsideWidgetRef.current) return
         hoverTargetRef.current = null
         applyVisibility()
-      }, 120)
+      }, 260)
     }
 
     const setHoverTarget = (next: HoverTarget | null) => {
@@ -249,23 +283,89 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       applyVisibility()
     }
 
+    const projectedColumnX = (x: number, y: number): number | null => {
+      const columns = editorDom.querySelectorAll<HTMLElement>(".amby-column")
+      for (const column of columns) {
+        const columnRect = column.getBoundingClientRect()
+        if (y < columnRect.top || y > columnRect.bottom) continue
+        const content = column.querySelector<HTMLElement>(":scope > .amby-column-content")
+        if (!content) continue
+        const contentRect = content.getBoundingClientRect()
+        // The divider, resize hit area and grab gutter are outside the actual
+        // text DOM. Project that whole strip onto the content for posAtCoords.
+        if (x >= columnRect.left - 16 && x <= contentRect.left + 24) {
+          return contentRect.left + 2
+        }
+      }
+      return null
+    }
+
+    const targetFromColumnRect = (x: number, y: number): HoverTarget | null => {
+      const columns = editorDom.querySelectorAll<HTMLElement>(".amby-column")
+      for (const column of columns) {
+        const columnRect = column.getBoundingClientRect()
+        if (
+          y < columnRect.top ||
+          y > columnRect.bottom ||
+          x < columnRect.left - 16 ||
+          x > columnRect.right
+        )
+          continue
+        const content = column.querySelector<HTMLElement>(":scope > .amby-column-content")
+        if (!content) continue
+        const blocks = Array.from(content.children).filter(
+          (child): child is HTMLElement => child instanceof HTMLElement,
+        )
+        const block =
+          blocks.find((child) => {
+            const rect = child.getBoundingClientRect()
+            return y >= rect.top && y <= rect.bottom
+          }) ?? (blocks.length === 1 ? blocks[0] : undefined)
+        if (!block) continue
+        try {
+          const domPos = view.posAtDOM(block, 0)
+          const safe = Math.min(Math.max(domPos, 0), Math.max(0, view.state.doc.content.size - 1))
+          const target = findDraggableAncestor(view.state.doc.resolve(safe))
+          if (target) {
+            return {
+              mode: "block",
+              nodePos: target.pos,
+              nodeType: target.node.type.name,
+            }
+          }
+        } catch {
+          // DOM can be replaced by a transaction between pointermove and RAF.
+        }
+      }
+      return null
+    }
+
     const recomputeFromHover = (x: number, y: number) => {
       if (editor.isDestroyed) return
+      const columnTarget = targetFromColumnRect(x, y)
+      if (columnTarget) {
+        setHoverTarget(columnTarget)
+        return
+      }
       const editorRect = view.dom.getBoundingClientRect()
       const paddingLeft = parseFloat(window.getComputedStyle(view.dom).paddingLeft) || 12
       const contentLeft = editorRect.left + paddingLeft
       const withinGutter =
         x >= contentLeft - HANDLE_WIDTH - GUTTER_GAP - GUTTER_HIT_SLOP && x <= contentLeft + 24
-      const pos = view.posAtCoords({ left: withinGutter ? contentLeft + 1 : x, top: y })
+      const localColumnX = projectedColumnX(x, y)
+      const pos = view.posAtCoords({
+        left: localColumnX ?? (withinGutter ? contentLeft + 1 : x),
+        top: y,
+      })
       if (!pos) {
-        setHoverTarget(null)
+        scheduleHideIfNeeded()
         return
       }
       const safe = Math.min(Math.max(pos.pos, 0), Math.max(0, view.state.doc.content.size - 1))
       const $pos = view.state.doc.resolve(safe)
       const target = findDraggableAncestor($pos)
       if (!target) {
-        setHoverTarget(null)
+        scheduleHideIfNeeded()
         return
       }
       setHoverTarget({
@@ -303,8 +403,9 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         e.clientX <= contentLeft + 24 &&
         e.clientY >= rect.top &&
         e.clientY <= rect.bottom
+      const inColumnGutter = projectedColumnX(e.clientX, e.clientY) !== null
 
-      if (inExtendedGutter) {
+      if (inExtendedGutter || inColumnGutter) {
         mouseInsideEditorRef.current = true
         cancelHide()
         onMouseMove(e)
@@ -488,15 +589,30 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
       let indicatorEl: HTMLElement | null = null
 
-      function showIndicatorAt(rect: DOMRect, top: number) {
+      function showIndicatorAt(rect: DOMRect, top: number, crossColumn = false) {
         if (!indicatorEl) {
           indicatorEl = document.createElement("div")
           indicatorEl.className = "amby-block-drop-indicator"
           document.body.appendChild(indicatorEl)
         }
+        indicatorEl.className = crossColumn
+          ? "amby-block-drop-indicator amby-block-drop-indicator--cross-column"
+          : "amby-block-drop-indicator"
+        indicatorEl.style.height = crossColumn ? "4px" : "2px"
         indicatorEl.style.left = `${rect.left}px`
         indicatorEl.style.width = `${rect.width}px`
-        indicatorEl.style.top = `${top - 1}px`
+        indicatorEl.style.top = `${top - (crossColumn ? 2 : 1)}px`
+      }
+      function showSideIndicator(rect: DOMRect, side: ColumnDropSide) {
+        if (!indicatorEl) {
+          indicatorEl = document.createElement("div")
+          document.body.appendChild(indicatorEl)
+        }
+        indicatorEl.className = "amby-block-drop-indicator amby-block-drop-indicator--column"
+        indicatorEl.style.left = `${side === "left" ? rect.left : rect.right - 3}px`
+        indicatorEl.style.top = `${rect.top}px`
+        indicatorEl.style.width = "3px"
+        indicatorEl.style.height = `${rect.height}px`
       }
       function hideIndicator() {
         if (indicatorEl) {
@@ -508,9 +624,11 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       function updateIndicator(
         clientX: number,
         clientY: number,
+        sourcePos = dragRef.current.srcPos,
       ): {
         targetPos: number
         before: boolean
+        side: ColumnDropSide | null
       } | null {
         const pos = view.posAtCoords({ left: clientX, top: clientY })
         if (!pos) {
@@ -533,6 +651,37 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           return null
         }
         const rect = targetDom.getBoundingClientRect()
+        const $source =
+          sourcePos >= 0 && sourcePos <= doc.content.size ? doc.resolve(sourcePos) : null
+        const sourceIsTopLevel = $source?.depth === 0
+        const sourceIsSoleColumnBlock =
+          $source?.parent.type.name === "column" && $source.parent.childCount === 1
+        const targetIsColumnBlock = doc.resolve(targetPos).parent.type.name === "column"
+        // In an existing layout the broad middle area always means “move this
+        // block”. Only the outer 18% reorders a whole single-block column.
+        // Top-level blocks keep wider edges because that gesture creates a new
+        // column and has no cross-column move ambiguity.
+        const edgeRatio = sourceIsTopLevel ? 0.34 : sourceIsSoleColumnBlock ? 0.18 : 0
+        const horizontalEdge = rect.width * edgeRatio
+        const outsideSlop = sourceIsTopLevel ? 28 : 8
+        const side: ColumnDropSide | null =
+          edgeRatio > 0 &&
+          clientX >= rect.left - outsideSlop &&
+          clientX <= rect.left + horizontalEdge
+            ? "left"
+            : edgeRatio > 0 &&
+                clientX >= rect.right - horizontalEdge &&
+                clientX <= rect.right + outsideSlop
+              ? "right"
+              : null
+        const canCreateColumns =
+          side && sourcePos >= 0 && (sourceIsTopLevel || targetIsColumnBlock)
+            ? createColumnsFromDrop(view.state, sourcePos, targetPos, side) !== null
+            : false
+        if (side && canCreateColumns) {
+          showSideIndicator(rect, side)
+          return { targetPos, before: false, side }
+        }
         const before = clientY < rect.top + rect.height / 2
         const $target = doc.resolve(targetPos)
         const parentDepth = target.depth - 1
@@ -555,8 +704,8 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           }
         }
 
-        showIndicatorAt(rect, lineTop)
-        return { targetPos, before }
+        showIndicatorAt(rect, lineTop, targetIsColumnBlock)
+        return { targetPos, before, side: null }
       }
 
       function onMove(ev: PointerEvent) {
@@ -635,7 +784,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           hideIndicator()
           return
         }
-        const target = updateIndicator(ev.clientX, ev.clientY)
+        const target = updateIndicator(ev.clientX, ev.clientY, srcPos)
         hideIndicator()
         if (!target) return
 
@@ -644,6 +793,12 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         const srcNode = doc.nodeAt(srcPos)
         const targetNode = doc.nodeAt(target.targetPos)
         if (!srcNode || !targetNode) return
+
+        if (target.side) {
+          const tr = createColumnsFromDrop(state, srcPos, target.targetPos, target.side)
+          if (tr) dispatch(tr)
+          return
+        }
 
         const srcEnd = srcPos + srcNode.nodeSize
         const insertPos = target.before ? target.targetPos : target.targetPos + targetNode.nodeSize
@@ -655,9 +810,15 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
         const $src = doc.resolve(srcPos)
         const $ins = doc.resolve(insertPos)
+        const crossColumn = moveBlockAcrossColumns(state, srcPos, target.targetPos, target.before)
+        if (crossColumn) {
+          dispatch(crossColumn)
+          return
+        }
         const parentKey = ($p: ResolvedPos) => ($p.depth === 0 ? -1 : $p.before($p.depth))
-        // Same-parent siblings only in this round; cross-parent drops bail.
-        if (parentKey($src) !== parentKey($ins)) return
+        if (parentKey($src) !== parentKey($ins)) {
+          return
+        }
 
         const tr = state.tr
         tr.delete(srcPos, srcEnd)
@@ -680,6 +841,19 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   if (!handle.visible || !editor.isEditable) return null
 
   const isCallout = handle.nodeType === "callout"
+  const $handle =
+    handle.nodePos >= 0 && handle.nodePos <= editor.state.doc.content.size
+      ? editor.state.doc.resolve(handle.nodePos)
+      : null
+  let isColumnBlock = false
+  if ($handle) {
+    for (let depth = $handle.depth; depth > 0; depth--) {
+      if ($handle.node(depth).type.name === "column") {
+        isColumnBlock = true
+        break
+      }
+    }
+  }
 
   // Compute anchor rect for child panels — same viewport coords as the handles.
   const anchorRect = {
@@ -736,7 +910,8 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     const node = editor.state.doc.nodeAt(handle.nodePos)
     if (!node) return
     const { state, dispatch } = editor.view
-    dispatch(state.tr.delete(handle.nodePos, handle.nodePos + node.nodeSize))
+    const removeColumn = removeSoleBlockColumn(state, handle.nodePos)
+    dispatch(removeColumn ?? state.tr.delete(handle.nodePos, handle.nodePos + node.nodeSize))
   }
 
   function focusInsideBlock() {
@@ -750,7 +925,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   return createPortal(
     <div
       ref={handlesRef}
-      className="amby-block-handles"
+      className={`amby-block-handles${isColumnBlock ? " amby-block-handles--column" : ""}`}
       style={{ top: posRef.current.top, left: posRef.current.left }}
       onMouseEnter={() => widgetEnterRef.current?.()}
       onMouseLeave={() => widgetLeaveRef.current?.()}

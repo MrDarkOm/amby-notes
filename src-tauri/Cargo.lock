@@ -51,11 +51,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "amby-desktop"
+name = "amby-notes"
 version = "0.1.0"
 dependencies = [
  "futures-util",
  "notify",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "reqwest",
  "rfd",
  "rusqlite",

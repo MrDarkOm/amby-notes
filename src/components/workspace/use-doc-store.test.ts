@@ -12,6 +12,7 @@ describe("useDocStore external conflicts", () => {
       id: "note",
       title: "Note",
       content: "local",
+      created: "",
       modified: "",
       wordCount: 1,
       path: "/vault/Note.md",

@@ -17,6 +17,16 @@ export interface NoteProperties {
   hasFrontmatter: boolean
   properties: FrontmatterProperty[]
   parseError?: string
+  customProperties: CustomProperty[]
+}
+
+export interface CustomProperty {
+  id: string
+  name: string
+  icon: string
+  propertyType: string
+  value: string
+  settings: string
 }
 
 export interface SnapshotEntry {
@@ -167,7 +177,7 @@ function splitWebFrontmatter(
 
 function webNoteProperties(content: string): NoteProperties {
   const frontmatter = splitWebFrontmatter(content)
-  if (!frontmatter) return { hasFrontmatter: false, properties: [] }
+  if (!frontmatter) return { hasFrontmatter: false, properties: [], customProperties: [] }
   const properties: FrontmatterProperty[] = []
   for (const line of frontmatter.yaml.split("\n")) {
     if (!line || /^\s/u.test(line) || line.trimStart().startsWith("#")) continue
@@ -180,7 +190,7 @@ function webNoteProperties(content: string): NoteProperties {
       .replace(/^['"]|['"]$/gu, "")
     properties.push({ key, value, valueKind: "text" })
   }
-  return { hasFrontmatter: true, properties }
+  return { hasFrontmatter: true, properties, customProperties: [] }
 }
 
 function pathDir(path: string): string {
@@ -849,7 +859,46 @@ export async function getNoteProperties(
   noteId: string,
 ): Promise<NoteProperties> {
   if (isTauri()) return invoke<NoteProperties>("get_note_properties", { vaultPath, noteId })
-  return webNoteProperties(localStorage.getItem(FILE_PREFIX + noteId) ?? "")
+  const result = webNoteProperties(localStorage.getItem(FILE_PREFIX + noteId) ?? "")
+  try {
+    result.customProperties = JSON.parse(
+      localStorage.getItem(`amby:custom-properties:${noteId}`) ?? "[]",
+    ) as CustomProperty[]
+  } catch {
+    result.customProperties = []
+  }
+  return result
+}
+
+export async function upsertCustomProperty(
+  vaultPath: string,
+  noteId: string,
+  property: CustomProperty,
+): Promise<CustomProperty> {
+  if (isTauri())
+    return invoke<CustomProperty>("upsert_custom_property", { vaultPath, noteId, property })
+  const current = (await getNoteProperties("", noteId)).customProperties
+  const saved = { ...property, id: property.id || crypto.randomUUID() }
+  const index = current.findIndex((item) => item.id === saved.id)
+  if (index >= 0) current[index] = saved
+  else current.push(saved)
+  localStorage.setItem(`amby:custom-properties:${noteId}`, JSON.stringify(current))
+  return saved
+}
+
+export async function deleteCustomProperty(
+  vaultPath: string,
+  noteId: string,
+  propertyId: string,
+): Promise<void> {
+  if (isTauri()) {
+    await invoke("delete_custom_property", { vaultPath, noteId, propertyId })
+    return
+  }
+  const current = (await getNoteProperties("", noteId)).customProperties.filter(
+    (property) => property.id !== propertyId,
+  )
+  localStorage.setItem(`amby:custom-properties:${noteId}`, JSON.stringify(current))
 }
 
 export async function getFileMetadata(path: string): Promise<FileMetadata> {

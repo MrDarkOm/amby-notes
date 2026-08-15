@@ -13,19 +13,17 @@ import {
   Clock,
   Copy,
   Database,
-  FileCode2,
   FilePlus,
   FileText,
   FolderPlus,
-  Hash,
   History,
   LayoutGrid,
   Link as LinkIcon,
-  List as ListIcon,
   LocateFixed,
   RefreshCw,
   Search,
-  ToggleLeft,
+  Plus,
+  Trash2,
   Type as TypeIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -34,6 +32,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -61,7 +60,9 @@ import {
   type SnapshotEntry,
   type TrashEntry,
 } from "@/lib/storage"
-import type { NoteProperties } from "@/lib/storage"
+import type { CustomProperty, NoteProperties } from "@/lib/storage"
+import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel"
+import { IconValue } from "./icon-value"
 
 export type Side = "left" | "right"
 
@@ -71,9 +72,11 @@ export type PanelId =
 export interface DocumentProperties {
   type: string
   backlinks: number
+  created: string
   modified: string
   id: string
   frontmatter: NoteProperties
+  nestedNotes: Array<{ id: string; name: string; icon?: string }>
 }
 
 export interface LinkGraphNode {
@@ -109,6 +112,8 @@ export interface PanelRenderProps {
   onNewCanvas?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenInNewWindow?: (id: string) => void
+  onCloneFile?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onMoveItem?: (sourceId: string, targetFolderId: string | null) => void
   onSetIcon?: (id: string, icon: string) => void
@@ -129,6 +134,8 @@ export interface PanelRenderProps {
   currentDocId?: string | null
   currentDocPath?: string | null
   onSelectLink?: (id: string) => void
+  onUpsertCustomProperty?: (property: CustomProperty) => Promise<CustomProperty>
+  onDeleteCustomProperty?: (propertyId: string) => Promise<void>
   onHistoryRestored?: () => Promise<void>
   workspaceSwitcher?: React.ReactNode
 }
@@ -237,6 +244,8 @@ export function FilesPanel(props: PanelRenderProps) {
     onNewCanvas,
     onAttachCanvas,
     onOpenInNewTab,
+    onOpenInNewWindow,
+    onCloneFile,
     onOpenInExplorer,
     onMoveItem,
     onSetIcon,
@@ -369,10 +378,10 @@ export function FilesPanel(props: PanelRenderProps) {
                   onRename={onRename}
                   onDelete={onDelete}
                   onNewFile={onNewFile}
-                  onNewFolder={onNewFolder}
-                  onNewCanvas={onNewCanvas}
                   onAttachCanvas={onAttachCanvas}
                   onOpenInNewTab={onOpenInNewTab}
+                  onOpenInNewWindow={onOpenInNewWindow}
+                  onCloneFile={onCloneFile}
                   onOpenInExplorer={onOpenInExplorer}
                   onMoveItem={onMoveItem}
                   onSetIcon={onSetIcon}
@@ -517,98 +526,339 @@ export function ComingSoonPanel({ labelKey }: { labelKey: string }) {
   )
 }
 
-function PropertyTypeIcon({ kind }: { kind: string }) {
-  const Icon =
-    kind === "checkbox"
-      ? ToggleLeft
-      : kind === "list"
-        ? ListIcon
-        : kind === "object"
-          ? Braces
-          : kind === "number"
-            ? Hash
-            : TypeIcon
+function PropertyRow({
+  property,
+  onEdit,
+  onValueSave,
+}: {
+  property: CustomProperty
+  onEdit: () => void
+  onValueSave: (property: CustomProperty) => Promise<void>
+}) {
+  const { t } = useTranslation()
+  const [value, setValue] = React.useState(property.value)
+  React.useEffect(() => setValue(property.value), [property.value])
+  const options = property.settings
+    .split(",")
+    .map((option) => option.trim())
+    .filter(Boolean)
 
-  return (
-    <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent/70 text-muted-foreground">
-      <Icon className="size-3.5" />
-    </span>
-  )
-}
+  async function saveValue(next = value) {
+    if (next === property.value) return
+    await onValueSave({ ...property, value: next })
+  }
 
-function PropertyValue({ kind, value }: { kind: string; value: string }) {
-  if (kind === "checkbox") {
-    const enabled = value.trim().toLowerCase() === "true"
+  if (property.propertyType === "checkbox") {
+    const checked = value === "true"
     return (
-      <span
-        className={cn(
-          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
-          enabled ? "bg-emerald-500/10 text-emerald-400" : "bg-accent text-muted-foreground",
-        )}
-      >
-        {enabled && <Check className="size-3" />}
-        {enabled ? "True" : "False"}
-      </span>
+      <div className="flex items-center overflow-hidden rounded-lg border border-border bg-background/30 px-3 py-2">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          onClick={onEdit}
+        >
+          <span className="w-5 shrink-0 text-center text-sm" aria-hidden="true">
+            <IconValue value={property.icon} fallback="☑️" className="size-4" />
+          </span>
+          <span className="truncate text-[11px] font-medium text-foreground">{property.name}</span>
+        </button>
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={checked}
+          aria-label={property.name}
+          className={cn(
+            "flex size-5 shrink-0 items-center justify-center rounded border transition-colors",
+            checked
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border bg-background hover:border-primary/60",
+          )}
+          onClick={() => {
+            const next = checked ? "false" : "true"
+            setValue(next)
+            void saveValue(next)
+          }}
+        >
+          {checked && <Check className="size-3.5" />}
+        </button>
+      </div>
     )
   }
 
-  if (kind === "list") {
-    const items = value
-      .split("\n")
-      .map((item) => item.replace(/^\s*-\s*/, "").trim())
-      .filter(Boolean)
-    if (items.length > 0 && items.every((item) => !item.includes(":"))) {
-      return (
-        <div className="flex flex-wrap justify-end gap-1">
-          {items.map((item, index) => (
-            <span
-              key={`${item}-${index}`}
-              className="max-w-full truncate rounded-md bg-accent px-1.5 py-0.5 text-[10px] text-foreground"
-            >
-              {item}
-            </span>
-          ))}
-        </div>
-      )
-    }
-  }
-
-  if (kind === "null") return <span className="text-muted-foreground">—</span>
-
   return (
-    <span
-      className={cn(
-        "whitespace-pre-wrap break-words text-right text-xs text-foreground",
-        (kind === "object" || kind === "unknown") && "font-mono text-[10px] leading-relaxed",
-        kind === "number" && "tabular-nums text-blue-400",
-      )}
-    >
-      {value}
-    </span>
-  )
-}
-
-function PropertyRow({ property }: { property: NoteProperties["properties"][number] }) {
-  return (
-    <div className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-2 px-2.5 py-2.5">
-      <div className="flex min-w-0 items-center gap-2">
-        <PropertyTypeIcon kind={property.valueKind} />
-        <span className="truncate text-xs text-muted-foreground" title={property.key}>
-          {property.key}
+    <div className="overflow-hidden rounded-lg border border-border bg-background/30">
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/60"
+        onClick={onEdit}
+      >
+        <span className="w-5 shrink-0 text-center text-sm" aria-hidden="true">
+          <IconValue value={property.icon} fallback="◆" className="size-4" />
         </span>
-      </div>
-      <div className="flex min-w-0 items-center justify-end">
-        <PropertyValue kind={property.valueKind} value={property.value} />
+        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
+          {property.name}
+        </span>
+        <span className="text-[9px] text-muted-foreground">
+          {t(`infoPanel.propertyTypes.${property.propertyType}`)}
+        </span>
+      </button>
+      <div className="border-t border-border px-3 py-2">
+        {property.propertyType === "select" ? (
+          <select
+            value={value}
+            className="h-7 w-full rounded-md border-0 bg-transparent px-1 text-[11px] text-foreground outline-none"
+            onChange={(event) => {
+              setValue(event.target.value)
+              void saveValue(event.target.value)
+            }}
+          >
+            <option value="">—</option>
+            {options.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            type={
+              property.propertyType === "number"
+                ? "number"
+                : property.propertyType === "date"
+                  ? "date"
+                  : property.propertyType === "url"
+                    ? "url"
+                    : "text"
+            }
+            value={value}
+            className="h-7 w-full bg-transparent px-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
+            placeholder="—"
+            onChange={(event) => setValue(event.target.value)}
+            onBlur={() => void saveValue()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur()
+              }
+            }}
+          />
+        )}
       </div>
     </div>
   )
 }
 
-export function InfoPanel({ properties }: PanelRenderProps) {
+const CUSTOM_PROPERTY_TYPES = ["text", "number", "checkbox", "date", "select", "url"] as const
+
+function PropertyEditor({
+  property,
+  open,
+  onOpenChange,
+  onSave,
+  onDelete,
+}: {
+  property: CustomProperty | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onSave: (property: CustomProperty) => Promise<void>
+  onDelete: (propertyId: string) => Promise<void>
+}) {
   const { t } = useTranslation()
-  const [query, setQuery] = React.useState("")
-  const [technicalOpen, setTechnicalOpen] = React.useState(false)
+  const [draft, setDraft] = React.useState<CustomProperty>({
+    id: "",
+    name: "",
+    icon: "◆",
+    propertyType: "text",
+    value: "",
+    settings: "",
+  })
+  const [emojiOpen, setEmojiOpen] = React.useState(false)
+  const emojiRef = React.useRef<HTMLButtonElement>(null)
+  const [saving, setSaving] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!open) return
+    setDraft(
+      property ?? {
+        id: "",
+        name: "",
+        icon: "◆",
+        propertyType: "text",
+        value: "",
+        settings: "",
+      },
+    )
+    setEmojiOpen(false)
+  }, [open, property])
+
+  const options = draft.settings
+    .split(",")
+    .map((option) => option.trim())
+    .filter(Boolean)
+
+  async function save() {
+    if (!draft.name.trim() || saving) return
+    setSaving(true)
+    try {
+      await onSave(draft)
+      onOpenChange(false)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-sm gap-3 p-4">
+        <DialogHeader>
+          <DialogTitle className="text-sm">{t("infoPanel.propertyEditor")}</DialogTitle>
+        </DialogHeader>
+        <div className="relative flex items-center gap-2">
+          <button
+            ref={emojiRef}
+            type="button"
+            className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-base hover:bg-accent"
+            onClick={() => setEmojiOpen((value) => !value)}
+            title={t("infoPanel.propertyIcon")}
+          >
+            <IconValue value={draft.icon} fallback="◆" className="size-5" />
+          </button>
+          <Input
+            value={draft.name}
+            onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
+            placeholder={t("infoPanel.propertyName")}
+            className="h-9 text-xs"
+          />
+          {emojiOpen && (
+            <div className="absolute left-0 top-11 z-[70]">
+              <EmojiPickerPanel
+                triggerRef={emojiRef}
+                onSelect={(emoji) => {
+                  setDraft((value) => ({ ...value, icon: emoji.native }))
+                  setEmojiOpen(false)
+                }}
+                onClose={() => setEmojiOpen(false)}
+              />
+            </div>
+          )}
+        </div>
+        <label className="grid gap-1 text-[10px] text-muted-foreground">
+          {t("infoPanel.propertyType")}
+          <select
+            value={draft.propertyType}
+            onChange={(event) =>
+              setDraft((value) => ({ ...value, propertyType: event.target.value, value: "" }))
+            }
+            className="h-9 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+          >
+            {CUSTOM_PROPERTY_TYPES.map((type) => (
+              <option key={type} value={type}>
+                {t(`infoPanel.propertyTypes.${type}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+        {draft.propertyType === "select" && (
+          <label className="grid gap-1 text-[10px] text-muted-foreground">
+            {t("infoPanel.propertyOptions")}
+            <Input
+              value={draft.settings}
+              onChange={(event) =>
+                setDraft((value) => ({ ...value, settings: event.target.value }))
+              }
+              placeholder={t("infoPanel.propertyOptionsHint")}
+              className="h-9 text-xs"
+            />
+          </label>
+        )}
+        <label className="grid gap-1 text-[10px] text-muted-foreground">
+          {t("infoPanel.propertyValue")}
+          {draft.propertyType === "checkbox" ? (
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={draft.value === "true"}
+              className="flex h-9 items-center justify-between rounded-md border border-border px-3 text-xs text-foreground"
+              onClick={() =>
+                setDraft((value) => ({
+                  ...value,
+                  value: value.value === "true" ? "false" : "true",
+                }))
+              }
+            >
+              {draft.value === "true" ? t("common.yes") : t("common.no")}
+              <span>{draft.value === "true" ? "✓" : "○"}</span>
+            </button>
+          ) : draft.propertyType === "select" ? (
+            <select
+              value={draft.value}
+              onChange={(event) => setDraft((value) => ({ ...value, value: event.target.value }))}
+              className="h-9 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+            >
+              <option value="">—</option>
+              {options.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <Input
+              type={
+                draft.propertyType === "number"
+                  ? "number"
+                  : draft.propertyType === "date"
+                    ? "date"
+                    : draft.propertyType === "url"
+                      ? "url"
+                      : "text"
+              }
+              value={draft.value}
+              onChange={(event) => setDraft((value) => ({ ...value, value: event.target.value }))}
+              className="h-9 text-xs"
+            />
+          )}
+        </label>
+        <div className="flex items-center justify-between border-t border-border pt-3">
+          {draft.id ? (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 text-xs text-destructive"
+              onClick={async () => {
+                await onDelete(draft.id)
+                onOpenChange(false)
+              }}
+            >
+              <Trash2 className="size-3.5" />
+              {t("infoPanel.deleteProperty")}
+            </button>
+          ) : (
+            <span />
+          )}
+          <Button
+            size="sm"
+            className="h-8 text-xs"
+            disabled={!draft.name.trim() || saving}
+            onClick={save}
+          >
+            {t("common.save")}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function InfoPanel({
+  properties,
+  onSelectLink,
+  onUpsertCustomProperty,
+  onDeleteCustomProperty,
+}: PanelRenderProps) {
+  const { t } = useTranslation()
+  const [aboutOpen, setAboutOpen] = React.useState(false)
   const [copied, setCopied] = React.useState(false)
+  const [propertyEditorOpen, setPropertyEditorOpen] = React.useState(false)
+  const [editingProperty, setEditingProperty] = React.useState<CustomProperty | null>(null)
   if (!properties) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
@@ -616,13 +866,8 @@ export function InfoPanel({ properties }: PanelRenderProps) {
       </div>
     )
   }
-
-  const customProperties = properties.frontmatter.properties.filter(
-    (property) => !["id", "amby-kind"].includes(property.key.trim().toLowerCase()),
-  )
-  const visibleProperties = customProperties.filter((property) =>
-    `${property.key} ${property.value}`.toLowerCase().includes(query.trim().toLowerCase()),
-  )
+  const nestedNotes = properties.nestedNotes ?? []
+  const customProperties = properties.frontmatter.customProperties ?? []
 
   async function copyId(id: string) {
     try {
@@ -648,44 +893,48 @@ export function InfoPanel({ properties }: PanelRenderProps) {
             {customProperties.length}
           </span>
         </div>
-        {customProperties.length >= 4 && (
-          <div className="relative mt-3">
-            <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t("infoPanel.search")}
-              className="h-7 border-border bg-background/50 pl-7 text-xs text-foreground placeholder:text-muted-foreground"
-            />
-          </div>
-        )}
       </div>
       <ScrollArea className="flex-1">
         <div className="space-y-5 px-3 py-3">
           <section>
-            <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              {t("infoPanel.custom")}
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {t("infoPanel.custom")}
+              </div>
+              <button
+                type="button"
+                className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                title={t("infoPanel.addProperty")}
+                onClick={() => {
+                  setEditingProperty(null)
+                  setPropertyEditorOpen(true)
+                }}
+              >
+                <Plus className="size-3.5" />
+              </button>
             </div>
-            {properties.frontmatter.parseError ? (
-              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-[11px] leading-relaxed text-amber-300">
-                {t("infoPanel.parseError")}
-              </div>
-            ) : visibleProperties.length > 0 ? (
-              <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-background/30">
-                {visibleProperties.map((property) => (
-                  <PropertyRow key={property.key} property={property} />
+            {customProperties.length > 0 ? (
+              <div className="space-y-2">
+                {customProperties.map((property) => (
+                  <PropertyRow
+                    key={property.id}
+                    property={property}
+                    onEdit={() => {
+                      setEditingProperty(property)
+                      setPropertyEditorOpen(true)
+                    }}
+                    onValueSave={async (updated) => {
+                      await onUpsertCustomProperty?.(updated)
+                    }}
+                  />
                 ))}
-              </div>
-            ) : query ? (
-              <div className="rounded-lg border border-dashed border-border px-3 py-5 text-center text-[11px] text-muted-foreground">
-                {t("infoPanel.noMatches")}
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-border px-3 py-4 text-center">
                 <Braces className="mx-auto size-4 text-muted-foreground" />
                 <p className="mt-2 text-xs text-foreground">{t("infoPanel.noCustom")}</p>
                 <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
-                  {t("infoPanel.noCustomHint")}
+                  {t("infoPanel.noDatabaseProperties")}
                 </p>
               </div>
             )}
@@ -693,58 +942,70 @@ export function InfoPanel({ properties }: PanelRenderProps) {
 
           <section>
             <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              {t("infoPanel.overview")}
+              {t("infoPanel.nestedNotes")}
             </div>
-            <div className="overflow-hidden rounded-lg border border-border bg-background/30">
-              <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
-                <div className="px-3 py-2.5">
-                  <FileCode2 className="mb-1.5 size-3.5 text-muted-foreground" />
-                  <div className="text-[10px] text-muted-foreground">{t("infoPanel.type")}</div>
-                  <div className="mt-0.5 text-xs text-foreground">{properties.type}</div>
-                </div>
-                <div className="px-3 py-2.5">
-                  <LinkIcon className="mb-1.5 size-3.5 text-muted-foreground" />
-                  <div className="text-[10px] text-muted-foreground">
-                    {t("infoPanel.backlinks")}
-                  </div>
-                  <div className="mt-0.5 text-xs tabular-nums text-blue-400">
-                    {properties.backlinks}
-                  </div>
-                </div>
+            {nestedNotes.length ? (
+              <div className="flex flex-wrap gap-1.5">
+                {nestedNotes.map((note) => (
+                  <button
+                    key={note.id}
+                    type="button"
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background/40 px-2 py-1.5 text-xs text-foreground transition-colors hover:bg-accent"
+                    onClick={() => onSelectLink?.(note.id)}
+                  >
+                    <span className="flex size-4 items-center justify-center" aria-hidden="true">
+                      <IconValue
+                        value={
+                          note.icon && !["file", "supernote"].includes(note.icon)
+                            ? note.icon
+                            : undefined
+                        }
+                        fallback="📄"
+                        className="size-4"
+                      />
+                    </span>
+                    <span className="truncate">{note.name}</span>
+                  </button>
+                ))}
               </div>
-              <div className="flex items-center gap-2.5 px-3 py-2.5">
-                <Clock className="size-3.5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] text-muted-foreground">{t("infoPanel.modified")}</div>
-                  <div className="truncate text-xs text-foreground">
-                    {properties.modified || "—"}
-                  </div>
-                </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border px-3 py-3 text-center text-[11px] text-muted-foreground">
+                {t("infoPanel.noNestedNotes")}
               </div>
-            </div>
+            )}
           </section>
 
           <section className="overflow-hidden rounded-lg border border-border bg-background/30">
             <button
               type="button"
               className="flex w-full items-center justify-between px-3 py-2.5 text-left"
-              aria-expanded={technicalOpen}
-              onClick={() => setTechnicalOpen((open) => !open)}
+              aria-expanded={aboutOpen}
+              onClick={() => setAboutOpen((open) => !open)}
             >
               <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                {t("infoPanel.technical")}
+                {t("infoPanel.about")}
               </span>
               <ChevronDown
                 className={cn(
                   "size-3.5 text-muted-foreground transition-transform",
-                  technicalOpen && "rotate-180",
+                  aboutOpen && "rotate-180",
                 )}
               />
             </button>
-            {technicalOpen && (
-              <div className="border-t border-border px-3 py-2.5">
-                <div className="text-[10px] text-muted-foreground">{t("infoPanel.id")}</div>
-                <div className="mt-1 flex items-start gap-2">
+            {aboutOpen && (
+              <div className="divide-y divide-border border-t border-border text-[10px]">
+                {[
+                  [t("infoPanel.type"), properties.type],
+                  [t("infoPanel.created"), properties.created || "—"],
+                  [t("infoPanel.modified"), properties.modified || "—"],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="truncate text-right text-foreground">{value}</span>
+                  </div>
+                ))}
+                <div className="flex items-start gap-2 px-3 py-2">
+                  <span className="text-muted-foreground">{t("infoPanel.id")}</span>
                   <code className="min-w-0 flex-1 break-all font-mono text-[10px] leading-relaxed text-foreground">
                     {properties.id}
                   </code>
@@ -762,13 +1023,26 @@ export function InfoPanel({ properties }: PanelRenderProps) {
                   </button>
                 </div>
                 {copied && (
-                  <div className="mt-1 text-[10px] text-emerald-400">{t("infoPanel.copied")}</div>
+                  <div className="px-3 pb-2 text-[10px] text-emerald-400">
+                    {t("infoPanel.copied")}
+                  </div>
                 )}
               </div>
             )}
           </section>
         </div>
       </ScrollArea>
+      <PropertyEditor
+        property={editingProperty}
+        open={propertyEditorOpen}
+        onOpenChange={setPropertyEditorOpen}
+        onSave={async (property) => {
+          await onUpsertCustomProperty?.(property)
+        }}
+        onDelete={async (propertyId) => {
+          await onDeleteCustomProperty?.(propertyId)
+        }}
+      />
     </div>
   )
 }

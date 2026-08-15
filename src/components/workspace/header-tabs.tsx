@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/storage"
 import { WorkspacePicker, type VaultRecord } from "./workspace-picker"
+import { IconValue } from "./icon-value"
+import { isRichIconValue } from "./icon-values"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,6 +39,15 @@ export interface HeaderTab {
   key: string
   fileId: string
   title: string
+  icon?: string
+}
+
+function tabEmoji(icon?: string) {
+  return Boolean(
+    icon &&
+    (isRichIconValue(icon) ||
+      !/^(folder|file|supernote|page|workspace|canvas|draft|brain)$/u.test(icon)),
+  )
 }
 
 interface TabsMenuProps {
@@ -104,6 +115,11 @@ export function TabsMenu({
                 )}
                 onSelect={() => onTabChange(tab.key)}
               >
+                {tabEmoji(tab.icon) && (
+                  <span className="flex size-4 items-center justify-center" aria-hidden="true">
+                    <IconValue value={tab.icon} className="size-4" />
+                  </span>
+                )}
                 <span className="truncate">{tab.title}</span>
               </DropdownMenuItem>
             ))}
@@ -457,6 +473,11 @@ export function HeaderTabs({
             >
               {unsavedFileIds?.has(tab.fileId) && (
                 <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />
+              )}
+              {tabEmoji(tab.icon) && (
+                <span className="flex size-4 items-center justify-center" aria-hidden="true">
+                  <IconValue value={tab.icon} className="size-4" />
+                </span>
               )}
               <span className="min-w-0 flex-1 truncate">{tab.title}</span>
               <button

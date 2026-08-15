@@ -67,6 +67,29 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(roundTripCheck("Text\n\n").ok).toBe(true)
   })
 
+  it("preserves intentional empty paragraphs between and after blocks", () => {
+    expect(roundTrip("First\n\n\nSecond")).toBe("First\n\n\nSecond")
+    expect(roundTrip("First\n\n\n")).toBe("First\n\n\n")
+
+    const doc = editorSchema.nodeFromJSON(markdownToDoc("First\n\n\nSecond"))
+    expect(doc.childCount).toBe(3)
+    expect(doc.child(1).type.name).toBe("paragraph")
+    expect(doc.child(1).childCount).toBe(0)
+  })
+
+  it("preserves an empty block between ordered lists without merging their numbering", () => {
+    const markdown = "1. First\n\n\n1. Second\n2. Third"
+    expect(roundTrip(markdown)).toBe(markdown)
+
+    const doc = editorSchema.nodeFromJSON(markdownToDoc(markdown))
+    expect(doc.childCount).toBe(3)
+    expect(doc.child(0).type.name).toBe("orderedList")
+    expect(doc.child(1).type.name).toBe("paragraph")
+    expect(doc.child(1).childCount).toBe(0)
+    expect(doc.child(2).type.name).toBe("orderedList")
+    expect(doc.child(2).attrs.start).toBe(1)
+  })
+
   it("preserves leading blank lines that are not represented in the ProseMirror document", () => {
     expect(restoreSourceFormatting("Text", "\n\nText")).toBe("\n\nText")
     expect(roundTripCheck("\n\nText").ok).toBe(true)
@@ -85,6 +108,42 @@ describe("markdown <-> tiptap round-trip", () => {
   it("keeps the Live Preview fixture stable across repeated serialization", () => {
     const once = roundTrip(livePreviewSafeFixture)
     expect(roundTrip(once)).toBe(once)
+  })
+
+  it("does not accumulate blank blocks across repeated mode transitions", () => {
+    const source = [
+      "1. Before the columns",
+      "",
+      "",
+      '<!-- amby:columns widths="0.4211,0.5789" -->',
+      "",
+      "<!-- amby:column -->",
+      "",
+      "Left",
+      "",
+      "<!-- amby:column -->",
+      "",
+      "Right",
+      "",
+      "<!-- /amby:columns -->",
+      "",
+      "",
+      "> [!NOTE] 💡",
+      "> First row",
+      ">",
+      "> Second row",
+    ].join("\n")
+
+    let transitioned = source
+    for (let index = 0; index < 25; index++) transitioned = roundTrip(transitioned)
+    expect(transitioned).toBe(source)
+
+    const doc = editorSchema.nodeFromJSON(markdownToDoc(source))
+    expect(doc.child(1).type.name).toBe("paragraph")
+    expect(doc.child(1).childCount).toBe(0)
+    expect(doc.child(2).type.name).toBe("columnSet")
+    expect(doc.child(3).type.name).toBe("paragraph")
+    expect(doc.child(3).childCount).toBe(0)
   })
 
   it("preserves transclusion ![[Note]] as-is (round-trip)", () => {
@@ -162,7 +221,19 @@ describe("markdown <-> tiptap round-trip", () => {
       }
     ).content?.[0]
     expect(first?.attrs?.emoji).toBe("💡")
-    expect(first?.content?.[0]?.type).toBe("callout")
+    expect(first?.content?.[0]?.type).toBe("paragraph")
+    expect(first?.content?.[1]?.type).toBe("callout")
+    expect(roundTripCheck(callout)).toEqual({ ok: true, result: callout })
+  })
+
+  it("treats an existing callout title as ordinary Markdown-formatted content", () => {
+    const callout = "> [!NOTE] **Ordinary title**\n> Next line"
+    const doc = markdownToDoc(callout) as {
+      content?: Array<{
+        content?: Array<{ content?: Array<{ marks?: Array<{ type: string }> }> }>
+      }>
+    }
+    expect(doc.content?.[0]?.content?.[0]?.content?.[0]?.marks?.[0]?.type).toBe("bold")
     expect(roundTripCheck(callout)).toEqual({ ok: true, result: callout })
   })
 

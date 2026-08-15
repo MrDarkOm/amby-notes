@@ -26,6 +26,7 @@ function session(overrides: Partial<SessionFile> = {}): SessionFile {
     activeFileId: "",
     favorites: [],
     viewModes: {},
+    nestedNotesPlacements: {},
     locked: [],
     icons: {},
     ...overrides,
@@ -289,6 +290,16 @@ describe("applySessionRemap", () => {
     expect(viewModes["gone"]).toBeUndefined()
   })
 
+  it("remaps and filters nested-note placements", () => {
+    const { nestedNotesPlacements } = applySessionRemap(
+      session({ nestedNotesPlacements: { oldA: "bottom", gone: "hidden" } }),
+      { oldA: "a" },
+      allIds,
+      true,
+    )
+    expect(nestedNotesPlacements).toEqual({ a: "bottom" })
+  })
+
   it("remaps and filters tabs when restoreSession=true", () => {
     const { tabs } = applySessionRemap(
       session({
@@ -334,6 +345,7 @@ describe("applySessionRemap", () => {
     expect(result.icons).toEqual({})
     expect(result.favorites).toEqual([])
     expect(result.viewModes).toEqual({})
+    expect(result.nestedNotesPlacements).toEqual({})
     expect(result.lockedFileIds).toEqual([])
     expect(result.tabs).toEqual([])
     expect(result.activeFileId).toBe("")

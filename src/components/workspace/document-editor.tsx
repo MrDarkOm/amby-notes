@@ -3,24 +3,37 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
+  Bookmark,
+  BookmarkCheck,
   BookOpenText,
+  Check,
   Code2,
+  Copy,
   Database,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   Eye,
+  EyeOff,
   FileText,
+  Files,
   FilePlus,
+  FolderInput,
   FolderOpen,
+  GitMerge,
   LayoutGrid,
-  Lock,
+  Link as LinkIcon,
   Maximize2,
   Minimize2,
   MoreVertical,
   Redo2,
+  Search,
   SmilePlus,
   PenLine,
+  PanelBottom,
+  PanelTop,
+  SquareArrowOutUpRight,
+  Trash2,
   Undo2,
 } from "lucide-react"
 import { SourceEditor } from "./source-editor"
@@ -30,16 +43,20 @@ import type { EditorHandle } from "./tiptap/constants"
 import type { MarkdownSelection } from "./tiptap/markdown-selection"
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { TabsMenu, type HeaderTab } from "./header-tabs"
+import { IconValue } from "./icon-value"
 
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri, type NoteProperties } from "@/lib/storage"
 import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel"
@@ -50,6 +67,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 
@@ -96,6 +114,17 @@ interface DocumentEditorProps {
   linkedLayers?: { canvas: boolean; sketch: boolean; database: boolean }
   isLocked?: boolean
   onToggleLock?: () => void
+  isFavorite?: boolean
+  onToggleFavorite?: () => void
+  onOpenInNewTab?: () => void
+  nestedNotes?: TreeItem[]
+  nestedNotesPlacement?: "top" | "bottom" | "hidden"
+  onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
+  onOpenNestedNoteInNewTab?: (id: string) => void
+  onMoveFile?: (targetFolderId: string | null) => void
+  onMergeFile?: (targetId: string) => void
+  onShowInExplorer?: () => void
+  onDeleteFile?: () => void
   treeItems?: TreeItem[]
   onOpenItem?: (id: string) => void
   onUnlinkLayer?: (layer: "canvas" | "database" | "sketch") => void
@@ -133,6 +162,14 @@ function stripMdExt(name: string): string {
   return name.replace(/\.md$/iu, "")
 }
 
+function relativeToVault(path: string, vault: string): string {
+  const normalizedPath = path.replace(/\\/gu, "/")
+  const normalizedVault = vault.replace(/\\/gu, "/").replace(/\/+$/u, "")
+  return normalizedPath.startsWith(`${normalizedVault}/`)
+    ? normalizedPath.slice(normalizedVault.length + 1)
+    : normalizedPath
+}
+
 function findBreadcrumbTrail(items: TreeItem[], targetId: string): TreeItem[] | null {
   for (const item of items) {
     if (item.id === targetId) return [item]
@@ -142,6 +179,15 @@ function findBreadcrumbTrail(items: TreeItem[], targetId: string): TreeItem[] | 
     }
   }
   return null
+}
+
+function flattenTree(items: TreeItem[]): TreeItem[] {
+  const result: TreeItem[] = []
+  for (const item of items) {
+    result.push(item)
+    if (item.children) result.push(...flattenTree(item.children))
+  }
+  return result
 }
 
 function buildBreadcrumb(
@@ -216,7 +262,17 @@ export function DocumentEditor({
   onFileIconChange,
   linkedLayers,
   isLocked = false,
-  onToggleLock,
+  isFavorite = false,
+  onToggleFavorite,
+  onOpenInNewTab,
+  nestedNotes = [],
+  nestedNotesPlacement = "top",
+  onNestedNotesPlacementChange,
+  onOpenNestedNoteInNewTab,
+  onMoveFile,
+  onMergeFile,
+  onShowInExplorer,
+  onDeleteFile,
   treeItems,
   onOpenItem,
   onUnlinkLayer,
@@ -229,6 +285,10 @@ export function DocumentEditor({
   const [editingTitle, setEditingTitle] = React.useState(false)
   const [titleValue, setTitleValue] = React.useState(document?.title ?? "")
   const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false)
+  const [moreActionsOpen, setMoreActionsOpen] = React.useState(false)
+  const [viewModeMenuOpen, setViewModeMenuOpen] = React.useState(false)
+  const [filePickerMode, setFilePickerMode] = React.useState<"move" | "merge" | null>(null)
+  const [filePickerQuery, setFilePickerQuery] = React.useState("")
   const emojiSlotRef = React.useRef<HTMLDivElement>(null)
   const [layerConfirm, setLayerConfirm] = React.useState<EditorLayer | null>(null)
   const [editorSelection, setEditorSelection] = React.useState<MarkdownSelection | null>(null)
@@ -236,6 +296,46 @@ export function DocumentEditor({
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
   const { t } = useTranslation()
   const titleInputRef = React.useRef<HTMLInputElement>(null)
+  const flatTreeItems = React.useMemo(() => flattenTree(treeItems ?? []), [treeItems])
+  const moveFolders = flatTreeItems.filter((item) => item.type === "folder")
+  const mergeFiles = flatTreeItems.filter(
+    (item) => item.type === "file" && item.id !== document?.id,
+  )
+  const pickerItems = (filePickerMode === "move" ? moveFolders : mergeFiles).filter((item) =>
+    item.name.toLocaleLowerCase().includes(filePickerQuery.trim().toLocaleLowerCase()),
+  )
+
+  const copyPath = React.useCallback(
+    async (kind: "app" | "vault" | "absolute") => {
+      if (!document) return
+      const value =
+        kind === "app"
+          ? `${window.location.origin}${window.location.pathname}?ambyFile=${encodeURIComponent(document.id)}`
+          : kind === "vault" && vault
+            ? relativeToVault(document.path, vault)
+            : document.path
+      await navigator.clipboard.writeText(value)
+    },
+    [document, vault],
+  )
+
+  const setExclusiveMenu = React.useCallback((menu: "actions" | "view", open: boolean) => {
+    if (open) {
+      window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
+      window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
+    }
+    if (menu === "actions") setMoreActionsOpen(open)
+    else setViewModeMenuOpen(open)
+  }, [])
+
+  React.useEffect(() => {
+    const closeDocumentMenus = () => {
+      setMoreActionsOpen(false)
+      setViewModeMenuOpen(false)
+    }
+    window.addEventListener(CLOSE_EDITOR_MENUS_EVENT, closeDocumentMenus)
+    return () => window.removeEventListener(CLOSE_EDITOR_MENUS_EVENT, closeDocumentMenus)
+  }, [])
 
   React.useEffect(() => {
     setEditingTitle(false)
@@ -312,6 +412,64 @@ export function DocumentEditor({
     fileIcon && !/^(folder|file|page|workspace|canvas|draft|brain)$/.test(fileIcon),
   )
   const isSuperNote = Boolean(document && isSuperNoteItem({ path: document.path, type: "file" }))
+  const nestedNotesBar =
+    nestedNotes.length > 0 && nestedNotesPlacement !== "hidden" ? (
+      <div
+        className={
+          nestedNotesPlacement === "bottom" ? "mt-8 border-t border-border pt-4" : "mb-5 -mt-1"
+        }
+      >
+        <div className="flex flex-wrap gap-2">
+          {nestedNotes.map((note) => {
+            const icon =
+              note.icon && !/^(folder|file|supernote|page)$/u.test(note.icon) ? note.icon : "📄"
+            return (
+              <ContextMenu key={note.id}>
+                <ContextMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-accent/45 px-3 py-2 text-sm text-foreground shadow-sm transition-colors hover:border-primary/40 hover:bg-accent"
+                    onClick={() => onOpenItem?.(note.id)}
+                  >
+                    <span className="flex size-5 items-center justify-center" aria-hidden="true">
+                      <IconValue value={icon} className="size-5" />
+                    </span>
+                    <span className="truncate">{stripMdExt(note.name)}</span>
+                  </button>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="w-56">
+                  <ContextMenuItem onSelect={() => onOpenItem?.(note.id)}>
+                    <FileText className="mr-2 size-4" />
+                    {t("docEditor.openNestedNote")}
+                  </ContextMenuItem>
+                  <ContextMenuItem onSelect={() => onOpenNestedNoteInNewTab?.(note.id)}>
+                    <SquareArrowOutUpRight className="mr-2 size-4" />
+                    {t("tree.openInNewTab")}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  {(["top", "bottom", "hidden"] as const).map((placement) => (
+                    <ContextMenuItem
+                      key={placement}
+                      onSelect={() => onNestedNotesPlacementChange?.(placement)}
+                    >
+                      {placement === "top" ? (
+                        <PanelTop className="mr-2 size-4" />
+                      ) : placement === "bottom" ? (
+                        <PanelBottom className="mr-2 size-4" />
+                      ) : (
+                        <EyeOff className="mr-2 size-4" />
+                      )}
+                      <span className="flex-1">{t(`docEditor.nestedNotes_${placement}`)}</span>
+                      {nestedNotesPlacement === placement && <Check className="size-4" />}
+                    </ContextMenuItem>
+                  ))}
+                </ContextMenuContent>
+              </ContextMenu>
+            )
+          })}
+        </div>
+      </div>
+    ) : null
 
   const breadcrumbTrail =
     breadcrumb.length > 0 ? (
@@ -346,18 +504,18 @@ export function DocumentEditor({
     ) : null
   const breadcrumbContent = document ? (
     <>
+      {breadcrumbTrail}
       {isSuperNote ? (
         <BookOpenText
-          className="size-3.5 shrink-0 text-muted-foreground"
+          className="ml-1 size-3.5 shrink-0 text-muted-foreground"
           aria-label={t("docEditor.supernote")}
         />
       ) : (
         <FileText
-          className="size-3.5 shrink-0 text-muted-foreground"
+          className="ml-1 size-3.5 shrink-0 text-muted-foreground"
           aria-label={t("docEditor.note")}
         />
       )}
-      {breadcrumbTrail}
     </>
   ) : null
 
@@ -488,7 +646,10 @@ export function DocumentEditor({
           >
             {isFocusMode ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </Button>
-          <DropdownMenu>
+          <DropdownMenu
+            open={moreActionsOpen}
+            onOpenChange={(open) => setExclusiveMenu("actions", open)}
+          >
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
@@ -501,62 +662,184 @@ export function DocumentEditor({
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
-              className="w-52 border-border bg-popover text-foreground"
+              className="w-64 border-border bg-popover text-foreground"
             >
-              <DropdownMenuCheckboxItem
-                checked={viewMode === "source"}
-                disabled={!document || activeLayer !== "editor" || isLocked}
-                onCheckedChange={() =>
-                  handleEditorViewModeChange(viewMode === "source" ? "live" : "source")
-                }
-                className="text-[13px] focus:bg-accent focus:text-white"
+              {/* Zone 1: editor presentation. */}
+              {(
+                [
+                  ["live", PenLine, "docEditor.viewLive"],
+                  ["source", Code2, "docEditor.viewSource"],
+                  ["read", Eye, "docEditor.viewRead"],
+                ] as const
+              ).map(([mode, Icon, labelKey]) => (
+                <DropdownMenuItem
+                  key={mode}
+                  disabled={!document || activeLayer !== "editor" || (mode === "live" && isLocked)}
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                  onSelect={() => handleEditorViewModeChange(mode)}
+                >
+                  <Icon className="size-3.5 text-muted-foreground" />
+                  <span className="flex-1">{t(labelKey)}</span>
+                  {viewMode === mode && <Check className="size-3.5 text-primary" />}
+                </DropdownMenuItem>
+              ))}
+
+              <DropdownMenuSeparator className="bg-accent" />
+
+              {nestedNotes.length > 0 && (
+                <>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+                      <Files className="size-3.5 text-muted-foreground" />
+                      {t("docEditor.nestedNotesDisplay")}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-48 border-border bg-popover text-foreground">
+                      {(["top", "bottom", "hidden"] as const).map((placement) => (
+                        <DropdownMenuItem
+                          key={placement}
+                          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                          onSelect={() => onNestedNotesPlacementChange?.(placement)}
+                        >
+                          {placement === "top" ? (
+                            <PanelTop className="size-3.5 text-muted-foreground" />
+                          ) : placement === "bottom" ? (
+                            <PanelBottom className="size-3.5 text-muted-foreground" />
+                          ) : (
+                            <EyeOff className="size-3.5 text-muted-foreground" />
+                          )}
+                          <span className="flex-1">{t(`docEditor.nestedNotes_${placement}`)}</span>
+                          {nestedNotesPlacement === placement && <Check className="size-3.5" />}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSeparator className="bg-accent" />
+                </>
+              )}
+
+              {/* Zone 2: attachments and opening. */}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+                  <LinkIcon className="size-3.5 text-muted-foreground" />
+                  {t("docEditor.attach")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-52 border-border bg-popover text-foreground">
+                  <DropdownMenuItem
+                    disabled={linkedLayers?.canvas}
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                    onSelect={() => setLayerConfirm("canvas")}
+                  >
+                    <LayoutGrid className="size-3.5 text-muted-foreground" />
+                    {t("docEditor.attachCanvas")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={linkedLayers?.database}
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                    onSelect={() => setLayerConfirm("database")}
+                  >
+                    <Database className="size-3.5 text-muted-foreground" />
+                    {t("docEditor.attachDatabase")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={linkedLayers?.sketch}
+                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                    onSelect={() => setLayerConfirm("sketch")}
+                  >
+                    <PenLine className="size-3.5 text-muted-foreground" />
+                    {t("docEditor.attachSketch")}
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuItem
+                disabled={!document || !onToggleFavorite}
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={onToggleFavorite}
               >
-                <Code2 className="size-3.5" />
-                {t("docEditor.sourceMarkdown")}
-              </DropdownMenuCheckboxItem>
-              <DropdownMenuCheckboxItem
-                checked={isLocked}
-                disabled={!document}
-                onCheckedChange={() => onToggleLock?.()}
-                className="text-[13px] focus:bg-accent focus:text-white"
-              >
-                <Lock className="size-3.5" />
-                {t("docEditor.lock")}
-              </DropdownMenuCheckboxItem>
-              {/* Attach layer options — only shown for layers not yet linked */}
-              {document &&
-                (!linkedLayers?.canvas || !linkedLayers?.database || !linkedLayers?.sketch) && (
-                  <>
-                    <DropdownMenuSeparator className="bg-accent" />
-                    {!linkedLayers?.canvas && (
-                      <DropdownMenuItem
-                        className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                        onSelect={() => setLayerConfirm("canvas")}
-                      >
-                        <LayoutGrid className="size-3.5 text-muted-foreground" />
-                        {t("docEditor.attachCanvas")}
-                      </DropdownMenuItem>
-                    )}
-                    {!linkedLayers?.database && (
-                      <DropdownMenuItem
-                        className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                        onSelect={() => setLayerConfirm("database")}
-                      >
-                        <Database className="size-3.5 text-muted-foreground" />
-                        {t("docEditor.attachDatabase")}
-                      </DropdownMenuItem>
-                    )}
-                    {!linkedLayers?.sketch && (
-                      <DropdownMenuItem
-                        className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                        onSelect={() => setLayerConfirm("sketch")}
-                      >
-                        <PenLine className="size-3.5 text-muted-foreground" />
-                        {t("docEditor.attachSketch")}
-                      </DropdownMenuItem>
-                    )}
-                  </>
+                {isFavorite ? (
+                  <BookmarkCheck className="size-3.5 text-amber-400" />
+                ) : (
+                  <Bookmark className="size-3.5 text-muted-foreground" />
                 )}
+                {isFavorite ? t("tree.removeBookmark") : t("tree.addBookmark")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!document || !onOpenInNewTab}
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={onOpenInNewTab}
+              >
+                <SquareArrowOutUpRight className="size-3.5 text-muted-foreground" />
+                {t("tree.openInNewTab")}
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator className="bg-accent" />
+
+              {/* Zone 3: location, merge and path copies. */}
+              <DropdownMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={() => {
+                  setFilePickerQuery("")
+                  setFilePickerMode("move")
+                }}
+              >
+                <FolderInput className="size-3.5 text-muted-foreground" />
+                {t("docEditor.moveFile")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={() => {
+                  setFilePickerQuery("")
+                  setFilePickerMode("merge")
+                }}
+              >
+                <GitMerge className="size-3.5 text-muted-foreground" />
+                {t("docEditor.mergeWith")}
+              </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+                  <Copy className="size-3.5 text-muted-foreground" />
+                  {t("docEditor.copyPath")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-56 border-border bg-popover text-foreground">
+                  {(["app", "vault", "absolute"] as const).map((kind) => (
+                    <DropdownMenuItem
+                      key={kind}
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => void copyPath(kind)}
+                    >
+                      <Copy className="size-3.5 text-muted-foreground" />
+                      {t(`docEditor.copyPath_${kind}`)}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
+              <DropdownMenuSeparator className="bg-accent" />
+
+              {/* Zone 4: filesystem actions. */}
+              <DropdownMenuItem
+                disabled={!document || !onShowInExplorer}
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={onShowInExplorer}
+              >
+                <FolderOpen className="size-3.5 text-muted-foreground" />
+                {t("tree.showInExplorer")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!document}
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={() => setEditingTitle(true)}
+              >
+                <PenLine className="size-3.5 text-muted-foreground" />
+                {t("tree.rename")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!document || !onDeleteFile}
+                className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
+                onSelect={onDeleteFile}
+              >
+                <Trash2 className="size-3.5" />
+                {t("docEditor.deleteFile")}
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -701,7 +984,7 @@ export function DocumentEditor({
                       }
                     }}
                   >
-                    {fileIcon}
+                    <IconValue value={fileIcon} className="size-8 rounded-md" />
                   </button>
                 ) : (
                   <button
@@ -762,7 +1045,11 @@ export function DocumentEditor({
               )}
             </div>
 
-            <div className="mb-5" />
+            {nestedNotesPlacement === "top" && nestedNotesBar ? (
+              nestedNotesBar
+            ) : (
+              <div className="mb-5" />
+            )}
 
             {activeLayer !== "editor" ? (
               <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded border border-dashed border-border bg-background/40 text-center">
@@ -810,6 +1097,7 @@ export function DocumentEditor({
                 onSelectionChange={handleEditorSelectionChange}
               />
             )}
+            {nestedNotesPlacement === "bottom" && nestedNotesBar}
           </div>
         </div>
       </div>
@@ -823,7 +1111,10 @@ export function DocumentEditor({
             {t("docEditor.wordCount", { count: liveWordCount })}
           </span>
           <div className="mx-1 h-3 w-px bg-accent" />
-          <DropdownMenu>
+          <DropdownMenu
+            open={viewModeMenuOpen}
+            onOpenChange={(open) => setExclusiveMenu("view", open)}
+          >
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
@@ -888,6 +1179,71 @@ export function DocumentEditor({
           </button>
         </div>
       </div>
+
+      <Dialog
+        open={filePickerMode !== null}
+        onOpenChange={(open) => !open && setFilePickerMode(null)}
+      >
+        <DialogContent className="max-w-sm gap-3 p-4">
+          <DialogHeader>
+            <DialogTitle className="text-sm">
+              {filePickerMode === "move" ? t("docEditor.moveFile") : t("docEditor.mergeWith")}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              autoFocus
+              value={filePickerQuery}
+              onChange={(event) => setFilePickerQuery(event.target.value)}
+              placeholder={t("docEditor.filePickerSearch")}
+              className="h-9 pl-8 text-xs"
+            />
+          </div>
+          <div className="max-h-72 space-y-1 overflow-y-auto">
+            {filePickerMode === "move" &&
+              t("docEditor.vaultRoot")
+                .toLocaleLowerCase()
+                .includes(filePickerQuery.trim().toLocaleLowerCase()) && (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
+                  onClick={() => {
+                    onMoveFile?.(null)
+                    setFilePickerMode(null)
+                  }}
+                >
+                  <FolderOpen className="size-4 text-muted-foreground" />
+                  {t("docEditor.vaultRoot")}
+                </button>
+              )}
+            {pickerItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
+                onClick={() => {
+                  if (filePickerMode === "move") onMoveFile?.(item.id)
+                  else onMergeFile?.(item.id)
+                  setFilePickerMode(null)
+                }}
+              >
+                {filePickerMode === "move" ? (
+                  <FolderOpen className="size-4 text-muted-foreground" />
+                ) : (
+                  <FileText className="size-4 text-muted-foreground" />
+                )}
+                <span className="truncate">{item.name}</span>
+              </button>
+            ))}
+            {pickerItems.length === 0 && filePickerMode === "merge" && (
+              <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                {t("docEditor.noMergeTargets")}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

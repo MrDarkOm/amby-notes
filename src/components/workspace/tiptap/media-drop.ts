@@ -30,26 +30,52 @@ async function insertFileLinkAt(view: EditorView, pos: number, href: string, tex
   view.dispatch(tr)
 }
 
-interface ImportCtx {
+export interface ImportCtx {
   vaultPath: string
   notePath: string
 }
 
-function getCtx(view: EditorView): ImportCtx | null {
-  // Walk up to find the editor instance. ProseMirror EditorView has a private
-  // back-reference, but the simpler path is to read from the resolver map.
-  // The Tiptap Editor sets the asset context keyed by `editor`, so we look it
-  // up via the view's `editor` shim added by Tiptap when the view was built.
-  const editor = (view as unknown as { editor?: unknown }).editor as
-    import("@tiptap/core").Editor | undefined
+export function getImportContextForView(view: EditorView): ImportCtx | null {
+  // Tiptap stores its Editor back-reference on the editable DOM element, not
+  // on ProseMirror's EditorView. Reading it from the view made clipboard and
+  // external-drop imports silently miss their vault/note context.
+  const editor = (view.dom as HTMLElement & { editor?: import("@tiptap/core").Editor }).editor
   const ctx = editor ? getAssetContext(editor) : undefined
   if (!ctx || !ctx.vaultPath || !ctx.notePath) return null
   return ctx
 }
 
+export async function importImageFromClipboard(ctx?: Partial<ImportCtx>): Promise<string | null> {
+  if (
+    !ctx?.vaultPath ||
+    !ctx.notePath ||
+    !isTauri() ||
+    typeof navigator === "undefined" ||
+    !navigator.clipboard?.read
+  ) {
+    return null
+  }
+  try {
+    const clipboardItems = await navigator.clipboard.read()
+    for (const item of clipboardItems) {
+      const mime = item.types.find((type) => type.startsWith("image/"))
+      if (!mime) continue
+      const blob = await item.getType(mime)
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      const result = await importAssetBytes(ctx.vaultPath, ctx.notePath, bytes, extFromMime(mime))
+      if (result?.kind === "image") return result.relPath
+    }
+  } catch {
+    // Clipboard access can be denied by the OS/webview. The ordinary paste
+    // event remains available and uses clipboardData without extra permission.
+  }
+  return null
+}
+
 async function handleFileList(view: EditorView, files: FileList, dropPos: number) {
-  const ctx = getCtx(view)
+  const ctx = getImportContextForView(view)
   if (!ctx || !isTauri()) return false
+  let insertPos = dropPos
   for (const file of Array.from(files)) {
     const buf = new Uint8Array(await file.arrayBuffer())
     const ext = file.name.includes(".")
@@ -58,10 +84,11 @@ async function handleFileList(view: EditorView, files: FileList, dropPos: number
     const result = await importAssetBytes(ctx.vaultPath, ctx.notePath, buf, ext)
     if (!result) continue
     if (result.kind === "image") {
-      await insertImageAt(view, dropPos, result.relPath)
+      await insertImageAt(view, insertPos, result.relPath)
     } else {
-      await insertFileLinkAt(view, dropPos, result.relPath, result.fileName)
+      await insertFileLinkAt(view, insertPos, result.relPath, result.fileName)
     }
+    insertPos += 1
   }
   return true
 }
@@ -95,10 +122,11 @@ export const MediaDrop = Extension.create({
               (it) => it.kind === "file" && it.type.startsWith("image/"),
             )
             if (imageItems.length > 0) {
-              const ctx = getCtx(view)
+              const ctx = getImportContextForView(view)
               if (!ctx || !isTauri()) return false
               event.preventDefault()
               ;(async () => {
+                let insertPos = view.state.selection.from
                 for (const item of imageItems) {
                   const file = item.getAsFile()
                   if (!file) continue
@@ -106,7 +134,8 @@ export const MediaDrop = Extension.create({
                   const ext = extFromMime(file.type)
                   const result = await importAssetBytes(ctx.vaultPath, ctx.notePath, buf, ext)
                   if (!result) continue
-                  await insertImageAt(view, view.state.selection.from, result.relPath)
+                  await insertImageAt(view, insertPos, result.relPath)
+                  insertPos += 1
                 }
               })()
               return true
@@ -144,10 +173,12 @@ export async function bindTauriFileDrop(
       position?: { x: number; y: number }
     }
     if (payload.type !== "drop" || !payload.paths) return
-    const ctx = getCtx(view)
+    const ctx = getImportContextForView(view)
     if (!ctx) return
+    // Tauri reports a PhysicalPosition while posAtCoords expects CSS pixels.
+    const scale = window.devicePixelRatio || 1
     const pos = payload.position
-      ? getDropPos(payload.position.x, payload.position.y)
+      ? getDropPos(payload.position.x / scale, payload.position.y / scale)
       : view.state.selection.from
     if (pos == null) return
     let insertPos = pos

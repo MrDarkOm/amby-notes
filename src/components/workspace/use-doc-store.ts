@@ -7,6 +7,7 @@ export interface Document {
   id: string
   title: string
   content: string
+  created: string
   modified: string
   wordCount: number
   path: string

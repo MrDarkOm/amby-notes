@@ -5,6 +5,7 @@ mod frontmatter;
 mod history;
 mod model;
 mod paths;
+mod property_store;
 mod recycle_bin;
 mod vault_index;
 
@@ -65,6 +66,24 @@ fn report_startup_error(error: &tauri::Error) {
         .set_description(&message)
         .set_level(rfd::MessageLevel::Error)
         .show();
+}
+
+/// Tauri applies the configured icon to `NSApplication` in development, but
+/// leaves release builds to macOS's bundle-icon fallback. On Tahoe that
+/// fallback adds a generic background to legacy `.icns` icons, so explicitly
+/// apply the same image at runtime for a consistent Dock appearance.
+#[cfg(target_os = "macos")]
+fn set_macos_application_icon() {
+    use objc2::{AllocAnyThread, MainThreadMarker};
+    use objc2_app_kit::{NSApplication, NSImage};
+    use objc2_foundation::NSData;
+
+    let marker = unsafe { MainThreadMarker::new_unchecked() };
+    let application = NSApplication::sharedApplication(marker);
+    let data = NSData::with_bytes(include_bytes!("../icons/icon.png"));
+    if let Some(icon) = NSImage::initWithData(NSImage::alloc(), &data) {
+        unsafe { application.setApplicationIconImage(Some(&icon)) };
+    }
 }
 
 /// Payload emitted to the frontend when an external file-system change is
@@ -225,6 +244,7 @@ fn load_vault(
     db.open(&canonical)?;
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().unwrap();
+    property_store::restore_cache(conn, &canonical)?;
     vault_index::load_vault(conn, &canonical)
 }
 
@@ -397,7 +417,7 @@ fn get_note_metadata(
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let note = vault_index::note_metadata(conn, Path::new(&vault_path), &note_id)?;
     Ok(NoteMetadata {
-        created: None,
+        created: vault_index::note_created_at(conn, &note_id)?,
         modified: note.modified,
         word_count: note.word_count,
     })
@@ -413,6 +433,32 @@ fn get_note_properties(
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::note_properties(conn, Path::new(&vault_path), &note_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+fn upsert_custom_property(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    note_id: String,
+    property: CustomProperty,
+) -> Result<CustomProperty, String> {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    property_store::upsert(conn, Path::new(&vault_path), &note_id, property)
+}
+
+#[tauri::command]
+#[specta::specta]
+fn delete_custom_property(
+    db: tauri::State<'_, DbState>,
+    vault_path: String,
+    note_id: String,
+    property_id: String,
+) -> Result<(), String> {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    property_store::delete(conn, Path::new(&vault_path), &note_id, &property_id)
 }
 
 #[tauri::command]
@@ -1158,6 +1204,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         write_note,
         get_note_metadata,
         get_note_properties,
+        upsert_custom_property,
+        delete_custom_property,
         list_tags,
         search_notes,
         get_link_graph,
@@ -1224,6 +1272,9 @@ pub fn run() {
         .manage(WatcherState::new())
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            set_macos_application_icon();
+
             // Tauri creates this window from the configuration before calling
             // `setup`. Keeping creation declarative avoids a dev-only window
             // lifecycle and guarantees exactly one `main` window per process.

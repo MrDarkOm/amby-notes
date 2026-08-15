@@ -23,6 +23,7 @@ import {
   preflightVault,
   applyIdMigration,
   getLinkGraph,
+  getNoteMetadata,
   getNoteProperties,
   startVaultWatcher,
   stopVaultWatcher,
@@ -53,6 +54,7 @@ export function useVaultData() {
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
   const favorites = useViewStateStore((s) => s.favorites)
   const viewModes = useViewStateStore((s) => s.viewModes)
+  const nestedNotesPlacements = useViewStateStore((s) => s.nestedNotesPlacements)
   const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
   const iconOverrides = useViewStateStore((s) => s.iconOverrides)
   const { hydrateFromSession } = useViewStateStore.getState()
@@ -133,6 +135,7 @@ export function useVaultData() {
         icons: remapped.icons,
         favorites: remapped.favorites,
         viewModes: remapped.viewModes,
+        nestedNotesPlacements: remapped.nestedNotesPlacements,
         lockedFileIds: remapped.lockedFileIds,
       })
 
@@ -153,14 +156,23 @@ export function useVaultData() {
         // Pre-load documents for all restored tabs in the background.
         valid.forEach((e) => {
           const item = findTreeItem(tree, e.fileId)
-          Promise.all([readNote(path, e.fileId), getNoteProperties(path, e.fileId)])
-            .then(([content, noteProperties]) => {
+          Promise.all([
+            readNote(path, e.fileId),
+            getNoteMetadata(path, e.fileId),
+            getNoteProperties(path, e.fileId),
+          ])
+            .then(([content, metadata, noteProperties]) => {
               setDoc(e.fileId, {
                 id: e.fileId,
                 title: e.title,
                 content,
-                modified: "",
-                wordCount: 0,
+                created: metadata.created
+                  ? new Date(metadata.created * 1000).toLocaleString()
+                  : "—",
+                modified: metadata.modified
+                  ? new Date(metadata.modified * 1000).toLocaleString()
+                  : "—",
+                wordCount: metadata.word_count,
                 path: item?.path ?? e.fileId,
                 noteProperties,
               })
@@ -229,12 +241,22 @@ export function useVaultData() {
         activeFileId: active?.fileId ?? entries[0]?.fileId ?? "",
         favorites: [...favorites],
         viewModes,
+        nestedNotesPlacements,
         locked: [...lockedFileIds],
         icons: iconOverrides,
       })
     }, 400)
     return () => clearTimeout(timer)
-  }, [vault, tabs, activeTabKey, favorites, viewModes, lockedFileIds, iconOverrides])
+  }, [
+    vault,
+    tabs,
+    activeTabKey,
+    favorites,
+    viewModes,
+    nestedNotesPlacements,
+    lockedFileIds,
+    iconOverrides,
+  ])
 
   // Vault watcher: start the Rust notify watcher when a vault is open and
   // debounce-refresh the tree on external file changes. Open clean buffers are

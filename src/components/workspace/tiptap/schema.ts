@@ -14,6 +14,7 @@ import { TransclusionNode } from "./transclusion-node"
 import { OpaqueHtmlBlock } from "./opaque-html-node"
 import { MarkdownTable } from "./markdown-table"
 import { OpaqueMarkdownBlock } from "./opaque-markdown-node"
+import { Column, ColumnSet } from "./columns-node"
 
 // Schema-defining extensions — identical for Live and Read, and the source of
 // truth for the standalone schema used by the markdown conversion layer.
@@ -40,6 +41,8 @@ export const schemaExtensions: Extensions = [
   AmbyHtml,
   OpaqueHtmlBlock,
   OpaqueMarkdownBlock,
+  ColumnSet,
+  Column,
   CalloutNode,
   AmbyBlockNode,
   TransclusionNode,

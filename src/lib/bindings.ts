@@ -134,6 +134,22 @@ async getNoteProperties(vaultPath: string, noteId: string) : Promise<Result<Note
     else return { status: "error", error: e  as any };
 }
 },
+async upsertCustomProperty(vaultPath: string, noteId: string, property: CustomProperty) : Promise<Result<CustomProperty, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("upsert_custom_property", { vaultPath, noteId, property }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteCustomProperty(vaultPath: string, noteId: string, propertyId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_custom_property", { vaultPath, noteId, propertyId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async listTags(vaultPath: string) : Promise<Result<TagEntry[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_tags", { vaultPath }) };
@@ -460,6 +476,7 @@ export type AiMessage = {
  * "user" | "assistant"
  */
 role: string; content: string }
+export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 /**
  * Read-only view of a single YAML frontmatter entry. The original YAML stays
@@ -477,7 +494,7 @@ export type LinkGraphNode = { id: string; label: string; unresolved?: boolean | 
 export type LoadVaultResult = { tree: TreeItem[]; notes: IndexedNote[]; sync: SyncReport }
 export type NoteLayers = { canvas: boolean; sketch: boolean; database: boolean }
 export type NoteMetadata = { created: number | null; modified: number | null; wordCount: number }
-export type NoteProperties = { hasFrontmatter: boolean; properties: FrontmatterProperty[]; parseError: string | null }
+export type NoteProperties = { hasFrontmatter: boolean; properties: FrontmatterProperty[]; parseError: string | null; customProperties: CustomProperty[] }
 export type PathChange = { oldPath: string; newPath: string }
 export type RefactorPreview = { notes: number; replacements: number }
 export type SearchResult = { note: IndexedNote; matchType: string; snippet: string | null; score: number }

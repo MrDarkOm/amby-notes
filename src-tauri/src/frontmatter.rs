@@ -168,6 +168,7 @@ pub fn note_properties(content: &str) -> NoteProperties {
             has_frontmatter: false,
             properties: Vec::new(),
             parse_error: None,
+            custom_properties: Vec::new(),
         };
     };
 
@@ -186,6 +187,7 @@ pub fn note_properties(content: &str) -> NoteProperties {
         has_frontmatter: parsed.has_frontmatter,
         properties,
         parse_error: parsed.parse_error,
+        custom_properties: Vec::new(),
     }
 }
 

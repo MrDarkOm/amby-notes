@@ -397,7 +397,7 @@ export function SettingsDialog({
             </TabsContent>
 
             <TabsContent value="shortcuts">
-              <SettingsPlaceholder>{t("settings.placeholders.shortcuts")}</SettingsPlaceholder>
+              <ShortcutsTab />
             </TabsContent>
 
             <TabsContent value="modules">
@@ -611,6 +611,54 @@ function SettingsPlaceholder({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-[240px] items-center justify-center rounded-lg border border-dashed border-border px-6 text-center text-[13px] text-muted-foreground">
       {children}
+    </div>
+  )
+}
+
+function ShortcutsTab() {
+  const { t } = useTranslation()
+  const modifier =
+    typeof navigator !== "undefined" && /Mac/i.test(navigator.platform) ? "⌘" : "Ctrl"
+  const shortcuts = [
+    ["settings.shortcuts.quickOpen", `${modifier} P`],
+    ["settings.shortcuts.search", `${modifier} Shift F`],
+    ["settings.shortcuts.newNote", `${modifier} N`],
+    ["settings.shortcuts.toggleLeftSidebar", `${modifier} B`],
+    ["settings.shortcuts.toggleRightSidebar", `${modifier} Shift B`],
+    ["settings.shortcuts.settings", `${modifier} ,`],
+    ["settings.shortcuts.back", `${modifier} [`],
+    ["settings.shortcuts.forward", `${modifier} ]`],
+  ] as const
+  const treeShortcuts = [
+    ["settings.shortcuts.treeNavigation", "↑ ↓ ← →  Home  End"],
+    ["settings.shortcuts.treeOpen", "Enter  Space"],
+    ["settings.shortcuts.treeRename", "F2"],
+    ["settings.shortcuts.treeMenu", "Menu  Shift F10"],
+  ] as const
+
+  const ShortcutList = ({ entries }: { entries: readonly (readonly [string, string])[] }) => (
+    <div className="divide-y divide-border rounded-lg border border-border">
+      {entries.map(([label, keys]) => (
+        <div key={label} className="flex items-center justify-between gap-4 px-3 py-2.5">
+          <span className="text-[13px] text-foreground">{t(label)}</span>
+          <kbd className="shrink-0 rounded border border-border bg-card px-2 py-1 font-mono text-[11px] text-muted-foreground">
+            {keys}
+          </kbd>
+        </div>
+      ))}
+    </div>
+  )
+
+  return (
+    <div className="flex flex-col gap-5 py-1">
+      <p className="text-[12px] text-muted-foreground">{t("settings.shortcuts.description")}</p>
+      <ShortcutList entries={shortcuts} />
+      <div>
+        <h3 className="mb-2 text-[13px] font-medium text-foreground">
+          {t("settings.shortcuts.treeTitle")}
+        </h3>
+        <ShortcutList entries={treeShortcuts} />
+      </div>
     </div>
   )
 }

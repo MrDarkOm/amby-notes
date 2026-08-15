@@ -33,6 +33,9 @@ export const CalloutNode = Node.create({
       emoji: { default: "💡" },
       bgColor: { default: null as string | null },
       headerSuffix: { default: "" },
+      headerPrefix: { default: "" },
+      headerContentInBody: { default: false },
+      headerBodyTight: { default: false },
       hasRawHeader: { default: false },
     }
   },
@@ -48,6 +51,9 @@ export const CalloutNode = Node.create({
             emoji: div.getAttribute("data-emoji") ?? "💡",
             bgColor: div.getAttribute("data-bg"),
             headerSuffix: div.getAttribute("data-header-suffix") ?? "",
+            headerPrefix: div.getAttribute("data-header-prefix") ?? "",
+            headerContentInBody: div.getAttribute("data-header-content-in-body") === "true",
+            headerBodyTight: div.getAttribute("data-header-body-tight") === "true",
             hasRawHeader: div.getAttribute("data-has-raw-header") === "true",
           }
         },
@@ -64,6 +70,9 @@ export const CalloutNode = Node.create({
     if (node.attrs.bgColor) extras["data-bg"] = node.attrs.bgColor
     if (node.attrs.hasRawHeader) {
       extras["data-header-suffix"] = node.attrs.headerSuffix
+      extras["data-header-prefix"] = node.attrs.headerPrefix
+      if (node.attrs.headerContentInBody) extras["data-header-content-in-body"] = "true"
+      if (node.attrs.headerBodyTight) extras["data-header-body-tight"] = "true"
       extras["data-has-raw-header"] = "true"
     }
     return ["div", mergeAttributes(HTMLAttributes, extras), 0]

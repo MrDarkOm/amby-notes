@@ -2,14 +2,22 @@
 
 import { Eraser, Highlighter, Type } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { EDITOR_BACKGROUND_COLORS, EDITOR_TEXT_COLORS } from "@/lib/themes"
+import { useTheme } from "next-themes"
+import {
+  EDITOR_BACKGROUND_COLORS,
+  EDITOR_BACKGROUND_COLOR_PREVIEWS,
+  EDITOR_TEXT_COLORS,
+  EDITOR_TEXT_COLOR_PREVIEWS,
+} from "@/lib/themes"
 
 function ColorButton({
   color,
+  value = color,
   title,
   onClick,
 }: {
   color: string
+  value?: string
   title: string
   onClick: (color: string) => void
 }) {
@@ -20,7 +28,7 @@ function ColorButton({
       className="size-5 rounded border border-border transition-transform hover:scale-110 focus:outline-none focus:ring-1 focus:ring-foreground/30"
       style={{ backgroundColor: color }}
       onMouseDown={(e) => e.preventDefault()}
-      onClick={() => onClick(color)}
+      onClick={() => onClick(value)}
     />
   )
 }
@@ -60,6 +68,13 @@ export function TextStylePalette({
   onClearBackgroundColor: () => void
 }) {
   const { t } = useTranslation()
+  const { resolvedTheme } = useTheme()
+  const backgroundPreviews =
+    resolvedTheme === "dark"
+      ? EDITOR_BACKGROUND_COLOR_PREVIEWS.dark
+      : EDITOR_BACKGROUND_COLOR_PREVIEWS.light
+  const textPreviews =
+    resolvedTheme === "dark" ? EDITOR_TEXT_COLOR_PREVIEWS.dark : EDITOR_TEXT_COLOR_PREVIEWS.light
   return (
     <div className="w-[300px] space-y-2 p-1">
       <div className="flex items-center gap-2">
@@ -67,10 +82,11 @@ export function TextStylePalette({
           <Type className="size-3.5" />
         </div>
         <div className="grid flex-1 grid-cols-9 gap-1">
-          {EDITOR_TEXT_COLORS.map((color) => (
+          {EDITOR_TEXT_COLORS.map((color, index) => (
             <ColorButton
               key={color}
-              color={color}
+              color={textPreviews[index]}
+              value={color}
               title={t("palette.textColor", { color })}
               onClick={onTextColor}
             />
@@ -87,10 +103,11 @@ export function TextStylePalette({
           <Highlighter className="size-3.5" />
         </div>
         <div className="grid flex-1 grid-cols-9 gap-1">
-          {EDITOR_BACKGROUND_COLORS.map((color) => (
+          {EDITOR_BACKGROUND_COLORS.map((color, index) => (
             <ColorButton
               key={color}
-              color={color}
+              color={backgroundPreviews[index]}
+              value={color}
               title={t("palette.bgColor", { color })}
               onClick={onBackgroundColor}
             />

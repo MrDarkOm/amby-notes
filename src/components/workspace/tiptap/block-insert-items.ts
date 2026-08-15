@@ -9,6 +9,7 @@ import {
   Heading4,
   Heading5,
   Image as ImageIcon,
+  ClipboardPaste,
   Link as LinkIcon,
   Link2,
   List,
@@ -25,6 +26,7 @@ import type { ElementType } from "react"
 
 import { CALLOUT_DEFAULTS } from "./callout-node"
 import { newBlockId } from "./amby-block-node"
+import { importImageFromClipboard } from "./media-drop"
 import { importAsset, pickAssetFile } from "@/lib/storage"
 
 export type BlockItemCategory = "text" | "list" | "media" | "embed"
@@ -362,6 +364,28 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     },
   },
   {
+    id: "image-clipboard",
+    icon: ClipboardPaste,
+    category: "media",
+    availableIn: PLUS_SLASH,
+    insertAfter: async (e, pos, ctx) => {
+      const rel = await importImageFromClipboard(ctx)
+      if (!rel) return
+      insertAfterBlock(e, pos, {
+        type: "paragraph",
+        content: [{ type: "image", attrs: { src: rel } }],
+      })
+    },
+    inline: async (e, ctx) => {
+      const rel = await importImageFromClipboard(ctx)
+      if (!rel) return
+      e.chain()
+        .focus()
+        .insertContent({ type: "image", attrs: { src: rel } })
+        .run()
+    },
+  },
+  {
     id: "image-url",
     icon: LinkIcon,
     category: "media",
@@ -478,7 +502,13 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
 ]
 
-const TURN_INTO_BLACKLIST = new Set(["divider", "image-local", "image-url", "file-local"])
+const TURN_INTO_BLACKLIST = new Set([
+  "divider",
+  "image-local",
+  "image-clipboard",
+  "image-url",
+  "file-local",
+])
 
 export function getPlusItems(): BlockInsertItem[] {
   return INLINE_INSERT_ITEMS.filter((i) => i.availableIn.includes("plus"))

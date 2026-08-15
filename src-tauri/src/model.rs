@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -59,12 +59,24 @@ pub struct FrontmatterProperty {
     pub value_kind: String,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomProperty {
+    pub id: String,
+    pub name: String,
+    pub icon: String,
+    pub property_type: String,
+    pub value: String,
+    pub settings: String,
+}
+
 #[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteProperties {
     pub has_frontmatter: bool,
     pub properties: Vec<FrontmatterProperty>,
     pub parse_error: Option<String>,
+    pub custom_properties: Vec<CustomProperty>,
 }
 
 #[derive(Serialize, specta::Type)]

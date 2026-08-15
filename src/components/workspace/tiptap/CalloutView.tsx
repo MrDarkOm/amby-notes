@@ -21,44 +21,25 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
   const { t } = useTranslation()
   const [pickerOpen, setPickerOpen] = React.useState(false)
   const emojiSlotRef = React.useRef<HTMLDivElement>(null)
-  const { calloutType, emoji, bgColor, headerSuffix } = node.attrs as {
-    calloutType: string
-    emoji: string
-    bgColor: string | null
-    headerSuffix: string
-  }
-  const rawHeader = headerSuffix.replace(/^[+-]/u, "").trim()
-  const title = rawHeader.replace(
-    /^\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*\s*/u,
-    "",
-  )
-  const collapseMarker = /^[+-]/u.exec(headerSuffix)?.[0] ?? ""
-  const [titleDraft, setTitleDraft] = React.useState(title)
-  const titleInputRef = React.useRef<HTMLInputElement>(null)
-
-  React.useEffect(() => {
-    if (document.activeElement !== titleInputRef.current) setTitleDraft(title)
-  }, [title])
-
-  function buildHeaderSuffix(nextEmoji: string, nextTitle: string) {
-    return `${collapseMarker} ${nextEmoji}${nextTitle ? ` ${nextTitle}` : ""}`
-  }
+  const { calloutType, emoji, bgColor, hasRawHeader, headerPrefix, headerContentInBody } =
+    node.attrs as {
+      calloutType: string
+      emoji: string
+      bgColor: string | null
+      hasRawHeader: boolean
+      headerPrefix: string
+      headerContentInBody: boolean
+    }
 
   function handleEmojiSelect(emojiData: { native: string }) {
-    updateAttributes({
-      emoji: emojiData.native,
-      headerSuffix: buildHeaderSuffix(emojiData.native, titleDraft),
-      hasRawHeader: true,
-    })
+    const attrs: Record<string, unknown> = { emoji: emojiData.native }
+    if (hasRawHeader) {
+      const collapseMarker = /^[+-]/u.exec(headerPrefix)?.[0] ?? ""
+      attrs.headerPrefix = `${collapseMarker} ${emojiData.native}${headerContentInBody ? " " : ""}`
+      attrs.headerSuffix = attrs.headerPrefix
+    }
+    updateAttributes(attrs)
     setPickerOpen(false)
-  }
-
-  function handleTitleChange(nextTitle: string) {
-    setTitleDraft(nextTitle)
-    updateAttributes({
-      headerSuffix: buildHeaderSuffix(emoji, nextTitle),
-      hasRawHeader: true,
-    })
   }
 
   return (
@@ -94,6 +75,7 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
           {pickerOpen && (
             <div className="amby-callout-picker-anchor" contentEditable={false}>
               <EmojiPickerPanel
+                emojiOnly
                 triggerRef={emojiSlotRef}
                 onSelect={handleEmojiSelect}
                 onClose={() => setPickerOpen(false)}
@@ -108,21 +90,6 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
             wrapper those blocks participate in the outer flex layout and wrap
             underneath the emoji one character wide. */}
         <div className="amby-callout-content-wrap">
-          {editor.isEditable ? (
-            <input
-              ref={titleInputRef}
-              type="text"
-              className="amby-callout-title amby-callout-title-input"
-              value={titleDraft}
-              placeholder={t("callout.titlePlaceholder")}
-              contentEditable={false}
-              onChange={(event) => handleTitleChange(event.target.value)}
-              onMouseDown={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-            />
-          ) : (
-            title && <div className="amby-callout-title">{title}</div>
-          )}
           <NodeViewContent className="amby-callout-content" />
         </div>
       </div>

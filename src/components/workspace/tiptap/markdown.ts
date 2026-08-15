@@ -133,6 +133,209 @@ function normalizeTables(state: StateCore) {
   state.tokens = out
 }
 
+const COLUMNS_OPEN = "<!-- amby:columns -->"
+const COLUMN_OPEN = "<!-- amby:column -->"
+const COLUMNS_CLOSE = "<!-- /amby:columns -->"
+const COLUMNS_OPEN_RE = /^<!-- amby:columns(?: widths="([0-9.,]+)")? -->$/u
+
+function markerContent(token: Token): string {
+  return token.type === "html_block" ? token.content.trim() : ""
+}
+
+function columnWidthsFromMarker(token: Token): string | null | undefined {
+  const match = COLUMNS_OPEN_RE.exec(markerContent(token))
+  return match ? (match[1] ?? null) : undefined
+}
+
+// Portable column layout: comments remain invisible in other Markdown
+// previews, while every column body stays ordinary user-owned Markdown.
+function detectColumns(state: StateCore) {
+  const tokens = state.tokens
+  const out: Token[] = []
+  let index = 0
+
+  while (index < tokens.length) {
+    const widths = columnWidthsFromMarker(tokens[index])
+    if (widths === undefined) {
+      out.push(tokens[index++])
+      continue
+    }
+
+    let end = index + 1
+    let columnCount = 0
+    for (; end < tokens.length; end++) {
+      const marker = markerContent(tokens[end])
+      if (columnWidthsFromMarker(tokens[end]) !== undefined) break
+      if (marker === COLUMN_OPEN) columnCount++
+      if (marker === COLUMNS_CLOSE) break
+    }
+    if (end >= tokens.length || markerContent(tokens[end]) !== COLUMNS_CLOSE || columnCount < 2) {
+      out.push(tokens[index++])
+      continue
+    }
+
+    const columnSetOpen = new state.Token("column_set_open", "div", 1)
+    if (widths) columnSetOpen.attrSet("widths", widths)
+    // Empty-paragraph preservation runs after column detection. Keep the
+    // complete source range on the synthetic container so it knows that the
+    // lines occupied by column markers/content are not a giant blank gap
+    // between the surrounding top-level blocks.
+    const sourceStart = tokens[index].map?.[0]
+    const sourceEnd = tokens[end].map?.[1]
+    if (typeof sourceStart === "number" && typeof sourceEnd === "number") {
+      columnSetOpen.map = [sourceStart, sourceEnd]
+    }
+    out.push(columnSetOpen)
+    let columnOpen = false
+    for (let inner = index + 1; inner < end; inner++) {
+      if (markerContent(tokens[inner]) === COLUMN_OPEN) {
+        if (columnOpen) out.push(new state.Token("column_close", "div", -1))
+        out.push(new state.Token("column_open", "div", 1))
+        columnOpen = true
+      } else if (columnOpen) {
+        out.push(tokens[inner])
+      }
+    }
+    if (columnOpen) out.push(new state.Token("column_close", "div", -1))
+    out.push(new state.Token("column_set_close", "div", -1))
+    index = end + 1
+  }
+
+  state.tokens = out
+}
+
+// Markdown uses one blank line to separate blocks. Every additional blank line
+// is an intentional empty paragraph created in Live Preview, so retain it as a
+// real ProseMirror node instead of collapsing it on the next mode switch.
+function preserveEmptyParagraphs(state: StateCore) {
+  const out: Token[] = []
+  const sourceLines = state.src.split(/\r?\n/u)
+  let depth = 0
+  let previousTopLevelEnd: number | null = null
+
+  function appendEmptyParagraphs(count: number) {
+    for (let index = 0; index < count; index++) {
+      out.push(new state.Token("paragraph_open", "p", 1))
+      out.push(new state.Token("paragraph_close", "p", -1))
+    }
+  }
+
+  for (const token of state.tokens) {
+    const isTopLevelBlock =
+      depth === 0 &&
+      token.map &&
+      token.map[1] >= token.map[0] &&
+      // Containers open with nesting=1; fenced code, rules and HTML blocks
+      // are leaf block tokens (nesting=0) and must also advance the source
+      // boundary so they do not look like runs of empty paragraphs.
+      (token.nesting === 1 || token.nesting === 0)
+    if (isTopLevelBlock) {
+      const [start, end] = token.map!
+      if (previousTopLevelEnd !== null) {
+        // A one-line gap is Markdown's normal block separator. Any following
+        // blank lines are editable empty paragraphs.
+        appendEmptyParagraphs(Math.max(0, start - previousTopLevelEnd - 1))
+      }
+      // markdown-it may include the normal separator line in a container's
+      // map (notably lists). Trim only blank source lines from that mapped
+      // tail, otherwise an intentional empty block immediately after a list
+      // disappears when the following block is a column set.
+      let contentEnd = end
+      while (contentEnd > start && !(sourceLines[contentEnd - 1] ?? "").trim()) contentEnd--
+      previousTopLevelEnd = contentEnd
+    }
+    out.push(token)
+    depth += token.nesting
+  }
+
+  // A paragraph at the end needs two line endings in serialized Markdown;
+  // further line endings stand for trailing empty paragraphs.
+  const terminalBreaks = state.src.match(/(?:\r?\n)+$/u)?.[0] ?? ""
+  const terminalCount = (terminalBreaks.match(/\n/g) ?? []).length
+  if (previousTopLevelEnd !== null) appendEmptyParagraphs(Math.max(0, terminalCount - 2))
+
+  state.tokens = out
+}
+
+// CommonMark treats ordered-list items separated by any number of blank lines
+// as one loose list. In the block editor, however, an additional blank line is
+// an explicit empty top-level block that separates two lists. Split that token
+// stream before ProseMirror sees it so saving and reopening cannot merge the
+// lists and renumber the second one.
+function splitOrderedListsAtEmptyParagraphs(state: StateCore) {
+  const tokens = state.tokens
+  const insertions = new Map<number, Token[]>()
+  const lines = state.src.split(/\r?\n/u)
+
+  for (let openIndex = 0; openIndex < tokens.length; openIndex++) {
+    const open = tokens[openIndex]
+    if (open.type !== "ordered_list_open" || open.level !== 0) continue
+
+    let closeIndex = -1
+    for (let index = openIndex + 1; index < tokens.length; index++) {
+      if (tokens[index].type === "ordered_list_close" && tokens[index].level === open.level) {
+        closeIndex = index
+        break
+      }
+    }
+    if (closeIndex < 0) continue
+
+    const itemStarts: number[] = []
+    for (let index = openIndex + 1; index < closeIndex; index++) {
+      const token = tokens[index]
+      if (token.type === "list_item_open" && token.level === open.level + 1) {
+        itemStarts.push(index)
+      }
+    }
+
+    for (let itemIndex = 1; itemIndex < itemStarts.length; itemIndex++) {
+      const previousStart = itemStarts[itemIndex - 1]
+      const nextStart = itemStarts[itemIndex]
+      const nextSourceLine = tokens[nextStart].map?.[0]
+      if (typeof nextSourceLine !== "number") continue
+
+      let previousContentEnd: number | null = null
+      for (let index = previousStart + 1; index < nextStart; index++) {
+        const token = tokens[index]
+        if (!token.map || token.type.endsWith("_list_open") || token.type === "list_item_open") {
+          continue
+        }
+        previousContentEnd = Math.max(previousContentEnd ?? token.map[1], token.map[1])
+      }
+      if (previousContentEnd === null) continue
+
+      const emptyParagraphCount = nextSourceLine - previousContentEnd - 1
+      if (emptyParagraphCount <= 0) continue
+
+      const close = new state.Token("ordered_list_close", "ol", -1)
+      close.level = open.level
+      close.markup = open.markup
+      close.block = true
+
+      const reopen = new state.Token("ordered_list_open", "ol", 1)
+      reopen.level = open.level
+      reopen.markup = open.markup
+      reopen.block = true
+      reopen.map = [nextSourceLine, open.map?.[1] ?? nextSourceLine + 1]
+      const marker = /^\s*(\d+)[.)]\s/u.exec(lines[nextSourceLine] ?? "")
+      if (marker) reopen.attrSet("start", marker[1])
+
+      const inserted: Token[] = [close]
+      for (let index = 0; index < emptyParagraphCount; index++) {
+        inserted.push(new state.Token("paragraph_open", "p", 1))
+        inserted.push(new state.Token("paragraph_close", "p", -1))
+      }
+      inserted.push(reopen)
+      insertions.set(nextStart, inserted)
+    }
+
+    openIndex = closeIndex
+  }
+
+  if (!insertions.size) return
+  state.tokens = tokens.flatMap((token, index) => [...(insertions.get(index) ?? []), token])
+}
+
 const TASK_PREFIX_RE = /^\[([ xX])\]\s+/
 
 // markdown-it: retag bullet lists whose every item is a `[ ]` / `[x]` checkbox
@@ -290,26 +493,62 @@ function detectCallouts(state: StateCore) {
     }
 
     const calloutType = match[1].toUpperCase()
-    const headerText = (match[3] ?? "").trim()
+    const headerLine = firstInline.content.split("\n", 1)[0]
+    const markerOnly = /^\[![A-Z0-9_-]+\]/iu.exec(headerLine)?.[0] ?? ""
+    const rawHeaderSuffix = headerLine.slice(markerOnly.length)
+    let headerContentOffset = 0
+    if (/^[+-]/u.test(rawHeaderSuffix)) headerContentOffset++
+    while (/[ \t]/u.test(rawHeaderSuffix[headerContentOffset] ?? "")) headerContentOffset++
+    const possibleEmoji = rawHeaderSuffix.slice(headerContentOffset)
     // A plain callout title is not an emoji. Keeping the entire suffix in the
     // emoji button is what caused every letter of a title to become a vertical
     // column. Only accept a real leading emoji; the NodeView renders any title.
     const leadingEmoji =
-      /^\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/u.exec(headerText)?.[0]
+      /^\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/u.exec(
+        possibleEmoji,
+      )?.[0]
+    if (leadingEmoji) {
+      headerContentOffset += leadingEmoji.length
+      while (/[ \t]/u.test(rawHeaderSuffix[headerContentOffset] ?? "")) headerContentOffset++
+    }
     const emoji = leadingEmoji || CALLOUT_DEFAULTS[calloutType] || "💡"
-    const headerSuffix = `${match[2] ?? ""}${match[3] ?? ""}`
-
-    // Strip the "[!TYPE] emoji" prefix from the first inline token
-    const markerLen = match[0].length
-    firstInline.content = firstInline.content.slice(markerLen).trimStart()
-    if (firstInline.children?.length) {
-      const fc = firstInline.children[0]
-      if (fc.type === "text") {
-        fc.content = fc.content.slice(markerLen).trimStart()
-        if (!fc.content) firstInline.children.shift()
+    const headerPrefix = rawHeaderSuffix.slice(0, headerContentOffset)
+    const headerContent = rawHeaderSuffix.slice(headerContentOffset)
+    const headerContentInBody = headerContent.length > 0
+    let nextBlockStart: number | null = null
+    for (let index = firstParaClose + 1; index < bqClose; index++) {
+      if (tokens[index].map) {
+        nextBlockStart = tokens[index].map![0]
+        break
       }
-      // Drop the leading softbreak that separates [!TYPE] line from content
-      if (firstInline.children[0]?.type === "softbreak") firstInline.children.shift()
+    }
+    const headerBodyTight =
+      headerContentInBody &&
+      typeof firstInline.map?.[1] === "number" &&
+      nextBlockStart === firstInline.map[1]
+
+    // Keep an existing title as the first ordinary content line. It is now
+    // selectable, styled exactly like the following line, and can carry the
+    // same inline Markdown marks. Only the structural marker/icon prefix is
+    // removed from the editable content.
+    const markerPrefixLen = markerOnly.length + headerContentOffset
+    firstInline.content = firstInline.content.slice(markerPrefixLen)
+    if (firstInline.children?.length) {
+      let remainingPrefix = markerPrefixLen
+      while (remainingPrefix > 0 && firstInline.children.length > 0) {
+        const child = firstInline.children[0]
+        if (child.type !== "text") break
+        const removeCount = Math.min(remainingPrefix, child.content.length)
+        child.content = child.content.slice(removeCount)
+        remainingPrefix -= removeCount
+        if (!child.content) firstInline.children.shift()
+      }
+      // With no title, the marker line is structural rather than an empty
+      // editable line, so the following body starts immediately.
+      if (!headerContentInBody && firstInline.children[0]?.type === "softbreak") {
+        firstInline.children.shift()
+        firstInline.content = firstInline.content.replace(/^\n/u, "")
+      }
     }
 
     const skipFirstPara =
@@ -320,7 +559,10 @@ function detectCallouts(state: StateCore) {
     const calloutOpen = new state.Token("callout_open", "div", 1)
     calloutOpen.attrSet("calloutType", calloutType)
     calloutOpen.attrSet("emoji", emoji)
-    calloutOpen.attrSet("headerSuffix", headerSuffix)
+    calloutOpen.attrSet("headerSuffix", rawHeaderSuffix)
+    calloutOpen.attrSet("headerPrefix", headerPrefix)
+    calloutOpen.attrSet("headerContentInBody", headerContentInBody ? "true" : "false")
+    calloutOpen.attrSet("headerBodyTight", headerBodyTight ? "true" : "false")
     calloutOpen.attrSet("hasRawHeader", "true")
     out.push(calloutOpen)
     if (skipFirstPara) {
@@ -435,6 +677,9 @@ function detectMathBlocks(state: StateCore) {
 function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.inline.ruler.before("html_inline", "amby_html", ambyInlineRule)
   md.core.ruler.push("amby_tables", normalizeTables)
+  md.core.ruler.push("amby_columns", detectColumns)
+  md.core.ruler.push("amby_empty_paragraphs", preserveEmptyParagraphs)
+  md.core.ruler.push("amby_split_ordered_lists", splitOrderedListsAtEmptyParagraphs)
   md.core.ruler.push("amby_task_lists", detectTaskLists)
   md.core.ruler.push("amby_blocks", detectAmbyBlocks)
   md.core.ruler.push("amby_callouts", detectCallouts)
@@ -468,9 +713,17 @@ const parserTokens: { [token: string]: ParseSpec } = {
       calloutType: tok.attrGet("calloutType") ?? "NOTE",
       emoji: tok.attrGet("emoji") ?? "💡",
       headerSuffix: tok.attrGet("headerSuffix") ?? "",
+      headerPrefix: tok.attrGet("headerPrefix") ?? "",
+      headerContentInBody: tok.attrGet("headerContentInBody") === "true",
+      headerBodyTight: tok.attrGet("headerBodyTight") === "true",
       hasRawHeader: tok.attrGet("hasRawHeader") === "true",
     }),
   },
+  column_set: {
+    block: "columnSet",
+    getAttrs: (tok) => ({ widths: tok.attrGet("widths") || null }),
+  },
+  column: { block: "column" },
   blockquote: { block: "blockquote" },
   paragraph: { block: "paragraph" },
   list_item: { block: "listItem" },
@@ -632,7 +885,11 @@ type MarkSerializerSpec = {
   escape?: boolean
 }
 
-type SerializerState = MarkdownSerializerState & { esc: typeof ambyEsc; out: string }
+type SerializerState = MarkdownSerializerState & {
+  esc: typeof ambyEsc
+  out: string
+  flushClose: (size?: number) => void
+}
 
 const nodeSerializers: Record<
   string,
@@ -641,7 +898,15 @@ const nodeSerializers: Record<
   doc(state, node) {
     state.renderContent(node)
   },
-  paragraph(state, node) {
+  paragraph(state, node, parent) {
+    if (node.childCount === 0 && parent.type.name === "doc") {
+      // The stock serializer coalesces an empty paragraph into the surrounding
+      // block separator. Emit one extra line so it survives parsing and a
+      // Source ↔ Live transition as a genuine blank block.
+      state.flushClose()
+      state.write("\n")
+      return
+    }
     state.renderInline(node)
     state.closeBlock(node)
   },
@@ -659,10 +924,44 @@ const nodeSerializers: Record<
   callout(state, node) {
     const type = (node.attrs.calloutType as string) || "NOTE"
     const emoji = (node.attrs.emoji as string) || CALLOUT_DEFAULTS[type] || "💡"
-    const header = node.attrs.hasRawHeader ? (node.attrs.headerSuffix as string) : ` ${emoji}`
+    if (node.attrs.hasRawHeader && node.attrs.headerContentInBody) {
+      const content = serializeFragment(node)
+      const lineBreak = content.indexOf("\n")
+      const headerContent = lineBreak < 0 ? content : content.slice(0, lineBreak)
+      let body = lineBreak < 0 ? "" : content.slice(lineBreak + 1)
+      if (node.attrs.headerBodyTight && body.startsWith("\n")) body = body.slice(1)
+      state.write(`> [!${type}]${(node.attrs.headerPrefix as string) || " "}${headerContent}`)
+      if (body) {
+        state.write("\n")
+        state.write(
+          body
+            .split("\n")
+            .map((line) => `> ${line}`)
+            .join("\n"),
+        )
+      }
+      state.closeBlock(node)
+      return
+    }
+    const header = node.attrs.hasRawHeader
+      ? ((node.attrs.headerPrefix || node.attrs.headerSuffix) as string)
+      : ` ${emoji}`
     state.write(`> [!${type}]${header}\n`)
-    // Wrap the content lines with "> " prefix
     state.wrapBlock("> ", null, node, () => state.renderContent(node))
+  },
+  columnSet(state, node) {
+    const columns: string[] = []
+    node.forEach((column) => {
+      columns.push(`${COLUMN_OPEN}\n\n${serializeFragment(column)}`)
+    })
+    const open = node.attrs.widths
+      ? `<!-- amby:columns widths="${node.attrs.widths as string}" -->`
+      : COLUMNS_OPEN
+    state.write(`${open}\n\n${columns.join("\n\n")}\n\n${COLUMNS_CLOSE}`)
+    state.closeBlock(node)
+  },
+  column(state, node) {
+    state.renderContent(node)
   },
   codeBlock(state, node) {
     const fenceMatches = node.textContent.match(/`{3,}/gm)

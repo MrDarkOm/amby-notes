@@ -9,6 +9,18 @@ export const ACCENT_HEX = {
   rose: "#f43f5e",
 } as const
 
+export const ICON_PICKER_COLORS = [
+  "#64748b",
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#22c55e",
+  "#0ea5e9",
+  "#6366f1",
+  "#a855f7",
+  "#ec4899",
+] as const
+
 export const EDITOR_TEXT_COLORS = [
   "#ef4444",
   "#f97316",
@@ -21,6 +33,22 @@ export const EDITOR_TEXT_COLORS = [
   "#e5e7eb",
 ] as const
 
+/** Theme-aware previews for the portable text colors stored in Markdown. */
+export const EDITOR_TEXT_COLOR_PREVIEWS = {
+  light: [
+    "#dc2626",
+    "#c2410c",
+    "#a16207",
+    "#15803d",
+    "#0e7490",
+    "#2563eb",
+    "#7e22ce",
+    "#be185d",
+    "#6b7280",
+  ],
+  dark: EDITOR_TEXT_COLORS,
+} as const
+
 export const EDITOR_BACKGROUND_COLORS = [
   "#7f1d1d",
   "#7c2d12",
@@ -32,6 +60,22 @@ export const EDITOR_BACKGROUND_COLORS = [
   "#831843",
   "#3f3f46",
 ] as const
+
+/** Theme-aware previews for the portable background colors stored in Markdown. */
+export const EDITOR_BACKGROUND_COLOR_PREVIEWS = {
+  light: [
+    "#fca5a5",
+    "#fdba74",
+    "#fde047",
+    "#86efac",
+    "#67e8f9",
+    "#93c5fd",
+    "#d8b4fe",
+    "#f9a8d4",
+    "#cbd5e1",
+  ],
+  dark: EDITOR_BACKGROUND_COLORS,
+} as const
 
 export const CALLOUT_SWATCHES: ReadonlyArray<{ id: string; color?: string }> = [
   { id: "teal", color: "rgba(20, 184, 166, 0.45)" },

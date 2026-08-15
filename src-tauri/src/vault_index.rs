@@ -33,7 +33,10 @@ fn filesystem_timestamps(path: &Path) -> (Option<u64>, Option<u64>) {
             .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
             .map(|value| value.as_secs())
     };
-    (to_unix_seconds(metadata.created()), to_unix_seconds(metadata.modified()))
+    (
+        to_unix_seconds(metadata.created()),
+        to_unix_seconds(metadata.modified()),
+    )
 }
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
@@ -550,6 +553,17 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
             label TEXT NOT NULL,
             target_note_id TEXT REFERENCES notes(id) ON DELETE SET NULL
         );
+        CREATE TABLE IF NOT EXISTS note_custom_properties (
+            id TEXT NOT NULL,
+            note_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            icon TEXT NOT NULL,
+            property_type TEXT NOT NULL,
+            value TEXT NOT NULL,
+            settings TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            PRIMARY KEY (note_id, id)
+        );
         CREATE INDEX IF NOT EXISTS idx_notes_path ON notes(path);
         CREATE INDEX IF NOT EXISTS idx_notes_title ON notes(title);
         CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
@@ -752,7 +766,10 @@ pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
         match frontmatter::atomic_write_bytes_new(&backup, &original_bytes) {
             Ok(()) => {}
             Err(frontmatter::AtomicCreateError::AlreadyExists) => {
-                return Err(format!("Migration backup already exists: {}", path_string(&backup)));
+                return Err(format!(
+                    "Migration backup already exists: {}",
+                    path_string(&backup)
+                ));
             }
             Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
         }
@@ -1266,7 +1283,9 @@ pub fn note_properties(
 ) -> Result<crate::model::NoteProperties, String> {
     let note = note_by_id(conn, vault, note_id)?;
     let content = fs::read_to_string(&note.path).map_err(|error| error.to_string())?;
-    Ok(frontmatter::note_properties(&content))
+    let mut properties = frontmatter::note_properties(&content);
+    properties.custom_properties = crate::property_store::list(conn, note_id)?;
+    Ok(properties)
 }
 
 /// Update only the index entry for a single note after saving it.
@@ -1368,6 +1387,16 @@ pub fn note_metadata(
     note_id: &str,
 ) -> Result<IndexedNote, String> {
     note_by_id(conn, vault, note_id)
+}
+
+pub fn note_created_at(conn: &Connection, note_id: &str) -> Result<Option<u64>, String> {
+    conn.query_row(
+        "SELECT created_at FROM notes WHERE id = ?1",
+        [note_id],
+        |row| row.get::<_, Option<i64>>(0),
+    )
+    .map(|value| value.map(|timestamp| timestamp as u64))
+    .map_err(|error| error.to_string())
 }
 
 /// List all tags. Does NOT call sync_vault — the caller is responsible for

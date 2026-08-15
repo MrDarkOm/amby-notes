@@ -57,8 +57,18 @@ export const AmbyTextStyle = Mark.create({
   },
 
   renderHTML({ mark, HTMLAttributes }) {
-    const style = styleAttrsToCss(mark.attrs as AmbyTextStyleAttrs)
-    return ["span", mergeAttributes(HTMLAttributes, style ? { style } : {}), 0]
+    const attrs = mark.attrs as AmbyTextStyleAttrs
+    const style = styleAttrsToCss(attrs)
+    return [
+      "span",
+      mergeAttributes(
+        HTMLAttributes,
+        style ? { style } : {},
+        attrs.color ? { "data-amby-color": attrs.color } : {},
+        attrs.backgroundColor ? { "data-amby-highlight": attrs.backgroundColor } : {},
+      ),
+      0,
+    ]
   },
 
   addCommands() {

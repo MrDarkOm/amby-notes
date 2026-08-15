@@ -7,6 +7,7 @@ import { SlashMenu } from "./slash-menu"
 import { IndentShortcut } from "./indent-shortcut"
 import { WrapShortcuts } from "./wrap-shortcuts"
 import { MediaDrop } from "./media-drop"
+import { ColumnResize } from "./column-resize"
 
 export interface BuildExtensionsOptions {
   placeholder: string
@@ -24,6 +25,7 @@ export function buildExtensions({ placeholder, callbacks }: BuildExtensionsOptio
     SlashMenu,
     IndentShortcut,
     WrapShortcuts,
+    ColumnResize,
     MediaDrop,
   ]
 }

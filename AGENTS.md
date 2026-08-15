@@ -1,38 +1,91 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
+## Product and Architecture
 
-This is a Tauri 2 desktop notes app with a React 19 + TypeScript + Vite frontend.
+Amby Notes is a local-first Tauri 2 desktop knowledge workspace with a React 19, TypeScript, and Vite frontend and a Rust backend. Markdown files and attachments in the selected vault are user-owned source data; SQLite and `.amby/` metadata are derived or recoverable application state.
 
-- `src/` contains the frontend application.
-- `src/components/workspace/` holds app-specific workspace UI, editor, sidebar, tabs, search, tags, and panels.
+- The frontend must not access the desktop filesystem directly. Route I/O through `src/lib/storage.ts`, which uses Tauri IPC in the desktop app and a `localStorage` fallback in browser development.
+- The rich editor is Tiptap 3/ProseMirror; the source editor is CodeMirror 6. A note may enter Live Preview only when its Markdown can round-trip byte-for-byte. Unsupported or lossy syntax stays in Source mode.
+- Zustand stores and focused hooks own workspace state. Extend the relevant store or hook instead of reintroducing parallel state in `workspace.tsx`.
+- The Rust backend owns vault scoping, atomic writes, history/trash, filesystem watching, bundle/layer operations, frontmatter handling, and the rebuildable SQLite index.
+
+## Project Structure
+
+- `src/components/workspace/` contains workspace UI, editors, panels, tabs, tree/search/tag views, mutations, and Zustand stores.
+- `src/components/workspace/tiptap/` contains the rich-editor schema, extensions, Markdown parser/serializer, opaque preservation nodes, menus, and compatibility fixtures.
 - `src/components/ui/` contains reusable Radix/shadcn-style primitives.
-- `src/lib/` contains shared utilities and storage abstractions.
-- `src/hooks/` contains React hooks.
-- `src-tauri/` contains the Rust Tauri shell, commands, permissions, icons, and Cargo files.
-- `public/` stores static web assets; `dist/` is generated build output.
+- `src/lib/` contains IPC/storage boundaries, generated bindings, i18n bootstrap, diagnostics, queues, recovery drafts, AI helpers, and shared utilities.
+- `src/locales/resources.ts` is the single registry for all visible interface strings.
+- `src/themes/` owns application CSS, built-in themes, palettes, portable theme validation, and appearance preferences.
+- `src-tauri/src/` is split by backend responsibility: `lib.rs` registers Tauri commands, while `bundle.rs`, `frontmatter.rs`, `history.rs`, `recycle_bin.rs`, `vault_index.rs`, `property_store.rs`, `paths.rs`, `app_data.rs`, `ai.rs`, and `model.rs` implement domain behavior.
+- `docs/` records executable product contracts, especially `vault-format.md`, `markdown-compatibility.md`, `themes-and-localization.md`, and `engineering.md`.
+- `public/` stores static web assets. `dist/` and `src-tauri/target/` are generated output and must not be committed.
 
-## Build, Test, and Development Commands
+## Development and Verification Commands
 
-- `npm run dev` starts the Vite development server for browser-based UI work.
-- `npm run build` runs TypeScript checking with `tsc` and builds the frontend with Vite.
-- `npm run preview` serves the built frontend locally.
-- `npm run tauri dev` runs the full desktop app through Tauri.
-- `npm run tauri build` creates a production desktop bundle.
-- `cd src-tauri && cargo check` validates Rust code quickly without producing an app bundle.
+Use Node.js 20.19+ or 22.12+ and npm 10+.
 
-## Coding Style & Naming Conventions
+- `npm install` installs dependencies and activates Lefthook through `prepare`.
+- `npm run dev` starts browser-only Vite development; Tauri-only behavior is unavailable and storage uses the web fallback.
+- `npm run tauri dev` runs the complete desktop application.
+- `npm run build` runs TypeScript checking and creates the frontend production bundle.
+- `npm run verify` is the required local gate: TypeScript, ESLint, Vitest, and `cargo check`.
+- `npm run test` runs the Vitest suite once; `npm run test:watch` runs it interactively.
+- `npm run lint`, `npm run format:check`, and `npm run knip` run focused frontend checks.
+- `npm run rust:check`, `npm run rust:clippy`, `npm run rust:fmt`, and `npm run rust:test` run focused Rust checks.
+- `npm run tauri build` creates production desktop bundles.
 
-Use TypeScript, React function components, and existing local component patterns. Keep workspace-specific components in `src/components/workspace/` and shared UI primitives in `src/components/ui/`. Use kebab-case filenames for components, for example `document-editor.tsx`, and PascalCase for exported React components. Prefer Tailwind utility classes and the existing `cn()` helper from `src/lib/utils.ts` for conditional class names. Keep Rust commands in `src-tauri/src/lib.rs` unless they grow large enough to justify modules.
+Run `npm run verify` before requesting review. After Rust changes, also run `npm run rust:test`; run strict Clippy for backend-heavy changes. Use targeted manual testing in both `npm run dev` and `npm run tauri dev` when storage, IPC, windowing, filesystem watching, dialogs, or desktop behavior changes.
+
+## Generated IPC Bindings
+
+`src/lib/bindings.ts` is generated by the Rust `specta_export::export_bindings` test and is excluded from manual linting. Never edit it by hand. Add `#[specta::specta]` to exposed Tauri commands, run `npm run rust:test` whenever a command or IPC type changes, and commit the regenerated bindings in the same change. CI rejects stale bindings.
+
+## Coding Style and Boundaries
+
+Use TypeScript, React function components, existing local patterns, and the `@/` import alias. Use kebab-case component filenames and PascalCase exported components. Prefer Tailwind utilities and `cn()` from `src/lib/utils.ts` for conditional classes.
+
+Keep reusable primitives in `components/ui`, workspace behavior in `components/workspace`, editor-format logic in `components/workspace/tiptap`, and filesystem/domain behavior in the relevant Rust module. Keep `lib.rs` focused on Tauri state, command boundaries, and registration rather than growing domain implementations there.
+
+The repository has legacy Prettier and Rustfmt drift. Do not perform unrelated repository-wide formatting. Format touched frontend files with Prettier and touched Rust files with Rustfmt. Lefthook runs ESLint fixes and Prettier on staged frontend files.
+
+## Localization and Themes
+
+Do not hard-code user-facing text in TSX. Add the Russian source string and every supported translation under the same stable dotted key in `src/locales/resources.ts`; `src/lib/i18n.ts` only initializes i18next. Keep language resources structurally identical. `src/lib/localization-guard.test.ts` enforces this boundary.
+
+Static visual definitions belong under `src/themes/`, not in components. Components consume theme tokens and may use only local behavioral/layout styling. Imported `.amby-theme.json` themes are validated data: never execute theme CSS or JavaScript, allow remote resources, or let an import overwrite an existing or built-in theme. Preserve the token allowlist and format version; `src/lib/theme-boundary.test.ts` guards component boundaries.
+
+Workspace icons may be native emoji, encoded Lucide values, or cropped raster data URLs. Create and parse encoded values through `src/components/workspace/icon-values.ts`, render them through `IconValue`, and keep picker palettes and shadow-DOM styling under `src/themes/`. Do not render encoded icon strings directly as text.
+
+## Data-Safety and Compatibility Rules
+
+- Treat Markdown and attachments as the source of truth; the SQLite index must always remain rebuildable.
+- Custom note properties use stable frontmatter note IDs. `.amby/properties.json` is their versioned durable sidecar, while the SQLite property table is only a rebuildable cache; keep both paths coordinated through `property_store.rs`.
+- Keep `.obsidian/`, `.git/`, `.trash/`, `assets/`, and `.amby/` out of note indexing. Never silently mutate another application's metadata.
+- Preserve unknown Markdown, YAML, HTML, Canvas, and Excalidraw content. Add or update round-trip fixtures before admitting new syntax to Live Preview; if serialization is not byte-exact, keep it Source-only.
+- Amby columns serialize as invisible `amby:columns` HTML comments around ordinary Markdown. Preserve those markers, column order, explicit widths, empty blocks, and byte-exact round trips when changing drag, resize, parsing, or serialization.
+- Preserve UTF-8 BOMs and line endings. Use the established atomic-write and no-replace creation helpers; do not replace them with direct truncating writes.
+- Serialize autosaves per file, keep recovery drafts until a filesystem save succeeds, and do not let stale saves clear newer dirty state.
+- Treat external edits as conflicts when local changes are unsaved. Never silently close or overwrite an externally changed/deleted open document.
+- Snapshot existing text before replacement or link refactors. Deletes go to vault-local `.amby/trash/` and must remain restorable.
+- Persistent-data migrations require a version, read-only preflight, backup/recovery point, idempotence or completion detection, outcome recording, and documented rollback. Never silently rewrite user-managed frontmatter IDs.
+
+Consult `docs/vault-format.md` and `docs/markdown-compatibility.md` before changing persistence, indexing, frontmatter, editor serialization, rename/move behavior, history, or trash semantics.
 
 ## Testing Guidelines
 
-There is currently no configured test runner or `npm test` script. For now, verify changes with `npm run build`, `cargo check`, and targeted manual testing in both `npm run dev` and `npm run tauri dev` when desktop behavior is affected. If adding tests, prefer colocated `*.test.tsx` or `*.test.ts` files near the code they cover and add the test command to `package.json`.
+Vitest runs `src/**/*.test.ts` in a Node environment. Add focused colocated tests for stores, mutations, parsers/serializers, queues, themes, and other pure logic. Rust unit tests live beside their modules and should cover filesystem success, failure, collision, rollback, and recovery paths.
 
-## Commit & Pull Request Guidelines
+For Markdown/editor changes, add a focused round-trip test or fixture and verify both acceptance of lossless syntax and rejection of lossy syntax. For persistence changes, test failure boundaries and confirm the original file remains intact. There is no configured browser component-test environment, so UI interactions still require targeted manual verification.
 
-Recent commits use short conventional prefixes such as `feat:`, `fix:`, and `chore:`. Keep commit subjects imperative and specific, for example `fix: preserve tab state after reload`. Pull requests should include a concise summary, verification steps, linked issues when applicable, and screenshots or screen recordings for UI changes.
+## Security and Permissions
 
-## Security & Configuration Tips
+Keep Tauri permissions narrow in `src-tauri/capabilities/default.json`. Vault access is granted dynamically for the selected canonical vault; do not add broad static filesystem scopes. Validate and canonicalize paths through the existing vault guards, and treat filesystem access, asset protocol scopes, imported themes, AI credentials, and external URL/path opening as security-sensitive.
 
-Keep Tauri permissions narrow in `src-tauri/capabilities/default.json`. Do not commit local vault data, generated bundles, or machine-specific files. Treat filesystem access changes as high-risk and test both browser fallback behavior and desktop Tauri commands.
+Do not commit vault contents, `.amby/` metadata, secrets, generated bundles, machine-specific files, or local recovery data.
+
+## Git and Review Workflow
+
+Use short conventional commit subjects such as `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, and `chore:` with imperative, specific wording. Start feature and fix work from `dev`, promote completed work `dev` → `beta` → `main`, and avoid mixing unrelated cleanup with functional changes.
+
+Pull requests should include a concise summary, risk or data-format impact, verification commands and manual scenarios, linked issues when applicable, and screenshots or recordings for visible UI changes. Call out generated binding updates, permission changes, migrations, compatibility changes, and any check not run.

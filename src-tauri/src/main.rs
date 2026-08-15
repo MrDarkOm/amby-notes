@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    amby_desktop_lib::run()
+    amby_notes_lib::run()
 }

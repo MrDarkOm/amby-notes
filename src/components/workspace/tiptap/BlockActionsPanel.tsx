@@ -23,7 +23,8 @@ import {
 } from "lucide-react"
 
 import { getTurnIntoItems, type BlockInsertItem } from "./block-insert-items"
-import { CALLOUT_DEFAULTS } from "./callout-node"
+import { convertBlockToParagraph, convertBlockWrapper } from "./block-conversion"
+import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { importAsset, pickAssetFile } from "@/lib/storage"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
 import { BLOCK_TEXT_COLORS as TEXT_COLORS, CALLOUT_SWATCHES } from "@/lib/themes"
@@ -43,8 +44,6 @@ interface Props {
   onFocusInsideBlock: () => void
   onClose: () => void
 }
-
-const CALLOUT_TYPES = Object.keys(CALLOUT_DEFAULTS) as Array<keyof typeof CALLOUT_DEFAULTS>
 
 /**
  * Turns the visual lines in one paragraph into sibling paragraph blocks while
@@ -149,12 +148,72 @@ export function BlockActionsPanel({
       turnIntoItems.some((i) => matches(t(`blockItems.${i.id}.title`))))
   const splitVisible =
     canSplitParagraph && (matches("split") || matches("разделить") || matches("block"))
-  const insertVisible = matches("insert") || matches("вставить")
+  const insertVisible = matches(t("blockPanel.insertAbove")) || matches(t("blockPanel.insertBelow"))
 
   function chooseTurnInto(item: BlockInsertItem) {
+    if (item.id === "paragraph") {
+      if (nodeType === "listItem" || nodeType === "taskItem") {
+        onFocusInsideBlock()
+        editor.chain().focus().liftListItem(nodeType).setParagraph().run()
+        setTurnIntoOpen(false)
+        onClose()
+        return
+      }
+      const transaction = convertBlockToParagraph(editor.state, nodePos)
+      if (transaction) {
+        editor.view.dispatch(transaction)
+        setTurnIntoOpen(false)
+        onClose()
+        return
+      }
+    }
+    if (item.id === "callout" || item.id === "blockquote") {
+      const transaction = convertBlockWrapper(editor.state, nodePos, item.id)
+      if (transaction) {
+        editor.view.dispatch(transaction)
+        setTurnIntoOpen(false)
+        onClose()
+        return
+      }
+    }
     onFocusInsideBlock()
     void item.inline(editor)
     setTurnIntoOpen(false)
+    onClose()
+  }
+
+  async function copyBlockLink() {
+    const node = editor.state.doc.nodeAt(nodePos)
+    if (!node) return
+    const noteName = (notePath ?? "").replace(/\\/gu, "/").split("/").pop()?.replace(/\.md$/iu, "")
+    if (!noteName) return
+
+    let anchor = ""
+    if (node.type.name === "heading" && node.textContent.trim()) {
+      anchor = `#${node.textContent.trim()}`
+    } else {
+      const existing = /(?:^|\s)\^([A-Za-z0-9-]+)\s*$/u.exec(node.textContent)?.[1]
+      if (existing) {
+        anchor = `^${existing}`
+      } else {
+        const blockId = `amby-${crypto.randomUUID().slice(0, 8)}`
+        let insertPos: number | null = node.isTextblock ? nodePos + 1 + node.content.size : null
+        if (insertPos === null) {
+          node.descendants((child, offset) => {
+            if (insertPos !== null) return false
+            if (!child.isTextblock) return true
+            insertPos = nodePos + 1 + offset + 1 + child.content.size
+            return false
+          })
+        }
+        if (insertPos !== null) {
+          editor.view.dispatch(editor.state.tr.insertText(` ^${blockId}`, insertPos))
+          anchor = `^${blockId}`
+        }
+      }
+    }
+
+    await navigator.clipboard.writeText(`[[${noteName}${anchor}]]`)
     onClose()
   }
 
@@ -185,49 +244,6 @@ export function BlockActionsPanel({
       </div>
 
       <div className="amby-block-panel-body">
-        {hasContext && (
-          <>
-            {isCallout && <CalloutContext editor={editor} nodePos={nodePos} matches={matches} />}
-            {nodeType === "heading" && (
-              <HeadingContext editor={editor} nodePos={nodePos} matches={matches} />
-            )}
-            {nodeType === "image" && (
-              <ImageContext
-                editor={editor}
-                nodePos={nodePos}
-                vaultPath={vaultPath}
-                notePath={notePath}
-                matches={matches}
-              />
-            )}
-            {nodeType === "codeBlock" && (
-              <CodeBlockContext editor={editor} nodePos={nodePos} matches={matches} />
-            )}
-            {isListItem && <ListContext editor={editor} nodePos={nodePos} matches={matches} />}
-          </>
-        )}
-        {!hasContext &&
-          !splitVisible &&
-          !turnIntoVisible &&
-          matches("duplicate") === false &&
-          matches("delete") === false && (
-            <div className="amby-block-panel-empty">{t("blockPanel.noSettings")}</div>
-          )}
-      </div>
-
-      <div className="amby-block-panel-footer">
-        {insertVisible && (
-          <>
-            <button type="button" className="amby-block-row" onClick={onInsertAbove}>
-              <ArrowUp className="amby-block-row-icon" />
-              <span className="amby-block-row-label">{t("blockPanel.insertAbove")}</span>
-            </button>
-            <button type="button" className="amby-block-row" onClick={onInsertBelow}>
-              <ArrowDown className="amby-block-row-icon" />
-              <span className="amby-block-row-label">{t("blockPanel.insertBelow")}</span>
-            </button>
-          </>
-        )}
         {turnIntoVisible && (
           <button
             ref={turnIntoBtnRef}
@@ -240,9 +256,11 @@ export function BlockActionsPanel({
                   left: rect.right + 4,
                   top: rect.top,
                   right: rect.right + 4,
-                  bottom: rect.bottom,
+                  // A zero-height side anchor aligns the submenu's first row
+                  // with this row instead of opening underneath it.
+                  bottom: rect.top - 4,
                   width: 0,
-                  height: rect.height,
+                  height: 0,
                 })
               }
               setTurnIntoOpen((v) => !v)
@@ -253,43 +271,89 @@ export function BlockActionsPanel({
             <span className="amby-block-row-hint">▸</span>
           </button>
         )}
-        {splitVisible && (
-          <button
-            type="button"
-            className="amby-block-row"
-            onClick={() => {
-              if (splitParagraphIntoBlocks(editor, nodePos)) onClose()
-            }}
-          >
-            <Rows3 className="amby-block-row-icon" />
-            <span className="amby-block-row-label">{t("blockPanel.splitBlocks")}</span>
-          </button>
+        {(hasContext || splitVisible) && (
+          <div className="amby-block-context-zone">
+            {hasContext && (
+              <>
+                {isCallout && (
+                  <CalloutContext editor={editor} nodePos={nodePos} matches={matches} />
+                )}
+                {nodeType === "heading" && (
+                  <HeadingContext editor={editor} nodePos={nodePos} matches={matches} />
+                )}
+                {nodeType === "image" && (
+                  <ImageContext
+                    editor={editor}
+                    nodePos={nodePos}
+                    vaultPath={vaultPath}
+                    notePath={notePath}
+                    matches={matches}
+                  />
+                )}
+                {nodeType === "codeBlock" && (
+                  <CodeBlockContext editor={editor} nodePos={nodePos} matches={matches} />
+                )}
+                {isListItem && <ListContext editor={editor} nodePos={nodePos} matches={matches} />}
+              </>
+            )}
+            {splitVisible && (
+              <button
+                type="button"
+                className="amby-block-row"
+                onClick={() => {
+                  if (splitParagraphIntoBlocks(editor, nodePos)) onClose()
+                }}
+              >
+                <Rows3 className="amby-block-row-icon" />
+                <span className="amby-block-row-label">{t("blockPanel.splitBlocks")}</span>
+              </button>
+            )}
+          </div>
         )}
-        {matches("copy link") && (
-          <button
-            type="button"
-            className="amby-block-row is-disabled"
-            title={t("common.comingSoon")}
-            disabled
-          >
+        {!hasContext &&
+          !splitVisible &&
+          !turnIntoVisible &&
+          matches(t("blockPanel.duplicate")) === false &&
+          matches(t("blockPanel.delete")) === false && (
+            <div className="amby-block-panel-empty">{t("blockPanel.noSettings")}</div>
+          )}
+      </div>
+
+      <div className="amby-block-panel-footer">
+        {matches(t("blockPanel.copyLink")) && (
+          <button type="button" className="amby-block-row" onClick={() => void copyBlockLink()}>
             <LinkIcon className="amby-block-row-icon" />
             <span className="amby-block-row-label">{t("blockPanel.copyLink")}</span>
             <span className="amby-block-row-hint">⌘L</span>
           </button>
         )}
-        {matches("duplicate") && (
+        {matches(t("blockPanel.duplicate")) && (
           <button type="button" className="amby-block-row" onClick={onDuplicate}>
             <Copy className="amby-block-row-icon" />
             <span className="amby-block-row-label">{t("blockPanel.duplicate")}</span>
             <span className="amby-block-row-hint">⌘D</span>
           </button>
         )}
-        {matches("delete") && (
-          <button type="button" className="amby-block-row is-danger" onClick={onDelete}>
-            <Trash2 className="amby-block-row-icon" />
-            <span className="amby-block-row-label">{t("blockPanel.delete")}</span>
-            <span className="amby-block-row-hint">⌫</span>
-          </button>
+        {insertVisible && (
+          <>
+            <button type="button" className="amby-block-row" onClick={onInsertAbove}>
+              <ArrowUp className="amby-block-row-icon" />
+              <span className="amby-block-row-label">{t("blockPanel.insertAbove")}</span>
+            </button>
+            <button type="button" className="amby-block-row" onClick={onInsertBelow}>
+              <ArrowDown className="amby-block-row-icon" />
+              <span className="amby-block-row-label">{t("blockPanel.insertBelow")}</span>
+            </button>
+          </>
+        )}
+        {matches(t("blockPanel.delete")) && (
+          <div className="amby-block-panel-danger-zone">
+            <button type="button" className="amby-block-row is-danger" onClick={onDelete}>
+              <Trash2 className="amby-block-row-icon" />
+              <span className="amby-block-row-label">{t("blockPanel.delete")}</span>
+              <span className="amby-block-row-hint">⌫</span>
+            </button>
+          </div>
         )}
       </div>
       {turnIntoOpen && turnIntoAnchor && (
@@ -353,7 +417,11 @@ function CalloutContext({
 }) {
   const { t } = useTranslation()
   const node = editor.state.doc.nodeAt(nodePos)
-  const calloutType = (node?.attrs.calloutType as string) ?? "NOTE"
+  const [emojiOpen, setEmojiOpen] = React.useState(false)
+  const [emojiAnchor, setEmojiAnchor] = React.useState<AnchorRect | null>(null)
+  const emojiButtonRef = React.useRef<HTMLButtonElement>(null)
+  const emojiPickerRef = React.useRef<HTMLDivElement>(null)
+  const emojiPickerStyle = useSmartPlacement(emojiAnchor, emojiPickerRef, { gap: 6 })
 
   function setBg(id: string) {
     editor
@@ -363,12 +431,16 @@ function CalloutContext({
       .run()
   }
 
-  function setType(t: keyof typeof CALLOUT_DEFAULTS) {
-    editor
-      .chain()
-      .focus()
-      .updateAttributes("callout", { calloutType: t, emoji: CALLOUT_DEFAULTS[t] })
-      .run()
+  function setEmoji(nextEmoji: string) {
+    if (!node) return
+    const attrs: Record<string, unknown> = { emoji: nextEmoji }
+    if (node.attrs.hasRawHeader) {
+      const collapseMarker = /^[+-]/u.exec(String(node.attrs.headerPrefix ?? ""))?.[0] ?? ""
+      attrs.headerPrefix = `${collapseMarker} ${nextEmoji}${node.attrs.headerContentInBody ? " " : ""}`
+      attrs.headerSuffix = attrs.headerPrefix
+    }
+    editor.chain().focus().updateAttributes("callout", attrs).run()
+    setEmojiOpen(false)
   }
 
   function setTextColor(color: string | null) {
@@ -384,10 +456,9 @@ function CalloutContext({
 
   const showBg = matches("background") || matches("фон") || matches("color")
   const showText = matches("text color") || matches("color") || matches("текст")
-  const showType =
-    matches("type") || matches("emoji") || matches("тип") || matches("note") || matches("warning")
+  const showEmoji = matches("emoji") || matches("эмодзи") || matches(t("callout.changeEmoji"))
 
-  if (!showBg && !showText && !showType) return null
+  if (!showBg && !showText && !showEmoji) return null
 
   return (
     <>
@@ -433,24 +504,40 @@ function CalloutContext({
           </div>
         </>
       )}
-      {showType && (
-        <>
-          <div className="amby-block-panel-section">{t("blockPanel.type")}</div>
-          <div className="amby-ctx-type-grid">
-            {CALLOUT_TYPES.map((t) => (
-              <button
-                key={t}
-                type="button"
-                title={t}
-                className={"amby-ctx-type-btn" + (t === calloutType ? " is-active" : "")}
-                onClick={() => setType(t)}
-              >
-                {CALLOUT_DEFAULTS[t]}
-              </button>
-            ))}
-          </div>
-        </>
+      {showEmoji && (
+        <button
+          ref={emojiButtonRef}
+          type="button"
+          className="amby-block-row"
+          onClick={() => {
+            const rect = emojiButtonRef.current?.getBoundingClientRect()
+            if (rect) setEmojiAnchor(rect)
+            setEmojiOpen((open) => !open)
+          }}
+        >
+          <span className="amby-block-row-icon amby-block-row-emoji" aria-hidden="true">
+            {String(node?.attrs.emoji ?? "💡")}
+          </span>
+          <span className="amby-block-row-label">{t("callout.changeEmoji")}</span>
+        </button>
       )}
+      {emojiOpen &&
+        emojiAnchor &&
+        createPortal(
+          <div
+            ref={emojiPickerRef}
+            className="amby-callout-context-emoji-picker"
+            style={emojiPickerStyle}
+          >
+            <EmojiPickerPanel
+              emojiOnly
+              triggerRef={emojiButtonRef}
+              onSelect={(emoji) => setEmoji(emoji.native)}
+              onClose={() => setEmojiOpen(false)}
+            />
+          </div>,
+          document.body,
+        )}
     </>
   )
 }

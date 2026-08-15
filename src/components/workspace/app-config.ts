@@ -33,6 +33,7 @@ export const SESSION_FILE = "session.json"
 // Serialize read-modify-write cycles so one asynchronous save cannot erase the
 // other field from settings.json.
 let settingsWriteChain: Promise<void> = Promise.resolve()
+let sessionWriteChain: Promise<void> = Promise.resolve()
 
 export type PanelScope = "global" | "workspace"
 
@@ -534,6 +535,7 @@ export interface SessionFile {
   activeFileId: string
   favorites: string[]
   viewModes: Record<string, string>
+  nestedNotesPlacements: Record<string, string>
   locked: string[]
   icons: Record<string, string>
 }
@@ -552,6 +554,7 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
       activeFileId: typeof t?.activeFileId === "string" ? t!.activeFileId : "",
       favorites: parseLS<string[]>(`amby:favorites:${vaultPath}`, Array.isArray) ?? [],
       viewModes: parseLS<Record<string, string>>(`amby:view-modes:${vaultPath}`, isRecord) ?? {},
+      nestedNotesPlacements: {},
       locked: parseLS<string[]>(`amby:locked:${vaultPath}`, Array.isArray) ?? [],
       icons: parseLS<Record<string, string>>("amby:icons", isRecord) ?? {},
     }
@@ -560,6 +563,7 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
       session.favorites.length ||
       session.locked.length ||
       Object.keys(session.viewModes).length ||
+      Object.keys(session.nestedNotesPlacements).length ||
       Object.keys(session.icons).length
     if (hasAny) await saveVaultJSON(SESSION_FILE, session)
     return session
@@ -570,13 +574,25 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
     activeFileId: typeof d.activeFileId === "string" ? d.activeFileId : "",
     favorites: Array.isArray(d.favorites) ? d.favorites : [],
     viewModes: isRecord(d.viewModes) ? d.viewModes : {},
+    nestedNotesPlacements: isRecord(d.nestedNotesPlacements) ? d.nestedNotesPlacements : {},
     locked: Array.isArray(d.locked) ? d.locked : [],
     icons: isRecord(d.icons) ? d.icons : {},
   }
 }
 
 export async function saveSession(session: SessionFile): Promise<void> {
-  await saveVaultJSON(SESSION_FILE, session)
+  const write = async () => {
+    const persisted = await loadVaultJSON<Partial<SessionFile>>(SESSION_FILE, {})
+    const persistedIcons = isRecord(persisted.icons) ? persisted.icons : {}
+    await saveVaultJSON(SESSION_FILE, {
+      ...session,
+      // Icon choices are durable workspace metadata. A transient empty store
+      // during development HMR must not erase every file emoji.
+      icons: { ...persistedIcons, ...session.icons },
+    })
+  }
+  sessionWriteChain = sessionWriteChain.then(write, write)
+  await sessionWriteChain
 }
 
 // ── Layout routing by panelScope ────────────────────────────────────────────

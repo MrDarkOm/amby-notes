@@ -72,6 +72,7 @@ export function applySessionRemap(
   icons: Record<string, string>
   favorites: string[]
   viewModes: Record<string, string>
+  nestedNotesPlacements: Record<string, string>
   lockedFileIds: string[]
   tabs: { fileId: string; title: string }[]
   activeFileId: string
@@ -97,6 +98,12 @@ export function applySessionRemap(
     if (allIds.has(nextId)) viewModes[nextId] = mode
   }
 
+  const nestedNotesPlacements: Record<string, string> = {}
+  for (const [id, placement] of Object.entries(session.nestedNotesPlacements)) {
+    const nextId = remap(id)
+    if (allIds.has(nextId)) nestedNotesPlacements[nextId] = placement
+  }
+
   // Tabs: remap then filter; honour the restoreSession setting.
   const tabs = restoreSession
     ? session.tabs
@@ -107,7 +114,15 @@ export function applySessionRemap(
   // Active file id: remapped but not filtered (caller finds the tab from valid list).
   const activeFileId = remap(session.activeFileId)
 
-  return { icons, favorites, viewModes, lockedFileIds, tabs, activeFileId }
+  return {
+    icons,
+    favorites,
+    viewModes,
+    nestedNotesPlacements,
+    lockedFileIds,
+    tabs,
+    activeFileId,
+  }
 }
 
 // ── Tree mutation patching ──────────────────────────────────────────────────

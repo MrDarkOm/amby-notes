@@ -78,6 +78,24 @@
     --underline-color: #38bdf8;
     --placeholder-color: #a1a1aa;
     --caret-color: #0ea5e9;
+    --highlight-red: #fca5a5;
+    --highlight-orange: #fdba74;
+    --highlight-yellow: #fde047;
+    --highlight-green: #86efac;
+    --highlight-cyan: #67e8f9;
+    --highlight-blue: #93c5fd;
+    --highlight-purple: #d8b4fe;
+    --highlight-pink: #f9a8d4;
+    --highlight-gray: #cbd5e1;
+    --editor-text-red: #dc2626;
+    --editor-text-orange: #c2410c;
+    --editor-text-yellow: #a16207;
+    --editor-text-green: #15803d;
+    --editor-text-cyan: #0e7490;
+    --editor-text-blue: #2563eb;
+    --editor-text-purple: #7e22ce;
+    --editor-text-pink: #be185d;
+    --editor-text-gray: #6b7280;
 
     /* Tags & wikilinks */
     --tag-bg: rgba(168, 85, 247, 0.12);
@@ -212,6 +230,24 @@
     --underline-color: #38bdf8;
     --placeholder-color: #52525b;
     --caret-color: #22d3ee;
+    --highlight-red: #7f1d1d;
+    --highlight-orange: #7c2d12;
+    --highlight-yellow: #713f12;
+    --highlight-green: #14532d;
+    --highlight-cyan: #164e63;
+    --highlight-blue: #1e3a8a;
+    --highlight-purple: #4c1d95;
+    --highlight-pink: #831843;
+    --highlight-gray: #3f3f46;
+    --editor-text-red: #ef4444;
+    --editor-text-orange: #f97316;
+    --editor-text-yellow: #eab308;
+    --editor-text-green: #22c55e;
+    --editor-text-cyan: #06b6d4;
+    --editor-text-blue: #3b82f6;
+    --editor-text-purple: #a855f7;
+    --editor-text-pink: #f472b6;
+    --editor-text-gray: #e5e7eb;
 
     /* Tags & wikilinks */
     --tag-bg: rgba(168, 85, 247, 0.16);
@@ -676,6 +712,81 @@
   text-underline-offset: 3px;
 }
 
+/* Background colours remain portable hex values in Markdown. In the editor,
+   map our marker palette to theme tokens so existing highlights adapt as soon
+   as the user switches between light and dark appearance. */
+.amby-tiptap .ProseMirror [data-amby-highlight="#7f1d1d"] {
+  background-color: var(--highlight-red) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-highlight="#7c2d12"] {
+  background-color: var(--highlight-orange) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-highlight="#713f12"] {
+  background-color: var(--highlight-yellow) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-highlight="#14532d"] {
+  background-color: var(--highlight-green) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-highlight="#164e63"] {
+  background-color: var(--highlight-cyan) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-highlight="#1e3a8a"] {
+  background-color: var(--highlight-blue) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-highlight="#4c1d95"] {
+  background-color: var(--highlight-purple) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-highlight="#831843"] {
+  background-color: var(--highlight-pink) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-highlight="#3f3f46"] {
+  background-color: var(--highlight-gray) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#ef4444"] {
+  color: var(--editor-text-red) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#f97316"] {
+  color: var(--editor-text-orange) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#eab308"] {
+  color: var(--editor-text-yellow) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#22c55e"] {
+  color: var(--editor-text-green) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#06b6d4"] {
+  color: var(--editor-text-cyan) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#3b82f6"] {
+  color: var(--editor-text-blue) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#a855f7"] {
+  color: var(--editor-text-purple) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#f472b6"] {
+  color: var(--editor-text-pink) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#e5e7eb"] {
+  color: var(--editor-text-gray) !important;
+}
+
 .amby-tiptap .ProseMirror a {
   color: var(--link-color);
   text-decoration: underline;
@@ -783,15 +894,16 @@
   background: rgba(113, 113, 122, 0.18);
 }
 
-/* Emoji slot — fixed-size box so emoji stays centered on the first line */
+/* Match the emoji box to the content's line-height so its centre stays on the
+   first text row even when the Callout contains several Markdown blocks. */
 .amby-callout-emoji-slot {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 28px;
-  height: 28px;
-  margin-top: 10px; /* optical alignment with first text line */
+  height: 1.7em;
+  margin-top: 0;
   position: relative;
 }
 
@@ -807,7 +919,7 @@
   align-items: center;
   justify-content: center;
   width: 28px;
-  height: 28px;
+  height: 1.7em;
   font-size: 1.25rem;
   line-height: 1;
   cursor: pointer;
@@ -835,31 +947,19 @@
 .amby-callout-content-wrap {
   flex: 1 1 0;
   min-width: 0;
+  /* Native emoji sit optically above the text box. Lift the editable content
+     so the first text row stays centred against the emoji at every height. */
+  transform: translateY(-0.55em);
 }
 
-.amby-callout-title {
-  margin: 0 0 0.35rem;
-  font-weight: 600;
-  line-height: 1.5;
-}
-
-.amby-callout-title-input {
-  display: block;
-  width: 100%;
-  border: 0;
-  outline: 0;
-  padding: 0;
-  color: var(--editor-heading);
-  background: transparent;
-}
-
-.amby-callout-title-input::placeholder {
-  color: var(--placeholder-color);
-  font-weight: 500;
+.amby-callout-content > :first-child {
+  margin-top: 0 !important;
 }
 
 .amby-callout-content > p {
-  margin: 0;
+  margin-right: 0;
+  margin-bottom: 0;
+  margin-left: 0;
 }
 .amby-callout-content > p + p {
   margin-top: 0.4rem;
@@ -887,6 +987,14 @@
   right: -12px;
   width: 12px;
   pointer-events: auto;
+}
+
+.amby-block-handles--column::before {
+  top: -7px;
+  right: auto;
+  bottom: -7px;
+  left: 100%;
+  width: 48px;
 }
 
 .amby-block-handle-btn {
@@ -1031,6 +1139,156 @@
   box-shadow: 0 0 6px var(--drop-indicator-shadow);
 }
 
+.amby-block-drop-indicator--column {
+  border-radius: 3px;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--drop-indicator-color) 18%, transparent),
+    0 0 8px var(--drop-indicator-shadow);
+}
+
+.amby-block-drop-indicator--cross-column {
+  border-radius: 999px;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--drop-indicator-color) 20%, transparent),
+    0 0 10px var(--drop-indicator-shadow);
+}
+
+/* Editable Markdown columns. The source remains linear Markdown separated by
+   invisible amby:column comments; only Live/Read presentation is horizontal. */
+.amby-tiptap .ProseMirror .amby-column-set {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 18px;
+  margin: 1rem 0;
+  align-items: start;
+}
+
+.amby-tiptap .ProseMirror .amby-column-set.is-resizing {
+  will-change: grid-template-columns;
+}
+
+.amby-tiptap .ProseMirror .amby-column {
+  position: relative;
+  min-width: 0;
+  min-height: 2.5rem;
+}
+
+.amby-tiptap .ProseMirror .amby-column-content {
+  min-height: 2.5rem;
+  padding: 6px 9px;
+  border-radius: 8px;
+  transition: background-color 120ms ease;
+}
+
+/* Reserve the area between divider and content exclusively for the grab. */
+.amby-tiptap .ProseMirror .amby-column + .amby-column > .amby-column-content {
+  margin-left: 28px;
+}
+
+.amby-tiptap .ProseMirror .amby-column:hover > .amby-column-content {
+  background: color-mix(in srgb, var(--menu-item-hover-bg) 45%, transparent);
+}
+
+.amby-tiptap .ProseMirror .amby-column.is-resizing-before > .amby-column-content,
+.amby-tiptap .ProseMirror .amby-column.is-resizing-after > .amby-column-content {
+  background: color-mix(in srgb, var(--drop-indicator-color) 8%, transparent);
+}
+
+.amby-tiptap .ProseMirror .amby-column + .amby-column::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -9px;
+  width: 2px;
+  content: "";
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: var(--rule-color);
+  pointer-events: none;
+  transition:
+    width 100ms ease,
+    background-color 100ms ease,
+    box-shadow 100ms ease;
+}
+
+.amby-tiptap .ProseMirror .amby-column.is-resize-edge::before,
+.amby-tiptap .ProseMirror .amby-column-set.is-resizing .amby-column::before {
+  width: 3px;
+  background: var(--drop-indicator-color);
+  box-shadow: 0 0 7px var(--drop-indicator-shadow);
+}
+
+.amby-tiptap .ProseMirror .amby-column + .amby-column::after {
+  position: absolute;
+  top: 50%;
+  left: -9px;
+  width: 6px;
+  height: 30px;
+  content: "";
+  transform: translate(-50%, -50%) scaleY(0.65);
+  border-radius: 999px;
+  background: var(--drop-indicator-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--drop-indicator-color) 16%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 100ms ease,
+    transform 100ms ease;
+}
+
+.amby-tiptap .ProseMirror .amby-column.is-resize-edge::after,
+.amby-tiptap .ProseMirror .amby-column-set.is-resizing .amby-column::after {
+  opacity: 1;
+  transform: translate(-50%, -50%) scaleY(1);
+}
+
+.amby-tiptap .ProseMirror .amby-column-set:hover .amby-column + .amby-column::after {
+  opacity: 0.38;
+  transform: translate(-50%, -50%) scaleY(0.85);
+}
+
+.amby-tiptap .ProseMirror .amby-column-set:hover .amby-column.is-resize-edge::after,
+.amby-tiptap .ProseMirror .amby-column-set.is-resizing .amby-column::after {
+  opacity: 1;
+  transform: translate(-50%, -50%) scaleY(1);
+}
+
+body.amby-resizing-columns,
+body.amby-resizing-columns * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+.amby-column-resize-label {
+  position: fixed;
+  z-index: 10010;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border: 1px solid var(--menu-border);
+  border-radius: 6px;
+  color: var(--menu-fg);
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.amby-column-resize-guide {
+  position: fixed;
+  z-index: 10009;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--drop-indicator-color);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--drop-indicator-color) 14%, transparent),
+    0 0 12px var(--drop-indicator-shadow);
+  pointer-events: none;
+}
+
 /* Drag ghost — semi-transparent clone of source block, follows pointer. */
 .amby-block-drag-ghost {
   position: fixed;
@@ -1080,7 +1338,12 @@
 }
 
 .amby-block-panel--actions {
-  max-height: 360px;
+  width: min(260px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+}
+
+.amby-callout-context-emoji-picker {
+  z-index: 10020;
 }
 
 .amby-block-panel-header {
@@ -1114,6 +1377,12 @@
   flex: 0 0 auto;
   border-top: 1px solid var(--panel-header-border);
   padding: 4px;
+}
+
+.amby-block-panel-danger-zone {
+  margin: 4px -4px -4px;
+  padding: 4px;
+  border-top: 1px solid var(--panel-header-border);
 }
 
 .amby-block-row {
@@ -1157,6 +1426,21 @@
   height: 14px;
   flex-shrink: 0;
   color: var(--panel-section-fg);
+}
+
+.amby-block-row-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.amby-block-context-zone {
+  margin: 4px -4px 0;
+  padding: 4px;
+  border-top: 1px solid var(--panel-header-border);
 }
 
 .amby-block-row.is-active .amby-block-row-icon,
@@ -1448,17 +1732,31 @@
 .amby-image-wrap {
   display: inline-block;
   max-width: 100%;
+  margin: 0.5rem 0;
+  line-height: 0;
+  vertical-align: top;
 }
 
 .amby-image-wrap img {
+  display: block;
   max-width: 100%;
+  max-height: min(70vh, 720px);
   height: auto;
-  border-radius: 6px;
-  border: 1px solid transparent;
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid var(--image-border, var(--border));
+  background: var(--surface-bg, var(--card));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 10%);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .amby-image-wrap.is-selected img {
   border-color: var(--image-selected-border);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--image-selected-border) 35%, transparent),
+    0 8px 24px rgb(0 0 0 / 12%);
 }
 
 .amby-image-wrap img.is-broken {
@@ -1496,7 +1794,10 @@ em-emoji-picker {
   --color-background: var(--menu-bg);
   --color-border: var(--menu-border);
   --color-border-over: var(--panel-input-focus-border);
-  --border-radius: 10px;
+  --border-radius: 0;
+  --font-size: 12px;
+  --shadow: none;
+  width: 100%;
   height: 380px;
 }
 

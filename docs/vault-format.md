@@ -16,6 +16,8 @@ Those directories, along with `.amby/`, are excluded from the note index.
 - `notes.db` — rebuildable SQLite index for note metadata, links, tags, and
   search. It is never the only copy of note content.
 - `blocks/<note-id>.json` — per-note UI block sidecars.
+- `properties.json` — versioned custom-property metadata keyed by stable note ID;
+  SQLite mirrors it for queries, while this sidecar makes the data rebuildable.
 - future versioned, documented metadata files.
 
 The directory is application metadata, not an Obsidian configuration directory.

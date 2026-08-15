@@ -3,24 +3,30 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
+  AppWindow,
   Bookmark,
   BookmarkCheck,
   BookOpenText,
   ChevronRight,
+  Copy,
   Database,
   FileText,
   Folder,
   FolderOpen,
-  FolderPlus,
   LayoutGrid,
+  Paperclip,
   PenLine,
+  Pencil,
   PanelsTopLeft,
   Smile,
   SquareArrowOutUpRight,
   Star,
+  Trash2,
 } from "lucide-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { cn } from "@/lib/utils"
+import { IconValue } from "./icon-value"
+import { isRichIconValue } from "./icon-values"
 import { EmojiPickerPanel } from "./tiptap/EmojiPickerPanel"
 import {
   ContextMenu,
@@ -85,10 +91,10 @@ export interface SidebarTreeProps {
   onRename?: (id: string, newName: string) => void
   onDelete?: (id: string) => void
   onNewFile?: (parentId: string | null) => void
-  onNewFolder?: (parentId: string | null) => void
-  onNewCanvas?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenInNewWindow?: (id: string) => void
+  onCloneFile?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onMoveItem?: (sourceId: string, targetId: string | null) => void
   onSetIcon?: (id: string, icon: string) => void
@@ -142,6 +148,7 @@ function WorkspaceIcon({ className }: { className?: string }) {
 
 function getIcon(icon: string | undefined, className?: string) {
   const cls = cn("size-4 shrink-0", className)
+  if (isRichIconValue(icon)) return <IconValue value={icon} className={cls} />
   if (icon && !KNOWN_ICONS.has(icon)) {
     return (
       <span className="size-4 shrink-0 text-[14px] leading-4 flex items-center justify-center">
@@ -189,13 +196,15 @@ interface TreeNodeProps {
   onFinishEdit: (newName: string | null) => void
   // Shared tree state
   selectedId: string | null
+  isKeyboardFocused: boolean
+  onKeyboardFocus: (id: string) => void
   onSelect: (id: string) => void
   onDelete?: (id: string) => void
   onNewFile?: (parentId: string | null) => void
-  onNewFolder?: (parentId: string | null) => void
-  onNewCanvas?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenInNewWindow?: (id: string) => void
+  onCloneFile?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onSetIcon?: (id: string, icon: string) => void
   onPtrDragStart: (id: string, name: string, path: string, x: number, y: number) => void
@@ -217,13 +226,15 @@ const TreeNode = React.memo(
     onStartEdit,
     onFinishEdit,
     selectedId,
+    isKeyboardFocused,
+    onKeyboardFocus,
     onSelect,
     onDelete,
     onNewFile,
-    onNewFolder,
-    onNewCanvas,
     onAttachCanvas,
     onOpenInNewTab,
+    onOpenInNewWindow,
+    onCloneFile,
     onOpenInExplorer,
     onSetIcon,
     onPtrDragStart,
@@ -290,79 +301,101 @@ const TreeNode = React.memo(
 
     const defaultIcon = item.type === "folder" ? "folder" : "file"
 
+    const layers = linkedLayersByDoc?.[item.id]
+    const canvasAvailable = item.type === "file" && !layers?.canvas
+    const databaseAvailable = item.type === "file" && !layers?.database
+    const canAttach =
+      (item.type === "canvas" && !!onAttachCanvas) ||
+      (!!onAttachLayer && (canvasAvailable || databaseAvailable))
+
     const ctxItems = (
-      <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
-        <ContextMenuItem
-          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-          onSelect={() =>
-            onNewFile?.(item.type === "folder" || item.type === "file" ? item.id : null)
-          }
-        >
-          <FileText className="size-3.5 text-muted-foreground" />
-          {t("tree.newNote")}
-        </ContextMenuItem>
-        <ContextMenuItem
-          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-          onSelect={() => onNewFolder?.(item.type === "folder" ? item.id : null)}
-        >
-          <FolderPlus className="size-3.5 text-muted-foreground" />
-          {t("tree.newFolder")}
-        </ContextMenuItem>
-        <ContextMenuItem
-          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-          onSelect={() =>
-            onNewCanvas?.(item.type === "folder" || item.type === "file" ? item.id : null)
-          }
-        >
-          <LayoutGrid className="size-3.5 text-muted-foreground" />
-          {t("tree.newCanvas")}
-        </ContextMenuItem>
-        {item.type === "canvas" && onAttachCanvas && (
+      <ContextMenuContent className="w-60 border-border bg-popover text-foreground">
+        {/* Zone 1: actions affecting the selected file. */}
+        {item.type === "file" && onOpenInNewTab && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-            onSelect={() => onAttachCanvas(item.id)}
+            onSelect={() => onOpenInNewTab(item.id)}
           >
-            <FileText className="size-3.5 text-muted-foreground" />
-            {t("tree.attachToNote")}
+            <SquareArrowOutUpRight className="size-3.5 text-muted-foreground" />
+            {t("tree.openInNewTab")}
           </ContextMenuItem>
         )}
-        {item.type === "file" &&
-          onAttachLayer &&
-          (() => {
-            const layers = linkedLayersByDoc?.[item.id]
-            const canvasAvail = !layers?.canvas
-            const dbAvail = !layers?.database
-            if (!canvasAvail && !dbAvail) return null
-            return (
-              <>
-                {canvasAvail && (
-                  <ContextMenuItem
-                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                    onSelect={() => setPendingAttach("canvas")}
-                  >
-                    <LayoutGrid className="size-3.5 text-muted-foreground" />
-                    {t("tree.attachCanvas")}
-                  </ContextMenuItem>
-                )}
-                {dbAvail && (
-                  <ContextMenuItem
-                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                    onSelect={() => setPendingAttach("database")}
-                  >
-                    <Database className="size-3.5 text-muted-foreground" />
-                    {t("tree.attachDatabase")}
-                  </ContextMenuItem>
-                )}
-              </>
-            )
-          })()}
+        {item.type === "file" && onOpenInNewWindow && (
+          <ContextMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={() => onOpenInNewWindow(item.id)}
+          >
+            <AppWindow className="size-3.5 text-muted-foreground" />
+            {t("tree.openInNewWindow")}
+          </ContextMenuItem>
+        )}
+        {item.type === "file" && onCloneFile && (
+          <ContextMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={() => onCloneFile(item.id)}
+          >
+            <Copy className="size-3.5 text-muted-foreground" />
+            {t("tree.clone")}
+          </ContextMenuItem>
+        )}
+        {canAttach && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+              <Paperclip className="size-3.5 text-muted-foreground" />
+              {t("tree.attach")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-52 border-border bg-popover text-foreground">
+              {item.type === "canvas" && onAttachCanvas && (
+                <ContextMenuItem
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                  onSelect={() => onAttachCanvas(item.id)}
+                >
+                  <FileText className="size-3.5 text-muted-foreground" />
+                  {t("tree.attachToNote")}
+                </ContextMenuItem>
+              )}
+              {canvasAvailable && (
+                <ContextMenuItem
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                  onSelect={() => setPendingAttach("canvas")}
+                >
+                  <LayoutGrid className="size-3.5 text-muted-foreground" />
+                  {t("tree.attachCanvas")}
+                </ContextMenuItem>
+              )}
+              {databaseAvailable && (
+                <ContextMenuItem
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                  onSelect={() => setPendingAttach("database")}
+                >
+                  <Database className="size-3.5 text-muted-foreground" />
+                  {t("tree.attachDatabase")}
+                </ContextMenuItem>
+              )}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        )}
+        {item.type === "file" && onToggleFavorite && (
+          <ContextMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={() => onToggleFavorite(item.id)}
+          >
+            {favorites?.has(item.id) ? (
+              <BookmarkCheck className="size-3.5 text-amber-400" />
+            ) : (
+              <Bookmark className="size-3.5 text-muted-foreground" />
+            )}
+            {favorites?.has(item.id) ? t("tree.removeBookmark") : t("tree.addBookmark")}
+          </ContextMenuItem>
+        )}
 
         <ContextMenuSeparator className="bg-accent" />
 
+        {/* Zone 2: visual appearance. */}
         <ContextMenuSub>
           <ContextMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
             <Smile className="size-3.5 text-muted-foreground" />
-            {t("tree.icon")}
+            {t("tree.fileAppearance")}
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="min-w-0 rounded-[10px] border-0 bg-transparent p-0 shadow-none">
             <EmojiPickerPanel
@@ -374,61 +407,41 @@ const TreeNode = React.memo(
           </ContextMenuSubContent>
         </ContextMenuSub>
 
-        {(item.type === "file" && onOpenInNewTab) || onOpenInExplorer ? (
-          <>
-            <ContextMenuSeparator className="bg-accent" />
-            {item.type === "file" && onOpenInNewTab && (
-              <ContextMenuItem
-                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                onSelect={() => onOpenInNewTab(item.id)}
-              >
-                <SquareArrowOutUpRight className="size-3.5 text-muted-foreground" />
-                {t("tree.openInNewTab")}
-              </ContextMenuItem>
-            )}
-            {onOpenInExplorer && (
-              <ContextMenuItem
-                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                onSelect={() => onOpenInExplorer(item.path ?? item.id)}
-              >
-                <FolderOpen className="size-3.5 text-muted-foreground" />
-                {t("tree.showInExplorer")}
-              </ContextMenuItem>
-            )}
-          </>
-        ) : null}
+        <ContextMenuSeparator className="bg-accent" />
+
+        {/* Zone 3: creation. */}
+        <ContextMenuItem
+          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+          onSelect={() => onNewFile?.(item.type === "folder" ? item.id : null)}
+        >
+          <FileText className="size-3.5 text-muted-foreground" />
+          {t("tree.newNote")}
+        </ContextMenuItem>
 
         <ContextMenuSeparator className="bg-accent" />
 
-        {item.type === "file" && onToggleFavorite && (
+        {/* Zone 4: filesystem operations. */}
+        {onOpenInExplorer && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-            onSelect={() => onToggleFavorite(item.id)}
+            onSelect={() => onOpenInExplorer(item.path ?? item.id)}
           >
-            {favorites?.has(item.id) ? (
-              <>
-                <BookmarkCheck className="size-3.5 text-amber-400" />
-                {t("tree.removeBookmark")}
-              </>
-            ) : (
-              <>
-                <Bookmark className="size-3.5 text-muted-foreground" />
-                {t("tree.addBookmark")}
-              </>
-            )}
+            <FolderOpen className="size-3.5 text-muted-foreground" />
+            {t("tree.showInExplorer")}
           </ContextMenuItem>
         )}
-
         <ContextMenuItem
-          className="text-[13px] focus:bg-accent focus:text-white"
+          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
           onSelect={() => setTimeout(onStartEdit, 80)}
         >
+          <Pencil className="size-3.5 text-muted-foreground" />
           {t("tree.rename")}
         </ContextMenuItem>
         <ContextMenuItem
-          className="text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
+          className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
           onSelect={() => onDelete?.(item.id)}
         >
+          <Trash2 className="size-3.5" />
           {t("tree.delete")}
         </ContextMenuItem>
       </ContextMenuContent>
@@ -486,7 +499,7 @@ const TreeNode = React.memo(
     )
 
     const buttonCls = cn(
-      "flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[13px] transition-colors hover:bg-accent",
+      "flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[13px] transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
       isSelected && "bg-accent",
       isDragSource && "opacity-40",
     )
@@ -519,6 +532,13 @@ const TreeNode = React.memo(
                   </button>
                   <button
                     type="button"
+                    data-tree-item-id={item.id}
+                    role="treeitem"
+                    aria-level={level + 1}
+                    aria-expanded={isOpen}
+                    aria-selected={isSelected}
+                    tabIndex={isKeyboardFocused ? 0 : -1}
+                    onFocus={() => onKeyboardFocus(item.id)}
                     onPointerDown={handlePointerDown}
                     onClick={() => {
                       if (!isEditing) onSelect(item.id)
@@ -550,6 +570,12 @@ const TreeNode = React.memo(
               className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
             >
               <button
+                data-tree-item-id={item.id}
+                role="treeitem"
+                aria-level={level + 1}
+                aria-selected={isSelected}
+                tabIndex={isKeyboardFocused ? 0 : -1}
+                onFocus={() => onKeyboardFocus(item.id)}
                 onPointerDown={handlePointerDown}
                 onClick={() => {
                   if (!isEditing) onSelect(item.id)
@@ -575,6 +601,7 @@ const TreeNode = React.memo(
   (prev, next) =>
     prev.item === next.item &&
     prev.selectedId === next.selectedId &&
+    prev.isKeyboardFocused === next.isKeyboardFocused &&
     prev.isOpen === next.isOpen &&
     prev.isEditing === next.isEditing &&
     prev.ptrDragSourceId === next.ptrDragSourceId &&
@@ -591,10 +618,10 @@ export function SidebarTree({
   onRename,
   onDelete,
   onNewFile,
-  onNewFolder,
-  onNewCanvas,
   onAttachCanvas,
   onOpenInNewTab,
+  onOpenInNewWindow,
+  onCloneFile,
   onOpenInExplorer,
   onMoveItem,
   onSetIcon,
@@ -607,6 +634,7 @@ export function SidebarTree({
   linkedLayersByDoc,
   findActiveKey,
 }: SidebarTreeProps) {
+  const { t } = useTranslation()
   // ── Folder open/close state ─────────────────────────────────────────────────
   // IDs in `closedIds` are collapsed; everything else is open (default = all open).
   const [closedIds, setClosedIds] = React.useState<Set<string>>(() => new Set())
@@ -622,6 +650,10 @@ export function SidebarTree({
 
   // ── Inline rename state ─────────────────────────────────────────────────────
   const [editingId, setEditingId] = React.useState<string | null>(null)
+
+  // The tree uses roving tab focus: one item is reachable with Tab, then arrows
+  // move through visible rows without making every file a separate tab stop.
+  const [keyboardFocusId, setKeyboardFocusId] = React.useState<string | null>(selectedId)
 
   // ── Respond to external expand/collapse trigger ─────────────────────────────
   const prevFolderResetKeyRef = React.useRef<number | undefined>(undefined)
@@ -662,6 +694,143 @@ export function SidebarTree({
     estimateSize: () => 29, // px per row (py-1 row ~28px + 1px gap)
     overscan: 6,
   })
+
+  const focusRow = React.useCallback(
+    (id: string) => {
+      setKeyboardFocusId(id)
+      const index = flatRows.findIndex((row) => row.item.id === id)
+      if (index !== -1) virtualizer.scrollToIndex(index, { align: "auto" })
+    },
+    [flatRows, virtualizer],
+  )
+
+  React.useEffect(() => {
+    if (!keyboardFocusId) return
+    const index = flatRows.findIndex((row) => row.item.id === keyboardFocusId)
+    if (index === -1) return
+    virtualizer.scrollToIndex(index, { align: "auto" })
+    const frame = requestAnimationFrame(() => {
+      const row = Array.from(
+        scrollRef.current?.querySelectorAll<HTMLElement>("[data-tree-item-id]") ?? [],
+      ).find((element) => element.dataset.treeItemId === keyboardFocusId)
+      row?.focus()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [flatRows, keyboardFocusId, virtualizer])
+
+  const parentIdFor = React.useCallback(
+    (id: string): string | null => {
+      function findParent(list: TreeItem[], parentId: string | null): string | null | undefined {
+        for (const item of list) {
+          if (item.id === id) return parentId
+          if (item.children) {
+            const found = findParent(item.children, item.id)
+            if (found !== undefined) return found
+          }
+        }
+        return undefined
+      }
+      return findParent(items, null) ?? null
+    },
+    [items],
+  )
+
+  const handleTreeKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const target = event.target as HTMLElement
+      if (target.closest("input, textarea, [contenteditable='true']")) return
+
+      const focusedId = target.closest<HTMLElement>("[data-tree-item-id]")?.dataset.treeItemId
+      const id = focusedId ?? keyboardFocusId ?? selectedId
+      const index = id ? flatRows.findIndex((row) => row.item.id === id) : -1
+      const current = index === -1 ? null : flatRows[index]
+      const moveTo = (nextIndex: number) => {
+        const row = flatRows[nextIndex]
+        if (row) focusRow(row.item.id)
+      }
+      const openContextMenu = () => {
+        const row =
+          target.closest<HTMLElement>("[data-tree-item-id]") ??
+          Array.from(
+            scrollRef.current?.querySelectorAll<HTMLElement>("[data-tree-item-id]") ?? [],
+          ).find((element) => element.dataset.treeItemId === id)
+        if (!row) return
+        const rect = row.getBoundingClientRect()
+        row.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: rect.left + rect.width / 2,
+            clientY: rect.top + rect.height / 2,
+          }),
+        )
+      }
+
+      switch (event.key) {
+        case "ArrowDown":
+          event.preventDefault()
+          moveTo(Math.min(index + 1, flatRows.length - 1))
+          break
+        case "ArrowUp":
+          event.preventDefault()
+          moveTo(Math.max(index - 1, 0))
+          break
+        case "Home":
+          event.preventDefault()
+          moveTo(0)
+          break
+        case "End":
+          event.preventDefault()
+          moveTo(flatRows.length - 1)
+          break
+        case "ArrowRight": {
+          if (!current) break
+          const hasChildren = current.item.type === "folder" || !!current.item.children?.length
+          if (!hasChildren) break
+          event.preventDefault()
+          if (closedIds.has(current.item.id)) toggleOpen(current.item.id)
+          else if (current.item.children?.[0]) focusRow(current.item.children[0].id)
+          break
+        }
+        case "ArrowLeft": {
+          if (!current) break
+          event.preventDefault()
+          if (
+            !closedIds.has(current.item.id) &&
+            (current.item.type === "folder" || current.item.children?.length)
+          ) {
+            toggleOpen(current.item.id)
+          } else {
+            const parentId = parentIdFor(current.item.id)
+            if (parentId) focusRow(parentId)
+          }
+          break
+        }
+        case "Enter":
+        case " ":
+          if (!current) break
+          event.preventDefault()
+          if (current.item.type === "folder") toggleOpen(current.item.id)
+          else onSelect(current.item.id)
+          break
+        case "F2":
+          if (!current) break
+          event.preventDefault()
+          setEditingId(current.item.id)
+          break
+        case "ContextMenu":
+          event.preventDefault()
+          openContextMenu()
+          break
+        case "F10":
+          if (!event.shiftKey) break
+          event.preventDefault()
+          openContextMenu()
+          break
+      }
+    },
+    [closedIds, flatRows, focusRow, keyboardFocusId, onSelect, parentIdFor, selectedId, toggleOpen],
+  )
 
   // Scroll selected item into view when selection changes or "find active" fires.
   const prevSelectedIdRef = React.useRef<string | null>(null)
@@ -790,7 +959,11 @@ export function SidebarTree({
       <div
         ref={scrollRef}
         data-drag-target={ROOT_DROP_TARGET}
-        className="h-full overflow-y-auto select-none"
+        role="tree"
+        aria-label={t("panels.files")}
+        tabIndex={keyboardFocusId ? -1 : 0}
+        onKeyDown={handleTreeKeyDown}
+        className="h-full overflow-y-auto select-none focus:outline-none"
         style={{ cursor: ptrDrag ? "grabbing" : undefined }}
       >
         {/* Virtualized content — absolute-positioned rows inside a sized container */}
@@ -823,13 +996,15 @@ export function SidebarTree({
                     setEditingId(null)
                   }}
                   selectedId={selectedId}
+                  isKeyboardFocused={keyboardFocusId === row.item.id}
+                  onKeyboardFocus={setKeyboardFocusId}
                   onSelect={onSelect}
                   onDelete={onDelete}
                   onNewFile={onNewFile}
-                  onNewFolder={onNewFolder}
-                  onNewCanvas={onNewCanvas}
                   onAttachCanvas={onAttachCanvas}
                   onOpenInNewTab={onOpenInNewTab}
+                  onOpenInNewWindow={onOpenInNewWindow}
+                  onCloneFile={onCloneFile}
                   onOpenInExplorer={onOpenInExplorer}
                   onSetIcon={onSetIcon}
                   onPtrDragStart={onPtrDragStart}

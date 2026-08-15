@@ -91,6 +91,7 @@ export function TiptapEditor({
     resolveWikiLinkTarget,
   })
   const serializeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const documentDirtyRef = React.useRef(false)
   const [menu, setMenu] = React.useState<MenuState>({ open: false, left: 0, top: 0 })
   const [wikiLinkContext, setWikiLinkContext] = React.useState<WikiLinkContextDetail | null>(null)
 
@@ -101,8 +102,14 @@ export function TiptapEditor({
       clearTimeout(serializeTimerRef.current)
       serializeTimerRef.current = null
     }
+    // Source/Live switches and React Fast Refresh both unmount this component.
+    // Serializing an untouched editor during those transitions can persist a
+    // transient ProseMirror document and repeatedly materialise blank blocks.
+    // Only a real editor update authorises a Markdown write.
+    if (!documentDirtyRef.current) return
     if (ed.isDestroyed) return
     const markdown = restoreSourceFormatting(docToMarkdown(ed.state.doc), originalValueRef.current)
+    documentDirtyRef.current = false
     if (markdown === valueRef.current) return
     valueRef.current = markdown
     onChangeRef.current(markdown)
@@ -143,6 +150,7 @@ export function TiptapEditor({
       attributes: { class: "amby-tiptap-prose" },
     },
     onUpdate: ({ editor }) => {
+      documentDirtyRef.current = true
       if (serializeTimerRef.current) clearTimeout(serializeTimerRef.current)
       serializeTimerRef.current = setTimeout(() => flushSerialize(editor), 200)
     },
@@ -209,6 +217,11 @@ export function TiptapEditor({
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return
     if (value === valueRef.current) return
+    documentDirtyRef.current = false
+    if (serializeTimerRef.current) {
+      clearTimeout(serializeTimerRef.current)
+      serializeTimerRef.current = null
+    }
     valueRef.current = value
     originalValueRef.current = value
     editor.commands.setContent(markdownToDoc(value), { emitUpdate: false })
@@ -272,6 +285,15 @@ export function TiptapEditor({
     const view = editor.view
     void bindTauriFileDrop(view, (clientX, clientY) => {
       if (editor.isDestroyed) return null
+      const rect = view.dom.getBoundingClientRect()
+      if (
+        clientX < rect.left ||
+        clientX > rect.right ||
+        clientY < rect.top ||
+        clientY > rect.bottom
+      ) {
+        return null
+      }
       const coords = view.posAtCoords({ left: clientX, top: clientY })
       return coords?.pos ?? null
     }).then((unsub) => {

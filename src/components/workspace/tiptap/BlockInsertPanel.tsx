@@ -10,6 +10,7 @@ import {
   type BlockInsertItem,
   type BlockMediaContext,
 } from "./block-insert-items"
+import { SLASH_MENU_KEY_EVENT, type SlashMenuKey } from "./slash-menu"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { isTauri } from "@/lib/storage"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
@@ -55,7 +56,7 @@ export function BlockInsertPanel({
     const q = query.trim().toLowerCase()
     const list = q
       ? all.filter((i) =>
-          `${t(`blockItems.${i.id}.title`)} ${t(`blockItems.${i.id}.hint`)}`
+          `${i.id} ${i.shortcut ?? ""} ${t(`blockItems.${i.id}.title`)} ${t(`blockItems.${i.id}.hint`)}`
             .toLowerCase()
             .includes(q),
         )
@@ -63,8 +64,14 @@ export function BlockInsertPanel({
     return list
   }, [all, query, t])
 
-  React.useEffect(() => {
-    if (mode === "list") searchRef.current?.focus()
+  React.useLayoutEffect(() => {
+    if (mode === "list") {
+      searchRef.current?.focus()
+      // Tiptap can restore its selection just after a suggestion opens. Focus
+      // once more on the next frame so the first query character reaches here.
+      const frame = requestAnimationFrame(() => searchRef.current?.focus())
+      return () => cancelAnimationFrame(frame)
+    }
     if (mode === "url") urlRef.current?.focus()
   }, [mode])
 
@@ -72,44 +79,57 @@ export function BlockInsertPanel({
     setActive(0)
   }, [query, mode])
 
-  function maybeDeleteSlashRange() {
+  const maybeDeleteSlashRange = React.useCallback(() => {
     if (source === "slash" && range) {
       editor.chain().focus().deleteRange(range).run()
     }
-  }
+  }, [editor, range, source])
 
-  const ctx: BlockMediaContext = {
-    vaultPath,
-    notePath,
-    requestUrlInput: () => {
-      maybeDeleteSlashRange()
-      setUrlValue("")
-      setMode("url")
-    },
-    requestEmojiPicker: () => {
-      maybeDeleteSlashRange()
-      setMode("emoji")
-    },
-  }
-
-  function itemDisabled(item: BlockInsertItem): boolean {
-    if (item.category !== "media") return false
-    if (item.id === "image-url") return false
-    if (item.id === "emoji") return false
-    return !tauri
-  }
-
-  function choose(item: BlockInsertItem) {
-    if (itemDisabled(item)) return
-    if (item.id === "image-url" || item.id === "emoji") {
-      // These items take over the panel; no slash-range delete yet (they may bail).
-      void item.inline(editor, ctx)
-      return
-    }
+  const requestUrlInput = React.useCallback(() => {
     maybeDeleteSlashRange()
-    void item.inline(editor, ctx)
-    onClose()
-  }
+    setUrlValue("")
+    setMode("url")
+  }, [maybeDeleteSlashRange])
+
+  const requestEmojiPicker = React.useCallback(() => {
+    maybeDeleteSlashRange()
+    setMode("emoji")
+  }, [maybeDeleteSlashRange])
+
+  const ctx = React.useMemo<BlockMediaContext>(
+    () => ({
+      vaultPath,
+      notePath,
+      requestUrlInput,
+      requestEmojiPicker,
+    }),
+    [notePath, requestEmojiPicker, requestUrlInput, vaultPath],
+  )
+
+  const itemDisabled = React.useCallback(
+    (item: BlockInsertItem): boolean => {
+      if (item.category !== "media") return false
+      if (item.id === "image-url") return false
+      if (item.id === "emoji") return false
+      return !tauri
+    },
+    [tauri],
+  )
+
+  const choose = React.useCallback(
+    (item: BlockInsertItem) => {
+      if (itemDisabled(item)) return
+      if (item.id === "image-url" || item.id === "emoji") {
+        // These items take over the panel; no slash-range delete yet (they may bail).
+        void item.inline(editor, ctx)
+        return
+      }
+      maybeDeleteSlashRange()
+      void item.inline(editor, ctx)
+      onClose()
+    },
+    [ctx, editor, itemDisabled, maybeDeleteSlashRange, onClose],
+  )
 
   function applyUrl() {
     const url = urlValue.trim()
@@ -122,28 +142,57 @@ export function BlockInsertPanel({
     onClose()
   }
 
-  function onListKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault()
-      if (mode !== "list") setMode("list")
-      else onClose()
-      return
-    }
-    if (e.key === "Enter") {
-      e.preventDefault()
-      const item = filtered[active]
-      if (item) choose(item)
-      return
-    }
-    if (filtered.length === 0) return
-    if (e.key === "ArrowDown") {
-      e.preventDefault()
-      setActive((a) => Math.min(a + 1, filtered.length - 1))
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault()
-      setActive((a) => Math.max(a - 1, 0))
-    }
+  const handleListKey = React.useCallback(
+    (event: SlashMenuKey, captureText = false): boolean => {
+      if (event.key === "Escape") {
+        if (mode !== "list") setMode("list")
+        else onClose()
+        return true
+      }
+      if (event.key === "Enter") {
+        const item = filtered[active]
+        if (item) choose(item)
+        return true
+      }
+      if (event.key === "ArrowDown") {
+        if (filtered.length > 0) setActive((a) => Math.min(a + 1, filtered.length - 1))
+        return true
+      }
+      if (event.key === "ArrowUp") {
+        if (filtered.length > 0) setActive((a) => Math.max(a - 1, 0))
+        return true
+      }
+      if (captureText && event.key === "Backspace") {
+        setQuery((value) => value.slice(0, -1))
+        return true
+      }
+      if (
+        captureText &&
+        event.key.length === 1 &&
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey
+      ) {
+        setQuery((value) => value + event.key)
+        return true
+      }
+      return false
+    },
+    [active, choose, filtered, mode, onClose],
+  )
+
+  function onListKeyDown(e: React.KeyboardEvent<HTMLInputElement | HTMLDivElement>) {
+    if (handleListKey(e, false)) e.preventDefault()
   }
+
+  React.useEffect(() => {
+    if (source !== "slash" || mode !== "list") return
+    const onSlashMenuKey = (event: Event) => {
+      handleListKey((event as CustomEvent<SlashMenuKey>).detail, true)
+    }
+    window.addEventListener(SLASH_MENU_KEY_EVENT, onSlashMenuKey)
+    return () => window.removeEventListener(SLASH_MENU_KEY_EVENT, onSlashMenuKey)
+  }, [handleListKey, mode, source])
 
   function onUrlKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter") {
@@ -168,6 +217,7 @@ export function BlockInsertPanel({
           <div className="amby-block-panel-header">
             <input
               ref={searchRef}
+              autoFocus
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -236,6 +286,7 @@ export function BlockInsertPanel({
       {mode === "emoji" && (
         <div className="amby-block-panel-emoji" onMouseDown={(e) => e.stopPropagation()}>
           <EmojiPickerPanel
+            emojiOnly
             onSelect={(emoji) => {
               editor.chain().focus().insertContent(emoji.native).run()
               onClose()

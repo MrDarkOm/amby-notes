@@ -11,10 +11,31 @@ export interface SlashTriggerState {
 }
 
 export const SLASH_TRIGGER_EVENT = "amby:slash-trigger"
+export const SLASH_MENU_KEY_EVENT = "amby:slash-menu-key"
+
+export interface SlashMenuKey {
+  key: string
+  altKey: boolean
+  ctrlKey: boolean
+  metaKey: boolean
+  shiftKey: boolean
+}
 
 function notify() {
   if (typeof window === "undefined") return
   window.dispatchEvent(new Event(SLASH_TRIGGER_EVENT))
+}
+
+function notifyKey(event: KeyboardEvent) {
+  if (typeof window === "undefined") return
+  const detail: SlashMenuKey = {
+    key: event.key,
+    altKey: event.altKey,
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
+  }
+  window.dispatchEvent(new CustomEvent<SlashMenuKey>(SLASH_MENU_KEY_EVENT, { detail }))
 }
 
 function getSlashStorage(editor: Editor): SlashTriggerState {
@@ -64,7 +85,11 @@ export const SlashMenu = Extension.create({
                 closeSlashMenu(editor)
                 return true
               }
-              return false
+              // The React panel normally owns focus. If ProseMirror briefly
+              // reclaims it while opening, keep the next key out of the note
+              // and forward it to the panel as a fallback.
+              notifyKey(event)
+              return true
             },
             onExit: () => {
               closeSlashMenu(editor)

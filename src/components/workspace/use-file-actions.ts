@@ -125,6 +125,7 @@ export function useFileActions({
       id: fileId,
       title: itemName,
       content: shouldRecover ? recovered!.content : content,
+      created: formatModified(meta.created),
       modified: formatModified(meta.modified),
       wordCount: meta.word_count,
       path,
@@ -207,6 +208,52 @@ export function useFileActions({
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [treeItems],
+  )
+
+  const handleCloneFile = React.useCallback(
+    async (fileId: string) => {
+      if (!vault) return
+      const item = findTreeItem(treeItems, fileId)
+      if (!item || item.type !== "file") return
+
+      try {
+        const content = await readNote(vault, fileId)
+        const normalizedPath = item.path.replace(/\\/gu, "/")
+        const slash = normalizedPath.lastIndexOf("/")
+        const parentPath = slash >= 0 ? normalizedPath.slice(0, slash) : vault
+        const cloneName = t("tree.cloneName", { name: item.name })
+        const result = await createNote(vault, parentPath, cloneName)
+        const id = result.primaryId ?? result.primaryPath
+        if (!id) return
+
+        // writeNote preserves the fresh clone's generated frontmatter envelope,
+        // so an Amby ID from the source note is never duplicated.
+        await writeNote(vault, id, content)
+        applyMutationResult(result)
+        await refreshTree()
+        setDoc(id, {
+          id,
+          title: cloneName,
+          content,
+          created: t("time.justNow"),
+          modified: t("time.justNow"),
+          wordCount: content.trim() ? content.trim().split(/\s+/u).length : 0,
+          path: result.primaryPath ?? id,
+        })
+        const key = newTabKey()
+        setTabs((prev) => [
+          ...prev,
+          { key, kind: "document", fileId: id, title: cloneName, history: [id], historyIndex: 0 },
+        ])
+        setActiveTabKey(key)
+        setPendingRenameId(id)
+        setTimeout(() => setPendingRenameId(null), 500)
+      } catch (err) {
+        console.error("Failed to clone file:", err)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [vault, treeItems],
   )
 
   async function navigateToFile(fileId: string) {
@@ -312,6 +359,7 @@ export function useFileActions({
         id,
         title: name,
         content: "",
+        created: t("time.justNow"),
         modified: t("time.justNow"),
         wordCount: 0,
         path: result.primaryPath ?? id,
@@ -396,6 +444,7 @@ export function useFileActions({
           id,
           title: untitled,
           content: "",
+          created: t("time.justNow"),
           modified: t("time.justNow"),
           wordCount: 0,
           path: result.primaryPath ?? id,
@@ -565,6 +614,55 @@ export function useFileActions({
     [treeItems, vault],
   )
 
+  const handleMergeFile = React.useCallback(
+    async (sourceId: string, targetId: string) => {
+      if (!vault || sourceId === targetId) return
+      const sourceItem = findTreeItem(treeItems, sourceId)
+      const targetItem = findTreeItem(treeItems, targetId)
+      if (sourceItem?.type !== "file" || targetItem?.type !== "file") return
+      if (
+        !(await confirmAction(
+          t("workspace.mergeFilesConfirm", { source: sourceItem.name, target: targetItem.name }),
+        ))
+      )
+        return
+
+      const sourceTimer = saveTimersRef.current.get(sourceId)
+      const targetTimer = saveTimersRef.current.get(targetId)
+      if (sourceTimer) clearTimeout(sourceTimer)
+      if (targetTimer) clearTimeout(targetTimer)
+      saveTimersRef.current.delete(sourceId)
+      saveTimersRef.current.delete(targetId)
+
+      try {
+        // Drain already queued autosaves first so none can overwrite the merge.
+        await saveQueueRef.current.enqueue(sourceId, async () => {})
+        const openDocs = useDocStore.getState().openDocs
+        const sourceContent = openDocs[sourceId]?.content ?? (await readNote(vault, sourceId))
+        const targetContent = openDocs[targetId]?.content ?? (await readNote(vault, targetId))
+        const merged = [targetContent.trimEnd(), sourceContent.trimStart()]
+          .filter(Boolean)
+          .join("\n\n")
+        await saveQueueRef.current.enqueue(targetId, () => writeNote(vault, targetId, merged))
+        if (openDocs[targetId]) {
+          patchDoc(targetId, {
+            content: merged,
+            wordCount: merged.trim() ? merged.trim().split(/\s+/u).length : 0,
+          })
+          markSaved(targetId)
+        }
+        const result = await deleteItem(vault, sourceItem.path)
+        applyMutationResult(result)
+        await refreshTree()
+        await handleSelect(targetId)
+      } catch (err) {
+        console.error("Failed to merge files:", err)
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [treeItems, vault],
+  )
+
   // ── Content autosave ──────────────────────────────────────────────────────────
 
   const handleContentChange = (fileId: string, content: string) => {
@@ -615,6 +713,7 @@ export function useFileActions({
     loadDoc,
     handleSelect,
     handleOpenInNewTab,
+    handleCloneFile,
     navigateToFile,
     scrollEditorToAnchor,
     handleWikiLinkClick,
@@ -625,6 +724,7 @@ export function useFileActions({
     handleNewCanvasIn,
     handleAttachCanvasToNote,
     handleMoveItem,
+    handleMergeFile,
     handleContentChange,
     deleteConfirmationDialog: pendingDelete
       ? React.createElement(DeleteConfirmationDialog, {

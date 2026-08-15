@@ -4,6 +4,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronDown, FolderOpen, Maximize2, Minimize2, Minus, X } from "lucide-react"
 import { getCurrentWindow } from "@tauri-apps/api/window"
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { ActivityBar } from "./activity-bar"
 import { PanelHost } from "./panel-host"
 import { ResizeHandle } from "./resize-handle"
@@ -52,6 +53,9 @@ import {
   openInExplorer,
   exportTextFile,
   importTextFile,
+  upsertCustomProperty,
+  deleteCustomProperty,
+  type CustomProperty,
   type FsMutationResult,
 } from "@/lib/storage"
 
@@ -193,6 +197,7 @@ export function Workspace() {
   // activeLayers, linkedLayersByDoc) lives in useViewStateStore.
   const favorites = useViewStateStore((s) => s.favorites)
   const viewModes = useViewStateStore((s) => s.viewModes)
+  const nestedNotesPlacements = useViewStateStore((s) => s.nestedNotesPlacements)
   const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
   const activeLayers = useViewStateStore((s) => s.activeLayers)
   const linkedLayersByDoc = useViewStateStore((s) => s.linkedLayersByDoc)
@@ -201,6 +206,7 @@ export function Workspace() {
     toggleFavorite,
     setIcon: setIconInStore,
     setViewMode,
+    setNestedNotesPlacement,
     toggleLock,
     applyMutation: applyViewMutation,
   } = useViewStateStore.getState()
@@ -229,17 +235,6 @@ export function Workspace() {
     return () => window.clearTimeout(timer)
   }, [dockNotice])
 
-  // Cmd/Ctrl + , opens application settings (desktop convention).
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
-        e.preventDefault()
-        setSettingsOpen(true)
-      }
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [])
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const {
     activityButtons,
@@ -465,6 +460,7 @@ export function Workspace() {
   const {
     handleSelect,
     handleOpenInNewTab,
+    handleCloneFile,
     navigateToFile,
     handleWikiLinkClick,
     handleRenameFile,
@@ -474,6 +470,7 @@ export function Workspace() {
     handleNewCanvasIn,
     handleAttachCanvasToNote,
     handleMoveItem,
+    handleMergeFile,
     handleContentChange,
     deleteConfirmationDialog,
   } = useFileActions({
@@ -488,6 +485,43 @@ export function Workspace() {
     saveTimersRef,
   })
 
+  const initialWindowFileRef = React.useRef(false)
+
+  const handleOpenInNewWindow = React.useCallback(
+    (fileId: string) => {
+      const item = findTreeItem(treeItems, fileId)
+      if (!item || item.type !== "file") return
+      const url = `/?ambyFile=${encodeURIComponent(fileId)}`
+      if (!isTauri()) {
+        window.open(url, "_blank", "noopener,noreferrer")
+        return
+      }
+      const child = new WebviewWindow(`note-${crypto.randomUUID()}`, {
+        url,
+        title: item.name,
+        width: 1120,
+        height: 760,
+        minWidth: 720,
+        minHeight: 480,
+        center: true,
+        focus: true,
+      })
+      void child.once("tauri://error", (event) => {
+        console.error("Failed to open note window:", event.payload)
+      })
+    },
+    [treeItems],
+  )
+
+  React.useEffect(() => {
+    if (initialWindowFileRef.current || treeItems.length === 0) return
+    const fileId = new URLSearchParams(window.location.search).get("ambyFile")
+    if (!fileId || !findTreeItem(treeItems, fileId)) return
+    initialWindowFileRef.current = true
+    void handleOpenInNewTab(fileId)
+    window.history.replaceState({}, "", window.location.pathname)
+  }, [handleOpenInNewTab, treeItems])
+
   const { handleBack, handleForward, handleTabChange, handleTabClose, handleCloseAllTabs } =
     useTabActions({
       activeTab,
@@ -499,6 +533,43 @@ export function Workspace() {
       canGoForward,
       navigateToFile,
     })
+
+  // Workspace-wide shortcuts deliberately leave plain typing alone. Native editing
+  // shortcuts still belong to the focused editor; these only invoke app navigation.
+  React.useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || (!event.metaKey && !event.ctrlKey)) return
+
+      const key = event.key.toLowerCase()
+      if (key === "p") {
+        event.preventDefault()
+        setQuickOpenOpen(true)
+      } else if (key === "f" && event.shiftKey) {
+        event.preventDefault()
+        setSearchOpen(true)
+      } else if (key === "n" && !event.shiftKey) {
+        event.preventDefault()
+        handleNewFileIn(null)
+      } else if (key === "b" && !event.shiftKey) {
+        event.preventDefault()
+        setIsLeftSidebarOpen((open) => !open)
+      } else if (key === "b" && event.shiftKey) {
+        event.preventDefault()
+        setIsRightSidebarOpen((open) => !open)
+      } else if (key === ",") {
+        event.preventDefault()
+        setSettingsOpen(true)
+      } else if (key === "[" && !event.shiftKey) {
+        event.preventDefault()
+        handleBack()
+      } else if (key === "]" && !event.shiftKey) {
+        event.preventDefault()
+        handleForward()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [handleBack, handleForward, handleNewFileIn, setIsLeftSidebarOpen, setIsRightSidebarOpen])
 
   const handleRenameVault = React.useCallback(
     (id: string, name: string) => {
@@ -632,24 +703,79 @@ export function Workspace() {
   // every keystroke (content changes), but id/modified don't, so this keeps
   // panelRenderProps stable while typing.
   const currentProperties = React.useMemo(
-    () =>
-      currentDoc
-        ? {
-            type: "Markdown",
-            backlinks: linkGraph.edges.filter((e) => e.target === currentDoc.id).length,
-            modified: currentDoc.modified,
-            id: currentDoc.id,
-            frontmatter: currentDoc.noteProperties ?? { hasFrontmatter: false, properties: [] },
-          }
-        : null,
+    () => {
+      if (!currentDoc) return null
+      const treeItem = findTreeItem(displayTreeItems, currentDoc.id)
+      const nestedNotes = (treeItem?.children ?? [])
+        .filter((item) => item.type === "file")
+        .map((item) => ({ id: item.id, name: item.name.replace(/\.md$/iu, ""), icon: item.icon }))
+      return {
+        type: "Markdown",
+        backlinks: linkGraph.edges.filter((e) => e.target === currentDoc.id).length,
+        created: currentDoc.created,
+        modified: currentDoc.modified,
+        id: currentDoc.id,
+        frontmatter: currentDoc.noteProperties ?? {
+          hasFrontmatter: false,
+          properties: [],
+          customProperties: [],
+        },
+        nestedNotes,
+      }
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [currentDoc?.id, currentDoc?.modified, currentDoc?.noteProperties, linkGraph, t],
+    [
+      currentDoc?.id,
+      currentDoc?.modified,
+      currentDoc?.noteProperties,
+      displayTreeItems,
+      linkGraph,
+      t,
+    ],
+  )
+
+  const handleUpsertCustomProperty = React.useCallback(
+    async (property: CustomProperty) => {
+      if (!vault || !currentDoc) throw new Error("No active document")
+      const saved = await upsertCustomProperty(vault, currentDoc.id, property)
+      const current = currentDoc.noteProperties ?? {
+        hasFrontmatter: false,
+        properties: [],
+        customProperties: [],
+      }
+      const next = [...current.customProperties]
+      const index = next.findIndex((item) => item.id === saved.id)
+      if (index >= 0) next[index] = saved
+      else next.push(saved)
+      useDocStore.getState().patchDoc(currentDoc.id, {
+        noteProperties: { ...current, customProperties: next },
+      })
+      return saved
+    },
+    [currentDoc, vault],
+  )
+
+  const handleDeleteCustomProperty = React.useCallback(
+    async (propertyId: string) => {
+      if (!vault || !currentDoc) return
+      await deleteCustomProperty(vault, currentDoc.id, propertyId)
+      const current = currentDoc.noteProperties
+      if (!current) return
+      useDocStore.getState().patchDoc(currentDoc.id, {
+        noteProperties: {
+          ...current,
+          customProperties: current.customProperties.filter((item) => item.id !== propertyId),
+        },
+      })
+    },
+    [currentDoc, vault],
   )
 
   const headerTabs: HeaderTab[] = tabs.map((t) => ({
     key: t.key,
     fileId: t.fileId,
     title: t.title,
+    icon: findTreeItem(displayTreeItems, t.fileId)?.icon,
   }))
 
   // panelRenderProps is memoised so that sidebar panels don't re-render when only
@@ -669,6 +795,8 @@ export function Workspace() {
       onNewCanvas: handleNewCanvasIn,
       onAttachCanvas: handleAttachCanvasToNote,
       onOpenInNewTab: handleOpenInNewTab,
+      onOpenInNewWindow: handleOpenInNewWindow,
+      onCloneFile: handleCloneFile,
       onOpenInExplorer: openInExplorer,
       onMoveItem: handleMoveItem,
       onSetIcon: handleSetIcon,
@@ -683,6 +811,8 @@ export function Workspace() {
       currentDocId: currentDoc?.id ?? null,
       currentDocPath: currentDoc?.path ?? null,
       onSelectLink: handleSelect,
+      onUpsertCustomProperty: handleUpsertCustomProperty,
+      onDeleteCustomProperty: handleDeleteCustomProperty,
       onHistoryRestored: handleHistoryRestored,
       workspaceSwitcher: (
         <WorkspacePicker
@@ -715,6 +845,8 @@ export function Workspace() {
       handleNewCanvasIn,
       handleAttachCanvasToNote,
       handleOpenInNewTab,
+      handleOpenInNewWindow,
+      handleCloneFile,
       handleMoveItem,
       handleSetIcon,
       pendingRenameId,
@@ -723,6 +855,8 @@ export function Workspace() {
       handleAttachLayerToFile,
       linkedLayersByDoc,
       currentProperties,
+      handleUpsertCustomProperty,
+      handleDeleteCustomProperty,
       linkGraph,
       currentDoc?.id,
       currentDoc?.path,
@@ -748,6 +882,8 @@ export function Workspace() {
   function paneEditorProps(tab: Tab | null) {
     const doc = tab ? (openDocs[tab.fileId] ?? null) : null
     const isPrimary = !!tab && tab.key === activeTabKey
+    const treeItem = doc ? findTreeItem(displayTreeItems, doc.id) : null
+    const nestedNotes = (treeItem?.children ?? []).filter((item) => item.type === "file")
     return {
       document: doc,
       onContentChange: (content: string, sourceDocumentId: string) => {
@@ -802,6 +938,21 @@ export function Workspace() {
       linkedLayers: isPrimary && doc ? (linkedLayersByDoc[doc.id] ?? NO_LAYERS) : NO_LAYERS,
       isLocked: doc ? lockedFileIds.has(doc.id) : false,
       onToggleLock: isPrimary ? handleToggleLock : () => {},
+      isFavorite: doc ? favorites.has(doc.id) : false,
+      onToggleFavorite: doc ? () => handleToggleFavorite(doc.id) : undefined,
+      onOpenInNewTab: doc ? () => handleOpenInNewTab(doc.id) : undefined,
+      nestedNotes,
+      nestedNotesPlacement: doc ? (nestedNotesPlacements[doc.id] ?? "top") : "top",
+      onNestedNotesPlacementChange: doc
+        ? (placement: "top" | "bottom" | "hidden") => setNestedNotesPlacement(doc.id, placement)
+        : undefined,
+      onOpenNestedNoteInNewTab: handleOpenInNewTab,
+      onMoveFile: doc
+        ? (targetFolderId: string | null) => handleMoveItem(doc.id, targetFolderId)
+        : undefined,
+      onMergeFile: doc ? (targetId: string) => handleMergeFile(doc.id, targetId) : undefined,
+      onShowInExplorer: doc ? () => openInExplorer(doc.path) : undefined,
+      onDeleteFile: doc ? () => handleDeleteFile(doc.id) : undefined,
       treeItems: displayTreeItems,
       onOpenItem: handleSelect,
       onUnlinkLayer: handleUnlinkLayer,

@@ -1,4 +1,4 @@
-# Amby Notes
+# Amby
 
 A fully open-source, local-first desktop knowledge workspace built with Tauri 2, React 19, TypeScript, and Rust. Amby is primarily for personal notes and projects, combining Markdown ownership and wiki-style knowledge links with a Notion-like Properties, Collections, blocks, and workspace experience — while keeping its own product identity. Your notes stay on your filesystem as plain Markdown files — no cloud, no accounts, no lock-in.
 
