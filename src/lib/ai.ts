@@ -4,7 +4,10 @@
 
 import { isTauri } from "./storage"
 import i18n from "./i18n"
+import { commands } from "./bindings"
+import type { AiConfig as GeneratedAiConfig, AiMessage as GeneratedAiMessage } from "./bindings"
 import { listen } from "@tauri-apps/api/event"
+import { unwrapCommand } from "./storage/ipc-result"
 
 /** Wire "family" the Rust backend dispatches on. */
 export type AiFamily = "ollama" | "openai" | "anthropic" | "azure"
@@ -25,17 +28,25 @@ export interface AiMessage {
   content: string
 }
 
+function toGeneratedConfig(config: AiConfig): GeneratedAiConfig {
+  return {
+    ...config,
+    apiKey: config.apiKey ?? null,
+    maxTokens: config.maxTokens ?? null,
+    apiVersion: config.apiVersion ?? null,
+  }
+}
+
+function toGeneratedMessages(messages: AiMessage[]): GeneratedAiMessage[] {
+  return messages
+}
+
 /** Thrown when AI is invoked outside the desktop app (no Rust backend). */
 export class AiUnavailableError extends Error {
   constructor() {
     super(i18n.t("ai.unavailable"))
     this.name = "AiUnavailableError"
   }
-}
-
-async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  const { invoke: tauriInvoke } = await import("@tauri-apps/api/core")
-  return tauriInvoke<T>(cmd, args)
 }
 
 export interface AiChatOptions {
@@ -59,7 +70,9 @@ export async function aiChat(
   const system = opts.system ?? null
 
   if (!opts.onToken) {
-    return invoke<string>("ai_chat", { config, messages, system, streamId: null })
+    return unwrapCommand(
+      commands.aiChat(toGeneratedConfig(config), toGeneratedMessages(messages), system, null),
+    )
   }
 
   const streamId = crypto.randomUUID()
@@ -67,7 +80,9 @@ export async function aiChat(
     if (e.payload.streamId === streamId) opts.onToken!(e.payload.delta)
   })
   try {
-    return await invoke<string>("ai_chat", { config, messages, system, streamId })
+    return await unwrapCommand(
+      commands.aiChat(toGeneratedConfig(config), toGeneratedMessages(messages), system, streamId),
+    )
   } finally {
     unlisten()
   }

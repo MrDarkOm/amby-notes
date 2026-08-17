@@ -4,7 +4,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
 
-import { markdownToHtml } from "./markdown"
+import { markdownToSafeReadonlyHtml, type SafeReadonlyHtml } from "./markdown"
 import { getTransclusionFetcher } from "./transclusion-context"
 
 type LoadState = "idle" | "loading" | "done" | "error"
@@ -13,7 +13,7 @@ type LoadState = "idle" | "loading" | "done" | "error"
 export function TransclusionView({ node, editor }: NodeViewProps) {
   const { t } = useTranslation()
   const target = node.attrs.target as string
-  const [html, setHtml] = React.useState<string | null>(null)
+  const [html, setHtml] = React.useState<SafeReadonlyHtml | null>(null)
   const [state, setState] = React.useState<LoadState>("idle")
 
   React.useEffect(() => {
@@ -32,7 +32,7 @@ export function TransclusionView({ node, editor }: NodeViewProps) {
         if (content === null) {
           setState("error")
         } else {
-          setHtml(markdownToHtml(content))
+          setHtml(markdownToSafeReadonlyHtml(content))
           setState("done")
         }
       })
@@ -94,6 +94,8 @@ export function TransclusionView({ node, editor }: NodeViewProps) {
               [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1
               [&_blockquote]:border-l-2 [&_blockquote]:border-muted [&_blockquote]:pl-2 [&_blockquote]:my-1
               [&_pre]:bg-muted [&_pre]:rounded [&_pre]:p-1 [&_pre]:my-1 [&_pre]:text-[11px] [&_pre]:overflow-auto"
+            // `html` is branded by markdownToSafeReadonlyHtml, whose renderer
+            // disables raw HTML and escapes it as inert text.
             dangerouslySetInnerHTML={{ __html: html! }}
           />
         )}

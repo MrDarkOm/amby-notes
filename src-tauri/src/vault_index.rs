@@ -1,6 +1,8 @@
 use crate::{frontmatter, history};
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -68,6 +70,7 @@ pub struct VaultPreflight {
     pub user_managed_ids: Vec<String>,
     pub duplicate_ids: Vec<String>,
     pub planned_id_writes: Vec<String>,
+    pub unfinished_migrations: Vec<IdMigrationRecovery>,
 }
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
@@ -76,6 +79,133 @@ pub struct IdMigrationResult {
     pub backup_path: String,
     pub journal_path: String,
     pub modified_paths: Vec<String>,
+    pub status: IdMigrationStatus,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum IdMigrationStatus {
+    Planned,
+    InProgress,
+    Completed,
+    RolledBack,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum IdMigrationFileStatus {
+    Pending,
+    BackupCreated,
+    Applied,
+    RolledBack,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum IdMigrationRecoveryAction {
+    Resume,
+    Rollback,
+    InspectOnly,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct IdMigrationFile {
+    pub path: String,
+    pub backup_path: String,
+    pub id: String,
+    pub status: IdMigrationFileStatus,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, specta::Type)]
+#[serde(rename_all = "camelCase")]
+struct IdMigrationJournal {
+    version: u8,
+    kind: String,
+    created_at_ms: u128,
+    backup_path: String,
+    status: IdMigrationStatus,
+    files: Vec<IdMigrationFile>,
+}
+
+#[derive(Serialize, Clone, Debug, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct IdMigrationRecovery {
+    pub journal_path: String,
+    pub backup_path: String,
+    pub status: IdMigrationStatus,
+    pub files: Vec<IdMigrationFile>,
+}
+
+const ID_MIGRATION_VERSION: u8 = 1;
+const ID_MIGRATION_KIND: &str = "add-amby-ids";
+
+#[cfg(test)]
+thread_local! {
+    static MIGRATION_FAILURE_STAGE: Cell<Option<u8>> = const { Cell::new(None) };
+}
+
+#[cfg(test)]
+fn fail_next_migration_stage(stage: u8) {
+    MIGRATION_FAILURE_STAGE.with(|configured| configured.set(Some(stage)));
+}
+
+#[cfg(test)]
+fn check_migration_failure(stage: u8) -> Result<(), String> {
+    MIGRATION_FAILURE_STAGE.with(|configured| {
+        if configured.get() == Some(stage) {
+            configured.set(None);
+            Err(format!("injected migration failure at stage {stage}"))
+        } else {
+            Ok(())
+        }
+    })
+}
+
+#[cfg(not(test))]
+fn check_migration_failure(_stage: u8) -> Result<(), String> {
+    Ok(())
+}
+
+/// All filesystem-derived values needed to update one note. These are gathered
+/// before opening an SQLite transaction so database writes never hold a
+/// transaction while reading or writing user files.
+struct PreparedNoteIndex {
+    note_id: String,
+    rel_path: String,
+    title: String,
+    mtime: i64,
+    size: i64,
+    body: String,
+    frontmatter_tags: Vec<String>,
+    links: Vec<(String, String, String)>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static INDEX_FAILURE_STAGE: Cell<Option<u8>> = const { Cell::new(None) };
+}
+
+#[cfg(test)]
+fn fail_next_index_stage(stage: u8) {
+    INDEX_FAILURE_STAGE.with(|configured| configured.set(Some(stage)));
+}
+
+#[cfg(test)]
+fn check_index_failure(stage: u8) -> Result<(), String> {
+    INDEX_FAILURE_STAGE.with(|configured| {
+        if configured.get() == Some(stage) {
+            configured.set(None);
+            Err(format!("injected index failure at SQL stage {stage}"))
+        } else {
+            Ok(())
+        }
+    })
+}
+
+#[cfg(not(test))]
+fn check_index_failure(_stage: u8) -> Result<(), String> {
+    Ok(())
 }
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
@@ -698,6 +828,7 @@ pub fn preflight_vault(vault: &Path) -> Result<VaultPreflight, String> {
         user_managed_ids: Vec::new(),
         duplicate_ids: Vec::new(),
         planned_id_writes: Vec::new(),
+        unfinished_migrations: unfinished_id_migrations(vault)?,
     };
     let mut ids = HashMap::<String, String>::new();
 
@@ -740,68 +871,257 @@ pub fn preflight_vault(vault: &Path) -> Result<VaultPreflight, String> {
     Ok(report)
 }
 
-/// Add IDs only to files the preflight identified as missing them. Every
-/// changed note is copied into a timestamped `.amby/backups/` restore point
-/// before the atomic write, and a journal records the operation.
+fn migration_directory(vault: &Path) -> PathBuf {
+    vault.join(".amby").join("migrations")
+}
+
+fn write_migration_journal(path: &Path, journal: &IdMigrationJournal) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("Migration journal has no parent: {}", path.display()))?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    let encoded = serde_json::to_vec_pretty(journal).map_err(|error| error.to_string())?;
+    // `atomic_write_bytes` syncs both the journal and its parent directory.
+    frontmatter::atomic_write_bytes(path, &encoded)
+}
+
+fn read_migration_journal(path: &Path) -> Result<IdMigrationJournal, String> {
+    let encoded = fs::read(path).map_err(|error| error.to_string())?;
+    let journal: IdMigrationJournal = serde_json::from_slice(&encoded)
+        .map_err(|error| format!("Invalid migration journal: {error}"))?;
+    if journal.version != ID_MIGRATION_VERSION || journal.kind != ID_MIGRATION_KIND {
+        return Err(format!("Unsupported migration journal: {}", path.display()));
+    }
+    Ok(journal)
+}
+
+fn recovery_from_journal(path: &Path, journal: &IdMigrationJournal) -> IdMigrationRecovery {
+    IdMigrationRecovery {
+        journal_path: path_string(path),
+        backup_path: journal.backup_path.clone(),
+        status: journal.status.clone(),
+        files: journal.files.clone(),
+    }
+}
+
+/// Enumerate incomplete ID migrations without changing the vault. The caller
+/// can present resume, rollback, or inspect-only options before opening it.
+pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>, String> {
+    let directory = migration_directory(vault);
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut recoveries = Vec::new();
+    for entry in fs::read_dir(&directory).map_err(|error| error.to_string())? {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        let journal = read_migration_journal(&path)?;
+        if matches!(
+            journal.status,
+            IdMigrationStatus::Planned | IdMigrationStatus::InProgress
+        ) {
+            recoveries.push(recovery_from_journal(&path, &journal));
+        }
+    }
+    recoveries.sort_by(|left, right| left.journal_path.cmp(&right.journal_path));
+    Ok(recoveries)
+}
+
+fn checked_journal_path(vault: &Path, journal_path: &str) -> Result<PathBuf, String> {
+    let directory = migration_directory(vault)
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let candidate = PathBuf::from(journal_path)
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    if candidate
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("json")
+        || candidate.strip_prefix(&directory).is_err()
+    {
+        return Err("Migration journal is outside this vault".to_string());
+    }
+    Ok(candidate)
+}
+
+fn apply_migration_journal(
+    vault: &Path,
+    journal_path: &Path,
+    journal: &mut IdMigrationJournal,
+) -> Result<(), String> {
+    if matches!(journal.status, IdMigrationStatus::Completed) {
+        return Ok(());
+    }
+    if matches!(journal.status, IdMigrationStatus::RolledBack) {
+        return Err("Cannot resume a rolled-back migration".to_string());
+    }
+    journal.status = IdMigrationStatus::InProgress;
+    write_migration_journal(journal_path, journal)?;
+
+    let backup_root = abs_from_rel(vault, &journal.backup_path);
+    for index in 0..journal.files.len() {
+        let file = &journal.files[index];
+        let source = abs_from_rel(vault, &file.path);
+        let backup = backup_root.join(&file.backup_path);
+        let file_path = file.path.clone();
+        let file_id = file.id.clone();
+        let status = file.status.clone();
+        if matches!(status, IdMigrationFileStatus::Applied) {
+            continue;
+        }
+        if matches!(status, IdMigrationFileStatus::RolledBack) {
+            return Err(format!("Cannot resume rolled-back note: {file_path}"));
+        }
+
+        if matches!(status, IdMigrationFileStatus::Pending) {
+            let original = fs::read(&source).map_err(|error| error.to_string())?;
+            if let Some(parent) = backup.parent() {
+                fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            }
+            match frontmatter::atomic_write_bytes_new(&backup, &original) {
+                Ok(()) | Err(frontmatter::AtomicCreateError::AlreadyExists) => {}
+                Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+            }
+            check_migration_failure(1)?;
+            journal.files[index].status = IdMigrationFileStatus::BackupCreated;
+            write_migration_journal(journal_path, journal)?;
+        }
+
+        let content = fs::read_to_string(&source).map_err(|error| error.to_string())?;
+        let parsed = frontmatter::parse_markdown(&content);
+        if parsed.id.as_deref() == Some(file_id.as_str()) {
+            // A crash may have happened after the atomic note write but before
+            // the applied marker reached the journal. Recognise that outcome.
+            journal.files[index].status = IdMigrationFileStatus::Applied;
+            write_migration_journal(journal_path, journal)?;
+            continue;
+        }
+        if parsed.id.is_some() {
+            return Err(format!(
+                "Refusing to overwrite a frontmatter id changed after planning: {}",
+                file_path
+            ));
+        }
+        let next = frontmatter::body_with_id(&content, &file_id)?;
+        frontmatter::atomic_write(&source, &next)?;
+        check_migration_failure(2)?;
+        journal.files[index].status = IdMigrationFileStatus::Applied;
+        write_migration_journal(journal_path, journal)?;
+    }
+
+    journal.status = IdMigrationStatus::Completed;
+    write_migration_journal(journal_path, journal)
+}
+
+fn rollback_migration_journal(
+    vault: &Path,
+    journal_path: &Path,
+    journal: &mut IdMigrationJournal,
+) -> Result<(), String> {
+    if matches!(journal.status, IdMigrationStatus::RolledBack) {
+        return Ok(());
+    }
+    let backup_root = abs_from_rel(vault, &journal.backup_path);
+    for index in 0..journal.files.len() {
+        let file = &journal.files[index];
+        let file_path = file.path.clone();
+        let file_id = file.id.clone();
+        let backup_path = file.backup_path.clone();
+        if matches!(file.status, IdMigrationFileStatus::RolledBack) {
+            continue;
+        }
+        let source = abs_from_rel(vault, &file_path);
+        let backup = backup_root.join(&backup_path);
+        if !backup.is_file() {
+            return Err(format!("Migration backup is missing: {}", backup.display()));
+        }
+        let original = fs::read(&backup).map_err(|error| error.to_string())?;
+        let current = fs::read(&source).map_err(|error| error.to_string())?;
+        if current != original {
+            let current_text = std::str::from_utf8(&current)
+                .map_err(|_| format!("Cannot safely roll back non-UTF-8 note: {file_path}"))?;
+            if frontmatter::parse_markdown(current_text).id.as_deref() != Some(file_id.as_str()) {
+                return Err(format!(
+                    "Refusing to roll back a note changed after migration: {}",
+                    file_path
+                ));
+            }
+            frontmatter::atomic_write_bytes(&source, &original)?;
+        }
+        journal.files[index].status = IdMigrationFileStatus::RolledBack;
+        write_migration_journal(journal_path, journal)?;
+    }
+    journal.status = IdMigrationStatus::RolledBack;
+    write_migration_journal(journal_path, journal)
+}
+
+/// Inspect or recover an incomplete journal. Both recovery actions are
+/// idempotent; rollback restores raw backup bytes only when the note still has
+/// the planned migration ID, so later user edits are never overwritten.
+pub fn recover_id_migration(
+    vault: &Path,
+    journal_path: &str,
+    action: IdMigrationRecoveryAction,
+) -> Result<IdMigrationRecovery, String> {
+    let journal_path = checked_journal_path(vault, journal_path)?;
+    let mut journal = read_migration_journal(&journal_path)?;
+    match action {
+        IdMigrationRecoveryAction::InspectOnly => {}
+        IdMigrationRecoveryAction::Resume => {
+            apply_migration_journal(vault, &journal_path, &mut journal)?
+        }
+        IdMigrationRecoveryAction::Rollback => {
+            rollback_migration_journal(vault, &journal_path, &mut journal)?
+        }
+    }
+    Ok(recovery_from_journal(&journal_path, &journal))
+}
+
+/// Add IDs only to files the preflight identified as missing them. A complete
+/// journal is persisted before the first backup or note write, which makes a
+/// crash recoverable with an explicit resume or rollback action.
 pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
+    if let Some(recovery) = unfinished_id_migrations(vault)?.into_iter().next() {
+        return Err(format!(
+            "An unfinished ID migration must be recovered first: {}",
+            recovery.journal_path
+        ));
+    }
     let preflight = preflight_vault(vault)?;
     let stamp = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
+        .map_err(|error| error.to_string())?
         .as_millis();
-    let backup_root = vault
-        .join(".amby")
-        .join("backups")
-        .join(format!("id-migration-{stamp}"));
-    fs::create_dir_all(&backup_root).map_err(|e| e.to_string())?;
-
-    let mut modified_paths = Vec::new();
-    for rel_path in preflight.planned_id_writes {
-        let path = abs_from_rel(vault, &rel_path);
-        let backup = backup_root.join(&rel_path);
-        if let Some(parent) = backup.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let original_bytes = fs::read(&path).map_err(|e| e.to_string())?;
-        match frontmatter::atomic_write_bytes_new(&backup, &original_bytes) {
-            Ok(()) => {}
-            Err(frontmatter::AtomicCreateError::AlreadyExists) => {
-                return Err(format!(
-                    "Migration backup already exists: {}",
-                    path_string(&backup)
-                ));
-            }
-            Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
-        }
-        let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        let with_id = frontmatter::body_with_id(&content, &Ulid::generate().to_string())?;
-        frontmatter::atomic_write(&path, &with_id)?;
-        modified_paths.push(rel_path);
-    }
-
-    let journal_path = vault
-        .join(".amby")
-        .join("migrations")
-        .join(format!("id-migration-{stamp}.json"));
-    if let Some(parent) = journal_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let journal = serde_json::json!({
-        "version": 1,
-        "kind": "add-amby-ids",
-        "createdAtMs": stamp,
-        "backupPath": normalize_rel_path(backup_root.strip_prefix(vault).unwrap_or(&backup_root)),
-        "modifiedPaths": modified_paths,
-    });
-    frontmatter::atomic_write_bytes(
-        &journal_path,
-        &serde_json::to_vec_pretty(&journal).map_err(|e| e.to_string())?,
-    )?;
-
+    let backup_relative = format!(".amby/backups/id-migration-{stamp}-{}", Ulid::generate());
+    let journal_path =
+        migration_directory(vault).join(format!("id-migration-{stamp}-{}.json", Ulid::generate()));
+    let mut journal = IdMigrationJournal {
+        version: ID_MIGRATION_VERSION,
+        kind: ID_MIGRATION_KIND.to_string(),
+        created_at_ms: stamp,
+        backup_path: backup_relative.clone(),
+        status: IdMigrationStatus::Planned,
+        files: preflight
+            .planned_id_writes
+            .iter()
+            .map(|path| IdMigrationFile {
+                path: path.clone(),
+                backup_path: path.clone(),
+                id: Ulid::generate().to_string(),
+                status: IdMigrationFileStatus::Pending,
+            })
+            .collect(),
+    };
+    write_migration_journal(&journal_path, &journal)?;
+    apply_migration_journal(vault, &journal_path, &mut journal)?;
     Ok(IdMigrationResult {
-        backup_path: path_string(&backup_root),
+        backup_path: path_string(&abs_from_rel(vault, &backup_relative)),
         journal_path: path_string(&journal_path),
-        modified_paths,
+        modified_paths: journal.files.iter().map(|file| file.path.clone()).collect(),
+        status: journal.status,
     })
 }
 
@@ -822,6 +1142,27 @@ pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String>
         (priority, note.rel_path.clone())
     });
 
+    // ID assignment writes user files, so it must finish before the database
+    // transaction below. The transaction itself is intentionally limited to
+    // SQLite work and cannot be held while filesystem I/O is in progress.
+    for note in &mut notes {
+        if note.unchanged || note.parsed_id.as_deref().is_some_and(|id| !id.is_empty()) {
+            continue;
+        }
+        let id = Ulid::generate().to_string();
+        let content = fs::read_to_string(&note.path).map_err(|e| e.to_string())?;
+        let next = frontmatter::body_with_id(&content, &id)?;
+        history::snapshot_before_write(vault, &note.path, next.as_bytes(), "id-assignment")?;
+        frontmatter::atomic_write(&note.path, &next)?;
+        let parsed = frontmatter::parse_markdown(&next);
+        let (mtime, size) = metadata_stamp(&note.path)?;
+        note.parsed_id = Some(id);
+        note.body = parsed.body;
+        note.frontmatter_tags = parsed.frontmatter_tags;
+        note.mtime = mtime;
+        note.size = size;
+    }
+
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let mut seen_ids = HashSet::new();
     let mut seen_paths = HashSet::new();
@@ -829,7 +1170,7 @@ pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String>
     let mut updated = 0;
     let mut path_to_id = HashMap::new();
 
-    for mut note in notes {
+    for note in notes {
         // Unchanged files keep their existing row untouched; just mark them seen.
         if note.unchanged {
             if let Some(id) = note.parsed_id.clone() {
@@ -858,19 +1199,7 @@ pub fn sync_vault(conn: &Connection, vault: &Path) -> Result<SyncReport, String>
             }
         }
 
-        let mut id = existing_id.unwrap_or_default();
-        if id.is_empty() {
-            id = Ulid::generate().to_string();
-            let content = fs::read_to_string(&note.path).map_err(|e| e.to_string())?;
-            let next = frontmatter::body_with_id(&content, &id)?;
-            history::snapshot_before_write(vault, &note.path, next.as_bytes(), "id-assignment")?;
-            frontmatter::atomic_write(&note.path, &next)?;
-            let parsed = frontmatter::parse_markdown(&next);
-            let (mtime, size) = metadata_stamp(&note.path)?;
-            note.body = parsed.body;
-            note.mtime = mtime;
-            note.size = size;
-        }
+        let id = existing_id.expect("notes without IDs are prepared before the transaction");
 
         let existed: Option<String> = tx
             .query_row("SELECT id FROM notes WHERE id = ?1", [&id], |row| {
@@ -1297,14 +1626,47 @@ pub fn upsert_note_index(
     body: &str,
     note_path: &Path,
 ) -> Result<(), String> {
+    let prepared = prepare_note_index(vault, note_id, body, note_path)?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    apply_prepared_note_index(&tx, &prepared)?;
+    tx.commit().map_err(|e| e.to_string())
+}
+
+fn prepare_note_index(
+    vault: &Path,
+    note_id: &str,
+    body: &str,
+    note_path: &Path,
+) -> Result<PreparedNoteIndex, String> {
     let (mtime, size) = metadata_stamp(note_path)?;
     let rel_path = note_path
         .strip_prefix(vault)
         .map(normalize_rel_path)
         .map_err(|e| e.to_string())?;
     let title = title_for(note_path, body);
+    let frontmatter_tags = frontmatter::read_markdown(note_path)
+        .map(|parsed| parsed.frontmatter_tags)
+        .unwrap_or_default();
 
-    conn.execute(
+    Ok(PreparedNoteIndex {
+        note_id: note_id.to_string(),
+        rel_path,
+        title,
+        mtime,
+        size,
+        body: body.to_string(),
+        frontmatter_tags,
+        links: extract_links(body),
+    })
+}
+
+fn apply_prepared_note_index(
+    tx: &rusqlite::Transaction<'_>,
+    prepared: &PreparedNoteIndex,
+) -> Result<(), String> {
+    let note_id = &prepared.note_id;
+
+    tx.execute(
         r#"
         INSERT INTO notes (id, path, title, mtime, size, content, word_count, created_at, updated_at)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%s','now'), strftime('%s','now'))
@@ -1319,43 +1681,44 @@ pub fn upsert_note_index(
         "#,
         rusqlite::params![
             note_id,
-            rel_path,
-            title,
-            mtime,
-            size,
-            body,
-            word_count(body) as i64
+            prepared.rel_path,
+            prepared.title,
+            prepared.mtime,
+            prepared.size,
+            prepared.body,
+            word_count(&prepared.body) as i64
         ],
     )
     .map_err(|e| e.to_string())?;
+    check_index_failure(1)?;
 
     // Re-index tags for this note.
-    conn.execute("DELETE FROM tags WHERE note_id = ?1", [note_id])
+    tx.execute("DELETE FROM tags WHERE note_id = ?1", [note_id])
         .map_err(|e| e.to_string())?;
-    let frontmatter_tags = frontmatter::read_markdown(note_path)
-        .map(|parsed| parsed.frontmatter_tags)
-        .unwrap_or_default();
-    for tag in extract_tags(body, &frontmatter_tags) {
-        conn.execute(
+    for tag in extract_tags(&prepared.body, &prepared.frontmatter_tags) {
+        tx.execute(
             "INSERT OR IGNORE INTO tags (note_id, tag) VALUES (?1, ?2)",
             rusqlite::params![note_id, tag],
         )
         .map_err(|e| e.to_string())?;
     }
+    check_index_failure(2)?;
 
     // Re-index outgoing links for this note.
-    conn.execute("DELETE FROM links WHERE note_id = ?1", [note_id])
+    tx.execute("DELETE FROM links WHERE note_id = ?1", [note_id])
         .map_err(|e| e.to_string())?;
-    for (raw, target, label) in extract_links(body) {
-        conn.execute(
+    for (raw, target, label) in &prepared.links {
+        tx.execute(
             "INSERT INTO links (note_id, raw, target, label, target_note_id) VALUES (?1, ?2, ?3, ?4, NULL)",
             rusqlite::params![note_id, raw, target, label],
         )
         .map_err(|e| e.to_string())?;
     }
+    check_index_failure(3)?;
 
     // Resolve only this note's links and the links pointing at it.
-    resolve_links_for_note(conn, note_id)?;
+    check_index_failure(4)?;
+    resolve_links_for_note(tx, note_id)?;
 
     Ok(())
 }
@@ -1363,22 +1726,20 @@ pub fn upsert_note_index(
 /// Write content to the note and update the index.
 /// Returns the absolute path of the written file so callers can suppress
 /// the resulting fs-watcher event (self-write guard).
-pub fn write_note(
+pub fn write_note_filesystem(
     conn: &Connection,
     vault: &Path,
     note_id: &str,
     content: &str,
-) -> Result<PathBuf, String> {
+) -> Result<(PathBuf, String), String> {
     let note = note_by_id(conn, vault, note_id)?;
     let path = PathBuf::from(&note.path);
     let current = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let next = frontmatter::replace_body_preserving_id(&current, content, note_id)?;
     history::snapshot_before_write(vault, &path, next.as_bytes(), "note-save")?;
     frontmatter::atomic_write(&path, &next)?;
-    // Parse the body that was actually written (without frontmatter) to update the index.
     let written = frontmatter::parse_markdown(&next);
-    upsert_note_index(conn, vault, note_id, &written.body, &path)?;
-    Ok(path)
+    Ok((path, written.body))
 }
 
 pub fn note_metadata(
@@ -1575,9 +1936,14 @@ fn relative_path(vault: &Path, path: &Path) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Read a note at `path`, assign it a unique ID if needed, and upsert it into
-/// the index. This is used for newly-created notes, so it never walks the vault.
-fn index_note_at_path(conn: &Connection, vault: &Path, path: &Path) -> Result<String, String> {
+/// Read a note at `path`, assign it a unique ID if needed, and prepare its
+/// index rows. Any file I/O (including ID assignment) completes before an
+/// SQLite transaction is opened by the caller.
+fn prepare_note_at_path(
+    conn: &Connection,
+    vault: &Path,
+    path: &Path,
+) -> Result<PreparedNoteIndex, String> {
     let rel_path = relative_path(vault, path)?;
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let parsed = frontmatter::parse_markdown(&content);
@@ -1619,18 +1985,15 @@ fn index_note_at_path(conn: &Connection, vault: &Path, path: &Path) -> Result<St
         (id, reparsed.body)
     };
 
-    upsert_note_index(conn, vault, &id, &body, path)?;
-    Ok(id)
+    prepare_note_index(vault, &id, &body, path)
 }
 
-/// Apply the markdown path changes produced by a filesystem mutation without a
-/// full vault scan. Renamed notes retain their IDs; newly-created notes receive
-/// an ID and are indexed in place. Canvas and other sidecar files are ignored.
-pub fn index_apply_path_changes(
+fn prepare_path_changes(
     conn: &Connection,
     vault: &Path,
     changes: &[crate::model::PathChange],
-) -> Result<(), String> {
+) -> Result<Vec<PreparedNoteIndex>, String> {
+    let mut prepared = Vec::new();
     for change in changes {
         if change.new_path.is_empty() {
             continue;
@@ -1640,17 +2003,12 @@ pub fn index_apply_path_changes(
             continue;
         }
 
-        if change.old_path.is_empty() {
-            index_note_at_path(conn, vault, new_path)?;
+        if change.old_path.is_empty() || !is_markdown(Path::new(&change.old_path)) {
+            prepared.push(prepare_note_at_path(conn, vault, new_path)?);
             continue;
         }
 
-        let old_path = Path::new(&change.old_path);
-        if !is_markdown(old_path) {
-            index_note_at_path(conn, vault, new_path)?;
-            continue;
-        }
-        let old_rel = relative_path(vault, old_path)?;
+        let old_rel = relative_path(vault, Path::new(&change.old_path))?;
         let id: Option<String> = conn
             .query_row("SELECT id FROM notes WHERE path = ?1", [&old_rel], |row| {
                 row.get(0)
@@ -1661,12 +2019,79 @@ pub fn index_apply_path_changes(
         if let Some(id) = id {
             let content = fs::read_to_string(new_path).map_err(|e| e.to_string())?;
             let body = frontmatter::parse_markdown(&content).body;
-            upsert_note_index(conn, vault, &id, &body, new_path)?;
+            prepared.push(prepare_note_index(vault, &id, &body, new_path)?);
         } else {
-            index_note_at_path(conn, vault, new_path)?;
+            prepared.push(prepare_note_at_path(conn, vault, new_path)?);
         }
     }
+    Ok(prepared)
+}
+
+fn prepare_deleted_ids(
+    conn: &Connection,
+    vault: &Path,
+    deleted_paths: &[String],
+) -> Result<Vec<String>, String> {
+    let mut deleted_ids = Vec::new();
+    for path in deleted_paths {
+        let path = Path::new(path);
+        if !is_markdown(path) {
+            continue;
+        }
+        let rel_path = relative_path(vault, path)?;
+        let id: Option<String> = conn
+            .query_row("SELECT id FROM notes WHERE path = ?1", [&rel_path], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(|e| e.to_string())?;
+        if let Some(id) = id {
+            deleted_ids.push(id);
+        }
+    }
+    Ok(deleted_ids)
+}
+
+fn apply_deleted_ids(tx: &rusqlite::Transaction<'_>, deleted_ids: &[String]) -> Result<(), String> {
+    for id in deleted_ids {
+        tx.execute(
+            "UPDATE links SET target_note_id = NULL WHERE target_note_id = ?1",
+            [id],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM tags WHERE note_id = ?1", [id])
+            .map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM links WHERE note_id = ?1", [id])
+            .map_err(|e| e.to_string())?;
+        tx.execute("DELETE FROM notes WHERE id = ?1", [id])
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
+}
+
+fn apply_prepared_index_updates(
+    conn: &Connection,
+    prepared_notes: &[PreparedNoteIndex],
+    deleted_ids: &[String],
+) -> Result<(), String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    for prepared in prepared_notes {
+        apply_prepared_note_index(&tx, prepared)?;
+    }
+    apply_deleted_ids(&tx, deleted_ids)?;
+    tx.commit().map_err(|e| e.to_string())
+}
+
+/// Apply the markdown path changes produced by a filesystem mutation without a
+/// full vault scan. Renamed notes retain their IDs; newly-created notes receive
+/// an ID and are indexed in place. Canvas and other sidecar files are ignored.
+pub fn index_apply_path_changes(
+    conn: &Connection,
+    vault: &Path,
+    changes: &[crate::model::PathChange],
+) -> Result<(), String> {
+    let prepared = prepare_path_changes(conn, vault, changes)?;
+    apply_prepared_index_updates(conn, &prepared, &[])
 }
 
 #[derive(Clone, Debug)]
@@ -1880,44 +2305,18 @@ pub fn apply_planned_wiki_rewrites(
     Ok(applied.into_iter().map(|(path, _)| path).collect())
 }
 
-/// Remove deleted markdown notes from the index and return their IDs. Inbound
-/// links are cleared so callers immediately see unresolved links instead of a
-/// stale reference to a deleted note.
-pub fn index_delete_paths(
+/// Apply every index consequence of one filesystem mutation atomically. File
+/// reads and optional frontmatter ID writes are staged before beginning the
+/// transaction; a failed SQL stage leaves notes, tags, and links untouched.
+pub fn index_apply_mutation(
     conn: &Connection,
     vault: &Path,
+    changes: &[crate::model::PathChange],
     deleted_paths: &[String],
 ) -> Result<Vec<String>, String> {
-    let mut deleted_ids = Vec::new();
-    for path in deleted_paths {
-        let path = Path::new(path);
-        if !is_markdown(path) {
-            continue;
-        }
-        let rel_path = relative_path(vault, path)?;
-        let id: Option<String> = conn
-            .query_row("SELECT id FROM notes WHERE path = ?1", [&rel_path], |row| {
-                row.get(0)
-            })
-            .optional()
-            .map_err(|e| e.to_string())?;
-        let Some(id) = id else {
-            continue;
-        };
-
-        conn.execute(
-            "UPDATE links SET target_note_id = NULL WHERE target_note_id = ?1",
-            [&id],
-        )
-        .map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM tags WHERE note_id = ?1", [&id])
-            .map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM links WHERE note_id = ?1", [&id])
-            .map_err(|e| e.to_string())?;
-        conn.execute("DELETE FROM notes WHERE id = ?1", [&id])
-            .map_err(|e| e.to_string())?;
-        deleted_ids.push(id);
-    }
+    let prepared = prepare_path_changes(conn, vault, changes)?;
+    let deleted_ids = prepare_deleted_ids(conn, vault, deleted_paths)?;
+    apply_prepared_index_updates(conn, &prepared, &deleted_ids)?;
     Ok(deleted_ids)
 }
 
@@ -2105,6 +2504,99 @@ mod tests {
             original
         );
         assert!(Path::new(&migration.journal_path).is_file());
+        assert_eq!(migration.status, IdMigrationStatus::Completed);
+    }
+
+    #[test]
+    fn failed_id_migration_can_resume_after_note_write_before_journal_progress() {
+        let vault = temp_vault("id-migration-resume");
+        let first = vault.join("First.md");
+        let second = vault.join("Second.md");
+        fs::write(&first, "First original").unwrap();
+        fs::write(&second, "Second original").unwrap();
+
+        fail_next_migration_stage(2);
+        assert!(apply_id_migration(&vault).is_err());
+
+        let unfinished = unfinished_id_migrations(&vault).unwrap();
+        assert_eq!(unfinished.len(), 1);
+        let recovery = &unfinished[0];
+        assert_eq!(recovery.status, IdMigrationStatus::InProgress);
+        assert_eq!(
+            preflight_vault(&vault).unwrap().unfinished_migrations.len(),
+            1
+        );
+        assert!(recovery
+            .files
+            .iter()
+            .any(|file| file.status == IdMigrationFileStatus::BackupCreated));
+        assert!(frontmatter::read_markdown(&first).unwrap().id.is_some());
+
+        let resumed = recover_id_migration(
+            &vault,
+            &recovery.journal_path,
+            IdMigrationRecoveryAction::Resume,
+        )
+        .unwrap();
+        assert_eq!(resumed.status, IdMigrationStatus::Completed);
+        assert!(resumed
+            .files
+            .iter()
+            .all(|file| file.status == IdMigrationFileStatus::Applied));
+        assert!(frontmatter::read_markdown(&first).unwrap().id.is_some());
+        assert!(frontmatter::read_markdown(&second).unwrap().id.is_some());
+        assert!(unfinished_id_migrations(&vault).unwrap().is_empty());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn failed_id_migration_can_roll_back_created_backup_without_overwriting_user_edits() {
+        let vault = temp_vault("id-migration-rollback");
+        let note = vault.join("Untitled.md");
+        let original = "Untitled original\n";
+        fs::write(&note, original).unwrap();
+
+        fail_next_migration_stage(1);
+        assert!(apply_id_migration(&vault).is_err());
+        let recovery = unfinished_id_migrations(&vault).unwrap().pop().unwrap();
+        assert_eq!(recovery.files[0].status, IdMigrationFileStatus::Pending);
+        let rolled_back = recover_id_migration(
+            &vault,
+            &recovery.journal_path,
+            IdMigrationRecoveryAction::Rollback,
+        )
+        .unwrap();
+        assert_eq!(rolled_back.status, IdMigrationStatus::RolledBack);
+        assert_eq!(fs::read_to_string(&note).unwrap(), original);
+        assert!(unfinished_id_migrations(&vault).unwrap().is_empty());
+
+        let completed = recover_id_migration(
+            &vault,
+            &recovery.journal_path,
+            IdMigrationRecoveryAction::Rollback,
+        )
+        .unwrap();
+        assert_eq!(completed.status, IdMigrationStatus::RolledBack);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn migration_rollback_refuses_to_overwrite_later_user_frontmatter() {
+        let vault = temp_vault("id-migration-user-edit");
+        let note = vault.join("Untitled.md");
+        fs::write(&note, "Untitled original\n").unwrap();
+        let migration = apply_id_migration(&vault).unwrap();
+        let user_edit = "---\nid: external-system\n---\nUser edit\n";
+        fs::write(&note, user_edit).unwrap();
+
+        assert!(recover_id_migration(
+            &vault,
+            &migration.journal_path,
+            IdMigrationRecoveryAction::Rollback,
+        )
+        .is_err());
+        assert_eq!(fs::read_to_string(&note).unwrap(), user_edit);
+        fs::remove_dir_all(vault).unwrap();
     }
 
     #[test]
@@ -2213,7 +2705,7 @@ mod tests {
             .clone();
 
         fs::remove_file(&target).unwrap();
-        let deleted = index_delete_paths(&conn, &vault, &[path_string(&target)]).unwrap();
+        let deleted = index_apply_mutation(&conn, &vault, &[], &[path_string(&target)]).unwrap();
 
         assert_eq!(deleted, vec![target_id]);
         assert!(note_id_for_path(&conn, &vault, &target).unwrap().is_none());
@@ -2222,6 +2714,102 @@ mod tests {
             .edges
             .iter()
             .any(|edge| edge.unresolved == Some(true)));
+    }
+
+    #[test]
+    fn failed_incremental_upsert_rolls_back_notes_tags_and_links() {
+        let vault = temp_vault("incremental-rollback");
+        let source = vault.join("A.md");
+        let target = vault.join("B.md");
+        fs::write(&source, "Old body #old [[B]]").unwrap();
+        fs::write(&target, "# B").unwrap();
+        let conn = open_conn(&vault);
+        let loaded = load_vault(&conn, &vault).unwrap();
+        let source_id = loaded
+            .notes
+            .iter()
+            .find(|note| note.path.ends_with("A.md"))
+            .unwrap()
+            .id
+            .clone();
+
+        let before_content: String = conn
+            .query_row(
+                "SELECT content FROM notes WHERE id = ?1",
+                [&source_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let before_tags: Vec<String> = {
+            let mut statement = conn
+                .prepare("SELECT tag FROM tags WHERE note_id = ?1 ORDER BY tag")
+                .unwrap();
+            statement
+                .query_map([&source_id], |row| row.get(0))
+                .unwrap()
+                .collect::<Result<Vec<String>, _>>()
+                .unwrap()
+        };
+        let before_links: Vec<(String, String, Option<String>)> = {
+            let mut statement = conn
+                .prepare(
+                    "SELECT raw, target, target_note_id FROM links WHERE note_id = ?1 ORDER BY rowid",
+                )
+                .unwrap();
+            statement
+                .query_map([&source_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
+                .unwrap()
+                .collect::<Result<Vec<(String, String, Option<String>)>, _>>()
+                .unwrap()
+        };
+
+        let updated = format!("---\nid: {source_id}\n---\nNew body #new [[Missing]]");
+        fs::write(&source, &updated).unwrap();
+        let updated_body = frontmatter::parse_markdown(&updated).body;
+        fail_next_index_stage(3);
+        assert!(upsert_note_index(&conn, &vault, &source_id, &updated_body, &source).is_err());
+
+        let content_after_failure: String = conn
+            .query_row(
+                "SELECT content FROM notes WHERE id = ?1",
+                [&source_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(content_after_failure, before_content);
+        let tags_after_failure: Vec<String> = conn
+            .prepare("SELECT tag FROM tags WHERE note_id = ?1 ORDER BY tag")
+            .unwrap()
+            .query_map([&source_id], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<Vec<String>, _>>()
+            .unwrap();
+        assert_eq!(tags_after_failure, before_tags);
+        let links_after_failure: Vec<(String, String, Option<String>)> = conn
+            .prepare(
+                "SELECT raw, target, target_note_id FROM links WHERE note_id = ?1 ORDER BY rowid",
+            )
+            .unwrap()
+            .query_map([&source_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .unwrap()
+            .collect::<Result<Vec<(String, String, Option<String>)>, _>>()
+            .unwrap();
+        assert_eq!(links_after_failure, before_links);
+
+        sync_vault(&conn, &vault).unwrap();
+        let recovered: String = conn
+            .query_row(
+                "SELECT content FROM notes WHERE id = ?1",
+                [&source_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(recovered, updated_body);
+        fs::remove_dir_all(vault).unwrap();
     }
 
     #[test]

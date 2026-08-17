@@ -7,23 +7,29 @@ mod model;
 mod paths;
 mod property_store;
 mod recycle_bin;
+mod vault_context;
 mod vault_index;
 
-use std::collections::HashMap;
+use std::collections::{hash_map::DefaultHasher, HashMap};
 use std::error::Error;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use bundle::*;
 use model::*;
 
+type DbState = vault_context::VaultContext;
+
 // ── Rust-side file-system watcher ───────────────────────────────────────────
 
-/// How long (ms) after our own write we suppress the watcher event for that
-/// path. Covers the latency between `atomic_write` and the notify callback.
-const SELF_WRITE_GRACE_MS: u128 = 2_000;
+/// How long a precise self-write fingerprint remains available to reconcile
+/// delayed notify events. It is never a time-only suppression rule: the
+/// current filesystem fingerprint must still exactly match the record.
+const SELF_WRITE_RECORD_TTL: Duration = Duration::from_secs(8);
 const MAIN_WINDOW_LABEL: &str = "main";
 
 fn init_logging() {
@@ -109,39 +115,94 @@ fn is_amby_temporary_file(path: &Path) -> bool {
         .is_some_and(|name| name.to_string_lossy().contains(".amby-tmp-"))
 }
 
-/// Holds the single open SQLite connection for the active vault.
-/// All Tauri commands that need the DB lock this mutex and pass `&conn`
-/// to vault_index functions, avoiding the per-command open/close overhead
-/// (WAL pragma + schema check) that the old pattern incurred.
-pub struct DbState {
-    conn: Mutex<Option<rusqlite::Connection>>,
-}
-
-impl DbState {
-    fn new() -> Self {
-        Self {
-            conn: Mutex::new(None),
-        }
-    }
-
-    /// Open (or replace) the connection for `vault`.  Called from `load_vault`
-    /// whenever a vault is activated.  Vault-switch is handled automatically:
-    /// the old connection is dropped when `Some` is replaced.
-    fn open(&self, vault: &std::path::Path) -> Result<(), String> {
-        let new_conn = vault_index::open_connection(vault)?;
-        *self.conn.lock().unwrap() = Some(new_conn);
-        Ok(())
-    }
-}
-
 /// Manages the active `notify` watcher for the open vault.  Stored in
 /// `tauri::State` so it lives for the whole app lifetime.
 pub struct WatcherState {
     /// The active watcher (dropped → OS unregisters the watch).
     watcher: Mutex<Option<notify::RecommendedWatcher>>,
-    /// Absolute paths written by our own commands + the write timestamp.
-    /// The watcher callback skips their events within SELF_WRITE_GRACE_MS.
-    own_writes: Arc<Mutex<HashMap<PathBuf, Instant>>>,
+    /// Exact results of our own filesystem writes. Parent directories are not
+    /// recorded: a sibling file change must never be hidden by a broad marker.
+    own_writes: Arc<Mutex<HashMap<PathBuf, SelfWriteRecord>>>,
+    /// The active watcher's vault generation. A callback from a dropped prior
+    /// watcher is ignored even if the OS delivers it late.
+    active_generation: Arc<AtomicU64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SelfWriteOperation {
+    Write,
+    Create,
+    Delete,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum PathFingerprint {
+    File { size: u64, content_hash: u64 },
+    Directory,
+    Missing,
+    Unavailable,
+}
+
+#[derive(Clone, Debug)]
+struct SelfWriteRecord {
+    operation: SelfWriteOperation,
+    expected: PathFingerprint,
+    recorded_at: Instant,
+    expires_at: Instant,
+    generation: u64,
+}
+
+fn path_fingerprint(path: &Path) -> PathFingerprint {
+    let metadata = match fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return PathFingerprint::Missing
+        }
+        Err(_) => return PathFingerprint::Unavailable,
+    };
+    if metadata.is_dir() {
+        return PathFingerprint::Directory;
+    }
+    if !metadata.is_file() {
+        return PathFingerprint::Unavailable;
+    }
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(_) => return PathFingerprint::Unavailable,
+    };
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    PathFingerprint::File {
+        size: metadata.len(),
+        content_hash: hasher.finish(),
+    }
+}
+
+fn operation_for_fingerprint(fingerprint: &PathFingerprint) -> SelfWriteOperation {
+    match fingerprint {
+        PathFingerprint::Missing => SelfWriteOperation::Delete,
+        PathFingerprint::Directory => SelfWriteOperation::Create,
+        PathFingerprint::File { .. } | PathFingerprint::Unavailable => SelfWriteOperation::Write,
+    }
+}
+
+fn event_matches_operation(kind: &str, record: &SelfWriteRecord) -> bool {
+    match kind {
+        "rename" => matches!(
+            record.operation,
+            SelfWriteOperation::Create | SelfWriteOperation::Delete | SelfWriteOperation::Write
+        ),
+        "remove" => matches!(record.operation, SelfWriteOperation::Delete),
+        "create" => matches!(
+            record.operation,
+            SelfWriteOperation::Create | SelfWriteOperation::Write
+        ),
+        "modify" => matches!(
+            record.operation,
+            SelfWriteOperation::Write | SelfWriteOperation::Create
+        ),
+        _ => false,
+    }
 }
 
 impl WatcherState {
@@ -149,14 +210,12 @@ impl WatcherState {
         Self {
             watcher: Mutex::new(None),
             own_writes: Arc::new(Mutex::new(HashMap::new())),
+            active_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
-    /// Record paths our own commands just wrote so the watcher callback can
-    /// suppress the resulting fs events within the grace window. Each path's
-    /// parent dir is registered too: that covers directory-create events (bundle
-    /// promotion, new folders) and macOS FSEvents that report the parent dir
-    /// instead of the changed file.
+    /// Record a completed write's exact on-disk result. Callers invoke this
+    /// after the filesystem operation succeeds, never as a speculative marker.
     fn mark_write<I, P>(&self, paths: I)
     where
         I: IntoIterator<Item = P>,
@@ -164,15 +223,46 @@ impl WatcherState {
     {
         let mut guard = self.own_writes.lock().unwrap();
         let now = Instant::now();
+        let generation = self.active_generation.load(Ordering::Acquire);
         for p in paths {
-            let path = p.as_ref();
-            guard.insert(path.to_path_buf(), now);
-            if let Some(parent) = path.parent() {
-                guard.insert(parent.to_path_buf(), now);
-            }
+            let path = p.as_ref().to_path_buf();
+            let expected = path_fingerprint(&path);
+            guard.insert(
+                path,
+                SelfWriteRecord {
+                    operation: operation_for_fingerprint(&expected),
+                    expected,
+                    recorded_at: now,
+                    expires_at: now + SELF_WRITE_RECORD_TTL,
+                    generation,
+                },
+            );
         }
-        guard.retain(|_, at| at.elapsed().as_millis() < SELF_WRITE_GRACE_MS * 4);
+        guard.retain(|_, record| record.expires_at > now);
     }
+}
+
+fn reconcile_self_write(
+    own_writes: &Mutex<HashMap<PathBuf, SelfWriteRecord>>,
+    path: &Path,
+    kind: &str,
+    generation: u64,
+) -> bool {
+    let now = Instant::now();
+    let mut guard = own_writes.lock().unwrap();
+    let Some(record) = guard.get(path).cloned() else {
+        return false;
+    };
+    let age = now.saturating_duration_since(record.recorded_at);
+    if record.generation != generation || record.expires_at <= now || age >= SELF_WRITE_RECORD_TTL {
+        // Re-fingerprint after expiry before removing the record. This
+        // provides a deterministic reconciliation point for delayed or
+        // directory-level events without treating elapsed time as proof.
+        let _ = path_fingerprint(path);
+        guard.remove(path);
+        return false;
+    }
+    event_matches_operation(kind, &record) && path_fingerprint(path) == record.expected
 }
 
 /// Every absolute path touched by a filesystem mutation (created, renamed, or
@@ -197,55 +287,67 @@ fn mutation_paths(result: &FsMutationResult) -> Vec<PathBuf> {
 }
 
 fn sync_mutation_result(
+    context: &vault_context::VaultContext,
     conn: &rusqlite::Connection,
     vault_path: &Path,
     mut result: FsMutationResult,
-) -> Result<FsMutationResult, String> {
-    vault_index::index_apply_path_changes(conn, vault_path, &result.path_changes)?;
-    result.deleted_ids = vault_index::index_delete_paths(conn, vault_path, &result.deleted_paths)?;
-    result.primary_id = result
-        .primary_path
-        .as_ref()
-        .map(|path| vault_index::note_id_for_path(conn, vault_path, Path::new(path)))
-        .transpose()?
-        .flatten();
-    Ok(result)
+) -> MutationOutcome {
+    let index_result = (|| -> Result<(), String> {
+        result.deleted_ids = vault_index::index_apply_mutation(
+            conn,
+            vault_path,
+            &result.path_changes,
+            &result.deleted_paths,
+        )?;
+        result.primary_id = result
+            .primary_path
+            .as_ref()
+            .map(|path| vault_index::note_id_for_path(conn, vault_path, Path::new(path)))
+            .transpose()?
+            .flatten();
+        Ok(())
+    })();
+
+    match index_result {
+        Ok(()) => MutationOutcome {
+            mutation: result,
+            index_state: IndexState::Healthy,
+            warnings: Vec::new(),
+        },
+        Err(error) => {
+            tracing::warn!(event = "index_update_failed", error = %error);
+            let _ = context.mark_index_rebuild_required();
+            MutationOutcome {
+                mutation: result,
+                index_state: IndexState::RebuildRequired,
+                warnings: vec![OperationWarning::IndexRebuildRequired],
+            }
+        }
+    }
 }
 
-/// Mark `vault_path` as the active vault: record it for path guards and grant
-/// the fs + asset-protocol scopes dynamically (instead of a static recursive
-/// scope over the whole home directory).
-fn activate_vault(
-    app: &tauri::AppHandle,
-    scope: &paths::VaultScope,
-    vault_path: &str,
-) -> Result<PathBuf, String> {
+/// Grant the active vault to the asset protocol. Filesystem access stays in
+/// backend commands; the renderer never receives a filesystem plugin scope.
+fn grant_vault_scopes(app: &tauri::AppHandle, vault: &Path) -> Result<(), String> {
     use tauri::Manager;
-    use tauri_plugin_fs::FsExt;
-    let canonical = Path::new(vault_path)
-        .canonicalize()
-        .map_err(|e| format!("Vault not accessible: {e}"))?;
-    scope.set(canonical.clone());
-    let _ = app.fs_scope().allow_directory(&canonical, true);
-    let _ = app.asset_protocol_scope().allow_directory(&canonical, true);
-    Ok(canonical)
+    app.asset_protocol_scope()
+        .allow_directory(vault, true)
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
 fn load_vault(
     app: tauri::AppHandle,
-    scope: tauri::State<'_, paths::VaultScope>,
-    db: tauri::State<'_, DbState>,
+    context: tauri::State<'_, vault_context::VaultContext>,
     vault_path: String,
 ) -> Result<vault_index::LoadVaultResult, String> {
-    let canonical = activate_vault(&app, &scope, &vault_path)?;
-    // Open (or replace) the persistent connection for this vault.
-    db.open(&canonical)?;
-    let conn_guard = db.conn.lock().unwrap();
-    let conn = conn_guard.as_ref().unwrap();
-    property_store::restore_cache(conn, &canonical)?;
-    vault_index::load_vault(conn, &canonical)
+    context.activate(
+        &vault_path,
+        |root| grant_vault_scopes(&app, root),
+        |loaded, _generation| loaded,
+    )
 }
 
 #[tauri::command]
@@ -259,31 +361,53 @@ fn preflight_vault(vault_path: String) -> Result<vault_index::VaultPreflight, St
 
 #[tauri::command]
 #[specta::specta]
-fn apply_id_migration(
-    app: tauri::AppHandle,
-    scope: tauri::State<'_, paths::VaultScope>,
-    vault_path: String,
-) -> Result<vault_index::IdMigrationResult, String> {
-    let canonical = activate_vault(&app, &scope, &vault_path)?;
+fn apply_id_migration(vault_path: String) -> Result<vault_index::IdMigrationResult, String> {
+    let canonical = Path::new(&vault_path)
+        .canonicalize()
+        .map_err(|error| format!("Vault not accessible: {error}"))?;
+    if !canonical.is_dir() {
+        return Err(format!("Vault is not a directory: {}", canonical.display()));
+    }
     vault_index::apply_id_migration(&canonical)
 }
 
 #[tauri::command]
 #[specta::specta]
-fn list_files(
-    db: tauri::State<'_, DbState>,
+fn inspect_id_migrations(
     vault_path: String,
-) -> Result<Vec<vault_index::TreeItem>, String> {
+) -> Result<Vec<vault_index::IdMigrationRecovery>, String> {
+    let canonical = Path::new(&vault_path)
+        .canonicalize()
+        .map_err(|error| format!("Vault not accessible: {error}"))?;
+    vault_index::unfinished_id_migrations(&canonical)
+}
+
+#[tauri::command]
+#[specta::specta]
+fn recover_id_migration(
+    vault_path: String,
+    journal_path: String,
+    action: vault_index::IdMigrationRecoveryAction,
+) -> Result<vault_index::IdMigrationRecovery, String> {
+    let canonical = Path::new(&vault_path)
+        .canonicalize()
+        .map_err(|error| format!("Vault not accessible: {error}"))?;
+    vault_index::recover_id_migration(&canonical, &journal_path, action)
+}
+
+#[tauri::command]
+#[specta::specta]
+fn list_files(db: tauri::State<'_, DbState>) -> Result<Vec<vault_index::TreeItem>, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    vault_index::load_vault(conn, Path::new(&vault_path)).map(|loaded| loaded.tree)
+    vault_index::load_vault(conn, &conn.root).map(|loaded| loaded.tree)
 }
 
 #[tauri::command]
 #[specta::specta]
 fn read_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result<String, String> {
-    paths::guard(&scope, &path)?;
-    fs::read_to_string(&path).map_err(|e| e.to_string())
+    let path = paths::guard(&scope, &path)?;
+    fs::read_to_string(path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -294,11 +418,11 @@ fn write_file(
     path: String,
     content: String,
 ) -> Result<(), String> {
-    paths::guard(&scope, &path)?;
+    let path = paths::guard(&scope, &path)?;
     let vault = scope.get()?;
-    history::snapshot_before_write(&vault, Path::new(&path), content.as_bytes(), "file-save")?;
-    frontmatter::atomic_write(Path::new(&path), &content)?;
-    watcher_state.mark_write([Path::new(&path)]);
+    history::snapshot_before_write(&vault, &path, content.as_bytes(), "file-save")?;
+    frontmatter::atomic_write(&path, &content)?;
+    watcher_state.mark_write([&path]);
     Ok(())
 }
 
@@ -309,8 +433,7 @@ fn save_conflict_copy(
     path: String,
     content: String,
 ) -> Result<String, String> {
-    paths::guard(&scope, &path)?;
-    let original = PathBuf::from(path);
+    let original = paths::guard(&scope, &path)?;
     let parent = original
         .parent()
         .ok_or_else(|| "Cannot create a copy without a parent directory".to_string())?;
@@ -341,8 +464,8 @@ fn list_snapshots(
     scope: tauri::State<paths::VaultScope>,
     source_path: String,
 ) -> Result<Vec<history::SnapshotEntry>, String> {
-    paths::guard(&scope, &source_path)?;
-    history::list_snapshots(&scope.get()?, Path::new(&source_path))
+    let source_path = paths::guard(&scope, &source_path)?;
+    history::list_snapshots(&scope.get()?, &source_path)
 }
 
 #[tauri::command]
@@ -373,14 +496,10 @@ fn read_snapshot_text(
 
 #[tauri::command]
 #[specta::specta]
-fn read_note(
-    db: tauri::State<'_, DbState>,
-    vault_path: String,
-    note_id: String,
-) -> Result<String, String> {
+fn read_note(db: tauri::State<'_, DbState>, note_id: String) -> Result<String, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    vault_index::read_note(conn, Path::new(&vault_path), &note_id)
+    vault_index::read_note(conn, &conn.root, &note_id)
 }
 
 #[tauri::command]
@@ -388,34 +507,43 @@ fn read_note(
 fn write_note(
     db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     note_id: String,
     content: String,
-) -> Result<(), String> {
+) -> Result<WriteNoteOutcome, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    // Register the destination before the atomic write. On fast filesystems
-    // notify may deliver the rename/create event before `write_note` returns;
-    // marking afterwards made our own autosaves occasionally look external.
-    let destination = vault_index::note_metadata(conn, Path::new(&vault_path), &note_id)?;
-    watcher_state.mark_write([Path::new(&destination.path)]);
-    let path = vault_index::write_note(conn, Path::new(&vault_path), &note_id, &content)?;
+    let destination = vault_index::note_metadata(conn, &conn.root, &note_id)?;
+    let (path, body) = vault_index::write_note_filesystem(conn, &conn.root, &note_id, &content)?;
+    watcher_state.mark_write([&path]);
+    let index_result = vault_index::upsert_note_index(conn, &conn.root, &note_id, &body, &path);
     drop(conn_guard); // release DB lock before touching watcher state
-                      // Keep the returned path registered too in case the index normalised it.
-    watcher_state.mark_write([path]);
-    Ok(())
+    match index_result {
+        Ok(()) => Ok(WriteNoteOutcome {
+            path: destination.path,
+            index_state: IndexState::Healthy,
+            warnings: Vec::new(),
+        }),
+        Err(error) => {
+            tracing::warn!(event = "index_update_failed", error = %error);
+            db.mark_index_rebuild_required()?;
+            Ok(WriteNoteOutcome {
+                path: destination.path,
+                index_state: IndexState::RebuildRequired,
+                warnings: vec![OperationWarning::IndexRebuildRequired],
+            })
+        }
+    }
 }
 
 #[tauri::command]
 #[specta::specta]
 fn get_note_metadata(
     db: tauri::State<'_, DbState>,
-    vault_path: String,
     note_id: String,
 ) -> Result<NoteMetadata, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let note = vault_index::note_metadata(conn, Path::new(&vault_path), &note_id)?;
+    let note = vault_index::note_metadata(conn, &conn.root, &note_id)?;
     Ok(NoteMetadata {
         created: vault_index::note_created_at(conn, &note_id)?,
         modified: note.modified,
@@ -427,72 +555,62 @@ fn get_note_metadata(
 #[specta::specta]
 fn get_note_properties(
     db: tauri::State<'_, DbState>,
-    vault_path: String,
     note_id: String,
 ) -> Result<NoteProperties, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    vault_index::note_properties(conn, Path::new(&vault_path), &note_id)
+    vault_index::note_properties(conn, &conn.root, &note_id)
 }
 
 #[tauri::command]
 #[specta::specta]
 fn upsert_custom_property(
     db: tauri::State<'_, DbState>,
-    vault_path: String,
     note_id: String,
     property: CustomProperty,
 ) -> Result<CustomProperty, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    property_store::upsert(conn, Path::new(&vault_path), &note_id, property)
+    property_store::upsert(conn, &conn.root, &note_id, property)
 }
 
 #[tauri::command]
 #[specta::specta]
 fn delete_custom_property(
     db: tauri::State<'_, DbState>,
-    vault_path: String,
     note_id: String,
     property_id: String,
 ) -> Result<(), String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    property_store::delete(conn, Path::new(&vault_path), &note_id, &property_id)
+    property_store::delete(conn, &conn.root, &note_id, &property_id)
 }
 
 #[tauri::command]
 #[specta::specta]
-fn list_tags(
-    db: tauri::State<'_, DbState>,
-    vault_path: String,
-) -> Result<Vec<vault_index::TagEntry>, String> {
+fn list_tags(db: tauri::State<'_, DbState>) -> Result<Vec<vault_index::TagEntry>, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    vault_index::list_tags(conn, Path::new(&vault_path))
+    vault_index::list_tags(conn, &conn.root)
 }
 
 #[tauri::command]
 #[specta::specta]
 fn search_notes(
     db: tauri::State<'_, DbState>,
-    vault_path: String,
     query: String,
 ) -> Result<Vec<vault_index::SearchResult>, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    vault_index::search_notes(conn, Path::new(&vault_path), &query)
+    vault_index::search_notes(conn, &conn.root, &query)
 }
 
 #[tauri::command]
 #[specta::specta]
-fn get_link_graph(
-    db: tauri::State<'_, DbState>,
-    vault_path: String,
-) -> Result<vault_index::LinkGraph, String> {
+fn get_link_graph(db: tauri::State<'_, DbState>) -> Result<vault_index::LinkGraph, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    vault_index::link_graph(conn, Path::new(&vault_path))
+    vault_index::link_graph(conn, &conn.root)
 }
 
 #[tauri::command]
@@ -500,11 +618,10 @@ fn get_link_graph(
 fn ensure_bundle(
     db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     path: String,
-) -> Result<FsMutationResult, String> {
-    paths::guard_in(&vault_path, &path)?;
-    let (primary, path_changes) = ensure_bundle_path(Path::new(&path))?;
+) -> Result<MutationOutcome, String> {
+    let path = paths::guard(&db, &path)?;
+    let (primary, path_changes) = ensure_bundle_path(&path)?;
     let result = FsMutationResult {
         primary_id: None,
         primary_path: Some(path_string(&primary)),
@@ -515,7 +632,7 @@ fn ensure_bundle(
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    sync_mutation_result(conn, Path::new(&vault_path), result)
+    Ok(sync_mutation_result(&db, conn, &conn.root, result))
 }
 
 #[tauri::command]
@@ -523,16 +640,15 @@ fn ensure_bundle(
 fn create_note(
     db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     parent_path: String,
     name: String,
-) -> Result<FsMutationResult, String> {
-    paths::guard_in(&vault_path, &parent_path)?;
-    let result = bundle::create_note_impl(Path::new(&parent_path), &name)?;
+) -> Result<MutationOutcome, String> {
+    let parent_path = paths::guard(&db, &parent_path)?;
+    let result = bundle::create_note_impl(&parent_path, &name)?;
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    sync_mutation_result(conn, Path::new(&vault_path), result)
+    Ok(sync_mutation_result(&db, conn, &conn.root, result))
 }
 
 #[tauri::command]
@@ -544,8 +660,8 @@ fn create_layer(
     note_path: String,
     kind: String,
 ) -> Result<LayerResult, String> {
-    paths::guard(&scope, &note_path)?;
-    let result = create_layer_impl(Path::new(&note_path), &kind)?;
+    let note_path = paths::guard(&scope, &note_path)?;
+    let result = create_layer_impl(&note_path, &kind)?;
     let mut paths = vec![PathBuf::from(&result.layer_path)];
     for change in &result.path_changes {
         if !change.old_path.is_empty() {
@@ -566,13 +682,13 @@ fn create_layer(
 #[tauri::command]
 #[specta::specta]
 fn create_canvas(
+    db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     parent_path: String,
     name: String,
 ) -> Result<String, String> {
-    paths::guard_in(&vault_path, &parent_path)?;
-    let path = create_canvas_impl(Path::new(&parent_path), &name)?;
+    let parent_path = paths::guard(&db, &parent_path)?;
+    let path = create_canvas_impl(&parent_path, &name)?;
     watcher_state.mark_write([path.as_path()]);
     Ok(path_string(&path))
 }
@@ -582,15 +698,14 @@ fn create_canvas(
 fn attach_canvas_to_note(
     db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     canvas_path: String,
-) -> Result<FsMutationResult, String> {
-    paths::guard_in(&vault_path, &canvas_path)?;
-    let result = attach_canvas_impl(Path::new(&canvas_path))?;
+) -> Result<MutationOutcome, String> {
+    let canvas_path = paths::guard(&db, &canvas_path)?;
+    let result = attach_canvas_impl(&canvas_path)?;
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    sync_mutation_result(conn, Path::new(&vault_path), result)
+    Ok(sync_mutation_result(&db, conn, &conn.root, result))
 }
 
 #[tauri::command]
@@ -598,16 +713,15 @@ fn attach_canvas_to_note(
 fn unlink_layer(
     db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     note_path: String,
     kind: String,
-) -> Result<FsMutationResult, String> {
-    paths::guard_in(&vault_path, &note_path)?;
-    let result = unlink_layer_impl(Path::new(&note_path), &kind)?;
+) -> Result<MutationOutcome, String> {
+    let note_path = paths::guard(&db, &note_path)?;
+    let result = unlink_layer_impl(&note_path, &kind)?;
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    sync_mutation_result(conn, Path::new(&vault_path), result)
+    Ok(sync_mutation_result(&db, conn, &conn.root, result))
 }
 
 #[tauri::command]
@@ -615,16 +729,16 @@ fn unlink_layer(
 fn delete_layer(
     db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     note_path: String,
     kind: String,
-) -> Result<FsMutationResult, String> {
-    paths::guard_in(&vault_path, &note_path)?;
-    let result = delete_layer_impl(Path::new(&vault_path), Path::new(&note_path), &kind)?;
+) -> Result<MutationOutcome, String> {
+    let note_path = paths::guard(&db, &note_path)?;
+    let vault = db.root()?;
+    let result = delete_layer_impl(&vault, &note_path, &kind)?;
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    sync_mutation_result(conn, Path::new(&vault_path), result)
+    Ok(sync_mutation_result(&db, conn, &conn.root, result))
 }
 
 #[tauri::command]
@@ -633,8 +747,7 @@ fn note_layers(
     scope: tauri::State<paths::VaultScope>,
     note_path: String,
 ) -> Result<NoteLayers, String> {
-    paths::guard(&scope, &note_path)?;
-    let path = Path::new(&note_path);
+    let path = paths::guard(&scope, &note_path)?;
     let mut layers = NoteLayers::default();
     if !path.is_file() {
         return Ok(layers);
@@ -645,7 +758,7 @@ fn note_layers(
     let Some(parent_name) = parent.file_name().map(|s| s.to_string_lossy().to_string()) else {
         return Ok(layers);
     };
-    let stem = file_stem(path)?;
+    let stem = file_stem(&path)?;
     if parent_name != stem {
         return Ok(layers);
     }
@@ -660,30 +773,23 @@ fn note_layers(
 fn move_item(
     db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     source_path: String,
     target_path: String,
-) -> Result<FsMutationResult, String> {
-    paths::guard_in(&vault_path, &source_path)?;
-    paths::guard_in(&vault_path, &target_path)?;
+) -> Result<MutationOutcome, String> {
+    let source_path = paths::guard(&db, &source_path)?;
+    let target_path = paths::guard(&db, &target_path)?;
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     // Build the entire reference plan while SQLite still maps the old paths.
     // This avoids a post-move window where a failed plan leaves a partial
     // filesystem mutation behind.
-    let preview = preview_move_item(Path::new(&source_path), Path::new(&target_path))?;
-    let plan = vault_index::plan_inbound_wiki_rewrites(
-        conn,
-        Path::new(&vault_path),
-        &preview.path_changes,
-    )?;
-    let result = move_item_impl(Path::new(&source_path), Path::new(&target_path))?;
-    let rewritten = match vault_index::apply_planned_wiki_rewrites(Path::new(&vault_path), &plan) {
+    let preview = preview_move_item(&source_path, &target_path)?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(conn, &conn.root, &preview.path_changes)?;
+    let result = move_item_impl(&source_path, &target_path)?;
+    let rewritten = match vault_index::apply_planned_wiki_rewrites(&conn.root, &plan) {
         Ok(rewritten) => rewritten,
         Err(error) => {
-            if let Err(rollback_error) =
-                rollback_move_item(Path::new(&source_path), Path::new(&target_path), &result)
-            {
+            if let Err(rollback_error) = rollback_move_item(&source_path, &target_path, &result) {
                 return Err(format!("Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"));
             }
             return Err(format!(
@@ -694,7 +800,7 @@ fn move_item(
     let mut changed_paths = mutation_paths(&result);
     changed_paths.extend(rewritten.iter().cloned());
     watcher_state.mark_write(changed_paths);
-    let result = sync_mutation_result(conn, Path::new(&vault_path), result)?;
+    let mut outcome = sync_mutation_result(&db, conn, &conn.root, result);
     let rewritten_changes = rewritten
         .into_iter()
         .map(|path| PathChange {
@@ -702,28 +808,31 @@ fn move_item(
             new_path: path_string(&path),
         })
         .collect::<Vec<_>>();
-    vault_index::index_apply_path_changes(conn, Path::new(&vault_path), &rewritten_changes)?;
-    Ok(result)
+    if let Err(error) = vault_index::index_apply_path_changes(conn, &conn.root, &rewritten_changes)
+    {
+        tracing::warn!(event = "index_update_failed", error = %error);
+        let _ = db.mark_index_rebuild_required();
+        outcome.index_state = IndexState::RebuildRequired;
+        outcome
+            .warnings
+            .push(OperationWarning::IndexRebuildRequired);
+    }
+    Ok(outcome)
 }
 
 #[tauri::command]
 #[specta::specta]
 fn preview_move_refactor(
     db: tauri::State<'_, DbState>,
-    vault_path: String,
     source_path: String,
     target_path: String,
 ) -> Result<vault_index::RefactorPreview, String> {
-    paths::guard_in(&vault_path, &source_path)?;
-    paths::guard_in(&vault_path, &target_path)?;
+    let source_path = paths::guard(&db, &source_path)?;
+    let target_path = paths::guard(&db, &target_path)?;
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let preview = preview_move_item(Path::new(&source_path), Path::new(&target_path))?;
-    let plan = vault_index::plan_inbound_wiki_rewrites(
-        conn,
-        Path::new(&vault_path),
-        &preview.path_changes,
-    )?;
+    let preview = preview_move_item(&source_path, &target_path)?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(conn, &conn.root, &preview.path_changes)?;
     Ok(vault_index::refactor_preview(&plan))
 }
 
@@ -734,18 +843,18 @@ fn create_file(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<(), String> {
-    paths::guard(&scope, &path)?;
-    if Path::new(&path).exists() {
-        return Err(format!("File already exists: {path}"));
+    let path = paths::guard(&scope, &path)?;
+    if path.exists() {
+        return Err(format!("File already exists: {}", path.display()));
     }
-    match frontmatter::atomic_write_new(Path::new(&path), "") {
+    match frontmatter::atomic_write_new(&path, "") {
         Ok(()) => {}
         Err(frontmatter::AtomicCreateError::AlreadyExists) => {
-            return Err(format!("File already exists: {path}"));
+            return Err(format!("File already exists: {}", path.display()));
         }
         Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
     }
-    watcher_state.mark_write([Path::new(&path)]);
+    watcher_state.mark_write([&path]);
     Ok(())
 }
 
@@ -756,12 +865,12 @@ fn create_folder(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
 ) -> Result<(), String> {
-    paths::guard(&scope, &path)?;
-    if Path::new(&path).exists() {
-        return Err(format!("Folder already exists: {path}"));
+    let path = paths::guard(&scope, &path)?;
+    if path.exists() {
+        return Err(format!("Folder already exists: {}", path.display()));
     }
     fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-    watcher_state.mark_write([Path::new(&path)]);
+    watcher_state.mark_write([&path]);
     Ok(())
 }
 
@@ -770,24 +879,19 @@ fn create_folder(
 fn rename_item(
     db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     path: String,
     new_name: String,
-) -> Result<FsMutationResult, String> {
-    paths::guard_in(&vault_path, &path)?;
+) -> Result<MutationOutcome, String> {
+    let path = paths::guard(&db, &path)?;
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let preview = preview_rename_item(Path::new(&path), &new_name)?;
-    let plan = vault_index::plan_inbound_wiki_rewrites(
-        conn,
-        Path::new(&vault_path),
-        &preview.path_changes,
-    )?;
-    let result = rename_item_impl(Path::new(&path), &new_name)?;
-    let rewritten = match vault_index::apply_planned_wiki_rewrites(Path::new(&vault_path), &plan) {
+    let preview = preview_rename_item(&path, &new_name)?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(conn, &conn.root, &preview.path_changes)?;
+    let result = rename_item_impl(&path, &new_name)?;
+    let rewritten = match vault_index::apply_planned_wiki_rewrites(&conn.root, &plan) {
         Ok(rewritten) => rewritten,
         Err(error) => {
-            if let Err(rollback_error) = rollback_rename_item(Path::new(&path), &result) {
+            if let Err(rollback_error) = rollback_rename_item(&path, &result) {
                 return Err(format!("Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"));
             }
             return Err(format!(
@@ -798,7 +902,7 @@ fn rename_item(
     let mut changed_paths = mutation_paths(&result);
     changed_paths.extend(rewritten.iter().cloned());
     watcher_state.mark_write(changed_paths);
-    let result = sync_mutation_result(conn, Path::new(&vault_path), result)?;
+    let mut outcome = sync_mutation_result(&db, conn, &conn.root, result);
     let rewritten_changes = rewritten
         .into_iter()
         .map(|path| PathChange {
@@ -806,27 +910,30 @@ fn rename_item(
             new_path: path_string(&path),
         })
         .collect::<Vec<_>>();
-    vault_index::index_apply_path_changes(conn, Path::new(&vault_path), &rewritten_changes)?;
-    Ok(result)
+    if let Err(error) = vault_index::index_apply_path_changes(conn, &conn.root, &rewritten_changes)
+    {
+        tracing::warn!(event = "index_update_failed", error = %error);
+        let _ = db.mark_index_rebuild_required();
+        outcome.index_state = IndexState::RebuildRequired;
+        outcome
+            .warnings
+            .push(OperationWarning::IndexRebuildRequired);
+    }
+    Ok(outcome)
 }
 
 #[tauri::command]
 #[specta::specta]
 fn preview_rename_refactor(
     db: tauri::State<'_, DbState>,
-    vault_path: String,
     path: String,
     new_name: String,
 ) -> Result<vault_index::RefactorPreview, String> {
-    paths::guard_in(&vault_path, &path)?;
+    let path = paths::guard(&db, &path)?;
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    let preview = preview_rename_item(Path::new(&path), &new_name)?;
-    let plan = vault_index::plan_inbound_wiki_rewrites(
-        conn,
-        Path::new(&vault_path),
-        &preview.path_changes,
-    )?;
+    let preview = preview_rename_item(&path, &new_name)?;
+    let plan = vault_index::plan_inbound_wiki_rewrites(conn, &conn.root, &preview.path_changes)?;
     Ok(vault_index::refactor_preview(&plan))
 }
 
@@ -835,15 +942,15 @@ fn preview_rename_refactor(
 fn delete_item(
     db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     path: String,
-) -> Result<FsMutationResult, String> {
-    paths::guard_in(&vault_path, &path)?;
-    let result = recycle_bin::move_to_trash(Path::new(&vault_path), Path::new(&path))?;
+) -> Result<MutationOutcome, String> {
+    let path = paths::guard(&db, &path)?;
+    let vault = db.root()?;
+    let result = recycle_bin::move_to_trash(&vault, &path)?;
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    sync_mutation_result(conn, Path::new(&vault_path), result)
+    Ok(sync_mutation_result(&db, conn, &conn.root, result))
 }
 
 #[tauri::command]
@@ -861,13 +968,13 @@ fn restore_trash(
     db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
     trash_id: String,
-) -> Result<FsMutationResult, String> {
+) -> Result<MutationOutcome, String> {
     let vault = scope.get()?;
     let result = recycle_bin::restore(&vault, &trash_id)?;
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    sync_mutation_result(conn, &vault, result)
+    Ok(sync_mutation_result(&db, conn, &vault, result))
 }
 
 #[tauri::command]
@@ -876,7 +983,7 @@ fn get_file_metadata(
     scope: tauri::State<paths::VaultScope>,
     path: String,
 ) -> Result<FileMetadata, String> {
-    paths::guard(&scope, &path)?;
+    let path = paths::guard(&scope, &path)?;
     let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
     let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
 
@@ -902,11 +1009,11 @@ fn get_file_metadata(
 #[tauri::command]
 #[specta::specta]
 fn open_in_explorer(scope: tauri::State<paths::VaultScope>, path: String) -> Result<(), String> {
-    paths::guard(&scope, &path)?;
+    let path = paths::guard(&scope, &path)?;
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        let arg = format!("/select,\"{}\"", path);
+        let arg = format!("/select,\"{}\"", path.display());
         std::process::Command::new("explorer")
             .raw_arg(&arg)
             .spawn()
@@ -915,7 +1022,8 @@ fn open_in_explorer(scope: tauri::State<paths::VaultScope>, path: String) -> Res
     #[cfg(target_os = "macos")]
     {
         std::process::Command::new("open")
-            .args(["-R", &path])
+            .arg("-R")
+            .arg(&path)
             .spawn()
             .map_err(|e| e.to_string())?;
     }
@@ -932,19 +1040,18 @@ fn open_in_explorer(scope: tauri::State<paths::VaultScope>, path: String) -> Res
 #[tauri::command]
 #[specta::specta]
 fn import_asset(
+    context: tauri::State<'_, vault_context::VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     note_path: String,
     source_path: String,
 ) -> Result<ImportedAsset, String> {
-    paths::guard_in(&vault_path, &note_path)?;
-    let vault = Path::new(&vault_path);
-    let note = Path::new(&note_path);
+    let note = paths::guard(&context, &note_path)?;
+    let vault = context.root()?;
     let source = Path::new(&source_path);
     if !source.is_file() {
         return Err(format!("Source is not a file: {source_path}"));
     }
-    let dir = assets_dir_for(vault, note);
+    let dir = assets_dir_for(&vault, &note);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let stem = source
         .file_stem()
@@ -963,7 +1070,7 @@ fn import_asset(
         match frontmatter::atomic_write_bytes_new(&dest, &bytes) {
             Ok(()) => {
                 watcher_state.mark_write([dest.as_path()]);
-                return Ok(build_imported_asset(vault, note, dest, name));
+                return Ok(build_imported_asset(&vault, &note, dest, name));
             }
             Err(frontmatter::AtomicCreateError::AlreadyExists) => continue,
             Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
@@ -975,16 +1082,15 @@ fn import_asset(
 #[tauri::command]
 #[specta::specta]
 fn import_asset_bytes(
+    context: tauri::State<'_, vault_context::VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
-    vault_path: String,
     note_path: String,
     bytes: Vec<u8>,
     suggested_ext: String,
 ) -> Result<ImportedAsset, String> {
-    paths::guard_in(&vault_path, &note_path)?;
-    let vault = Path::new(&vault_path);
-    let note = Path::new(&note_path);
-    let dir = assets_dir_for(vault, note);
+    let note = paths::guard(&context, &note_path)?;
+    let vault = context.root()?;
+    let dir = assets_dir_for(&vault, &note);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let ext = suggested_ext.trim_start_matches('.').to_lowercase();
     let ext = if ext.is_empty() {
@@ -999,7 +1105,7 @@ fn import_asset_bytes(
         match frontmatter::atomic_write_bytes_new(&dest, &bytes) {
             Ok(()) => {
                 watcher_state.mark_write([dest.as_path()]);
-                return Ok(build_imported_asset(vault, note, dest, name));
+                return Ok(build_imported_asset(&vault, &note, dest, name));
             }
             Err(frontmatter::AtomicCreateError::AlreadyExists) => continue,
             Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
@@ -1057,17 +1163,23 @@ async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String> {
 fn start_vault_watcher(
     app: tauri::AppHandle,
     state: tauri::State<'_, WatcherState>,
-    vault_path: String,
+    context: tauri::State<'_, vault_context::VaultContext>,
 ) -> Result<(), String> {
     use notify::Watcher;
     use tauri::Emitter;
 
-    let vault = PathBuf::from(&vault_path);
+    let vault = context.root()?;
+    let generation = context.generation()?;
+    state.active_generation.store(generation, Ordering::Release);
     let own_writes = Arc::clone(&state.own_writes);
+    let active_generation = Arc::clone(&state.active_generation);
     let app_handle = app.clone();
 
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
         let Ok(event) = res else { return };
+        if active_generation.load(Ordering::Acquire) != generation {
+            return;
+        }
 
         // Map to a frontend-visible kind string; ignore everything else
         // (metadata-only touches, access times, etc.).
@@ -1089,21 +1201,12 @@ fn start_vault_watcher(
             return;
         }
 
-        // Atomic writes and renames can surface as Create or Remove rather than
-        // Modify, so suppress every event kind for paths recently touched by us.
-        {
-            let guard = own_writes.lock().unwrap();
-            if relevant.iter().all(|p| {
-                guard
-                    .get(*p)
-                    .is_some_and(|at| at.elapsed().as_millis() < SELF_WRITE_GRACE_MS)
-            }) {
-                return;
-            }
-        }
-
-        // Emit one event per changed path.
+        // Reconcile each path independently. A sibling must still be emitted
+        // even when the same notify batch contains one of our own writes.
         for path in relevant {
+            if reconcile_self_write(&own_writes, path, kind_str, generation) {
+                continue;
+            }
             let _ = app_handle.emit(
                 "vault-file-changed",
                 VaultFileChangedPayload {
@@ -1117,18 +1220,27 @@ fn start_vault_watcher(
 
     watcher
         .watch(&vault, notify::RecursiveMode::Recursive)
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| {
+            state.active_generation.store(0, Ordering::Release);
+            error.to_string()
+        })?;
 
     // Storing drops (and stops) any previously active watcher.
     *state.watcher.lock().unwrap() = Some(watcher);
+    context.set_watcher_identity(Some(generation))?;
     Ok(())
 }
 
 /// Stop the active vault watcher (called on vault close / app teardown).
 #[tauri::command]
 #[specta::specta]
-fn stop_vault_watcher(state: tauri::State<'_, WatcherState>) -> Result<(), String> {
+fn stop_vault_watcher(
+    state: tauri::State<'_, WatcherState>,
+    context: tauri::State<'_, vault_context::VaultContext>,
+) -> Result<(), String> {
     *state.watcher.lock().unwrap() = None;
+    state.active_generation.store(0, Ordering::Release);
+    context.set_watcher_identity(None)?;
     Ok(())
 }
 
@@ -1191,6 +1303,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         load_vault,
         preflight_vault,
         apply_id_migration,
+        inspect_id_migrations,
+        recover_id_migration,
         list_files,
         read_file,
         write_file,
@@ -1259,16 +1373,13 @@ pub fn run() {
         .ok();
 
     let result = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Err(error) = show_and_focus_main_window(app) {
                 tracing::warn!(event = "restore_window_failed", error = %error);
             }
         }))
-        .manage(paths::VaultScope::default())
-        .manage(DbState::new())
+        .manage(vault_context::VaultContext::new())
         .manage(WatcherState::new())
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
@@ -1290,6 +1401,17 @@ pub fn run() {
 #[cfg(test)]
 mod watcher_guard_tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_vault(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("amby-watcher-{name}-{nanos}"));
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
 
     #[test]
     fn mutation_paths_collects_primary_changes_and_deletes() {
@@ -1328,13 +1450,79 @@ mod watcher_guard_tests {
     }
 
     #[test]
-    fn mark_write_records_path_and_parent_dir() {
+    fn own_write_with_matching_fingerprint_is_suppressed() {
+        let vault = temp_vault("own-write");
+        let note = vault.join("Note.md");
+        fs::write(&note, "own content").unwrap();
         let state = WatcherState::new();
-        state.mark_write([Path::new("/vault/Folder/Note.md")]);
+        state.active_generation.store(1, Ordering::Release);
+        state.mark_write([&note]);
 
-        let guard = state.own_writes.lock().unwrap();
-        assert!(guard.contains_key(Path::new("/vault/Folder/Note.md")));
-        assert!(guard.contains_key(Path::new("/vault/Folder")));
+        assert!(reconcile_self_write(&state.own_writes, &note, "modify", 1));
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn external_write_inside_the_old_grace_window_is_emitted() {
+        let vault = temp_vault("external-write");
+        let note = vault.join("Note.md");
+        fs::write(&note, "own content").unwrap();
+        let state = WatcherState::new();
+        state.active_generation.store(1, Ordering::Release);
+        state.mark_write([&note]);
+        fs::write(&note, "external content").unwrap();
+
+        assert!(!reconcile_self_write(&state.own_writes, &note, "modify", 1));
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn sibling_change_is_not_suppressed_by_a_self_write() {
+        let vault = temp_vault("sibling");
+        let own = vault.join("Own.md");
+        let sibling = vault.join("Sibling.md");
+        fs::write(&own, "own").unwrap();
+        fs::write(&sibling, "external").unwrap();
+        let state = WatcherState::new();
+        state.active_generation.store(1, Ordering::Release);
+        state.mark_write([&own]);
+
+        assert!(!reconcile_self_write(
+            &state.own_writes,
+            &sibling,
+            "modify",
+            1
+        ));
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn atomic_rename_reconciles_old_and_new_paths() {
+        let vault = temp_vault("rename");
+        let old = vault.join("Old.md");
+        let new = vault.join("New.md");
+        fs::write(&old, "content").unwrap();
+        fs::rename(&old, &new).unwrap();
+        let state = WatcherState::new();
+        state.active_generation.store(1, Ordering::Release);
+        state.mark_write([&old, &new]);
+
+        assert!(reconcile_self_write(&state.own_writes, &old, "rename", 1));
+        assert!(reconcile_self_write(&state.own_writes, &new, "rename", 1));
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn old_watcher_generation_is_ignored() {
+        let vault = temp_vault("generation");
+        let note = vault.join("Note.md");
+        fs::write(&note, "content").unwrap();
+        let state = WatcherState::new();
+        state.active_generation.store(1, Ordering::Release);
+        state.mark_write([&note]);
+
+        assert!(!reconcile_self_write(&state.own_writes, &note, "modify", 2));
+        fs::remove_dir_all(vault).unwrap();
     }
 
     #[test]

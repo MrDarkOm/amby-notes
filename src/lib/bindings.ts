@@ -30,9 +30,25 @@ async applyIdMigration(vaultPath: string) : Promise<Result<IdMigrationResult, st
     else return { status: "error", error: e  as any };
 }
 },
-async listFiles(vaultPath: string) : Promise<Result<TreeItem[], string>> {
+async inspectIdMigrations(vaultPath: string) : Promise<Result<IdMigrationRecovery[], string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("list_files", { vaultPath }) };
+    return { status: "ok", data: await TAURI_INVOKE("inspect_id_migrations", { vaultPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async recoverIdMigration(vaultPath: string, journalPath: string, action: IdMigrationRecoveryAction) : Promise<Result<IdMigrationRecovery, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("recover_id_migration", { vaultPath, journalPath, action }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listFiles() : Promise<Result<TreeItem[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_files") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -94,7 +110,7 @@ async listTrash() : Promise<Result<TrashEntry[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async restoreTrash(trashId: string) : Promise<Result<FsMutationResult, string>> {
+async restoreTrash(trashId: string) : Promise<Result<MutationOutcome, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("restore_trash", { trashId }) };
 } catch (e) {
@@ -102,89 +118,89 @@ async restoreTrash(trashId: string) : Promise<Result<FsMutationResult, string>> 
     else return { status: "error", error: e  as any };
 }
 },
-async readNote(vaultPath: string, noteId: string) : Promise<Result<string, string>> {
+async readNote(noteId: string) : Promise<Result<string, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("read_note", { vaultPath, noteId }) };
+    return { status: "ok", data: await TAURI_INVOKE("read_note", { noteId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async writeNote(vaultPath: string, noteId: string, content: string) : Promise<Result<null, string>> {
+async writeNote(noteId: string, content: string) : Promise<Result<WriteNoteOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("write_note", { vaultPath, noteId, content }) };
+    return { status: "ok", data: await TAURI_INVOKE("write_note", { noteId, content }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async getNoteMetadata(vaultPath: string, noteId: string) : Promise<Result<NoteMetadata, string>> {
+async getNoteMetadata(noteId: string) : Promise<Result<NoteMetadata, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_note_metadata", { vaultPath, noteId }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_note_metadata", { noteId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async getNoteProperties(vaultPath: string, noteId: string) : Promise<Result<NoteProperties, string>> {
+async getNoteProperties(noteId: string) : Promise<Result<NoteProperties, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_note_properties", { vaultPath, noteId }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_note_properties", { noteId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async upsertCustomProperty(vaultPath: string, noteId: string, property: CustomProperty) : Promise<Result<CustomProperty, string>> {
+async upsertCustomProperty(noteId: string, property: CustomProperty) : Promise<Result<CustomProperty, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("upsert_custom_property", { vaultPath, noteId, property }) };
+    return { status: "ok", data: await TAURI_INVOKE("upsert_custom_property", { noteId, property }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async deleteCustomProperty(vaultPath: string, noteId: string, propertyId: string) : Promise<Result<null, string>> {
+async deleteCustomProperty(noteId: string, propertyId: string) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_custom_property", { vaultPath, noteId, propertyId }) };
+    return { status: "ok", data: await TAURI_INVOKE("delete_custom_property", { noteId, propertyId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async listTags(vaultPath: string) : Promise<Result<TagEntry[], string>> {
+async listTags() : Promise<Result<TagEntry[], string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("list_tags", { vaultPath }) };
+    return { status: "ok", data: await TAURI_INVOKE("list_tags") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async searchNotes(vaultPath: string, query: string) : Promise<Result<SearchResult[], string>> {
+async searchNotes(query: string) : Promise<Result<SearchResult[], string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("search_notes", { vaultPath, query }) };
+    return { status: "ok", data: await TAURI_INVOKE("search_notes", { query }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async getLinkGraph(vaultPath: string) : Promise<Result<LinkGraph, string>> {
+async getLinkGraph() : Promise<Result<LinkGraph, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_link_graph", { vaultPath }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_link_graph") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async ensureBundle(vaultPath: string, path: string) : Promise<Result<FsMutationResult, string>> {
+async ensureBundle(path: string) : Promise<Result<MutationOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("ensure_bundle", { vaultPath, path }) };
+    return { status: "ok", data: await TAURI_INVOKE("ensure_bundle", { path }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async createNote(vaultPath: string, parentPath: string, name: string) : Promise<Result<FsMutationResult, string>> {
+async createNote(parentPath: string, name: string) : Promise<Result<MutationOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("create_note", { vaultPath, parentPath, name }) };
+    return { status: "ok", data: await TAURI_INVOKE("create_note", { parentPath, name }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -198,33 +214,33 @@ async createLayer(notePath: string, kind: string) : Promise<Result<LayerResult, 
     else return { status: "error", error: e  as any };
 }
 },
-async createCanvas(vaultPath: string, parentPath: string, name: string) : Promise<Result<string, string>> {
+async createCanvas(parentPath: string, name: string) : Promise<Result<string, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("create_canvas", { vaultPath, parentPath, name }) };
+    return { status: "ok", data: await TAURI_INVOKE("create_canvas", { parentPath, name }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async attachCanvasToNote(vaultPath: string, canvasPath: string) : Promise<Result<FsMutationResult, string>> {
+async attachCanvasToNote(canvasPath: string) : Promise<Result<MutationOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("attach_canvas_to_note", { vaultPath, canvasPath }) };
+    return { status: "ok", data: await TAURI_INVOKE("attach_canvas_to_note", { canvasPath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async unlinkLayer(vaultPath: string, notePath: string, kind: string) : Promise<Result<FsMutationResult, string>> {
+async unlinkLayer(notePath: string, kind: string) : Promise<Result<MutationOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("unlink_layer", { vaultPath, notePath, kind }) };
+    return { status: "ok", data: await TAURI_INVOKE("unlink_layer", { notePath, kind }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async deleteLayer(vaultPath: string, notePath: string, kind: string) : Promise<Result<FsMutationResult, string>> {
+async deleteLayer(notePath: string, kind: string) : Promise<Result<MutationOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_layer", { vaultPath, notePath, kind }) };
+    return { status: "ok", data: await TAURI_INVOKE("delete_layer", { notePath, kind }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -238,17 +254,17 @@ async noteLayers(notePath: string) : Promise<Result<NoteLayers, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async moveItem(vaultPath: string, sourcePath: string, targetPath: string) : Promise<Result<FsMutationResult, string>> {
+async moveItem(sourcePath: string, targetPath: string) : Promise<Result<MutationOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("move_item", { vaultPath, sourcePath, targetPath }) };
+    return { status: "ok", data: await TAURI_INVOKE("move_item", { sourcePath, targetPath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async previewMoveRefactor(vaultPath: string, sourcePath: string, targetPath: string) : Promise<Result<RefactorPreview, string>> {
+async previewMoveRefactor(sourcePath: string, targetPath: string) : Promise<Result<RefactorPreview, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("preview_move_refactor", { vaultPath, sourcePath, targetPath }) };
+    return { status: "ok", data: await TAURI_INVOKE("preview_move_refactor", { sourcePath, targetPath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -270,25 +286,25 @@ async createFolder(path: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async renameItem(vaultPath: string, path: string, newName: string) : Promise<Result<FsMutationResult, string>> {
+async renameItem(path: string, newName: string) : Promise<Result<MutationOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("rename_item", { vaultPath, path, newName }) };
+    return { status: "ok", data: await TAURI_INVOKE("rename_item", { path, newName }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async previewRenameRefactor(vaultPath: string, path: string, newName: string) : Promise<Result<RefactorPreview, string>> {
+async previewRenameRefactor(path: string, newName: string) : Promise<Result<RefactorPreview, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("preview_rename_refactor", { vaultPath, path, newName }) };
+    return { status: "ok", data: await TAURI_INVOKE("preview_rename_refactor", { path, newName }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async deleteItem(vaultPath: string, path: string) : Promise<Result<FsMutationResult, string>> {
+async deleteItem(path: string) : Promise<Result<MutationOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_item", { vaultPath, path }) };
+    return { status: "ok", data: await TAURI_INVOKE("delete_item", { path }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -321,9 +337,9 @@ async openVault() : Promise<Result<string | null, string>> {
  * Calling this again while a watcher is already running replaces the old one
  * (handles vault-switch).
  */
-async startVaultWatcher(vaultPath: string) : Promise<Result<null, string>> {
+async startVaultWatcher() : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("start_vault_watcher", { vaultPath }) };
+    return { status: "ok", data: await TAURI_INVOKE("start_vault_watcher") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -348,17 +364,17 @@ async openInExplorer(path: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async importAsset(vaultPath: string, notePath: string, sourcePath: string) : Promise<Result<ImportedAsset, string>> {
+async importAsset(notePath: string, sourcePath: string) : Promise<Result<ImportedAsset, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("import_asset", { vaultPath, notePath, sourcePath }) };
+    return { status: "ok", data: await TAURI_INVOKE("import_asset", { notePath, sourcePath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async importAssetBytes(vaultPath: string, notePath: string, bytes: number[], suggestedExt: string) : Promise<Result<ImportedAsset, string>> {
+async importAssetBytes(notePath: string, bytes: number[], suggestedExt: string) : Promise<Result<ImportedAsset, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("import_asset_bytes", { vaultPath, notePath, bytes, suggestedExt }) };
+    return { status: "ok", data: await TAURI_INVOKE("import_asset_bytes", { notePath, bytes, suggestedExt }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -484,17 +500,33 @@ export type FileMetadata = { created: number | null; modified: number | null; wo
  */
 export type FrontmatterProperty = { key: string; value: string; valueKind: string }
 export type FsMutationResult = { primaryId: string | null; primaryPath: string | null; pathChanges: PathChange[]; deletedPaths: string[]; deletedIds: string[] }
-export type IdMigrationResult = { backupPath: string; journalPath: string; modifiedPaths: string[] }
+export type IdMigrationFile = { path: string; backupPath: string; id: string; status: IdMigrationFileStatus }
+export type IdMigrationFileStatus = "pending" | "backupCreated" | "applied" | "rolledBack"
+export type IdMigrationRecovery = { journalPath: string; backupPath: string; status: IdMigrationStatus; files: IdMigrationFile[] }
+export type IdMigrationRecoveryAction = "resume" | "rollback" | "inspectOnly"
+export type IdMigrationResult = { backupPath: string; journalPath: string; modifiedPaths: string[]; status: IdMigrationStatus }
+export type IdMigrationStatus = "planned" | "inProgress" | "completed" | "rolledBack"
 export type ImportedAsset = { relPath: string; absPath: string; fileName: string; kind: string }
+/**
+ * Health of the rebuildable SQLite index. Markdown files remain authoritative
+ * regardless of this state.
+ */
+export type IndexState = "healthy" | "degraded" | "rebuildRequired"
 export type IndexedNote = { id: string; path: string; title: string; modified: number | null; wordCount: number }
 export type LayerResult = { notePath: string; layerPath: string; kind: string; pathChanges: PathChange[] }
 export type LinkGraph = { nodes: LinkGraphNode[]; edges: LinkGraphEdge[] }
 export type LinkGraphEdge = { source: string; target: string; label: string; unresolved?: boolean | null }
 export type LinkGraphNode = { id: string; label: string; unresolved?: boolean | null }
 export type LoadVaultResult = { tree: TreeItem[]; notes: IndexedNote[]; sync: SyncReport }
+/**
+ * The filesystem result is authoritative. A cache failure is returned as a
+ * recoverable warning rather than turning a completed mutation into an error.
+ */
+export type MutationOutcome = { mutation: FsMutationResult; indexState: IndexState; warnings: OperationWarning[] }
 export type NoteLayers = { canvas: boolean; sketch: boolean; database: boolean }
 export type NoteMetadata = { created: number | null; modified: number | null; wordCount: number }
 export type NoteProperties = { hasFrontmatter: boolean; properties: FrontmatterProperty[]; parseError: string | null; customProperties: CustomProperty[] }
+export type OperationWarning = "indexRebuildRequired"
 export type PathChange = { oldPath: string; newPath: string }
 export type RefactorPreview = { notes: number; replacements: number }
 export type SearchResult = { note: IndexedNote; matchType: string; snippet: string | null; score: number }
@@ -504,7 +536,8 @@ export type SyncReport = { inserted: number; updated: number; deleted: number; w
 export type TagEntry = { tag: string; notes: IndexedNote[] }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
-export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[] }
+export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
+export type WriteNoteOutcome = { path: string; indexState: IndexState; warnings: OperationWarning[] }
 
 /** tauri-specta globals **/
 

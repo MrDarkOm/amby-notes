@@ -690,16 +690,22 @@ function ambyMarkdownItPlugin(md: MarkdownIt) {
 
 const tokenizer = new MarkdownIt("default", { html: true, linkify: false, breaks: false })
 tokenizer.use(ambyMarkdownItPlugin)
-// Read-only HTML render of an Amby block (Live mode uses the React NodeView).
-tokenizer.renderer.rules.amby_block = (tokens, idx) => {
-  const t = tokens[idx]
-  const type = (t.meta?.blockType as string) ?? "db"
-  return `<div class="amby-block-readonly" data-block-type="${type}">[${type}]</div>`
-}
 
-/** Render a markdown string to HTML using the shared tokenizer (read-only display). */
-export function markdownToHtml(markdown: string): string {
-  return tokenizer.render(markdown ?? "")
+declare const safeReadonlyHtml: unique symbol
+
+/** HTML emitted only by the raw-HTML-disabled read-only Markdown renderer. */
+export type SafeReadonlyHtml = string & { readonly [safeReadonlyHtml]: true }
+
+// This renderer is deliberately separate from the byte-exact tokenizer above.
+// Its output is the only Markdown HTML permitted in a transclusion NodeView.
+const readonlyRenderer = new MarkdownIt("default", { html: false, linkify: false, breaks: false })
+
+/**
+ * Renders Markdown for read-only transclusions. Raw HTML remains visible as
+ * escaped text, so its output is safe to use with dangerouslySetInnerHTML.
+ */
+export function markdownToSafeReadonlyHtml(markdown: string): SafeReadonlyHtml {
+  return readonlyRenderer.render(markdown ?? "") as SafeReadonlyHtml
 }
 
 // ── Parser ────────────────────────────────────────────────────────────────────

@@ -1,25 +1,18 @@
-import type { TreeItem } from "@/components/workspace/sidebar-tree"
 import i18n from "@/lib/i18n"
+import { commands } from "@/lib/bindings"
+import { unwrapCommand } from "@/lib/storage/ipc-result"
+import type { TreeItem } from "@/components/workspace/sidebar-tree"
 
 export interface FileMetadata {
   created?: number
   modified?: number
   word_count: number
 }
-
 export interface FrontmatterProperty {
   key: string
   value: string
   valueKind: string
 }
-
-export interface NoteProperties {
-  hasFrontmatter: boolean
-  properties: FrontmatterProperty[]
-  parseError?: string
-  customProperties: CustomProperty[]
-}
-
 export interface CustomProperty {
   id: string
   name: string
@@ -28,31 +21,32 @@ export interface CustomProperty {
   value: string
   settings: string
 }
-
+export interface NoteProperties {
+  hasFrontmatter: boolean
+  properties: FrontmatterProperty[]
+  parseError?: string
+  customProperties: CustomProperty[]
+}
 export interface SnapshotEntry {
   id: string
   createdAtMs: number
   reason: string
   sizeBytes: number
 }
-
 export interface SnapshotText {
   sourcePath: string
   content: string
 }
-
 export interface RefactorPreview {
   notes: number
   replacements: number
 }
-
 export interface TrashEntry {
   id: string
   originalPath: string
   deletedAtMs: number
   name: string
 }
-
 export interface IndexedNote {
   id: string
   path: string
@@ -60,7 +54,6 @@ export interface IndexedNote {
   modified?: number
   wordCount: number
 }
-
 export interface SyncReport {
   inserted: number
   updated: number
@@ -68,13 +61,11 @@ export interface SyncReport {
   warnings: string[]
   pathToId: Record<string, string>
 }
-
 export interface LoadVaultResult {
   tree: TreeItem[]
   notes: IndexedNote[]
   sync: SyncReport
 }
-
 export interface VaultPreflight {
   notes: number
   attachments: number
@@ -82,13 +73,27 @@ export interface VaultPreflight {
   userManagedIds: string[]
   duplicateIds: string[]
   plannedIdWrites: string[]
+  unfinishedMigrations: IdMigrationRecovery[]
 }
-
+export type IdMigrationStatus = "planned" | "inProgress" | "completed" | "rolledBack"
+export type IdMigrationFileStatus = "pending" | "backupCreated" | "applied" | "rolledBack"
+export type IdMigrationRecoveryAction = "resume" | "rollback" | "inspectOnly"
+export interface IdMigrationFile {
+  path: string
+  backupPath: string
+  id: string
+  status: IdMigrationFileStatus
+}
+export interface IdMigrationRecovery {
+  journalPath: string
+  backupPath: string
+  status: IdMigrationStatus
+  files: IdMigrationFile[]
+}
 export interface PathChange {
   oldPath: string
   newPath: string
 }
-
 export interface FsMutationResult {
   primaryId?: string | null
   primaryPath?: string | null
@@ -96,38 +101,54 @@ export interface FsMutationResult {
   deletedPaths: string[]
   deletedIds?: string[]
 }
-
+export type IndexState = "healthy" | "degraded" | "rebuildRequired"
+export type OperationWarning = "indexRebuildRequired"
+export interface MutationOutcome {
+  mutation: FsMutationResult
+  indexState: IndexState
+  warnings: OperationWarning[]
+}
+export interface WriteNoteOutcome {
+  path: string
+  indexState: IndexState
+  warnings: OperationWarning[]
+}
 export type LayerKind = "canvas" | "database" | "sketch"
-
 export interface LayerResult {
   notePath: string
   layerPath: string
   kind: LayerKind
   pathChanges: PathChange[]
 }
-
 export interface NoteLayers {
   canvas: boolean
   sketch: boolean
   database: boolean
 }
-
 export interface LinkGraphNode {
   id: string
   label: string
   unresolved?: boolean
 }
-
 export interface LinkGraphEdge {
   source: string
   target: string
   label: string
   unresolved?: boolean
 }
-
 export interface LinkGraph {
   nodes: LinkGraphNode[]
   edges: LinkGraphEdge[]
+}
+export interface VaultTagEntry {
+  tag: string
+  notes: IndexedNote[]
+}
+export interface ImportedAsset {
+  relPath: string
+  absPath: string
+  fileName: string
+  kind: "image" | "file"
 }
 
 export const isTauri = (): boolean =>
@@ -136,6 +157,17 @@ export const isTauri = (): boolean =>
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke: tauriInvoke } = await import("@tauri-apps/api/core")
   return tauriInvoke<T>(cmd, args)
+}
+
+async function unwrapMutation(command: Promise<unknown>): Promise<FsMutationResult> {
+  const outcome = await unwrapCommand<MutationOutcome>(command as never)
+  reportIndexOutcome(outcome)
+  return outcome.mutation
+}
+
+function reportIndexOutcome(outcome: Pick<MutationOutcome, "indexState" | "warnings">): void {
+  if (outcome.indexState === "rebuildRequired")
+    window.dispatchEvent(new CustomEvent("amby:index-rebuild-required", { detail: outcome }))
 }
 
 /**
@@ -400,7 +432,7 @@ function webCreateNote(parentPath: string, name: string): FsMutationResult {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export async function openVault(): Promise<string | null> {
-  if (isTauri()) return invoke<string | null>("open_vault")
+  if (isTauri()) return unwrapCommand(commands.openVault())
   return WEB_VAULT
 }
 
@@ -411,17 +443,17 @@ export async function openVault(): Promise<string | null> {
  * app are suppressed via a self-write guard in Rust.
  * No-op in browser mode (web dev server has no Tauri events).
  */
-export async function startVaultWatcher(vaultPath: string): Promise<void> {
-  if (isTauri()) return invoke<void>("start_vault_watcher", { vaultPath })
+export async function startVaultWatcher(_vaultPath: string): Promise<void> {
+  if (isTauri()) return unwrapCommand(commands.startVaultWatcher())
 }
 
 /** Stop the active vault watcher (call on vault close or app teardown). */
 export async function stopVaultWatcher(): Promise<void> {
-  if (isTauri()) return invoke<void>("stop_vault_watcher")
+  if (isTauri()) return unwrapCommand(commands.stopVaultWatcher())
 }
 
 export async function loadVaultData(vaultPath: string): Promise<LoadVaultResult> {
-  if (isTauri()) return invoke<LoadVaultResult>("load_vault", { vaultPath })
+  if (isTauri()) return unwrapCommand(commands.loadVault(vaultPath))
   const tree = webGetTree()
   const notes = flattenWebNotes(tree).map((item) => ({
     id: item.id,
@@ -434,7 +466,7 @@ export async function loadVaultData(vaultPath: string): Promise<LoadVaultResult>
 }
 
 export async function preflightVault(vaultPath: string): Promise<VaultPreflight> {
-  if (isTauri()) return invoke<VaultPreflight>("preflight_vault", { vaultPath })
+  if (isTauri()) return unwrapCommand(commands.preflightVault(vaultPath))
   return {
     notes: 0,
     attachments: 0,
@@ -442,15 +474,30 @@ export async function preflightVault(vaultPath: string): Promise<VaultPreflight>
     userManagedIds: [],
     duplicateIds: [],
     plannedIdWrites: [],
+    unfinishedMigrations: [],
   }
 }
 
 export async function applyIdMigration(vaultPath: string): Promise<void> {
-  if (isTauri()) await invoke("apply_id_migration", { vaultPath })
+  if (isTauri()) await unwrapCommand(commands.applyIdMigration(vaultPath))
 }
 
-export async function listFiles(vaultPath: string): Promise<TreeItem[]> {
-  if (isTauri()) return invoke<TreeItem[]>("list_files", { vaultPath })
+export async function inspectIdMigrations(vaultPath: string): Promise<IdMigrationRecovery[]> {
+  if (isTauri()) return unwrapCommand(commands.inspectIdMigrations(vaultPath))
+  return []
+}
+
+export async function recoverIdMigration(
+  vaultPath: string,
+  journalPath: string,
+  action: IdMigrationRecoveryAction,
+): Promise<IdMigrationRecovery> {
+  if (isTauri()) return unwrapCommand(commands.recoverIdMigration(vaultPath, journalPath, action))
+  throw new Error(i18n.t("errors.localHistoryDesktopOnly"))
+}
+
+export async function listFiles(_vaultPath: string): Promise<TreeItem[]> {
+  if (isTauri()) return unwrapCommand(commands.listFiles())
   return webGetTree()
 }
 
@@ -464,24 +511,24 @@ function flattenWebNotes(items: TreeItem[]): TreeItem[] {
 }
 
 export async function readFile(path: string): Promise<string> {
-  if (isTauri()) return invoke<string>("read_file", { path })
+  if (isTauri()) return unwrapCommand(commands.readFile(path))
   return localStorage.getItem(FILE_PREFIX + path) ?? webDefaultContent(path)
 }
 
-export async function readNote(vaultPath: string, noteId: string): Promise<string> {
-  if (isTauri()) return invoke<string>("read_note", { vaultPath, noteId })
+export async function readNote(_vaultPath: string, noteId: string): Promise<string> {
+  if (isTauri()) return unwrapCommand(commands.readNote(noteId))
   const content = await readFile(noteId)
   return splitWebFrontmatter(content)?.body ?? content
 }
 
 export async function writeFile(path: string, content: string): Promise<void> {
-  if (isTauri()) return invoke<void>("write_file", { path, content })
+  if (isTauri()) return unwrapCommand(commands.writeFile(path, content))
   localStorage.setItem(FILE_PREFIX + path, content)
 }
 
 /** Save a unique sibling copy of a conflicted local buffer without overwriting a file. */
 export async function saveConflictCopy(path: string, content: string): Promise<string> {
-  if (isTauri()) return invoke<string>("save_conflict_copy", { path, content })
+  if (isTauri()) return unwrapCommand(commands.saveConflictCopy(path, content))
   const extensionStart = path.lastIndexOf(".")
   const stem = extensionStart > path.lastIndexOf("/") ? path.slice(0, extensionStart) : path
   const extension = extensionStart > path.lastIndexOf("/") ? path.slice(extensionStart) : ""
@@ -494,63 +541,69 @@ export async function saveConflictCopy(path: string, content: string): Promise<s
 }
 
 export async function listSnapshots(sourcePath: string): Promise<SnapshotEntry[]> {
-  if (isTauri()) return invoke<SnapshotEntry[]>("list_snapshots", { sourcePath })
+  if (isTauri()) return unwrapCommand(commands.listSnapshots(sourcePath))
   return []
 }
 
 export async function restoreSnapshot(snapshotId: string): Promise<string> {
-  if (isTauri()) return invoke<string>("restore_snapshot", { snapshotId })
+  if (isTauri()) return unwrapCommand(commands.restoreSnapshot(snapshotId))
   throw new Error(i18n.t("errors.localHistoryDesktopOnly"))
 }
 
 export async function readSnapshotText(snapshotId: string): Promise<SnapshotText> {
-  if (isTauri()) return invoke<SnapshotText>("read_snapshot_text", { snapshotId })
+  if (isTauri()) return unwrapCommand(commands.readSnapshotText(snapshotId))
   throw new Error(i18n.t("errors.localHistoryDesktopOnly"))
 }
 
 export async function listTrash(): Promise<TrashEntry[]> {
-  if (isTauri()) return invoke<TrashEntry[]>("list_trash")
+  if (isTauri()) return unwrapCommand(commands.listTrash())
   return []
 }
 
 export async function restoreTrash(trashId: string): Promise<FsMutationResult> {
-  if (isTauri()) return invoke<FsMutationResult>("restore_trash", { trashId })
+  if (isTauri()) return unwrapMutation(commands.restoreTrash(trashId))
   throw new Error(i18n.t("errors.trashDesktopOnly"))
 }
 
 export async function previewRenameRefactor(
-  vaultPath: string,
+  _vaultPath: string,
   path: string,
   newName: string,
 ): Promise<RefactorPreview> {
-  if (isTauri())
-    return invoke<RefactorPreview>("preview_rename_refactor", { vaultPath, path, newName })
+  if (isTauri()) return unwrapCommand(commands.previewRenameRefactor(path, newName))
   return { notes: 0, replacements: 0 }
 }
 
 export async function previewMoveRefactor(
-  vaultPath: string,
+  _vaultPath: string,
   sourcePath: string,
   targetPath: string,
 ): Promise<RefactorPreview> {
-  if (isTauri())
-    return invoke<RefactorPreview>("preview_move_refactor", { vaultPath, sourcePath, targetPath })
+  if (isTauri()) return unwrapCommand(commands.previewMoveRefactor(sourcePath, targetPath))
   return { notes: 0, replacements: 0 }
 }
 
-export async function writeNote(vaultPath: string, noteId: string, content: string): Promise<void> {
-  if (isTauri()) return invoke<void>("write_note", { vaultPath, noteId, content })
+export async function writeNote(
+  _vaultPath: string,
+  noteId: string,
+  content: string,
+): Promise<void> {
+  if (isTauri()) {
+    const outcome = await unwrapCommand<WriteNoteOutcome>(commands.writeNote(noteId, content))
+    reportIndexOutcome(outcome)
+    return
+  }
   const current = await readFile(noteId)
   const frontmatter = splitWebFrontmatter(current)
   return writeFile(noteId, `${frontmatter?.envelope ?? ""}${content}`)
 }
 
 export async function createNote(
-  vaultPath: string,
+  _vaultPath: string,
   parentPath: string,
   name: string,
 ): Promise<FsMutationResult> {
-  if (isTauri()) return invoke<FsMutationResult>("create_note", { vaultPath, parentPath, name })
+  if (isTauri()) return unwrapMutation(commands.createNote(parentPath, name))
   return webCreateNote(parentPath, name)
 }
 
@@ -562,7 +615,7 @@ export async function createFile(vaultPath: string, name: string): Promise<strin
 export async function createFolder(vaultPath: string, name: string): Promise<string> {
   const path = joinPath(vaultPath, name)
   if (isTauri()) {
-    await invoke<void>("create_folder", { path })
+    await unwrapCommand(commands.createFolder(path))
   } else {
     const tree = webGetTree()
     const parent = webFindItem(tree, vaultPath)
@@ -578,7 +631,7 @@ export async function createCanvasFile(
   name: string,
 ): Promise<string> {
   if (isTauri()) {
-    return invoke<string>("create_canvas", { vaultPath, parentPath: parentPath ?? vaultPath, name })
+    return unwrapCommand(commands.createCanvas(parentPath ?? vaultPath, name))
   }
   // Web fallback: write a standalone .canvas file and register a tree item.
   const tree = webGetTree()
@@ -614,11 +667,11 @@ export async function createCanvasFile(
 }
 
 export async function attachCanvasToNote(
-  vaultPath: string,
+  _vaultPath: string,
   canvasPath: string,
 ): Promise<FsMutationResult> {
   if (isTauri()) {
-    return invoke<FsMutationResult>("attach_canvas_to_note", { vaultPath, canvasPath })
+    return unwrapMutation(commands.attachCanvasToNote(canvasPath))
   }
   // Web fallback: create a sibling note bundle and move the canvas in as its layer.
   const dir = pathDir(canvasPath)
@@ -651,7 +704,7 @@ export async function attachCanvasToNote(
 }
 
 export async function noteLayers(notePath: string): Promise<NoteLayers> {
-  if (isTauri()) return invoke<NoteLayers>("note_layers", { notePath })
+  if (isTauri()) return unwrapCommand(commands.noteLayers(notePath))
   const stem = pathStem(notePath)
   const dir = pathDir(notePath)
   if (pathBase(dir) !== stem) return { canvas: false, sketch: false, database: false }
@@ -663,11 +716,11 @@ export async function noteLayers(notePath: string): Promise<NoteLayers> {
 }
 
 export async function unlinkLayer(
-  vaultPath: string,
+  _vaultPath: string,
   notePath: string,
   kind: LayerKind,
 ): Promise<FsMutationResult> {
-  if (isTauri()) return invoke<FsMutationResult>("unlink_layer", { vaultPath, notePath, kind })
+  if (isTauri()) return unwrapMutation(commands.unlinkLayer(notePath, kind))
   // Web fallback: rename layer key with _ul suffix and lift it out of the bundle dir.
   const dir = pathDir(notePath)
   const parentDir = pathDir(dir)
@@ -696,11 +749,11 @@ export async function unlinkLayer(
 }
 
 export async function deleteLayer(
-  vaultPath: string,
+  _vaultPath: string,
   notePath: string,
   kind: LayerKind,
 ): Promise<FsMutationResult> {
-  if (isTauri()) return invoke<FsMutationResult>("delete_layer", { vaultPath, notePath, kind })
+  if (isTauri()) return unwrapMutation(commands.deleteLayer(notePath, kind))
   const dir = pathDir(notePath)
   const stem = pathStem(notePath)
   const layerPath =
@@ -718,7 +771,7 @@ export async function deleteLayer(
 }
 
 export async function createLayer(notePath: string, kind: LayerKind): Promise<LayerResult> {
-  if (isTauri()) return invoke<LayerResult>("create_layer", { notePath, kind })
+  if (isTauri()) return unwrapCommand(commands.createLayer(notePath, kind))
 
   const ensured = webEnsureBundle(notePath)
   const stem = pathStem(ensured.notePath)
@@ -735,11 +788,11 @@ export async function createLayer(notePath: string, kind: LayerKind): Promise<La
 }
 
 export async function renameItem(
-  vaultPath: string,
+  _vaultPath: string,
   path: string,
   newName: string,
 ): Promise<FsMutationResult> {
-  if (isTauri()) return invoke<FsMutationResult>("rename_item", { vaultPath, path, newName })
+  if (isTauri()) return unwrapMutation(commands.renameItem(path, newName))
 
   const tree = webGetTree()
   const item = webFindItem(tree, path)
@@ -775,7 +828,7 @@ export async function moveItem(
   sourcePath: string,
   targetPath: string,
 ): Promise<FsMutationResult> {
-  if (isTauri()) return invoke<FsMutationResult>("move_item", { vaultPath, sourcePath, targetPath })
+  if (isTauri()) return unwrapMutation(commands.moveItem(sourcePath, targetPath))
 
   let tree = webGetTree()
   const source = webFindItem(tree, sourcePath)
@@ -831,8 +884,8 @@ export async function moveItem(
   }
 }
 
-export async function deleteItem(vaultPath: string, path: string): Promise<FsMutationResult> {
-  if (isTauri()) return invoke<FsMutationResult>("delete_item", { vaultPath, path })
+export async function deleteItem(_vaultPath: string, path: string): Promise<FsMutationResult> {
+  if (isTauri()) return unwrapMutation(commands.deleteItem(path))
 
   const tree = webGetTree()
   const removed = webRemoveItem(tree, path)
@@ -848,17 +901,17 @@ export async function deleteItem(vaultPath: string, path: string): Promise<FsMut
   }
 }
 
-export async function getNoteMetadata(vaultPath: string, noteId: string): Promise<FileMetadata> {
-  if (isTauri()) return invoke<FileMetadata>("get_note_metadata", { vaultPath, noteId })
+export async function getNoteMetadata(_vaultPath: string, noteId: string): Promise<FileMetadata> {
+  if (isTauri()) return unwrapCommand(commands.getNoteMetadata(noteId))
   const content = localStorage.getItem(FILE_PREFIX + noteId) ?? ""
   return { word_count: content.split(/\s+/).filter(Boolean).length }
 }
 
 export async function getNoteProperties(
-  vaultPath: string,
+  _vaultPath: string,
   noteId: string,
 ): Promise<NoteProperties> {
-  if (isTauri()) return invoke<NoteProperties>("get_note_properties", { vaultPath, noteId })
+  if (isTauri()) return unwrapCommand(commands.getNoteProperties(noteId))
   const result = webNoteProperties(localStorage.getItem(FILE_PREFIX + noteId) ?? "")
   try {
     result.customProperties = JSON.parse(
@@ -871,12 +924,11 @@ export async function getNoteProperties(
 }
 
 export async function upsertCustomProperty(
-  vaultPath: string,
+  _vaultPath: string,
   noteId: string,
   property: CustomProperty,
 ): Promise<CustomProperty> {
-  if (isTauri())
-    return invoke<CustomProperty>("upsert_custom_property", { vaultPath, noteId, property })
+  if (isTauri()) return unwrapCommand(commands.upsertCustomProperty(noteId, property))
   const current = (await getNoteProperties("", noteId)).customProperties
   const saved = { ...property, id: property.id || crypto.randomUUID() }
   const index = current.findIndex((item) => item.id === saved.id)
@@ -887,12 +939,12 @@ export async function upsertCustomProperty(
 }
 
 export async function deleteCustomProperty(
-  vaultPath: string,
+  _vaultPath: string,
   noteId: string,
   propertyId: string,
 ): Promise<void> {
   if (isTauri()) {
-    await invoke("delete_custom_property", { vaultPath, noteId, propertyId })
+    await unwrapCommand(commands.deleteCustomProperty(noteId, propertyId))
     return
   }
   const current = (await getNoteProperties("", noteId)).customProperties.filter(
@@ -902,71 +954,48 @@ export async function deleteCustomProperty(
 }
 
 export async function getFileMetadata(path: string): Promise<FileMetadata> {
-  if (isTauri()) return invoke<FileMetadata>("get_file_metadata", { path })
+  if (isTauri()) return unwrapCommand(commands.getFileMetadata(path))
   const content = localStorage.getItem(FILE_PREFIX + path) ?? ""
   return { word_count: content.split(/\s+/).filter(Boolean).length }
 }
 
-export async function getLinkGraph(vaultPath: string): Promise<LinkGraph> {
-  if (isTauri()) return invoke<LinkGraph>("get_link_graph", { vaultPath })
+export async function getLinkGraph(_vaultPath: string): Promise<LinkGraph> {
+  if (isTauri()) return unwrapCommand(commands.getLinkGraph())
   return { nodes: [], edges: [] }
 }
 
-export interface VaultTagEntry {
-  tag: string
-  notes: Array<{
-    id: string
-    path: string
-    title: string
-    modified: number | null
-    wordCount: number
-  }>
-}
-
-export async function listTags(vaultPath: string): Promise<VaultTagEntry[]> {
-  if (isTauri()) return invoke<VaultTagEntry[]>("list_tags", { vaultPath })
+export async function listTags(_vaultPath: string): Promise<VaultTagEntry[]> {
+  if (isTauri()) return unwrapCommand(commands.listTags())
   return []
 }
 
 export async function openInExplorer(path: string): Promise<void> {
   if (!isTauri()) return
-  await invoke<void>("open_in_explorer", { path })
-}
-
-export interface ImportedAsset {
-  relPath: string
-  absPath: string
-  fileName: string
-  kind: "image" | "file"
+  await unwrapCommand(commands.openInExplorer(path))
 }
 
 export async function pickAssetFile(imagesOnly: boolean): Promise<string | null> {
   if (!isTauri()) return null
-  return invoke<string | null>("pick_asset_file", { imagesOnly })
+  return unwrapCommand(commands.pickAssetFile(imagesOnly))
 }
 
 export async function importAsset(
-  vaultPath: string,
+  _vaultPath: string,
   notePath: string,
   sourcePath: string,
 ): Promise<ImportedAsset | null> {
   if (!isTauri()) return null
-  return invoke<ImportedAsset>("import_asset", { vaultPath, notePath, sourcePath })
+  return unwrapCommand(commands.importAsset(notePath, sourcePath))
 }
 
 export async function importAssetBytes(
-  vaultPath: string,
+  _vaultPath: string,
   notePath: string,
   bytes: Uint8Array,
   suggestedExt: string,
 ): Promise<ImportedAsset | null> {
   if (!isTauri()) return null
-  return invoke<ImportedAsset>("import_asset_bytes", {
-    vaultPath,
-    notePath,
-    bytes: Array.from(bytes),
-    suggestedExt,
-  })
+  return unwrapCommand(commands.importAssetBytes(notePath, Array.from(bytes), suggestedExt))
 }
 
 export async function toAssetUrl(absPath: string): Promise<string> {
@@ -986,7 +1015,7 @@ export async function exportTextFile(
   defaultName: string,
 ): Promise<string | null> {
   if (isTauri()) {
-    return invoke<string | null>("export_text_file", { contents, defaultName })
+    return unwrapCommand(commands.exportTextFile(contents, defaultName))
   }
   const blob = new Blob([contents], { type: "application/json" })
   const url = URL.createObjectURL(blob)
@@ -1003,7 +1032,7 @@ export async function exportTextFile(
 /** Open a user-chosen text file and return its contents, or null if cancelled. */
 export async function importTextFile(): Promise<string | null> {
   if (isTauri()) {
-    return invoke<string | null>("import_text_file", {})
+    return unwrapCommand(commands.importTextFile())
   }
   return new Promise((resolve) => {
     const input = document.createElement("input")
@@ -1032,22 +1061,22 @@ const GLOBAL_WEB_PREFIX = "amby:g:"
 const VAULT_WEB_PREFIX = "amby:vmeta:"
 
 async function readGlobalRaw(file: string): Promise<string | null> {
-  if (isTauri()) return invoke<string | null>("read_app_data", { rel: file })
+  if (isTauri()) return unwrapCommand(commands.readAppData(file))
   return localStorage.getItem(GLOBAL_WEB_PREFIX + file)
 }
 
 async function writeGlobalRaw(file: string, contents: string): Promise<void> {
-  if (isTauri()) return invoke<void>("write_app_data", { rel: file, contents })
+  if (isTauri()) return unwrapCommand(commands.writeAppData(file, contents))
   localStorage.setItem(GLOBAL_WEB_PREFIX + file, contents)
 }
 
 async function readVaultRaw(rel: string): Promise<string | null> {
-  if (isTauri()) return invoke<string | null>("read_vault_meta", { rel })
+  if (isTauri()) return unwrapCommand(commands.readVaultMeta(rel))
   return localStorage.getItem(VAULT_WEB_PREFIX + rel)
 }
 
 async function writeVaultRaw(rel: string, contents: string): Promise<void> {
-  if (isTauri()) return invoke<void>("write_vault_meta", { rel, contents })
+  if (isTauri()) return unwrapCommand(commands.writeVaultMeta(rel, contents))
   localStorage.setItem(VAULT_WEB_PREFIX + rel, contents)
 }
 
@@ -1093,7 +1122,7 @@ export async function saveVaultJSON(rel: string, data: unknown): Promise<void> {
 export async function deleteVaultMeta(rel: string): Promise<void> {
   try {
     if (isTauri()) {
-      await invoke<void>("delete_vault_meta", { rel })
+      await unwrapCommand(commands.deleteVaultMeta(rel))
       return
     }
     localStorage.removeItem(VAULT_WEB_PREFIX + rel)

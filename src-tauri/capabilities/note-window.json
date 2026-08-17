@@ -1,21 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
-  "identifier": "default",
-  "description": "Minimal capability for the main workspace window",
-  "windows": ["main"],
+  "identifier": "note-window",
+  "description": "Restricted capability for detached note windows",
+  "windows": ["note-*"],
   "permissions": [
     "core:event:default",
-    "core:path:default",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
     "core:window:allow-set-fullscreen",
     "core:window:allow-is-maximized",
-    "core:webview:default",
-    "core:webview:allow-create-webview-window",
-    "dialog:allow-message",
-    "dialog:allow-open",
-    "dialog:allow-save"
+    "core:webview:default"
   ]
 }

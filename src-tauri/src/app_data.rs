@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 use crate::frontmatter;
-use crate::paths::{self, VaultScope};
+use crate::paths;
+use crate::vault_context::VaultContext;
 
 /// Root of the global app-data area: `{local_data_dir}/Amby/notes`. Created if missing.
 fn app_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -30,8 +31,8 @@ fn app_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 /// Root of the per-vault metadata area: `{vault}/.amby`. Created if missing.
-fn vault_meta_root(scope: &VaultScope) -> Result<PathBuf, String> {
-    let root = scope.get()?.join(".amby");
+fn vault_meta_root(context: &VaultContext) -> Result<PathBuf, String> {
+    let root = context.root()?.join(".amby");
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     Ok(root)
 }
@@ -68,28 +69,28 @@ pub fn write_app_data(app: tauri::AppHandle, rel: String, contents: String) -> R
 #[tauri::command]
 #[specta::specta]
 pub fn read_vault_meta(
-    scope: tauri::State<VaultScope>,
+    context: tauri::State<VaultContext>,
     rel: String,
 ) -> Result<Option<String>, String> {
-    let path = paths::confine_rel(&vault_meta_root(&scope)?, &rel)?;
+    let path = paths::confine_rel(&vault_meta_root(&context)?, &rel)?;
     read_opt(&path)
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn write_vault_meta(
-    scope: tauri::State<VaultScope>,
+    context: tauri::State<VaultContext>,
     rel: String,
     contents: String,
 ) -> Result<(), String> {
-    let path = paths::confine_rel(&vault_meta_root(&scope)?, &rel)?;
+    let path = paths::confine_rel(&vault_meta_root(&context)?, &rel)?;
     write_all(&path, &contents)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub fn delete_vault_meta(scope: tauri::State<VaultScope>, rel: String) -> Result<(), String> {
-    let path = paths::confine_rel(&vault_meta_root(&scope)?, &rel)?;
+pub fn delete_vault_meta(context: tauri::State<VaultContext>, rel: String) -> Result<(), String> {
+    let path = paths::confine_rel(&vault_meta_root(&context)?, &rel)?;
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),

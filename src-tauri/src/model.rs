@@ -1,5 +1,40 @@
 use serde::{Deserialize, Serialize};
 
+/// Health of the rebuildable SQLite index. Markdown files remain authoritative
+/// regardless of this state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+#[allow(dead_code)] // Degraded is reserved for recoverable index work in WP-10.
+pub enum IndexState {
+    Healthy,
+    Degraded,
+    RebuildRequired,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum OperationWarning {
+    IndexRebuildRequired,
+}
+
+/// The filesystem result is authoritative. A cache failure is returned as a
+/// recoverable warning rather than turning a completed mutation into an error.
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct MutationOutcome {
+    pub mutation: FsMutationResult,
+    pub index_state: IndexState,
+    pub warnings: Vec<OperationWarning>,
+}
+
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteNoteOutcome {
+    pub path: String,
+    pub index_state: IndexState,
+    pub warnings: Vec<OperationWarning>,
+}
+
 #[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PathChange {

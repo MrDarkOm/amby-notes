@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { useVaultStore } from "./use-vault-store"
 import { useDocStore } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
@@ -22,6 +23,7 @@ import {
   loadVaultData,
   preflightVault,
   applyIdMigration,
+  recoverIdMigration,
   getLinkGraph,
   getNoteMetadata,
   getNoteProperties,
@@ -42,6 +44,7 @@ import { errorType, logger } from "@/lib/logger"
  * useViewStateStore, and useSettingsStore but does not own them.
  */
 export function useVaultData() {
+  const { t } = useTranslation()
   const vault = useVaultStore((s) => s.vault)
   const vaults = useVaultStore((s) => s.vaults)
   const { setVault, setVaults } = useVaultStore.getState()
@@ -96,7 +99,26 @@ export function useVaultData() {
   async function loadVault(path: string) {
     try {
       if (isTauri()) {
-        const preflight = await preflightVault(path)
+        let preflight = await preflightVault(path)
+        let unfinished = preflight.unfinishedMigrations[0]
+        while (unfinished) {
+          const resume = await confirmAction(
+            t("workspace.migrationResumeConfirm", { files: unfinished.files.length }),
+          )
+          if (resume) {
+            await recoverIdMigration(path, unfinished.journalPath, "resume")
+            preflight = await preflightVault(path)
+            unfinished = preflight.unfinishedMigrations[0]
+          } else {
+            const rollback = await confirmAction(t("workspace.migrationRollbackConfirm"))
+            if (rollback) {
+              await recoverIdMigration(path, unfinished.journalPath, "rollback")
+            }
+            // Canceling both dialogs is inspect-only: do not load the vault,
+            // because indexing could otherwise change the partial migration.
+            return
+          }
+        }
         if (preflight.plannedIdWrites.length > 0) {
           const preview = preflight.plannedIdWrites.slice(0, 8).join("\n")
           const remaining = preflight.plannedIdWrites.length - 8

@@ -749,6 +749,10 @@ export const ru = {
       "Перемещение обновит {{replacements}} ссылок в {{notes}} заметках. Продолжить?",
     mergeFilesConfirm:
       "Добавить содержимое «{{source}}» в конец «{{target}}» и переместить исходный файл в корзину?",
+    migrationResumeConfirm:
+      "Обнаружена незавершённая миграция ID ({{files}} файлов). Продолжить её?",
+    migrationRollbackConfirm:
+      "Восстановить заметки из резервных копий незавершённой миграции ID? Несохранённые внешние изменения не будут перезаписаны.",
   },
   presets: {
     simple: "Простой",
@@ -1496,6 +1500,9 @@ export const en: typeof ru = {
       "Renaming will update {{replacements}} links in {{notes}} notes. Continue?",
     moveRefactorConfirm: "Moving will update {{replacements}} links in {{notes}} notes. Continue?",
     mergeFilesConfirm: "Append “{{source}}” to “{{target}}” and move the source file to trash?",
+    migrationResumeConfirm: "An unfinished ID migration was found ({{files}} files). Resume it?",
+    migrationRollbackConfirm:
+      "Restore notes from the unfinished ID migration backups? Later external edits will not be overwritten.",
   },
   presets: {
     simple: "Simple",

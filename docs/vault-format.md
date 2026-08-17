@@ -39,6 +39,26 @@ Adding or repairing IDs for an existing vault is a separately confirmed
 migration: it needs a read-only preflight report, backup, preview, journal, and
 rollback path. Amby never silently replaces an existing frontmatter `id`.
 
+### ID migration recovery
+
+An ID migration creates its versioned journal in `.amby/migrations/` before it
+creates a backup or changes a note. The journal contains the complete planned
+file list, a generated ID for each file, a vault-relative backup root, and
+durable per-file progress (`pending`, `backupCreated`, `applied`, or
+`rolledBack`). Journal writes are atomic and sync both the journal and its
+parent directory.
+
+For every planned note Amby publishes a no-replace raw-byte backup first,
+records that backup, atomically writes the ID, and then records that the note
+was applied. A journal is marked `completed` only after every file is applied.
+On the next vault-open attempt an incomplete (`planned` or `inProgress`)
+journal is surfaced before indexing; the user may resume it, roll it back, or
+inspect it without opening the vault. Resume recognises a note that already
+has its planned ID when a crash occurred between the note write and the journal
+update. Rollback restores raw backup bytes only when the current note still
+has the planned migration ID; later user edits cause recovery to stop rather
+than overwrite them. Both resume and rollback are idempotent.
+
 ## Compatibility invariant
 
 No Amby operation may make a note, attachment, Canvas, or Excalidraw file

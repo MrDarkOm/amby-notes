@@ -1,31 +1,20 @@
+use crate::vault_context::VaultContext;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
-/// Managed Tauri state: canonicalized root of the currently open vault.
-/// Set on `load_vault`; read by path guards so commands that receive a raw
-/// path (e.g. `read_file`) can still be confined to the vault.
-#[derive(Default)]
-pub struct VaultScope(pub Mutex<Option<PathBuf>>);
-
-impl VaultScope {
-    pub fn set(&self, vault: PathBuf) {
-        *self.0.lock().unwrap() = Some(vault);
-    }
-
-    pub fn get(&self) -> Result<PathBuf, String> {
-        self.0
-            .lock()
-            .unwrap()
-            .clone()
-            .ok_or_else(|| "No vault is open".to_string())
-    }
-}
+/// Compatibility name for commands that use only the active vault root. It is
+/// the same managed state as the SQLite connection, never a second mutex.
+pub type VaultScope = VaultContext;
 
 /// Resolve `candidate` and verify it stays within `vault`. Works for paths that
 /// don't exist yet (a file about to be created): the longest existing ancestor
 /// is canonicalized (resolving symlinks), then the remaining tail is appended
 /// after rejecting `..` traversal. Returns the resolved real path on success.
+///
+/// Security follow-up: this pathname-based check reduces traversal and symlink
+/// escapes but cannot eliminate a post-check symlink-swap (TOCTOU) race. Evaluate
+/// a cross-platform directory-handle API such as `cap-std`; Unix-only `openat`
+/// is not sufficient for the Windows target.
 pub fn confine(vault: &Path, candidate: &Path) -> Result<PathBuf, String> {
     let vault_real = vault
         .canonicalize()
@@ -65,13 +54,8 @@ pub fn confine(vault: &Path, candidate: &Path) -> Result<PathBuf, String> {
 }
 
 /// Guard a raw path against the active vault scope (managed state).
-pub fn guard(scope: &VaultScope, candidate: &str) -> Result<(), String> {
-    confine(&scope.get()?, Path::new(candidate)).map(|_| ())
-}
-
-/// Guard a raw path against an explicitly-provided vault root.
-pub fn guard_in(vault: &str, candidate: &str) -> Result<(), String> {
-    confine(Path::new(vault), Path::new(candidate)).map(|_| ())
+pub fn guard(context: &VaultContext, candidate: &str) -> Result<PathBuf, String> {
+    confine(&context.root()?, Path::new(candidate))
 }
 
 /// Resolve a *relative* path `rel` under `root` and verify it stays inside.
@@ -90,6 +74,8 @@ pub fn confine_rel(root: &Path, rel: &str) -> Result<PathBuf, String> {
 mod tests {
     use super::*;
     use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(name: &str) -> PathBuf {
@@ -105,15 +91,22 @@ mod tests {
     #[test]
     fn allows_existing_path_inside_vault() {
         let vault = temp_dir("inside");
-        fs::write(vault.join("note.md"), "hi").unwrap();
-        assert!(confine(&vault, &vault.join("note.md")).is_ok());
+        let note = vault.join("note.md");
+        fs::write(&note, "hi").unwrap();
+        assert_eq!(
+            confine(&vault, &note).unwrap(),
+            note.canonicalize().unwrap()
+        );
     }
 
     #[test]
     fn allows_not_yet_existing_path_inside_vault() {
         let vault = temp_dir("new");
         // Nested file that doesn't exist yet, parent dir also missing.
-        assert!(confine(&vault, &vault.join("sub/new.md")).is_ok());
+        assert_eq!(
+            confine(&vault, &vault.join("sub/new.md")).unwrap(),
+            vault.canonicalize().unwrap().join("sub/new.md")
+        );
     }
 
     #[test]
@@ -129,6 +122,42 @@ mod tests {
         let vault = temp_dir("traversal");
         let escape = vault.join("../../etc/passwd");
         assert!(confine(&vault, &escape).is_err());
+    }
+
+    #[test]
+    fn rejects_sibling_with_a_matching_string_prefix() {
+        let vault = temp_dir("prefix");
+        let sibling = vault.parent().unwrap().join(format!(
+            "{}-sibling",
+            vault.file_name().unwrap().to_string_lossy()
+        ));
+        fs::create_dir_all(&sibling).unwrap();
+        let outside = sibling.join("note.md");
+        fs::write(&outside, "x").unwrap();
+
+        assert!(confine(&vault, &outside).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_existing_path_through_a_symlink_outside_the_vault() {
+        let vault = temp_dir("symlink-existing");
+        let outside = temp_dir("symlink-existing-outside");
+        let secret = outside.join("secret.md");
+        fs::write(&secret, "x").unwrap();
+        symlink(&outside, vault.join("escape")).unwrap();
+
+        assert!(confine(&vault, &vault.join("escape/secret.md")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_missing_file_under_a_symlinked_parent_outside_the_vault() {
+        let vault = temp_dir("symlink-new");
+        let outside = temp_dir("symlink-new-outside");
+        symlink(&outside, vault.join("escape")).unwrap();
+
+        assert!(confine(&vault, &vault.join("escape/new.md")).is_err());
     }
 
     #[test]

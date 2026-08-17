@@ -3,7 +3,7 @@ name: Verify
 on:
   pull_request:
   push:
-    branches: [Main, Beta, Dev]
+    branches: [main, beta, dev]
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   verify:
-    name: TypeScript, Rust, and generated bindings
+    name: TypeScript and frontend tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -26,16 +26,30 @@ jobs:
       - name: Set up Rust stable
         run: rustup toolchain install stable --profile minimal
       - run: npm ci
-      - run: npm run verify
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test
       - run: npm run rust:clippy
-      - run: npm run rust:test
+
+  rust:
+    name: Rust check and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Rust stable
+        run: rustup toolchain install stable --profile minimal
+      - run: cargo check --manifest-path src-tauri/Cargo.toml
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
       - name: Verify generated IPC bindings are current
         run: git diff --exit-code -- src/lib/bindings.ts
 
-  formatting-baseline:
-    name: Formatting baseline (non-blocking)
+  formatting:
+    name: Formatting
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v6
