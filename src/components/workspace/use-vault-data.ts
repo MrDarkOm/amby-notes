@@ -5,7 +5,15 @@ import { useDocStore } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useViewStateStore } from "./use-view-state-store"
 import { useSettingsStore } from "./use-settings-store"
-import { loadSession, loadWorkspaces, saveSession, saveWorkspaces } from "./app-config"
+import {
+  loadSession,
+  loadWorkspaces,
+  saveSession,
+  saveWorkspaces,
+  SESSION_SCHEMA_VERSION,
+  WORKSPACES_SCHEMA_VERSION,
+} from "./app-config"
+import { remapRecoveryDraft } from "@/lib/recovery-drafts"
 import { applySessionRemap } from "./workspace-mutations"
 import {
   flattenFileItems,
@@ -368,6 +376,7 @@ export function useVaultData() {
     const active = docTabs.find((t) => t.key === activeTabKey)
     const timer = setTimeout(() => {
       saveSession({
+        schemaVersion: SESSION_SCHEMA_VERSION,
         tabs: entries,
         activeFileId: active?.fileId ?? entries[0]?.fileId ?? "",
         favorites: [...favorites],
@@ -406,6 +415,18 @@ export function useVaultData() {
     listen<{ kind: string; path: string }>("vault-file-changed", (event) => {
       const change = event.payload
       pending.set(`${change.kind}:${normalize(change.path)}`, change)
+      if (change.kind === "remove") {
+        for (const [id, doc] of Object.entries(useDocStore.getState().openDocs)) {
+          if (normalize(doc.path) === normalize(change.path)) {
+            setExternalConflict({
+              fileId: id,
+              path: doc.path,
+              localContent: doc.content,
+              externalContent: null,
+            })
+          }
+        }
+      }
       if (refreshTimer) clearTimeout(refreshTimer)
       refreshTimer = setTimeout(async () => {
         try {
@@ -420,6 +441,15 @@ export function useVaultData() {
             const item = findTreeItem(tree, id)
             if (item?.type === "file" && item.path !== doc.path) {
               patchDoc(id, { path: item.path, title: item.name })
+              void remapRecoveryDraft(id, id, "markdown", item.path)
+              void remapRecoveryDraft(doc.path, item.path, "markdown", item.path)
+              const conflict = useDocStore.getState().externalConflicts[id]
+              if (conflict) {
+                setExternalConflict({
+                  ...conflict,
+                  path: item.path,
+                })
+              }
             }
           }
 
@@ -504,7 +534,11 @@ export function useVaultData() {
   // clobber workspaces.json with the empty initial state).
   React.useEffect(() => {
     if (!workspacesHydrated.current) return
-    saveWorkspaces({ recent: vaults, lastOpened: vault })
+    void saveWorkspaces({
+      schemaVersion: WORKSPACES_SCHEMA_VERSION,
+      recent: vaults,
+      lastOpened: vault,
+    })
   }, [vaults, vault])
 
   // ── Derived ─────────────────────────────────────────────────────────────────

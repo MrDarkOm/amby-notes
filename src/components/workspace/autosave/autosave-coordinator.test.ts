@@ -221,4 +221,26 @@ describe("AutosaveCoordinator", () => {
     await settle()
     expect(coordinator.inspect(afterRename)).toMatchObject({ dirty: false })
   })
+
+  it("updates state value when transformValue is passed to remapKey", async () => {
+    interface Payload {
+      id: string
+      path: string
+    }
+    const saves: AutosaveSnapshot<Payload>[] = []
+    const coordinator = new AutosaveCoordinator<Payload>({
+      delayMs: 1,
+      save: async (snapshot) => {
+        saves.push(snapshot)
+      },
+    })
+    const key = markdownKey("note-1")
+
+    coordinator.schedule(key, { id: "note-1", path: "/vault/Old.md" })
+    coordinator.remapKey(key, key, (val) => ({ ...val, path: "/vault/New.md" }))
+    await coordinator.flush(key)
+
+    expect(saves).toHaveLength(1)
+    expect(saves[0].value).toEqual({ id: "note-1", path: "/vault/New.md" })
+  })
 })

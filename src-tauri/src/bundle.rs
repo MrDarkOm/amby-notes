@@ -1205,10 +1205,64 @@ fn move_item_to_dir(source_path: &Path, target_dir: &Path) -> Result<FsMutationR
 
 // ── Assets ────────────────────────────────────────────────────────────────
 
-pub(crate) const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif"];
+pub const MAX_ATTACHMENT_FILE_SIZE: u64 = 100 * 1024 * 1024; // 100 MB
+pub const MAX_PASTED_BYTES: usize = 25 * 1024 * 1024; // 25 MB
+pub const MAX_EXT_LEN: usize = 16;
+pub const MAX_STEM_LEN: usize = 128;
 
-fn classify_ext(ext: &str) -> &'static str {
-    let ext = ext.to_lowercase();
+pub(crate) const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif"];
+
+pub(crate) fn sanitize_ext(ext: &str) -> String {
+    let trimmed = ext.trim_start_matches('.').trim().to_ascii_lowercase();
+    if trimmed.is_empty() || trimmed.len() > MAX_EXT_LEN {
+        return "bin".to_string();
+    }
+    if !trimmed.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return "bin".to_string();
+    }
+    trimmed
+}
+
+pub(crate) fn sanitize_stem(stem: &str) -> String {
+    let mut safe: String = stem
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    if safe.len() > MAX_STEM_LEN {
+        safe.truncate(MAX_STEM_LEN);
+    }
+    let trimmed = safe.trim_matches('-');
+    if trimmed.is_empty() {
+        "asset".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+pub(crate) fn sniff_image_format(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.len() >= 8 && bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("png")
+    } else if bytes.len() >= 3 && bytes.starts_with(b"\xFF\xD8\xFF") {
+        Some("jpg")
+    } else if bytes.len() >= 6 && (bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a")) {
+        Some("gif")
+    } else if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        Some("webp")
+    } else if bytes.len() >= 2 && bytes.starts_with(b"BM") {
+        Some("bmp")
+    } else {
+        None
+    }
+}
+
+pub(crate) fn classify_ext(ext: &str) -> &'static str {
+    let ext = ext.to_ascii_lowercase();
     if IMAGE_EXTS.iter().any(|e| *e == ext) {
         "image"
     } else {
@@ -1233,34 +1287,21 @@ pub(crate) fn assets_dir_for(vault: &Path, note: &Path) -> PathBuf {
 }
 
 pub(crate) fn unique_name(dir: &Path, stem: &str, ext: &str) -> String {
-    let safe_stem: String = stem
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let safe_stem = if safe_stem.is_empty() {
-        "asset".to_string()
-    } else {
-        safe_stem
-    };
-    let initial = if ext.is_empty() {
+    let safe_stem = sanitize_stem(stem);
+    let safe_ext = sanitize_ext(ext);
+    let initial = if safe_ext.is_empty() || (safe_ext == "bin" && ext.is_empty()) {
         safe_stem.clone()
     } else {
-        format!("{safe_stem}.{ext}")
+        format!("{safe_stem}.{safe_ext}")
     };
     if !dir.join(&initial).exists() {
         return initial;
     }
     let suffix = now_millis();
-    if ext.is_empty() {
+    if safe_ext.is_empty() || (safe_ext == "bin" && ext.is_empty()) {
         format!("{safe_stem}-{suffix}")
     } else {
-        format!("{safe_stem}-{suffix}.{ext}")
+        format!("{safe_stem}-{suffix}.{safe_ext}")
     }
 }
 
@@ -1619,5 +1660,50 @@ mod tests {
                 && change.new_path == path_string(&vault.join("B/B.md"))));
         assert!(source.exists());
         assert!(target.exists());
+    }
+
+    #[test]
+    fn test_sanitize_ext() {
+        assert_eq!(sanitize_ext(".PNG"), "png");
+        assert_eq!(sanitize_ext("jpeg"), "jpeg");
+        assert_eq!(sanitize_ext("../evil"), "bin");
+        assert_eq!(sanitize_ext("..\\evil"), "bin");
+        assert_eq!(sanitize_ext("/bin/sh"), "bin");
+        assert_eq!(sanitize_ext("verylongextensionexceedinglimit"), "bin");
+        assert_eq!(sanitize_ext(""), "bin");
+        assert_eq!(sanitize_ext("tar.gz"), "bin");
+    }
+
+    #[test]
+    fn test_sanitize_stem() {
+        assert_eq!(sanitize_stem("My Note Asset"), "My-Note-Asset");
+        assert_eq!(sanitize_stem("../../../etc/passwd"), "etc-passwd");
+        assert_eq!(sanitize_stem("   ---   "), "asset");
+        assert_eq!(sanitize_stem(""), "asset");
+    }
+
+    #[test]
+    fn test_svg_is_classified_as_file_attachment() {
+        assert_eq!(classify_ext("svg"), "file");
+        assert_eq!(classify_ext("png"), "image");
+        assert_eq!(classify_ext("jpg"), "image");
+        assert_eq!(classify_ext("pdf"), "file");
+    }
+
+    #[test]
+    fn test_sniff_image_format() {
+        assert_eq!(
+            sniff_image_format(b"\x89PNG\r\n\x1a\nExtraPayload"),
+            Some("png")
+        );
+        assert_eq!(sniff_image_format(b"\xFF\xD8\xFF\xE0..."), Some("jpg"));
+        assert_eq!(sniff_image_format(b"GIF89a..."), Some("gif"));
+        assert_eq!(
+            sniff_image_format(b"RIFF\x00\x00\x00\x00WEBPVP8..."),
+            Some("webp")
+        );
+        assert_eq!(sniff_image_format(b"BM\x00\x00\x00\x00"), Some("bmp"));
+        assert_eq!(sniff_image_format(b"<svg xmlns=..."), None);
+        assert_eq!(sniff_image_format(b"plain text"), None);
     }
 }

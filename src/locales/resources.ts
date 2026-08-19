@@ -9,7 +9,7 @@ export const SUPPORTED_LANGUAGES = [
 
 export type LanguageCode = (typeof SUPPORTED_LANGUAGES)[number]["code"]
 
-export const ru = {
+const ru = {
   app: { name: "Amby" },
   errors: {
     notANote: "Это не заметка: {{path}}",
@@ -21,6 +21,8 @@ export const ru = {
     moveTargetNotFound: "Источник или назначение перемещения не найдено.",
     sourceNotFound: "Источник не найден: {{path}}",
     vaultOpenFailed: "Не удалось открыть хранилище.\n\n{{details}}",
+    settingsSaveError:
+      "Не удалось сохранить настройки. Проверьте права доступа к файлам конфигурации.",
   },
   settings: {
     title: "Настройки",
@@ -427,6 +429,8 @@ export const ru = {
     thinking: "Думаю…",
     messagePlaceholder: "Сообщение…",
     send: "Отправить",
+    stop: "Остановить",
+    cancelled: "Запрос отменён",
     activeModel: "Активная модель",
     noModelsOpenSettings: "Нет моделей — откройте настройки",
     generating: "Генерация…",
@@ -454,6 +458,10 @@ export const ru = {
     apiKey: "API-ключ",
     apiVersion: "Версия API",
     keyPlaceholder: "ключ",
+    keyStoredInKeychain: "Сохранён в защищённом хранилище ОС",
+    clearKey: "Удалить ключ",
+    keySaved: "Ключ сохранён",
+    keychainError: "Не удалось сохранить ключ в хранилище ОС",
     privacyNote: "Текст текущей заметки уйдёт на сервер провайдера. Ключ хранится локально.",
   },
   editor: {
@@ -741,6 +749,11 @@ export const ru = {
     openVault: "Открыть хранилище",
     deleteConfirm: 'Удалить "{{name}}"?',
     deleteTitle: "Удалить файл?",
+    deleteDirtyTitle: "Удалить несохранённый файл?",
+    deleteDirtyConfirm:
+      "Файл «{{name}}» содержит несохранённые изменения или внешний конфликт. Сохранить черновик для восстановления или удалить без сохранения?",
+    deleteKeepRecovery: "Сохранить черновик",
+    deleteDiscard: "Удалить без сохранения",
     dontAskAgain: "Больше не показывать это подтверждение",
     deleteLayerConfirm: 'Удалить {{layer}} у заметки "{{title}}"? Файл переедет в корзину.',
     graphTab: "Граф связей",
@@ -765,7 +778,7 @@ export const ru = {
   panelHost: { noPanel: "Нет активной панели" },
 }
 
-export const en: typeof ru = {
+const en: typeof ru = {
   app: { name: "Amby" },
   errors: {
     notANote: "Not a note: {{path}}",
@@ -777,6 +790,7 @@ export const en: typeof ru = {
     moveTargetNotFound: "Move source or target not found.",
     sourceNotFound: "Source not found: {{path}}",
     vaultOpenFailed: "Could not open the vault.\n\n{{details}}",
+    settingsSaveError: "Failed to save settings. Check configuration file permissions.",
   },
   settings: {
     title: "Settings",
@@ -1183,6 +1197,8 @@ export const en: typeof ru = {
     thinking: "Thinking…",
     messagePlaceholder: "Message…",
     send: "Send",
+    stop: "Stop",
+    cancelled: "Request cancelled",
     activeModel: "Active model",
     noModelsOpenSettings: "No models — open settings",
     generating: "Generating…",
@@ -1210,6 +1226,10 @@ export const en: typeof ru = {
     apiKey: "API key",
     apiVersion: "API version",
     keyPlaceholder: "key",
+    keyStoredInKeychain: "Stored in OS Keychain",
+    clearKey: "Remove key",
+    keySaved: "Key saved",
+    keychainError: "Failed to store key in OS Keychain",
     privacyNote:
       "The current note's text will be sent to the provider's server. The key is stored locally.",
   },
@@ -1497,6 +1517,11 @@ export const en: typeof ru = {
     openVault: "Open vault",
     deleteConfirm: 'Delete "{{name}}"?',
     deleteTitle: "Delete file?",
+    deleteDirtyTitle: "Delete unsaved file?",
+    deleteDirtyConfirm:
+      'File "{{name}}" has unsaved changes or an external conflict. Keep a recovery draft or discard changes?',
+    deleteKeepRecovery: "Keep recovery draft",
+    deleteDiscard: "Discard changes",
     dontAskAgain: "Don't show this confirmation again",
     deleteLayerConfirm: 'Delete {{layer}} for note "{{title}}"? The file will be moved to trash.',
     graphTab: "Link graph",

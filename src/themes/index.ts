@@ -3,10 +3,10 @@
  * small, reviewed set of visual tokens can be changed. This makes downloaded
  * theme files safe to inspect, share, import and delete.
  */
-export const THEME_FORMAT = "amby-theme" as const
-export const THEME_VERSION = 1 as const
+const THEME_FORMAT = "amby-theme" as const
+const THEME_VERSION = 1 as const
 
-export type ThemeMode = "light" | "dark"
+type ThemeMode = "light" | "dark"
 
 export const THEME_TOKENS = [
   "--background",
@@ -74,7 +74,7 @@ export const THEME_TOKENS = [
   "--scrollbar-thumb-hover",
 ] as const
 
-export type ThemeToken = (typeof THEME_TOKENS)[number]
+type ThemeToken = (typeof THEME_TOKENS)[number]
 
 export interface ThemeDefinition {
   format: typeof THEME_FORMAT

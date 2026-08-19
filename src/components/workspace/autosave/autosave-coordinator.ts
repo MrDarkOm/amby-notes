@@ -156,16 +156,27 @@ export class AutosaveCoordinator<T> {
     this.startNext(state)
   }
 
-  remapKey(from: AutosaveKey, to: AutosaveKey): void {
+  remapKey(from: AutosaveKey, to: AutosaveKey, transformValue?: (value: T) => T): void {
     const fromId = keyId(from)
     const toId = keyId(to)
-    if (fromId === toId) return
+    if (fromId === toId) {
+      if (transformValue) {
+        const state = this.states.get(fromId)
+        if (state) {
+          state.value = transformValue(state.value)
+        }
+      }
+      return
+    }
     const state = this.states.get(fromId)
     if (!state) return
     if (this.states.has(toId)) throw new Error("Cannot remap autosave key onto an active buffer")
 
     this.states.delete(fromId)
     state.key = copyKey(to)
+    if (transformValue) {
+      state.value = transformValue(state.value)
+    }
     // A write already in flight still addresses the old identity. Bump the
     // version so the remapped identity is always persisted afterwards.
     state.version += 1

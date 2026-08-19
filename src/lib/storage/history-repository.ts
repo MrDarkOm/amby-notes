@@ -1,0 +1,48 @@
+import type { StoragePort } from "./port"
+import type {
+  FsMutationResult,
+  RefactorPreview,
+  SnapshotEntry,
+  SnapshotText,
+  TrashEntry,
+} from "./types"
+
+export class HistoryRepository {
+  constructor(private readonly port: () => StoragePort) {}
+
+  async listSnapshots(sourcePath: string): Promise<SnapshotEntry[]> {
+    return this.port().listSnapshots(sourcePath)
+  }
+
+  async restoreSnapshot(snapshotId: string): Promise<string> {
+    return this.port().restoreSnapshot(snapshotId)
+  }
+
+  async readSnapshotText(snapshotId: string): Promise<SnapshotText> {
+    return this.port().readSnapshotText(snapshotId)
+  }
+
+  async listTrash(): Promise<TrashEntry[]> {
+    return this.port().listTrash()
+  }
+
+  async restoreTrash(trashId: string): Promise<FsMutationResult> {
+    return this.port().restoreTrash(trashId)
+  }
+
+  async previewRenameRefactor(
+    vaultPath: string,
+    path: string,
+    newName: string,
+  ): Promise<RefactorPreview> {
+    return this.port().previewRenameRefactor(vaultPath, path, newName)
+  }
+
+  async previewMoveRefactor(
+    vaultPath: string,
+    sourcePath: string,
+    targetPath: string,
+  ): Promise<RefactorPreview> {
+    return this.port().previewMoveRefactor(vaultPath, sourcePath, targetPath)
+  }
+}

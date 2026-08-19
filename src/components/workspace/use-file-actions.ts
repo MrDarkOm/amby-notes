@@ -1,7 +1,12 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
 import { errorType, logger } from "@/lib/logger"
-import { discardRecoveryDraft, readRecoveryDraft, saveRecoveryDraft } from "@/lib/recovery-drafts"
+import {
+  discardRecoveryDraft,
+  readRecoveryDraft,
+  remapRecoveryDraft,
+  saveRecoveryDraft,
+} from "@/lib/recovery-drafts"
 import { AutosaveCoordinator, type AutosaveKey } from "./autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "./autosave/autosave-lifecycle"
 import {
@@ -15,6 +20,7 @@ import { useSettingsStore } from "./use-settings-store"
 import { loadWorkspaceConfig, saveWorkspaceConfigPatch } from "./app-config"
 import { DeleteConfirmationDialog } from "./delete-confirmation-dialog"
 import { normalizeWikiLinkTarget, findWikiLinkItem } from "./wiki-links"
+import { planMutation } from "./workspace-mutations"
 import {
   findTreeItem,
   updateInTree,
@@ -124,7 +130,7 @@ export function useFileActions({
           useDocStore.getState().externalConflicts[snapshot.value.fileId]
         )
           return
-        discardRecoveryDraft(current.path)
+        void discardRecoveryDraft(current.path)
         markSaved(snapshot.value.fileId)
       },
       onSaveFailure: (snapshot, error) => {
@@ -184,26 +190,65 @@ export function useFileActions({
     window.addEventListener(AUTOSAVE_CONFLICT_RESOLVED_EVENT, onConflictResolved)
     return () => window.removeEventListener(AUTOSAVE_CONFLICT_RESOLVED_EVENT, onConflictResolved)
   }, [autosave, autosaveKey, backendGeneration])
+
+  type DeleteResolution = "confirm" | "keep_recovery" | "discard" | "cancel"
+
   const [pendingDelete, setPendingDelete] = React.useState<{
     id: string
     name: string
-    resolve: (approved: boolean) => void
+    isDirtyOrConflicted: boolean
+    resolve: (action: DeleteResolution, dontAskAgain?: boolean) => void
   } | null>(null)
 
-  async function requestDeleteConfirmation(id: string, name: string): Promise<boolean> {
+  async function requestDeleteConfirmation(
+    id: string,
+    name: string,
+    isDirtyOrConflicted: boolean,
+  ): Promise<DeleteResolution> {
+    if (isDirtyOrConflicted) {
+      return new Promise((resolve) =>
+        setPendingDelete({ id, name, isDirtyOrConflicted: true, resolve }),
+      )
+    }
     const { confirmations } = await loadWorkspaceConfig()
-    if (!confirmations.confirmFileDelete) return true
-    return new Promise((resolve) => setPendingDelete({ id, name, resolve }))
+    if (!confirmations.confirmFileDelete) return "confirm"
+    return new Promise((resolve) =>
+      setPendingDelete({ id, name, isDirtyOrConflicted: false, resolve }),
+    )
   }
 
-  function settleDeleteConfirmation(approved: boolean, dontAskAgain = false) {
+  function settleDeleteConfirmation(action: DeleteResolution, dontAskAgain = false) {
     if (!pendingDelete) return
     if (dontAskAgain) {
       void saveWorkspaceConfigPatch({ confirmations: { confirmFileDelete: false } })
     }
-    pendingDelete.resolve(approved)
+    pendingDelete.resolve(action)
     setPendingDelete(null)
   }
+
+  const handleApplyMutation = React.useCallback(
+    (result: FsMutationResult) => {
+      const { deletedIds, remapFn } = planMutation(result)
+      for (const id of deletedIds) {
+        autosave.discard(autosaveKey(id))
+      }
+      const openDocs = useDocStore.getState().openDocs
+      for (const [id, doc] of Object.entries(openDocs)) {
+        if (deletedIds.includes(id)) continue
+        const nextPath = remapFn(doc.path)
+        if (nextPath !== doc.path) {
+          autosave.remapKey(autosaveKey(id), autosaveKey(id), (payload) => ({
+            ...payload,
+            path: nextPath,
+          }))
+          void remapRecoveryDraft(id, id, "markdown", nextPath)
+          void remapRecoveryDraft(doc.path, nextPath, "markdown", nextPath)
+        }
+      }
+      applyMutationResult(result)
+    },
+    [applyMutationResult, autosave, autosaveKey],
+  )
 
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
@@ -229,7 +274,7 @@ export function useFileActions({
           getNoteProperties("", fileId),
         ])
     const path = item?.path ?? fileId
-    const recovered = readRecoveryDraft(path)
+    const recovered = (await readRecoveryDraft(fileId)) ?? (await readRecoveryDraft(path))
     const shouldRecover =
       recovered && recovered.content !== content
         ? await confirmAction(t("recovery.restorePrompt"))
@@ -245,8 +290,12 @@ export function useFileActions({
       noteProperties,
     }
     setDoc(fileId, doc)
-    if (shouldRecover) markUnsaved(fileId)
-    else if (recovered) discardRecoveryDraft(path)
+    if (shouldRecover) {
+      markUnsaved(fileId)
+    } else if (recovered) {
+      void discardRecoveryDraft(fileId)
+      void discardRecoveryDraft(path)
+    }
     return doc
   }
 
@@ -396,7 +445,7 @@ export function useFileActions({
         // writeNote preserves the fresh clone's generated frontmatter envelope,
         // so an Amby ID from the source note is never duplicated.
         await writeNote(vault, id, content, backendGeneration)
-        applyMutationResult(result)
+        handleApplyMutation(result)
         await refreshTree()
         setDoc(id, {
           id,
@@ -517,7 +566,7 @@ export function useFileActions({
 
     try {
       const result = await createNote(vault, vault, target.split("/").pop() ?? target)
-      applyMutationResult(result)
+      handleApplyMutation(result)
       await refreshTree()
       const id = result.primaryId ?? result.primaryPath
       if (!id) return
@@ -564,7 +613,7 @@ export function useFileActions({
         )
           return
         const result = await renameItem(vault ?? "", path, newName)
-        applyMutationResult(result)
+        handleApplyMutation(result)
         const newPath = result.primaryPath ?? item.path ?? id
         patchDoc(id, { title: newName, path: newPath })
         setTabs((prev) => prev.map((tb) => (tb.fileId === id ? { ...tb, title: newName } : tb)))
@@ -576,23 +625,46 @@ export function useFileActions({
       // render but treated as stable; activeTabKey excluded (functional setTabs).
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [treeItems, vault],
+    [treeItems, vault, handleApplyMutation],
   )
 
   const handleDeleteFile = React.useCallback(
     async (id: string) => {
       const item = findTreeItem(treeItems, id)
-      if (!(await requestDeleteConfirmation(id, item?.name ?? id))) return
+      const name = item?.name ?? id
+      const normFolder = (item?.path ?? id).replace(/\\/g, "/").replace(/\/+$/, "")
+      const affectedDocs = Object.values(useDocStore.getState().openDocs).filter(
+        (doc) => doc.id === id || doc.path.replace(/\\/g, "/").startsWith(`${normFolder}/`),
+      )
+      const isDirtyOrConflicted = affectedDocs.some(
+        (doc) =>
+          useDocStore.getState().unsavedFileIds.has(doc.id) ||
+          Boolean(useDocStore.getState().externalConflicts[doc.id]),
+      )
+
+      const resolution = await requestDeleteConfirmation(id, name, isDirtyOrConflicted)
+      if (resolution === "cancel") return
+
       try {
+        for (const doc of affectedDocs) {
+          autosave.discard(autosaveKey(doc.id))
+          useDocStore.getState().clearExternalConflict(doc.id)
+          if (resolution === "keep_recovery") {
+            void saveRecoveryDraft(doc.id, doc.content, "markdown", doc.path)
+          } else {
+            void discardRecoveryDraft(doc.id)
+            void discardRecoveryDraft(doc.path)
+          }
+        }
         const result = await deleteItem(vault ?? "", item?.path ?? id)
-        applyMutationResult(result)
+        handleApplyMutation(result)
         await refreshTree()
       } catch (err) {
         console.error("Failed to delete:", err)
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [treeItems, vault],
+    [treeItems, vault, autosave, autosaveKey, handleApplyMutation],
   )
 
   const createDocumentIn = React.useCallback(
@@ -603,7 +675,7 @@ export function useFileActions({
       try {
         const untitled = t("defaults.untitled")
         const result = await createNote(vault, parent?.path ?? basePath, untitled)
-        applyMutationResult(result)
+        handleApplyMutation(result)
         await refreshTree()
         const id = result.primaryId ?? result.primaryPath
         if (!id) return
@@ -630,7 +702,7 @@ export function useFileActions({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [vault, treeItems],
+    [vault, treeItems, handleApplyMutation],
   )
 
   const handleNewFileIn = React.useCallback(
@@ -703,7 +775,7 @@ export function useFileActions({
     const canvasPath = item?.path ?? canvasId.replace(/^canvas:/u, "")
     try {
       const result = await attachCanvasToNote(vault, canvasPath)
-      applyMutationResult(result)
+      handleApplyMutation(result)
       await refreshTree()
       // Close the now-promoted standalone canvas tab.
       setTabs((prev) => prev.filter((tb) => !(tb.kind === "canvas" && tb.fileId === canvasPath)))
@@ -771,14 +843,14 @@ export function useFileActions({
         )
           return
         const result = await moveItem(vault, sourcePath, targetPath)
-        applyMutationResult(result)
+        handleApplyMutation(result)
         await refreshTree()
       } catch (err) {
         console.error("Failed to move item:", err)
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [treeItems, vault],
+    [treeItems, vault, handleApplyMutation],
   )
 
   const handleMergeFile = React.useCallback(
@@ -815,7 +887,7 @@ export function useFileActions({
           })
           markUnsaved(targetId)
         }
-        saveRecoveryDraft(targetPath, merged)
+        void saveRecoveryDraft(targetId, merged, "markdown", targetPath)
         autosave.enqueueImmediate(autosaveKey(targetId), {
           fileId: targetId,
           path: targetPath,
@@ -824,7 +896,7 @@ export function useFileActions({
         })
         await autosave.flush(autosaveKey(targetId))
         const result = await deleteItem(vault, sourceItem.path)
-        applyMutationResult(result)
+        handleApplyMutation(result)
         await refreshTree()
         await handleSelect(targetId)
       } catch (err) {
@@ -832,7 +904,7 @@ export function useFileActions({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [autosave, autosaveKey, treeItems, vault],
+    [autosave, autosaveKey, treeItems, vault, handleApplyMutation],
   )
 
   // ── Content autosave ──────────────────────────────────────────────────────────
@@ -848,7 +920,7 @@ export function useFileActions({
     patchDoc(fileId, { content })
     markUnsaved(fileId)
     const path = editedDoc.path
-    if (path) saveRecoveryDraft(path, content)
+    if (path) void saveRecoveryDraft(fileId, content, "markdown", path)
 
     const key = autosaveKey(fileId)
     if (useDocStore.getState().externalConflicts[fileId]) {
@@ -883,8 +955,11 @@ export function useFileActions({
     deleteConfirmationDialog: pendingDelete
       ? React.createElement(DeleteConfirmationDialog, {
           name: pendingDelete.name,
-          onCancel: () => settleDeleteConfirmation(false),
-          onConfirm: (dontAskAgain: boolean) => settleDeleteConfirmation(true, dontAskAgain),
+          isDirtyOrConflicted: pendingDelete.isDirtyOrConflicted,
+          onCancel: () => settleDeleteConfirmation("cancel"),
+          onConfirm: (dontAskAgain: boolean) => settleDeleteConfirmation("confirm", dontAskAgain),
+          onKeepRecovery: () => settleDeleteConfirmation("keep_recovery"),
+          onDiscard: () => settleDeleteConfirmation("discard"),
         })
       : null,
   }

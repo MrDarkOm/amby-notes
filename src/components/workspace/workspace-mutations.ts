@@ -15,8 +15,19 @@ import type { TreeItem } from "./sidebar-tree"
  * Returns the new path if a matching change exists, otherwise the original.
  */
 export function remapPath(path: string, changes: PathChange[]): string {
-  const exact = changes.find((c) => c.oldPath && c.oldPath === path)
-  return exact?.newPath ?? path
+  const normPath = path.replace(/\\/g, "/")
+  const exact = changes.find((c) => c.oldPath && c.oldPath.replace(/\\/g, "/") === normPath)
+  if (exact?.newPath) return exact.newPath.replace(/\\/g, "/")
+  for (const change of changes) {
+    if (!change.oldPath || !change.newPath) continue
+    const normOld = change.oldPath.replace(/\\/g, "/").replace(/\/+$/, "")
+    const normNew = change.newPath.replace(/\\/g, "/").replace(/\/+$/, "")
+    if (normOld && normPath.startsWith(`${normOld}/`)) {
+      const tail = normPath.slice(normOld.length)
+      return `${normNew}${tail}`
+    }
+  }
+  return path
 }
 
 /**

@@ -1,0 +1,8 @@
+export { FilesPanel } from "./files-panel"
+export { TagsPanel } from "./tags-panel"
+export { FavoritesPanel } from "./favorites-panel"
+export { ComingSoonPanel } from "./coming-soon-panel"
+export { InfoPanel } from "./info-panel"
+export { PropertyEditor, type PropertyEditorProps } from "./property-editor"
+export { HistoryPanel } from "./history-panel"
+export { LinksPanel } from "./links-panel"

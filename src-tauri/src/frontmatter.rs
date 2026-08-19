@@ -1,6 +1,6 @@
 use serde_yaml::{Mapping, Value};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -386,6 +386,75 @@ pub fn atomic_write_bytes_new(path: &Path, content: &[u8]) -> Result<(), AtomicC
     write_result
 }
 
+/// Atomically copy a file to a new destination without replacing an existing file.
+/// Reads via streaming buffer to avoid allocating the whole source file in memory,
+/// enforces `max_bytes`, fsyncs, and publishes via hard_link.
+pub fn atomic_copy_file_new(
+    source: &Path,
+    path: &Path,
+    max_bytes: u64,
+) -> Result<u64, AtomicCreateError> {
+    let parent = path.parent().ok_or_else(|| {
+        AtomicCreateError::Other(format!("Path has no parent: {}", path.display()))
+    })?;
+    fs::create_dir_all(parent).map_err(|err| AtomicCreateError::Other(err.to_string()))?;
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let suffix = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp = parent.join(format!(".{name}.amby-tmp-{}-{suffix}", std::process::id()));
+
+    let copy_result = (|| -> Result<u64, AtomicCreateError> {
+        let mut reader =
+            fs::File::open(source).map_err(|err| AtomicCreateError::Other(err.to_string()))?;
+        let mut writer = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
+
+        let mut total_copied: u64 = 0;
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let read_bytes = reader
+                .read(&mut buffer)
+                .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
+            if read_bytes == 0 {
+                break;
+            }
+            total_copied += read_bytes as u64;
+            if total_copied > max_bytes {
+                return Err(AtomicCreateError::Other(format!(
+                    "File size exceeds maximum allowed limit ({max_bytes} bytes)"
+                )));
+            }
+            writer
+                .write_all(&buffer[..read_bytes])
+                .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
+        }
+
+        writer
+            .sync_all()
+            .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
+        drop(writer);
+
+        fs::hard_link(&tmp, path).map_err(|err| {
+            if err.kind() == std::io::ErrorKind::AlreadyExists {
+                AtomicCreateError::AlreadyExists
+            } else {
+                AtomicCreateError::Other(err.to_string())
+            }
+        })?;
+
+        let _ = fs::remove_file(&tmp);
+        sync_parent_directory(parent).map_err(AtomicCreateError::Other)?;
+        Ok(total_copied)
+    })();
+
+    if copy_result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    copy_result
+}
+
 /// Text wrapper for [`atomic_write_bytes_new`].
 pub fn atomic_write_new(path: &Path, content: &str) -> Result<(), AtomicCreateError> {
     atomic_write_bytes_new(path, content.as_bytes())
@@ -595,5 +664,39 @@ mod tests {
             vec!["Project".to_string(), "inbox/to-read".to_string()]
         );
         assert_eq!(parsed.body, "Body");
+    }
+
+    #[test]
+    fn atomic_copy_file_new_streams_file_and_enforces_max_bytes() {
+        let dir = std::env::temp_dir().join(format!(
+            "amby-copy-{}-{}",
+            std::process::id(),
+            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let src = dir.join("source.bin");
+        let dest = dir.join("dest.bin");
+
+        // Write 1KB payload
+        let payload = vec![0x42u8; 1024];
+        fs::write(&src, &payload).unwrap();
+
+        // 1. Success copy
+        let copied = atomic_copy_file_new(&src, &dest, 2048).unwrap();
+        assert_eq!(copied, 1024);
+        assert_eq!(fs::read(&dest).unwrap(), payload);
+
+        // 2. Reject existing destination
+        assert_eq!(
+            atomic_copy_file_new(&src, &dest, 2048),
+            Err(AtomicCreateError::AlreadyExists)
+        );
+
+        // 3. Reject if source exceeds max_bytes
+        let dest_small_limit = dir.join("dest2.bin");
+        assert!(atomic_copy_file_new(&src, &dest_small_limit, 512).is_err());
+        assert!(!dest_small_limit.exists());
+
+        fs::remove_dir_all(dir).unwrap();
     }
 }

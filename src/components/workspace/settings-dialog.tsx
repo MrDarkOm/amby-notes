@@ -61,6 +61,7 @@ import {
   loadSettings,
   saveSettingsPatch,
   saveWorkspaces,
+  WORKSPACES_SCHEMA_VERSION,
   type AiSettings,
   type ContentWidth,
   type Density,
@@ -784,7 +785,11 @@ function DataTab() {
           className={cn(btn, "text-red-300 hover:bg-red-950/30")}
           onClick={() => {
             setVaults([])
-            void saveWorkspaces({ recent: [], lastOpened: vault })
+            void saveWorkspaces({
+              schemaVersion: WORKSPACES_SCHEMA_VERSION,
+              recent: [],
+              lastOpened: vault,
+            })
           }}
         >
           <Trash2 className="size-4" />

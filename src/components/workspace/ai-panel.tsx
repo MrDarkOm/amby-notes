@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowLeft, FileText, Send, Settings2, Sparkles } from "lucide-react"
+import { ArrowLeft, FileText, Send, Settings2, Sparkles, Square } from "lucide-react"
 
 import i18n from "@/lib/i18n"
 
@@ -58,19 +58,38 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
   const [streaming, setStreaming] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const scrollRef = React.useRef<HTMLDivElement>(null)
+  const abortControllerRef = React.useRef<AbortController | null>(null)
 
   React.useEffect(() => {
     loadSettings().then((s) => setAi(s.ai))
+    return () => {
+      abortControllerRef.current?.abort()
+    }
   }, [])
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
   }, [messages, streaming])
 
-  const updateAi = React.useCallback((next: AiSettings) => {
-    setAi(next)
-    void saveSettingsPatch({ ai: next })
+  const stop = React.useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+    setLoading(false)
+    setStreaming(null)
   }, [])
+
+  const updateAi = React.useCallback(
+    (next: AiSettings) => {
+      if (next.activeModelId !== ai.activeModelId) {
+        abortControllerRef.current?.abort()
+      }
+      setAi(next)
+      void saveSettingsPatch({ ai: next })
+    },
+    [ai.activeModelId],
+  )
 
   const send = React.useCallback(async () => {
     const text = input.trim()
@@ -86,15 +105,25 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
     setInput("")
     setLoading(true)
     setStreaming("")
+
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     try {
       const reply = await aiChat(resolveAiConfig(model), next, {
         system: buildSystemPrompt(currentDoc?.title ?? null, currentDoc?.content ?? null),
         onToken: (delta) => setStreaming((s) => (s ?? "") + delta),
+        signal: controller.signal,
       })
       setMessages((prev) => [...prev, { role: "assistant", content: reply }])
     } catch (e) {
-      setError(e instanceof AiUnavailableError ? e.message : String(e))
+      if (controller.signal.aborted) {
+        setError(t("ai.cancelled"))
+      } else {
+        setError(e instanceof AiUnavailableError ? e.message : String(e))
+      }
     } finally {
+      abortControllerRef.current = null
       setStreaming(null)
       setLoading(false)
     }
@@ -204,15 +233,26 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
                 placeholder={t("ai.messagePlaceholder")}
                 className="min-h-[2.25rem] min-w-0 flex-1 resize-none rounded-md border border-border bg-card px-2 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus:border-border"
               />
-              <button
-                type="button"
-                onClick={() => void send()}
-                disabled={loading || !input.trim()}
-                title={t("ai.send")}
-                className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
-              >
-                <Send className="size-4" />
-              </button>
+              {loading ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  title={t("ai.stop")}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-md bg-red-600/80 text-white transition-colors hover:bg-red-600"
+                >
+                  <Square className="size-3.5 fill-current" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void send()}
+                  disabled={!input.trim()}
+                  title={t("ai.send")}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+                >
+                  <Send className="size-4" />
+                </button>
+              )}
             </div>
             <select
               value={ai.activeModelId ?? ""}

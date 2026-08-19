@@ -49,6 +49,11 @@ their source is still preserved exactly.
   by the Rust write boundary.
 - `src/components/workspace/tiptap/fixtures/malformed-frontmatter.md` verifies
   that malformed YAML is never passed through visual serialization.
+- `tests/fixtures/markdown-compatibility.json` is the shared cross-platform
+  corpus executed by both TypeScript (Vitest) and Rust (`cargo test`) to ensure
+  identical indexing of tags, wikilinks, targets, labels and protected regions
+  (code fences, inline code, comments, frontmatter) between web fallback and
+  desktop Tauri index.
 
 The unit suite also generates a deterministic 80-document compatibility corpus.
 Every generated document must either be byte-exact or be rejected by the Live

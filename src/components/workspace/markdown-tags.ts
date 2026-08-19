@@ -142,3 +142,75 @@ export function tagIncludes(parent: string, candidate: string): boolean {
     normalizedCandidate.startsWith(`${normalizedParent}/`)
   )
 }
+
+export function extractFrontmatterTags(source: string): string[] {
+  if (!source.startsWith("---\n") && !source.startsWith("---\r\n")) return []
+  const newlineLength = source.startsWith("---\r\n") ? 2 : 1
+  let cursor = 3 + newlineLength
+  let yamlEnd = -1
+  while (cursor < source.length) {
+    const lineEnd = source.indexOf("\n", cursor)
+    const end = lineEnd < 0 ? source.length : lineEnd + 1
+    const line = source.slice(cursor, lineEnd < 0 ? source.length : lineEnd).replace(/\r$/u, "")
+    if (line === "---" || line === "...") {
+      yamlEnd = cursor
+      break
+    }
+    cursor = end
+  }
+  if (yamlEnd < 0) return []
+  const yaml = source.slice(3 + newlineLength, yamlEnd)
+  const tags: string[] = []
+  let inTags = false
+  for (const rawLine of yaml.split("\n")) {
+    const line = rawLine.replace(/\r$/u, "")
+    const trimmed = line.trim()
+    if (/^tags\s*:/u.test(trimmed)) {
+      inTags = true
+      const rest = trimmed.slice(trimmed.indexOf(":") + 1).trim()
+      if (rest.startsWith("[") && rest.endsWith("]")) {
+        const items = rest.slice(1, -1).split(",")
+        for (const it of items) {
+          const tag = it
+            .trim()
+            .replace(/^['"]|['"]$/gu, "")
+            .replace(/^#/u, "")
+          if (isValidObsidianTag(tag)) tags.push(tag.normalize("NFC").toLocaleLowerCase())
+        }
+      } else if (rest) {
+        for (const it of rest.split(",")) {
+          const tag = it
+            .trim()
+            .replace(/^['"]|['"]$/gu, "")
+            .replace(/^#/u, "")
+          if (isValidObsidianTag(tag)) tags.push(tag.normalize("NFC").toLocaleLowerCase())
+        }
+      }
+      continue
+    }
+    if (inTags) {
+      if (/^[a-zA-Z0-9_-]+\s*:/u.test(line) && !/^\s*-\s*/u.test(line)) {
+        inTags = false
+        continue
+      }
+      if (/^\s*-\s*/u.test(trimmed)) {
+        const item = trimmed
+          .replace(/^\s*-\s*/u, "")
+          .replace(/^['"]|['"]$/gu, "")
+          .replace(/^#/u, "")
+          .trim()
+        if (isValidObsidianTag(item)) {
+          tags.push(item.normalize("NFC").toLocaleLowerCase())
+        }
+      }
+    }
+  }
+  return tags
+}
+
+export function extractDocumentTags(source: string): string[] {
+  const inline = extractObsidianTags(source).map((m) => m.normalized)
+  const frontmatter = extractFrontmatterTags(source)
+  const set = new Set([...inline, ...frontmatter])
+  return Array.from(set).sort()
+}

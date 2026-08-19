@@ -5,7 +5,7 @@ import type { EditorView } from "@tiptap/pm/view"
 import { getAssetContext } from "./asset-resolver"
 import { importAsset, importAssetBytes, isTauri } from "@/lib/storage"
 
-const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|avif)$/i
 
 function extFromMime(mime: string): string {
   if (mime === "image/jpeg") return "jpg"

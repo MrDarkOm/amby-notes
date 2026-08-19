@@ -17,6 +17,7 @@ export interface AiConfig {
   provider: AiFamily
   model: string
   baseUrl: string
+  credentialId?: string | null
   apiKey?: string | null
   maxTokens?: number | null
   /** Azure only: API version. */
@@ -31,6 +32,7 @@ export interface AiMessage {
 function toGeneratedConfig(config: AiConfig): GeneratedAiConfig {
   return {
     ...config,
+    credentialId: config.credentialId ?? null,
     apiKey: config.apiKey ?? null,
     maxTokens: config.maxTokens ?? null,
     apiVersion: config.apiVersion ?? null,
@@ -54,6 +56,20 @@ export interface AiChatOptions {
   system?: string
   /** When provided, response is streamed: each token delta is delivered here. */
   onToken?: (delta: string) => void
+  /** Abort signal to cancel the ongoing request on the backend. */
+  signal?: AbortSignal
+}
+
+/**
+ * Cancel an ongoing AI request by its stream ID.
+ */
+export async function cancelAiChat(streamId: string): Promise<boolean> {
+  if (!isTauri()) return false
+  try {
+    return await unwrapCommand(commands.cancelAiRequest(streamId))
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -68,22 +84,37 @@ export async function aiChat(
 ): Promise<string> {
   if (!isTauri()) throw new AiUnavailableError()
   const system = opts.system ?? null
+  const streamId = crypto.randomUUID()
 
-  if (!opts.onToken) {
-    return unwrapCommand(
-      commands.aiChat(toGeneratedConfig(config), toGeneratedMessages(messages), system, null),
-    )
+  const onAbort = () => {
+    void cancelAiChat(streamId)
   }
 
-  const streamId = crypto.randomUUID()
-  const unlisten = await listen<{ streamId: string; delta: string }>("ai:token", (e) => {
-    if (e.payload.streamId === streamId) opts.onToken!(e.payload.delta)
-  })
+  if (opts.signal) {
+    if (opts.signal.aborted) {
+      void cancelAiChat(streamId)
+      throw new Error("Request cancelled")
+    }
+    opts.signal.addEventListener("abort", onAbort, { once: true })
+  }
+
+  let unlisten: (() => void) | null = null
+  if (opts.onToken) {
+    unlisten = await listen<{ streamId: string; delta: string }>("ai:token", (e) => {
+      if (e.payload.streamId === streamId) opts.onToken!(e.payload.delta)
+    })
+  }
+
   try {
     return await unwrapCommand(
       commands.aiChat(toGeneratedConfig(config), toGeneratedMessages(messages), system, streamId),
     )
   } finally {
-    unlisten()
+    if (opts.signal) {
+      opts.signal.removeEventListener("abort", onAbort)
+    }
+    if (unlisten) {
+      unlisten()
+    }
   }
 }

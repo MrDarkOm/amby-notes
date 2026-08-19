@@ -13,18 +13,65 @@ import {
 
 interface DeleteConfirmationDialogProps {
   name: string
+  isDirtyOrConflicted?: boolean
   onCancel: () => void
   onConfirm: (dontAskAgain: boolean) => void
+  onKeepRecovery?: () => void
+  onDiscard?: () => void
 }
 
 /** A destructive-action confirmation whose opt-out is persisted by the caller. */
 export function DeleteConfirmationDialog({
   name,
+  isDirtyOrConflicted = false,
   onCancel,
   onConfirm,
+  onKeepRecovery,
+  onDiscard,
 }: DeleteConfirmationDialogProps) {
   const t = i18n.t.bind(i18n)
   const [dontAskAgain, setDontAskAgain] = React.useState(false)
+
+  if (isDirtyOrConflicted) {
+    return (
+      <Dialog open onOpenChange={(open) => !open && onCancel()}>
+        <DialogContent
+          showCloseButton={false}
+          className="w-96 border-border bg-popover p-5 text-foreground"
+        >
+          <DialogHeader>
+            <DialogTitle className="text-base">{t("workspace.deleteDirtyTitle")}</DialogTitle>
+            <DialogDescription>{t("workspace.deleteDirtyConfirm", { name })}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-wrap gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent"
+              onClick={onCancel}
+            >
+              {t("docEditor.cancel")}
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-destructive px-3 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90"
+              onClick={onDiscard}
+            >
+              {t("workspace.deleteDiscard")}
+            </button>
+            <button
+              type="button"
+              autoFocus
+              className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+              onClick={onKeepRecovery}
+            >
+              {t("workspace.deleteKeepRecovery")}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
       <DialogContent

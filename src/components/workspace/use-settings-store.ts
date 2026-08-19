@@ -15,31 +15,43 @@ interface SettingsStore {
   prefs: AppPreferences
   themes: ThemeDefinition[]
   hydrated: boolean
+  lastSaveError: Error | null
   hydrate: () => Promise<void>
   /** Shallow-merge a patch into prefs and persist. Nested objects (editor,
    *  startup) must be passed whole by the caller. */
-  setPrefs: (patch: Partial<AppPreferences>) => void
+  setPrefs: (patch: Partial<AppPreferences>) => Promise<void>
   /** Replaces the validated global library of imported themes. */
-  setThemes: (themes: ThemeDefinition[]) => void
+  setThemes: (themes: ThemeDefinition[]) => Promise<void>
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   prefs: DEFAULT_PREFS,
   themes: [],
   hydrated: false,
+  lastSaveError: null,
   hydrate: async () => {
     if (get().hydrated) return
     const s = await loadSettings()
     set({ prefs: s.prefs, themes: s.themes, hydrated: true })
   },
-  setPrefs: (patch) => {
+  setPrefs: async (patch) => {
     const prefs = { ...get().prefs, ...patch }
-    set({ prefs })
-    void saveSettingsPatch({ prefs })
+    set({ prefs, lastSaveError: null })
+    try {
+      await saveSettingsPatch({ prefs })
+    } catch (err) {
+      set({ lastSaveError: err instanceof Error ? err : new Error(String(err)) })
+      throw err
+    }
   },
-  setThemes: (themes) => {
-    set({ themes })
-    void saveSettingsPatch({ themes })
+  setThemes: async (themes) => {
+    set({ themes, lastSaveError: null })
+    try {
+      await saveSettingsPatch({ themes })
+    } catch (err) {
+      set({ lastSaveError: err instanceof Error ? err : new Error(String(err)) })
+      throw err
+    }
   },
 }))
 

@@ -125,30 +125,30 @@ API-ключи хранятся только в OS credential store. Renderer п
 - [x] WP-14 — Подключить Markdown autosave к coordinator
 - [x] WP-15 — Подключить Canvas autosave к coordinator
 - [x] WP-16 — Исправить vault switch и multi-window lifecycle
-- [ ] WP-17 — Реализовать Rust recovery journal и миграцию localStorage drafts
-- [ ] WP-18 — Закрыть lifecycle внешних конфликтов при rename/move/delete
+- [x] WP-17 — Реализовать Rust recovery journal и миграцию localStorage drafts
+- [x] WP-18 — Закрыть lifecycle внешних конфликтов при rename/move/delete
 
 ### Фаза 4. Укрепить settings, AI и attachments
 
-- [ ] WP-19 — Перестать скрывать ошибки settings storage
-- [ ] WP-20 — Перенести AI credentials в OS credential store
-- [ ] WP-21 — Добавить AI URL policy, limits, timeout и cancellation
-- [ ] WP-22 — Ограничить и валидировать импорт attachments
+- [x] WP-19 — Перестать скрывать ошибки settings storage
+- [x] WP-20 — Перенести AI credentials в OS credential store
+- [x] WP-21 — Добавить AI URL policy, limits, timeout и cancellation
+- [x] WP-22 — Ограничить и валидировать импорт attachments
 
 ### Фаза 5. Уменьшить архитектурный долг
 
-- [ ] WP-23 — Разделить storage.ts на port, adapters и repositories
-- [ ] WP-24 — Разделить Rust lib.rs на command-модули
-- [ ] WP-25 — Разделить vault_index.rs по обязанностям
-- [ ] WP-26 — Разделить panel-registry.tsx
-- [ ] WP-27 — Разделить workspace.tsx и document-editor.tsx
-- [ ] WP-28 — Разделить canvas-editor.tsx и sidebar-tree.tsx
-- [ ] WP-29 — Добавить общие TS/Rust compatibility fixtures
+- [x] WP-23 — Разделить storage.ts на port, adapters и repositories
+- [x] WP-24 — Разделить Rust lib.rs на command-модули
+- [x] WP-25 — Разделить vault_index.rs по обязанностям
+- [x] WP-26 — Разделить panel-registry.tsx
+- [x] WP-27 — Разделить workspace.tsx и document-editor.tsx
+- [x] WP-28 — Разделить canvas-editor.tsx и sidebar-tree.tsx
+- [x] WP-29 — Добавить общие TS/Rust compatibility fixtures
 
 ### Фаза 6. Закрыть тестовый и repository debt
 
-- [ ] WP-30 — Добавить UI, IPC и security integration tests
-- [ ] WP-31 — Очистить knip, repository artifacts и metadata
+- [x] WP-30 — Добавить UI, IPC и security integration tests
+- [x] WP-31 — Очистить knip, repository artifacts и metadata
 - [ ] WP-32 — Сделать полный quality gate обязательным
 - [ ] WP-33 — Выполнить финальную cross-platform release verification
 

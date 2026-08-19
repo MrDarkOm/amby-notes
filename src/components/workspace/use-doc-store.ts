@@ -106,7 +106,12 @@ export const useDocStore = create<DocStore>((set) => ({
       for (const id of s.unsavedFileIds) if (!deleted.has(id)) unsavedFileIds.add(id)
       const externalConflicts: Record<string, ExternalConflict> = {}
       for (const [id, conflict] of Object.entries(s.externalConflicts)) {
-        if (!deleted.has(id)) externalConflicts[id] = conflict
+        if (!deleted.has(id)) {
+          externalConflicts[id] = {
+            ...conflict,
+            path: remapPath(conflict.path),
+          }
+        }
       }
       return { openDocs, unsavedFileIds, externalConflicts }
     }),

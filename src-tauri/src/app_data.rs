@@ -97,3 +97,45 @@ pub fn delete_vault_meta(context: tauri::State<VaultContext>, rel: String) -> Re
         Err(e) => Err(e.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ulid::Ulid;
+
+    fn temp_test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("amby-appdata-{name}-{}", Ulid::generate()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn test_write_and_read_app_data() {
+        let dir = temp_test_dir("readwrite");
+        let file_path = dir.join("test.json");
+
+        assert_eq!(read_opt(&file_path).unwrap(), None);
+
+        write_all(&file_path, "{\"key\":\"value\"}").expect("write");
+        assert_eq!(
+            read_opt(&file_path).unwrap(),
+            Some("{\"key\":\"value\"}".to_string())
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_write_creates_intermediate_parent_directories() {
+        let dir = temp_test_dir("nested");
+        let file_path = dir.join("nested").join("sub").join("config.json");
+
+        write_all(&file_path, "{\"schemaVersion\":1}").expect("write");
+        assert_eq!(
+            read_opt(&file_path).unwrap(),
+            Some("{\"schemaVersion\":1}".to_string())
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+}

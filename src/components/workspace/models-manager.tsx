@@ -1,10 +1,17 @@
 "use client"
 
-import { Plus, Trash2 } from "lucide-react"
+import * as React from "react"
+import { Check, KeyRound, Plus, Trash2, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  deleteAiCredential,
+  inspectAiCredential,
+  storeAiCredential,
+  type CredentialInfo,
+} from "@/lib/storage"
 import { AI_PROVIDERS, blankModel, findProvider, type AiModel, type AiSettings } from "./app-config"
 
 // ── Models library manager ────────────────────────────────────────────────────
@@ -21,6 +28,10 @@ export function ModelsManager({
     onChange({ ...ai, models: ai.models.map((m) => (m.id === next.id ? next : m)) })
 
   const deleteModel = (id: string) => {
+    const target = ai.models.find((m) => m.id === id)
+    if (target?.credentialId) {
+      void deleteAiCredential(target.credentialId)
+    }
     const models = ai.models.filter((m) => m.id !== id)
     const activeModelId = ai.activeModelId === id ? (models[0]?.id ?? null) : ai.activeModelId
     onChange({ models, activeModelId })
@@ -78,6 +89,49 @@ function ModelEditor({
     "h-7 w-full min-w-0 rounded border border-border bg-card px-2 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-ring"
   const label = "text-[10px] uppercase tracking-wider text-muted-foreground"
   const set = (patch: Partial<AiModel>) => onChange({ ...model, ...patch })
+
+  const [inputKey, setInputKey] = React.useState("")
+  const [credInfo, setCredInfo] = React.useState<CredentialInfo | null>(null)
+  const [savingKey, setSavingKey] = React.useState(false)
+
+  React.useEffect(() => {
+    let active = true
+    if (model.credentialId) {
+      void inspectAiCredential(model.credentialId).then((info) => {
+        if (active) setCredInfo(info)
+      })
+    } else {
+      setCredInfo(null)
+    }
+    return () => {
+      active = false
+    }
+  }, [model.credentialId])
+
+  const handleSaveKey = async (rawSecret: string) => {
+    const secret = rawSecret.trim()
+    if (!secret) return
+    setSavingKey(true)
+    try {
+      const credId = model.credentialId || crypto.randomUUID()
+      await storeAiCredential(credId, secret)
+      const info = await inspectAiCredential(credId)
+      setCredInfo(info)
+      set({ credentialId: credId })
+      setInputKey("")
+    } finally {
+      setSavingKey(false)
+    }
+  }
+
+  const handleClearKey = async () => {
+    if (model.credentialId) {
+      await deleteAiCredential(model.credentialId)
+    }
+    setCredInfo(null)
+    setInputKey("")
+    set({ credentialId: null })
+  }
 
   const locals = AI_PROVIDERS.filter((p) => p.kind === "local")
   const clouds = AI_PROVIDERS.filter((p) => p.kind === "cloud")
@@ -157,14 +211,53 @@ function ModelEditor({
 
       {provider?.needsKey && (
         <div className="flex flex-col gap-1">
-          <label className={label}>{t("models.apiKey")}</label>
-          <input
-            className={field}
-            type="password"
-            value={model.apiKey}
-            onChange={(e) => set({ apiKey: e.target.value })}
-            placeholder={t("models.keyPlaceholder")}
-          />
+          <div className="flex items-center justify-between">
+            <label className={label}>{t("models.apiKey")}</label>
+            {credInfo?.exists && (
+              <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+                <KeyRound className="size-3" />
+                {t("models.keyStoredInKeychain")}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <input
+              className={field}
+              type="password"
+              value={inputKey}
+              onChange={(e) => setInputKey(e.target.value)}
+              onBlur={() => {
+                if (inputKey.trim()) void handleSaveKey(inputKey)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && inputKey.trim()) {
+                  e.preventDefault()
+                  void handleSaveKey(inputKey)
+                }
+              }}
+              placeholder={credInfo?.masked || t("models.keyPlaceholder")}
+            />
+            {inputKey.trim() ? (
+              <button
+                type="button"
+                title={t("models.keySaved")}
+                disabled={savingKey}
+                onClick={() => void handleSaveKey(inputKey)}
+                className="shrink-0 rounded bg-primary/20 px-2 py-1 text-[11px] text-primary hover:bg-primary/30"
+              >
+                <Check className="size-3.5" />
+              </button>
+            ) : credInfo?.exists ? (
+              <button
+                type="button"
+                title={t("models.clearKey")}
+                onClick={() => void handleClearKey()}
+                className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-red-400"
+              >
+                <X className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
         </div>
       )}
 

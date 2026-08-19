@@ -15,7 +15,10 @@ import {
   saveGlobalJSON,
   saveVaultJSON,
   vaultFileMissing,
+  storeAiCredential,
+  inspectAiCredential,
 } from "@/lib/storage"
+import { errorType, logger } from "@/lib/logger"
 import type { VaultRecord } from "./workspace-picker"
 import type { ActivityButton, PanelId, Side } from "./panel-registry"
 import type { Preset } from "./presets"
@@ -28,11 +31,37 @@ export const SETTINGS_FILE = "settings.json"
 export const WORKSPACE_FILE = "workspace.json"
 export const SESSION_FILE = "session.json"
 
+export const SETTINGS_SCHEMA_VERSION = 1
+export const WORKSPACE_SCHEMA_VERSION = 1
+export const SESSION_SCHEMA_VERSION = 1
+export const WORKSPACES_SCHEMA_VERSION = 1
+
+export const SETTINGS_SAVE_ERROR_EVENT = "amby:settings-save-error"
+
+export function emitSettingsSaveError(fileName: string, error: unknown): void {
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "")
+  logger.error("settings.save_failed", {
+    file: safeName,
+    errorType: errorType(error),
+  })
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(SETTINGS_SAVE_ERROR_EVENT, {
+        detail: {
+          file: safeName,
+          message: i18n.t("errors.settingsSaveError"),
+        },
+      }),
+    )
+  }
+}
+
 // Several controls can update separate settings fields during the same event
 // (for example, importing a theme selects it and adds it to the library).
 // Serialize read-modify-write cycles so one asynchronous save cannot erase the
 // other field from settings.json.
 let settingsWriteChain: Promise<void> = Promise.resolve()
+let workspaceConfigWriteChain: Promise<void> = Promise.resolve()
 let sessionWriteChain: Promise<void> = Promise.resolve()
 
 export type PanelScope = "global" | "workspace"
@@ -78,6 +107,7 @@ const isRecord = (v: unknown): v is Record<string, string> =>
 // ── Global: workspaces.json ─────────────────────────────────────────────────
 
 export interface WorkspacesFile {
+  schemaVersion: number
   recent: VaultRecord[]
   lastOpened: string | null
 }
@@ -86,19 +116,37 @@ export async function loadWorkspaces(): Promise<WorkspacesFile> {
   if (await globalFileMissing(WORKSPACES_FILE)) {
     const recent = parseLS<VaultRecord[]>("amby:vaults", Array.isArray) ?? []
     const lastOpened = readLS("amby:vault")
-    const file: WorkspacesFile = { recent, lastOpened }
+    const file: WorkspacesFile = {
+      schemaVersion: WORKSPACES_SCHEMA_VERSION,
+      recent,
+      lastOpened,
+    }
     if (recent.length || lastOpened) await saveGlobalJSON(WORKSPACES_FILE, file)
     return file
   }
-  const d = await loadGlobalJSON<WorkspacesFile>(WORKSPACES_FILE, { recent: [], lastOpened: null })
+  const d = await loadGlobalJSON<Partial<WorkspacesFile>>(WORKSPACES_FILE, {
+    schemaVersion: WORKSPACES_SCHEMA_VERSION,
+    recent: [],
+    lastOpened: null,
+  })
   return {
+    schemaVersion:
+      typeof d.schemaVersion === "number" ? d.schemaVersion : WORKSPACES_SCHEMA_VERSION,
     recent: Array.isArray(d.recent) ? d.recent : [],
     lastOpened: typeof d.lastOpened === "string" ? d.lastOpened : null,
   }
 }
 
 export async function saveWorkspaces(file: WorkspacesFile): Promise<void> {
-  await saveGlobalJSON(WORKSPACES_FILE, file)
+  try {
+    await saveGlobalJSON(WORKSPACES_FILE, {
+      ...file,
+      schemaVersion: WORKSPACES_SCHEMA_VERSION,
+    })
+  } catch (err) {
+    emitSettingsSaveError(WORKSPACES_FILE, err)
+    throw err
+  }
 }
 
 // ── Global: settings.json ───────────────────────────────────────────────────
@@ -224,13 +272,13 @@ export interface AiModel {
   provider: string
   model: string
   baseUrl: string
-  apiKey: string
+  credentialId?: string | null
   /** Azure only. */
   apiVersion: string
 }
 
-/** AI settings = a library of models + which one is active. Keys are plaintext
- *  in settings.json (acceptable for v1; local providers need none). */
+/** AI settings = a library of models + which one is active. Secrets are stored
+ *  in the OS Keychain / Credential Manager under credentialId. */
 export interface AiSettings {
   models: AiModel[]
   activeModelId: string | null
@@ -244,7 +292,7 @@ export const DEFAULT_AI: AiSettings = {
       provider: "ollama",
       model: "llama3.2",
       baseUrl: "",
-      apiKey: "",
+      credentialId: null,
       apiVersion: "",
     },
   ],
@@ -259,7 +307,7 @@ export function blankModel(): AiModel {
     provider: "ollama",
     model: "llama3.2",
     baseUrl: "",
-    apiKey: "",
+    credentialId: null,
     apiVersion: "",
   }
 }
@@ -368,6 +416,7 @@ export function normalizeAppPreferences(
 }
 
 export interface GlobalSettings {
+  schemaVersion: number
   panelScope: PanelScope
   defaultTheme: string | null
   /** Used when panelScope === "global". */
@@ -378,32 +427,60 @@ export interface GlobalSettings {
   themes: ThemeDefinition[]
 }
 
-function normalizeModel(raw: unknown): AiModel | null {
-  if (!raw || typeof raw !== "object") return null
-  const d = raw as Partial<AiModel>
-  if (typeof d.id !== "string" || typeof d.provider !== "string") return null
-  return {
-    id: d.id,
-    label: typeof d.label === "string" && d.label ? d.label : i18n.t("workspace.modelFallback"),
-    provider: d.provider,
-    model: typeof d.model === "string" ? d.model : "",
-    baseUrl: typeof d.baseUrl === "string" ? d.baseUrl : "",
-    apiKey: typeof d.apiKey === "string" ? d.apiKey : "",
-    apiVersion: typeof d.apiVersion === "string" ? d.apiVersion : "",
+export async function migrateLegacyAiKeys(
+  rawAi: unknown,
+): Promise<{ ai: AiSettings; migrated: boolean }> {
+  if (!rawAi || typeof rawAi !== "object") {
+    return { ai: DEFAULT_AI, migrated: false }
   }
-}
-
-function normalizeAi(raw: unknown): AiSettings {
-  const d = (raw ?? {}) as Partial<AiSettings>
-  const models = Array.isArray(d.models)
-    ? d.models.map(normalizeModel).filter((m): m is AiModel => !!m)
-    : []
-  if (models.length === 0) return DEFAULT_AI
+  const d = rawAi as { models?: unknown[]; activeModelId?: unknown }
+  if (!Array.isArray(d.models)) {
+    return { ai: DEFAULT_AI, migrated: false }
+  }
+  let migrated = false
+  const models: AiModel[] = []
+  for (const raw of d.models) {
+    if (!raw || typeof raw !== "object") continue
+    const m = raw as Partial<AiModel> & { apiKey?: string }
+    if (typeof m.id !== "string" || typeof m.provider !== "string") continue
+    let credId = typeof m.credentialId === "string" ? m.credentialId : null
+    const legacyKey = typeof m.apiKey === "string" ? m.apiKey.trim() : ""
+    if (legacyKey && !credId) {
+      const newCredId = crypto.randomUUID()
+      try {
+        await storeAiCredential(newCredId, legacyKey)
+        const info = await inspectAiCredential(newCredId)
+        if (info.exists) {
+          credId = newCredId
+          migrated = true
+        }
+      } catch (err) {
+        logger.error("settings.credential_migration_failed", {
+          modelId: m.id,
+          errorType: errorType(err),
+        })
+      }
+    } else if (legacyKey && credId) {
+      migrated = true
+    }
+    models.push({
+      id: m.id,
+      label: typeof m.label === "string" && m.label ? m.label : i18n.t("workspace.modelFallback"),
+      provider: m.provider,
+      model: typeof m.model === "string" ? m.model : "",
+      baseUrl: typeof m.baseUrl === "string" ? m.baseUrl : "",
+      credentialId: credId,
+      apiVersion: typeof m.apiVersion === "string" ? m.apiVersion : "",
+    })
+  }
+  if (models.length === 0) {
+    return { ai: DEFAULT_AI, migrated }
+  }
   const activeModelId =
     typeof d.activeModelId === "string" && models.some((m) => m.id === d.activeModelId)
       ? d.activeModelId
       : models[0].id
-  return { models, activeModelId }
+  return { ai: { models, activeModelId }, migrated }
 }
 
 export async function loadSettings(): Promise<GlobalSettings> {
@@ -418,6 +495,7 @@ export async function loadSettings(): Promise<GlobalSettings> {
       ),
     }
     const settings: GlobalSettings = {
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
       panelScope: "global",
       defaultTheme: null,
       layout,
@@ -442,14 +520,20 @@ export async function loadSettings(): Promise<GlobalSettings> {
   ) {
     prefs.theme = "dark"
   }
-  return {
+  const { ai, migrated } = await migrateLegacyAiKeys(d.ai)
+  const settings: GlobalSettings = {
+    schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : SETTINGS_SCHEMA_VERSION,
     panelScope: d.panelScope === "workspace" ? "workspace" : "global",
     defaultTheme: legacyTheme,
     layout: { ...EMPTY_LAYOUT, ...(d.layout ?? {}) },
-    ai: normalizeAi(d.ai),
+    ai,
     prefs,
     themes,
   }
+  if (migrated) {
+    await saveGlobalJSON(SETTINGS_FILE, settings)
+  }
+  return settings
 }
 
 /** The currently-active model in the library, or null if none configured. */
@@ -466,24 +550,32 @@ export function resolveAiConfig(model: AiModel): AiConfig {
     provider: family,
     model: model.model || p?.defaultModel || "",
     baseUrl: model.baseUrl || p?.defaultBaseUrl || "",
-    apiKey: model.apiKey || null,
+    credentialId: model.credentialId || null,
     maxTokens: 1024,
     apiVersion: family === "azure" ? model.apiVersion || "2024-06-01" : null,
   }
 }
 
 export function saveSettingsPatch(patch: Partial<GlobalSettings>): Promise<void> {
-  const pending = settingsWriteChain.then(async () => {
+  const write = async () => {
     const cur = await loadSettings()
-    await saveGlobalJSON(SETTINGS_FILE, { ...cur, ...patch })
+    await saveGlobalJSON(SETTINGS_FILE, {
+      ...cur,
+      ...patch,
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+    })
+  }
+  const next = settingsWriteChain.then(write, write)
+  settingsWriteChain = next.catch((err) => {
+    emitSettingsSaveError(SETTINGS_FILE, err)
   })
-  settingsWriteChain = pending.catch(() => {})
-  return pending
+  return next
 }
 
 // ── Per-vault: workspace.json (requires an open vault) ───────────────────────
 
 export interface WorkspaceConfig {
+  schemaVersion: number
   theme: string | null
   customPresets: Preset[]
   /** Used when panelScope === "workspace". */
@@ -499,6 +591,7 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
     // Custom presets were a single global list pre-tier; each vault inherits a copy.
     const customPresets = parseLS<Preset[]>("amby:user-presets:v1", Array.isArray) ?? []
     const cfg: WorkspaceConfig = {
+      schemaVersion: WORKSPACE_SCHEMA_VERSION,
       theme: null,
       customPresets,
       layout: EMPTY_LAYOUT,
@@ -509,6 +602,7 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
   }
   const d = await loadVaultJSON<Partial<WorkspaceConfig>>(WORKSPACE_FILE, {})
   return {
+    schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : WORKSPACE_SCHEMA_VERSION,
     theme: typeof d.theme === "string" ? d.theme : null,
     customPresets: Array.isArray(d.customPresets) ? d.customPresets : [],
     layout: { ...EMPTY_LAYOUT, ...(d.layout ?? {}) },
@@ -521,9 +615,20 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
   }
 }
 
-export async function saveWorkspaceConfigPatch(patch: Partial<WorkspaceConfig>): Promise<void> {
-  const cur = await loadWorkspaceConfig()
-  await saveVaultJSON(WORKSPACE_FILE, { ...cur, ...patch })
+export function saveWorkspaceConfigPatch(patch: Partial<WorkspaceConfig>): Promise<void> {
+  const write = async () => {
+    const cur = await loadWorkspaceConfig()
+    await saveVaultJSON(WORKSPACE_FILE, {
+      ...cur,
+      ...patch,
+      schemaVersion: WORKSPACE_SCHEMA_VERSION,
+    })
+  }
+  const next = workspaceConfigWriteChain.then(write, write)
+  workspaceConfigWriteChain = next.catch((err) => {
+    emitSettingsSaveError(WORKSPACE_FILE, err)
+  })
+  return next
 }
 
 // ── Per-vault: session.json (requires an open vault) ─────────────────────────
@@ -531,6 +636,7 @@ export async function saveWorkspaceConfigPatch(patch: Partial<WorkspaceConfig>):
 /** Session memory restored when a vault re-opens. `viewModes` values are the
  *  editor's DocumentViewMode (kept as string here to avoid a UI-type import). */
 export interface SessionFile {
+  schemaVersion: number
   tabs: { fileId: string; title: string }[]
   activeFileId: string
   favorites: string[]
@@ -550,6 +656,7 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
         !!v && typeof v === "object",
     )
     const session: SessionFile = {
+      schemaVersion: SESSION_SCHEMA_VERSION,
       tabs: Array.isArray(t?.entries) ? t!.entries : [],
       activeFileId: typeof t?.activeFileId === "string" ? t!.activeFileId : "",
       favorites: parseLS<string[]>(`amby:favorites:${vaultPath}`, Array.isArray) ?? [],
@@ -570,6 +677,7 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
   }
   const d = await loadVaultJSON<Partial<SessionFile>>(SESSION_FILE, {})
   return {
+    schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : SESSION_SCHEMA_VERSION,
     tabs: Array.isArray(d.tabs) ? d.tabs : [],
     activeFileId: typeof d.activeFileId === "string" ? d.activeFileId : "",
     favorites: Array.isArray(d.favorites) ? d.favorites : [],
@@ -580,19 +688,23 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
   }
 }
 
-export async function saveSession(session: SessionFile): Promise<void> {
+export function saveSession(session: SessionFile): Promise<void> {
   const write = async () => {
     const persisted = await loadVaultJSON<Partial<SessionFile>>(SESSION_FILE, {})
     const persistedIcons = isRecord(persisted.icons) ? persisted.icons : {}
     await saveVaultJSON(SESSION_FILE, {
       ...session,
+      schemaVersion: SESSION_SCHEMA_VERSION,
       // Icon choices are durable workspace metadata. A transient empty store
       // during development HMR must not erase every file emoji.
       icons: { ...persistedIcons, ...session.icons },
     })
   }
-  sessionWriteChain = sessionWriteChain.then(write, write)
-  await sessionWriteChain
+  const next = sessionWriteChain.then(write, write)
+  sessionWriteChain = next.catch((err) => {
+    emitSettingsSaveError(SESSION_FILE, err)
+  })
+  return next
 }
 
 // ── Layout routing by panelScope ────────────────────────────────────────────

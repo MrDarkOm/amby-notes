@@ -92,6 +92,7 @@ impl VaultContext {
         }
         let connection = vault_index::open_connection(&root)?;
         property_store::restore_cache(&connection, &root)?;
+        let _ = crate::recovery::sweep_expired_recovery(&root);
         let loaded = vault_index::load_vault(&connection, &root)?;
 
         Ok(PreparedVault {

@@ -18,6 +18,8 @@ Those directories, along with `.amby/`, are excluded from the note index.
 - `blocks/<note-id>.json` — per-note UI block sidecars.
 - `properties.json` — versioned custom-property metadata keyed by stable note ID;
   SQLite mirrors it for queries, while this sidecar makes the data rebuildable.
+- `recovery/` — versioned crash-recovery journal for editor and canvas drafts
+  that have not reached the filesystem yet, keyed by stable note ID or canvas path.
 - future versioned, documented metadata files.
 
 The directory is application metadata, not an Obsidian configuration directory.
@@ -76,7 +78,9 @@ through the text editor rather than silently changing its encoding.
 Creation uses a separate no-replace publication path: a file or attachment
 cannot replace a path that appeared after Amby checked whether a name was free.
 Imported binary assets are fully written and synced before they become visible
-at their final path.
+at their final path. Attachment imports enforce product limits (100MB disk files,
+25MB clipboard payloads), sanitize stems and extensions (ASCII alphanumeric only,
+preventing directory traversal), and classify SVGs as non-inline file attachments.
 
 Autosave work is serialized per file. A completed older write cannot clear the
 unsaved state of a newer in-memory buffer, and a stale queued buffer is skipped.
@@ -106,6 +110,20 @@ Deletes made through Amby are moves to `.amby/trash/`, including Canvas,
 Excalidraw, and database layers. They remain restorable from the History panel
 and are never delegated solely to an OS recycle bin that may be emptied outside
 the app.
+
+## Recovery journal
+
+In-flight editor and canvas edits that have not reached the filesystem are
+persisted in `.amby/recovery/`. Each recovery entry is a versioned JSON document
+storing the vault generation, document kind, stable note ID or canvas path,
+current path hint, timestamp, content text, and a non-cryptographic content hash.
+
+Writes use atomic no-truncate publication. Draft entries are subject to per-entry
+size limits (5 MB), vault-wide storage caps (50 MB), entry count limits (100
+entries), and a 14-day TTL. On startup and vault activation, expired or corrupted
+entries are automatically swept, and quota limits are enforced by pruning the
+oldest drafts. When opening a document with an unpersisted draft differing from
+the on-disk version, Amby prompts the user to restore the recovered text.
 
 ## Backup and Git policy
 

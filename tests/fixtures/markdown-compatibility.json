@@ -1,0 +1,209 @@
+[
+  {
+    "name": "basic_tags_and_links",
+    "markdown": "# Heading\n\nThis is a #note with a link to [[My Target Note]] and #nested/topic tag.",
+    "expectedTags": ["nested/topic", "note"],
+    "expectedLinks": [
+      {
+        "raw": "My Target Note",
+        "target": "my target note",
+        "label": "My Target Note"
+      }
+    ],
+    "excludedRegions": []
+  },
+  {
+    "name": "code_fences_backticks",
+    "markdown": "Top text #real-tag\n\n```typescript\nconst tag = \"#fake-tag\"\nconst link = \"[[Fake Note]]\"\n```\n\nBottom text #another-tag",
+    "expectedTags": ["another-tag", "real-tag"],
+    "expectedLinks": [],
+    "excludedRegions": [
+      {
+        "from": 20,
+        "to": 91
+      }
+    ]
+  },
+  {
+    "name": "code_fences_tildes_four_fences",
+    "markdown": "~~~~python\n# not a tag\n[[Not A Link]]\n~~~~\n\n#valid-tag",
+    "expectedTags": ["valid-tag"],
+    "expectedLinks": [],
+    "excludedRegions": [
+      {
+        "from": 0,
+        "to": 43
+      }
+    ]
+  },
+  {
+    "name": "inline_code",
+    "markdown": "Here is `#not-a-tag` and `[[Not A Link]]` and ``#also-not-a-tag``.\n\nHere is #actual-tag and [[Actual Link]].",
+    "expectedTags": ["actual-tag"],
+    "expectedLinks": [
+      {
+        "raw": "Actual Link",
+        "target": "actual link",
+        "label": "Actual Link"
+      }
+    ],
+    "excludedRegions": [
+      {
+        "from": 8,
+        "to": 20
+      },
+      {
+        "from": 25,
+        "to": 41
+      },
+      {
+        "from": 46,
+        "to": 65
+      }
+    ]
+  },
+  {
+    "name": "obsidian_comments",
+    "markdown": "Visible text #tag1\n%% This is a comment #hidden-tag [[Hidden Link]] %%\nAfter comment #tag2",
+    "expectedTags": ["tag1", "tag2"],
+    "expectedLinks": [],
+    "excludedRegions": [
+      {
+        "from": 19,
+        "to": 70
+      }
+    ]
+  },
+  {
+    "name": "escaped_syntax",
+    "markdown": "Escaped tag: \\#not-a-tag\nNot boundary: word#not-a-tag\nValid: #real-tag\nLink: [[Real Link]]",
+    "expectedTags": ["real-tag"],
+    "expectedLinks": [
+      {
+        "raw": "Real Link",
+        "target": "real link",
+        "label": "Real Link"
+      }
+    ],
+    "excludedRegions": []
+  },
+  {
+    "name": "unicode_normalization_and_cyrillic",
+    "markdown": "#заметка #проект/важное #café #über-tag\n\n[[Заметки/План на 2026|План]]",
+    "expectedTags": ["café", "über-tag", "заметка", "проект/важное"],
+    "expectedLinks": [
+      {
+        "raw": "Заметки/План на 2026|План",
+        "target": "заметки/план на 2026",
+        "label": "План"
+      }
+    ],
+    "excludedRegions": []
+  },
+  {
+    "name": "link_aliases_and_anchors",
+    "markdown": "Link with heading: [[Projects/Alpha#Overview]]\nLink with heading and alias: [[Projects/Alpha#Overview|Alpha Overview]]\nLink with block ref: [[Reference Note^block-123|Custom Block Label]]\nLink with direct block ref: [[Reference Note^block-456]]",
+    "expectedTags": [],
+    "expectedLinks": [
+      {
+        "raw": "Projects/Alpha#Overview",
+        "target": "projects/alpha",
+        "label": "Projects/Alpha#Overview"
+      },
+      {
+        "raw": "Projects/Alpha#Overview|Alpha Overview",
+        "target": "projects/alpha",
+        "label": "Alpha Overview"
+      },
+      {
+        "raw": "Reference Note^block-123|Custom Block Label",
+        "target": "reference note",
+        "label": "Custom Block Label"
+      },
+      {
+        "raw": "Reference Note^block-456",
+        "target": "reference note",
+        "label": "Reference Note^block-456"
+      }
+    ],
+    "excludedRegions": []
+  },
+  {
+    "name": "embeds_and_attachments",
+    "markdown": "Transclusion: ![[Transcluded Note#Section]]\nImage embed: ![[diagram.png]]\nCanvas reference: [[workflow.canvas]]",
+    "expectedTags": [],
+    "expectedLinks": [
+      {
+        "raw": "Transcluded Note#Section",
+        "target": "transcluded note",
+        "label": "Transcluded Note#Section"
+      },
+      {
+        "raw": "diagram.png",
+        "target": "diagram.png",
+        "label": "diagram.png"
+      },
+      {
+        "raw": "workflow.canvas",
+        "target": "workflow.canvas",
+        "label": "workflow.canvas"
+      }
+    ],
+    "excludedRegions": []
+  },
+  {
+    "name": "yaml_frontmatter_tags",
+    "markdown": "---\nid: note-123\ntags:\n  - yaml-tag\n  - deep/nested/tag\n---\n#body-tag\nLink: [[Target Note]]",
+    "expectedTags": ["body-tag", "deep/nested/tag", "yaml-tag"],
+    "expectedLinks": [
+      {
+        "raw": "Target Note",
+        "target": "target note",
+        "label": "Target Note"
+      }
+    ],
+    "excludedRegions": [
+      {
+        "from": 0,
+        "to": 60
+      }
+    ]
+  },
+  {
+    "name": "invalid_and_numeric_tags",
+    "markdown": "Numbers only: #1984 #2026\nDouble slash: #a//b\nLeading slash: #/root\nTrailing slash: #leaf/\nMid-word: test#tag\nValid: #tag-1984 #year2026",
+    "expectedTags": ["tag-1984", "year2026"],
+    "expectedLinks": [],
+    "excludedRegions": []
+  },
+  {
+    "name": "windows_backslashes_and_md_suffix",
+    "markdown": "Windows path link: [[Folder\\Subfolder\\Document.md|My Doc]]\nWithout alias: [[Notes\\2026-08-19.md]]",
+    "expectedTags": [],
+    "expectedLinks": [
+      {
+        "raw": "Folder\\Subfolder\\Document.md|My Doc",
+        "target": "folder/subfolder/document",
+        "label": "My Doc"
+      },
+      {
+        "raw": "Notes\\2026-08-19.md",
+        "target": "notes/2026-08-19",
+        "label": "Notes\\2026-08-19.md"
+      }
+    ],
+    "excludedRegions": []
+  },
+  {
+    "name": "unterminated_constructs",
+    "markdown": "```typescript\n#hidden-in-open-fence\n[[Hidden In Open Fence]]",
+    "expectedTags": [],
+    "expectedLinks": [],
+    "excludedRegions": [
+      {
+        "from": 0,
+        "to": 60
+      }
+    ]
+  }
+]

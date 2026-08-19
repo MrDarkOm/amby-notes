@@ -22,6 +22,7 @@ function mutation(overrides: Partial<FsMutationResult> = {}): FsMutationResult {
 
 function session(overrides: Partial<SessionFile> = {}): SessionFile {
   return {
+    schemaVersion: 1,
     tabs: [],
     activeFileId: "",
     favorites: [],
@@ -48,6 +49,17 @@ describe("remapPath", () => {
   it("returns original when no change matches", () => {
     const changes = [{ oldPath: "/vault/x.md", newPath: "/vault/y.md" }]
     expect(remapPath("/vault/a.md", changes)).toBe("/vault/a.md")
+  })
+
+  it("remaps nested child paths when parent directory changes", () => {
+    const changes = [{ oldPath: "/vault/Folder", newPath: "/vault/RenamedFolder" }]
+    expect(remapPath("/vault/Folder/Note.md", changes)).toBe("/vault/RenamedFolder/Note.md")
+    expect(remapPath("/vault/Folder/Sub/Deep.md", changes)).toBe("/vault/RenamedFolder/Sub/Deep.md")
+  })
+
+  it("handles backslash path normalization", () => {
+    const changes = [{ oldPath: "\\vault\\Folder", newPath: "/vault/NewFolder" }]
+    expect(remapPath("\\vault\\Folder\\Note.md", changes)).toBe("/vault/NewFolder/Note.md")
   })
 
   it("ignores changes with empty oldPath", () => {

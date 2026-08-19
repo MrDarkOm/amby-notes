@@ -2,6 +2,7 @@
   "name": "amby-notes",
   "private": true,
   "version": "0.1.0",
+  "description": "Local-first desktop knowledge workspace",
   "type": "module",
   "engines": {
     "node": ">=20.19.0 || >=22.12.0",
@@ -84,6 +85,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tauri-apps/cli": "^2",
+    "@testing-library/react": "^16.3.2",
     "@types/markdown-it": "^14.1.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
@@ -94,6 +96,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
+    "happy-dom": "^20.11.2",
     "knip": "^6.14.2",
     "lefthook": "^2.1.9",
     "postcss": "^8.5.13",

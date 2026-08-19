@@ -114,6 +114,38 @@ async readSnapshotText(snapshotId: string) : Promise<Result<SnapshotText, string
     else return { status: "error", error: e  as any };
 }
 },
+async saveRecovery(id: string, documentKind: string, pathHint: string, content: string) : Promise<Result<RecoveryEntry, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("save_recovery", { id, documentKind, pathHint, content }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async readRecovery(id: string) : Promise<Result<RecoveryEntry | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("read_recovery", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteRecovery(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_recovery", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listRecovery() : Promise<Result<RecoveryEntry[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_recovery") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async listTrash() : Promise<Result<TrashEntry[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_trash") };
@@ -338,17 +370,6 @@ async openVault() : Promise<Result<string | null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Start a Rust-side `notify` watcher on the open vault.
- * 
- * Any external file-system change (create / modify / remove) that is NOT
- * caused by our own commands emits a `vault-file-changed` event to the
- * frontend.  The frontend replaces the old JS `plugin-fs::watch()` call with
- * a listener on that event.
- * 
- * Calling this again while a watcher is already running replaces the old one
- * (handles vault-switch).
- */
 async startVaultWatcher() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("start_vault_watcher") };
@@ -357,9 +378,6 @@ async startVaultWatcher() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Stop the active vault watcher (called on vault close / app teardown).
- */
 async stopVaultWatcher() : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("stop_vault_watcher") };
@@ -400,11 +418,6 @@ async pickAssetFile(imagesOnly: boolean) : Promise<Result<string | null, string>
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Save arbitrary text to a user-chosen location via the native save dialog.
- * The destination is picked here (never supplied by the webview), so there is
- * no arbitrary-write-from-JS vector — used for exporting presets.
- */
 async exportTextFile(contents: string, defaultName: string) : Promise<Result<string | null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("export_text_file", { contents, defaultName }) };
@@ -413,11 +426,6 @@ async exportTextFile(contents: string, defaultName: string) : Promise<Result<str
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Open a user-chosen text file via the native dialog and return its contents.
- * The path is chosen here, so the webview can't read arbitrary files — used
- * for importing presets (which live outside the vault).
- */
 async importTextFile() : Promise<Result<string | null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("import_text_file") };
@@ -466,6 +474,38 @@ async deleteVaultMeta(rel: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async storeAiCredential(credentialId: string, secret: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("store_ai_credential", { credentialId, secret }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteAiCredential(credentialId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_ai_credential", { credentialId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async inspectAiCredential(credentialId: string) : Promise<Result<CredentialInfo, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("inspect_ai_credential", { credentialId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cancelAiRequest(streamId: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cancel_ai_request", { streamId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async aiChat(config: AiConfig, messages: AiMessage[], system: string | null, streamId: string | null) : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("ai_chat", { config, messages, system, streamId }) };
@@ -494,7 +534,7 @@ provider: string; model: string;
 /**
  * Empty string falls back to the family's default endpoint.
  */
-baseUrl: string; apiKey: string | null; maxTokens: number | null; 
+baseUrl: string; credentialId: string | null; apiKey: string | null; maxTokens: number | null; 
 /**
  * Azure only: API version query param.
  */
@@ -504,6 +544,7 @@ export type AiMessage = {
  * "user" | "assistant"
  */
 role: string; content: string }
+export type CredentialInfo = { exists: boolean; masked: string | null }
 export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 /**
@@ -540,6 +581,7 @@ export type NoteMetadata = { created: number | null; modified: number | null; wo
 export type NoteProperties = { hasFrontmatter: boolean; properties: FrontmatterProperty[]; parseError: string | null; customProperties: CustomProperty[] }
 export type OperationWarning = "indexRebuildRequired"
 export type PathChange = { oldPath: string; newPath: string }
+export type RecoveryEntry = { version: number; vaultGeneration: number; documentKind: string; id: string; pathHint: string; savedAtMs: number; content: string; contentHash: string }
 export type RefactorPreview = { notes: number; replacements: number }
 export type SearchResult = { note: IndexedNote; matchType: string; snippet: string | null; score: number }
 export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }

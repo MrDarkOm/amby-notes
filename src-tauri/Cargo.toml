@@ -1,8 +1,8 @@
 [package]
 name = "amby-notes"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Local-first desktop knowledge workspace"
+authors = ["Amby Authors"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -26,7 +26,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "macros"] }
 reqwest = { version = "0.13", features = ["json", "rustls", "stream", "webpki-roots"], default-features = false }
 rfd = "0.16"
 futures-util = "0.3"
@@ -34,6 +34,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 ulid = "3"
 walkdir = "2"
 notify = "6"
+keyring = "3"
 specta = { version = "=2.0.0-rc.22", features = ["derive"] }
 specta-typescript = "0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }

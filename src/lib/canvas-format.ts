@@ -4,8 +4,8 @@ import { OBSIDIAN_CANVAS_PRESET_COLORS } from "@/lib/themes"
 // ── Obsidian Canvas JSON schema (subset) ─────────────────────────────────────
 // https://jsoncanvas.org/spec/1.0/
 
-export type CanvasNodeType = "text" | "file" | "link" | "group"
-export type CanvasSide = "top" | "right" | "bottom" | "left"
+type CanvasNodeType = "text" | "file" | "link" | "group"
+type CanvasSide = "top" | "right" | "bottom" | "left"
 export type CanvasEdgeEnd = "none" | "arrow"
 
 interface CanvasNodeBase {
@@ -19,32 +19,32 @@ interface CanvasNodeBase {
   color?: string
 }
 
-export interface CanvasTextNode extends CanvasNodeBase {
+interface CanvasTextNode extends CanvasNodeBase {
   type: "text"
   text: string
 }
 
-export interface CanvasFileNode extends CanvasNodeBase {
+interface CanvasFileNode extends CanvasNodeBase {
   type: "file"
   file: string
   subpath?: string
 }
 
-export interface CanvasLinkNode extends CanvasNodeBase {
+interface CanvasLinkNode extends CanvasNodeBase {
   type: "link"
   url: string
 }
 
-export interface CanvasGroupNode extends CanvasNodeBase {
+interface CanvasGroupNode extends CanvasNodeBase {
   type: "group"
   label?: string
   background?: string
   backgroundStyle?: "cover" | "ratio" | "repeat"
 }
 
-export type CanvasNode = CanvasTextNode | CanvasFileNode | CanvasLinkNode | CanvasGroupNode
+type CanvasNode = CanvasTextNode | CanvasFileNode | CanvasLinkNode | CanvasGroupNode
 
-export interface CanvasEdge {
+interface CanvasEdge {
   id: string
   fromNode: string
   fromSide?: CanvasSide
@@ -83,8 +83,6 @@ export interface GroupNodeData {
 }
 
 export type CanvasFlowNode = Node<TextNodeData | FileNodeData | GroupNodeData>
-
-const EMPTY: CanvasFile = { nodes: [], edges: [] }
 
 // ── Parse / serialize ─────────────────────────────────────────────────────────
 
@@ -129,15 +127,6 @@ export function validateAndSerializeCanvas(json: string): string {
   const { nodes, edges, ...unknownFields } = file
   return JSON.stringify({ nodes, edges, ...unknownFields }, null, 2) + "\n"
 }
-
-export function emptyCanvas(): CanvasFile {
-  return { nodes: [], edges: [] }
-}
-
-export function isEmptyCanvas(file: CanvasFile): boolean {
-  return file.nodes.length === 0 && file.edges.length === 0
-}
-void EMPTY
 
 // ── ID generation ──────────────────────────────────────────────────────────────
 
