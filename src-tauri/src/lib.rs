@@ -346,8 +346,25 @@ fn load_vault(
     context.activate(
         &vault_path,
         |root| grant_vault_scopes(&app, root),
-        |loaded, _generation| loaded,
+        |mut loaded, generation| {
+            loaded.generation = generation;
+            loaded
+        },
     )
+}
+
+/// Read the vault that another window has already activated without replacing
+/// the process-wide backend context a second time.
+#[tauri::command]
+#[specta::specta]
+fn load_active_vault(
+    context: tauri::State<'_, vault_context::VaultContext>,
+) -> Result<vault_index::LoadVaultResult, String> {
+    let active = context.conn.lock().unwrap();
+    let active = active.as_ref().ok_or("No vault open")?;
+    let mut loaded = vault_index::load_vault(active, &active.root)?;
+    loaded.generation = active.generation;
+    Ok(loaded)
 }
 
 #[tauri::command]
@@ -507,11 +524,18 @@ fn read_note(db: tauri::State<'_, DbState>, note_id: String) -> Result<String, S
 fn write_note(
     db: tauri::State<'_, DbState>,
     watcher_state: tauri::State<'_, WatcherState>,
+    expected_generation: u64,
     note_id: String,
     content: String,
 ) -> Result<WriteNoteOutcome, String> {
+    // A renderer can finish an autosave after another window activated a new
+    // vault. Bind this write to the caller's active generation so it fails
+    // safely instead of resolving the same note ID in the new backend context.
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    if expected_generation != conn.generation {
+        return Err("Vault changed before note save".to_string());
+    }
     let destination = vault_index::note_metadata(conn, &conn.root, &note_id)?;
     let (path, body) = vault_index::write_note_filesystem(conn, &conn.root, &note_id, &content)?;
     watcher_state.mark_write([&path]);
@@ -1301,6 +1325,7 @@ async fn import_text_file(app: tauri::AppHandle) -> Result<Option<String>, Strin
 fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
         load_vault,
+        load_active_vault,
         preflight_vault,
         apply_id_migration,
         inspect_id_migrations,

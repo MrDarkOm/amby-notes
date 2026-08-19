@@ -21,6 +21,7 @@ import {
   readFile,
   readNote,
   loadVaultData,
+  loadActiveVaultData,
   preflightVault,
   applyIdMigration,
   recoverIdMigration,
@@ -30,10 +31,15 @@ import {
   startVaultWatcher,
   stopVaultWatcher,
   confirmAction,
+  showErrorMessage,
   type LinkGraph,
 } from "@/lib/storage"
-import { listen } from "@tauri-apps/api/event"
+import { emit, listen } from "@tauri-apps/api/event"
+import { getCurrentWindow } from "@tauri-apps/api/window"
 import { errorType, logger } from "@/lib/logger"
+import { cancelAutosaveGeneration, flushAutosaveGeneration } from "./autosave/autosave-lifecycle"
+
+const VAULT_ACTIVATED_EVENT = "amby:vault-activated"
 
 /**
  * Owns the vault tree, link graph, session persistence, and the Rust-side
@@ -47,7 +53,7 @@ export function useVaultData() {
   const { t } = useTranslation()
   const vault = useVaultStore((s) => s.vault)
   const vaults = useVaultStore((s) => s.vaults)
-  const { setVault, setVaults } = useVaultStore.getState()
+  const { setVault, setVaults, setBackendGeneration } = useVaultStore.getState()
 
   const { setDoc, patchDoc, markSaved, setExternalConflict, clearDocs } = useDocStore.getState()
   const { setTabs, setActiveTabKey } = useTabsStore.getState()
@@ -69,6 +75,10 @@ export function useVaultData() {
   // the persist effect doesn't immediately echo the just-restored state back.
   const sessionHydratedRef = React.useRef(false)
   const workspacesHydrated = React.useRef(false)
+  const switchRef = React.useRef({ inFlight: false, requestId: 0 })
+  const loadVaultRef = React.useRef<(path: string, activateBackend?: boolean) => Promise<void>>(
+    async () => {},
+  )
 
   // ── Tree helpers ────────────────────────────────────────────────────────────
 
@@ -82,7 +92,11 @@ export function useVaultData() {
 
   async function refreshTree(path: string | null = vault): Promise<TreeItem[]> {
     if (!path) return []
+    const requestId = switchRef.current.requestId
     const loaded = await loadVaultData(path)
+    if (requestId !== switchRef.current.requestId || useVaultStore.getState().vault !== path) {
+      return []
+    }
     setTreeItems(loaded.tree)
     return loaded.tree
   }
@@ -96,9 +110,23 @@ export function useVaultData() {
 
   // ── loadVault ───────────────────────────────────────────────────────────────
 
-  async function loadVault(path: string) {
+  async function loadVault(path: string, activateBackend = true) {
+    const currentVault = useVaultStore.getState().vault
+    if (!path || path === currentVault || switchRef.current.inFlight) return
+    const requestId = switchRef.current.requestId + 1
+    switchRef.current = { inFlight: true, requestId }
+    const oldGeneration = useVaultStore.getState().generation
     try {
-      if (isTauri()) {
+      if (currentVault) {
+        let flush = { flushed: false, participants: 0 }
+        try {
+          flush = await flushAutosaveGeneration(oldGeneration)
+        } catch (error) {
+          logger.warn("vault_switch.autosave_flush_failed", { errorType: errorType(error) })
+        }
+        if (!flush.flushed && !(await confirmAction(t("recovery.switchAfterSaveFailure")))) return
+      }
+      if (isTauri() && activateBackend) {
         let preflight = await preflightVault(path)
         let unfinished = preflight.unfinishedMigrations[0]
         while (unfinished) {
@@ -137,18 +165,29 @@ export function useVaultData() {
           await applyIdMigration(path)
         }
       }
-      const loaded = await loadVaultData(path)
+      const loaded = activateBackend ? await loadVaultData(path) : await loadActiveVaultData()
+      if (switchRef.current.requestId !== requestId) return
       const tree = loaded.tree
       const pathToId = loaded.sync.pathToId ?? {}
       const allIds = flattenTree(tree)
+
+      // Activation succeeded. Only now detach the old generation and clear
+      // process-local data that must never cross vault boundaries.
+      if (currentVault) cancelAutosaveGeneration(oldGeneration)
+      clearDocs()
+      setTabs([])
+      setActiveTabKey("")
       setVault(path)
+      setBackendGeneration(loaded.generation)
       setTreeItems(tree)
+      setLinkGraph({ nodes: [], edges: [] })
       addVaultToList(path)
 
       // Suppress session persistence while restoring state so we don't
       // immediately clobber the just-read session.json with empty state.
       sessionHydratedRef.current = false
       const session = await loadSession(path)
+      if (switchRef.current.requestId !== requestId) return
 
       const restoreSession = useSettingsStore.getState().prefs.startup.restoreSession
       const remapped = applySessionRemap(session, pathToId, allIds, restoreSession)
@@ -184,6 +223,7 @@ export function useVaultData() {
             getNoteProperties(path, e.fileId),
           ])
             .then(([content, metadata, noteProperties]) => {
+              if (switchRef.current.requestId !== requestId) return
               setDoc(e.fileId, {
                 id: e.fileId,
                 title: e.title,
@@ -207,12 +247,81 @@ export function useVaultData() {
         setActiveTabKey("")
       }
       sessionHydratedRef.current = true
+      if (isTauri() && activateBackend) {
+        await emit(VAULT_ACTIVATED_EVENT, { path }).catch((error) =>
+          logger.warn("vault_switch.broadcast_failed", { errorType: errorType(error) }),
+        )
+      }
     } catch (err) {
-      console.error("Failed to load vault:", err)
+      if (switchRef.current.requestId === requestId) {
+        logger.error("vault_switch.activation_failed", { errorType: errorType(err) })
+        const details = err instanceof Error ? err.message : String(err)
+        await showErrorMessage(t("errors.vaultOpenFailed", { details })).catch((dialogError) =>
+          logger.warn("vault_switch.error_dialog_failed", {
+            errorType: errorType(dialogError),
+          }),
+        )
+      }
+    } finally {
+      if (switchRef.current.requestId === requestId) {
+        switchRef.current = { ...switchRef.current, inFlight: false }
+      }
     }
   }
+  loadVaultRef.current = loadVault
 
   // ── Effects ─────────────────────────────────────────────────────────────────
+
+  // Every note window follows the vault activated by the app, rather than
+  // keeping a hidden independent backend context.
+  React.useEffect(() => {
+    if (!isTauri()) return
+    let unlisten: (() => void) | undefined
+    listen<{ path: string }>(VAULT_ACTIVATED_EVENT, (event) => {
+      if (event.payload.path === useVaultStore.getState().vault) return
+      void loadVaultRef.current(event.payload.path, false)
+    })
+      .then((dispose) => {
+        unlisten = dispose
+      })
+      .catch((error) =>
+        logger.warn("vault_switch.broadcast_listen_failed", { errorType: errorType(error) }),
+      )
+    return () => unlisten?.()
+  }, [])
+
+  // A close request must wait for all queues in this renderer. Failed saves
+  // already have recovery drafts, so closing remains safe after the flush.
+  React.useEffect(() => {
+    if (!isTauri()) return
+    let allowClose = false
+    let closing = false
+    let unlisten: (() => void) | undefined
+    getCurrentWindow()
+      .onCloseRequested(async (event) => {
+        if (allowClose) return
+        event.preventDefault()
+        if (closing) return
+        closing = true
+        try {
+          const generation = useVaultStore.getState().generation
+          const result = await flushAutosaveGeneration(generation)
+          if (!result.flushed) logger.warn("window_close.autosave_recovery_retained")
+        } catch (error) {
+          logger.warn("window_close.autosave_flush_failed", { errorType: errorType(error) })
+        } finally {
+          allowClose = true
+          await getCurrentWindow()
+            .close()
+            .catch((error) => logger.warn("window_close.failed", { errorType: errorType(error) }))
+        }
+      })
+      .then((dispose) => {
+        unlisten = dispose
+      })
+      .catch((error) => logger.warn("window_close.listen_failed", { errorType: errorType(error) }))
+    return () => unlisten?.()
+  }, [])
 
   // Link graph: recompute whenever the tree or vault changes.
   React.useEffect(() => {

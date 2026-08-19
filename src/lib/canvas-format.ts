@@ -105,6 +105,31 @@ export function serializeCanvas(file: CanvasFile): string {
   return JSON.stringify(file, null, 2) + "\n"
 }
 
+/**
+ * Accept only the part of the JSON Canvas format we can persist losslessly and
+ * return its canonical serialized form. Unlike parseCanvas this is deliberately
+ * strict: invalid editor output must never replace the on-disk canvas.
+ */
+export function validateAndSerializeCanvas(json: string): string {
+  let data: unknown
+  try {
+    data = JSON.parse(json)
+  } catch {
+    throw new Error("Canvas content must be valid JSON")
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Canvas content must be a JSON object")
+  }
+  const file = data as Partial<CanvasFile> & Record<string, unknown>
+  if (!Array.isArray(file.nodes) || !Array.isArray(file.edges)) {
+    throw new Error("Canvas content must contain nodes and edges arrays")
+  }
+  // Keep future/third-party top-level fields intact; nodes and edges themselves
+  // are likewise carried through untouched.
+  const { nodes, edges, ...unknownFields } = file
+  return JSON.stringify({ nodes, edges, ...unknownFields }, null, 2) + "\n"
+}
+
 export function emptyCanvas(): CanvasFile {
   return { nodes: [], edges: [] }
 }

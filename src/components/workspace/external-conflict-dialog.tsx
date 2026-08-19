@@ -13,6 +13,7 @@ import { errorType, logger } from "@/lib/logger"
 import { saveConflictCopy, writeFile, writeNote } from "@/lib/storage"
 import { useDocStore } from "./use-doc-store"
 import { useVaultStore } from "./use-vault-store"
+import { emitAutosaveConflictResolution } from "./autosave/conflict-events"
 
 /**
  * Prevents an external editor from being silently overwritten by a dirty
@@ -23,6 +24,7 @@ export function ExternalConflictDialog() {
   const { t } = useTranslation()
   const conflict = useDocStore((s) => Object.values(s.externalConflicts)[0] ?? null)
   const vault = useVaultStore((s) => s.vault)
+  const backendGeneration = useVaultStore((s) => s.backendGeneration)
   const [saving, setSaving] = React.useState(false)
   const [copyPath, setCopyPath] = React.useState<string | null>(null)
 
@@ -36,10 +38,11 @@ export function ExternalConflictDialog() {
     try {
       const content =
         useDocStore.getState().openDocs[conflict.fileId]?.content ?? conflict.localContent
-      if (vault) await writeNote(vault, conflict.fileId, content)
+      if (vault) await writeNote(vault, conflict.fileId, content, backendGeneration)
       else await writeFile(conflict.path, content)
       markSaved(conflict.fileId)
       clearExternalConflict(conflict.fileId)
+      emitAutosaveConflictResolution(conflict.fileId, "discard")
     } catch (err) {
       logger.error("external_conflict.keep_local_failed", { errorType: errorType(err) })
     } finally {
@@ -53,6 +56,7 @@ export function ExternalConflictDialog() {
       markSaved(conflict.fileId)
     }
     clearExternalConflict(conflict.fileId)
+    emitAutosaveConflictResolution(conflict.fileId, "discard")
   }
 
   function mergeManually() {
@@ -62,6 +66,7 @@ export function ExternalConflictDialog() {
     })
     markUnsaved(conflict.fileId)
     clearExternalConflict(conflict.fileId)
+    emitAutosaveConflictResolution(conflict.fileId, "resume")
   }
 
   async function saveLocalCopy() {

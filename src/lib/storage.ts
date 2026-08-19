@@ -62,6 +62,7 @@ export interface SyncReport {
   pathToId: Record<string, string>
 }
 export interface LoadVaultResult {
+  generation: number
   tree: TreeItem[]
   notes: IndexedNote[]
   sync: SyncReport
@@ -187,6 +188,20 @@ export async function confirmAction(message: string): Promise<boolean> {
     buttons: "OkCancel",
   })
   return result === "Ok"
+}
+
+/** Show a blocking error that remains visible outside the developer console. */
+export async function showErrorMessage(message: string): Promise<void> {
+  if (!isTauri()) {
+    if (typeof window !== "undefined") window.alert(message)
+    return
+  }
+  await invoke("plugin:dialog|message", {
+    message,
+    title: i18n.t("app.name"),
+    kind: "error",
+    buttons: "Ok",
+  })
 }
 
 // ── Web fallback (localStorage) ─────────────────────────────────────────────
@@ -462,7 +477,18 @@ export async function loadVaultData(vaultPath: string): Promise<LoadVaultResult>
     wordCount: (localStorage.getItem(FILE_PREFIX + item.id) ?? "").split(/\s+/).filter(Boolean)
       .length,
   }))
-  return { tree, notes, sync: { inserted: 0, updated: 0, deleted: 0, warnings: [], pathToId: {} } }
+  return {
+    generation: 0,
+    tree,
+    notes,
+    sync: { inserted: 0, updated: 0, deleted: 0, warnings: [], pathToId: {} },
+  }
+}
+
+/** Read the process-wide active vault without triggering a second activation. */
+export async function loadActiveVaultData(): Promise<LoadVaultResult> {
+  if (isTauri()) return unwrapCommand(commands.loadActiveVault())
+  return loadVaultData(WEB_VAULT)
 }
 
 export async function preflightVault(vaultPath: string): Promise<VaultPreflight> {
@@ -587,9 +613,13 @@ export async function writeNote(
   _vaultPath: string,
   noteId: string,
   content: string,
+  expectedGeneration: number | null,
 ): Promise<void> {
   if (isTauri()) {
-    const outcome = await unwrapCommand<WriteNoteOutcome>(commands.writeNote(noteId, content))
+    if (expectedGeneration === null) throw new Error("No active vault generation")
+    const outcome = await unwrapCommand<WriteNoteOutcome>(
+      commands.writeNote(expectedGeneration, noteId, content),
+    )
     reportIndexOutcome(outcome)
     return
   }

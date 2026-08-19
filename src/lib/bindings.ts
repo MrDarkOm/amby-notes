@@ -14,6 +14,18 @@ async loadVault(vaultPath: string) : Promise<Result<LoadVaultResult, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Read the vault that another window has already activated without replacing
+ * the process-wide backend context a second time.
+ */
+async loadActiveVault() : Promise<Result<LoadVaultResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("load_active_vault") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async preflightVault(vaultPath: string) : Promise<Result<VaultPreflight, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("preflight_vault", { vaultPath }) };
@@ -126,9 +138,9 @@ async readNote(noteId: string) : Promise<Result<string, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async writeNote(noteId: string, content: string) : Promise<Result<WriteNoteOutcome, string>> {
+async writeNote(expectedGeneration: number, noteId: string, content: string) : Promise<Result<WriteNoteOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("write_note", { noteId, content }) };
+    return { status: "ok", data: await TAURI_INVOKE("write_note", { expectedGeneration, noteId, content }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -517,7 +529,7 @@ export type LayerResult = { notePath: string; layerPath: string; kind: string; p
 export type LinkGraph = { nodes: LinkGraphNode[]; edges: LinkGraphEdge[] }
 export type LinkGraphEdge = { source: string; target: string; label: string; unresolved?: boolean | null }
 export type LinkGraphNode = { id: string; label: string; unresolved?: boolean | null }
-export type LoadVaultResult = { tree: TreeItem[]; notes: IndexedNote[]; sync: SyncReport }
+export type LoadVaultResult = { generation: number; tree: TreeItem[]; notes: IndexedNote[]; sync: SyncReport }
 /**
  * The filesystem result is authoritative. A cache failure is returned as a
  * recoverable warning rather than turning a completed mutation into an error.

@@ -1,8 +1,13 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
 import { errorType, logger } from "@/lib/logger"
-import { PerKeySerialQueue } from "@/lib/per-key-queue"
 import { discardRecoveryDraft, readRecoveryDraft, saveRecoveryDraft } from "@/lib/recovery-drafts"
+import { AutosaveCoordinator, type AutosaveKey } from "./autosave/autosave-coordinator"
+import { registerAutosaveLifecycle } from "./autosave/autosave-lifecycle"
+import {
+  AUTOSAVE_CONFLICT_RESOLVED_EVENT,
+  type AutosaveConflictResolution,
+} from "./autosave/conflict-events"
 import { useDocStore, type Document } from "./use-doc-store"
 import { useTabsStore } from "./use-tabs-store"
 import { useViewStateStore } from "./use-view-state-store"
@@ -47,8 +52,18 @@ interface UseFileActionsParams {
   openCanvasTab: (path: string, title: string) => void
   setOpenCanvases: React.Dispatch<React.SetStateAction<Record<string, string>>>
   setPendingRenameId: React.Dispatch<React.SetStateAction<string | null>>
-  saveTimersRef: React.MutableRefObject<Map<string, ReturnType<typeof setTimeout>>>
+  autosaveGeneration: number
+  backendGeneration: number | null
 }
+
+interface MarkdownAutosavePayload {
+  fileId: string
+  path: string
+  content: string
+  backendGeneration: number | null
+}
+
+class AutosaveConflictPausedError extends Error {}
 
 /**
  * File/folder/canvas CRUD + navigation handlers, all of which share the shape
@@ -56,7 +71,7 @@ interface UseFileActionsParams {
  *
  * Owns no state of its own: it reads the doc/tabs/view/settings stores via
  * getState() and receives the tree + cross-cutting callbacks (applyMutationResult,
- * openCanvasTab, setOpenCanvases, setPendingRenameId, saveTimersRef) from Workspace.
+ * openCanvasTab, setOpenCanvases, and setPendingRenameId) from Workspace.
  */
 export function useFileActions({
   vault,
@@ -67,10 +82,108 @@ export function useFileActions({
   openCanvasTab,
   setOpenCanvases,
   setPendingRenameId,
-  saveTimersRef,
+  autosaveGeneration,
+  backendGeneration,
 }: UseFileActionsParams) {
   const t = i18n.t.bind(i18n)
-  const saveQueueRef = React.useRef(new PerKeySerialQueue())
+  const vaultRef = React.useRef(vault)
+  vaultRef.current = vault
+  const generationRef = React.useRef(autosaveGeneration)
+  const autosaveRef = React.useRef<AutosaveCoordinator<MarkdownAutosavePayload> | null>(null)
+  if (generationRef.current !== autosaveGeneration) {
+    autosaveRef.current?.cancelGeneration(generationRef.current)
+    generationRef.current = autosaveGeneration
+  }
+  if (!autosaveRef.current) {
+    autosaveRef.current = new AutosaveCoordinator<MarkdownAutosavePayload>({
+      delayMs: useSettingsStore.getState().prefs.editor.autosaveMs,
+      save: async (snapshot) => {
+        if (snapshot.key.generation !== generationRef.current) return
+        if (useDocStore.getState().externalConflicts[snapshot.value.fileId]) {
+          autosaveRef.current?.pause(snapshot.key)
+          throw new AutosaveConflictPausedError()
+        }
+        const activeVault = vaultRef.current
+        if (activeVault) {
+          await writeNote(
+            activeVault,
+            snapshot.value.fileId,
+            snapshot.value.content,
+            snapshot.value.backendGeneration,
+          )
+        } else {
+          await writeFile(snapshot.value.path, snapshot.value.content)
+        }
+      },
+      onSaveSuccess: (snapshot) => {
+        if (snapshot.key.generation !== generationRef.current) return
+        const current = useDocStore.getState().openDocs[snapshot.value.fileId]
+        if (
+          !current ||
+          current.content !== snapshot.value.content ||
+          useDocStore.getState().externalConflicts[snapshot.value.fileId]
+        )
+          return
+        discardRecoveryDraft(current.path)
+        markSaved(snapshot.value.fileId)
+      },
+      onSaveFailure: (snapshot, error) => {
+        if (snapshot.key.generation !== generationRef.current) return
+        if (error instanceof AutosaveConflictPausedError) return
+        logger.error("autosave.failed", { errorType: errorType(error) })
+      },
+    })
+  }
+  const autosave = autosaveRef.current
+  const autosaveKey = React.useCallback(
+    (fileId: string): AutosaveKey => ({
+      generation: autosaveGeneration,
+      kind: "markdown",
+      documentId: fileId,
+    }),
+    [autosaveGeneration],
+  )
+  React.useEffect(
+    () =>
+      registerAutosaveLifecycle({
+        generation: autosaveGeneration,
+        flush: () => autosave.flushAll(),
+        cancel: () => autosave.cancelGeneration(autosaveGeneration),
+        hasDirtyBuffers: () =>
+          autosave
+            .inspectAll()
+            .some((state) => state.key.generation === autosaveGeneration && state.dirty),
+      }),
+    [autosave, autosaveGeneration],
+  )
+  const externalConflicts = useDocStore((s) => s.externalConflicts)
+  React.useEffect(() => {
+    for (const fileId of Object.keys(externalConflicts)) autosave.pause(autosaveKey(fileId))
+  }, [autosave, autosaveKey, externalConflicts])
+  React.useEffect(() => {
+    const onConflictResolved = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ fileId: string; resolution: AutosaveConflictResolution }>
+      ).detail
+      if (!detail) return
+      const key = autosaveKey(detail.fileId)
+      if (detail.resolution === "discard") {
+        autosave.discard(key)
+        return
+      }
+      const document = useDocStore.getState().openDocs[detail.fileId]
+      if (!document) return
+      autosave.resume(key)
+      autosave.enqueueImmediate(key, {
+        fileId: detail.fileId,
+        path: document.path,
+        content: document.content,
+        backendGeneration,
+      })
+    }
+    window.addEventListener(AUTOSAVE_CONFLICT_RESOLVED_EVENT, onConflictResolved)
+    return () => window.removeEventListener(AUTOSAVE_CONFLICT_RESOLVED_EVENT, onConflictResolved)
+  }, [autosave, autosaveKey, backendGeneration])
   const [pendingDelete, setPendingDelete] = React.useState<{
     id: string
     name: string
@@ -282,7 +395,7 @@ export function useFileActions({
 
         // writeNote preserves the fresh clone's generated frontmatter envelope,
         // so an Amby ID from the source note is never duplicated.
-        await writeNote(vault, id, content)
+        await writeNote(vault, id, content, backendGeneration)
         applyMutationResult(result)
         await refreshTree()
         setDoc(id, {
@@ -681,30 +794,35 @@ export function useFileActions({
       )
         return
 
-      const sourceTimer = saveTimersRef.current.get(sourceId)
-      const targetTimer = saveTimersRef.current.get(targetId)
-      if (sourceTimer) clearTimeout(sourceTimer)
-      if (targetTimer) clearTimeout(targetTimer)
-      saveTimersRef.current.delete(sourceId)
-      saveTimersRef.current.delete(targetId)
-
       try {
         // Drain already queued autosaves first so none can overwrite the merge.
-        await saveQueueRef.current.enqueue(sourceId, async () => {})
+        await Promise.all([
+          autosave.flush(autosaveKey(sourceId)),
+          autosave.flush(autosaveKey(targetId)),
+        ])
         const openDocs = useDocStore.getState().openDocs
         const sourceContent = openDocs[sourceId]?.content ?? (await readNote(vault, sourceId))
         const targetContent = openDocs[targetId]?.content ?? (await readNote(vault, targetId))
         const merged = [targetContent.trimEnd(), sourceContent.trimStart()]
           .filter(Boolean)
           .join("\n\n")
-        await saveQueueRef.current.enqueue(targetId, () => writeNote(vault, targetId, merged))
-        if (openDocs[targetId]) {
+        const targetDocument = openDocs[targetId]
+        const targetPath = targetDocument?.path ?? targetItem.path
+        if (targetDocument) {
           patchDoc(targetId, {
             content: merged,
             wordCount: merged.trim() ? merged.trim().split(/\s+/u).length : 0,
           })
-          markSaved(targetId)
+          markUnsaved(targetId)
         }
+        saveRecoveryDraft(targetPath, merged)
+        autosave.enqueueImmediate(autosaveKey(targetId), {
+          fileId: targetId,
+          path: targetPath,
+          content: merged,
+          backendGeneration,
+        })
+        await autosave.flush(autosaveKey(targetId))
         const result = await deleteItem(vault, sourceItem.path)
         applyMutationResult(result)
         await refreshTree()
@@ -714,7 +832,7 @@ export function useFileActions({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [treeItems, vault],
+    [autosave, autosaveKey, treeItems, vault],
   )
 
   // ── Content autosave ──────────────────────────────────────────────────────────
@@ -732,34 +850,16 @@ export function useFileActions({
     const path = editedDoc.path
     if (path) saveRecoveryDraft(path, content)
 
-    const timers = saveTimersRef.current
-    const existing = timers.get(fileId)
-    if (existing) clearTimeout(existing)
-    timers.set(
-      fileId,
-      setTimeout(() => {
-        timers.delete(fileId)
-        void saveQueueRef.current
-          .enqueue(fileId, async () => {
-            const doc = useDocStore.getState().openDocs[fileId]
-            // A later edit has already replaced this timer's buffer. Its own
-            // timer will enqueue the current content, so never write stale text.
-            if (!doc || doc.id !== fileId || doc.content !== content) return
-            if (useDocStore.getState().externalConflicts[fileId]) return
-
-            if (vault) await writeNote(vault, doc.id, content)
-            else await writeFile(doc.path, content)
-
-            // An edit may have happened while the disk write was in flight.
-            // Only clear the dirty marker if this exact buffer remains current.
-            const current = useDocStore.getState().openDocs[fileId]
-            if (current?.content === content) {
-              discardRecoveryDraft(current.path)
-              markSaved(fileId)
-            }
-          })
-          .catch((err) => logger.error("autosave.failed", { errorType: errorType(err) }))
-      }, useSettingsStore.getState().prefs.editor.autosaveMs),
+    const key = autosaveKey(fileId)
+    if (useDocStore.getState().externalConflicts[fileId]) {
+      autosave.pause(key)
+      return
+    }
+    autosave.resume(key)
+    autosave.schedule(
+      key,
+      { fileId, path, content, backendGeneration },
+      useSettingsStore.getState().prefs.editor.autosaveMs,
     )
   }
 

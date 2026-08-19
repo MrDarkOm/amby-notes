@@ -54,3 +54,12 @@ export function discardRecoveryDraft(path: string) {
     // Best-effort cleanup only.
   }
 }
+
+/** Move a draft alongside a renamed or moved document without losing recovery. */
+export function remapRecoveryDraft(fromPath: string, toPath: string) {
+  if (fromPath === toPath) return
+  const draft = readRecoveryDraft(fromPath)
+  if (!draft) return
+  saveRecoveryDraft(toPath, draft.content)
+  discardRecoveryDraft(fromPath)
+}

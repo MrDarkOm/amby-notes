@@ -20,6 +20,7 @@ export const ru = {
     pathNotFound: "Путь не найден: {{path}}",
     moveTargetNotFound: "Источник или назначение перемещения не найдено.",
     sourceNotFound: "Источник не найден: {{path}}",
+    vaultOpenFailed: "Не удалось открыть хранилище.\n\n{{details}}",
   },
   settings: {
     title: "Настройки",
@@ -496,6 +497,8 @@ export const ru = {
   recovery: {
     restorePrompt:
       "Найдена несохранённая версия после аварийного завершения. Восстановить её в редакторе?",
+    switchAfterSaveFailure:
+      "Не удалось завершить сохранение всех изменений. Черновики восстановления сохранены. Всё равно переключить хранилище?",
   },
   tree: {
     newNote: "Новая заметка",
@@ -773,6 +776,7 @@ export const en: typeof ru = {
     pathNotFound: "Path not found: {{path}}",
     moveTargetNotFound: "Move source or target not found.",
     sourceNotFound: "Source not found: {{path}}",
+    vaultOpenFailed: "Could not open the vault.\n\n{{details}}",
   },
   settings: {
     title: "Settings",
@@ -1249,6 +1253,8 @@ export const en: typeof ru = {
   },
   recovery: {
     restorePrompt: "An unsaved version from a previous crash was found. Restore it in the editor?",
+    switchAfterSaveFailure:
+      "Some changes could not be saved. Recovery drafts are preserved. Switch vaults anyway?",
   },
   tree: {
     newNote: "New note",

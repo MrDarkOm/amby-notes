@@ -43,9 +43,18 @@ import { useSidebarLayout } from "./use-sidebar-layout"
 import { useLayers } from "./use-layers"
 import { useTabActions } from "./use-tab-actions"
 import { wsPathStem, canvasLayerPath, findTreeItem, newTabKey } from "./workspace-tree-utils"
+import { AutosaveCoordinator, type AutosaveKey } from "./autosave/autosave-coordinator"
+import { registerAutosaveLifecycle } from "./autosave/autosave-lifecycle"
 import { WorkspacePicker } from "./workspace-picker"
 import { FolderView } from "./folder-view"
 import { countFolderContents } from "./folder-view-utils"
+import { validateAndSerializeCanvas } from "@/lib/canvas-format"
+import {
+  discardRecoveryDraft,
+  readRecoveryDraft,
+  remapRecoveryDraft,
+  saveRecoveryDraft,
+} from "@/lib/recovery-drafts"
 import {
   isTauri,
   openVault,
@@ -169,6 +178,8 @@ function LazyEditorFallback() {
 export function Workspace() {
   const { t } = useTranslation()
   const vault = useVaultStore((s) => s.vault)
+  const autosaveGeneration = useVaultStore((s) => s.generation)
+  const backendGeneration = useVaultStore((s) => s.backendGeneration)
   const vaults = useVaultStore((s) => s.vaults)
   const { setVaults } = useVaultStore.getState()
 
@@ -193,7 +204,6 @@ export function Workspace() {
   const unsavedFileIds = useDocStore((s) => s.unsavedFileIds)
   // Raw .canvas JSON keyed by canvas file path (covers both note layers and standalone canvases).
   const [openCanvases, setOpenCanvases] = React.useState<Record<string, string>>({})
-  const canvasSaveTimers = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   // Per-document view state (favorites, viewModes, lockedFileIds, iconOverrides,
   // activeLayers, linkedLayersByDoc) lives in useViewStateStore.
@@ -281,9 +291,74 @@ export function Workspace() {
     }
   }
 
-  // One debounce timer per open file, so editing or closing one document never
-  // cancels another's pending save (also what an editor split relies on).
-  const saveTimersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+  const autosaveVaultRef = React.useRef({ generation: autosaveGeneration })
+  autosaveVaultRef.current.generation = autosaveGeneration
+
+  type CanvasAutosavePayload = { path: string; json: string }
+  const canvasAutosaveRef = React.useRef<{
+    generation: number
+    coordinator: AutosaveCoordinator<CanvasAutosavePayload>
+  } | null>(null)
+  if (canvasAutosaveRef.current?.generation !== autosaveGeneration) {
+    canvasAutosaveRef.current?.coordinator.cancelGeneration(canvasAutosaveRef.current.generation)
+    canvasAutosaveRef.current = {
+      generation: autosaveGeneration,
+      coordinator: new AutosaveCoordinator<CanvasAutosavePayload>({
+        delayMs: 500,
+        save: ({ value }) => writeFile(value.path, value.json),
+        onSaveSuccess: ({ key, value }) => {
+          const pending = canvasAutosaveRef.current?.coordinator.inspect(key)
+          if (autosaveVaultRef.current.generation === key.generation && pending && !pending.dirty) {
+            discardRecoveryDraft(value.path)
+          }
+        },
+        onSaveFailure: (_snapshot, error) => {
+          console.error("Failed to save canvas:", error)
+        },
+      }),
+    }
+  }
+  const canvasAutosave = canvasAutosaveRef.current.coordinator
+  const canvasAutosaveKey = React.useCallback(
+    (path: string): AutosaveKey => ({
+      generation: autosaveGeneration,
+      kind: "canvas",
+      documentId: path,
+    }),
+    [autosaveGeneration],
+  )
+
+  const loadCanvasBuffer = React.useCallback(async (path: string): Promise<string> => {
+    const recovery = readRecoveryDraft(path)?.content
+    if (recovery !== undefined) {
+      try {
+        return validateAndSerializeCanvas(recovery)
+      } catch (error) {
+        console.error("Ignoring invalid canvas recovery draft:", error)
+      }
+    }
+    try {
+      return validateAndSerializeCanvas(await readFile(path))
+    } catch {
+      return "{}"
+    }
+  }, [])
+  React.useEffect(
+    () =>
+      registerAutosaveLifecycle({
+        generation: autosaveGeneration,
+        flush: () => canvasAutosave.flushAll(),
+        cancel: () => canvasAutosave.cancelGeneration(autosaveGeneration),
+        hasDirtyBuffers: () =>
+          canvasAutosave
+            .inspectAll()
+            .some((state) => state.key.generation === autosaveGeneration && state.dirty),
+      }),
+    [autosaveGeneration, canvasAutosave],
+  )
+  React.useEffect(() => {
+    setOpenCanvases({})
+  }, [autosaveGeneration])
 
   const activeTab = tabs.find((t) => t.key === activeTabKey) ?? null
   const selectedId =
@@ -317,9 +392,9 @@ export function Workspace() {
   function openCanvasTab(path: string, title: string) {
     setOpenCanvases((prev) => {
       if (prev[path] !== undefined) return prev
-      readFile(path)
-        .then((c) => setOpenCanvases((p) => (p[path] !== undefined ? p : { ...p, [path]: c })))
-        .catch(() => setOpenCanvases((p) => (p[path] !== undefined ? p : { ...p, [path]: "{}" })))
+      loadCanvasBuffer(path).then((c) =>
+        setOpenCanvases((p) => (p[path] !== undefined ? p : { ...p, [path]: c })),
+      )
       return prev
     })
     const existing = tabs.find((t) => t.kind === "canvas" && t.fileId === path)
@@ -439,12 +514,31 @@ export function Workspace() {
     applyMutation(deletedIds, remapFn) // doc store: remaps content paths + drops deleted
     applyViewMutation(deletedIds) // view state store: drops deleted from all maps/sets
 
+    const deletedCanvasPaths = new Set(result.deletedPaths)
+    setOpenCanvases((previous) => {
+      const next: Record<string, string> = {}
+      for (const [path, json] of Object.entries(previous)) {
+        if (deletedCanvasPaths.has(path)) {
+          canvasAutosave.discard(canvasAutosaveKey(path))
+          discardRecoveryDraft(path)
+          continue
+        }
+        const nextPath = remapFn(path)
+        if (nextPath !== path) {
+          canvasAutosave.remapKey(canvasAutosaveKey(path), canvasAutosaveKey(nextPath))
+          remapRecoveryDraft(path, nextPath)
+        }
+        next[nextPath] = json
+      }
+      return next
+    })
+
     setTabs((prev) => {
       const next = prev
-        .filter((tab) => !deleted.has(tab.fileId))
+        .filter((tab) => !deleted.has(tab.fileId) && !deletedCanvasPaths.has(tab.fileId))
         .map((tab) => ({
           ...tab,
-          fileId: tab.fileId,
+          fileId: tab.kind === "canvas" ? remapFn(tab.fileId) : tab.fileId,
           history: tab.history.filter((path) => !deleted.has(path)).map((path) => path),
         }))
       if (next.length !== prev.length && activeTabKey) {
@@ -487,7 +581,8 @@ export function Workspace() {
     openCanvasTab,
     setOpenCanvases,
     setPendingRenameId,
-    saveTimersRef,
+    autosaveGeneration,
+    backendGeneration,
   })
 
   const initialWindowFileRef = React.useRef(false)
@@ -637,19 +732,22 @@ export function Workspace() {
     await refreshTree(vault)
   }, [vault, currentDocId, patchDoc, markSaved, refreshTree])
 
-  // Debounced persistence of any open canvas (note layer or standalone), keyed by file path.
-  const handleCanvasSave = React.useCallback((path: string, json: string) => {
-    setOpenCanvases((prev) => ({ ...prev, [path]: json }))
-    const timers = canvasSaveTimers.current
-    if (timers[path]) clearTimeout(timers[path])
-    timers[path] = setTimeout(async () => {
+  // Every Canvas change is validated, journalled, and serialized by the shared coordinator.
+  const handleCanvasSave = React.useCallback(
+    (path: string, json: string) => {
+      let normalized: string
       try {
-        await writeFile(path, json)
-      } catch (err) {
-        console.error("Failed to save canvas:", err)
+        normalized = validateAndSerializeCanvas(json)
+      } catch (error) {
+        console.error("Refusing to save invalid canvas:", error)
+        return
       }
-    }, 500)
-  }, [])
+      setOpenCanvases((prev) => ({ ...prev, [path]: normalized }))
+      saveRecoveryDraft(path, normalized)
+      canvasAutosave.schedule(canvasAutosaveKey(path), { path, json: normalized })
+    },
+    [canvasAutosave, canvasAutosaveKey],
+  )
 
   // Lazily load the canvas layer file when the canvas layer becomes active.
   React.useEffect(() => {
@@ -658,23 +756,15 @@ export function Workspace() {
     const path = canvasLayerPath(currentDocPath)
     if (openCanvases[path] !== undefined) return
     let cancelled = false
-    readFile(path)
-      .then((content) => {
-        if (!cancelled) {
-          setOpenCanvases((prev) =>
-            prev[path] !== undefined ? prev : { ...prev, [path]: content },
-          )
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setOpenCanvases((prev) => (prev[path] !== undefined ? prev : { ...prev, [path]: "{}" }))
-        }
-      })
+    loadCanvasBuffer(path).then((content) => {
+      if (!cancelled) {
+        setOpenCanvases((prev) => (prev[path] !== undefined ? prev : { ...prev, [path]: content }))
+      }
+    })
     return () => {
       cancelled = true
     }
-  }, [currentDocId, currentDocPath, activeLayers, openCanvases])
+  }, [currentDocId, currentDocPath, activeLayers, loadCanvasBuffer, openCanvases])
 
   // Resolve an Obsidian vault-relative file ref to a tree item and open it.
   const handleOpenCanvasNote = React.useCallback(

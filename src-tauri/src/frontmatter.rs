@@ -63,12 +63,29 @@ pub struct ParsedMarkdown {
 }
 
 fn split_frontmatter(content: &str) -> Option<(&str, &str)> {
-    let rest = content.strip_prefix("---\n")?;
-    let end = rest.find("\n---")?;
-    let yaml = &rest[..end];
-    let after = &rest[end + "\n---".len()..];
-    let body = after.strip_prefix('\n').unwrap_or(after);
-    Some((yaml, body))
+    let content = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let rest = content
+        .strip_prefix("---\r\n")
+        .or_else(|| content.strip_prefix("---\n"))?;
+
+    let mut line_start = 0;
+    for line in rest.split_inclusive('\n') {
+        let line_without_ending = line.strip_suffix('\n').unwrap_or(line);
+        let line_without_ending = line_without_ending
+            .strip_suffix('\r')
+            .unwrap_or(line_without_ending);
+        if line_without_ending == "---" {
+            let yaml_with_ending = &rest[..line_start];
+            let yaml = yaml_with_ending
+                .strip_suffix("\r\n")
+                .or_else(|| yaml_with_ending.strip_suffix('\n'))
+                .unwrap_or(yaml_with_ending);
+            return Some((yaml, &rest[line_start + line.len()..]));
+        }
+        line_start += line.len();
+    }
+
+    None
 }
 
 /// Return the complete, byte-for-byte frontmatter envelope and the body.
@@ -386,6 +403,23 @@ mod tests {
     }
 
     #[test]
+    fn parses_crlf_frontmatter_without_treating_it_as_note_body() {
+        let parsed = parse_markdown("---\r\nid: 01ABC\r\ntags:\r\n  - Finnish\r\n---\r\nHello\r\n");
+
+        assert_eq!(parsed.id.as_deref(), Some("01ABC"));
+        assert_eq!(parsed.frontmatter_tags, vec!["Finnish"]);
+        assert_eq!(parsed.body, "Hello\r\n");
+    }
+
+    #[test]
+    fn parses_bom_prefixed_crlf_frontmatter() {
+        let parsed = parse_markdown("\u{feff}---\r\nid: 01ABC\r\n---\r\nHello\r\n");
+
+        assert_eq!(parsed.id.as_deref(), Some("01ABC"));
+        assert_eq!(parsed.body, "Hello\r\n");
+    }
+
+    #[test]
     fn reads_properties_without_normalizing_yaml() {
         let properties = note_properties(
             "---\n# keep comment\ntitle: Project\ndone: true\ntags: [work, amby]\n---\nBody",
@@ -436,6 +470,32 @@ mod tests {
                 "id: 01ABC\n",
                 "---\n",
                 "Edited body\n",
+            )
+        );
+    }
+
+    #[test]
+    fn body_replacement_keeps_bom_and_crlf_frontmatter_bytes_exact() {
+        let original = concat!(
+            "\u{feff}---\r\n",
+            "# User-owned comment\r\n",
+            "title: Example\r\n",
+            "id: 01ABC\r\n",
+            "---\r\n",
+            "Original body\r\n",
+        );
+
+        let replaced = replace_body_preserving_id(original, "Edited body\r\n", "01ABC").unwrap();
+
+        assert_eq!(
+            replaced,
+            concat!(
+                "\u{feff}---\r\n",
+                "# User-owned comment\r\n",
+                "title: Example\r\n",
+                "id: 01ABC\r\n",
+                "---\r\n",
+                "Edited body\r\n",
             )
         );
     }

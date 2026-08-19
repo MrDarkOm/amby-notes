@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { discardRecoveryDraft, readRecoveryDraft, saveRecoveryDraft } from "./recovery-drafts"
+import {
+  discardRecoveryDraft,
+  readRecoveryDraft,
+  remapRecoveryDraft,
+  saveRecoveryDraft,
+} from "./recovery-drafts"
 
 describe("recovery drafts", () => {
   const path = "/vault/Note.md"
@@ -23,5 +28,16 @@ describe("recovery drafts", () => {
     expect(readRecoveryDraft(path)?.content).toBe("unsaved text")
     discardRecoveryDraft(path)
     expect(readRecoveryDraft(path)).toBeNull()
+  })
+
+  it("moves a recovery draft with a renamed canvas", () => {
+    const renamedPath = "/vault/Renamed.canvas"
+    saveRecoveryDraft(path, '{"nodes":[],"edges":[]}')
+
+    remapRecoveryDraft(path, renamedPath)
+
+    expect(readRecoveryDraft(path)).toBeNull()
+    expect(readRecoveryDraft(renamedPath)?.content).toBe('{"nodes":[],"edges":[]}')
+    discardRecoveryDraft(renamedPath)
   })
 })

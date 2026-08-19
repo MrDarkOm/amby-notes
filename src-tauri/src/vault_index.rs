@@ -128,6 +128,29 @@ struct IdMigrationJournal {
     files: Vec<IdMigrationFile>,
 }
 
+/// Version 1 was initially written only after every note update had completed.
+/// Those journals have no recovery state because there was nothing resumable
+/// in that format; their presence must not prevent a later app from opening the
+/// vault.
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct LegacyCompletedIdMigrationJournal {
+    version: u8,
+    kind: String,
+    #[serde(rename = "createdAtMs")]
+    _created_at_ms: u128,
+    #[serde(rename = "backupPath")]
+    _backup_path: String,
+    #[serde(rename = "modifiedPaths")]
+    _modified_paths: Vec<String>,
+}
+
+#[derive(Debug)]
+enum StoredIdMigrationJournal {
+    Recoverable(IdMigrationJournal),
+    LegacyCompleted(LegacyCompletedIdMigrationJournal),
+}
+
 #[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct IdMigrationRecovery {
@@ -211,6 +234,7 @@ fn check_index_failure(_stage: u8) -> Result<(), String> {
 #[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LoadVaultResult {
+    pub generation: u64,
     pub tree: Vec<TreeItem>,
     pub notes: Vec<IndexedNote>,
     pub sync: SyncReport,
@@ -885,11 +909,26 @@ fn write_migration_journal(path: &Path, journal: &IdMigrationJournal) -> Result<
     frontmatter::atomic_write_bytes(path, &encoded)
 }
 
-fn read_migration_journal(path: &Path) -> Result<IdMigrationJournal, String> {
+fn read_migration_journal(path: &Path) -> Result<StoredIdMigrationJournal, String> {
     let encoded = fs::read(path).map_err(|error| error.to_string())?;
-    let journal: IdMigrationJournal = serde_json::from_slice(&encoded)
+    let value: serde_json::Value = serde_json::from_slice(&encoded)
         .map_err(|error| format!("Invalid migration journal: {error}"))?;
-    if journal.version != ID_MIGRATION_VERSION || journal.kind != ID_MIGRATION_KIND {
+    let journal = if value.get("status").is_some() || value.get("files").is_some() {
+        StoredIdMigrationJournal::Recoverable(
+            serde_json::from_value(value)
+                .map_err(|error| format!("Invalid migration journal: {error}"))?,
+        )
+    } else {
+        StoredIdMigrationJournal::LegacyCompleted(
+            serde_json::from_value(value)
+                .map_err(|error| format!("Invalid migration journal: {error}"))?,
+        )
+    };
+    let (version, kind) = match &journal {
+        StoredIdMigrationJournal::Recoverable(journal) => (journal.version, &journal.kind),
+        StoredIdMigrationJournal::LegacyCompleted(journal) => (journal.version, &journal.kind),
+    };
+    if version != ID_MIGRATION_VERSION || kind != ID_MIGRATION_KIND {
         return Err(format!("Unsupported migration journal: {}", path.display()));
     }
     Ok(journal)
@@ -917,7 +956,9 @@ pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>
         if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
             continue;
         }
-        let journal = read_migration_journal(&path)?;
+        let StoredIdMigrationJournal::Recoverable(journal) = read_migration_journal(&path)? else {
+            continue;
+        };
         if matches!(
             journal.status,
             IdMigrationStatus::Planned | IdMigrationStatus::InProgress
@@ -1067,7 +1108,12 @@ pub fn recover_id_migration(
     action: IdMigrationRecoveryAction,
 ) -> Result<IdMigrationRecovery, String> {
     let journal_path = checked_journal_path(vault, journal_path)?;
-    let mut journal = read_migration_journal(&journal_path)?;
+    let StoredIdMigrationJournal::Recoverable(mut journal) = read_migration_journal(&journal_path)?
+    else {
+        return Err(
+            "This legacy migration was already completed and needs no recovery".to_string(),
+        );
+    };
     match action {
         IdMigrationRecoveryAction::InspectOnly => {}
         IdMigrationRecoveryAction::Resume => {
@@ -1433,7 +1479,12 @@ pub fn load_vault(conn: &Connection, vault: &Path) -> Result<LoadVaultResult, St
     let sync = sync_vault(conn, vault)?;
     let notes = list_notes(conn, vault)?;
     let tree = build_tree(vault, &notes)?;
-    Ok(LoadVaultResult { tree, notes, sync })
+    Ok(LoadVaultResult {
+        generation: 0,
+        tree,
+        notes,
+        sync,
+    })
 }
 
 pub fn list_notes(conn: &Connection, vault: &Path) -> Result<Vec<IndexedNote>, String> {
@@ -2505,6 +2556,68 @@ mod tests {
         );
         assert!(Path::new(&migration.journal_path).is_file());
         assert_eq!(migration.status, IdMigrationStatus::Completed);
+    }
+
+    #[test]
+    fn id_migration_recognizes_crlf_frontmatter_after_the_first_write() {
+        let vault = temp_vault("id-migration-crlf");
+        let note = vault.join("Finnish.md");
+        let original = b"---\r\ntitle: Finnish\r\ntags: [language]\r\n---\r\nBody\r\n";
+        fs::write(&note, original).unwrap();
+
+        assert_eq!(
+            preflight_vault(&vault).unwrap().planned_id_writes,
+            vec!["Finnish.md"]
+        );
+        apply_id_migration(&vault).unwrap();
+
+        let migrated = fs::read(&note).unwrap();
+        assert!(migrated.windows(2).any(|pair| pair == b"\r\n"));
+        assert!(!migrated.windows(2).any(|pair| pair == [b'\n', b'\n']));
+        let migrated_text = String::from_utf8(migrated).unwrap();
+        assert_eq!(migrated_text.matches("id: ").count(), 1);
+        assert_eq!(frontmatter::parse_markdown(&migrated_text).body, "Body\r\n");
+        assert!(preflight_vault(&vault)
+            .unwrap()
+            .planned_id_writes
+            .is_empty());
+
+        let conn = open_conn(&vault);
+        load_vault(&conn, &vault).unwrap();
+        assert_eq!(
+            fs::read_to_string(&note).unwrap().matches("id: ").count(),
+            1
+        );
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn completed_legacy_migration_journal_does_not_block_preflight() {
+        let vault = temp_vault("legacy-id-migration-journal");
+        fs::write(
+            vault.join("Note.md"),
+            "---\nid: 01J1K2M3N4P5Q6R7S8T9V0WXYZ\n---\nNote\n",
+        )
+        .unwrap();
+        let directory = migration_directory(&vault);
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(
+            directory.join("id-migration-legacy.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "version": 1,
+                "kind": "add-amby-ids",
+                "createdAtMs": 1,
+                "backupPath": ".amby/backups/id-migration-1",
+                "modifiedPaths": ["Note.md"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let preflight = preflight_vault(&vault).unwrap();
+        assert!(preflight.unfinished_migrations.is_empty());
+        assert!(preflight.planned_id_writes.is_empty());
+        fs::remove_dir_all(vault).unwrap();
     }
 
     #[test]

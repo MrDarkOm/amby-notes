@@ -10,9 +10,14 @@ function resolve<T>(updater: Updater<T>, prev: T): T {
 interface VaultStore {
   /** Absolute path of the currently open vault, or null. */
   vault: string | null
+  /** Increments only after a vault activation has succeeded. */
+  generation: number
+  /** Backend generation that binds IPC writes to the active vault context. */
+  backendGeneration: number | null
   /** Known vaults (the workspace picker list). */
   vaults: VaultRecord[]
   setVault: (updater: Updater<string | null>) => void
+  setBackendGeneration: (generation: number | null) => void
   setVaults: (updater: Updater<VaultRecord[]>) => void
 }
 
@@ -23,7 +28,14 @@ interface VaultStore {
  */
 export const useVaultStore = create<VaultStore>((set) => ({
   vault: null,
+  generation: 1,
+  backendGeneration: null,
   vaults: [],
-  setVault: (updater) => set((s) => ({ vault: resolve(updater, s.vault) })),
+  setVault: (updater) =>
+    set((s) => {
+      const vault = resolve(updater, s.vault)
+      return vault === s.vault ? {} : { vault, generation: s.generation + 1 }
+    }),
+  setBackendGeneration: (backendGeneration) => set({ backendGeneration }),
   setVaults: (updater) => set((s) => ({ vaults: resolve(updater, s.vaults) })),
 }))
