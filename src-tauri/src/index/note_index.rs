@@ -102,7 +102,17 @@ pub fn note_by_id(conn: &Connection, vault: &Path, note_id: &str) -> Result<Inde
 
 pub fn read_note(conn: &Connection, vault: &Path, note_id: &str) -> Result<String, String> {
     let note = note_by_id(conn, vault, note_id)?;
-    frontmatter::read_markdown(Path::new(&note.path)).map(|parsed| parsed.body)
+    frontmatter::read_markdown(Path::new(&note.path)).map(|parsed| {
+        // Normalize CRLF → LF for the frontend.  The editor works exclusively
+        // with LF; `preserve_text_format` converts back on write.  Without
+        // this, the watcher reads CRLF from disk while the editor holds LF,
+        // triggering false external-conflict detection that pauses autosave.
+        if parsed.body.contains("\r\n") {
+            parsed.body.replace("\r\n", "\n")
+        } else {
+            parsed.body
+        }
+    })
 }
 
 pub fn note_properties(

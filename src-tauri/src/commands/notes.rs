@@ -14,7 +14,13 @@ use crate::watcher::WatcherState;
 #[specta::specta]
 pub fn read_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result<String, String> {
     let path = paths::guard(&scope, &path)?;
-    fs::read_to_string(path).map_err(|e| e.to_string())
+    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    // Normalize CRLF → LF for the frontend; write path restores original endings.
+    Ok(if content.contains("\r\n") {
+        content.replace("\r\n", "\n")
+    } else {
+        content
+    })
 }
 
 #[tauri::command]
