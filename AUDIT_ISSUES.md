@@ -520,7 +520,7 @@ close` и failed Canvas save. Dirty state сохраняется до успеш
 
 Текущий размер целевых файлов:
 
-- `src-tauri/src/bundle.rs` — 1863 строки;
+- `src-tauri/src/bundle/mod.rs` — 27 строк;
 - `src/components/workspace/workspace.tsx` — 1391 строка;
 - `src/components/workspace/tiptap/markdown.ts` — 1214 строк;
 - `src/components/workspace/use-file-actions.ts` — 1066 строк;
@@ -570,7 +570,7 @@ ARCH-целями. Без checkpoint невозможно надёжно отл�
 
 #### ARCH-01A — Rust bundle domain
 
-Статус: `PENDING`.
+Статус: `IMPLEMENTED`.
 
 Цель: превратить `bundle.rs` в узкий façade над модулями планирования,
 filesystem-исполнения, rollback, layers и assets.
@@ -599,6 +599,17 @@ filesystem-исполнения, rollback, layers и assets.
 - `bundle/mod.rs` не более 250 строк, каждый production submodule не более 500
   строк; крупные test fixtures вынесены из production-модулей;
 - `cargo fmt --check`, strict Clippy, Rust tests и полный frontend gate проходят.
+
+Реализовано:
+
+- `bundle.rs` заменён каталогом `bundle/` со стабильным façade `mod.rs`; старый
+  crate-level путь `crate::bundle::*` сохранён для commands и recycle bin;
+- path safety, planning, note promotion, layers, execution, rollback, assets и
+  bundle classification разделены на focused Rust-модули. В `mod.rs` отсутствуют
+  filesystem-алгоритмы; каждый production module содержит не более 293 строк;
+- все 22 прежних bundle regression-теста перенесены в `bundle/tests.rs` без
+  изменения проверяемого поведения. Новых IPC, persistence-format, permission
+  или UI contracts не добавлено.
 
 #### ARCH-01B — Frontend file actions
 
@@ -765,7 +776,7 @@ state.
 | SEC-01    | IMPLEMENTED | `npm run verify`: 299 Vitest; 136 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                         | Headless: no live OS keychain/Tauri event scenario; final bindings diff is expected from prior uncommitted work  |
 | SEC-02    | IMPLEMENTED | `npm run audit`: npm 0 vulnerabilities; Rust policy passes; `npm run verify`: 299 Vitest, 136 Rust, typecheck, lint, format, Knip, Clippy  | `bindings:check` export passes; final diff is expected from prior uncommitted generated bindings                 |
 | ARCH-00   | IMPLEMENTED | `96dad9f`; `npm run verify`: 300 Vitest; 136 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; `bindings:check` без diff    | Функциональный checkpoint создан до structural moves; новых ручных сценариев нет, остаются MANUAL-01 — MANUAL-07 |
-| ARCH-01A  | PENDING     | —                                                                                                                                          | Rust bundle domain                                                                                               |
+| ARCH-01A  | IMPLEMENTED | `cargo test --manifest-path src-tauri/Cargo.toml bundle::tests`: 22 Rust; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`          | `bundle/mod.rs` 27 строк; production modules ≤293 строк; новых ручных сценариев нет                              |
 | ARCH-01B  | PENDING     | —                                                                                                                                          | Frontend file actions                                                                                            |
 | ARCH-01C  | PENDING     | —                                                                                                                                          | Workspace orchestration и layout                                                                                 |
 | ARCH-01D  | PENDING     | —                                                                                                                                          | Markdown parser/serializer boundary                                                                              |
