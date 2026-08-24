@@ -736,7 +736,7 @@ renderer и compatibility guards, сохранив прежний публичн
 
 #### ARCH-01E — Web storage adapter
 
-Статус: `PENDING`.
+Статус: `IMPLEMENTED`.
 
 Цель: оставить `WebAdapter` реализацией `StoragePort`, делегирующей notes,
 mutations, search, history и metadata отдельным web ports без дублирования tree
@@ -762,6 +762,16 @@ state.
 - frontend components не обращаются к localStorage напрямую;
 - `web-adapter.ts` не более 350 строк, production helpers не более 400 строк;
 - storage contract tests, web recovery/settings tests и полный verify проходят.
+
+Реализовано:
+
+- `web-adapter.ts` стал шестистрочным стабильным `StoragePort` façade над
+  browser implementation; прежний публичный import сохранён;
+- browser persistence operations собраны за `webGet`/`webSet`/`webRemove`,
+  которые нормализуют quota/unavailable errors через `withWebStorage`;
+- bounded fallback search и desktop-only history/trash contract вынесены в
+  `web-search.ts` и `web-history.ts`. CAS read/write, tree и mutation semantics
+  не менялись.
 
 #### Общие критерии завершения ARCH-01
 
@@ -819,7 +829,7 @@ state.
 | ARCH-01B  | IMPLEMENTED | `npm run test`: 300 Vitest; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`; typecheck; ESLint; Prettier; bindings без diff           | `use-file-actions.ts` 37 строк; hooks 80–283 строки; новых ручных сценариев нет                                  |
 | ARCH-01C  | IMPLEMENTED | `npm run verify`: 300 Vitest; 136 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; `bindings:check` без diff; `npm run build` | Workspace façade — 6 строк; Canvas/vault/property orchestration вынесена; новых ручных сценариев нет             |
 | ARCH-01D  | IMPLEMENTED | focused `markdown.test.ts`: 43 Vitest; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`; `bindings:check` без diff                     | `markdown.ts` 18 строк; production modules 13–370 строк; новых ручных сценариев нет                              |
-| ARCH-01E  | PENDING     | —                                                                                                                                             | Web storage adapter                                                                                              |
+| ARCH-01E  | IMPLEMENTED | focused `storage.test.ts`: 9 Vitest; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`; `bindings:check` без diff                       | `web-adapter.ts` 6 строк; storage boundary и fallback ports сохранены; новых ручных сценариев нет                |
 | FINAL-01  | PENDING     | —                                                                                                                                             | Полный release gate и ручные сценарии                                                                            |
 
 Примечание к `AUTO-01`: `npm run verify` выполнил все функциональные этапы, но
