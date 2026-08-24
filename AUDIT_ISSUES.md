@@ -523,7 +523,7 @@ close` и failed Canvas save. Dirty state сохраняется до успеш
 - `src-tauri/src/bundle/mod.rs` — 27 строк;
 - `src/components/workspace/workspace.tsx` — 1391 строка;
 - `src/components/workspace/tiptap/markdown.ts` — 1214 строк;
-- `src/components/workspace/use-file-actions.ts` — 1066 строк;
+- `src/components/workspace/use-file-actions.ts` — 37 строк;
 - `src/lib/storage/web-adapter.ts` — 869 строк.
 
 `ARCH-01` нельзя выполнять одной большой правкой. Он состоит из пяти независимых
@@ -613,7 +613,7 @@ filesystem-исполнения, rollback, layers и assets.
 
 #### ARCH-01B — Frontend file actions
 
-Статус: `PENDING`.
+Статус: `IMPLEMENTED`.
 
 Цель: оставить `use-file-actions.ts` композиционным façade, а document loading,
 autosave, navigation и filesystem mutations распределить по focused hooks.
@@ -637,6 +637,19 @@ autosave, navigation и filesystem mutations распределить по focus
 - wiki navigation не зависит от CRUD implementation details;
 - `use-file-actions.ts` не более 300 строк, focused hooks не более 400 строк;
 - autosave, document-buffer, recovery, tab-actions и mutation tests проходят.
+
+Реализовано:
+
+- `use-file-actions.ts` стал compatibility façade над `file-actions/`; публичный
+  return contract для `Workspace` сохранён;
+- Markdown autosave, recovery/revision, document loading, wiki navigation, CRUD
+  и rename/move/merge разделены между focused hooks. Они используют те же
+  Zustand stores и один `AutosaveCoordinator`, не создавая копий `openDocs`, tabs
+  или vault generation;
+- storage и mutation paths сохранены через `@/lib/storage`; rename/move/merge
+  продолжают применять mutation result и flush autosave перед merge. Фасад — 37
+  строк, каждый production hook — не более 283 строк; IPC, persistence, UI и
+  permission contracts не изменены.
 
 #### ARCH-01C — Workspace orchestration и layout
 
@@ -777,7 +790,7 @@ state.
 | SEC-02    | IMPLEMENTED | `npm run audit`: npm 0 vulnerabilities; Rust policy passes; `npm run verify`: 299 Vitest, 136 Rust, typecheck, lint, format, Knip, Clippy  | `bindings:check` export passes; final diff is expected from prior uncommitted generated bindings                 |
 | ARCH-00   | IMPLEMENTED | `96dad9f`; `npm run verify`: 300 Vitest; 136 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; `bindings:check` без diff    | Функциональный checkpoint создан до structural moves; новых ручных сценариев нет, остаются MANUAL-01 — MANUAL-07 |
 | ARCH-01A  | IMPLEMENTED | `cargo test --manifest-path src-tauri/Cargo.toml bundle::tests`: 22 Rust; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`          | `bundle/mod.rs` 27 строк; production modules ≤293 строк; новых ручных сценариев нет                              |
-| ARCH-01B  | PENDING     | —                                                                                                                                          | Frontend file actions                                                                                            |
+| ARCH-01B  | IMPLEMENTED | `npm run test`: 300 Vitest; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`; typecheck; ESLint; Prettier; bindings без diff        | `use-file-actions.ts` 37 строк; hooks 80–283 строки; новых ручных сценариев нет                                  |
 | ARCH-01C  | PENDING     | —                                                                                                                                          | Workspace orchestration и layout                                                                                 |
 | ARCH-01D  | PENDING     | —                                                                                                                                          | Markdown parser/serializer boundary                                                                              |
 | ARCH-01E  | PENDING     | —                                                                                                                                          | Web storage adapter                                                                                              |
