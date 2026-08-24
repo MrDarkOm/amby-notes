@@ -8,7 +8,7 @@ use crate::paths;
 use crate::recycle_bin;
 use crate::vault_context::VaultContext;
 use crate::vault_index;
-use crate::watcher::WatcherState;
+use crate::watcher::{self, PathFingerprint, WatcherState};
 
 pub fn mutation_paths(result: &FsMutationResult) -> Vec<PathBuf> {
     let mut paths = Vec::new();
@@ -27,6 +27,28 @@ pub fn mutation_paths(result: &FsMutationResult) -> Vec<PathBuf> {
         paths.push(PathBuf::from(deleted));
     }
     paths
+}
+
+/// Register a rename/move plan before it publishes filesystem events. Each old
+/// path must become missing and each new path must retain the old path's exact
+/// fingerprint; no directory-wide marker is ever used.
+fn prepare_path_changes(
+    watcher_state: &WatcherState,
+    changes: &[PathChange],
+) -> crate::watcher::PreparedSelfWrite {
+    let mut writes = Vec::new();
+    for change in changes {
+        if change.old_path.is_empty() || change.new_path.is_empty() {
+            continue;
+        }
+        let old_path = PathBuf::from(&change.old_path);
+        writes.push((old_path.clone(), PathFingerprint::Missing));
+        writes.push((
+            PathBuf::from(&change.new_path),
+            watcher::path_fingerprint(&old_path),
+        ));
+    }
+    watcher_state.prepare_write(writes)
 }
 
 pub fn sync_mutation_result(
@@ -238,10 +260,21 @@ pub fn move_item(
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let preview = preview_move_item(&source_path, &target_path)?;
     let plan = vault_index::plan_inbound_wiki_rewrites(conn, &conn.root, &preview.path_changes)?;
-    let result = move_item_impl(&source_path, &target_path)?;
+    let prepared_move = prepare_path_changes(&watcher_state, &preview.path_changes);
+    let result = match move_item_impl(&source_path, &target_path) {
+        Ok(result) => {
+            watcher_state.confirm_prepared_write(&prepared_move);
+            result
+        }
+        Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared_move);
+            return Err(error);
+        }
+    };
     let rewritten = match vault_index::apply_planned_wiki_rewrites(&conn.root, &plan) {
         Ok(rewritten) => rewritten,
         Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared_move);
             if let Err(rollback_error) = rollback_move_item(&source_path, &target_path, &result) {
                 return Err(format!("Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"));
             }
@@ -250,9 +283,10 @@ pub fn move_item(
             ));
         }
     };
-    let mut changed_paths = mutation_paths(&result);
-    changed_paths.extend(rewritten.iter().cloned());
-    watcher_state.mark_write(changed_paths);
+    // Move paths were registered before their rename. Link-refactor paths are
+    // currently produced by the rewrite plan after the move and retain their
+    // narrow per-file post-write records.
+    watcher_state.mark_write(rewritten.iter());
     let mut outcome = sync_mutation_result(&db, conn, &conn.root, result);
     let rewritten_changes = rewritten
         .into_iter()
@@ -284,14 +318,18 @@ pub fn create_file(
     if path.exists() {
         return Err(format!("File already exists: {}", path.display()));
     }
+    let prepared = watcher_state.prepare_write([(&path, watcher::fingerprint_for_bytes(b""))]);
     match frontmatter::atomic_write_new(&path, "") {
-        Ok(()) => {}
+        Ok(()) => watcher_state.confirm_prepared_write(&prepared),
         Err(frontmatter::AtomicCreateError::AlreadyExists) => {
+            watcher_state.cancel_prepared_write(&prepared);
             return Err(format!("File already exists: {}", path.display()));
         }
-        Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+        Err(frontmatter::AtomicCreateError::Other(error)) => {
+            watcher_state.cancel_prepared_write(&prepared);
+            return Err(error);
+        }
     }
-    watcher_state.mark_write([&path]);
     Ok(())
 }
 
@@ -306,9 +344,17 @@ pub fn create_folder(
     if path.exists() {
         return Err(format!("Folder already exists: {}", path.display()));
     }
-    fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-    watcher_state.mark_write([&path]);
-    Ok(())
+    let prepared = watcher_state.prepare_write([(&path, PathFingerprint::Directory)]);
+    match fs::create_dir_all(&path) {
+        Ok(()) => {
+            watcher_state.confirm_prepared_write(&prepared);
+            Ok(())
+        }
+        Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared);
+            Err(error.to_string())
+        }
+    }
 }
 
 #[tauri::command]
@@ -324,10 +370,21 @@ pub fn rename_item(
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     let preview = preview_rename_item(&path, &new_name)?;
     let plan = vault_index::plan_inbound_wiki_rewrites(conn, &conn.root, &preview.path_changes)?;
-    let result = rename_item_impl(&path, &new_name)?;
+    let prepared_rename = prepare_path_changes(&watcher_state, &preview.path_changes);
+    let result = match rename_item_impl(&path, &new_name) {
+        Ok(result) => {
+            watcher_state.confirm_prepared_write(&prepared_rename);
+            result
+        }
+        Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared_rename);
+            return Err(error);
+        }
+    };
     let rewritten = match vault_index::apply_planned_wiki_rewrites(&conn.root, &plan) {
         Ok(rewritten) => rewritten,
         Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared_rename);
             if let Err(rollback_error) = rollback_rename_item(&path, &result) {
                 return Err(format!("Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"));
             }
@@ -336,9 +393,7 @@ pub fn rename_item(
             ));
         }
     };
-    let mut changed_paths = mutation_paths(&result);
-    changed_paths.extend(rewritten.iter().cloned());
-    watcher_state.mark_write(changed_paths);
+    watcher_state.mark_write(rewritten.iter());
     let mut outcome = sync_mutation_result(&db, conn, &conn.root, result);
     let rewritten_changes = rewritten
         .into_iter()
@@ -368,8 +423,26 @@ pub fn delete_item(
 ) -> Result<MutationOutcome, String> {
     let path = paths::guard(&db, &path)?;
     let vault = db.root()?;
-    let result = recycle_bin::move_to_trash(&vault, &path)?;
-    watcher_state.mark_write(mutation_paths(&result));
+    let preview = recycle_bin::preview_move_to_trash(&vault, &path)?;
+    let mut writes = vec![(preview.original_path.clone(), PathFingerprint::Missing)];
+    writes.extend(
+        preview
+            .deleted_paths
+            .iter()
+            .cloned()
+            .map(|path| (path, PathFingerprint::Missing)),
+    );
+    let prepared = watcher_state.prepare_write(writes);
+    let result = match recycle_bin::move_to_trash(&vault, &path) {
+        Ok(result) => {
+            watcher_state.confirm_prepared_write(&prepared);
+            result
+        }
+        Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared);
+            return Err(error);
+        }
+    };
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     Ok(sync_mutation_result(&db, conn, &conn.root, result))

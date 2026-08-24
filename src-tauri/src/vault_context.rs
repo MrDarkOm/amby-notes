@@ -222,11 +222,11 @@ mod tests {
     fn generation_advances_only_after_a_successful_commit() {
         let context = VaultContext::default();
         let first = temp_dir("generation-first");
-        let first_generation = context
+        let (first_path, first_generation) = context
             .activate(
                 first.to_str().unwrap(),
                 |_| Ok(()),
-                |_, generation| generation,
+                |loaded, generation| (loaded.vault_path, generation),
             )
             .unwrap();
         let failed = temp_dir("generation-failed");
@@ -248,6 +248,31 @@ mod tests {
 
         assert_eq!(first_generation, 1);
         assert_eq!(second_generation, 2);
+        assert_eq!(PathBuf::from(first_path), first.canonicalize().unwrap());
+    }
+
+    #[test]
+    fn reading_active_vault_data_does_not_advance_generation() {
+        let context = VaultContext::default();
+        let vault = temp_dir("active-refresh");
+        let generation = context
+            .activate(
+                vault.to_str().unwrap(),
+                |_| Ok(()),
+                |_, generation| generation,
+            )
+            .unwrap();
+
+        let loaded = context
+            .with_active(|active| vault_index::load_vault(active, &active.root))
+            .unwrap();
+
+        assert_eq!(loaded.generation, 0);
+        assert_eq!(
+            PathBuf::from(loaded.vault_path),
+            vault.canonicalize().unwrap()
+        );
+        assert_eq!(context.generation().unwrap(), generation);
     }
 
     #[test]

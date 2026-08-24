@@ -40,12 +40,14 @@ import { useFileActions } from "./use-file-actions"
 import { useSidebarLayout } from "./use-sidebar-layout"
 import { useLayers } from "./use-layers"
 import { useTabActions } from "./use-tab-actions"
+import { canRenderSplit } from "./document-buffer-lifecycle"
 import { wsPathStem, canvasLayerPath, findTreeItem, newTabKey } from "./workspace-tree-utils"
 import { AutosaveCoordinator, type AutosaveKey } from "./autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "./autosave/autosave-lifecycle"
 import { WorkspacePicker } from "./workspace-picker"
 import { FolderView } from "./folder-view"
 import { countFolderContents } from "./folder-view-utils"
+import { recoveryNeedsConfirmation, resolveRecoveryContent } from "./recovery-restore"
 import { validateAndSerializeCanvas } from "@/lib/canvas-format"
 import {
   discardRecoveryDraft,
@@ -60,6 +62,8 @@ import {
   readFile,
   writeFile,
   readNote,
+  searchNotes,
+  confirmAction,
   openInExplorer,
   exportTextFile,
   importTextFile,
@@ -99,6 +103,7 @@ export function Workspace() {
     loadVault,
     refreshTree,
     reloadVaultData,
+    windowLabel,
   } = useVaultData()
 
   const openDocs = useDocStore((s) => s.openDocs)
@@ -236,21 +241,38 @@ export function Workspace() {
     [autosaveGeneration],
   )
 
-  const loadCanvasBuffer = React.useCallback(async (path: string): Promise<string> => {
-    const recovery = (await readRecoveryDraft(path))?.content
-    if (recovery !== undefined) {
+  const loadCanvasBuffer = React.useCallback(
+    async (path: string): Promise<string> => {
+      let diskContent: string
       try {
-        return validateAndSerializeCanvas(recovery)
-      } catch (error) {
-        console.error("Ignoring invalid canvas recovery draft:", error)
+        diskContent = validateAndSerializeCanvas(await readFile(path))
+      } catch {
+        diskContent = "{}"
       }
-    }
-    try {
-      return validateAndSerializeCanvas(await readFile(path))
-    } catch {
-      return "{}"
-    }
-  }, [])
+      const recovery = (await readRecoveryDraft(path))?.content
+      let recoveredContent: string | undefined
+      if (recovery !== undefined) {
+        try {
+          recoveredContent = validateAndSerializeCanvas(recovery)
+        } catch (error) {
+          console.error("Ignoring invalid canvas recovery draft:", error)
+        }
+      }
+      const restoreConfirmed = recoveryNeedsConfirmation(diskContent, recoveredContent)
+        ? await confirmAction(t("recovery.restorePrompt"))
+        : false
+      const resolved = resolveRecoveryContent(diskContent, recoveredContent, restoreConfirmed)
+      if (resolved.discardDraft) {
+        void discardRecoveryDraft(path)
+      }
+      if (resolved.restored) {
+        void saveRecoveryDraft(path, resolved.content, "canvas", path)
+        canvasAutosave.enqueueImmediate(canvasAutosaveKey(path), { path, json: resolved.content })
+      }
+      return resolved.content
+    },
+    [canvasAutosave, canvasAutosaveKey, t],
+  )
   React.useEffect(
     () =>
       registerAutosaveLifecycle({
@@ -489,6 +511,7 @@ export function Workspace() {
     handleMoveItem,
     handleMergeFile,
     handleContentChange,
+    releaseUnusedDocumentBuffers,
     deleteConfirmationDialog,
   } = useFileActions({
     vault,
@@ -501,6 +524,7 @@ export function Workspace() {
     setPendingRenameId,
     autosaveGeneration,
     backendGeneration,
+    windowLabel,
   })
 
   const initialWindowFileRef = React.useRef(false)
@@ -525,6 +549,9 @@ export function Workspace() {
       canGoBack,
       canGoForward,
       navigateToFile,
+      onTabUsageChanged: () => {
+        void releaseUnusedDocumentBuffers()
+      },
     })
 
   // Workspace-wide shortcuts deliberately leave plain typing alone. Native editing
@@ -619,8 +646,8 @@ export function Workspace() {
 
   const handleHistoryRestored = React.useCallback(async () => {
     if (!vault || !currentDocId) return
-    const content = await readNote(vault, currentDocId)
-    patchDoc(currentDocId, { content })
+    const note = await readNote(vault, currentDocId)
+    patchDoc(currentDocId, { content: note.content, revision: note.revision })
     markSaved(currentDocId)
     await refreshTree(vault)
   }, [vault, currentDocId, patchDoc, markSaved, refreshTree])
@@ -820,7 +847,7 @@ export function Workspace() {
       onMoveItem: handleMoveItem,
       onSetIcon: handleSetIcon,
       triggerRenameId: pendingRenameId,
-      readFile: (id: string) => (vault ? readNote(vault, id) : readFile(id)),
+      readFile: async (id: string) => (vault ? (await readNote(vault, id)).content : readFile(id)),
       favorites,
       onToggleFavorite: handleToggleFavorite,
       onAttachLayer: handleAttachLayerToFile,
@@ -941,7 +968,7 @@ export function Workspace() {
         const item = findWikiLinkItem(treeItems, target, vault)
         if (!item) return null
         try {
-          return await readNote(vault, item.id)
+          return (await readNote(vault, item.id)).content
         } catch {
           return null
         }
@@ -993,7 +1020,7 @@ export function Workspace() {
     ? (tabs.find((t) => t.key === secondaryTabKey && t.kind === "document") ?? null)
     : null
   const secondaryProps = secondaryTab ? paneEditorProps(secondaryTab) : null
-  const showSplit = !!secondaryProps && activeTab?.kind === "document"
+  const showSplit = !!secondaryProps && canRenderSplit(activeTab, secondaryTab)
 
   if (!vault && isTauri()) {
     return (
@@ -1155,7 +1182,7 @@ export function Workspace() {
           onClose={() => setSearchOpen(false)}
           items={displayTreeItems}
           onSelect={handleSelect}
-          readFile={readFile}
+          searchNotes={searchNotes}
         />
 
         <SettingsDialog
@@ -1347,7 +1374,7 @@ export function Workspace() {
         onClose={() => setSearchOpen(false)}
         items={displayTreeItems}
         onSelect={handleSelect}
-        readFile={readFile}
+        searchNotes={searchNotes}
       />
 
       <SettingsDialog

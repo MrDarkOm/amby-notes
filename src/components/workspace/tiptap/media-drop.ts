@@ -3,9 +3,10 @@ import { Plugin, PluginKey } from "@tiptap/pm/state"
 import type { EditorView } from "@tiptap/pm/view"
 
 import { getAssetContext } from "./asset-resolver"
-import { importAsset, importAssetBytes, isTauri } from "@/lib/storage"
+import { importAsset, importAssetBytes, isTauri, type ImportedAsset } from "@/lib/storage"
 
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|avif)$/i
+const mediaDropSessions = new WeakMap<EditorView, AbortController>()
 
 function extFromMime(mime: string): string {
   if (mime === "image/jpeg") return "jpg"
@@ -14,20 +15,42 @@ function extFromMime(mime: string): string {
   return "png"
 }
 
-async function insertImageAt(view: EditorView, pos: number, src: string) {
+function createImageNode(view: EditorView, src: string) {
   const node = view.state.schema.nodes.image
-  if (!node) return
-  const tr = view.state.tr.insert(pos, node.create({ src }))
-  view.dispatch(tr)
+  if (!node) return null
+  return node.create({ src })
 }
 
-async function insertFileLinkAt(view: EditorView, pos: number, href: string, text: string) {
-  const link = view.state.schema.marks.link
-  const tr = view.state.tr.insertText(text, pos)
-  if (link) {
-    tr.addMark(pos, pos + text.length, link.create({ href }))
+/** Insert a completed media batch into exactly one current editor transaction. */
+export function insertImportedAssets(
+  view: EditorView,
+  requestedPos: number,
+  assets: ImportedAsset[],
+  signal?: AbortSignal,
+): boolean {
+  if (signal?.aborted || assets.length === 0) return false
+  const { state } = view
+  const tr = state.tr
+  let insertPos = Math.max(0, Math.min(requestedPos, state.doc.content.size))
+  for (const asset of assets) {
+    if (signal?.aborted) return false
+    if (asset.kind === "image") {
+      const image = createImageNode(view, asset.relPath)
+      if (!image) continue
+      tr.insert(insertPos, image)
+    } else {
+      const text = asset.fileName
+      tr.insertText(text, insertPos)
+      const link = state.schema.marks.link
+      if (link) tr.addMark(insertPos, insertPos + text.length, link.create({ href: asset.relPath }))
+    }
+    // Mapping accounts for image nodeSize=1 and the actual UTF-16 text length
+    // of a file link without hand-maintained position arithmetic.
+    insertPos = tr.mapping.map(insertPos, 1)
   }
+  if (signal?.aborted || !tr.docChanged) return false
   view.dispatch(tr)
+  return true
 }
 
 export interface ImportCtx {
@@ -72,25 +95,45 @@ export async function importImageFromClipboard(ctx?: Partial<ImportCtx>): Promis
   return null
 }
 
-async function handleFileList(view: EditorView, files: FileList, dropPos: number) {
-  const ctx = getImportContextForView(view)
-  if (!ctx || !isTauri()) return false
-  let insertPos = dropPos
-  for (const file of Array.from(files)) {
+async function importFiles(
+  ctx: ImportCtx,
+  files: Iterable<File>,
+  signal?: AbortSignal,
+): Promise<ImportedAsset[]> {
+  const imported: ImportedAsset[] = []
+  for (const file of files) {
+    if (signal?.aborted) return []
     const buf = new Uint8Array(await file.arrayBuffer())
+    if (signal?.aborted) return []
     const ext = file.name.includes(".")
       ? (file.name.split(".").pop() ?? "")
       : extFromMime(file.type)
     const result = await importAssetBytes(ctx.vaultPath, ctx.notePath, buf, ext)
-    if (!result) continue
-    if (result.kind === "image") {
-      await insertImageAt(view, insertPos, result.relPath)
-    } else {
-      await insertFileLinkAt(view, insertPos, result.relPath, result.fileName)
-    }
-    insertPos += 1
+    if (signal?.aborted) return []
+    if (result) imported.push(result)
   }
-  return true
+  return imported
+}
+
+async function handleFileList(
+  view: EditorView,
+  files: FileList,
+  dropPos: number,
+  signal?: AbortSignal,
+) {
+  const ctx = getImportContextForView(view)
+  if (!ctx || !isTauri()) return false
+  const imported = await importFiles(ctx, Array.from(files), signal)
+  return insertImportedAssets(view, dropPos, imported, signal)
+}
+
+function sessionSignal(view: EditorView): AbortSignal {
+  let controller = mediaDropSessions.get(view)
+  if (!controller) {
+    controller = new AbortController()
+    mediaDropSessions.set(view, controller)
+  }
+  return controller.signal
 }
 
 export const MediaDrop = Extension.create({
@@ -100,6 +143,16 @@ export const MediaDrop = Extension.create({
     return [
       new Plugin({
         key: new PluginKey("ambyMediaDrop"),
+        view(view) {
+          const controller = new AbortController()
+          mediaDropSessions.set(view, controller)
+          return {
+            destroy() {
+              controller.abort()
+              mediaDropSessions.delete(view)
+            },
+          }
+        },
         props: {
           handleDrop(view, event, _slice, moved) {
             if (moved) return false
@@ -111,7 +164,7 @@ export const MediaDrop = Extension.create({
             })
             if (!coords) return false
             event.preventDefault()
-            void handleFileList(view, dt.files, coords.pos)
+            void handleFileList(view, dt.files, coords.pos, sessionSignal(view))
             return true
           },
           handlePaste(view, event) {
@@ -125,18 +178,14 @@ export const MediaDrop = Extension.create({
               const ctx = getImportContextForView(view)
               if (!ctx || !isTauri()) return false
               event.preventDefault()
-              ;(async () => {
-                let insertPos = view.state.selection.from
-                for (const item of imageItems) {
+              const signal = sessionSignal(view)
+              void (async () => {
+                const files = imageItems.flatMap((item) => {
                   const file = item.getAsFile()
-                  if (!file) continue
-                  const buf = new Uint8Array(await file.arrayBuffer())
-                  const ext = extFromMime(file.type)
-                  const result = await importAssetBytes(ctx.vaultPath, ctx.notePath, buf, ext)
-                  if (!result) continue
-                  await insertImageAt(view, insertPos, result.relPath)
-                  insertPos += 1
-                }
+                  return file ? [file] : []
+                })
+                const imported = await importFiles(ctx, files, signal)
+                insertImportedAssets(view, view.state.selection.from, imported, signal)
               })()
               return true
             }
@@ -144,7 +193,8 @@ export const MediaDrop = Extension.create({
             if (text && /^https?:\/\//i.test(text) && !text.includes("\n")) {
               if (IMAGE_EXT_RE.test(text)) {
                 event.preventDefault()
-                void insertImageAt(view, view.state.selection.from, text)
+                const image = createImageNode(view, text)
+                if (image) view.dispatch(view.state.tr.insert(view.state.selection.from, image))
                 return true
               }
             }
@@ -162,6 +212,7 @@ export const MediaDrop = Extension.create({
 export async function bindTauriFileDrop(
   view: EditorView,
   getDropPos: (clientX: number, clientY: number) => number | null,
+  signal?: AbortSignal,
 ): Promise<() => void> {
   if (!isTauri()) return () => {}
   const { getCurrentWebview } = await import("@tauri-apps/api/webview")
@@ -173,6 +224,7 @@ export async function bindTauriFileDrop(
       position?: { x: number; y: number }
     }
     if (payload.type !== "drop" || !payload.paths) return
+    if (signal?.aborted) return
     const ctx = getImportContextForView(view)
     if (!ctx) return
     // Tauri reports a PhysicalPosition while posAtCoords expects CSS pixels.
@@ -181,17 +233,14 @@ export async function bindTauriFileDrop(
       ? getDropPos(payload.position.x / scale, payload.position.y / scale)
       : view.state.selection.from
     if (pos == null) return
-    let insertPos = pos
+    const imported: ImportedAsset[] = []
     for (const src of payload.paths) {
+      if (signal?.aborted) return
       const result = await importAsset(ctx.vaultPath, ctx.notePath, src)
-      if (!result) continue
-      if (result.kind === "image") {
-        await insertImageAt(view, insertPos, result.relPath)
-      } else {
-        await insertFileLinkAt(view, insertPos, result.relPath, result.fileName)
-      }
-      insertPos += 1
+      if (signal?.aborted) return
+      if (result) imported.push(result)
     }
+    insertImportedAssets(view, pos, imported, signal)
   })
   return () => {
     void unlisten()

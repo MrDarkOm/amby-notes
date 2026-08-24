@@ -24,13 +24,19 @@ export function ModelsManager({
   onChange: (next: AiSettings) => void
 }) {
   const { t } = useTranslation()
+  const [storageError, setStorageError] = React.useState<string | null>(null)
   const updateModel = (next: AiModel) =>
     onChange({ ...ai, models: ai.models.map((m) => (m.id === next.id ? next : m)) })
 
-  const deleteModel = (id: string) => {
+  const deleteModel = async (id: string) => {
     const target = ai.models.find((m) => m.id === id)
     if (target?.credentialId) {
-      void deleteAiCredential(target.credentialId)
+      try {
+        await deleteAiCredential(target.credentialId)
+      } catch {
+        setStorageError(t("models.keychainError"))
+        return
+      }
     }
     const models = ai.models.filter((m) => m.id !== id)
     const activeModelId = ai.activeModelId === id ? (models[0]?.id ?? null) : ai.activeModelId
@@ -45,6 +51,11 @@ export function ModelsManager({
   return (
     <ScrollArea className="min-h-0 flex-1">
       <div className="flex flex-col gap-2.5 p-3">
+        {storageError && (
+          <p role="alert" className="text-[12px] text-destructive">
+            {storageError}
+          </p>
+        )}
         {ai.models.length === 0 && (
           <p className="px-1 py-4 text-center text-[12px] text-muted-foreground">
             {t("models.empty")}
@@ -56,7 +67,7 @@ export function ModelsManager({
             model={m}
             active={m.id === ai.activeModelId}
             onChange={updateModel}
-            onDelete={() => deleteModel(m.id)}
+            onDelete={() => void deleteModel(m.id)}
           />
         ))}
         <button
@@ -93,6 +104,7 @@ function ModelEditor({
   const [inputKey, setInputKey] = React.useState("")
   const [credInfo, setCredInfo] = React.useState<CredentialInfo | null>(null)
   const [savingKey, setSavingKey] = React.useState(false)
+  const [keyError, setKeyError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let active = true
@@ -112,6 +124,7 @@ function ModelEditor({
     const secret = rawSecret.trim()
     if (!secret) return
     setSavingKey(true)
+    setKeyError(null)
     try {
       const credId = model.credentialId || crypto.randomUUID()
       await storeAiCredential(credId, secret)
@@ -119,14 +132,19 @@ function ModelEditor({
       setCredInfo(info)
       set({ credentialId: credId })
       setInputKey("")
+    } catch {
+      setKeyError(t("models.keychainError"))
     } finally {
       setSavingKey(false)
     }
   }
 
   const handleClearKey = async () => {
-    if (model.credentialId) {
-      await deleteAiCredential(model.credentialId)
+    try {
+      if (model.credentialId) await deleteAiCredential(model.credentialId)
+    } catch {
+      setKeyError(t("models.keychainError"))
+      return
     }
     setCredInfo(null)
     setInputKey("")
@@ -259,6 +277,11 @@ function ModelEditor({
             ) : null}
           </div>
         </div>
+      )}
+      {keyError && (
+        <p role="alert" className="text-[12px] text-destructive">
+          {keyError}
+        </p>
       )}
 
       {provider?.azure && (

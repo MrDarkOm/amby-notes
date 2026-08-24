@@ -23,6 +23,10 @@ const ru = {
     vaultOpenFailed: "Не удалось открыть хранилище.\n\n{{details}}",
     settingsSaveError:
       "Не удалось сохранить настройки. Проверьте права доступа к файлам конфигурации.",
+    storageQuotaExceeded:
+      "Недостаточно места в хранилище браузера. Освободите место и повторите попытку.",
+    storageUnavailable:
+      "Хранилище браузера недоступно. Проверьте настройки браузера и повторите попытку.",
   },
   settings: {
     title: "Настройки",
@@ -371,6 +375,12 @@ const ru = {
   },
   historyPanel: {
     kilobytes: "{{count}} КБ",
+    vaultSummary: "Хранилище: {{snapshots}} версий · {{notes}} заметок · {{size}}",
+    noteSummary: "Эта заметка: {{snapshots}} версий · {{size}}",
+    cleanup: "Очистить",
+    cleaning: "Очистка…",
+    cleanupConfirm:
+      "Удалить {{count}} старых версий и освободить {{size}}? Для каждой заметки останутся {{keep}} последних версий. Это действие нельзя отменить.",
     restoreConfirm: "Восстановить эту версию? Текущая версия также будет сохранена в истории.",
     restoreTrashConfirm: "Восстановить «{{name}}» в исходное расположение?",
     openNote: "Откройте заметку, чтобы посмотреть её историю.",
@@ -436,6 +446,15 @@ const ru = {
     generating: "Генерация…",
     noteFallback: "Заметка",
     unavailable: "AI доступен только в десктоп-версии Amby",
+    errors: {
+      cancelled: "Запрос отменён",
+      missingCredential: "Не задан API-ключ для выбранного провайдера.",
+      invalidConfiguration: "Проверьте настройки подключения к AI-провайдеру.",
+      providerRejected: "AI-провайдер отклонил запрос. Проверьте ключ и лимиты аккаунта.",
+      invalidResponse: "AI-провайдер вернул некорректный ответ.",
+      network: "Не удалось подключиться к AI-провайдеру. Проверьте сеть и адрес сервера.",
+      requestFailed: "Не удалось выполнить AI-запрос. Повторите попытку.",
+    },
     actions: {
       rewrite: "Переписать",
       shorten: "Сократить",
@@ -791,6 +810,8 @@ const en: typeof ru = {
     sourceNotFound: "Source not found: {{path}}",
     vaultOpenFailed: "Could not open the vault.\n\n{{details}}",
     settingsSaveError: "Failed to save settings. Check configuration file permissions.",
+    storageQuotaExceeded: "Browser storage is full. Free up space and try again.",
+    storageUnavailable: "Browser storage is unavailable. Check browser settings and try again.",
   },
   settings: {
     title: "Settings",
@@ -1140,6 +1161,12 @@ const en: typeof ru = {
   },
   historyPanel: {
     kilobytes: "{{count}} KB",
+    vaultSummary: "Vault: {{snapshots}} versions · {{notes}} notes · {{size}}",
+    noteSummary: "This note: {{snapshots}} versions · {{size}}",
+    cleanup: "Clean up",
+    cleaning: "Cleaning…",
+    cleanupConfirm:
+      "Delete {{count}} older versions and free {{size}}? The latest {{keep}} versions of each note will remain. This cannot be undone.",
     restoreConfirm: "Restore this version? The current version will also be saved in history.",
     restoreTrashConfirm: "Restore “{{name}}” to its original location?",
     openNote: "Open a note to view its history.",
@@ -1204,6 +1231,15 @@ const en: typeof ru = {
     generating: "Generating…",
     noteFallback: "Note",
     unavailable: "AI is only available in the desktop version of Amby",
+    errors: {
+      cancelled: "Request cancelled",
+      missingCredential: "No API key is configured for the selected provider.",
+      invalidConfiguration: "Check the AI provider connection settings.",
+      providerRejected: "The AI provider rejected the request. Check your key and account limits.",
+      invalidResponse: "The AI provider returned an invalid response.",
+      network: "Could not connect to the AI provider. Check the network and server address.",
+      requestFailed: "Could not complete the AI request. Try again.",
+    },
     actions: {
       rewrite: "Rewrite",
       shorten: "Shorten",

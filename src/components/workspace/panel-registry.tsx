@@ -111,7 +111,7 @@ export interface ActionDef {
   kind: "action"
   /** Always available, even when a minimal preset disables optional modules. */
   persistent?: boolean
-  invoke: (ctx: ActionContext) => void
+  invoke?: (ctx: ActionContext) => void
 }
 
 export type ButtonDef = PanelDef | ActionDef

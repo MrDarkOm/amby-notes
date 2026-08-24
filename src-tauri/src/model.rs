@@ -31,8 +31,55 @@ pub struct MutationOutcome {
 #[serde(rename_all = "camelCase")]
 pub struct WriteNoteOutcome {
     pub path: String,
+    pub revision: String,
     pub index_state: IndexState,
     pub warnings: Vec<OperationWarning>,
+}
+
+#[derive(Deserialize, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteNoteRequest {
+    pub expected_generation: u64,
+    pub note_id: String,
+    pub content: String,
+    pub expected_revision: String,
+    pub origin_window: String,
+}
+
+/// Body text and its on-disk revision. The revision is a SHA-256 hash of the
+/// unnormalised body bytes, so it remains valid even when the frontend renders
+/// CRLF text as LF.
+#[derive(Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteReadOutcome {
+    pub content: String,
+    pub revision: String,
+}
+
+/// A save failure that callers can distinguish from transport and filesystem
+/// failures. In particular, a stale renderer must never retry a CAS conflict
+/// with its old buffer.
+#[derive(Debug, Serialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WriteNoteError {
+    RevisionConflict { actual_revision: String },
+    Failed { message: String },
+}
+
+impl WriteNoteError {
+    pub fn failed(message: impl Into<String>) -> Self {
+        Self::Failed {
+            message: message.into(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteWrittenPayload {
+    pub note_id: String,
+    pub revision: String,
+    pub origin_window: String,
 }
 
 #[derive(Serialize, specta::Type)]

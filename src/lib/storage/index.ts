@@ -11,6 +11,10 @@ import type {
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  HistoryCleanupPreview,
+  HistoryCleanupResult,
+  HistoryRetention,
+  HistoryStats,
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
@@ -18,15 +22,18 @@ import type {
   LayerResult,
   LinkGraph,
   LoadVaultResult,
+  NoteReadOutcome,
   NoteLayers,
   NoteProperties,
   RefactorPreview,
+  SearchResult,
   SettingsReadResult,
   SnapshotEntry,
   SnapshotText,
   TrashEntry,
   VaultPreflight,
   VaultTagEntry,
+  WriteNoteOutcome,
 } from "./types"
 
 export * from "./types"
@@ -85,7 +92,9 @@ export const recoverIdMigration = (
 ): Promise<IdMigrationRecovery> =>
   notesRepository.recoverIdMigration(vaultPath, journalPath, action)
 export const readFile = (path: string): Promise<string> => notesRepository.readFile(path)
-export const readNote = (vaultPath: string, noteId: string): Promise<string> =>
+export const searchNotes = (query: string): Promise<SearchResult[]> =>
+  notesRepository.searchNotes(query)
+export const readNote = (vaultPath: string, noteId: string): Promise<NoteReadOutcome> =>
   notesRepository.readNote(vaultPath, noteId)
 export const writeFile = (path: string, content: string): Promise<void> =>
   notesRepository.writeFile(path, content)
@@ -94,7 +103,17 @@ export const writeNote = (
   noteId: string,
   content: string,
   expectedGeneration: number | null,
-): Promise<void> => notesRepository.writeNote(vaultPath, noteId, content, expectedGeneration)
+  expectedRevision: string,
+  originWindow: string,
+): Promise<WriteNoteOutcome> =>
+  notesRepository.writeNote(
+    vaultPath,
+    noteId,
+    content,
+    expectedGeneration,
+    expectedRevision,
+    originWindow,
+  )
 export const saveConflictCopy = (path: string, content: string): Promise<string> =>
   notesRepository.saveConflictCopy(path, content)
 export const createNote = (
@@ -163,6 +182,12 @@ export const deleteLayer = (
 // History, Trash & Refactoring
 export const listSnapshots = (sourcePath: string): Promise<SnapshotEntry[]> =>
   historyRepository.listSnapshots(sourcePath)
+export const getHistoryStats = (): Promise<HistoryStats> => historyRepository.getHistoryStats()
+export const previewHistoryCleanup = (
+  retention: HistoryRetention,
+): Promise<HistoryCleanupPreview> => historyRepository.previewHistoryCleanup(retention)
+export const cleanupHistory = (retention: HistoryRetention): Promise<HistoryCleanupResult> =>
+  historyRepository.cleanupHistory(retention)
 export const restoreSnapshot = (snapshotId: string): Promise<string> =>
   historyRepository.restoreSnapshot(snapshotId)
 export const readSnapshotText = (snapshotId: string): Promise<SnapshotText> =>

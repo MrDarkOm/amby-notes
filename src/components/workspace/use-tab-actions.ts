@@ -12,6 +12,8 @@ interface UseTabActionsParams {
   canGoForward: boolean
   /** Loads the document for a fileId without changing tab structure. */
   navigateToFile: (fileId: string) => Promise<void>
+  /** Re-evaluate document-buffer lifetime after tab ownership changes. */
+  onTabUsageChanged?: () => void
 }
 
 /**
@@ -31,6 +33,7 @@ export function useTabActions({
   canGoBack,
   canGoForward,
   navigateToFile,
+  onTabUsageChanged,
 }: UseTabActionsParams) {
   const { setTabs, setActiveTabKey, setSecondaryTabKey } = useTabsStore.getState()
 
@@ -47,6 +50,7 @@ export function useTabActions({
       ),
     )
     navigateToFile(prevFileId)
+    onTabUsageChanged?.()
   }
 
   function handleForward() {
@@ -62,16 +66,23 @@ export function useTabActions({
       ),
     )
     navigateToFile(nextFileId)
+    onTabUsageChanged?.()
   }
 
   const handleTabChange = (key: string) => setActiveTabKey(key)
 
-  // Toggle the editor split: pin the active document into a second pane, or
-  // collapse back to a single pane.
+  // A second editable pane must always receive a different document buffer.
   function toggleSplit() {
-    setSecondaryTabKey((prev) =>
-      prev ? null : activeTab?.kind === "document" ? activeTabKey : null,
-    )
+    setSecondaryTabKey((previous) => {
+      if (previous) return null
+      if (activeTab?.kind !== "document") return null
+      return (
+        tabs.find(
+          (tab) =>
+            tab.kind === "document" && tab.key !== activeTabKey && tab.fileId !== activeTab.fileId,
+        )?.key ?? null
+      )
+    })
   }
 
   const handleTabClose = (key: string) => {
@@ -85,11 +96,14 @@ export function useTabActions({
       const next = remaining[remaining.length - 1]
       setActiveTabKey(next?.key ?? "")
     }
+    onTabUsageChanged?.()
   }
 
   function handleCloseAllTabs() {
     setTabs([])
     setActiveTabKey("")
+    setSecondaryTabKey(null)
+    onTabUsageChanged?.()
   }
 
   return {

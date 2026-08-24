@@ -28,6 +28,7 @@ pub struct SyncReport {
 #[serde(rename_all = "camelCase")]
 pub struct LoadVaultResult {
     pub generation: u64,
+    pub vault_path: String,
     pub tree: Vec<TreeItem>,
     pub notes: Vec<IndexedNote>,
     pub sync: SyncReport,
@@ -318,6 +319,7 @@ pub fn load_vault(conn: &Connection, vault: &Path) -> Result<LoadVaultResult, St
     let tree = build_tree(vault, &notes)?;
     Ok(LoadVaultResult {
         generation: 0,
+        vault_path: path_string(vault),
         tree,
         notes,
         sync,

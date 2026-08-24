@@ -4,7 +4,9 @@ import * as React from "react"
 import { FileText, Hash, Search, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import type { SearchResult as StorageSearchResult } from "@/lib/storage"
 import type { TreeItem } from "./sidebar-tree"
+import { caseInsensitiveRange } from "./search-text"
 
 interface SearchResult {
   item: TreeItem
@@ -14,12 +16,10 @@ interface SearchResult {
   score: number
 }
 
-const TAG_RE = /(?<=^|\s)#(\p{L}[\p{L}\p{N}_-]*)/gu
-
 interface SidebarSearchProps {
   items: TreeItem[]
   onSelect: (id: string) => void
-  readFile?: (path: string) => Promise<string>
+  searchNotes?: (query: string) => Promise<StorageSearchResult[]>
 }
 
 function flattenTree(items: TreeItem[], parentPath = ""): Array<{ item: TreeItem; path: string }> {
@@ -38,29 +38,19 @@ function flattenTree(items: TreeItem[], parentPath = ""): Array<{ item: TreeItem
 
 function highlight(text: string, query: string): React.ReactNode {
   if (!query) return text
-  const idx = text.toLowerCase().indexOf(query.toLowerCase())
-  if (idx === -1) return text
+  const range = caseInsensitiveRange(text, query)
+  if (!range) return text
+  const [start, end] = range
   return (
     <>
-      {text.slice(0, idx)}
-      <mark className="bg-transparent font-semibold text-primary">
-        {text.slice(idx, idx + query.length)}
-      </mark>
-      {text.slice(idx + query.length)}
+      {text.slice(0, start)}
+      <mark className="bg-transparent font-semibold text-primary">{text.slice(start, end)}</mark>
+      {text.slice(end)}
     </>
   )
 }
 
-function getSnippet(content: string, query: string, radius = 60): string {
-  const lower = content.toLowerCase()
-  const idx = lower.indexOf(query.toLowerCase())
-  if (idx === -1) return ""
-  const start = Math.max(0, idx - radius)
-  const end = Math.min(content.length, idx + query.length + radius)
-  return (start > 0 ? "…" : "") + content.slice(start, end) + (end < content.length ? "…" : "")
-}
-
-export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps) {
+export function SidebarSearch({ items, onSelect, searchNotes }: SidebarSearchProps) {
   const { t } = useTranslation()
   const [query, setQuery] = React.useState("")
   const [results, setResults] = React.useState<SearchResult[]>([])
@@ -68,6 +58,7 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
   const [searching, setSearching] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const debounceRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const requestRef = React.useRef(0)
   const listRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
@@ -76,110 +67,48 @@ export function SidebarSearch({ items, onSelect, readFile }: SidebarSearchProps)
 
   React.useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
+    const request = ++requestRef.current
     if (!query.trim()) {
       setResults([])
       setSelectedIndex(0)
       return
     }
 
-    const flat = flattenTree(items)
-    const isTagQuery = query.startsWith("#")
-
-    if (isTagQuery) {
-      const tagQ = query.slice(1).trim().toLowerCase()
-      if (!tagQ) {
-        setResults([])
-        setSelectedIndex(0)
-        return
-      }
-
-      if (!readFile) return
-      setSearching(true)
-      setResults([])
-      setSelectedIndex(0)
-
-      debounceRef.current = setTimeout(async () => {
-        const tagResults: SearchResult[] = []
-
-        await Promise.allSettled(
-          flat.map(async ({ item, path }) => {
-            try {
-              const content = await readFile(item.id)
-              const tags = [...content.matchAll(TAG_RE)].map((m) => m[1].toLowerCase())
-              const matched = tags.filter((t) => t.includes(tagQ))
-              if (matched.length > 0) {
-                tagResults.push({
-                  item,
-                  path,
-                  matchType: "tag" as const,
-                  snippet: [...new Set(matched)].map((t) => `#${t}`).join("  "),
-                  score: matched.some((t) => t === tagQ) ? 2 : 1,
-                })
-              }
-            } catch {
-              /* skip */
+    if (query === "#" || !searchNotes) return
+    const byId = new Map(flattenTree(items).map((entry) => [entry.item.id, entry]))
+    setSearching(true)
+    setResults([])
+    setSelectedIndex(0)
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const matches = await searchNotes(query.trim())
+        if (request !== requestRef.current) return
+        setResults(
+          matches.map((match) => {
+            const entry = byId.get(match.note.id)
+            return {
+              item: entry?.item ?? {
+                id: match.note.id,
+                path: match.note.path,
+                name: match.note.title,
+                type: "file" as const,
+              },
+              path: entry?.path ?? "",
+              matchType: match.matchType,
+              snippet: match.snippet,
+              score: match.score,
             }
           }),
         )
-
-        setResults(tagResults.sort((a, b) => b.score - a.score))
-        setSearching(false)
-      }, 200)
-    } else {
-      const q = query.trim().toLowerCase()
-
-      // Immediate name match
-      const nameResults: SearchResult[] = flat
-        .filter(({ item }) => item.name.toLowerCase().includes(q))
-        .map(({ item, path }) => ({
-          item,
-          path,
-          matchType: "name" as const,
-          score: item.name.toLowerCase().startsWith(q) ? 2 : 1,
-        }))
-        .sort((a, b) => b.score - a.score)
-
-      setResults(nameResults)
-      setSelectedIndex(0)
-
-      // Debounced content search
-      if (readFile) {
-        setSearching(true)
-        debounceRef.current = setTimeout(async () => {
-          const contentResults: SearchResult[] = []
-          const nameMatchIds = new Set(nameResults.map((r) => r.item.id))
-
-          await Promise.allSettled(
-            flat
-              .filter(({ item }) => !nameMatchIds.has(item.id))
-              .map(async ({ item, path }) => {
-                try {
-                  const content = await readFile(item.id)
-                  if (content.toLowerCase().includes(q)) {
-                    contentResults.push({
-                      item,
-                      path,
-                      matchType: "content",
-                      snippet: getSnippet(content, query.trim()),
-                      score: 0,
-                    })
-                  }
-                } catch {
-                  /* skip */
-                }
-              }),
-          )
-
-          setResults((prev) => [...prev, ...contentResults])
-          setSearching(false)
-        }, 300)
+      } finally {
+        if (request === requestRef.current) setSearching(false)
       }
-    }
+    }, 200)
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [query, items, readFile])
+  }, [query, items, searchNotes])
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown") {

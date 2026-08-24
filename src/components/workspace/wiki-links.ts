@@ -77,7 +77,7 @@ export function findWikiLinkItem(
             : (id.split("/").pop() ?? id)
         const pathWithoutExt = relativePath.replace(/\.md$/i, "")
         if (
-          normalizeLookup(item.name) === normalizedTarget ||
+          normalizeLookup(item.name.replace(/\.md$/i, "")) === normalizedTarget ||
           normalizeLookup(pathWithoutExt) === normalizedTarget
         ) {
           return item

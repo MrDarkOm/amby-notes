@@ -243,7 +243,7 @@ export function useSidebarLayout({
     const def = findButtonDef(defId)
     if (!def) return
     if (def.kind === "action") {
-      def.invoke(actionContext)
+      def.invoke?.(actionContext)
       return
     }
     const button = activityButtons.find((b) => b.defId === defId)

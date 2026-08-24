@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { aiChat, cancelAiChat, AiUnavailableError } from "./ai"
+import { aiChat, aiErrorMessage, cancelAiChat, AiRequestError, AiUnavailableError } from "./ai"
 import { commands } from "./bindings"
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -54,6 +54,22 @@ describe("ai client and cancellation (WP-21)", () => {
       [{ role: "user", content: "What is Amby?" }],
       "System context",
       expect.any(String),
+    )
+  })
+
+  it("localizes a typed backend error without exposing request details", async () => {
+    vi.spyOn(commands, "aiChat").mockResolvedValue({
+      status: "error",
+      error: { code: "network", provider: "openai" },
+    } as Awaited<ReturnType<typeof commands.aiChat>>)
+
+    await expect(
+      aiChat({ provider: "openai", model: "gpt-4o", baseUrl: "https://example.invalid" }, [
+        { role: "user", content: "hello" },
+      ]),
+    ).rejects.toBeInstanceOf(AiRequestError)
+    expect(aiErrorMessage(new AiRequestError({ code: "network", provider: "openai" }))).toContain(
+      "подключ",
     )
   })
 

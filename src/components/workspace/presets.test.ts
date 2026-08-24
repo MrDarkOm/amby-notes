@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
+import { ACTION_DEFS, PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
 import { SIMPLE_PRESET, STANDARD_PRESET, visibleLayout } from "./presets"
 
 describe("preset activity zones", () => {
@@ -18,5 +18,12 @@ describe("preset activity zones", () => {
     for (const action of PERSISTENT_ACTION_BUTTONS) {
       expect(ids.filter((id) => id === action.defId)).toHaveLength(1)
     }
+  })
+
+  it("does not expose unimplemented notification or help actions", () => {
+    const ids = ACTION_DEFS.map((action) => action.id)
+    expect(ids).not.toContain("notifications")
+    expect(ids).not.toContain("help")
+    expect(ACTION_DEFS.find((action) => action.id === "presets")?.invoke).toBeUndefined()
   })
 })

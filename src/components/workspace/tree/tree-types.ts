@@ -26,12 +26,30 @@ export const ROOT_DROP_TARGET = "__amby_root__"
 export interface PtrDrag {
   sourceId: string
   sourceName: string
+  sourcePath: string
   startX: number
   startY: number
   ghostX: number
   ghostY: number
   active: boolean
   targetId: string | null
+}
+
+function normalizeTreePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "")
+}
+
+/** Reject self-drops and folder drops into their own descendant paths. */
+export function isValidTreeDropTarget(
+  sourceId: string,
+  sourcePath: string,
+  targetId: string,
+  targetPath: string,
+): boolean {
+  if (!sourcePath || !targetPath || sourceId === targetId) return false
+  const source = normalizeTreePath(sourcePath)
+  const target = normalizeTreePath(targetPath)
+  return target !== source && !target.startsWith(`${source}/`)
 }
 
 export interface SidebarTreeProps {

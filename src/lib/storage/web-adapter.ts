@@ -1,11 +1,20 @@
 import i18n from "@/lib/i18n"
 import type { StoragePort } from "./port"
+import { NoteRevisionConflictError } from "./types"
+import { FILE_PREFIX, TREE_KEY, WEB_VAULT, flattenWebNotes } from "./web-tree"
+import { splitWebFrontmatter, webNoteProperties, webRevision } from "./web-frontmatter"
+import { WebMetadataStorage } from "./web-metadata"
+export { WebStorageError } from "./web-storage-error"
+import { withWebStorage } from "./web-storage-error"
 import type {
   CredentialInfo,
   CustomProperty,
   FileMetadata,
-  FrontmatterProperty,
   FsMutationResult,
+  HistoryCleanupPreview,
+  HistoryCleanupResult,
+  HistoryRetention,
+  HistoryStats,
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
@@ -13,54 +22,22 @@ import type {
   LayerResult,
   LinkGraph,
   LoadVaultResult,
+  NoteReadOutcome,
   NoteLayers,
   NoteProperties,
   PathChange,
   RefactorPreview,
+  SearchResult,
   SnapshotEntry,
   SnapshotText,
   TrashEntry,
   TreeItem,
   VaultPreflight,
   VaultTagEntry,
+  WriteNoteOutcome,
 } from "./types"
 
-const WEB_VAULT = "web-vault"
-const TREE_KEY = "amby:tree"
-const FILE_PREFIX = "amby:file:"
-const GLOBAL_WEB_PREFIX = "amby:g:"
-const VAULT_WEB_PREFIX = "amby:vmeta:"
-const CREDENTIAL_WEB_PREFIX = "amby:cred:"
-
-function splitWebFrontmatter(
-  content: string,
-): { envelope: string; yaml: string; body: string } | null {
-  const match = /^(---\n)([\s\S]*?)(\n---\n?)/u.exec(content)
-  if (!match) return null
-  return {
-    envelope: match[0],
-    yaml: match[2],
-    body: content.slice(match[0].length),
-  }
-}
-
-function webNoteProperties(content: string): NoteProperties {
-  const frontmatter = splitWebFrontmatter(content)
-  if (!frontmatter) return { hasFrontmatter: false, properties: [], customProperties: [] }
-  const properties: FrontmatterProperty[] = []
-  for (const line of frontmatter.yaml.split("\n")) {
-    if (!line || /^\s/u.test(line) || line.trimStart().startsWith("#")) continue
-    const separator = line.indexOf(":")
-    if (separator < 1) continue
-    const key = line.slice(0, separator).trim()
-    const value = line
-      .slice(separator + 1)
-      .trim()
-      .replace(/^['"]|['"]$/gu, "")
-    properties.push({ key, value, valueKind: "text" })
-  }
-  return { hasFrontmatter: true, properties, customProperties: [] }
-}
+const metadataStorage = new WebMetadataStorage()
 
 function pathDir(path: string): string {
   const idx = path.replace(/\\/g, "/").lastIndexOf("/")
@@ -223,15 +200,6 @@ function webAddChild(items: TreeItem[], parentId: string | null, child: TreeItem
   }))
 }
 
-function flattenWebNotes(items: TreeItem[]): TreeItem[] {
-  const notes: TreeItem[] = []
-  for (const item of items) {
-    if (item.type === "file") notes.push(item)
-    if (item.children) notes.push(...flattenWebNotes(item.children))
-  }
-  return notes
-}
-
 export class WebAdapter implements StoragePort {
   async openVault(): Promise<string | null> {
     return WEB_VAULT
@@ -252,6 +220,7 @@ export class WebAdapter implements StoragePort {
     }))
     return {
       generation: 0,
+      vaultPath: WEB_VAULT,
       tree,
       notes,
       sync: { inserted: 0, updated: 0, deleted: 0, warnings: [], pathToId: {} },
@@ -292,13 +261,60 @@ export class WebAdapter implements StoragePort {
     return webGetTree()
   }
 
+  async searchNotes(query: string): Promise<SearchResult[]> {
+    const normalized = query.trim().toLowerCase()
+    if (!normalized || normalized === "#") return []
+    const tagQuery = normalized.startsWith("#") ? normalized.slice(1) : null
+    const results: SearchResult[] = []
+    for (const item of flattenWebNotes(webGetTree())) {
+      const note = await this.readNote(WEB_VAULT, item.id)
+      const title = item.name.toLowerCase()
+      if (tagQuery !== null) {
+        const tags = [...note.content.matchAll(/(?<=^|\s)#([\p{L}][\p{L}\p{N}_-]*)/gu)]
+          .map((match) => match[1].toLowerCase())
+          .filter((tag) => tag.includes(tagQuery))
+        if (tags.length === 0) continue
+        results.push({
+          note: {
+            id: item.id,
+            path: item.path ?? item.id,
+            title: item.name,
+            wordCount: note.content.split(/\s+/u).filter(Boolean).length,
+          },
+          matchType: "tag",
+          snippet: [...new Set(tags)].map((tag) => `#${tag}`).join("  "),
+          score: tags.some((tag) => tag === tagQuery) ? 2 : 1,
+        })
+      } else if (title.includes(normalized) || note.content.toLowerCase().includes(normalized)) {
+        const nameMatch = title.includes(normalized)
+        results.push({
+          note: {
+            id: item.id,
+            path: item.path ?? item.id,
+            title: item.name,
+            wordCount: note.content.split(/\s+/u).filter(Boolean).length,
+          },
+          matchType: nameMatch ? "name" : "content",
+          score: nameMatch ? (title.startsWith(normalized) ? 3 : 2) : 1,
+        })
+      }
+    }
+    return results
+      .sort(
+        (left, right) =>
+          right.score - left.score || left.note.title.localeCompare(right.note.title),
+      )
+      .slice(0, 50)
+  }
+
   async readFile(path: string): Promise<string> {
     return localStorage.getItem(FILE_PREFIX + path) ?? webDefaultContent(path)
   }
 
-  async readNote(_vaultPath: string, noteId: string): Promise<string> {
+  async readNote(_vaultPath: string, noteId: string): Promise<NoteReadOutcome> {
     const content = await this.readFile(noteId)
-    return splitWebFrontmatter(content)?.body ?? content
+    const body = splitWebFrontmatter(content)?.body ?? content
+    return { content: body, revision: webRevision(body) }
   }
 
   async writeFile(path: string, content: string): Promise<void> {
@@ -310,10 +326,21 @@ export class WebAdapter implements StoragePort {
     noteId: string,
     content: string,
     _expectedGeneration: number | null,
-  ): Promise<void> {
+    expectedRevision: string,
+    _originWindow: string,
+  ): Promise<WriteNoteOutcome> {
     const current = await this.readFile(noteId)
     const frontmatter = splitWebFrontmatter(current)
+    const currentBody = frontmatter?.body ?? current
+    const actualRevision = webRevision(currentBody)
+    if (actualRevision !== expectedRevision) throw new NoteRevisionConflictError(actualRevision)
     await this.writeFile(noteId, `${frontmatter?.envelope ?? ""}${content}`)
+    return {
+      path: noteId,
+      revision: webRevision(content),
+      indexState: "healthy",
+      warnings: [],
+    }
   }
 
   async saveConflictCopy(path: string, content: string): Promise<string> {
@@ -699,6 +726,22 @@ export class WebAdapter implements StoragePort {
     return []
   }
 
+  async getHistoryStats(): Promise<HistoryStats> {
+    return { snapshotCount: 0, noteCount: 0, sizeBytes: 0 }
+  }
+
+  async previewHistoryCleanup(_retention: HistoryRetention): Promise<HistoryCleanupPreview> {
+    return {
+      removedCount: 0,
+      freedBytes: 0,
+      remaining: { snapshotCount: 0, noteCount: 0, sizeBytes: 0 },
+    }
+  }
+
+  async cleanupHistory(_retention: HistoryRetention): Promise<HistoryCleanupResult> {
+    throw new Error(i18n.t("errors.localHistoryDesktopOnly"))
+  }
+
   async restoreSnapshot(_snapshotId: string): Promise<string> {
     throw new Error(i18n.t("errors.localHistoryDesktopOnly"))
   }
@@ -793,47 +836,34 @@ export class WebAdapter implements StoragePort {
   }
 
   async readGlobalRaw(file: string): Promise<string | null> {
-    return localStorage.getItem(GLOBAL_WEB_PREFIX + file)
+    return withWebStorage(() => metadataStorage.readGlobal(file))
   }
 
   async writeGlobalRaw(file: string, contents: string): Promise<void> {
-    localStorage.setItem(GLOBAL_WEB_PREFIX + file, contents)
+    withWebStorage(() => metadataStorage.writeGlobal(file, contents))
   }
 
   async readVaultRaw(rel: string): Promise<string | null> {
-    return localStorage.getItem(VAULT_WEB_PREFIX + rel)
+    return withWebStorage(() => metadataStorage.readVault(rel))
   }
 
   async writeVaultRaw(rel: string, contents: string): Promise<void> {
-    localStorage.setItem(VAULT_WEB_PREFIX + rel, contents)
+    withWebStorage(() => metadataStorage.writeVault(rel, contents))
   }
 
   async deleteVaultMeta(rel: string): Promise<void> {
-    localStorage.removeItem(VAULT_WEB_PREFIX + rel)
+    withWebStorage(() => metadataStorage.deleteVault(rel))
   }
 
   async storeAiCredential(credentialId: string, secret: string): Promise<void> {
-    localStorage.setItem(CREDENTIAL_WEB_PREFIX + credentialId, secret)
+    withWebStorage(() => metadataStorage.storeCredential(credentialId, secret))
   }
 
   async deleteAiCredential(credentialId: string): Promise<void> {
-    localStorage.removeItem(CREDENTIAL_WEB_PREFIX + credentialId)
+    withWebStorage(() => metadataStorage.deleteCredential(credentialId))
   }
 
   async inspectAiCredential(credentialId: string): Promise<CredentialInfo> {
-    const secret = localStorage.getItem(CREDENTIAL_WEB_PREFIX + credentialId)
-    if (secret === null) {
-      return { exists: false, masked: null }
-    }
-    const trimmed = secret.trim()
-    if (trimmed.length === 0) {
-      return { exists: true, masked: "" }
-    }
-    if (trimmed.length <= 8) {
-      return { exists: true, masked: "••••••••" }
-    }
-    const prefix = trimmed.slice(0, 3)
-    const suffix = trimmed.slice(-4)
-    return { exists: true, masked: `${prefix}••••${suffix}` }
+    return withWebStorage(() => metadataStorage.inspectCredential(credentialId))
   }
 }

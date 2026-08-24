@@ -3,6 +3,10 @@ import type {
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  HistoryCleanupPreview,
+  HistoryCleanupResult,
+  HistoryRetention,
+  HistoryStats,
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
@@ -10,15 +14,18 @@ import type {
   LayerResult,
   LinkGraph,
   LoadVaultResult,
+  NoteReadOutcome,
   NoteLayers,
   NoteProperties,
   RefactorPreview,
+  SearchResult,
   SnapshotEntry,
   SnapshotText,
   TrashEntry,
   TreeItem,
   VaultPreflight,
   VaultTagEntry,
+  WriteNoteOutcome,
 } from "./types"
 
 export interface StoragePort {
@@ -40,14 +47,16 @@ export interface StoragePort {
 
   // Notes & Text Files
   readFile(path: string): Promise<string>
-  readNote(vaultPath: string, noteId: string): Promise<string>
+  readNote(vaultPath: string, noteId: string): Promise<NoteReadOutcome>
   writeFile(path: string, content: string): Promise<void>
   writeNote(
     vaultPath: string,
     noteId: string,
     content: string,
     expectedGeneration: number | null,
-  ): Promise<void>
+    expectedRevision: string,
+    originWindow: string,
+  ): Promise<WriteNoteOutcome>
   saveConflictCopy(path: string, content: string): Promise<string>
   createNote(vaultPath: string, parentPath: string, name: string): Promise<FsMutationResult>
   createFolder(vaultPath: string, name: string): Promise<string>
@@ -75,9 +84,13 @@ export interface StoragePort {
   deleteCustomProperty(vaultPath: string, noteId: string, propertyId: string): Promise<void>
   getLinkGraph(vaultPath: string): Promise<LinkGraph>
   listTags(vaultPath: string): Promise<VaultTagEntry[]>
+  searchNotes(query: string): Promise<SearchResult[]>
 
   // History & Trash
   listSnapshots(sourcePath: string): Promise<SnapshotEntry[]>
+  getHistoryStats(): Promise<HistoryStats>
+  previewHistoryCleanup(retention: HistoryRetention): Promise<HistoryCleanupPreview>
+  cleanupHistory(retention: HistoryRetention): Promise<HistoryCleanupResult>
   restoreSnapshot(snapshotId: string): Promise<string>
   readSnapshotText(snapshotId: string): Promise<SnapshotText>
   listTrash(): Promise<TrashEntry[]>

@@ -94,6 +94,13 @@ describe("findWikiLinkItem", () => {
     expect(findWikiLinkItem(items, "note", "/v")).toBe(items[0])
   })
 
+  it("normalizes .md for both item-name and path matching branches", () => {
+    const byName = file("id-name", "Note.md", "/v/unrelated")
+    const byPath = file("id-path", "Other", "/v/Folder/Note.md")
+    expect(findWikiLinkItem([byName], "Note.md", "/v")).toBe(byName)
+    expect(findWikiLinkItem([byPath], "Folder/Note.md", "/v")).toBe(byPath)
+  })
+
   it("returns null for unknown targets", () => {
     expect(findWikiLinkItem([], "Ghost", null)).toBeNull()
   })

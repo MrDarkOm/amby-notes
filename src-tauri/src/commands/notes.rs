@@ -8,7 +8,7 @@ use crate::paths;
 use crate::property_store;
 use crate::vault_context::VaultContext;
 use crate::vault_index;
-use crate::watcher::WatcherState;
+use crate::watcher::{self, WatcherState};
 
 #[tauri::command]
 #[specta::specta]
@@ -33,16 +33,30 @@ pub fn write_file(
 ) -> Result<(), String> {
     let path = paths::guard(&scope, &path)?;
     let vault = scope.get()?;
-    history::snapshot_before_write(&vault, &path, content.as_bytes(), "file-save")?;
-    frontmatter::atomic_write(&path, &content)?;
-    watcher_state.mark_write([&path]);
-    Ok(())
+    let expected =
+        watcher::fingerprint_for_bytes(&frontmatter::text_bytes_for_write(&path, &content)?);
+    let prepared = watcher_state.prepare_write([(&path, expected)]);
+    let result = (|| {
+        history::snapshot_before_write(&vault, &path, content.as_bytes(), "file-save")?;
+        frontmatter::atomic_write(&path, &content)
+    })();
+    match result {
+        Ok(()) => {
+            watcher_state.confirm_prepared_write(&prepared);
+            Ok(())
+        }
+        Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared);
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn save_conflict_copy(
     scope: tauri::State<paths::VaultScope>,
+    watcher_state: tauri::State<'_, WatcherState>,
     path: String,
     content: String,
 ) -> Result<String, String> {
@@ -62,10 +76,23 @@ pub fn save_conflict_copy(
     for _ in 0..1_000 {
         let conflict_id = ulid::Ulid::generate();
         let candidate = parent.join(format!("{stem}.{conflict_id}-conflict{extension}"));
+        let prepared = watcher_state.prepare_write([(
+            &candidate,
+            watcher::fingerprint_for_bytes(content.as_bytes()),
+        )]);
         match frontmatter::atomic_write_new(&candidate, &content) {
-            Ok(()) => return Ok(candidate.to_string_lossy().to_string()),
-            Err(frontmatter::AtomicCreateError::AlreadyExists) => continue,
-            Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+            Ok(()) => {
+                watcher_state.confirm_prepared_write(&prepared);
+                return Ok(candidate.to_string_lossy().to_string());
+            }
+            Err(frontmatter::AtomicCreateError::AlreadyExists) => {
+                watcher_state.cancel_prepared_write(&prepared);
+                continue;
+            }
+            Err(frontmatter::AtomicCreateError::Other(error)) => {
+                watcher_state.cancel_prepared_write(&prepared);
+                return Err(error);
+            }
         }
     }
     Err("Could not allocate a unique random conflict-copy filename".to_string())
@@ -73,7 +100,10 @@ pub fn save_conflict_copy(
 
 #[tauri::command]
 #[specta::specta]
-pub fn read_note(db: tauri::State<'_, VaultContext>, note_id: String) -> Result<String, String> {
+pub fn read_note(
+    db: tauri::State<'_, VaultContext>,
+    note_id: String,
+) -> Result<NoteReadOutcome, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::read_note(conn, &conn.root, &note_id)
@@ -82,41 +112,81 @@ pub fn read_note(db: tauri::State<'_, VaultContext>, note_id: String) -> Result<
 #[tauri::command]
 #[specta::specta]
 pub fn write_note(
+    app: tauri::AppHandle,
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
-    expected_generation: u64,
-    note_id: String,
-    content: String,
-) -> Result<WriteNoteOutcome, String> {
+    request: WriteNoteRequest,
+) -> Result<WriteNoteOutcome, WriteNoteError> {
+    use tauri::Emitter;
+
     // A renderer can finish an autosave after another window activated a new
     // vault. Bind this write to the caller's active generation so it fails
     // safely instead of resolving the same note ID in the new backend context.
     let conn_guard = db.conn.lock().unwrap();
-    let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    if expected_generation != conn.generation {
-        return Err("Vault changed before note save".to_string());
+    let conn = conn_guard
+        .as_ref()
+        .ok_or_else(|| WriteNoteError::failed("No vault open"))?;
+    if request.expected_generation != conn.generation {
+        return Err(WriteNoteError::failed("Vault changed before note save"));
     }
-    let destination = vault_index::note_metadata(conn, &conn.root, &note_id)?;
-    let (path, body) = vault_index::write_note_filesystem(conn, &conn.root, &note_id, &content)?;
-    watcher_state.mark_write([&path]);
-    let index_result = vault_index::upsert_note_index(conn, &conn.root, &note_id, &body, &path);
+    let destination = vault_index::note_metadata(conn, &conn.root, &request.note_id)
+        .map_err(WriteNoteError::failed)?;
+    let prepared_note = vault_index::prepare_note_write(
+        conn,
+        &conn.root,
+        &request.note_id,
+        &request.content,
+        &request.expected_revision,
+    )?;
+    let expected = watcher::fingerprint_for_bytes(
+        &frontmatter::text_bytes_for_write(&prepared_note.path, &prepared_note.next)
+            .map_err(WriteNoteError::failed)?,
+    );
+    let prepared_write = watcher_state.prepare_write([(&prepared_note.path, expected)]);
+    let (path, body, revision) =
+        match vault_index::commit_prepared_note_write(&conn.root, prepared_note) {
+            Ok(written) => {
+                watcher_state.confirm_prepared_write(&prepared_write);
+                written
+            }
+            Err(error) => {
+                watcher_state.cancel_prepared_write(&prepared_write);
+                return Err(error);
+            }
+        };
+    let index_result =
+        vault_index::upsert_note_index(conn, &conn.root, &request.note_id, &body, &path);
     drop(conn_guard); // release DB lock before touching watcher state
-    match index_result {
-        Ok(()) => Ok(WriteNoteOutcome {
+    let outcome = match index_result {
+        Ok(()) => WriteNoteOutcome {
             path: destination.path,
+            revision: revision.clone(),
             index_state: IndexState::Healthy,
             warnings: Vec::new(),
-        }),
+        },
         Err(error) => {
             tracing::warn!(event = "index_update_failed", error = %error);
-            db.mark_index_rebuild_required()?;
-            Ok(WriteNoteOutcome {
+            db.mark_index_rebuild_required()
+                .map_err(WriteNoteError::failed)?;
+            WriteNoteOutcome {
                 path: destination.path,
+                revision: revision.clone(),
                 index_state: IndexState::RebuildRequired,
                 warnings: vec![OperationWarning::IndexRebuildRequired],
-            })
+            }
         }
+    };
+    if let Err(error) = app.emit(
+        "amby:note-written",
+        NoteWrittenPayload {
+            note_id: request.note_id,
+            revision,
+            origin_window: request.origin_window,
+        },
+    ) {
+        tracing::warn!(event = "note_write_event_failed", error = %error);
     }
+    Ok(outcome)
 }
 
 #[tauri::command]

@@ -50,6 +50,29 @@ export interface SnapshotText {
   content: string
 }
 
+export interface HistoryStats {
+  snapshotCount: number
+  noteCount: number
+  sizeBytes: number
+}
+
+export interface HistoryRetention {
+  maxSnapshotsPerNote: number
+  maxAgeDays: number | null
+}
+
+export interface HistoryCleanupResult {
+  removedCount: number
+  freedBytes: number
+  remaining: HistoryStats
+}
+
+export interface HistoryCleanupPreview {
+  removedCount: number
+  freedBytes: number
+  remaining: HistoryStats
+}
+
 export interface RefactorPreview {
   notes: number
   replacements: number
@@ -70,6 +93,13 @@ interface IndexedNote {
   wordCount: number
 }
 
+export interface SearchResult {
+  note: IndexedNote
+  matchType: "name" | "content" | "tag"
+  snippet?: string
+  score: number
+}
+
 interface SyncReport {
   inserted: number
   updated: number
@@ -80,6 +110,7 @@ interface SyncReport {
 
 export interface LoadVaultResult {
   generation: number
+  vaultPath: string
   tree: TreeItem[]
   notes: IndexedNote[]
   sync: SyncReport
@@ -137,8 +168,22 @@ export interface MutationOutcome {
 
 export interface WriteNoteOutcome {
   path: string
+  revision: string
   indexState: IndexState
   warnings: OperationWarning[]
+}
+
+export interface NoteReadOutcome {
+  content: string
+  revision: string
+}
+
+/** A compare-and-swap rejected a stale renderer buffer. */
+export class NoteRevisionConflictError extends Error {
+  constructor(public readonly actualRevision: string) {
+    super("Note changed before save")
+    this.name = "NoteRevisionConflictError"
+  }
 }
 
 export type LayerKind = "canvas" | "database" | "sketch"

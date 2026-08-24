@@ -8,7 +8,7 @@ import i18n from "@/lib/i18n"
 
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { aiChat, AiUnavailableError, type AiMessage } from "@/lib/ai"
+import { aiChat, aiErrorMessage, type AiMessage } from "@/lib/ai"
 import { useDocStore } from "./use-doc-store"
 import {
   DEFAULT_AI,
@@ -86,7 +86,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
         abortControllerRef.current?.abort()
       }
       setAi(next)
-      void saveSettingsPatch({ ai: next })
+      void saveSettingsPatch({ ai: next }).catch(() => {})
     },
     [ai.activeModelId],
   )
@@ -120,7 +120,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
       if (controller.signal.aborted) {
         setError(t("ai.cancelled"))
       } else {
-        setError(e instanceof AiUnavailableError ? e.message : String(e))
+        setError(aiErrorMessage(e))
       }
     } finally {
       abortControllerRef.current = null

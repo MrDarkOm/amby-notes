@@ -26,6 +26,7 @@ import {
   styleAttrsToCss,
   unescapeHtml,
 } from "./constants"
+import { restoreSourceFormatting, roundTripCheck as checkRoundTrip } from "./markdown-compatibility"
 
 export { editorSchema }
 
@@ -1200,35 +1201,14 @@ export function docToMarkdown(doc: PMNode): string {
   return serializeFragment(transformForSerialization(doc))
 }
 
-const FOOTNOTE_SYNTAX_RE = /(?:\[\^[^\]\r\n]+\]|\^\[[^\]\r\n]+\])/u
-
 // ProseMirror documents represent neither a document's terminal line-breaks
 // nor its preferred line-ending form. Both are nevertheless file data: losing
 // them on an unrelated Live Preview edit is a silent Markdown normalization.
 // Restore them at the editor boundary. Mixed line endings remain Source-only —
 // their exact distribution needs a token-level on-disk model.
-export function restoreSourceFormatting(serialized: string, original: string): string {
-  const hasCrLf = original.includes("\r\n")
-  const hasLoneLf = /(^|[^\r])\n/.test(original)
-  const hasLoneCr = /\r(?!\n)/.test(original)
-  if (hasLoneCr || (hasCrLf && hasLoneLf)) return serialized
-
-  const leadingBreaks = original.match(/^(?:\r?\n)+/)?.[0] ?? ""
-  const terminalBreaks = original.match(/(?:\r?\n)+$/)?.[0] ?? ""
-  let body = serialized
-  if (leadingBreaks) body = body.replace(/^(?:\r?\n)+/, "")
-  if (terminalBreaks) body = body.replace(/(?:\r?\n)+$/, "")
-  const normalizedBody = hasCrLf ? body.replace(/\n/g, "\r\n") : body
-  return `${leadingBreaks}${normalizedBody}${terminalBreaks}`
-}
+export { restoreSourceFormatting }
 
 // Round-trip helper: parse then re-serialize and report any byte-level drift.
 export function roundTripCheck(markdown: string): { ok: boolean; result: string } {
-  const original = markdown ?? ""
-  const doc = getParser().parse(original)
-  const result = restoreSourceFormatting(docToMarkdown(doc), original)
-  // markdown-it's built-in reference rule can reinterpret a footnote
-  // definition as a reference link depending on surrounding blocks. Until
-  // footnotes get dedicated opaque tokens, force the reliable Source path.
-  return { ok: result === original && !FOOTNOTE_SYNTAX_RE.test(original), result }
+  return checkRoundTrip(markdown, (source) => getParser().parse(source), docToMarkdown)
 }

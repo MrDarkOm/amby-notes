@@ -55,10 +55,32 @@ pub fn delete_credential_entry(credential_id: &str) -> Result<(), String> {
     }
 }
 
+fn store_or_delete_credential<S, D>(
+    credential_id: &str,
+    secret: &str,
+    store: S,
+    delete: D,
+) -> Result<(), String>
+where
+    S: FnOnce(&str, &str) -> Result<(), String>,
+    D: FnOnce(&str) -> Result<(), String>,
+{
+    if secret.trim().is_empty() {
+        delete(credential_id)
+    } else {
+        store(credential_id, secret)
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn store_ai_credential(credential_id: String, secret: String) -> Result<(), String> {
-    set_credential(&credential_id, &secret)
+    store_or_delete_credential(
+        &credential_id,
+        &secret,
+        set_credential,
+        delete_credential_entry,
+    )
 }
 
 #[tauri::command]
@@ -91,5 +113,25 @@ mod tests {
         assert_eq!(mask_key(""), "");
         assert_eq!(mask_key("12345"), "••••••••");
         assert_eq!(mask_key("sk-ant-api03-abcdef1234"), "sk-••••1234");
+    }
+
+    #[test]
+    fn empty_credential_update_deletes_existing_entry() {
+        let operation = std::cell::RefCell::new(None);
+        store_or_delete_credential(
+            "credential-id",
+            "   ",
+            |_, _| {
+                *operation.borrow_mut() = Some("store");
+                Ok(())
+            },
+            |_| {
+                *operation.borrow_mut() = Some("delete");
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(*operation.borrow(), Some("delete"));
     }
 }

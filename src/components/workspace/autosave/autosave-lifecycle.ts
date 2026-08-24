@@ -19,6 +19,9 @@ export function registerAutosaveLifecycle(participant: AutosaveLifecycleParticip
 }
 
 export async function flushAutosaveGeneration(generation: number): Promise<AutosaveFlushResult> {
+  // Publish the final debounced ProseMirror transaction before inspecting or
+  // draining coordinator buffers. An untouched editor is a no-op participant.
+  flushEditorSerializations()
   const current = [...participants].filter((participant) => participant.generation === generation)
   await Promise.all(current.map((participant) => participant.flush()))
   return {
@@ -32,3 +35,4 @@ export function cancelAutosaveGeneration(generation: number): void {
     if (participant.generation === generation) participant.cancel()
   }
 }
+import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"

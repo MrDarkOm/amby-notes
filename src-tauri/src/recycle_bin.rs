@@ -18,6 +18,25 @@ pub struct TrashEntry {
     pub name: String,
 }
 
+/// Filesystem state determined before a trash move publishes its rename
+/// events. Commands use it to register exact `Missing` watcher records first.
+#[derive(Clone, Debug)]
+pub struct TrashMovePreview {
+    pub original_path: PathBuf,
+    pub deleted_paths: Vec<PathBuf>,
+}
+
+/// Filesystem state determined before a trash restore publishes its rename
+/// events. `restored_paths` are source payload paths, paired with paths below
+/// `destination` in the eventual vault tree.
+#[derive(Clone, Debug)]
+pub struct TrashRestorePreview {
+    pub manifest: PathBuf,
+    pub destination: PathBuf,
+    pub payload: PathBuf,
+    pub restored_paths: Vec<PathBuf>,
+}
+
 fn root(vault: &Path) -> PathBuf {
     vault.join(".amby").join(TRASH_DIR)
 }
@@ -48,7 +67,7 @@ fn collect_markdown_paths(path: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(paths)
 }
 
-pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
+pub fn preview_move_to_trash(vault: &Path, path: &Path) -> Result<TrashMovePreview, String> {
     let requested_path = path.canonicalize().map_err(|error| error.to_string())?;
     let original_path = resolve_item_root(&requested_path)
         .canonicalize()
@@ -57,14 +76,25 @@ pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, Stri
     if !original_path.starts_with(&vault_path) {
         return Err("Cannot trash a path outside the vault".to_string());
     }
+    Ok(TrashMovePreview {
+        deleted_paths: collect_markdown_paths(&original_path)?,
+        original_path,
+    })
+}
+
+pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
+    let preview = preview_move_to_trash(vault, path)?;
+    let original_path = preview.original_path;
+    let vault_path = vault.canonicalize().map_err(|error| error.to_string())?;
     let original_relative = original_path
         .strip_prefix(&vault_path)
         .map_err(|_| "Cannot determine the vault-relative trash path".to_string())?
         .to_string_lossy()
         .replace('\\', "/");
-    let deleted_paths = collect_markdown_paths(&original_path)?
-        .into_iter()
-        .map(|path| path_string(&path))
+    let deleted_paths = preview
+        .deleted_paths
+        .iter()
+        .map(|path| path_string(path))
         .collect();
     let id = Ulid::generate().to_string();
     let trash_root = root(vault);
@@ -103,19 +133,7 @@ pub fn move_to_trash(vault: &Path, path: &Path) -> Result<FsMutationResult, Stri
     })
 }
 
-pub fn list(vault: &Path) -> Vec<TrashEntry> {
-    let mut entries = fs::read_dir(root(vault))
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| fs::read(entry.path()).ok())
-        .filter_map(|bytes| serde_json::from_slice::<TrashEntry>(&bytes).ok())
-        .collect::<Vec<_>>();
-    entries.sort_by_key(|entry| std::cmp::Reverse(entry.deleted_at_ms));
-    entries
-}
-
-pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
+pub fn preview_restore(vault: &Path, id: &str) -> Result<TrashRestorePreview, String> {
     id.parse::<Ulid>()
         .map_err(|_| "Invalid trash identifier".to_string())?;
     let trash_root = root(vault);
@@ -134,22 +152,55 @@ pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
         ));
     }
     let payload = trash_root.join(id).join(&entry.name);
-    let restored_paths = collect_markdown_paths(&payload)?;
-    let payload_root = payload.clone();
-    let destination_root = destination.clone();
-    fs::create_dir_all(destination.parent().ok_or("Restore target has no parent")?)
-        .map_err(|error| error.to_string())?;
-    fs::rename(&payload, &destination).map_err(|error| error.to_string())?;
-    let primary_path = if destination.is_dir() {
-        destination
+    Ok(TrashRestorePreview {
+        manifest,
+        destination,
+        restored_paths: collect_markdown_paths(&payload)?,
+        payload,
+    })
+}
+
+pub fn list(vault: &Path) -> Vec<TrashEntry> {
+    let mut entries = fs::read_dir(root(vault))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| fs::read(entry.path()).ok())
+        .filter_map(|bytes| serde_json::from_slice::<TrashEntry>(&bytes).ok())
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.deleted_at_ms));
+    entries
+}
+
+pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
+    let preview = preview_restore(vault, id)?;
+    let trash_root = root(vault);
+    let payload_root = preview.payload.clone();
+    let destination_root = preview.destination.clone();
+    fs::create_dir_all(
+        preview
+            .destination
+            .parent()
+            .ok_or("Restore target has no parent")?,
+    )
+    .map_err(|error| error.to_string())?;
+    fs::rename(&preview.payload, &preview.destination).map_err(|error| error.to_string())?;
+    let primary_path = if preview.destination.is_dir() {
+        preview
+            .destination
             .file_name()
-            .map(|name| destination.join(format!("{}.md", name.to_string_lossy())))
+            .map(|name| {
+                preview
+                    .destination
+                    .join(format!("{}.md", name.to_string_lossy()))
+            })
             .filter(|main| main.is_file())
-            .unwrap_or_else(|| destination.clone())
+            .unwrap_or_else(|| preview.destination.clone())
     } else {
-        destination.clone()
+        preview.destination.clone()
     };
-    let path_changes = restored_paths
+    let path_changes = preview
+        .restored_paths
         .into_iter()
         .filter_map(|old_path| {
             let relative = old_path.strip_prefix(&payload_root).ok()?;
@@ -159,7 +210,7 @@ pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
             })
         })
         .collect();
-    fs::remove_file(manifest).map_err(|error| error.to_string())?;
+    fs::remove_file(preview.manifest).map_err(|error| error.to_string())?;
     fs::remove_dir(trash_root.join(id)).map_err(|error| error.to_string())?;
     Ok(FsMutationResult {
         primary_id: None,

@@ -1,5 +1,6 @@
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 #[cfg(test)]
 use std::cell::Cell;
 use std::fs;
@@ -10,6 +11,7 @@ use super::links::{extract_links, resolve_links_for_note};
 use super::tags::extract_tags;
 use crate::frontmatter;
 use crate::history;
+use crate::model::{NoteReadOutcome, WriteNoteError};
 use crate::vault::scan::*;
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
@@ -31,6 +33,12 @@ pub struct PreparedNoteIndex {
     pub body: String,
     pub frontmatter_tags: Vec<String>,
     pub links: Vec<(String, String, String)>,
+}
+
+pub struct PreparedNoteWrite {
+    pub path: PathBuf,
+    pub next: String,
+    pub body: String,
 }
 
 #[cfg(test)]
@@ -100,18 +108,28 @@ pub fn note_by_id(conn: &Connection, vault: &Path, note_id: &str) -> Result<Inde
     .ok_or_else(|| format!("Note not found: {note_id}"))
 }
 
-pub fn read_note(conn: &Connection, vault: &Path, note_id: &str) -> Result<String, String> {
+pub fn body_revision(body: &str) -> String {
+    format!("{:x}", Sha256::digest(body.as_bytes()))
+}
+
+pub fn read_note(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+) -> Result<NoteReadOutcome, String> {
     let note = note_by_id(conn, vault, note_id)?;
     frontmatter::read_markdown(Path::new(&note.path)).map(|parsed| {
         // Normalize CRLF → LF for the frontend.  The editor works exclusively
         // with LF; `preserve_text_format` converts back on write.  Without
         // this, the watcher reads CRLF from disk while the editor holds LF,
         // triggering false external-conflict detection that pauses autosave.
-        if parsed.body.contains("\r\n") {
+        let revision = body_revision(&parsed.body);
+        let content = if parsed.body.contains("\r\n") {
             parsed.body.replace("\r\n", "\n")
         } else {
             parsed.body
-        }
+        };
+        NoteReadOutcome { content, revision }
     })
 }
 
@@ -228,20 +246,54 @@ pub fn apply_prepared_note_index(
     Ok(())
 }
 
+pub fn prepare_note_write(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+    content: &str,
+    expected_revision: &str,
+) -> Result<PreparedNoteWrite, WriteNoteError> {
+    let note = note_by_id(conn, vault, note_id).map_err(WriteNoteError::failed)?;
+    let path = PathBuf::from(&note.path);
+    let current =
+        fs::read_to_string(&path).map_err(|error| WriteNoteError::failed(error.to_string()))?;
+    let current_body = frontmatter::parse_markdown(&current).body;
+    let actual_revision = body_revision(&current_body);
+    if expected_revision != actual_revision {
+        return Err(WriteNoteError::RevisionConflict { actual_revision });
+    }
+    let next = frontmatter::replace_body_preserving_id(&current, content, note_id)
+        .map_err(WriteNoteError::failed)?;
+    let body = frontmatter::parse_markdown(&next).body;
+    Ok(PreparedNoteWrite { path, next, body })
+}
+
+pub fn commit_prepared_note_write(
+    vault: &Path,
+    prepared: PreparedNoteWrite,
+) -> Result<(PathBuf, String, String), WriteNoteError> {
+    history::snapshot_before_write(vault, &prepared.path, prepared.next.as_bytes(), "note-save")
+        .map_err(WriteNoteError::failed)?;
+    frontmatter::atomic_write(&prepared.path, &prepared.next).map_err(WriteNoteError::failed)?;
+    // atomic_write restores a note's original BOM/line-ending convention. Read
+    // back the persisted body so the returned CAS token hashes the actual bytes,
+    // not the frontend-normalised LF buffer.
+    let persisted = fs::read_to_string(&prepared.path)
+        .map_err(|error| WriteNoteError::failed(error.to_string()))?;
+    let persisted_body = frontmatter::parse_markdown(&persisted).body;
+    let revision = body_revision(&persisted_body);
+    Ok((prepared.path, prepared.body, revision))
+}
+
 pub fn write_note_filesystem(
     conn: &Connection,
     vault: &Path,
     note_id: &str,
     content: &str,
-) -> Result<(PathBuf, String), String> {
-    let note = note_by_id(conn, vault, note_id)?;
-    let path = PathBuf::from(&note.path);
-    let current = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let next = frontmatter::replace_body_preserving_id(&current, content, note_id)?;
-    history::snapshot_before_write(vault, &path, next.as_bytes(), "note-save")?;
-    frontmatter::atomic_write(&path, &next)?;
-    let written = frontmatter::parse_markdown(&next);
-    Ok((path, written.body))
+    expected_revision: &str,
+) -> Result<(PathBuf, String, String), WriteNoteError> {
+    let prepared = prepare_note_write(conn, vault, note_id, content, expected_revision)?;
+    commit_prepared_note_write(vault, prepared)
 }
 
 pub fn note_metadata(
@@ -464,4 +516,96 @@ pub fn index_update_note(
         .id
         .ok_or_else(|| "Note does not have a frontmatter ID".to_string())?;
     upsert_note_index(conn, vault, &note_id, &parsed.body, path)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::{body_revision, read_note, upsert_note_index, write_note_filesystem};
+    use crate::index::open_connection;
+    use crate::model::WriteNoteError;
+
+    #[test]
+    fn stale_renderer_revision_cannot_overwrite_a_newer_note_save() {
+        let vault = std::env::temp_dir().join(format!("amby_note_cas_{}", ulid::Ulid::generate()));
+        fs::create_dir_all(&vault).expect("create vault");
+        let path = vault.join("Note.md");
+        fs::write(&path, "---\nid: note-1\n---\ninitial\n").expect("write note");
+        let conn = open_connection(&vault).expect("open index");
+        upsert_note_index(&conn, &vault, "note-1", "initial\n", &path).expect("index note");
+
+        // Two independent renderer reads observe the same initial revision.
+        let first_reader = read_note(&conn, &vault, "note-1").expect("first read");
+        let second_reader = read_note(&conn, &vault, "note-1").expect("second read");
+        assert_eq!(first_reader.revision, second_reader.revision);
+
+        let (_, _, written_revision) = write_note_filesystem(
+            &conn,
+            &vault,
+            "note-1",
+            "saved by first renderer\n",
+            &first_reader.revision,
+        )
+        .expect("first writer succeeds");
+
+        let error = write_note_filesystem(
+            &conn,
+            &vault,
+            "note-1",
+            "stale second renderer buffer\n",
+            &second_reader.revision,
+        )
+        .expect_err("stale writer must fail CAS");
+        match error {
+            WriteNoteError::RevisionConflict { actual_revision } => {
+                assert_eq!(actual_revision, written_revision);
+            }
+            WriteNoteError::Failed { message } => panic!("unexpected write failure: {message}"),
+        }
+        assert_eq!(
+            read_note(&conn, &vault, "note-1")
+                .expect("read saved note")
+                .content,
+            "saved by first renderer\n"
+        );
+
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn revision_hashes_the_actual_body_bytes_before_frontend_line_ending_normalization() {
+        let body = "one\r\ntwo\r\n";
+        assert_ne!(
+            body_revision(body),
+            body_revision(&body.replace("\r\n", "\n"))
+        );
+    }
+
+    #[test]
+    fn returned_revision_allows_the_next_save_when_crlf_is_preserved() {
+        let vault =
+            std::env::temp_dir().join(format!("amby_note_crlf_cas_{}", ulid::Ulid::generate()));
+        fs::create_dir_all(&vault).expect("create vault");
+        let path = vault.join("Note.md");
+        fs::write(&path, "---\r\nid: note-1\r\n---\r\none\r\n").expect("write note");
+        let conn = open_connection(&vault).expect("open index");
+        upsert_note_index(&conn, &vault, "note-1", "one\r\n", &path).expect("index note");
+
+        let initial = read_note(&conn, &vault, "note-1").expect("read initial");
+        assert_eq!(initial.content, "one\n");
+        let (_, _, first_revision) =
+            write_note_filesystem(&conn, &vault, "note-1", "two\n", &initial.revision)
+                .expect("first save");
+        assert_eq!(
+            read_note(&conn, &vault, "note-1")
+                .expect("read after first save")
+                .revision,
+            first_revision
+        );
+        write_note_filesystem(&conn, &vault, "note-1", "three\n", &first_revision)
+            .expect("second save with returned revision");
+
+        let _ = fs::remove_dir_all(vault);
+    }
 }

@@ -5,9 +5,9 @@ use crate::recovery::RecoveryEntry;
 use crate::recycle_bin;
 use crate::vault_context::VaultContext;
 use crate::vault_index;
-use crate::watcher::WatcherState;
+use crate::watcher::{self, WatcherState};
 
-use super::mutations::{mutation_paths, sync_mutation_result};
+use super::mutations::sync_mutation_result;
 
 #[tauri::command]
 #[specta::specta]
@@ -21,6 +21,32 @@ pub fn list_snapshots(
 
 #[tauri::command]
 #[specta::specta]
+pub fn get_history_stats(
+    scope: tauri::State<paths::VaultScope>,
+) -> Result<history::HistoryStats, String> {
+    history::get_history_stats(&scope.get()?)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn cleanup_history(
+    scope: tauri::State<paths::VaultScope>,
+    retention: history::HistoryRetention,
+) -> Result<history::HistoryCleanupResult, String> {
+    history::cleanup_history(&scope.get()?, retention)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn preview_history_cleanup(
+    scope: tauri::State<paths::VaultScope>,
+    retention: history::HistoryRetention,
+) -> Result<history::HistoryCleanupPreview, String> {
+    history::preview_history_cleanup(&scope.get()?, retention)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn restore_snapshot(
     scope: tauri::State<paths::VaultScope>,
     db: tauri::State<'_, VaultContext>,
@@ -28,8 +54,21 @@ pub fn restore_snapshot(
     snapshot_id: String,
 ) -> Result<String, String> {
     let vault = scope.get()?;
-    let path = history::restore_snapshot(&vault, &snapshot_id)?;
-    watcher_state.mark_write([&path]);
+    let prepared_restore = history::prepare_snapshot_restore(&vault, &snapshot_id)?;
+    let prepared_write = watcher_state.prepare_write([(
+        &prepared_restore.path,
+        watcher::fingerprint_for_bytes(&prepared_restore.bytes),
+    )]);
+    let path = match history::commit_snapshot_restore(&vault, prepared_restore) {
+        Ok(path) => {
+            watcher_state.confirm_prepared_write(&prepared_write);
+            path
+        }
+        Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared_write);
+            return Err(error);
+        }
+    };
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::sync_vault(conn, &vault)?;
@@ -109,8 +148,29 @@ pub fn restore_trash(
     trash_id: String,
 ) -> Result<MutationOutcome, String> {
     let vault = scope.get()?;
-    let result = recycle_bin::restore(&vault, &trash_id)?;
-    watcher_state.mark_write(mutation_paths(&result));
+    let preview = recycle_bin::preview_restore(&vault, &trash_id)?;
+    let mut writes = vec![(
+        (preview.destination.clone()),
+        watcher::path_fingerprint(&preview.payload),
+    )];
+    writes.extend(preview.restored_paths.iter().filter_map(|source| {
+        let relative = source.strip_prefix(&preview.payload).ok()?;
+        Some((
+            preview.destination.join(relative),
+            watcher::path_fingerprint(source),
+        ))
+    }));
+    let prepared = watcher_state.prepare_write(writes);
+    let result = match recycle_bin::restore(&vault, &trash_id) {
+        Ok(result) => {
+            watcher_state.confirm_prepared_write(&prepared);
+            result
+        }
+        Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared);
+            return Err(error);
+        }
+    };
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     Ok(sync_mutation_result(&db, conn, &vault, result))

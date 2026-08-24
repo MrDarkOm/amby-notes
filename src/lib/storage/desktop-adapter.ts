@@ -2,11 +2,16 @@ import i18n from "@/lib/i18n"
 import { commands } from "@/lib/bindings"
 import { unwrapCommand } from "./ipc-result"
 import type { StoragePort } from "./port"
+import { NoteRevisionConflictError } from "./types"
 import type {
   CredentialInfo,
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  HistoryCleanupPreview,
+  HistoryCleanupResult,
+  HistoryRetention,
+  HistoryStats,
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
@@ -15,9 +20,11 @@ import type {
   LinkGraph,
   LoadVaultResult,
   MutationOutcome,
+  NoteReadOutcome,
   NoteLayers,
   NoteProperties,
   RefactorPreview,
+  SearchResult,
   SnapshotEntry,
   SnapshotText,
   TrashEntry,
@@ -89,11 +96,15 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.listFiles())
   }
 
+  async searchNotes(query: string): Promise<SearchResult[]> {
+    return unwrapCommand(commands.searchNotes(query))
+  }
+
   async readFile(path: string): Promise<string> {
     return unwrapCommand(commands.readFile(path))
   }
 
-  async readNote(_vaultPath: string, noteId: string): Promise<string> {
+  async readNote(_vaultPath: string, noteId: string): Promise<NoteReadOutcome> {
     return unwrapCommand(commands.readNote(noteId))
   }
 
@@ -106,12 +117,26 @@ export class DesktopAdapter implements StoragePort {
     noteId: string,
     content: string,
     expectedGeneration: number | null,
-  ): Promise<void> {
+    expectedRevision: string,
+    originWindow: string,
+  ): Promise<WriteNoteOutcome> {
     if (expectedGeneration === null) throw new Error("No active vault generation")
-    const outcome = await unwrapCommand<WriteNoteOutcome>(
-      commands.writeNote(expectedGeneration, noteId, content),
-    )
+    const result = await commands.writeNote({
+      expectedGeneration,
+      noteId,
+      content,
+      expectedRevision,
+      originWindow,
+    })
+    if (result.status === "error") {
+      if (result.error.kind === "revisionConflict") {
+        throw new NoteRevisionConflictError(result.error.actual_revision)
+      }
+      throw new Error(result.error.message)
+    }
+    const outcome = result.data
     reportIndexOutcome(outcome)
+    return outcome
   }
 
   async saveConflictCopy(path: string, content: string): Promise<string> {
@@ -222,6 +247,18 @@ export class DesktopAdapter implements StoragePort {
 
   async listSnapshots(sourcePath: string): Promise<SnapshotEntry[]> {
     return unwrapCommand(commands.listSnapshots(sourcePath))
+  }
+
+  async getHistoryStats(): Promise<HistoryStats> {
+    return unwrapCommand(commands.getHistoryStats())
+  }
+
+  async previewHistoryCleanup(retention: HistoryRetention): Promise<HistoryCleanupPreview> {
+    return unwrapCommand(commands.previewHistoryCleanup(retention))
+  }
+
+  async cleanupHistory(retention: HistoryRetention): Promise<HistoryCleanupResult> {
+    return unwrapCommand(commands.cleanupHistory(retention))
   }
 
   async restoreSnapshot(snapshotId: string): Promise<string> {

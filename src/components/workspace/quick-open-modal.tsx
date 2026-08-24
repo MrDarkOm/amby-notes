@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/command"
 import { useTranslation } from "react-i18next"
 import type { TreeItem } from "./sidebar-tree"
+import { quickOpenItemValue } from "./quick-open-utils"
 
 interface QuickOpenModalProps {
   open: boolean
@@ -90,7 +91,7 @@ export function QuickOpenModal({
                   {files.map((file) => (
                     <CommandItem
                       key={file.id}
-                      value={file.name}
+                      value={quickOpenItemValue(file)}
                       onSelect={() => handleSelect(file.id)}
                       className="flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] text-foreground aria-selected:bg-accent aria-selected:text-white cursor-pointer"
                     >

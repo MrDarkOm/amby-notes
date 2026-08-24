@@ -46,6 +46,14 @@ import { emit, listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { errorType, logger } from "@/lib/logger"
 import { cancelAutosaveGeneration, flushAutosaveGeneration } from "./autosave/autosave-lifecycle"
+import {
+  activationMatchesCurrentVault,
+  MAIN_WINDOW_LABEL,
+  ownsWorkspacePersistence,
+  ownsVaultWatcher,
+  planVaultStartup,
+  type VaultActivatedPayload,
+} from "./windows/vault-window-lifecycle"
 
 const VAULT_ACTIVATED_EVENT = "amby:vault-activated"
 
@@ -59,6 +67,10 @@ const VAULT_ACTIVATED_EVENT = "amby:vault-activated"
  */
 export function useVaultData() {
   const { t } = useTranslation()
+  const desktop = isTauri()
+  const windowLabel = desktop ? getCurrentWindow().label : MAIN_WINDOW_LABEL
+  const ownsWatcher = ownsVaultWatcher(desktop, windowLabel)
+  const ownsPersistence = ownsWorkspacePersistence(desktop, windowLabel)
   const vault = useVaultStore((s) => s.vault)
   const vaults = useVaultStore((s) => s.vaults)
   const { setVault, setVaults, setBackendGeneration } = useVaultStore.getState()
@@ -84,9 +96,9 @@ export function useVaultData() {
   const sessionHydratedRef = React.useRef(false)
   const workspacesHydrated = React.useRef(false)
   const switchRef = React.useRef({ inFlight: false, requestId: 0 })
-  const loadVaultRef = React.useRef<(path: string, activateBackend?: boolean) => Promise<void>>(
-    async () => {},
-  )
+  const loadVaultRef = React.useRef<
+    (path: string | null, activateBackend?: boolean) => Promise<void>
+  >(async () => {})
 
   // ── Tree helpers ────────────────────────────────────────────────────────────
 
@@ -101,10 +113,15 @@ export function useVaultData() {
   async function refreshTree(path: string | null = vault): Promise<TreeItem[]> {
     if (!path) return []
     const requestId = switchRef.current.requestId
-    const loaded = await loadVaultData(path)
-    if (requestId !== switchRef.current.requestId || useVaultStore.getState().vault !== path) {
+    const loaded = await loadActiveVaultData()
+    if (
+      requestId !== switchRef.current.requestId ||
+      useVaultStore.getState().vault !== path ||
+      loaded.vaultPath !== path
+    ) {
       return []
     }
+    setBackendGeneration(loaded.generation)
     setTreeItems(loaded.tree)
     return loaded.tree
   }
@@ -118,9 +135,10 @@ export function useVaultData() {
 
   // ── loadVault ───────────────────────────────────────────────────────────────
 
-  async function loadVault(path: string, activateBackend = true) {
+  async function loadVault(path: string | null, activateBackend = true) {
     const currentVault = useVaultStore.getState().vault
-    if (!path || path === currentVault || switchRef.current.inFlight) return
+    if (switchRef.current.inFlight) return
+    if (activateBackend && (!path || path === currentVault)) return
     const requestId = switchRef.current.requestId + 1
     switchRef.current = { inFlight: true, requestId }
     const oldGeneration = useVaultStore.getState().generation
@@ -134,7 +152,7 @@ export function useVaultData() {
         }
         if (!flush.flushed && !(await confirmAction(t("recovery.switchAfterSaveFailure")))) return
       }
-      if (isTauri() && activateBackend) {
+      if (desktop && activateBackend && path) {
         let preflight = await preflightVault(path)
         let unfinished = preflight.unfinishedMigrations[0]
         while (unfinished) {
@@ -173,8 +191,9 @@ export function useVaultData() {
           await applyIdMigration(path)
         }
       }
-      const loaded = activateBackend ? await loadVaultData(path) : await loadActiveVaultData()
+      const loaded = activateBackend ? await loadVaultData(path!) : await loadActiveVaultData()
       if (switchRef.current.requestId !== requestId) return
+      const activePath = loaded.vaultPath
       const tree = loaded.tree
       const pathToId = loaded.sync.pathToId ?? {}
       const allIds = flattenTree(tree)
@@ -185,16 +204,16 @@ export function useVaultData() {
       clearDocs()
       setTabs([])
       setActiveTabKey("")
-      setVault(path)
+      setVault(activePath)
       setBackendGeneration(loaded.generation)
       setTreeItems(tree)
       setLinkGraph({ nodes: [], edges: [] })
-      addVaultToList(path)
+      addVaultToList(activePath)
 
       // Suppress session persistence while restoring state so we don't
       // immediately clobber the just-read session.json with empty state.
       sessionHydratedRef.current = false
-      const session = await loadSession(path)
+      const session = await loadSession(activePath)
       if (switchRef.current.requestId !== requestId) return
 
       const restoreSession = useSettingsStore.getState().prefs.startup.restoreSession
@@ -226,16 +245,16 @@ export function useVaultData() {
         valid.forEach((e) => {
           const item = findTreeItem(tree, e.fileId)
           Promise.all([
-            readNote(path, e.fileId),
-            getNoteMetadata(path, e.fileId),
-            getNoteProperties(path, e.fileId),
+            readNote(activePath, e.fileId),
+            getNoteMetadata(activePath, e.fileId),
+            getNoteProperties(activePath, e.fileId),
           ])
-            .then(([content, metadata, noteProperties]) => {
+            .then(([note, metadata, noteProperties]) => {
               if (switchRef.current.requestId !== requestId) return
               setDoc(e.fileId, {
                 id: e.fileId,
                 title: e.title,
-                content,
+                content: note.content,
                 created: metadata.created
                   ? new Date(metadata.created * 1000).toLocaleString()
                   : "—",
@@ -244,6 +263,7 @@ export function useVaultData() {
                   : "—",
                 wordCount: metadata.word_count,
                 path: item?.path ?? e.fileId,
+                revision: note.revision,
                 noteProperties,
               })
             })
@@ -255,8 +275,11 @@ export function useVaultData() {
         setActiveTabKey("")
       }
       sessionHydratedRef.current = true
-      if (isTauri() && activateBackend) {
-        await emit(VAULT_ACTIVATED_EVENT, { path }).catch((error) =>
+      if (desktop && activateBackend) {
+        await emit(VAULT_ACTIVATED_EVENT, {
+          path: activePath,
+          generation: loaded.generation,
+        } satisfies VaultActivatedPayload).catch((error) =>
           logger.warn("vault_switch.broadcast_failed", { errorType: errorType(error) }),
         )
       }
@@ -283,10 +306,13 @@ export function useVaultData() {
   // Every note window follows the vault activated by the app, rather than
   // keeping a hidden independent backend context.
   React.useEffect(() => {
-    if (!isTauri()) return
+    if (!desktop) return
     let unlisten: (() => void) | undefined
-    listen<{ path: string }>(VAULT_ACTIVATED_EVENT, (event) => {
-      if (event.payload.path === useVaultStore.getState().vault) return
+    listen<VaultActivatedPayload>(VAULT_ACTIVATED_EVENT, (event) => {
+      if (activationMatchesCurrentVault(event.payload, useVaultStore.getState().vault)) {
+        setBackendGeneration(event.payload.generation)
+        return
+      }
       void loadVaultRef.current(event.payload.path, false)
     })
       .then((dispose) => {
@@ -296,12 +322,26 @@ export function useVaultData() {
         logger.warn("vault_switch.broadcast_listen_failed", { errorType: errorType(error) }),
       )
     return () => unlisten?.()
+  }, [desktop, setBackendGeneration])
+
+  // A backgrounded renderer may be suspended before Tiptap's 200 ms serializer
+  // timer fires. Run the same ordered editor → autosave flush used by close and
+  // vault switching while the page is still eligible to execute JavaScript.
+  React.useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "hidden") return
+      void flushAutosaveGeneration(useVaultStore.getState().generation).catch((error) =>
+        logger.warn("visibilitychange.autosave_flush_failed", { errorType: errorType(error) }),
+      )
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange)
   }, [])
 
   // A close request must wait for all queues in this renderer. Failed saves
   // already have recovery drafts, so closing remains safe after the flush.
   React.useEffect(() => {
-    if (!isTauri()) return
+    if (!desktop) return
     let allowClose = false
     let closing = false
     let unlisten: (() => void) | undefined
@@ -329,7 +369,7 @@ export function useVaultData() {
       })
       .catch((error) => logger.warn("window_close.listen_failed", { errorType: errorType(error) }))
     return () => unlisten?.()
-  }, [])
+  }, [desktop])
 
   // Link graph: recompute whenever the tree or vault changes.
   React.useEffect(() => {
@@ -370,7 +410,7 @@ export function useVaultData() {
   // Debounced session persistence (tabs + favorites + view-modes + locked + icons).
   // Gated on sessionHydratedRef so loadVault's hydration doesn't echo back.
   React.useEffect(() => {
-    if (!vault || !sessionHydratedRef.current) return
+    if (!ownsPersistence || !vault || !sessionHydratedRef.current) return
     const docTabs = tabs.filter((t) => t.kind === "document")
     const entries = docTabs.map((t) => ({ fileId: t.fileId, title: t.title }))
     const active = docTabs.find((t) => t.key === activeTabKey)
@@ -396,16 +436,28 @@ export function useVaultData() {
     nestedNotesPlacements,
     lockedFileIds,
     iconOverrides,
+    ownsPersistence,
   ])
 
-  // Vault watcher: start the Rust notify watcher when a vault is open and
-  // debounce-refresh the tree on external file changes. Open clean buffers are
-  // reloaded after the index refresh; dirty buffers are deliberately left alone
-  // until the conflict UI can ask the user what to keep.
+  // The Rust watcher is process-wide. Only the main window owns its lifecycle;
+  // detached note windows subscribe to the same emitted events below.
   React.useEffect(() => {
-    if (!vault || !isTauri()) return
+    if (!vault || !ownsWatcher) return
+    void startVaultWatcher(vault).catch((error) =>
+      logger.warn("watcher.start_failed", { errorType: errorType(error) }),
+    )
+    return () => {
+      void stopVaultWatcher().catch((error) =>
+        logger.warn("watcher.stop_failed", { errorType: errorType(error) }),
+      )
+    }
+  }, [ownsWatcher, vault])
 
-    startVaultWatcher(vault).catch(console.error)
+  // Every window listens for external changes. Open clean buffers are reloaded
+  // after the active index refresh; dirty buffers remain untouched until the
+  // conflict UI asks the user what to keep.
+  React.useEffect(() => {
+    if (!vault || !desktop) return
 
     let unlisten: (() => void) | undefined
     let refreshTimer: ReturnType<typeof setTimeout> | null = null
@@ -467,22 +519,27 @@ export function useVaultData() {
                 continue
               }
               try {
-                const content = await readNote(vault, id)
+                const note = await readNote(vault, id)
                 const latest = useDocStore.getState().openDocs[id]
-                if (!latest || content === latest.content) continue
+                if (
+                  !latest ||
+                  (note.content === latest.content && note.revision === latest.revision)
+                )
+                  continue
                 if (useDocStore.getState().unsavedFileIds.has(id)) {
                   setExternalConflict({
                     fileId: id,
                     path: latest.path,
                     localContent: latest.content,
-                    externalContent: content,
+                    externalContent: note.content,
+                    externalRevision: note.revision,
                   })
                   continue
                 }
                 // Do not replace a buffer if the user started editing during
                 // the asynchronous refresh.
                 if (!useDocStore.getState().unsavedFileIds.has(id)) {
-                  patchDoc(id, { content })
+                  patchDoc(id, { content: note.content, revision: note.revision })
                   markSaved(id)
                 }
               } catch (err) {
@@ -504,11 +561,56 @@ export function useVaultData() {
       if (refreshTimer) clearTimeout(refreshTimer)
       pending.clear()
       unlisten?.()
-      stopVaultWatcher().catch(console.error)
     }
     // refreshTree closes over vault but vault is in the dep array (effect re-runs on change).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vault])
+  }, [desktop, vault])
+
+  // Amby-originated saves use an explicit IPC event rather than the filesystem
+  // watcher. That makes two renderer windows converge even when watcher own-write
+  // suppression intentionally hides the atomic write event.
+  React.useEffect(() => {
+    if (!vault || !desktop) return
+
+    let unlisten: (() => void) | undefined
+    listen<{ noteId: string; revision: string; originWindow: string }>(
+      "amby:note-written",
+      async (event) => {
+        const { noteId, revision, originWindow } = event.payload
+        if (originWindow === windowLabel) return
+        const document = useDocStore.getState().openDocs[noteId]
+        if (!document) return
+        try {
+          const note = await readNote(vault, noteId)
+          // A newer write won the race while this event was in flight; its event
+          // will reconcile the buffer instead.
+          if (note.revision !== revision) return
+          const latest = useDocStore.getState().openDocs[noteId]
+          if (!latest) return
+          if (useDocStore.getState().unsavedFileIds.has(noteId)) {
+            setExternalConflict({
+              fileId: noteId,
+              path: latest.path,
+              localContent: latest.content,
+              externalContent: note.content,
+              externalRevision: note.revision,
+            })
+            return
+          }
+          patchDoc(noteId, { content: note.content, revision: note.revision })
+          markSaved(noteId)
+        } catch (error) {
+          logger.warn("note_written.open_document_reload_failed", { errorType: errorType(error) })
+        }
+      },
+    )
+      .then((fn) => {
+        unlisten = fn
+      })
+      .catch(console.error)
+
+    return () => unlisten?.()
+  }, [desktop, markSaved, patchDoc, setExternalConflict, vault, windowLabel])
 
   // On mount: hydrate the known-vaults list from workspaces.json, then reopen
   // the last vault if the user has that setting enabled.
@@ -521,25 +623,31 @@ export function useVaultData() {
       if (cancelled) return
       setVaults(file.recent)
       workspacesHydrated.current = true
-      if (file.lastOpened && reopen) loadVault(file.lastOpened)
-      else if (!isTauri()) loadVault("web-vault")
+      const startup = planVaultStartup({
+        isDesktop: desktop,
+        windowLabel,
+        lastOpened: file.lastOpened,
+        reopenLastVault: reopen,
+      })
+      if (startup.kind === "activate") void loadVault(startup.path)
+      else if (startup.kind === "attach-active") void loadVault(null, false)
     })()
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [desktop, windowLabel])
 
   // Persist the known-vaults list + last-opened after hydration (so we never
   // clobber workspaces.json with the empty initial state).
   React.useEffect(() => {
-    if (!workspacesHydrated.current) return
+    if (!ownsPersistence || !workspacesHydrated.current) return
     void saveWorkspaces({
       schemaVersion: WORKSPACES_SCHEMA_VERSION,
       recent: vaults,
       lastOpened: vault,
     })
-  }, [vaults, vault])
+  }, [ownsPersistence, vaults, vault])
 
   // ── Derived ─────────────────────────────────────────────────────────────────
 
@@ -556,5 +664,6 @@ export function useVaultData() {
     loadVault,
     refreshTree,
     reloadVaultData,
+    windowLabel,
   }
 }

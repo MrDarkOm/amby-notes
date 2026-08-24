@@ -76,4 +76,33 @@ describe("useDocStore external conflicts", () => {
       externalContent: "external",
     })
   })
+
+  it("evicts only clean buffers after tab usage has been released", () => {
+    const store = useDocStore.getState()
+    for (const fileId of ["clean", "dirty", "conflicted"]) {
+      store.setDoc(fileId, {
+        id: fileId,
+        title: fileId,
+        content: "content",
+        created: "",
+        modified: "",
+        wordCount: 1,
+        path: `/vault/${fileId}.md`,
+      })
+    }
+    store.markUnsaved("dirty")
+    store.setExternalConflict({
+      fileId: "conflicted",
+      path: "/vault/conflicted.md",
+      localContent: "content",
+      externalContent: "external",
+    })
+
+    store.evictCleanDocs(["clean", "dirty", "conflicted"])
+
+    expect(useDocStore.getState().openDocs).toEqual({
+      dirty: expect.any(Object),
+      conflicted: expect.any(Object),
+    })
+  })
 })

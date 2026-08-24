@@ -98,6 +98,30 @@ async listSnapshots(sourcePath: string) : Promise<Result<SnapshotEntry[], string
     else return { status: "error", error: e  as any };
 }
 },
+async getHistoryStats() : Promise<Result<HistoryStats, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_history_stats") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async previewHistoryCleanup(retention: HistoryRetention) : Promise<Result<HistoryCleanupPreview, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preview_history_cleanup", { retention }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async cleanupHistory(retention: HistoryRetention) : Promise<Result<HistoryCleanupResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("cleanup_history", { retention }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async restoreSnapshot(snapshotId: string) : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("restore_snapshot", { snapshotId }) };
@@ -162,7 +186,7 @@ async restoreTrash(trashId: string) : Promise<Result<MutationOutcome, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async readNote(noteId: string) : Promise<Result<string, string>> {
+async readNote(noteId: string) : Promise<Result<NoteReadOutcome, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("read_note", { noteId }) };
 } catch (e) {
@@ -170,9 +194,9 @@ async readNote(noteId: string) : Promise<Result<string, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async writeNote(expectedGeneration: number, noteId: string, content: string) : Promise<Result<WriteNoteOutcome, string>> {
+async writeNote(request: WriteNoteRequest) : Promise<Result<WriteNoteOutcome, WriteNoteError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("write_note", { expectedGeneration, noteId, content }) };
+    return { status: "ok", data: await TAURI_INVOKE("write_note", { request }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -506,7 +530,7 @@ async cancelAiRequest(streamId: string) : Promise<Result<boolean, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async aiChat(config: AiConfig, messages: AiMessage[], system: string | null, streamId: string | null) : Promise<Result<string, string>> {
+async aiChat(config: AiConfig, messages: AiMessage[], system: string | null, streamId: string | null) : Promise<Result<string, AiChatError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("ai_chat", { config, messages, system, streamId }) };
 } catch (e) {
@@ -526,6 +550,7 @@ async aiChat(config: AiConfig, messages: AiMessage[], system: string | null, str
 
 /** user-defined types **/
 
+export type AiChatError = { code: AiErrorCode; provider: string }
 export type AiConfig = { 
 /**
  * Wire family: "ollama" | "openai" | "anthropic" | "azure".
@@ -539,6 +564,11 @@ baseUrl: string; credentialId: string | null; apiKey: string | null; maxTokens: 
  * Azure only: API version query param.
  */
 apiVersion: string | null }
+/**
+ * Safe error shape exposed to the renderer. Provider responses and request
+ * details may contain endpoints or credentials, so they never cross IPC.
+ */
+export type AiErrorCode = "cancelled" | "missingCredential" | "invalidConfiguration" | "providerRejected" | "invalidResponse" | "network" | "requestFailed"
 export type AiMessage = { 
 /**
  * "user" | "assistant"
@@ -553,6 +583,10 @@ export type FileMetadata = { created: number | null; modified: number | null; wo
  */
 export type FrontmatterProperty = { key: string; value: string; valueKind: string }
 export type FsMutationResult = { primaryId: string | null; primaryPath: string | null; pathChanges: PathChange[]; deletedPaths: string[]; deletedIds: string[] }
+export type HistoryCleanupPreview = { removedCount: number; freedBytes: number; remaining: HistoryStats }
+export type HistoryCleanupResult = { removedCount: number; freedBytes: number; remaining: HistoryStats }
+export type HistoryRetention = { maxSnapshotsPerNote: number; maxAgeDays: number | null }
+export type HistoryStats = { snapshotCount: number; noteCount: number; sizeBytes: number }
 export type IdMigrationFile = { path: string; backupPath: string; id: string; status: IdMigrationFileStatus }
 export type IdMigrationFileStatus = "pending" | "backupCreated" | "applied" | "rolledBack"
 export type IdMigrationRecovery = { journalPath: string; backupPath: string; status: IdMigrationStatus; files: IdMigrationFile[] }
@@ -570,7 +604,7 @@ export type LayerResult = { notePath: string; layerPath: string; kind: string; p
 export type LinkGraph = { nodes: LinkGraphNode[]; edges: LinkGraphEdge[] }
 export type LinkGraphEdge = { source: string; target: string; label: string; unresolved?: boolean | null }
 export type LinkGraphNode = { id: string; label: string; unresolved?: boolean | null }
-export type LoadVaultResult = { generation: number; tree: TreeItem[]; notes: IndexedNote[]; sync: SyncReport }
+export type LoadVaultResult = { generation: number; vaultPath: string; tree: TreeItem[]; notes: IndexedNote[]; sync: SyncReport }
 /**
  * The filesystem result is authoritative. A cache failure is returned as a
  * recoverable warning rather than turning a completed mutation into an error.
@@ -579,6 +613,12 @@ export type MutationOutcome = { mutation: FsMutationResult; indexState: IndexSta
 export type NoteLayers = { canvas: boolean; sketch: boolean; database: boolean }
 export type NoteMetadata = { created: number | null; modified: number | null; wordCount: number }
 export type NoteProperties = { hasFrontmatter: boolean; properties: FrontmatterProperty[]; parseError: string | null; customProperties: CustomProperty[] }
+/**
+ * Body text and its on-disk revision. The revision is a SHA-256 hash of the
+ * unnormalised body bytes, so it remains valid even when the frontend renders
+ * CRLF text as LF.
+ */
+export type NoteReadOutcome = { content: string; revision: string }
 export type OperationWarning = "indexRebuildRequired"
 export type PathChange = { oldPath: string; newPath: string }
 export type RecoveryEntry = { version: number; vaultGeneration: number; documentKind: string; id: string; pathHint: string; savedAtMs: number; content: string; contentHash: string }
@@ -591,7 +631,14 @@ export type TagEntry = { tag: string; notes: IndexedNote[] }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
 export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
-export type WriteNoteOutcome = { path: string; indexState: IndexState; warnings: OperationWarning[] }
+/**
+ * A save failure that callers can distinguish from transport and filesystem
+ * failures. In particular, a stale renderer must never retry a CAS conflict
+ * with its old buffer.
+ */
+export type WriteNoteError = { kind: "revisionConflict"; actual_revision: string } | { kind: "failed"; message: string }
+export type WriteNoteOutcome = { path: string; revision: string; indexState: IndexState; warnings: OperationWarning[] }
+export type WriteNoteRequest = { expectedGeneration: number; noteId: string; content: string; expectedRevision: string; originWindow: string }
 
 /** tauri-specta globals **/
 

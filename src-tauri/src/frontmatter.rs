@@ -8,6 +8,12 @@ use crate::model::{FrontmatterProperty, NoteProperties};
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(test)]
+thread_local! {
+    static FORCE_HARD_LINK_UNSUPPORTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static FAIL_NO_REPLACE_FALLBACK_COPY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// Flush the containing directory after publishing a rename. On Unix this
 /// makes the rename durable across a sudden power loss, rather than merely
 /// visible to the running process. Windows does not allow opening directories
@@ -50,6 +56,75 @@ fn fail_if_requested(_stage: u64) -> Result<(), String> {
 pub enum AtomicCreateError {
     AlreadyExists,
     Other(String),
+}
+
+fn atomic_create_error(error: std::io::Error) -> AtomicCreateError {
+    if error.kind() == std::io::ErrorKind::AlreadyExists {
+        AtomicCreateError::AlreadyExists
+    } else {
+        AtomicCreateError::Other(error.to_string())
+    }
+}
+
+fn hard_link_is_unsupported(error: &std::io::Error) -> bool {
+    if matches!(error.kind(), std::io::ErrorKind::Unsupported) {
+        return true;
+    }
+    // exFAT/FAT and network filesystems commonly report one of these native
+    // errors instead of ErrorKind::Unsupported. The fallback remains safe
+    // because it reserves the destination with create_new rather than rename.
+    matches!(
+        error.raw_os_error(),
+        Some(1 | 5 | 17 | 18 | 31 | 45 | 50 | 95)
+    )
+}
+
+fn create_hard_link(source: &Path, target: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    if FORCE_HARD_LINK_UNSUPPORTED.with(|forced| forced.get()) {
+        return Err(std::io::Error::from_raw_os_error(95));
+    }
+    fs::hard_link(source, target)
+}
+
+fn fallback_copy_temp_new(source: &Path, target: &Path) -> Result<(), AtomicCreateError> {
+    let mut reader = fs::File::open(source).map_err(atomic_create_error)?;
+    let mut created_target = false;
+    let result = (|| -> Result<(), AtomicCreateError> {
+        let mut writer = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(target)
+            .map_err(atomic_create_error)?;
+        created_target = true;
+        #[cfg(test)]
+        if FAIL_NO_REPLACE_FALLBACK_COPY.with(|fail| fail.get()) {
+            return Err(AtomicCreateError::Other(
+                "injected no-replace fallback copy failure".to_string(),
+            ));
+        }
+        std::io::copy(&mut reader, &mut writer).map_err(atomic_create_error)?;
+        writer.sync_all().map_err(atomic_create_error)
+    })();
+    if result.is_err() && created_target {
+        let _ = fs::remove_file(target);
+    }
+    result
+}
+
+/// Publish a fully prepared sibling file without replacing an existing target.
+/// Hard links give an all-or-nothing publish where supported. Filesystems that
+/// reject them use a create_new reservation plus streamed, synced copy; the
+/// reservation preserves the no-overwrite guarantee even under a collision.
+fn publish_prepared_no_replace(temp: &Path, target: &Path) -> Result<(), AtomicCreateError> {
+    match create_hard_link(temp, target) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            Err(AtomicCreateError::AlreadyExists)
+        }
+        Err(error) if hard_link_is_unsupported(&error) => fallback_copy_temp_new(temp, target),
+        Err(error) => Err(atomic_create_error(error)),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -259,7 +334,14 @@ pub fn replace_body_preserving_id(content: &str, body: &str, id: &str) -> Result
 }
 
 pub fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
-    atomic_write_bytes(path, &preserve_text_format(path, content)?)
+    atomic_write_bytes(path, &text_bytes_for_write(path, content)?)
+}
+
+/// Return the exact bytes `atomic_write` will publish for an existing text
+/// file. Watcher own-write records use this before publication so the atomic
+/// rename event can be matched without a post-write race.
+pub fn text_bytes_for_write(path: &Path, content: &str) -> Result<Vec<u8>, String> {
+    preserve_text_format(path, content)
 }
 
 /// Keep the on-disk text convention when replacing an existing UTF-8 file.
@@ -344,9 +426,9 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
     write_result
 }
 
-/// Atomically create a new binary file without ever replacing an existing one.
-/// The hard link is created in the same directory as the prepared temporary
-/// file, so it is an all-or-nothing publication of complete synced bytes.
+/// Create a new binary file without ever replacing an existing one. The shared
+/// publish helper prefers an all-or-nothing hard link and falls back to a
+/// create_new reservation plus synced stream copy where hard links are absent.
 pub fn atomic_write_bytes_new(path: &Path, content: &[u8]) -> Result<(), AtomicCreateError> {
     let parent = path.parent().ok_or_else(|| {
         AtomicCreateError::Other(format!("Path has no parent: {}", path.display()))
@@ -367,13 +449,7 @@ pub fn atomic_write_bytes_new(path: &Path, content: &[u8]) -> Result<(), AtomicC
         file.sync_all()
             .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
         drop(file);
-        fs::hard_link(&tmp, path).map_err(|err| {
-            if err.kind() == std::io::ErrorKind::AlreadyExists {
-                AtomicCreateError::AlreadyExists
-            } else {
-                AtomicCreateError::Other(err.to_string())
-            }
-        })?;
+        publish_prepared_no_replace(&tmp, path)?;
         // The target is now safely published. A stale temp link is harmless,
         // but remove it eagerly so it cannot clutter the user vault.
         let _ = fs::remove_file(&tmp);
@@ -388,7 +464,7 @@ pub fn atomic_write_bytes_new(path: &Path, content: &[u8]) -> Result<(), AtomicC
 
 /// Atomically copy a file to a new destination without replacing an existing file.
 /// Reads via streaming buffer to avoid allocating the whole source file in memory,
-/// enforces `max_bytes`, fsyncs, and publishes via hard_link.
+/// enforces `max_bytes`, fsyncs, and uses the shared no-replace publisher.
 pub fn atomic_copy_file_new(
     source: &Path,
     path: &Path,
@@ -436,13 +512,7 @@ pub fn atomic_copy_file_new(
             .map_err(|err| AtomicCreateError::Other(err.to_string()))?;
         drop(writer);
 
-        fs::hard_link(&tmp, path).map_err(|err| {
-            if err.kind() == std::io::ErrorKind::AlreadyExists {
-                AtomicCreateError::AlreadyExists
-            } else {
-                AtomicCreateError::Other(err.to_string())
-            }
-        })?;
+        publish_prepared_no_replace(&tmp, path)?;
 
         let _ = fs::remove_file(&tmp);
         sync_parent_directory(parent).map_err(AtomicCreateError::Other)?;
@@ -653,6 +723,70 @@ mod tests {
         atomic_write_new(&new_path, "copy").unwrap();
         assert_eq!(fs::read_to_string(&new_path).unwrap(), "copy");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn no_replace_fallback_handles_unsupported_hard_links_and_collisions() {
+        let dir = std::env::temp_dir().join(format!(
+            "amby-no-replace-fallback-{}-{}",
+            std::process::id(),
+            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("note.md");
+        let source = dir.join("source.bin");
+        let copied = dir.join("copied.bin");
+        fs::write(&source, b"source bytes").unwrap();
+
+        FORCE_HARD_LINK_UNSUPPORTED.with(|forced| forced.set(true));
+        atomic_write_new(&path, "created by fallback").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "created by fallback");
+        assert_eq!(
+            atomic_write_new(&path, "must not replace"),
+            Err(AtomicCreateError::AlreadyExists)
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "created by fallback");
+
+        assert_eq!(
+            atomic_copy_file_new(&source, &copied, 1024).unwrap(),
+            b"source bytes".len() as u64
+        );
+        assert_eq!(fs::read(&copied).unwrap(), b"source bytes");
+        FORCE_HARD_LINK_UNSUPPORTED.with(|forced| forced.set(false));
+
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 3);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn no_replace_fallback_cleans_a_reserved_target_after_copy_failure() {
+        let dir = std::env::temp_dir().join(format!(
+            "amby-no-replace-cleanup-{}-{}",
+            std::process::id(),
+            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("note.md");
+
+        FORCE_HARD_LINK_UNSUPPORTED.with(|forced| forced.set(true));
+        FAIL_NO_REPLACE_FALLBACK_COPY.with(|fail| fail.set(true));
+        let error = atomic_write_new(&path, "partial").unwrap_err();
+        FAIL_NO_REPLACE_FALLBACK_COPY.with(|fail| fail.set(false));
+        FORCE_HARD_LINK_UNSUPPORTED.with(|forced| forced.set(false));
+
+        assert!(matches!(error, AtomicCreateError::Other(_)));
+        assert!(!path.exists());
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn unsupported_hard_link_error_classes_select_the_fallback() {
+        for code in [1, 5, 17, 18, 31, 45, 50, 95] {
+            assert!(hard_link_is_unsupported(
+                &std::io::Error::from_raw_os_error(code)
+            ));
+        }
     }
 
     #[test]

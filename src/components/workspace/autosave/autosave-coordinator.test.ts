@@ -196,6 +196,38 @@ describe("AutosaveCoordinator", () => {
     expect(coordinator.inspect(key)).toMatchObject({ dirty: false })
   })
 
+  it("keeps a restored Markdown buffer dirty through close until its immediate save completes", async () => {
+    const pending = deferred()
+    const save = vi.fn(() => pending.promise)
+    const coordinator = new AutosaveCoordinator<string>({ delayMs: 10_000, save })
+    const key = markdownKey("recovered-note")
+
+    // Recovery is accepted without a subsequent editor change, then the tab is closed.
+    coordinator.enqueueImmediate(key, "recovered content")
+    await settle()
+    expect(coordinator.inspect(key)).toMatchObject({ dirty: true, inFlight: true })
+
+    const closing = coordinator.flushAll()
+    pending.resolve()
+    await closing
+    expect(save).toHaveBeenCalledWith({ key, version: 1, value: "recovered content" })
+    expect(coordinator.inspect(key)).toMatchObject({ dirty: false })
+  })
+
+  it("retains a recovered Canvas buffer as dirty when its immediate save fails", async () => {
+    const failure = new Error("disk full")
+    const coordinator = new AutosaveCoordinator<string>({
+      delayMs: 10_000,
+      save: async () => Promise.reject(failure),
+    })
+    const key = canvasKey("/vault/Recovered.canvas")
+
+    coordinator.enqueueImmediate(key, '{"nodes":["recovered"]}')
+    await vi.waitFor(() => expect(coordinator.inspect(key)?.lastError).toBe(failure))
+
+    expect(coordinator.inspect(key)).toMatchObject({ dirty: true, lastError: failure })
+  })
+
   it("remaps a pending Canvas save when the file is renamed", async () => {
     const first = deferred()
     const second = deferred()

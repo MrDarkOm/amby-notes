@@ -11,6 +11,7 @@ export interface Document {
   modified: string
   wordCount: number
   path: string
+  revision?: string
   noteProperties?: NoteProperties
 }
 
@@ -19,6 +20,7 @@ export interface ExternalConflict {
   path: string
   localContent: string
   externalContent: string | null
+  externalRevision?: string
 }
 
 interface DocStore {
@@ -29,6 +31,8 @@ interface DocStore {
   setDoc: (fileId: string, doc: Document) => void
   /** Patch fields of an already-open document (no-op if it isn't open). */
   patchDoc: (fileId: string, patch: Partial<Document>) => void
+  /** Drop clean buffers after their tab/autosave/recovery lifecycle checks passed. */
+  evictCleanDocs: (fileIds: Iterable<string>) => void
   /** Drop all open documents and dirty flags (vault close/switch). */
   clearDocs: () => void
   /** Mark a document dirty. */
@@ -60,6 +64,23 @@ export const useDocStore = create<DocStore>((set) => ({
         ? { openDocs: { ...s.openDocs, [fileId]: { ...s.openDocs[fileId], ...patch } } }
         : {},
     ),
+
+  evictCleanDocs: (fileIds) =>
+    set((s) => {
+      const candidates = new Set(fileIds)
+      let changed = false
+      const openDocs: Record<string, Document> = {}
+      for (const [fileId, document] of Object.entries(s.openDocs)) {
+        const canEvict =
+          candidates.has(fileId) && !s.unsavedFileIds.has(fileId) && !s.externalConflicts[fileId]
+        if (canEvict) {
+          changed = true
+          continue
+        }
+        openDocs[fileId] = document
+      }
+      return changed ? { openDocs } : {}
+    }),
 
   clearDocs: () => set({ openDocs: {}, unsavedFileIds: new Set(), externalConflicts: {} }),
 

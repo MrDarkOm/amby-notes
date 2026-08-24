@@ -5,7 +5,11 @@
 import { isTauri } from "./storage"
 import i18n from "./i18n"
 import { commands } from "./bindings"
-import type { AiConfig as GeneratedAiConfig, AiMessage as GeneratedAiMessage } from "./bindings"
+import type {
+  AiChatError as GeneratedAiChatError,
+  AiConfig as GeneratedAiConfig,
+  AiMessage as GeneratedAiMessage,
+} from "./bindings"
 import { listen } from "@tauri-apps/api/event"
 import { unwrapCommand } from "./storage/ipc-result"
 
@@ -49,6 +53,27 @@ export class AiUnavailableError extends Error {
     super(i18n.t("ai.unavailable"))
     this.name = "AiUnavailableError"
   }
+}
+
+export type AiErrorCode = GeneratedAiChatError["code"]
+export type AiChatErrorPayload = GeneratedAiChatError
+
+/** A localized error generated only from the backend's safe IPC error code. */
+export class AiRequestError extends Error {
+  readonly code: AiErrorCode
+  readonly provider: string
+
+  constructor({ code, provider }: AiChatErrorPayload) {
+    super(i18n.t(`ai.errors.${code}`))
+    this.name = "AiRequestError"
+    this.code = code
+    this.provider = provider
+  }
+}
+
+export function aiErrorMessage(error: unknown): string {
+  if (error instanceof AiUnavailableError || error instanceof AiRequestError) return error.message
+  return i18n.t("ai.errors.requestFailed")
 }
 
 export interface AiChatOptions {
@@ -106,9 +131,14 @@ export async function aiChat(
   }
 
   try {
-    return await unwrapCommand(
-      commands.aiChat(toGeneratedConfig(config), toGeneratedMessages(messages), system, streamId),
+    const result = await commands.aiChat(
+      toGeneratedConfig(config),
+      toGeneratedMessages(messages),
+      system,
+      streamId,
     )
+    if (result.status === "ok") return result.data
+    throw new AiRequestError(result.error)
   } finally {
     if (opts.signal) {
       opts.signal.removeEventListener("abort", onAbort)

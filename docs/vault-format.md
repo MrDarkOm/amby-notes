@@ -77,9 +77,13 @@ through the text editor rather than silently changing its encoding.
 
 Creation uses a separate no-replace publication path: a file or attachment
 cannot replace a path that appeared after Amby checked whether a name was free.
-Imported binary assets are fully written and synced before they become visible
-at their final path. Attachment imports enforce product limits (100MB disk files,
-25MB clipboard payloads), sanitize stems and extensions (ASCII alphanumeric only,
+The preferred publish primitive links a fully synced sibling temporary file. On
+filesystems that do not support hard links (including common FAT/exFAT and some
+network configurations), Amby instead reserves the final path with `create_new`,
+streams the synced temporary bytes into that reservation, and removes both
+temporary and failed reservation on error. Neither path uses an overwriting
+rename. Attachment imports enforce product limits (100MB disk files, 25MB
+clipboard payloads), sanitize stems and extensions (ASCII alphanumeric only,
 preventing directory traversal), and classify SVGs as non-inline file attachments.
 
 Autosave work is serialized per file. A completed older write cannot clear the
@@ -101,10 +105,21 @@ local version can be restored by an explicit save.
 Before Amby replaces an existing note or text file, it stores the original raw
 bytes in `.amby/history/`. Snapshots preserve BOM and line endings exactly and
 include the original byte count plus an integrity hash; a damaged version is
-never restored silently. History is append-only and is **not automatically
-pruned**. Cleanup must be an explicit, user-visible action once a retention UI
-exists. This history is application metadata; the Markdown vault remains the
-source of truth.
+never restored silently. A versioned `.amby/history/manifest.json` is the
+authoritative snapshot metadata index, so opening one note's history does not
+scan every metadata JSON file. Older per-snapshot JSON metadata is imported once
+when the manifest is first needed; it may remain on disk as harmless legacy
+metadata.
+
+History is append-only and is **not automatically pruned**. The History panel
+shows per-note and vault-wide version counts and storage use. Its explicit
+cleanup action previews the number of versions and bytes to remove, requires
+confirmation, and currently retains the 20 latest snapshots of every note.
+Cleanup moves a snapshot into a staged location, atomically updates the
+manifest, and only then deletes the staged data. A versioned cleanup journal
+restores or completes an interrupted operation before history is used again.
+This history is application metadata; the Markdown vault remains the source of
+truth.
 
 Deletes made through Amby are moves to `.amby/trash/`, including Canvas,
 Excalidraw, and database layers. They remain restorable from the History panel
@@ -146,3 +161,10 @@ Only links resolved by the SQLite index to the moved note are changed, avoiding
 unsafe rewrites of ambiguous text. Each changed source note is snapshotted
 before the refactor; if a link rewrite fails, already rewritten source notes
 are restored to their pre-refactor text.
+
+A rename that changes only letter case is a real filesystem mutation. Amby
+first verifies that the requested spelling resolves to the same filesystem
+entry (rather than a distinct colliding file), then renames through a unique
+sibling temporary path and rolls back if the final step fails. Bundle container,
+main Markdown file, Canvas and Excalidraw sidecars follow the same two-step
+path so they cannot be left with mixed names on case-insensitive filesystems.

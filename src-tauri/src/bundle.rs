@@ -1,9 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::frontmatter;
 use crate::model::{FsMutationResult, ImportedAsset, LayerResult, PathChange};
+
+static CASE_RENAME_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Tree node used only by the scan-helper tests below (the production tree is
 /// built in vault_index). Test-only so it doesn't live in the shared model.
@@ -34,6 +37,94 @@ fn file_name(path: &Path) -> Result<String, String> {
         .map(|s| s.to_string_lossy().to_string())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| format!("Invalid path: {}", path_string(path)))
+}
+
+/// True only when both spellings resolve to the same existing filesystem entry.
+/// On case-sensitive filesystems differently cased names can be distinct user
+/// files, so equality is determined by canonical paths (and Unix inode/device
+/// identity as a fallback), never by case-folding strings alone.
+fn same_filesystem_entry(source: &Path, target: &Path) -> Result<bool, String> {
+    if source == target {
+        return Ok(true);
+    }
+    let source_real = source.canonicalize().map_err(|error| error.to_string())?;
+    let target_real = match target.canonicalize() {
+        Ok(path) => path,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.to_string()),
+    };
+    if source_real == target_real {
+        return Ok(true);
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let source_metadata = fs::metadata(source).map_err(|error| error.to_string())?;
+        let target_metadata = fs::metadata(target).map_err(|error| error.to_string())?;
+        Ok(source_metadata.dev() == target_metadata.dev()
+            && source_metadata.ino() == target_metadata.ino())
+    }
+
+    #[cfg(not(unix))]
+    Ok(false)
+}
+
+fn rename_temp_sibling(source: &Path) -> Result<PathBuf, String> {
+    let parent = source
+        .parent()
+        .ok_or_else(|| format!("Path has no parent: {}", path_string(source)))?;
+    let name = source
+        .file_name()
+        .ok_or_else(|| format!("Path has no name: {}", path_string(source)))?
+        .to_string_lossy();
+    for _ in 0..128 {
+        let counter = CASE_RENAME_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let candidate = parent.join(format!(
+            ".{name}.amby-case-rename-{}-{counter}",
+            std::process::id()
+        ));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(format!(
+        "Could not reserve a temporary rename path beside {}",
+        path_string(source)
+    ))
+}
+
+fn ensure_rename_target_available(source: &Path, target: &Path) -> Result<bool, String> {
+    let same_entry = same_filesystem_entry(source, target)?;
+    if target.exists() && !same_entry {
+        return Err(format!("Target already exists: {}", path_string(target)));
+    }
+    Ok(same_entry)
+}
+
+/// Rename without overwriting a distinct target. Case-only renames go through
+/// a unique sibling so macOS and Windows do not collapse the operation into a
+/// no-op. A failed second rename restores the original spelling.
+fn rename_path_case_safe(source: &Path, target: &Path) -> Result<(), String> {
+    let same_entry = ensure_rename_target_available(source, target)?;
+    if source == target {
+        return Ok(());
+    }
+    if !same_entry {
+        return fs::rename(source, target).map_err(|error| error.to_string());
+    }
+
+    let temporary = rename_temp_sibling(source)?;
+    fs::rename(source, &temporary).map_err(|error| error.to_string())?;
+    if let Err(error) = fs::rename(&temporary, target) {
+        return match fs::rename(&temporary, source) {
+            Ok(()) => Err(error.to_string()),
+            Err(rollback_error) => Err(format!(
+                "Case-only rename failed: {error}; rollback failed: {rollback_error}"
+            )),
+        };
+    }
+    Ok(())
 }
 
 fn is_markdown(path: &Path) -> bool {
@@ -741,10 +832,10 @@ fn rollback_partial_bundle_rename(
 ) -> Result<(), String> {
     for (current, previous) in renamed_inside_new_dir.iter().rev() {
         if current.exists() {
-            fs::rename(current, previous).map_err(|error| error.to_string())?;
+            rename_path_case_safe(current, previous)?;
         }
     }
-    fs::rename(new_dir, old_dir).map_err(|error| error.to_string())
+    rename_path_case_safe(new_dir, old_dir)
 }
 
 pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutationResult, String> {
@@ -764,9 +855,7 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
         let new_dir = parent.join(trimmed);
         let new_main = new_dir.join(format!("{trimmed}.md"));
 
-        if new_dir.exists() {
-            return Err(format!("Target already exists: {}", path_string(&new_dir)));
-        }
+        ensure_rename_target_available(bundle_dir, &new_dir)?;
 
         let old_paths = collect_refactor_paths(bundle_dir)?;
         let path_changes =
@@ -784,12 +873,10 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
             })
             .collect::<Vec<_>>();
         for (old_path, new_path) in &rename_specs {
-            if old_path != new_path && new_path.exists() {
-                return Err(format!("Target already exists: {}", path_string(new_path)));
-            }
+            ensure_rename_target_available(old_path, new_path)?;
         }
 
-        fs::rename(bundle_dir, &new_dir).map_err(|e| e.to_string())?;
+        rename_path_case_safe(bundle_dir, &new_dir)?;
 
         let mut renamed_inside_new_dir = Vec::new();
         for (old_path, new_path) in rename_specs {
@@ -800,7 +887,7 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
             if current == renamed {
                 continue;
             }
-            if let Err(error) = fs::rename(&current, &renamed) {
+            if let Err(error) = rename_path_case_safe(&current, &renamed) {
                 return Err(
                     match rollback_partial_bundle_rename(
                         &new_dir,
@@ -833,10 +920,8 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
             .map(|e| format!(".{}", e.to_string_lossy()))
             .unwrap_or_default();
         let new_path = parent.join(format!("{trimmed}{ext}"));
-        if new_path.exists() {
-            return Err(format!("Target already exists: {}", path_string(&new_path)));
-        }
-        fs::rename(path, &new_path).map_err(|e| e.to_string())?;
+        ensure_rename_target_available(path, &new_path)?;
+        rename_path_case_safe(path, &new_path)?;
         Ok(FsMutationResult {
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
@@ -852,12 +937,10 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
             .parent()
             .ok_or_else(|| "Folder has no parent".to_string())?;
         let new_path = parent.join(trimmed);
-        if new_path.exists() {
-            return Err(format!("Target already exists: {}", path_string(&new_path)));
-        }
+        ensure_rename_target_available(path, &new_path)?;
         let old_markdown_paths = collect_refactor_paths(path)?;
         let path_changes = path_changes_for_prefix(&old_markdown_paths, path, &new_path);
-        fs::rename(path, &new_path).map_err(|e| e.to_string())?;
+        rename_path_case_safe(path, &new_path)?;
         Ok(FsMutationResult {
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
@@ -889,9 +972,7 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
         let old_stem = file_stem(path)?;
         let new_dir = parent.join(trimmed);
         let new_main = new_dir.join(format!("{trimmed}.md"));
-        if new_dir.exists() {
-            return Err(format!("Target already exists: {}", path_string(&new_dir)));
-        }
+        ensure_rename_target_available(bundle_dir, &new_dir)?;
         let old_paths = collect_refactor_paths(bundle_dir)?;
         let path_changes =
             bundle_rename_path_changes(&old_paths, bundle_dir, &new_dir, &old_stem, trimmed);
@@ -911,9 +992,7 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
             .map(|e| format!(".{}", e.to_string_lossy()))
             .unwrap_or_default();
         let new_path = parent.join(format!("{trimmed}{ext}"));
-        if new_path.exists() {
-            return Err(format!("Target already exists: {}", path_string(&new_path)));
-        }
+        ensure_rename_target_available(path, &new_path)?;
         Ok(FsMutationResult {
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
@@ -929,9 +1008,7 @@ pub(crate) fn preview_rename_item(path: &Path, new_name: &str) -> Result<FsMutat
             .parent()
             .ok_or_else(|| "Folder has no parent".to_string())?;
         let new_path = parent.join(trimmed);
-        if new_path.exists() {
-            return Err(format!("Target already exists: {}", path_string(&new_path)));
-        }
+        ensure_rename_target_available(path, &new_path)?;
         let old_markdown_paths = collect_refactor_paths(path)?;
         Ok(FsMutationResult {
             primary_id: None,
@@ -1089,16 +1166,16 @@ pub(crate) fn rollback_rename_item(
             let current_sidecar = new_dir.join(format!("{new_stem}.{ext}"));
             let old_sidecar = new_dir.join(format!("{old_stem}.{ext}"));
             if current_sidecar.exists() {
-                fs::rename(&current_sidecar, &old_sidecar).map_err(|error| error.to_string())?;
+                rename_path_case_safe(&current_sidecar, &old_sidecar)?;
             }
         }
         let restored_main = new_dir.join(format!("{old_stem}.md"));
         if current != restored_main {
-            fs::rename(current, &restored_main).map_err(|error| error.to_string())?;
+            rename_path_case_safe(current, &restored_main)?;
         }
-        fs::rename(new_dir, old_dir).map_err(|error| error.to_string())
+        rename_path_case_safe(new_dir, old_dir)
     } else {
-        fs::rename(current, original_path).map_err(|error| error.to_string())
+        rename_path_case_safe(current, original_path)
     }
 }
 
@@ -1520,6 +1597,83 @@ mod tests {
         assert!(result.path_changes.iter().any(|change| change.old_path
             == path_string(&vault.join("Old/Old.excalidraw"))
             && change.new_path == path_string(&vault.join("New/New.excalidraw"))));
+    }
+
+    #[test]
+    fn rename_rejects_distinct_file_and_folder_collisions() {
+        let vault = temp_vault("rename-collisions");
+        let first_file = vault.join("First.md");
+        let second_file = vault.join("Second.md");
+        fs::write(&first_file, "first").unwrap();
+        fs::write(&second_file, "second").unwrap();
+        let first_folder = vault.join("First");
+        let second_folder = vault.join("Second");
+        fs::create_dir(&first_folder).unwrap();
+        fs::create_dir(&second_folder).unwrap();
+
+        assert!(rename_item_impl(&first_file, "Second").is_err());
+        assert!(rename_item_impl(&first_folder, "Second").is_err());
+        assert_eq!(fs::read_to_string(&first_file).unwrap(), "first");
+        assert_eq!(fs::read_to_string(&second_file).unwrap(), "second");
+        assert!(first_folder.is_dir());
+        assert!(second_folder.is_dir());
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn case_only_file_and_folder_renames_use_a_temporary_sibling() {
+        let vault = temp_vault("case-only-items");
+        let file = vault.join("Note.md");
+        let folder = vault.join("Folder");
+        fs::write(&file, "note").unwrap();
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("Child.md"), "child").unwrap();
+
+        rename_item_impl(&file, "note").unwrap();
+        rename_item_impl(&folder, "folder").unwrap();
+
+        assert_eq!(fs::read_to_string(vault.join("note.md")).unwrap(), "note");
+        assert_eq!(
+            fs::read_to_string(vault.join("folder/Child.md")).unwrap(),
+            "child"
+        );
+        let names = fs::read_dir(&vault)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"note.md".to_string()));
+        assert!(names.contains(&"folder".to_string()));
+        assert!(!names.contains(&"Note.md".to_string()));
+        assert!(!names.contains(&"Folder".to_string()));
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn case_only_bundle_rename_keeps_main_and_sidecars_consistent() {
+        let vault = temp_vault("case-only-bundle");
+        fs::create_dir(vault.join("Note")).unwrap();
+        fs::write(vault.join("Note/Note.md"), "main").unwrap();
+        fs::write(vault.join("Note/Note.canvas"), "canvas").unwrap();
+        fs::write(vault.join("Note/Note.excalidraw"), "excalidraw").unwrap();
+
+        let result = rename_item_impl(&vault.join("Note/Note.md"), "note").unwrap();
+
+        assert_eq!(
+            result.primary_path,
+            Some(path_string(&vault.join("note/note.md")))
+        );
+        assert_eq!(
+            fs::read_to_string(vault.join("note/note.md")).unwrap(),
+            "main"
+        );
+        assert_eq!(
+            fs::read_to_string(vault.join("note/note.canvas")).unwrap(),
+            "canvas"
+        );
+        assert_eq!(
+            fs::read_to_string(vault.join("note/note.excalidraw")).unwrap(),
+            "excalidraw"
+        );
     }
 
     #[test]

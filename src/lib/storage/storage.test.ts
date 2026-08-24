@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { WebAdapter } from "./web-adapter"
+import { WebAdapter, WebStorageError } from "./web-adapter"
 import { DesktopAdapter } from "./desktop-adapter"
 import {
   notesRepository,
@@ -8,6 +8,7 @@ import {
   setStorageAdapter,
 } from "./index"
 import { commands } from "@/lib/bindings"
+import { NoteRevisionConflictError } from "./types"
 
 describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
   describe("WebAdapter domain contract", () => {
@@ -26,17 +27,50 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
       setStorageAdapter(adapter)
     })
 
+    it("returns the authoritative active vault identity with refresh data", async () => {
+      await expect(adapter.loadActiveVaultData()).resolves.toMatchObject({
+        vaultPath: "web-vault",
+        generation: 0,
+      })
+    })
+
+    it("normalizes browser quota errors without exposing the storage operation", async () => {
+      vi.stubGlobal("localStorage", {
+        getItem: (k: string) => store.get(k) ?? null,
+        setItem: () => {
+          throw new DOMException("quota reached", "QuotaExceededError")
+        },
+        removeItem: (k: string) => store.delete(k),
+        clear: () => store.clear(),
+      })
+
+      await expect(adapter.writeGlobalRaw("settings.json", "{}")).rejects.toBeInstanceOf(
+        WebStorageError,
+      )
+      await expect(adapter.writeGlobalRaw("settings.json", "{}")).rejects.toMatchObject({
+        code: "quotaExceeded",
+      })
+    })
+
     it("handles note lifecycle (create, read, write, move, delete)", async () => {
       // 1. Create note
       const createRes = await notesRepository.createNote("web-vault", "web-vault", "Project")
       expect(createRes.primaryPath).toBe("web-vault/Project.md")
 
       // 2. Write note
-      await notesRepository.writeNote("web-vault", "web-vault/Project.md", "Initial text", null)
+      const initial = await notesRepository.readNote("web-vault", "web-vault/Project.md")
+      await notesRepository.writeNote(
+        "web-vault",
+        "web-vault/Project.md",
+        "Initial text",
+        null,
+        initial.revision,
+        "web",
+      )
 
       // 3. Read note
       const read = await notesRepository.readNote("web-vault", "web-vault/Project.md")
-      expect(read).toBe("Initial text")
+      expect(read.content).toBe("Initial text")
 
       // 4. Rename item
       const renameRes = await mutationsRepository.renameItem(
@@ -52,6 +86,34 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
         "web-vault/RenamedProject.md",
       )
       expect(delRes.deletedPaths).toContain("web-vault/RenamedProject.md")
+    })
+
+    it("rejects a stale second renderer write instead of overwriting the first", async () => {
+      const path = "web-vault/Welcome.md"
+      const firstRenderer = await notesRepository.readNote("web-vault", path)
+      const secondRenderer = await notesRepository.readNote("web-vault", path)
+
+      await notesRepository.writeNote(
+        "web-vault",
+        path,
+        "saved by first renderer",
+        null,
+        firstRenderer.revision,
+        "first",
+      )
+      await expect(
+        notesRepository.writeNote(
+          "web-vault",
+          path,
+          "stale second renderer",
+          null,
+          secondRenderer.revision,
+          "second",
+        ),
+      ).rejects.toBeInstanceOf(NoteRevisionConflictError)
+      await expect(notesRepository.readNote("web-vault", path)).resolves.toMatchObject({
+        content: "saved by first renderer",
+      })
     })
 
     it("handles custom properties", async () => {
@@ -110,20 +172,59 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
     it("delegates readNote and writeNote to generated commands", async () => {
       const readSpy = vi.spyOn(commands, "readNote").mockResolvedValue({
         status: "ok",
-        data: "desktop note content",
+        data: { content: "desktop note content", revision: "revision-1" },
       })
 
-      const content = await notesRepository.readNote("/vault", "note-ulid-1")
-      expect(content).toBe("desktop note content")
+      const note = await notesRepository.readNote("/vault", "note-ulid-1")
+      expect(note).toEqual({ content: "desktop note content", revision: "revision-1" })
       expect(readSpy).toHaveBeenCalledWith("note-ulid-1")
 
       const writeSpy = vi.spyOn(commands, "writeNote").mockResolvedValue({
         status: "ok",
-        data: { path: "/vault/note.md", indexState: "healthy", warnings: [] },
+        data: {
+          path: "/vault/note.md",
+          revision: "revision-2",
+          indexState: "healthy",
+          warnings: [],
+        },
       })
 
-      await notesRepository.writeNote("/vault", "note-ulid-1", "new content", 5)
-      expect(writeSpy).toHaveBeenCalledWith(5, "note-ulid-1", "new content")
+      await notesRepository.writeNote(
+        "/vault",
+        "note-ulid-1",
+        "new content",
+        5,
+        "revision-1",
+        "main",
+      )
+      expect(writeSpy).toHaveBeenCalledWith({
+        expectedGeneration: 5,
+        noteId: "note-ulid-1",
+        content: "new content",
+        expectedRevision: "revision-1",
+        originWindow: "main",
+      })
+    })
+
+    it("preserves the typed stale-revision conflict from the IPC command", async () => {
+      vi.spyOn(commands, "writeNote").mockResolvedValue({
+        status: "error",
+        error: { kind: "revisionConflict", actual_revision: "revision-current" },
+      })
+
+      await expect(
+        notesRepository.writeNote(
+          "/vault",
+          "note-ulid-1",
+          "stale content",
+          5,
+          "revision-stale",
+          "main",
+        ),
+      ).rejects.toMatchObject({
+        name: "NoteRevisionConflictError",
+        actualRevision: "revision-current",
+      })
     })
 
     it("delegates AI credentials to generated commands", async () => {

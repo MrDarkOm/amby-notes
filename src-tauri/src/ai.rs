@@ -70,6 +70,86 @@ pub struct AiConfig {
     pub api_version: Option<String>,
 }
 
+/// Safe error shape exposed to the renderer. Provider responses and request
+/// details may contain endpoints or credentials, so they never cross IPC.
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum AiErrorCode {
+    Cancelled,
+    MissingCredential,
+    InvalidConfiguration,
+    ProviderRejected,
+    InvalidResponse,
+    Network,
+    RequestFailed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AiChatError {
+    pub code: AiErrorCode,
+    pub provider: String,
+}
+
+fn ai_chat_error(provider: &str, detail: &str) -> AiChatError {
+    let detail = detail.to_lowercase();
+    let code = if detail.contains("cancelled") || detail.contains("interrupted") {
+        AiErrorCode::Cancelled
+    } else if detail.contains("api-ключ") || detail.contains("api key") {
+        AiErrorCode::MissingCredential
+    } else if detail.contains("unsupported scheme")
+        || detail.contains("base url")
+        || detail.contains("url is missing")
+        || detail.contains("forbidden")
+        || detail.contains("must use https")
+    {
+        AiErrorCode::InvalidConfiguration
+    } else if detail.contains("error 401")
+        || detail.contains("error 403")
+        || detail.contains("error 429")
+        || detail.contains("http status 401")
+        || detail.contains("http status 403")
+        || detail.contains("http status 429")
+    {
+        AiErrorCode::ProviderRejected
+    } else if detail.contains("not valid")
+        || detail.contains("unexpected")
+        || detail.contains("stream exceeded")
+    {
+        AiErrorCode::InvalidResponse
+    } else if detail.contains("request failed")
+        || detail.contains("запрос не удался")
+        || detail.contains("недоступен")
+        || detail.contains("connection")
+        || detail.contains("timed out")
+    {
+        AiErrorCode::Network
+    } else {
+        AiErrorCode::RequestFailed
+    };
+    AiChatError {
+        code,
+        provider: provider.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn ipc_error_is_typed_and_does_not_expose_request_details() {
+        let error = ai_chat_error("openai", "Request failed");
+
+        assert_eq!(error.code, AiErrorCode::Network);
+        assert_eq!(error.provider, "openai");
+        assert_eq!(
+            serde_json::to_string(&error).unwrap(),
+            r#"{"code":"network","provider":"openai"}"#,
+        );
+    }
+}
+
 // ── Reusable HTTP Client & URL Policy ────────────────────────────────────────
 
 pub fn is_loopback_host(host: &str) -> bool {
@@ -771,25 +851,26 @@ pub async fn ai_chat(
     messages: Vec<AiMessage>,
     system: Option<String>,
     stream_id: Option<String>,
-) -> Result<String, String> {
+) -> Result<String, AiChatError> {
     // 1. Validate payload limits
     if messages.len() > MAX_MESSAGES_COUNT {
-        return Err(format!(
-            "Messages count ({}) exceeds maximum limit ({MAX_MESSAGES_COUNT})",
-            messages.len()
+        return Err(ai_chat_error(
+            &config.provider,
+            "messages count exceeds maximum limit",
         ));
     }
     let total_prompt_bytes: usize = messages.iter().map(|m| m.content.len()).sum();
     if total_prompt_bytes > MAX_TOTAL_PROMPT_BYTES {
-        return Err(format!(
-            "Total prompt bytes ({total_prompt_bytes}) exceeds limit ({MAX_TOTAL_PROMPT_BYTES})"
+        return Err(ai_chat_error(
+            &config.provider,
+            "total prompt exceeds maximum limit",
         ));
     }
     if let Some(sys) = &system {
         if sys.len() > MAX_SYSTEM_PROMPT_BYTES {
-            return Err(format!(
-                "System prompt bytes ({}) exceeds limit ({MAX_SYSTEM_PROMPT_BYTES})",
-                sys.len()
+            return Err(ai_chat_error(
+                &config.provider,
+                "system prompt exceeds maximum limit",
             ));
         }
     }
@@ -800,7 +881,10 @@ pub async fn ai_chat(
         .clone()
         .unwrap_or_else(|| ulid::Ulid::generate().to_string());
     {
-        let mut map = state.0.lock().map_err(|e| e.to_string())?;
+        let mut map = state
+            .0
+            .lock()
+            .map_err(|_| ai_chat_error(&config.provider, "stream state unavailable"))?;
         map.insert(active_id.clone(), tx);
     }
     let _guard = StreamGuard {
@@ -852,13 +936,15 @@ pub async fn ai_chat(
         (_, None) => chat_ollama(&config, &messages, sys, rx).await,
     };
 
+    let result = result.map_err(|detail| ai_chat_error(&config.provider, &detail));
+
     if let Some(id) = streaming {
         match &result {
             Ok(_) => {
                 let _ = app.emit("ai:done", json!({ "streamId": id }));
             }
-            Err(e) => {
-                let _ = app.emit("ai:error", json!({ "streamId": id, "error": e }));
+            Err(error) => {
+                let _ = app.emit("ai:error", json!({ "streamId": id, "error": error }));
             }
         }
     }

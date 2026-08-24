@@ -1,6 +1,10 @@
 import type { StoragePort } from "./port"
 import type {
   FsMutationResult,
+  HistoryCleanupPreview,
+  HistoryCleanupResult,
+  HistoryRetention,
+  HistoryStats,
   RefactorPreview,
   SnapshotEntry,
   SnapshotText,
@@ -12,6 +16,18 @@ export class HistoryRepository {
 
   async listSnapshots(sourcePath: string): Promise<SnapshotEntry[]> {
     return this.port().listSnapshots(sourcePath)
+  }
+
+  async getHistoryStats(): Promise<HistoryStats> {
+    return this.port().getHistoryStats()
+  }
+
+  async previewHistoryCleanup(retention: HistoryRetention): Promise<HistoryCleanupPreview> {
+    return this.port().previewHistoryCleanup(retention)
+  }
+
+  async cleanupHistory(retention: HistoryRetention): Promise<HistoryCleanupResult> {
+    return this.port().cleanupHistory(retention)
   }
 
   async restoreSnapshot(snapshotId: string): Promise<string> {

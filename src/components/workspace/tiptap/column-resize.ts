@@ -13,6 +13,15 @@ interface LiveResizeState {
   template: string
 }
 
+export function createResizeSessionCleanup(cleanup: () => void): () => void {
+  let cleaned = false
+  return () => {
+    if (cleaned) return
+    cleaned = true
+    cleanup()
+  }
+}
+
 function directColumns(set: HTMLElement): HTMLElement[] {
   return Array.from(set.children).filter(
     (child): child is HTMLElement =>
@@ -67,6 +76,7 @@ export const ColumnResize = Extension.create({
 
   addProseMirrorPlugins() {
     let hoverColumn: HTMLElement | null = null
+    let resizeSession: { cleanup: () => void } | null = null
 
     function clearHover(view: EditorView) {
       hoverColumn?.classList.remove("is-resize-edge")
@@ -77,6 +87,15 @@ export const ColumnResize = Extension.create({
     return [
       new Plugin<LiveResizeState | null>({
         key: COLUMN_RESIZE_KEY,
+        view(view) {
+          return {
+            destroy() {
+              resizeSession?.cleanup()
+              resizeSession = null
+              clearHover(view)
+            },
+          }
+        },
         state: {
           init: () => null,
           apply(transaction, current) {
@@ -189,6 +208,7 @@ export const ColumnResize = Extension.create({
 
               let pendingX = startX
               let resizeFrame: number | null = null
+              let cleanup: () => void = () => {}
               const onMove = (event: MouseEvent | PointerEvent) => {
                 pendingX = event.clientX
                 if (resizeFrame !== null) return
@@ -202,19 +222,9 @@ export const ColumnResize = Extension.create({
               const onUp = (event: MouseEvent | PointerEvent) => {
                 if (finished) return
                 finished = true
-                if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame)
+                cleanup()
+                resizeSession = null
                 applyWidth(event.clientX)
-                document.removeEventListener("mousemove", onMove)
-                document.removeEventListener("mouseup", onUp)
-                document.removeEventListener("pointermove", onMove)
-                document.removeEventListener("pointerup", onUp)
-                document.removeEventListener("pointercancel", onUp)
-                document.body.classList.remove("amby-resizing-columns")
-                hit.set.classList.remove("is-resizing")
-                hit.columns[hit.index].classList.remove("is-resizing-before")
-                hit.columns[hit.index + 1].classList.remove("is-resizing-after")
-                label.remove()
-                guide.remove()
                 const total = latestWidths.reduce((sum, width) => sum + width, 0) || 1
                 const widths = latestWidths.map((width) => (width / total).toFixed(4)).join(",")
                 const current = view.state.doc.nodeAt(setPos)
@@ -229,6 +239,25 @@ export const ColumnResize = Extension.create({
                 }
                 clearHover(view)
               }
+
+              cleanup = createResizeSessionCleanup(() => {
+                if (resizeFrame !== null) {
+                  window.cancelAnimationFrame(resizeFrame)
+                  resizeFrame = null
+                }
+                document.removeEventListener("mousemove", onMove)
+                document.removeEventListener("mouseup", onUp)
+                document.removeEventListener("pointermove", onMove)
+                document.removeEventListener("pointerup", onUp)
+                document.removeEventListener("pointercancel", onUp)
+                document.body.classList.remove("amby-resizing-columns")
+                hit.set.classList.remove("is-resizing")
+                hit.columns[hit.index + 1].classList.remove("is-resizing-after")
+                hit.columns[hit.index].classList.remove("is-resizing-before")
+                label.remove()
+                guide.remove()
+              })
+              resizeSession = { cleanup }
 
               document.addEventListener("mousemove", onMove)
               document.addEventListener("mouseup", onUp)

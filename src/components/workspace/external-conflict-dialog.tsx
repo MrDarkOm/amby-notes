@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
-import { saveConflictCopy, writeFile, writeNote } from "@/lib/storage"
+import { isTauri, saveConflictCopy, writeFile, writeNote } from "@/lib/storage"
+import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useDocStore } from "./use-doc-store"
 import { useVaultStore } from "./use-vault-store"
 import { emitAutosaveConflictResolution } from "./autosave/conflict-events"
@@ -32,14 +33,24 @@ export function ExternalConflictDialog() {
   const document = useDocStore.getState().openDocs[conflict.fileId]
   if (!document) return null
   const { patchDoc, markSaved, markUnsaved, clearExternalConflict } = useDocStore.getState()
+  const originWindow = isTauri() ? getCurrentWindow().label : "web"
 
   async function keepLocal() {
     setSaving(true)
     try {
       const content =
         useDocStore.getState().openDocs[conflict.fileId]?.content ?? conflict.localContent
-      if (vault) await writeNote(vault, conflict.fileId, content, backendGeneration)
-      else await writeFile(conflict.path, content)
+      if (vault) {
+        const outcome = await writeNote(
+          vault,
+          conflict.fileId,
+          content,
+          backendGeneration,
+          conflict.externalRevision ?? document.revision ?? "",
+          originWindow,
+        )
+        patchDoc(conflict.fileId, { revision: outcome.revision })
+      } else await writeFile(conflict.path, content)
       markSaved(conflict.fileId)
       clearExternalConflict(conflict.fileId)
       emitAutosaveConflictResolution(conflict.fileId, "discard")
@@ -52,7 +63,10 @@ export function ExternalConflictDialog() {
 
   function acceptExternal() {
     if (conflict.externalContent !== null) {
-      patchDoc(conflict.fileId, { content: conflict.externalContent })
+      patchDoc(conflict.fileId, {
+        content: conflict.externalContent,
+        revision: conflict.externalRevision,
+      })
       markSaved(conflict.fileId)
     }
     clearExternalConflict(conflict.fileId)

@@ -7,10 +7,13 @@ import type {
   IdMigrationRecoveryAction,
   LinkGraph,
   LoadVaultResult,
+  NoteReadOutcome,
   NoteProperties,
+  SearchResult,
   TreeItem,
   VaultPreflight,
   VaultTagEntry,
+  WriteNoteOutcome,
 } from "./types"
 
 export class NotesRepository {
@@ -60,11 +63,15 @@ export class NotesRepository {
     return this.port().listFiles(vaultPath)
   }
 
+  async searchNotes(query: string): Promise<SearchResult[]> {
+    return this.port().searchNotes(query)
+  }
+
   async readFile(path: string): Promise<string> {
     return this.port().readFile(path)
   }
 
-  async readNote(vaultPath: string, noteId: string): Promise<string> {
+  async readNote(vaultPath: string, noteId: string): Promise<NoteReadOutcome> {
     return this.port().readNote(vaultPath, noteId)
   }
 
@@ -77,8 +84,17 @@ export class NotesRepository {
     noteId: string,
     content: string,
     expectedGeneration: number | null,
-  ): Promise<void> {
-    return this.port().writeNote(vaultPath, noteId, content, expectedGeneration)
+    expectedRevision: string,
+    originWindow: string,
+  ): Promise<WriteNoteOutcome> {
+    return this.port().writeNote(
+      vaultPath,
+      noteId,
+      content,
+      expectedGeneration,
+      expectedRevision,
+      originWindow,
+    )
   }
 
   async saveConflictCopy(path: string, content: string): Promise<string> {

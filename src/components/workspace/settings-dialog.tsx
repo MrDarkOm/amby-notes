@@ -61,6 +61,7 @@ import {
   loadSettings,
   saveSettingsPatch,
   saveWorkspaces,
+  SETTINGS_SAVE_ERROR_EVENT,
   WORKSPACES_SCHEMA_VERSION,
   type AiSettings,
   type ContentWidth,
@@ -116,12 +117,27 @@ export function SettingsDialog({
   const themes = useSettingsStore((s) => s.themes)
   const setPrefs = useSettingsStore((s) => s.setPrefs)
   const setThemes = useSettingsStore((s) => s.setThemes)
+  const [saveError, setSaveError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    const onSaveError = (event: Event) => {
+      const message = (event as CustomEvent<{ message?: unknown }>).detail?.message
+      if (typeof message === "string") setSaveError(message)
+    }
+    window.addEventListener(SETTINGS_SAVE_ERROR_EVENT, onSaveError)
+    return () => window.removeEventListener(SETTINGS_SAVE_ERROR_EVENT, onSaveError)
+  }, [])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[min(620px,80vh)] max-h-[80vh] flex-col gap-4 overflow-hidden border-border bg-background p-0 sm:max-w-3xl">
         <DialogHeader className="px-6 pt-6 pr-14">
           <DialogTitle className="text-foreground">{t("settings.title")}</DialogTitle>
+          {saveError && (
+            <p role="alert" className="pt-1 text-[12px] text-destructive">
+              {saveError}
+            </p>
+          )}
         </DialogHeader>
 
         <Tabs
@@ -717,7 +733,7 @@ function AiTab() {
 
   const update = (next: AiSettings) => {
     setAi(next)
-    void saveSettingsPatch({ ai: next })
+    void saveSettingsPatch({ ai: next }).catch(() => {})
   }
 
   return (

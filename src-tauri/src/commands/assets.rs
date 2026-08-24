@@ -6,7 +6,7 @@ use crate::frontmatter;
 use crate::model::*;
 use crate::paths;
 use crate::vault_context::VaultContext;
-use crate::watcher::WatcherState;
+use crate::watcher::{self, WatcherState};
 
 #[tauri::command]
 #[specta::specta]
@@ -72,13 +72,21 @@ pub fn import_asset(
         let name = unique_name(&dir, &stem, &ext);
         let dest = dir.join(&name);
         let dest = paths::confine(&vault, &dest)?;
+        let expected = watcher::path_fingerprint(source);
+        let prepared = watcher_state.prepare_write([(&dest, expected)]);
         match frontmatter::atomic_copy_file_new(source, &dest, MAX_ATTACHMENT_FILE_SIZE) {
             Ok(_) => {
-                watcher_state.mark_write([dest.as_path()]);
+                watcher_state.confirm_prepared_write(&prepared);
                 return Ok(build_imported_asset(&vault, &note, dest, name));
             }
-            Err(frontmatter::AtomicCreateError::AlreadyExists) => continue,
-            Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+            Err(frontmatter::AtomicCreateError::AlreadyExists) => {
+                watcher_state.cancel_prepared_write(&prepared);
+                continue;
+            }
+            Err(frontmatter::AtomicCreateError::Other(error)) => {
+                watcher_state.cancel_prepared_write(&prepared);
+                return Err(error);
+            }
         }
     }
     Err("Could not allocate a unique asset filename".to_string())
@@ -118,13 +126,21 @@ pub fn import_asset_bytes(
         let name = unique_name(&dir, &stem, &ext);
         let dest = dir.join(&name);
         let dest = paths::confine(&vault, &dest)?;
+        let prepared =
+            watcher_state.prepare_write([(&dest, watcher::fingerprint_for_bytes(&bytes))]);
         match frontmatter::atomic_write_bytes_new(&dest, &bytes) {
             Ok(()) => {
-                watcher_state.mark_write([dest.as_path()]);
+                watcher_state.confirm_prepared_write(&prepared);
                 return Ok(build_imported_asset(&vault, &note, dest, name));
             }
-            Err(frontmatter::AtomicCreateError::AlreadyExists) => continue,
-            Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+            Err(frontmatter::AtomicCreateError::AlreadyExists) => {
+                watcher_state.cancel_prepared_write(&prepared);
+                continue;
+            }
+            Err(frontmatter::AtomicCreateError::Other(error)) => {
+                watcher_state.cancel_prepared_write(&prepared);
+                return Err(error);
+            }
         }
     }
     Err("Could not allocate a unique asset filename".to_string())

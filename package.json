@@ -29,7 +29,7 @@
     "verify:full": "npm run typecheck && npm run lint && npm run test && npm run format:check && npm run knip && npm run rust:fmt && npm run rust:clippy && npm run rust:test && npm run bindings:check",
     "bindings:check": "cargo test --manifest-path src-tauri/Cargo.toml export_bindings && git diff --exit-code -- src/lib/bindings.ts",
     "audit:npm": "npm audit --omit=dev",
-    "audit:rust": "cargo audit --file src-tauri/Cargo.lock",
+    "audit:rust": "bash scripts/audit-rust.sh",
     "audit": "npm run audit:npm && npm run audit:rust",
     "knip": "knip",
     "prepare": "lefthook install"

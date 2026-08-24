@@ -26,7 +26,7 @@ import {
 import { TextStylePalette } from "../text-style-palette"
 import { CALLOUT_DEFAULTS } from "./callout-node"
 import { wrapSelectionInCallout } from "./block-insert-items"
-import { aiChat, AiUnavailableError } from "@/lib/ai"
+import { aiChat, aiErrorMessage } from "@/lib/ai"
 import { activeModel, loadSettings, resolveAiConfig } from "../app-config"
 
 type Panel = "heading" | "color" | "list" | "tag" | "link" | "wikilink" | "ai" | null
@@ -160,7 +160,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
       if (mountedRef.current) setPanel(null)
     } catch (e) {
       if (mountedRef.current) {
-        setAiError(e instanceof AiUnavailableError ? e.message : String(e))
+        setAiError(aiErrorMessage(e))
       }
     } finally {
       if (mountedRef.current) setAiBusy(false)

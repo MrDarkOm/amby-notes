@@ -27,6 +27,7 @@ import { primeAssetConverter, setAssetContext } from "./asset-resolver"
 import { setTransclusionFetcher } from "./transclusion-context"
 import { bindTauriFileDrop } from "./media-drop"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
+import { registerEditorSerialization } from "./editor-serialization-lifecycle"
 import {
   SLASH_TRIGGER_EVENT,
   closeSlashMenu,
@@ -259,6 +260,14 @@ export function TiptapEditor({
     return () => flushSerialize(editor)
   }, [editor, flushSerialize])
 
+  // Lifecycle boundaries (window close, visibility hide, vault switch) happen
+  // before React unmounts this component, so register the same guarded flush
+  // independently of the unmount cleanup above.
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    return registerEditorSerialization({ flush: () => flushSerialize(editor) })
+  }, [editor, flushSerialize])
+
   // Toggle Live <-> Read in place without re-instantiating the editor.
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return
@@ -299,26 +308,32 @@ export function TiptapEditor({
     if (!editor || editor.isDestroyed || !editable) return
     let dispose: (() => void) | undefined
     let cancelled = false
+    const controller = new AbortController()
     const view = editor.view
-    void bindTauriFileDrop(view, (clientX, clientY) => {
-      if (editor.isDestroyed) return null
-      const rect = view.dom.getBoundingClientRect()
-      if (
-        clientX < rect.left ||
-        clientX > rect.right ||
-        clientY < rect.top ||
-        clientY > rect.bottom
-      ) {
-        return null
-      }
-      const coords = view.posAtCoords({ left: clientX, top: clientY })
-      return coords?.pos ?? null
-    }).then((unsub) => {
+    void bindTauriFileDrop(
+      view,
+      (clientX, clientY) => {
+        if (editor.isDestroyed) return null
+        const rect = view.dom.getBoundingClientRect()
+        if (
+          clientX < rect.left ||
+          clientX > rect.right ||
+          clientY < rect.top ||
+          clientY > rect.bottom
+        ) {
+          return null
+        }
+        const coords = view.posAtCoords({ left: clientX, top: clientY })
+        return coords?.pos ?? null
+      },
+      controller.signal,
+    ).then((unsub) => {
       if (cancelled) unsub()
       else dispose = unsub
     })
     return () => {
       cancelled = true
+      controller.abort()
       dispose?.()
     }
   }, [editor, editable])

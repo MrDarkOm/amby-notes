@@ -73,8 +73,7 @@ export const TreeNode = React.memo(
     const hasChildren = (item.children && item.children.length > 0) || item.type === "folder"
     const isSelected = selectedId === item.id
     const isDragSource = ptrDragSourceId === item.id
-    const isDragTarget =
-      ptrDragTargetId === item.id && (item.type === "folder" || item.type === "file")
+    const isDragTarget = ptrDragTargetId === item.id && item.type === "folder"
     // Indent: file leaves get an extra 15px offset (no chevron column)
     const paddingLeft = 6 + level * 12
 
@@ -330,7 +329,8 @@ export const TreeNode = React.memo(
       return (
         <>
           <div
-            data-drag-target={item.type === "folder" || item.type === "file" ? item.id : undefined}
+            data-drag-target={item.type === "folder" ? item.id : undefined}
+            data-drag-target-path={item.type === "folder" ? item.path : undefined}
             className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
           >
             <ContextMenu>
@@ -384,9 +384,8 @@ export const TreeNode = React.memo(
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div
-              data-drag-target={
-                item.type === "folder" || item.type === "file" ? item.id : undefined
-              }
+              data-drag-target={item.type === "folder" ? item.id : undefined}
+              data-drag-target-path={item.type === "folder" ? item.path : undefined}
               className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
             >
               <button

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { setTreeDragPayload, clearTreeDragPayload } from "@/lib/canvas-dnd"
-import { ROOT_DROP_TARGET, type PtrDrag } from "./tree-types"
+import { ROOT_DROP_TARGET, isValidTreeDropTarget, type PtrDrag } from "./tree-types"
 
 export function useTreeDnd({
   onMoveItem,
@@ -44,10 +44,13 @@ export function useTreeDnd({
         const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
         const targetEl = el?.closest("[data-drag-target]") as HTMLElement | null
         const candidate = targetEl?.getAttribute("data-drag-target") ?? null
+        const candidatePath = targetEl?.getAttribute("data-drag-target-path") ?? null
         const validTarget =
           candidate === ROOT_DROP_TARGET
             ? ROOT_DROP_TARGET
-            : candidate && candidate !== drag.sourceId && !candidate.startsWith(drag.sourceId + "/")
+            : candidate &&
+                candidatePath &&
+                isValidTreeDropTarget(drag.sourceId, drag.sourcePath, candidate, candidatePath)
               ? candidate
               : null
         setPtrDrag((prev) =>
@@ -72,6 +75,7 @@ export function useTreeDnd({
           setPtrDrag({
             sourceId: startId,
             sourceName: startName,
+            sourcePath: startPath,
             startX: pd.x,
             startY: pd.y,
             ghostX: e.clientX,

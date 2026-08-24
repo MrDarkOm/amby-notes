@@ -1,4 +1,5 @@
 import * as React from "react"
+import { scrollEditorToAnchor } from "./anchor-navigation"
 import i18n from "@/lib/i18n"
 import { errorType, logger } from "@/lib/logger"
 import {
@@ -21,6 +22,8 @@ import { loadWorkspaceConfig, saveWorkspaceConfigPatch } from "./app-config"
 import { DeleteConfirmationDialog } from "./delete-confirmation-dialog"
 import { normalizeWikiLinkTarget, findWikiLinkItem } from "./wiki-links"
 import { planMutation } from "./workspace-mutations"
+import { recoveryNeedsConfirmation, resolveRecoveryContent } from "./recovery-restore"
+import { selectEvictableDocumentIds } from "./document-buffer-lifecycle"
 import {
   findTreeItem,
   updateInTree,
@@ -29,7 +32,7 @@ import {
   wsPathStem,
 } from "./workspace-tree-utils"
 import type { TreeItem } from "./sidebar-tree"
-import type { FsMutationResult } from "@/lib/storage"
+import { NoteRevisionConflictError, type FsMutationResult } from "@/lib/storage"
 import {
   readFile,
   readNote,
@@ -60,6 +63,7 @@ interface UseFileActionsParams {
   setPendingRenameId: React.Dispatch<React.SetStateAction<string | null>>
   autosaveGeneration: number
   backendGeneration: number | null
+  windowLabel: string
 }
 
 interface MarkdownAutosavePayload {
@@ -67,6 +71,7 @@ interface MarkdownAutosavePayload {
   path: string
   content: string
   backendGeneration: number | null
+  expectedRevision?: string
 }
 
 class AutosaveConflictPausedError extends Error {}
@@ -90,6 +95,7 @@ export function useFileActions({
   setPendingRenameId,
   autosaveGeneration,
   backendGeneration,
+  windowLabel,
 }: UseFileActionsParams) {
   const t = i18n.t.bind(i18n)
   const vaultRef = React.useRef(vault)
@@ -111,12 +117,35 @@ export function useFileActions({
         }
         const activeVault = vaultRef.current
         if (activeVault) {
-          await writeNote(
-            activeVault,
-            snapshot.value.fileId,
-            snapshot.value.content,
-            snapshot.value.backendGeneration,
-          )
+          if (!snapshot.value.expectedRevision) {
+            throw new Error("Missing note revision for autosave")
+          }
+          try {
+            const outcome = await writeNote(
+              activeVault,
+              snapshot.value.fileId,
+              snapshot.value.content,
+              snapshot.value.backendGeneration,
+              snapshot.value.expectedRevision,
+              windowLabel,
+            )
+            useDocStore.getState().patchDoc(snapshot.value.fileId, { revision: outcome.revision })
+          } catch (error) {
+            if (!(error instanceof NoteRevisionConflictError)) throw error
+            const external = await readNote(activeVault, snapshot.value.fileId)
+            const current = useDocStore.getState().openDocs[snapshot.value.fileId]
+            if (current) {
+              useDocStore.getState().setExternalConflict({
+                fileId: current.id,
+                path: current.path,
+                localContent: current.content,
+                externalContent: external.content,
+                externalRevision: external.revision,
+              })
+            }
+            autosaveRef.current?.pause(snapshot.key)
+            throw new AutosaveConflictPausedError()
+          }
         } else {
           await writeFile(snapshot.value.path, snapshot.value.content)
         }
@@ -130,6 +159,7 @@ export function useFileActions({
           useDocStore.getState().externalConflicts[snapshot.value.fileId]
         )
           return
+        void discardRecoveryDraft(snapshot.value.fileId)
         void discardRecoveryDraft(current.path)
         markSaved(snapshot.value.fileId)
       },
@@ -185,11 +215,57 @@ export function useFileActions({
         path: document.path,
         content: document.content,
         backendGeneration,
+        expectedRevision: document.revision,
       })
     }
     window.addEventListener(AUTOSAVE_CONFLICT_RESOLVED_EVENT, onConflictResolved)
     return () => window.removeEventListener(AUTOSAVE_CONFLICT_RESOLVED_EVENT, onConflictResolved)
   }, [autosave, autosaveKey, backendGeneration])
+
+  const releaseUnusedDocumentBuffers = React.useCallback(async () => {
+    const hasPendingAutosave = (fileId: string) => {
+      const pending = autosave.inspect(autosaveKey(fileId))
+      return Boolean(
+        pending && (pending.dirty || pending.scheduled || pending.inFlight || pending.paused),
+      )
+    }
+    const snapshot = useDocStore.getState()
+    const tabState = useTabsStore.getState()
+    const initiallyEligible = selectEvictableDocumentIds({
+      ...snapshot,
+      ...tabState,
+      hasPendingAutosave,
+      hasRecoveryDraft: () => false,
+    })
+    if (initiallyEligible.length === 0) return
+
+    const recoveryIds = new Set(
+      (
+        await Promise.all(
+          initiallyEligible.map(async (fileId) => {
+            const document = snapshot.openDocs[fileId]
+            if (!document) return null
+            const [byId, byPath] = await Promise.all([
+              readRecoveryDraft(fileId),
+              readRecoveryDraft(document.path),
+            ])
+            return byId || byPath ? fileId : null
+          }),
+        )
+      ).filter((fileId): fileId is string => fileId !== null),
+    )
+
+    // Re-read after recovery I/O: a rapid reopen or edit must keep its buffer.
+    const latest = useDocStore.getState()
+    const latestTabs = useTabsStore.getState()
+    const eligible = selectEvictableDocumentIds({
+      ...latest,
+      ...latestTabs,
+      hasPendingAutosave,
+      hasRecoveryDraft: (fileId) => recoveryIds.has(fileId),
+    })
+    latest.evictCleanDocs(eligible)
+  }, [autosave, autosaveKey])
 
   type DeleteResolution = "confirm" | "keep_recovery" | "discard" | "cancel"
 
@@ -262,37 +338,46 @@ export function useFileActions({
     // Read via getState() so this function doesn't close over the openDocs value.
     if (useDocStore.getState().openDocs[fileId]) return useDocStore.getState().openDocs[fileId]
     const item = findTreeItem(treeItems, fileId)
-    const [content, meta, noteProperties] = vault
+    const [note, meta, noteProperties] = vault
       ? await Promise.all([
           readNote(vault, fileId),
           getNoteMetadata(vault, fileId),
           getNoteProperties(vault, fileId),
         ])
       : await Promise.all([
-          readFile(item?.path ?? fileId),
+          readFile(item?.path ?? fileId).then((content) => ({ content, revision: "" })),
           getNoteMetadata("", fileId),
           getNoteProperties("", fileId),
         ])
     const path = item?.path ?? fileId
     const recovered = (await readRecoveryDraft(fileId)) ?? (await readRecoveryDraft(path))
-    const shouldRecover =
-      recovered && recovered.content !== content
-        ? await confirmAction(t("recovery.restorePrompt"))
-        : false
+    const recoveredContent = recovered?.content
+    const shouldRecover = recoveryNeedsConfirmation(note.content, recoveredContent)
+      ? await confirmAction(t("recovery.restorePrompt"))
+      : false
+    const recovery = resolveRecoveryContent(note.content, recoveredContent, shouldRecover)
     const doc: Document = {
       id: fileId,
       title: itemName,
-      content: shouldRecover ? recovered!.content : content,
+      content: recovery.content,
       created: formatModified(meta.created),
       modified: formatModified(meta.modified),
       wordCount: meta.word_count,
       path,
+      revision: note.revision,
       noteProperties,
     }
     setDoc(fileId, doc)
-    if (shouldRecover) {
+    if (recovery.restored) {
       markUnsaved(fileId)
-    } else if (recovered) {
+      autosave.enqueueImmediate(autosaveKey(fileId), {
+        fileId,
+        path,
+        content: recovery.content,
+        backendGeneration,
+        expectedRevision: note.revision,
+      })
+    } else if (recovery.discardDraft) {
       void discardRecoveryDraft(fileId)
       void discardRecoveryDraft(path)
     }
@@ -377,10 +462,11 @@ export function useFileActions({
         ])
         setActiveTabKey(key)
       }
+      void releaseUnusedDocumentBuffers()
       // loadDoc uses getState() internally — safe to exclude openDocs from deps.
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [treeItems, tabs, activeTabKey],
+    [treeItems, tabs, activeTabKey, releaseUnusedDocumentBuffers],
   )
 
   const handleOpenInNewTab = React.useCallback(
@@ -433,7 +519,7 @@ export function useFileActions({
       if (!item || item.type !== "file") return
 
       try {
-        const content = await readNote(vault, fileId)
+        const source = await readNote(vault, fileId)
         const normalizedPath = item.path.replace(/\\/gu, "/")
         const slash = normalizedPath.lastIndexOf("/")
         const parentPath = slash >= 0 ? normalizedPath.slice(0, slash) : vault
@@ -444,17 +530,26 @@ export function useFileActions({
 
         // writeNote preserves the fresh clone's generated frontmatter envelope,
         // so an Amby ID from the source note is never duplicated.
-        await writeNote(vault, id, content, backendGeneration)
+        const target = await readNote(vault, id)
+        const writeOutcome = await writeNote(
+          vault,
+          id,
+          source.content,
+          backendGeneration,
+          target.revision,
+          windowLabel,
+        )
         handleApplyMutation(result)
         await refreshTree()
         setDoc(id, {
           id,
           title: cloneName,
-          content,
+          content: source.content,
           created: t("time.justNow"),
           modified: t("time.justNow"),
-          wordCount: content.trim() ? content.trim().split(/\s+/u).length : 0,
+          wordCount: source.content.trim() ? source.content.trim().split(/\s+/u).length : 0,
           path: result.primaryPath ?? id,
+          revision: writeOutcome.revision,
         })
         const key = newTabKey()
         setTabs((prev) => [
@@ -491,7 +586,7 @@ export function useFileActions({
    * `^block-id`     — paragraph ending with ` ^block-id`.
    * null            — no-op.
    */
-  function scrollEditorToAnchor(anchor: string | null) {
+  /*function scrollEditorToAnchor(anchor: string | null) {
     if (!anchor) return
     // Give the editor 250 ms to paint the new content before scrolling.
     setTimeout(() => {
@@ -534,7 +629,7 @@ export function useFileActions({
         }
       }
     }, 250)
-  }
+  }*/
 
   const handleWikiLinkClick = async (rawLink: string) => {
     if (!vault) return
@@ -811,6 +906,7 @@ export function useFileActions({
       if (!sourceItem || !vault) return
       const targetItem = targetFolderId ? findTreeItem(treeItems, targetFolderId) : null
       if (targetFolderId && !targetItem) return
+      if (targetItem && targetItem.type !== "folder") return
       const norm = (p: string) => p.replace(/\\/g, "/")
       const dirname = (p: string) => {
         const value = norm(p).replace(/\/+$/, "")
@@ -873,12 +969,14 @@ export function useFileActions({
           autosave.flush(autosaveKey(targetId)),
         ])
         const openDocs = useDocStore.getState().openDocs
-        const sourceContent = openDocs[sourceId]?.content ?? (await readNote(vault, sourceId))
-        const targetContent = openDocs[targetId]?.content ?? (await readNote(vault, targetId))
+        const targetDocument = openDocs[targetId]
+        const sourceContent =
+          openDocs[sourceId]?.content ?? (await readNote(vault, sourceId)).content
+        const targetRead = targetDocument ? null : await readNote(vault, targetId)
+        const targetContent = targetDocument?.content ?? targetRead!.content
         const merged = [targetContent.trimEnd(), sourceContent.trimStart()]
           .filter(Boolean)
           .join("\n\n")
-        const targetDocument = openDocs[targetId]
         const targetPath = targetDocument?.path ?? targetItem.path
         if (targetDocument) {
           patchDoc(targetId, {
@@ -893,6 +991,7 @@ export function useFileActions({
           path: targetPath,
           content: merged,
           backendGeneration,
+          expectedRevision: targetDocument?.revision ?? targetRead!.revision,
         })
         await autosave.flush(autosaveKey(targetId))
         const result = await deleteItem(vault, sourceItem.path)
@@ -930,7 +1029,7 @@ export function useFileActions({
     autosave.resume(key)
     autosave.schedule(
       key,
-      { fileId, path, content, backendGeneration },
+      { fileId, path, content, backendGeneration, expectedRevision: editedDoc.revision },
       useSettingsStore.getState().prefs.editor.autosaveMs,
     )
   }
@@ -952,6 +1051,7 @@ export function useFileActions({
     handleMoveItem,
     handleMergeFile,
     handleContentChange,
+    releaseUnusedDocumentBuffers,
     deleteConfirmationDialog: pendingDelete
       ? React.createElement(DeleteConfirmationDialog, {
           name: pendingDelete.name,

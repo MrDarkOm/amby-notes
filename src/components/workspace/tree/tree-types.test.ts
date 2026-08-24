@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { flattenVisible, type TreeItem } from "./tree-types"
+import { flattenVisible, isValidTreeDropTarget, type TreeItem } from "./tree-types"
 
 describe("flattenVisible", () => {
   const sampleTree: TreeItem[] = [
@@ -62,5 +62,17 @@ describe("flattenVisible", () => {
     const closed = new Set<string>(["subfolder-1"])
     const rows = flattenVisible(sampleTree, closed)
     expect(rows.map((r) => r.item.id)).toEqual(["folder-1", "note-1", "subfolder-1", "note-root"])
+  })
+
+  it("validates DnD with paths rather than unrelated ULID values", () => {
+    expect(
+      isValidTreeDropTarget("01-source", "/vault/Folder", "01-child", "/vault/Folder/Child"),
+    ).toBe(false)
+    expect(
+      isValidTreeDropTarget("01-source", "/vault/Folder", "01-sibling", "/vault/Sibling"),
+    ).toBe(true)
+    expect(isValidTreeDropTarget("01-source", "/vault/Folder", "01-source", "/vault/Other")).toBe(
+      false,
+    )
   })
 })

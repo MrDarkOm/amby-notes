@@ -114,19 +114,19 @@ describe("app-config & settings storage resilience (WP-19)", () => {
       clear: () => {},
     })
 
-    await expect(saveSettingsPatch({ panelScope: "workspace" })).rejects.toThrow(
-      "disk quota exceeded",
-    )
+    await expect(saveSettingsPatch({ panelScope: "workspace" })).rejects.toMatchObject({
+      code: "quotaExceeded",
+    })
     expect(errorListener).toHaveBeenCalledTimes(1)
 
-    await expect(saveWorkspaceConfigPatch({ theme: "custom-theme" })).rejects.toThrow(
-      "disk quota exceeded",
-    )
+    await expect(saveWorkspaceConfigPatch({ theme: "custom-theme" })).rejects.toMatchObject({
+      code: "quotaExceeded",
+    })
     expect(errorListener).toHaveBeenCalledTimes(2)
 
     await expect(
       saveWorkspaces({ schemaVersion: 1, recent: [], lastOpened: "/vault" }),
-    ).rejects.toThrow("disk quota exceeded")
+    ).rejects.toMatchObject({ code: "quotaExceeded" })
     expect(errorListener).toHaveBeenCalledTimes(3)
 
     window.removeEventListener(SETTINGS_SAVE_ERROR_EVENT, errorListener)
@@ -207,7 +207,7 @@ describe("app-config & settings storage resilience (WP-19)", () => {
       clear: () => {},
     })
 
-    await expect(saveSession(session)).rejects.toThrow("read only filesystem")
+    await expect(saveSession(session)).rejects.toMatchObject({ code: "unavailable" })
     expect(errorListener).toHaveBeenCalled()
 
     window.removeEventListener(SETTINGS_SAVE_ERROR_EVENT, errorListener)

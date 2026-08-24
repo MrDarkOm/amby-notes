@@ -1,10 +1,8 @@
 import {
   Archive,
-  Bell,
   Bookmark,
   Database,
   FolderTree,
-  HelpCircle,
   History,
   Info,
   LayoutTemplate,
@@ -124,20 +122,11 @@ export const ACTION_DEFS: ActionDef[] = [
     invoke: (context) => context.openGraphTab(),
   },
   {
-    id: "notifications",
-    labelKey: "actions.notifications",
-    icon: Bell,
-    kind: "action",
-    persistent: true,
-    invoke: () => {},
-  },
-  {
     id: "presets",
     labelKey: "actions.presets",
     icon: LayoutTemplate,
     kind: "action",
     persistent: true,
-    invoke: () => {},
   },
   {
     id: "settings",
@@ -146,14 +135,6 @@ export const ACTION_DEFS: ActionDef[] = [
     kind: "action",
     persistent: true,
     invoke: (context) => context.openSettings(),
-  },
-  {
-    id: "help",
-    labelKey: "actions.help",
-    icon: HelpCircle,
-    kind: "action",
-    persistent: true,
-    invoke: () => {},
   },
 ]
 
@@ -168,8 +149,6 @@ export const PERSISTENT_ACTION_BUTTONS: ActivityButton[] = [
   { defId: "refresh", side: "left", order: 1 },
   { defId: "presets", side: "left", order: 3 },
   { defId: "settings", side: "left", order: 4 },
-  { defId: "notifications", side: "right", order: 0 },
-  { defId: "help", side: "right", order: 1 },
 ]
 
 export const DEFAULT_BUTTONS: ActivityButton[] = [
