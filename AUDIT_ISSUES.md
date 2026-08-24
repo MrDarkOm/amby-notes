@@ -68,7 +68,7 @@ ProseMirror-сериализацией и постановкой autosave в о�
 | BUG-26  | P1        | IMPLEMENTED | Canvas recovery сравнивается с disk content и сразу enqueue-ится после подтверждения      | AUTO-04       |
 | BUG-27  | P1        | IMPLEMENTED | Snippet и frontend highlight отображают folded match в исходные Unicode-границы           | SEARCH-01     |
 | BUG-28  | P0        | FIXED       | `refreshTree()` повторно вызывает `load_vault` и увеличивает generation                   | AUTO-01       |
-| DEBT-01 | P2        | CONFIRMED   | Крупные orchestration/domain-файлы всё ещё требуют разделения                             | ARCH-01       |
+| DEBT-01 | P2        | IMPLEMENTED | Крупные orchestration/domain-файлы разделены за compatibility façade                      | ARCH-01       |
 | DEP-01  | P2        | IMPLEMENTED | RustSec transitives имеют target/owner/review policy; новые advisories остаются failing   | SEC-02        |
 
 ## 4. Уточнения к первоначальным рекомендациям
@@ -511,20 +511,18 @@ close` и failed Canvas save. Dirty state сохраняется до успеш
 
 ### ARCH-01 — Оставшееся разделение крупных файлов
 
-Статус: `PENDING`.
+Статус: `IMPLEMENTED`.
 
-На 24 августа 2026 года функциональные correctness-пакеты реализованы, но само
-архитектурное разделение ещё не выполнено. Частичные helpers, созданные во время
-предыдущих исправлений, не закрывают `ARCH-01`: целевые файлы по-прежнему содержат
-несколько независимых обязанностей.
+Все пять независимых structural подпакетов выполнены без изменения persistence,
+IPC или UI contracts. Старые import paths сохранены compatibility façade.
 
 Текущий размер целевых файлов:
 
 - `src-tauri/src/bundle/mod.rs` — 27 строк;
-- `src/components/workspace/workspace.tsx` — 1391 строка;
-- `src/components/workspace/tiptap/markdown.ts` — 1214 строк;
+- `src/components/workspace/workspace.tsx` — 6 строк;
+- `src/components/workspace/tiptap/markdown.ts` — 18 строк;
 - `src/components/workspace/use-file-actions.ts` — 37 строк;
-- `src/lib/storage/web-adapter.ts` — 869 строк.
+- `src/lib/storage/web-adapter.ts` — 6 строк.
 
 `ARCH-01` нельзя выполнять одной большой правкой. Он состоит из пяти независимых
 commit-sized подпакетов `ARCH-01A` — `ARCH-01E`. Codex выполняет только один
@@ -532,7 +530,7 @@ commit-sized подпакетов `ARCH-01A` — `ARCH-01E`. Codex выполн�
 
 #### ARCH-00 — Контрольная точка перед структурным рефакторингом
 
-Статус: `PENDING`.
+Статус: `IMPLEMENTED`.
 
 1. Зафиксировать все функциональные пакеты в Git до начала перемещений.
 2. Включить сгенерированный `src/lib/bindings.ts` в тот же checkpoint, что и
@@ -830,7 +828,7 @@ state.
 | ARCH-01C  | IMPLEMENTED | `npm run verify`: 300 Vitest; 136 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; `bindings:check` без diff; `npm run build` | Workspace façade — 6 строк; Canvas/vault/property orchestration вынесена; новых ручных сценариев нет             |
 | ARCH-01D  | IMPLEMENTED | focused `markdown.test.ts`: 43 Vitest; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`; `bindings:check` без diff                     | `markdown.ts` 18 строк; production modules 13–370 строк; новых ручных сценариев нет                              |
 | ARCH-01E  | IMPLEMENTED | focused `storage.test.ts`: 9 Vitest; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`; `bindings:check` без diff                       | `web-adapter.ts` 6 строк; storage boundary и fallback ports сохранены; новых ручных сценариев нет                |
-| FINAL-01  | PENDING     | —                                                                                                                                             | Полный release gate и ручные сценарии                                                                            |
+| FINAL-01  | IMPLEMENTED | `git diff --check`; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`; `npm run audit`: npm 0 vulnerabilities; `npm run tauri build`    | DMG собран; MANUAL-01 — MANUAL-07 остаются явными интерактивными release risks                                   |
 
 Примечание к `AUTO-01`: `npm run verify` выполнил все функциональные этапы, но
 завершился кодом 1 на финальном `bindings:check`, потому что корректно
@@ -967,7 +965,7 @@ frontend build. `npm run verify` завершился кодом 1 только 
 
 ### FINAL-01 — Финальный release gate
 
-Статус: `PENDING`.
+Статус: `IMPLEMENTED` с явными ручными release risks.
 
 Выполняется только после `ARCH-01A` — `ARCH-01E` и доступных ручных сценариев:
 
@@ -982,6 +980,21 @@ frontend build. `npm run verify` завершился кодом 1 только 
    критериев.
 8. Записать невыполнимые на текущей платформе сценарии как явные release risks, а
    не отмечать их выполненными.
+
+Фактический результат 24 августа 2026 года:
+
+- `git diff --check` — без ошибок; рабочее дерево чисто до обновления этого
+  журнала;
+- `npm run verify` — 300 Vitest, 136 Rust tests, typecheck, ESLint, Prettier,
+  Knip, Rustfmt, strict Clippy и `bindings:check` без diff;
+- `npm run build`, `npm run audit` (npm: 0 vulnerabilities; RustSec scan) и
+  `npm run tauri build` успешно завершены. Создан свежий
+  `src-tauri/target/release/bundle/dmg/Amby_0.1.0_aarch64.dmg`;
+- `dist/` и `src-tauri/target/` подтверждённо игнорируются Git; vault data,
+  `.amby/`, credentials и recovery drafts не отслеживаются;
+- MANUAL-01 — MANUAL-07 остаются `PENDING`: они требуют интерактивных Tauri,
+  Finder, external-editor, Keychain, Windows/exFAT или network scenarios и
+  являются явными release risks, а не пройденными проверками.
 
 ## 9. Короткий промпт для продолжения
 
