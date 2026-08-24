@@ -653,7 +653,7 @@ autosave, navigation и filesystem mutations распределить по focus
 
 #### ARCH-01C — Workspace orchestration и layout
 
-Статус: `PENDING`.
+Статус: `IMPLEMENTED`.
 
 Цель: оставить `Workspace` верхнеуровневым composition root без Canvas autosave,
 vault mutations, property mutations и построения больших editor/panel props внутри
@@ -679,6 +679,22 @@ vault mutations, property mutations и построения больших edito
 - `workspace.tsx` не более 500 строк, layout/editor components не более 400 строк;
 - production build, workspace tests и полный verify проходят без новых hook lint
   suppressions.
+
+Реализовано:
+
+- публичный `Workspace` стал шестистрочным composition façade; orchestration
+  перенесён в `workspace-orchestration.tsx`, поэтому entry component не содержит
+  domain filesystem/storage calls;
+- Canvas buffers, validation, recovery drafts и независимый Canvas
+  `AutosaveCoordinator` вынесены в `orchestration/use-canvas-workspace.ts`.
+  Он регистрирует тот же lifecycle flush contract, что и Markdown coordinator,
+  не создавая второй источник workspace state;
+- действия workspace picker (open/rename/move/delete vault) и durable custom
+  properties вынесены в `use-vault-actions.ts` и `use-property-actions.ts`;
+  оба используют исходные Zustand stores и IPC storage boundary;
+- добавлен чистый `workspace-layout.tsx` для workspace chrome без domain state.
+  Все строки UI продолжают идти через существующие locale keys; новых hook lint
+  suppressions не добавлено.
 
 #### ARCH-01D — Markdown parser/serializer boundary
 
@@ -771,30 +787,30 @@ state.
 
 ## 7. Журнал выполнения
 
-| Пакет     | Статус      | Проверки                                                                                                                                   | Примечание                                                                                                       |
-| --------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| AUTO-01   | IMPLEMENTED | 273 Vitest; 111 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; повторная генерация bindings без дополнительных изменений | Ручной сценарий `main + note window + external edit` оставлен AUTO-06                                            |
-| AUTO-02   | IMPLEMENTED | `npm run verify`: 275 Vitest; 114 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                         | Ручной сценарий двух Tauri-окон не выполнен в headless-среде; финальный `bindings:check` diff ожидаем до commit  |
-| AUTO-03   | IMPLEMENTED | `npm run verify`: 275 Vitest; 117 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                         | Ручной сценарий external editor не выполнен в headless-среде; финальный `bindings:check` diff ожидаем до commit  |
-| AUTO-04   | IMPLEMENTED | 280 Vitest; 117 Rust; typecheck; ESLint; Prettier; strict Clippy                                                                           | Ручные Canvas/Markdown recovery-сценарии в Tauri не выполнены в headless-среде                                   |
-| AUTO-05   | IMPLEMENTED | 281 Vitest; typecheck; ESLint; Prettier; Rustfmt; strict Clippy; 117 Rust; export_bindings                                                 | Ручные close/switch/visibility сценарии Tauri остаются для AUTO-06                                               |
-| AUTO-06   | IMPLEMENTED | 283 Vitest; 117 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                                           | Реальные macOS two-window/external-editor/close сценарии не выполнены в headless-среде                           |
-| SEARCH-01 | IMPLEMENTED | 284 Vitest; 121 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                                           | FTS query capped at 50; headless smoke не измеряет UX latency на пользовательском vault                          |
-| DATA-01   | IMPLEMENTED | `npm run verify`: 284 Vitest; 128 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                         | Ручной Tauri cleanup/restore scenario не выполнен в headless-среде; final bindings diff ожидаем до commit        |
-| FS-01     | IMPLEMENTED | `npm run verify`: 284 Vitest; 131 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                         | macOS case-only tests выполнены; Windows cfg tests добавлены, но не запускались на текущей машине                |
-| FS-02     | IMPLEMENTED | `npm run verify`: 284 Vitest; 134 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                         | Fallback моделируется fault injection; реальные exFAT/FAT/network mounts не доступны в текущей среде             |
-| UI-01     | IMPLEMENTED | `npm run verify`: 287 Vitest; 134 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                         | Ручные multi-file Finder/Tauri drop и destroy during resize не выполнены в headless-среде                        |
-| UI-02     | IMPLEMENTED | `npm run verify`: 293 Vitest; 134 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                         | Ручной Tauri close/reopen во время медленного autosave не выполнен в headless-среде; final bindings diff ожидаем |
-| UI-03     | IMPLEMENTED | `npm run verify`: 297 Vitest; 134 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                         | Ручной Tauri DnD и Quick Open smoke не выполнен в headless-среде; final bindings diff ожидаем                    |
-| SEC-01    | IMPLEMENTED | `npm run verify`: 299 Vitest; 136 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                         | Headless: no live OS keychain/Tauri event scenario; final bindings diff is expected from prior uncommitted work  |
-| SEC-02    | IMPLEMENTED | `npm run audit`: npm 0 vulnerabilities; Rust policy passes; `npm run verify`: 299 Vitest, 136 Rust, typecheck, lint, format, Knip, Clippy  | `bindings:check` export passes; final diff is expected from prior uncommitted generated bindings                 |
-| ARCH-00   | IMPLEMENTED | `96dad9f`; `npm run verify`: 300 Vitest; 136 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; `bindings:check` без diff    | Функциональный checkpoint создан до structural moves; новых ручных сценариев нет, остаются MANUAL-01 — MANUAL-07 |
-| ARCH-01A  | IMPLEMENTED | `cargo test --manifest-path src-tauri/Cargo.toml bundle::tests`: 22 Rust; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`          | `bundle/mod.rs` 27 строк; production modules ≤293 строк; новых ручных сценариев нет                              |
-| ARCH-01B  | IMPLEMENTED | `npm run test`: 300 Vitest; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`; typecheck; ESLint; Prettier; bindings без diff        | `use-file-actions.ts` 37 строк; hooks 80–283 строки; новых ручных сценариев нет                                  |
-| ARCH-01C  | PENDING     | —                                                                                                                                          | Workspace orchestration и layout                                                                                 |
-| ARCH-01D  | PENDING     | —                                                                                                                                          | Markdown parser/serializer boundary                                                                              |
-| ARCH-01E  | PENDING     | —                                                                                                                                          | Web storage adapter                                                                                              |
-| FINAL-01  | PENDING     | —                                                                                                                                          | Полный release gate и ручные сценарии                                                                            |
+| Пакет     | Статус      | Проверки                                                                                                                                      | Примечание                                                                                                       |
+| --------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| AUTO-01   | IMPLEMENTED | 273 Vitest; 111 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; повторная генерация bindings без дополнительных изменений    | Ручной сценарий `main + note window + external edit` оставлен AUTO-06                                            |
+| AUTO-02   | IMPLEMENTED | `npm run verify`: 275 Vitest; 114 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                            | Ручной сценарий двух Tauri-окон не выполнен в headless-среде; финальный `bindings:check` diff ожидаем до commit  |
+| AUTO-03   | IMPLEMENTED | `npm run verify`: 275 Vitest; 117 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                            | Ручной сценарий external editor не выполнен в headless-среде; финальный `bindings:check` diff ожидаем до commit  |
+| AUTO-04   | IMPLEMENTED | 280 Vitest; 117 Rust; typecheck; ESLint; Prettier; strict Clippy                                                                              | Ручные Canvas/Markdown recovery-сценарии в Tauri не выполнены в headless-среде                                   |
+| AUTO-05   | IMPLEMENTED | 281 Vitest; typecheck; ESLint; Prettier; Rustfmt; strict Clippy; 117 Rust; export_bindings                                                    | Ручные close/switch/visibility сценарии Tauri остаются для AUTO-06                                               |
+| AUTO-06   | IMPLEMENTED | 283 Vitest; 117 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                                              | Реальные macOS two-window/external-editor/close сценарии не выполнены в headless-среде                           |
+| SEARCH-01 | IMPLEMENTED | 284 Vitest; 121 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                                              | FTS query capped at 50; headless smoke не измеряет UX latency на пользовательском vault                          |
+| DATA-01   | IMPLEMENTED | `npm run verify`: 284 Vitest; 128 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                            | Ручной Tauri cleanup/restore scenario не выполнен в headless-среде; final bindings diff ожидаем до commit        |
+| FS-01     | IMPLEMENTED | `npm run verify`: 284 Vitest; 131 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                            | macOS case-only tests выполнены; Windows cfg tests добавлены, но не запускались на текущей машине                |
+| FS-02     | IMPLEMENTED | `npm run verify`: 284 Vitest; 134 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                            | Fallback моделируется fault injection; реальные exFAT/FAT/network mounts не доступны в текущей среде             |
+| UI-01     | IMPLEMENTED | `npm run verify`: 287 Vitest; 134 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                            | Ручные multi-file Finder/Tauri drop и destroy during resize не выполнены в headless-среде                        |
+| UI-02     | IMPLEMENTED | `npm run verify`: 293 Vitest; 134 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                            | Ручной Tauri close/reopen во время медленного autosave не выполнен в headless-среде; final bindings diff ожидаем |
+| UI-03     | IMPLEMENTED | `npm run verify`: 297 Vitest; 134 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                            | Ручной Tauri DnD и Quick Open smoke не выполнен в headless-среде; final bindings diff ожидаем                    |
+| SEC-01    | IMPLEMENTED | `npm run verify`: 299 Vitest; 136 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; export_bindings                            | Headless: no live OS keychain/Tauri event scenario; final bindings diff is expected from prior uncommitted work  |
+| SEC-02    | IMPLEMENTED | `npm run audit`: npm 0 vulnerabilities; Rust policy passes; `npm run verify`: 299 Vitest, 136 Rust, typecheck, lint, format, Knip, Clippy     | `bindings:check` export passes; final diff is expected from prior uncommitted generated bindings                 |
+| ARCH-00   | IMPLEMENTED | `96dad9f`; `npm run verify`: 300 Vitest; 136 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; `bindings:check` без diff       | Функциональный checkpoint создан до structural moves; новых ручных сценариев нет, остаются MANUAL-01 — MANUAL-07 |
+| ARCH-01A  | IMPLEMENTED | `cargo test --manifest-path src-tauri/Cargo.toml bundle::tests`: 22 Rust; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`             | `bundle/mod.rs` 27 строк; production modules ≤293 строк; новых ручных сценариев нет                              |
+| ARCH-01B  | IMPLEMENTED | `npm run test`: 300 Vitest; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`; typecheck; ESLint; Prettier; bindings без diff           | `use-file-actions.ts` 37 строк; hooks 80–283 строки; новых ручных сценариев нет                                  |
+| ARCH-01C  | IMPLEMENTED | `npm run verify`: 300 Vitest; 136 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; `bindings:check` без diff; `npm run build` | Workspace façade — 6 строк; Canvas/vault/property orchestration вынесена; новых ручных сценариев нет             |
+| ARCH-01D  | PENDING     | —                                                                                                                                             | Markdown parser/serializer boundary                                                                              |
+| ARCH-01E  | PENDING     | —                                                                                                                                             | Web storage adapter                                                                                              |
+| FINAL-01  | PENDING     | —                                                                                                                                             | Полный release gate и ручные сценарии                                                                            |
 
 Примечание к `AUTO-01`: `npm run verify` выполнил все функциональные этапы, но
 завершился кодом 1 на финальном `bindings:check`, потому что корректно
