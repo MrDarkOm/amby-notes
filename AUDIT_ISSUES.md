@@ -698,7 +698,7 @@ vault mutations, property mutations и построения больших edito
 
 #### ARCH-01D — Markdown parser/serializer boundary
 
-Статус: `PENDING`.
+Статус: `IMPLEMENTED`.
 
 Цель: разделить Markdown-it plugins, ProseMirror parser, serializer, readonly
 renderer и compatibility guards, сохранив прежний публичный import path.
@@ -723,6 +723,16 @@ renderer и compatibility guards, сохранив прежний публичн
 - parser/serializer не получают новый eager цикл со `schema.ts`;
 - `markdown.ts` не более 200 строк, каждый production module не более 500 строк;
 - все Markdown compatibility fixtures и focused round-trip tests проходят.
+
+Реализовано:
+
+- `markdown.ts` стал стабильным 18-строчным façade для прежних exports;
+- inline rule, block rules, special blocks, lazy parser, serializer и safe
+  read-only renderer разнесены по focused modules (13–370 строк);
+- порядок Markdown-it rules, ленивое создание `MarkdownParser` и existing
+  round-trip compatibility guard сохранены. Формат Markdown и Live Preview
+  admission не изменены; BOM/line-ending restoration остаётся в
+  `markdown-compatibility.ts`.
 
 #### ARCH-01E — Web storage adapter
 
@@ -808,7 +818,7 @@ state.
 | ARCH-01A  | IMPLEMENTED | `cargo test --manifest-path src-tauri/Cargo.toml bundle::tests`: 22 Rust; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`             | `bundle/mod.rs` 27 строк; production modules ≤293 строк; новых ручных сценариев нет                              |
 | ARCH-01B  | IMPLEMENTED | `npm run test`: 300 Vitest; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`; typecheck; ESLint; Prettier; bindings без diff           | `use-file-actions.ts` 37 строк; hooks 80–283 строки; новых ручных сценариев нет                                  |
 | ARCH-01C  | IMPLEMENTED | `npm run verify`: 300 Vitest; 136 Rust; typecheck; ESLint; Prettier; Knip; Rustfmt; strict Clippy; `bindings:check` без diff; `npm run build` | Workspace façade — 6 строк; Canvas/vault/property orchestration вынесена; новых ручных сценариев нет             |
-| ARCH-01D  | PENDING     | —                                                                                                                                             | Markdown parser/serializer boundary                                                                              |
+| ARCH-01D  | IMPLEMENTED | focused `markdown.test.ts`: 43 Vitest; `npm run verify`: 300 Vitest, 136 Rust; `npm run build`; `bindings:check` без diff                     | `markdown.ts` 18 строк; production modules 13–370 строк; новых ручных сценариев нет                              |
 | ARCH-01E  | PENDING     | —                                                                                                                                             | Web storage adapter                                                                                              |
 | FINAL-01  | PENDING     | —                                                                                                                                             | Полный release gate и ручные сценарии                                                                            |
 
