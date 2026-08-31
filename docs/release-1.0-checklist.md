@@ -11,7 +11,7 @@ This is not a released or fully accepted candidate.
 - [x] Browser storage contract, including Unicode and error semantics.
 - [x] Real Windows WebView/Tauri/Rust/filesystem storage contract.
 - [x] Rust formatting, strict Clippy, Rust tests, and generated IPC bindings.
-- [ ] `npm run verify:full` from a clean tree.
+- [x] `npm run verify:full` from clean committed candidate `974ff43`.
 
 ## Required release-machine gates
 

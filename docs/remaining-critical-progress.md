@@ -58,7 +58,7 @@ Rust dependencies initially required network access outside the sandbox.
 | 9 Windows        | Production MSI/NSIS build, exact-candidate NSIS install/uninstall, and live storage/UI lifecycle passed. Installed production runtime remains separate; symlink permission test is explicitly skipped with Windows error 1314.                                                                   |
 | 10 Linux         | **DEFERRED** per supplied roadmap; not claimed supported by this verification.                                                                                                                                                                                                                   |
 | 11 performance   | 1k/5k/10k recorded with machine/build context in `performance-baseline.md`; all generator assertions passed.                                                                                                                                                                                     |
-| 12 release       | **PARTIAL**: automated, isolated full native UI, audit and bundle/install gates passed. Installed production runtime, prepared filesystem media and a clean committed candidate remain. No release/promotion/publication performed.                                                              |
+| 12 release       | **PARTIAL**: automated, isolated full native UI, audit, bundle/install and clean committed-candidate gates passed. Installed production runtime and prepared filesystem media remain. No release/promotion/publication performed.                                                                |
 
 ## Verification and artifacts
 
@@ -66,7 +66,8 @@ Rust dependencies initially required network access outside the sandbox.
   418 frontend tests in 67 files, Prettier, Knip, Rustfmt, strict Clippy,
   200 Rust tests and generated-binding freshness all passed. Two Rust tests are
   ignored in the default suite: performance (run separately for all three sizes)
-  and Windows symlink (blocked by OS privilege). Evidence: `windows-final-verify.log`.
+  and Windows symlink (blocked by OS privilege). The same gate passed from clean
+  committed candidate `974ff43`; evidence: `windows-committed-verify.log`.
 - Native test TypeScript and the new React regression were additionally checked
   with TypeScript; the live runner now typechecks its test entry before building.
 - `deadlock-regression.log`: test failed before fix; `deadlock-fixed.log`: passed.
@@ -102,8 +103,8 @@ global workspace settings, credentials, or installed app files were modified.
 3. Run exFAT, FAT32 and SMB cases only when prepared disposable media/mounts exist.
    None was available in this session; no disk was formatted and no share invented.
 4. macOS work is excluded by the user's instruction. Linux remains deferred.
-5. Re-run full verification on the committed candidate after those gates, then
-   apply the feature freeze. Optional architecture recommendations remain out of scope.
+5. Re-run full verification after any change made to complete a remaining gate,
+   then apply the feature freeze. Optional architecture recommendations remain out of scope.
 
 ## Release status
 

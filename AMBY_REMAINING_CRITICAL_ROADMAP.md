@@ -1129,7 +1129,7 @@ known limitations:
 
 ```text
 Windows: PARTIAL (production installed-runtime launch requires explicit settings-isolation approval)
-commit: working tree on dev; final committed-candidate rerun pending
+commit: 974ff43 (verified committed candidate; gate-record synchronization follows)
 date: 2026-09-01
 Windows version: 25H2, build 26200.9168
 architecture: AMD64
