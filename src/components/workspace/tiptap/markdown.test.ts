@@ -96,7 +96,7 @@ describe("markdown <-> tiptap round-trip", () => {
   })
 
   it("restores consistent CRLF formatting after visual serialization", () => {
-    const crlfFixture = livePreviewSafeFixture.replace(/\n/g, "\r\n")
+    const crlfFixture = livePreviewSafeFixture.replace(/\r?\n/g, "\r\n")
     expect(roundTripCheck(crlfFixture).ok).toBe(true)
     expect(restoreSourceFormatting("One\nTwo", "One\r\nTwo\r\n")).toBe("One\r\nTwo\r\n")
   })
@@ -172,6 +172,31 @@ describe("markdown <-> tiptap round-trip", () => {
   it("preserves multi-line raw HTML without parsing or executing it", () => {
     const rawHtml = "<details>\n<summary>More</summary>\n<script>doNotRun()</script>\n</details>"
     expect(roundTripCheck(rawHtml)).toEqual({ ok: true, result: rawHtml })
+  })
+
+  it("preserves opaque blocks while editing only a supported paragraph", () => {
+    for (const opaque of [
+      '<aside data-custom="keep">Unknown HTML</aside>',
+      "```custom-language\nunknown { source }\n```",
+      "$$\ncustom + math\n$$",
+    ]) {
+      const source = `Before.\n\n${opaque}\n\nAfter.`
+      expect(roundTripCheck(source).ok).toBe(true)
+      const doc = editorSchema.nodeFromJSON(markdownToDoc(source))
+      expect(doc.firstChild?.type.name).toBe("paragraph")
+      const edited = doc.copy(
+        doc.content.replaceChild(
+          0,
+          editorSchema.nodes.paragraph.create(
+            null,
+            editorSchema.text("Edited supported paragraph."),
+          ),
+        ),
+      )
+      const saved = docToMarkdown(edited)
+      expect(saved).toBe(source.replace("Before.", "Edited supported paragraph."))
+      expect(roundTripCheck(saved).ok).toBe(true)
+    }
   })
 
   it("routes the complex Obsidian fixture through the lossless Source-mode guard", () => {

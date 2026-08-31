@@ -149,15 +149,50 @@ pub struct ParsedMarkdown {
     pub parse_error: Option<String>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum ParsedNoteIdentity<'a> {
+    TrustedAmby(&'a str),
+    LegacyCandidate(&'a str),
+    Missing,
+    InvalidAmbyId(&'a str),
+}
+
 impl ParsedMarkdown {
-    /// Legacy IDs are read-only compatibility candidates, never permission to
-    /// rewrite the user's generic `id`. An explicit namespaced value wins even
-    /// when invalid: do not fall back and hide that conflict.
-    pub fn note_id(&self) -> Option<&str> {
-        if self.identity_error.is_some() {
-            None
+    pub fn identity(&self) -> ParsedNoteIdentity<'_> {
+        if let Some(error) = self.identity_error.as_deref() {
+            ParsedNoteIdentity::InvalidAmbyId(error)
+        } else if let Some(id) = self.id.as_deref() {
+            ParsedNoteIdentity::TrustedAmby(id)
+        } else if let Some(id) = self.legacy_id.as_deref() {
+            ParsedNoteIdentity::LegacyCandidate(id)
         } else {
-            self.id.as_deref().or(self.legacy_id.as_deref())
+            ParsedNoteIdentity::Missing
+        }
+    }
+
+    /// Only the namespaced service field establishes authoritative identity.
+    pub fn note_id(&self) -> Option<&str> {
+        match self.identity() {
+            ParsedNoteIdentity::TrustedAmby(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// This candidate is usable only by the explicitly confirmed migration.
+    pub fn migration_id(&self) -> Option<&str> {
+        match self.identity() {
+            ParsedNoteIdentity::TrustedAmby(id) | ParsedNoteIdentity::LegacyCandidate(id) => {
+                Some(id)
+            }
+            _ => None,
+        }
+    }
+
+    pub fn indexing_identity_error(&self) -> Option<String> {
+        match self.identity() {
+            ParsedNoteIdentity::LegacyCandidate(_) => Some("Legacy identity candidate requires explicit migration; generic id remains user-owned".into()),
+            ParsedNoteIdentity::InvalidAmbyId(error) => Some(error.into()),
+            _ => None,
         }
     }
 }

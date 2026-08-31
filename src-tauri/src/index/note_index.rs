@@ -440,7 +440,7 @@ pub fn prepare_note_at_path(
             path,
         );
     }
-    if parsed.identity_error.is_some() {
+    if parsed.indexing_identity_error().is_some() {
         return prepare_note_index(vault, &conflict_id(None, &rel_path), &parsed.body, path);
     }
     let id = parsed.note_id().map(str::to_string);

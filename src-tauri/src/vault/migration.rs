@@ -302,7 +302,7 @@ fn migration_outputs(original: &[u8], id: &str, version: u8) -> Result<Vec<Vec<u
     }
     let content = std::str::from_utf8(original).map_err(|e| e.to_string())?;
     let parsed = frontmatter::parse_markdown(content);
-    if parsed.note_id().is_some_and(|existing| existing != id) {
+    if parsed.migration_id().is_some_and(|existing| existing != id) {
         return Err("Migration would change an existing identity".into());
     }
     let mut outputs = Vec::new();
@@ -409,7 +409,7 @@ pub fn preflight_vault(vault: &Path) -> Result<VaultPreflight, String> {
             report.user_managed_ids.push(rel_path);
             continue;
         }
-        if let Some(id) = parsed.note_id() {
+        if let Some(id) = parsed.migration_id() {
             if let Some(first_path) = ids.insert(id.to_string(), rel_path.clone()) {
                 duplicates.insert(id.to_string());
                 report

@@ -1,6 +1,7 @@
 import i18n from "@/lib/i18n"
 import { commands } from "@/lib/bindings"
 import { unwrapCommand } from "./ipc-result"
+import { joinStoragePath } from "./storage-path"
 import type { StoragePort } from "./port"
 import { NoteRevisionConflictError } from "./types"
 import type {
@@ -181,7 +182,7 @@ export class DesktopAdapter implements StoragePort {
   }
 
   async createFolder(_vaultPath: string, name: string): Promise<string> {
-    const path = _vaultPath ? `${_vaultPath.replace(/\/$/u, "")}/${name}` : name
+    const path = _vaultPath ? joinStoragePath(_vaultPath, name) : name
     await unwrapCommand(commands.createFolder(path))
     return path
   }

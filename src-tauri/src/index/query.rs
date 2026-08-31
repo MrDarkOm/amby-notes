@@ -6,7 +6,7 @@ use super::note_index::IndexedNote;
 use crate::vault::scan::{abs_from_rel, path_string};
 
 const SEARCH_LIMIT: i64 = 50;
-const SNIPPET_RADIUS: usize = 60;
+const TITLE_ALL_TERMS_BONUS: i64 = 400;
 // FTS5 BM25 returns lower (normally negative) values for more relevant rows.
 // Keep enough precision when exposing the existing integer score over IPC, while
 // reserving bounded adjustments for clearly stronger title matches.
@@ -24,72 +24,6 @@ pub struct SearchResult {
     pub score: i64,
 }
 
-#[derive(Clone, Copy)]
-struct FoldedCharacter {
-    character: char,
-    start: usize,
-    end: usize,
-}
-
-fn casefolded_characters(text: &str) -> Vec<FoldedCharacter> {
-    text.char_indices()
-        .flat_map(|(start, source)| {
-            let end = start + source.len_utf8();
-            source.to_lowercase().map(move |character| FoldedCharacter {
-                character,
-                start,
-                end,
-            })
-        })
-        .collect()
-}
-
-fn casefolded_range(content: &str, query: &str) -> Option<(usize, usize)> {
-    let needle = casefolded_characters(query);
-    if needle.is_empty() {
-        return None;
-    }
-    let haystack = casefolded_characters(content);
-    haystack
-        .windows(needle.len())
-        .find(|window| {
-            window
-                .iter()
-                .zip(&needle)
-                .all(|(haystack, needle)| haystack.character == needle.character)
-        })
-        .map(|window| (window[0].start, window[window.len() - 1].end))
-}
-
-fn advance_characters(content: &str, offset: usize, count: usize) -> usize {
-    content[offset..]
-        .char_indices()
-        .nth(count)
-        .map(|(index, _)| offset + index)
-        .unwrap_or(content.len())
-}
-
-fn retreat_characters(content: &str, offset: usize, count: usize) -> usize {
-    content[..offset]
-        .char_indices()
-        .rev()
-        .nth(count.saturating_sub(1))
-        .map(|(index, _)| index)
-        .unwrap_or(0)
-}
-
-pub fn snippet(content: &str, query: &str) -> Option<String> {
-    let (match_start, match_end) = casefolded_range(content, query)?;
-    let start = retreat_characters(content, match_start, SNIPPET_RADIUS);
-    let end = advance_characters(content, match_end, SNIPPET_RADIUS);
-    Some(format!(
-        "{}{}{}",
-        if start > 0 { "..." } else { "" },
-        &content[start..end],
-        if end < content.len() { "..." } else { "" }
-    ))
-}
-
 /// Split a user search string into the word-like units understood by FTS.
 ///
 /// Underscores stay within a token to preserve identifier searches, while all
@@ -103,8 +37,8 @@ fn search_terms(query: &str) -> Vec<String> {
         .collect()
 }
 
-fn fts_query(query: &str) -> Option<String> {
-    let terms = search_terms(query)
+fn fts_query(terms: &[String]) -> Option<String> {
+    let terms = terms
         // Terms are generated exclusively by `search_terms`, rather than
         // accepting FTS syntax from the user. Quoting them also keeps the
         // expression shape fixed as an AND of prefix searches.
@@ -114,24 +48,35 @@ fn fts_query(query: &str) -> Option<String> {
     (!terms.is_empty()).then(|| terms.join(" AND "))
 }
 
-fn search_score(rank: f64, title: &str, query: &str) -> i64 {
-    let normalized_title = title.trim().to_lowercase();
-    let normalized_query = query.trim().to_lowercase();
-    let title_bonus = if normalized_title == normalized_query {
-        TITLE_EXACT_BONUS
-    } else if normalized_title.starts_with(&normalized_query) {
-        TITLE_PREFIX_BONUS
-    } else if normalized_title.contains(&normalized_query) {
-        TITLE_CONTAINS_BONUS
-    } else {
-        0
-    };
-
-    // Negating preserves FTS5's direction: a lower BM25 rank becomes a higher
-    // score. The bonuses deliberately adjust, rather than replace, relevance.
-    (-rank * BM25_SCORE_SCALE).round() as i64 + title_bonus
+struct SearchQuery {
+    terms: Vec<String>,
+    expression: String,
 }
 
+impl SearchQuery {
+    fn new(raw: &str) -> Option<Self> {
+        let terms = search_terms(raw);
+        let expression = fts_query(&terms)?;
+        Some(Self { terms, expression })
+    }
+
+    fn title_bonus(&self, title: &str, all_title_terms: bool) -> i64 {
+        if !all_title_terms {
+            return 0;
+        }
+        let title = search_terms(title).join(" ").to_lowercase();
+        let query = self.terms.join(" ").to_lowercase();
+        if title == query {
+            TITLE_EXACT_BONUS
+        } else if title.starts_with(&query) {
+            TITLE_PREFIX_BONUS
+        } else if title.contains(&query) {
+            TITLE_CONTAINS_BONUS
+        } else {
+            TITLE_ALL_TERMS_BONUS
+        }
+    }
+}
 fn row_to_note(vault: &Path, row: &rusqlite::Row<'_>) -> rusqlite::Result<IndexedNote> {
     Ok(IndexedNote {
         id: row.get(0)?,
@@ -157,14 +102,14 @@ pub fn search_notes(
     if let Some(tag_query) = query.strip_prefix('#') {
         return search_tags(conn, vault, tag_query.trim());
     }
-    let Some(fts_query) = fts_query(query) else {
+    let Some(query) = SearchQuery::new(query) else {
         return Ok(Vec::new());
     };
     let mut statement = conn
         .prepare(
             r#"
-            SELECT notes.id, notes.path, notes.title, notes.mtime, notes.word_count, notes.content,
-                   bm25(notes_fts) AS rank
+            SELECT notes.id, notes.path, notes.title, notes.mtime, notes.word_count, snippet(notes_fts, 1, '', '', '…', 32),
+                   bm25(notes_fts) AS rank, notes_fts.rowid IN (SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?3)
             FROM notes_fts
             JOIN notes ON notes.rowid = notes_fts.rowid
             WHERE notes_fts MATCH ?1
@@ -174,19 +119,32 @@ pub fn search_notes(
         )
         .map_err(|error| error.to_string())?;
     let rows = statement
-        .query_map(params![fts_query, SEARCH_LIMIT], |row| {
-            let note = row_to_note(vault, row)?;
-            Ok((note, row.get::<_, String>(5)?, row.get::<_, f64>(6)?))
-        })
+        .query_map(
+            params![
+                query.expression,
+                SEARCH_LIMIT,
+                format!("title : ({})", query.expression)
+            ],
+            |row| {
+                let note = row_to_note(vault, row)?;
+                Ok((
+                    note,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, f64>(6)?,
+                    row.get::<_, bool>(7)?,
+                ))
+            },
+        )
         .map_err(|error| error.to_string())?;
     let mut results = Vec::new();
     for row in rows {
-        let (note, content, rank) = row.map_err(|error| error.to_string())?;
-        let title_match = casefolded_range(&note.title, query).is_some();
+        let (note, content, rank, title_match) = row.map_err(|error| error.to_string())?;
+
         results.push(SearchResult {
-            score: search_score(rank, &note.title, query),
+            score: (-rank * BM25_SCORE_SCALE).round() as i64
+                + query.title_bonus(&note.title, title_match),
             match_type: if title_match { "name" } else { "content" }.to_string(),
-            snippet: (!title_match).then(|| snippet(&content, query)).flatten(),
+            snippet: (!content.is_empty()).then_some(content),
             note,
         });
     }
@@ -247,22 +205,63 @@ mod tests {
         conn
     }
 
+    #[test]
+    fn punctuation_title_and_snippet_share_fts_terms() {
+        for query in ["foo-bar", "foo/bar", "foo.bar"] {
+            let conn = test_connection();
+            insert_note(&conn, "terms", "Foo Bar", "foo something bar");
+            let results = search_notes(&conn, Path::new("/vault"), query).unwrap();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].match_type, "name");
+            assert!(results[0].snippet.as_ref().unwrap().contains("foo"));
+            assert_eq!(
+                results[0].score,
+                search_notes(&conn, Path::new("/vault"), "foo bar").unwrap()[0].score
+            );
+        }
+    }
+
+    #[test]
+    fn punctuation_unicode_and_syntax_matrix_reaches_fts_safely() {
+        let conn = test_connection();
+        insert_note(&conn, "matrix", "Reference", "foo bar hello world node js snake_case C русский український 日本語 English AND OR NEAR café");
+        for query in [
+            "foo-bar",
+            "foo/bar",
+            "hello.world",
+            "node.js",
+            "snake_case",
+            "C++",
+            "C#",
+            "русский",
+            "український",
+            "日本語",
+            "English русский",
+            "AND",
+            "OR",
+            "NEAR",
+            "cafe",
+        ] {
+            let results = search_notes(&conn, Path::new("/vault"), query).unwrap();
+            assert_eq!(results.len(), 1, "{query}");
+            assert!(results[0].snippet.is_some(), "{query}");
+        }
+        for query in ["🔥", "\"", "*", "(", ")", ":"] {
+            assert!(
+                search_notes(&conn, Path::new("/vault"), query)
+                    .unwrap()
+                    .is_empty(),
+                "{query}"
+            );
+        }
+    }
+
     fn insert_note(conn: &Connection, id: &str, title: &str, content: &str) {
         conn.execute(
             "INSERT INTO notes (id, path, title, mtime, size, content, word_count, created_at, updated_at) VALUES (?1, ?2, ?3, 0, 0, ?4, 0, 0, 0)",
             params![id, format!("{id}.md"), title, content],
         )
         .unwrap();
-    }
-
-    #[test]
-    fn snippets_keep_unicode_boundaries_from_the_original_content() {
-        let content = "Начало 🚀 İstanbul и завершающий текст";
-        let result = snippet(content, "İSTANBUL").unwrap();
-
-        assert!(result.contains("İstanbul"));
-        assert!(snippet(content, "🚀").unwrap().contains('🚀'));
-        assert!(snippet("e\u{301}clair", "E\u{301}C").is_some());
     }
 
     #[test]
@@ -290,7 +289,7 @@ mod tests {
     #[test]
     fn fts_queries_do_not_admit_user_fts_syntax() {
         assert_eq!(
-            fts_query("foo OR bar\" NEAR/10 baz*"),
+            fts_query(&search_terms("foo OR bar\" NEAR/10 baz*")),
             Some(
                 "\"foo\"* AND \"OR\"* AND \"bar\"* AND \"NEAR\"* AND \"10\"* AND \"baz\"*"
                     .to_string()

@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { useVaultStore } from "./use-vault-store"
+import { deduplicateVaultRecords, reconcileVaultRecord } from "./vault-records"
 import { useDocStore } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useViewStateStore } from "./use-view-state-store"
@@ -115,11 +116,7 @@ export function useVaultData() {
   // ── Tree helpers ────────────────────────────────────────────────────────────
 
   function addVaultToList(path: string) {
-    setVaults((prev) => {
-      if (prev.find((v) => v.path === path)) return prev
-      const name = path.replace(/\\/g, "/").split("/").pop() ?? path
-      return [...prev, { id: crypto.randomUUID(), name, path }]
-    })
+    setVaults((prev) => reconcileVaultRecord(prev, path))
   }
 
   async function refreshTree(path: string | null = vault): Promise<TreeItem[]> {
@@ -673,7 +670,7 @@ export function useVaultData() {
         await loadVault(currentVault)
         return
       }
-      setVaults(file.recent)
+      setVaults(deduplicateVaultRecords(file.recent))
       workspacesHydrated.current = true
       const startup = planVaultStartup({
         isDesktop: desktop,

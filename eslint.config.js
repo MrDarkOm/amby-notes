@@ -10,6 +10,7 @@ export default tseslint.config(
     // Generated bindings, build output, and the Rust crate are out of scope.
     ignores: [
       "dist",
+      ".release-evidence",
       ".claude",
       "src-tauri",
       "node_modules",

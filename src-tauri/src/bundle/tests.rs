@@ -186,11 +186,11 @@ fn scan_hides_bundle_sidecars_and_exposes_child_notes() {
     let vault = temp_vault("scan");
     fs::write(vault.join("Loose.md"), "").unwrap();
     fs::create_dir(vault.join("Parent")).unwrap();
-    fs::write(vault.join("Parent/Parent.md"), "").unwrap();
-    fs::write(vault.join("Parent/Child.md"), "").unwrap();
-    fs::write(vault.join("Parent/Parent.canvas"), "{}").unwrap();
-    fs::write(vault.join("Parent/Metadata.md"), "").unwrap();
-    fs::create_dir(vault.join("Parent/assets")).unwrap();
+    fs::write(vault.join("Parent").join("Parent.md"), "").unwrap();
+    fs::write(vault.join("Parent").join("Child.md"), "").unwrap();
+    fs::write(vault.join("Parent").join("Parent.canvas"), "{}").unwrap();
+    fs::write(vault.join("Parent").join("Metadata.md"), "").unwrap();
+    fs::create_dir(vault.join("Parent").join("assets")).unwrap();
     fs::write(vault.join("Parent/assets/image.png"), "").unwrap();
     // Standalone canvas (not a note's layer sidecar) should surface in the tree.
     fs::write(vault.join("Board.canvas"), "{}").unwrap();
@@ -198,7 +198,10 @@ fn scan_hides_bundle_sidecars_and_exposes_child_notes() {
     let tree = scan_dir(&vault).unwrap();
     let parent = tree.iter().find(|item| item.name == "Parent").unwrap();
     assert_eq!(parent.item_type, "file");
-    assert_eq!(parent.id, path_string(&vault.join("Parent/Parent.md")));
+    assert_eq!(
+        parent.id,
+        path_string(&vault.join("Parent").join("Parent.md"))
+    );
     let children = parent.children.as_ref().unwrap();
     // Only Child.md is exposed; Parent.canvas (layer sidecar) stays hidden.
     assert_eq!(children.len(), 1);
@@ -218,7 +221,7 @@ fn ensure_bundle_transforms_simple_note() {
     let (main, changes) = ensure_bundle_path(&note).unwrap();
 
     assert!(!note.exists());
-    assert_eq!(main, vault.join("Doc/Doc.md"));
+    assert_eq!(main, vault.join("Doc").join("Doc.md"));
     assert_eq!(fs::read_to_string(&main).unwrap(), "hello");
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].old_path, path_string(&note));
@@ -242,7 +245,7 @@ fn failed_child_creation_does_not_promote_the_parent_note() {
 fn standalone_note_cannot_duplicate_a_bundle_name() {
     let vault = temp_vault("bundle-name-conflict");
     fs::create_dir(vault.join("Parent")).unwrap();
-    fs::write(vault.join("Parent/Parent.md"), "parent").unwrap();
+    fs::write(vault.join("Parent").join("Parent.md"), "parent").unwrap();
 
     let error = create_note_impl(&vault, "Parent").err().unwrap();
 
@@ -291,18 +294,18 @@ fn moving_note_onto_note_creates_target_bundle() {
 
     let result = move_item_impl(&source, &target).unwrap();
 
-    assert!(vault.join("B/B.md").exists());
-    assert!(vault.join("B/A.md").exists());
+    assert!(vault.join("B").join("B.md").exists());
+    assert!(vault.join("B").join("A.md").exists());
     assert!(result
         .path_changes
         .iter()
         .any(|change| change.old_path == path_string(&target)
-            && change.new_path == path_string(&vault.join("B/B.md"))));
+            && change.new_path == path_string(&vault.join("B").join("B.md"))));
     assert!(result
         .path_changes
         .iter()
         .any(|change| change.old_path == path_string(&source)
-            && change.new_path == path_string(&vault.join("B/A.md"))));
+            && change.new_path == path_string(&vault.join("B").join("A.md"))));
 }
 
 #[test]
@@ -323,31 +326,31 @@ fn failed_move_restores_a_promoted_target_note() {
 fn renaming_bundle_renames_container_main_note_and_sidecars() {
     let vault = temp_vault("rename");
     fs::create_dir(vault.join("Old")).unwrap();
-    fs::write(vault.join("Old/Old.md"), "").unwrap();
-    fs::write(vault.join("Old/Old.canvas"), "").unwrap();
-    fs::write(vault.join("Old/Old.excalidraw"), "").unwrap();
-    fs::write(vault.join("Old/Child.md"), "").unwrap();
+    fs::write(vault.join("Old").join("Old.md"), "").unwrap();
+    fs::write(vault.join("Old").join("Old.canvas"), "").unwrap();
+    fs::write(vault.join("Old").join("Old.excalidraw"), "").unwrap();
+    fs::write(vault.join("Old").join("Child.md"), "").unwrap();
 
-    let result = rename_item_impl(&vault.join("Old/Old.md"), "New").unwrap();
+    let result = rename_item_impl(&vault.join("Old").join("Old.md"), "New").unwrap();
 
-    assert!(vault.join("New/New.md").exists());
-    assert!(vault.join("New/New.canvas").exists());
-    assert!(vault.join("New/New.excalidraw").exists());
-    assert!(vault.join("New/Child.md").exists());
+    assert!(vault.join("New").join("New.md").exists());
+    assert!(vault.join("New").join("New.canvas").exists());
+    assert!(vault.join("New").join("New.excalidraw").exists());
+    assert!(vault.join("New").join("Child.md").exists());
     assert!(!vault.join("Old").exists());
     assert_eq!(
         result.primary_path,
-        Some(path_string(&vault.join("New/New.md")))
+        Some(path_string(&vault.join("New").join("New.md")))
     );
     assert!(result.path_changes.iter().any(|change| change.old_path
-        == path_string(&vault.join("Old/Child.md"))
-        && change.new_path == path_string(&vault.join("New/Child.md"))));
+        == path_string(&vault.join("Old").join("Child.md"))
+        && change.new_path == path_string(&vault.join("New").join("Child.md"))));
     assert!(result.path_changes.iter().any(|change| change.old_path
-        == path_string(&vault.join("Old/Old.canvas"))
-        && change.new_path == path_string(&vault.join("New/New.canvas"))));
+        == path_string(&vault.join("Old").join("Old.canvas"))
+        && change.new_path == path_string(&vault.join("New").join("New.canvas"))));
     assert!(result.path_changes.iter().any(|change| change.old_path
-        == path_string(&vault.join("Old/Old.excalidraw"))
-        && change.new_path == path_string(&vault.join("New/New.excalidraw"))));
+        == path_string(&vault.join("Old").join("Old.excalidraw"))
+        && change.new_path == path_string(&vault.join("New").join("New.excalidraw"))));
 }
 
 #[test]
@@ -385,7 +388,7 @@ fn case_only_file_and_folder_renames_use_a_temporary_sibling() {
 
     assert_eq!(fs::read_to_string(vault.join("note.md")).unwrap(), "note");
     assert_eq!(
-        fs::read_to_string(vault.join("folder/Child.md")).unwrap(),
+        fs::read_to_string(vault.join("folder").join("Child.md")).unwrap(),
         "child"
     );
     let names = fs::read_dir(&vault)
@@ -403,26 +406,26 @@ fn case_only_file_and_folder_renames_use_a_temporary_sibling() {
 fn case_only_bundle_rename_keeps_main_and_sidecars_consistent() {
     let vault = temp_vault("case-only-bundle");
     fs::create_dir(vault.join("Note")).unwrap();
-    fs::write(vault.join("Note/Note.md"), "main").unwrap();
-    fs::write(vault.join("Note/Note.canvas"), "canvas").unwrap();
-    fs::write(vault.join("Note/Note.excalidraw"), "excalidraw").unwrap();
+    fs::write(vault.join("Note").join("Note.md"), "main").unwrap();
+    fs::write(vault.join("Note").join("Note.canvas"), "canvas").unwrap();
+    fs::write(vault.join("Note").join("Note.excalidraw"), "excalidraw").unwrap();
 
-    let result = rename_item_impl(&vault.join("Note/Note.md"), "note").unwrap();
+    let result = rename_item_impl(&vault.join("Note").join("Note.md"), "note").unwrap();
 
     assert_eq!(
         result.primary_path,
-        Some(path_string(&vault.join("note/note.md")))
+        Some(path_string(&vault.join("note").join("note.md")))
     );
     assert_eq!(
-        fs::read_to_string(vault.join("note/note.md")).unwrap(),
+        fs::read_to_string(vault.join("note").join("note.md")).unwrap(),
         "main"
     );
     assert_eq!(
-        fs::read_to_string(vault.join("note/note.canvas")).unwrap(),
+        fs::read_to_string(vault.join("note").join("note.canvas")).unwrap(),
         "canvas"
     );
     assert_eq!(
-        fs::read_to_string(vault.join("note/note.excalidraw")).unwrap(),
+        fs::read_to_string(vault.join("note").join("note.excalidraw")).unwrap(),
         "excalidraw"
     );
 }
@@ -431,20 +434,20 @@ fn case_only_bundle_rename_keeps_main_and_sidecars_consistent() {
 fn bundle_rename_conflict_is_rejected_before_any_file_moves() {
     let vault = temp_vault("rename-conflict");
     fs::create_dir(vault.join("Old")).unwrap();
-    fs::write(vault.join("Old/Old.md"), "main").unwrap();
-    fs::write(vault.join("Old/New.md"), "child").unwrap();
+    fs::write(vault.join("Old").join("Old.md"), "main").unwrap();
+    fs::write(vault.join("Old").join("New.md"), "child").unwrap();
 
-    let error = rename_item_impl(&vault.join("Old/Old.md"), "New")
+    let error = rename_item_impl(&vault.join("Old").join("Old.md"), "New")
         .err()
         .unwrap();
 
     assert!(error.contains("Target already exists"));
     assert_eq!(
-        fs::read_to_string(vault.join("Old/Old.md")).unwrap(),
+        fs::read_to_string(vault.join("Old").join("Old.md")).unwrap(),
         "main"
     );
     assert_eq!(
-        fs::read_to_string(vault.join("Old/New.md")).unwrap(),
+        fs::read_to_string(vault.join("Old").join("New.md")).unwrap(),
         "child"
     );
     assert!(!vault.join("New").exists());
@@ -454,24 +457,24 @@ fn bundle_rename_conflict_is_rejected_before_any_file_moves() {
 fn rollback_bundle_rename_restores_every_bundle_file() {
     let vault = temp_vault("rollback-rename");
     fs::create_dir(vault.join("Old")).unwrap();
-    fs::write(vault.join("Old/Old.md"), "main").unwrap();
-    fs::write(vault.join("Old/Old.canvas"), "canvas").unwrap();
-    fs::write(vault.join("Old/Child.md"), "child").unwrap();
-    let original = vault.join("Old/Old.md");
+    fs::write(vault.join("Old").join("Old.md"), "main").unwrap();
+    fs::write(vault.join("Old").join("Old.canvas"), "canvas").unwrap();
+    fs::write(vault.join("Old").join("Child.md"), "child").unwrap();
+    let original = vault.join("Old").join("Old.md");
 
     let result = rename_item_impl(&original, "New").unwrap();
     rollback_rename_item(&original, &result).unwrap();
 
     assert_eq!(
-        fs::read_to_string(vault.join("Old/Old.md")).unwrap(),
+        fs::read_to_string(vault.join("Old").join("Old.md")).unwrap(),
         "main"
     );
     assert_eq!(
-        fs::read_to_string(vault.join("Old/Old.canvas")).unwrap(),
+        fs::read_to_string(vault.join("Old").join("Old.canvas")).unwrap(),
         "canvas"
     );
     assert_eq!(
-        fs::read_to_string(vault.join("Old/Child.md")).unwrap(),
+        fs::read_to_string(vault.join("Old").join("Child.md")).unwrap(),
         "child"
     );
     assert!(!vault.join("New").exists());
@@ -557,12 +560,12 @@ fn preview_move_matches_bundle_conversion_paths() {
         .path_changes
         .iter()
         .any(|change| change.old_path == path_string(&source)
-            && change.new_path == path_string(&vault.join("B/A.md"))));
+            && change.new_path == path_string(&vault.join("B").join("A.md"))));
     assert!(preview
         .path_changes
         .iter()
         .any(|change| change.old_path == path_string(&target)
-            && change.new_path == path_string(&vault.join("B/B.md"))));
+            && change.new_path == path_string(&vault.join("B").join("B.md"))));
     assert!(source.exists());
     assert!(target.exists());
 }

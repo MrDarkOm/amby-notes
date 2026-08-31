@@ -3,3 +3,5 @@ node_modules
 src-tauri
 src/lib/bindings.ts
 package-lock.json
+tests/fixtures/compatibility-vault
+.release-evidence

@@ -177,8 +177,19 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
     })
   })
 
-  describe("DesktopAdapter with mocked Tauri commands", () => {
+  describe("DesktopAdapter delegation (mocked commands, not a live contract)", () => {
     let adapter: DesktopAdapter
+
+    it("joins Windows verbatim folder paths without invalid forward slashes", async () => {
+      const command = vi
+        .spyOn(commands, "createFolder")
+        .mockResolvedValue({ status: "ok", data: null })
+      const parent = "\\\\?\\C:\\Vault"
+      await expect(new DesktopAdapter().createFolder(parent, "Nested")).resolves.toBe(
+        `${parent}\\Nested`,
+      )
+      expect(command).toHaveBeenCalledWith(`${parent}\\Nested`)
+    })
 
     beforeEach(() => {
       vi.stubGlobal("window", { __TAURI_INTERNALS__: {} })

@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::HashSet;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -12,7 +13,9 @@ pub struct ActiveVault {
     pub connection: Connection,
     pub generation: u64,
     pub watcher_identity: Option<u64>,
-    pub index_health: IndexState,
+    // Access is already serialized by VaultContext::conn. Interior mutation
+    // lets a command record failure without recursively locking that mutex.
+    pub index_health: Cell<IndexState>,
     /// Owned by this activation, so delayed callbacks cannot dirty a new vault.
     pub index_changes: Arc<Mutex<HashSet<PathBuf>>>,
 }
@@ -141,7 +144,7 @@ impl VaultContext {
             connection: prepared.connection,
             generation,
             watcher_identity: None,
-            index_health: IndexState::Healthy,
+            index_health: Cell::new(IndexState::Healthy),
             index_changes: Arc::new(Mutex::new(HashSet::new())),
         });
         if let Err(error) = after_commit(active.as_ref().expect("active vault was just set")) {
@@ -176,7 +179,7 @@ impl VaultContext {
     pub fn mark_index_rebuild_required(&self) -> Result<(), String> {
         let mut active = self.conn.lock().unwrap();
         let active = active.as_mut().ok_or("No vault is open")?;
-        active.index_health = IndexState::RebuildRequired;
+        active.index_health.set(IndexState::RebuildRequired);
         Ok(())
     }
 }
@@ -306,7 +309,7 @@ mod tests {
         context.mark_index_rebuild_required().unwrap();
         context
             .with_active(|active| {
-                assert_eq!(active.index_health, IndexState::RebuildRequired);
+                assert_eq!(active.index_health.get(), IndexState::RebuildRequired);
                 Ok(())
             })
             .unwrap();
@@ -327,7 +330,7 @@ mod tests {
                     .query_row("PRAGMA database_list", [], |row| row.get(2))
                     .map_err(|error| error.to_string())?;
                 assert!(Path::new(&database).starts_with(&active.root));
-                assert_eq!(active.index_health, IndexState::Healthy);
+                assert_eq!(active.index_health.get(), IndexState::Healthy);
                 Ok(())
             })
             .unwrap();

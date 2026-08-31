@@ -114,7 +114,7 @@ mod tests {
 
         context
             .with_active(|active| {
-                assert_eq!(active.index_health, IndexState::Healthy);
+                assert_eq!(active.index_health.get(), IndexState::Healthy);
                 Ok(())
             })
             .expect("check healthy");
@@ -131,7 +131,7 @@ mod tests {
 
         context
             .with_active(|active| {
-                assert_eq!(active.index_health, IndexState::RebuildRequired);
+                assert_eq!(active.index_health.get(), IndexState::RebuildRequired);
                 Ok(())
             })
             .expect("check rebuild required");

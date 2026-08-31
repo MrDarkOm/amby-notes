@@ -93,6 +93,21 @@ mod tests {
     }
 
     #[test]
+    fn compatibility_byte_fixtures_have_real_crlf_and_bom() {
+        let source =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/compatibility-vault");
+        let crlf = fs::read(source.join("CRLF.md")).unwrap();
+        assert!(crlf.windows(2).any(|pair| pair == b"\r\n"));
+        assert!(!String::from_utf8(crlf)
+            .unwrap()
+            .replace("\r\n", "")
+            .contains('\n'));
+        assert!(fs::read(source.join("BOM.md"))
+            .unwrap()
+            .starts_with(&[0xef, 0xbb, 0xbf]));
+    }
+
+    #[test]
     fn compatibility_vault_rebuild_does_not_mutate_sources_and_safe_body_save_preserves_envelope() {
         let source =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/compatibility-vault");
@@ -112,13 +127,13 @@ mod tests {
 
         let conn = open_connection(&vault).unwrap();
         let first = load_vault(&conn, &vault).unwrap();
-        assert_eq!(first.notes.len(), 6);
+        assert_eq!(first.notes.len(), snapshots.len());
         drop(conn);
-        fs::remove_dir_all(vault.join(".amby")).unwrap();
+        fs::remove_file(db_path(&vault)).unwrap();
 
         let rebuilt = open_connection(&vault).unwrap();
         let second = load_vault(&rebuilt, &vault).unwrap();
-        assert_eq!(second.notes.len(), 6);
+        assert_eq!(second.notes.len(), snapshots.len());
         for (path, original) in snapshots {
             assert_eq!(fs::read(path).unwrap(), original);
         }
@@ -138,8 +153,12 @@ mod tests {
         )
         .unwrap();
         let saved = fs::read_to_string(vault.join("Plain Markdown.md")).unwrap();
-        assert!(saved.starts_with("---\namby-id: 01J00000000000000000000001\n---\n"));
-        assert!(saved.ends_with("Edited known body.\n"));
+        let original = fs::read_to_string(source.join("Plain Markdown.md")).unwrap();
+        let (envelope, _) = crate::frontmatter::split_frontmatter_envelope(&original).unwrap();
+        assert!(saved.starts_with(envelope));
+        assert!(saved
+            .replace("\r\n", "\n")
+            .ends_with("Edited known body.\n"));
 
         drop(rebuilt);
         assert!(db_path(&vault).exists());

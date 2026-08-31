@@ -17,6 +17,11 @@ mod vault_context;
 pub mod vault_index;
 mod watcher;
 
+#[cfg(feature = "native-contract")]
+mod native_contract;
+#[cfg(feature = "native-contract")]
+pub use native_contract::run_native_contract;
+
 #[cfg(test)]
 mod security_integration_test;
 

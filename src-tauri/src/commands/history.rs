@@ -173,7 +173,7 @@ pub fn restore_trash(
     };
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    Ok(sync_mutation_result(&db, conn, &vault, result))
+    Ok(sync_mutation_result(conn, &vault, result))
 }
 
 #[tauri::command]

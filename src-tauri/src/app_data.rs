@@ -20,14 +20,27 @@ use crate::vault_context::VaultContext;
 
 /// Root of the global app-data area: `{local_data_dir}/Amby/notes`. Created if missing.
 fn app_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let root = app
-        .path()
-        .local_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("Amby")
-        .join("notes");
-    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
-    Ok(root)
+    #[cfg(feature = "native-contract")]
+    {
+        let root = app
+            .try_state::<crate::native_contract::NativeAppDataRoot>()
+            .ok_or("Native harness requires isolated app data")?
+            .0
+            .clone();
+        fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+        Ok(root)
+    }
+    #[cfg(not(feature = "native-contract"))]
+    {
+        let root = app
+            .path()
+            .local_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("Amby")
+            .join("notes");
+        fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+        Ok(root)
+    }
 }
 
 /// Root of the per-vault metadata area: `{vault}/.amby`. Created if missing.

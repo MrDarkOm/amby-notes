@@ -12,7 +12,12 @@ fn vault() -> PathBuf {
 #[test]
 fn namespaced_identity_preserves_external_ids_and_indexes_the_body() {
     let root = vault();
-    for (name, value) in [("Jira", "jira-123"), ("Number", "42"), ("Null", "null")] {
+    for (name, value) in [
+        ("Jira", "jira-123"),
+        ("Uuid", "550e8400-e29b-41d4-a716-446655440000"),
+        ("Number", "42"),
+        ("Null", "null"),
+    ] {
         fs::write(
             root.join(format!("{name}.md")),
             format!("---\n# external\nid: {value}\n---\nsearchable #tag"),
@@ -21,7 +26,7 @@ fn namespaced_identity_preserves_external_ids_and_indexes_the_body() {
     }
     let conn = open_connection(&root).unwrap();
     let loaded = load_vault(&conn, &root).unwrap();
-    assert_eq!(loaded.notes.len(), 3);
+    assert_eq!(loaded.notes.len(), 4);
     assert!(loaded.sync.warnings.is_empty());
     for note in loaded.notes {
         let source = fs::read_to_string(&note.path).unwrap();
@@ -118,7 +123,7 @@ fn namespaced_identity_migrates_legacy_with_backup_and_exact_rollback() {
     fs::write(&path, &original).unwrap();
     let conn = open_connection(&root).unwrap();
     let loaded = load_vault(&conn, &root).unwrap();
-    assert_eq!(loaded.notes[0].id, id);
+    assert_ne!(loaded.notes[0].id, id);
     assert_eq!(fs::read_to_string(&path).unwrap(), original);
     let preflight = preflight_vault(&root).unwrap();
     assert_eq!(preflight.planned_id_writes, vec!["Legacy.md"]);
@@ -138,6 +143,38 @@ fn namespaced_identity_migrates_legacy_with_backup_and_exact_rollback() {
     )
     .unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    drop(conn);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn external_canonical_ulid_is_only_a_candidate_in_full_and_incremental_scans() {
+    let root = vault();
+    let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    let original = format!("---\n# external system\nid: '{id}'\n---\nsearchable external body");
+    let path = root.join("External.md");
+    fs::write(&path, &original).unwrap();
+    assert_eq!(frontmatter::parse_markdown(&original).note_id(), None);
+    let conn = open_connection(&root).unwrap();
+    for _ in 0..2 {
+        let loaded = load_vault(&conn, &root).unwrap();
+        assert_eq!(loaded.notes.len(), 1);
+        assert_ne!(loaded.notes[0].id, id);
+        assert!(read_note(&conn, &root, &loaded.notes[0].id)
+            .unwrap()
+            .content
+            .contains("external body"));
+        assert_eq!(search_notes(&conn, &root, "searchable").unwrap().len(), 1);
+        assert_ne!(
+            super::note_index::prepare_note_at_path(&conn, &root, &path)
+                .unwrap()
+                .note_id,
+            id
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    }
+    apply_id_migration(&root).unwrap();
+    assert_eq!(load_vault(&conn, &root).unwrap().notes[0].id, id);
     drop(conn);
     fs::remove_dir_all(root).unwrap();
 }
@@ -208,7 +245,7 @@ fn namespaced_identity_recovers_both_historical_v1_formats_and_pending_files() {
         assert_eq!(resumed.status, IdMigrationStatus::Completed);
         let persisted = fs::read_to_string(&path).unwrap();
         assert_eq!(
-            frontmatter::parse_markdown(&persisted).note_id(),
+            frontmatter::parse_markdown(&persisted).migration_id(),
             Some(id.as_str())
         );
         if format < 2 {
@@ -265,7 +302,10 @@ fn namespaced_identity_incremental_duplicates_do_not_replace_each_other() {
 fn namespaced_identity_migration_retains_custom_properties_after_index_rebuild() {
     let root = vault();
     let id = Ulid::generate().to_string();
-    fs::write(root.join("Legacy.md"), format!("---\nid: {id}\n---\nBody")).unwrap();
+    let path = root.join("Legacy.md");
+    // Seed durable properties from a trusted identity, then simulate an old
+    // source file. Generic IDs must not authorize new property writes.
+    fs::write(&path, format!("---\namby-id: {id}\n---\nBody")).unwrap();
     let conn = open_connection(&root).unwrap();
     load_vault(&conn, &root).unwrap();
     let saved = crate::property_store::upsert(
@@ -282,6 +322,7 @@ fn namespaced_identity_migration_retains_custom_properties_after_index_rebuild()
         },
     )
     .unwrap();
+    fs::write(&path, format!("---\nid: {id}\n---\nBody")).unwrap();
     apply_id_migration(&root).unwrap();
     drop(conn);
     fs::remove_file(db_path(&root)).unwrap();
@@ -322,12 +363,14 @@ fn namespaced_identity_resume_refuses_changes_after_backup() {
 }
 
 #[test]
-fn namespaced_identity_legacy_body_save_keeps_user_yaml_unchanged() {
+fn namespaced_identity_migrated_legacy_body_save_keeps_user_yaml_unchanged() {
     let root = vault();
     let id = Ulid::generate().to_string();
     let path = root.join("Legacy.md");
     let envelope = format!("\u{feff}---\r\n# legacy\r\nid: '{id}'\r\n---\r\n");
     fs::write(&path, format!("{envelope}Original\r\n")).unwrap();
+    apply_id_migration(&root).unwrap();
+    let envelope = envelope.replacen("---\r\n", &format!("---\r\namby-id: {id}\r\n"), 1);
     let conn = open_connection(&root).unwrap();
     load_vault(&conn, &root).unwrap();
     let read = read_note(&conn, &root, &id).unwrap();
@@ -354,7 +397,9 @@ fn namespaced_identity_primary_duplicate_repair_rechecks_unchanged_metadata() {
     let mtime = fs::metadata(&a).unwrap().modified().unwrap();
     let new_id = Ulid::generate().to_string();
     fs::write(&a, source.replace(&id, &new_id)).unwrap();
-    fs::File::open(&a)
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&a)
         .unwrap()
         .set_times(fs::FileTimes::new().set_modified(mtime))
         .unwrap();

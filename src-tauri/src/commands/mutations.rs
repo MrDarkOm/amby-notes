@@ -52,8 +52,7 @@ fn prepare_path_changes(
 }
 
 pub fn sync_mutation_result(
-    context: &VaultContext,
-    conn: &rusqlite::Connection,
+    conn: &crate::vault_context::ActiveVault,
     vault_path: &Path,
     mut result: FsMutationResult,
 ) -> MutationOutcome {
@@ -81,13 +80,48 @@ pub fn sync_mutation_result(
         },
         Err(error) => {
             tracing::warn!(event = "index_update_failed", error = %error);
-            let _ = context.mark_index_rebuild_required();
+            conn.index_health.set(IndexState::RebuildRequired);
             MutationOutcome {
                 mutation: result,
                 index_state: IndexState::RebuildRequired,
                 warnings: vec![OperationWarning::IndexRebuildRequired],
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod failure_tests {
+    use super::*;
+
+    #[test]
+    fn failed_index_after_filesystem_success_does_not_relock_vault() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let root = std::env::temp_dir()
+                .join(format!("amby-mutation-failure-{}", ulid::Ulid::generate()));
+            fs::create_dir_all(&root).unwrap();
+            let context = VaultContext::new();
+            context
+                .activate(root.to_str().unwrap(), |_| Ok(()), |_, _| ())
+                .unwrap();
+            let guard = context.conn.lock().unwrap();
+            let active = guard.as_ref().unwrap();
+            let result = crate::bundle::create_note_impl(&active.root, "Survivor").unwrap();
+            let path = result.primary_path.clone().unwrap();
+            vault_index::fail_next_index_stage(1);
+            let outcome = sync_mutation_result(active, &active.root, result);
+            assert_eq!(outcome.index_state, IndexState::RebuildRequired);
+            assert!(Path::new(&path).is_file());
+            assert!(!outcome.warnings.is_empty());
+            drop(guard);
+            drop(context);
+            fs::remove_dir_all(root).unwrap();
+            sender.send(()).unwrap();
+        });
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("index failure must return without deadlocking on the held vault mutex");
     }
 }
 
@@ -110,7 +144,7 @@ pub fn ensure_bundle(
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    Ok(sync_mutation_result(&db, conn, &conn.root, result))
+    Ok(sync_mutation_result(conn, &conn.root, result))
 }
 
 #[tauri::command]
@@ -126,7 +160,7 @@ pub fn create_note(
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    Ok(sync_mutation_result(&db, conn, &conn.root, result))
+    Ok(sync_mutation_result(conn, &conn.root, result))
 }
 
 #[tauri::command]
@@ -183,7 +217,7 @@ pub fn attach_canvas_to_note(
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    Ok(sync_mutation_result(&db, conn, &conn.root, result))
+    Ok(sync_mutation_result(conn, &conn.root, result))
 }
 
 #[tauri::command]
@@ -199,7 +233,7 @@ pub fn unlink_layer(
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    Ok(sync_mutation_result(&db, conn, &conn.root, result))
+    Ok(sync_mutation_result(conn, &conn.root, result))
 }
 
 #[tauri::command]
@@ -216,7 +250,7 @@ pub fn delete_layer(
     watcher_state.mark_write(mutation_paths(&result));
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    Ok(sync_mutation_result(&db, conn, &conn.root, result))
+    Ok(sync_mutation_result(conn, &conn.root, result))
 }
 
 #[tauri::command]
@@ -287,7 +321,7 @@ pub fn move_item(
     // currently produced by the rewrite plan after the move and retain their
     // narrow per-file post-write records.
     watcher_state.mark_write(rewritten.iter());
-    let mut outcome = sync_mutation_result(&db, conn, &conn.root, result);
+    let mut outcome = sync_mutation_result(conn, &conn.root, result);
     let rewritten_changes = rewritten
         .into_iter()
         .map(|path| PathChange {
@@ -298,7 +332,7 @@ pub fn move_item(
     if let Err(error) = vault_index::index_apply_path_changes(conn, &conn.root, &rewritten_changes)
     {
         tracing::warn!(event = "index_update_failed", error = %error);
-        let _ = db.mark_index_rebuild_required();
+        conn.index_health.set(IndexState::RebuildRequired);
         outcome.index_state = IndexState::RebuildRequired;
         outcome
             .warnings
@@ -394,7 +428,7 @@ pub fn rename_item(
         }
     };
     watcher_state.mark_write(rewritten.iter());
-    let mut outcome = sync_mutation_result(&db, conn, &conn.root, result);
+    let mut outcome = sync_mutation_result(conn, &conn.root, result);
     let rewritten_changes = rewritten
         .into_iter()
         .map(|path| PathChange {
@@ -405,7 +439,7 @@ pub fn rename_item(
     if let Err(error) = vault_index::index_apply_path_changes(conn, &conn.root, &rewritten_changes)
     {
         tracing::warn!(event = "index_update_failed", error = %error);
-        let _ = db.mark_index_rebuild_required();
+        conn.index_health.set(IndexState::RebuildRequired);
         outcome.index_state = IndexState::RebuildRequired;
         outcome
             .warnings
@@ -445,5 +479,5 @@ pub fn delete_item(
     };
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    Ok(sync_mutation_result(&db, conn, &conn.root, result))
+    Ok(sync_mutation_result(conn, &conn.root, result))
 }

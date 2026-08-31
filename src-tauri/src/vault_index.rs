@@ -64,6 +64,7 @@ mod tests {
         assert!(fs::read_to_string(&source)
             .unwrap()
             .contains("[[C#Heading|Readable]]"));
+        drop(conn);
         fs::remove_dir_all(vault).unwrap();
     }
 
@@ -97,6 +98,7 @@ mod tests {
         assert!(markdown.contains("](Folder/C.md#Heading)"));
         assert!(markdown.contains("](/Folder/C.md^block)"));
         assert!(fs::read_to_string(canvas).unwrap().contains("Folder/C.md"));
+        drop(conn);
         fs::remove_dir_all(vault).unwrap();
     }
 
@@ -108,8 +110,8 @@ mod tests {
         let duplicate = vault.join("Duplicate.md");
         let id = Ulid::generate().to_string();
         fs::write(&user_managed, "---\nid: external-system\n---\nUser-managed").unwrap();
-        fs::write(&first, format!("---\nid: {id}\n---\nFirst")).unwrap();
-        fs::write(&duplicate, format!("---\nid: {id}\n---\nDuplicate")).unwrap();
+        fs::write(&first, format!("---\namby-id: {id}\n---\nFirst")).unwrap();
+        fs::write(&duplicate, format!("---\namby-id: {id}\n---\nDuplicate")).unwrap();
 
         let conn = open_conn(&vault);
         let loaded = load_vault(&conn, &vault).unwrap();
@@ -120,7 +122,7 @@ mod tests {
             .ends_with("id: external-system\n---\nUser-managed"));
         assert_eq!(
             fs::read_to_string(&duplicate).unwrap(),
-            format!("---\nid: {id}\n---\nDuplicate")
+            format!("---\namby-id: {id}\n---\nDuplicate")
         );
         assert!(!loaded
             .sync
@@ -214,6 +216,7 @@ mod tests {
             fs::read_to_string(&note).unwrap().matches("id: ").count(),
             1
         );
+        drop(conn);
         fs::remove_dir_all(vault).unwrap();
     }
 
@@ -622,7 +625,7 @@ mod tests {
                 .unwrap()
         };
 
-        let updated = format!("---\nid: {source_id}\n---\nNew body #new [[Missing]]");
+        let updated = format!("---\namby-id: {source_id}\n---\nNew body #new [[Missing]]");
         fs::write(&source, &updated).unwrap();
         let updated_body = crate::frontmatter::parse_markdown(&updated).body;
         fail_next_index_stage(3);
@@ -666,6 +669,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(recovered, updated_body);
+        drop(conn);
         fs::remove_dir_all(vault).unwrap();
     }
 

@@ -1,5 +1,9 @@
 # Architecture stabilization progress
 
+> Newer remaining-critical-roadmap execution and platform evidence:
+> [remaining-critical-progress.md](remaining-critical-progress.md), 2026-08-31,
+> Windows. The chronological macOS handoffs below are historical checkpoints.
+
 Source plan: [`AMBY_CODEX_ROADMAP.md`](../AMBY_CODEX_ROADMAP.md), initially copied
 unchanged from the supplied document on 2026-08-31. At the user's request, the
 project roadmap now also contains current phase statuses, scoped release-gate

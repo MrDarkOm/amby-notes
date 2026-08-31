@@ -20,6 +20,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "cargo test --manifest-path src-tauri/Cargo.toml desktop_e2e",
+    "test:storage:live": "node scripts/run-native-contract.mjs",
+    "test:native:ui": "node scripts/run-native-ui.mjs",
     "test:e2e:large": "node scripts/run-large-e2e.mjs",
     "test:watch": "vitest",
     "rust:check": "cargo check --manifest-path src-tauri/Cargo.toml",

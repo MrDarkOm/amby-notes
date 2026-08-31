@@ -35,12 +35,15 @@ never replace or remove it. An explicit `amby-id` always takes precedence;
 an invalid value produces a diagnostic and never falls back to generic `id`.
 
 For compatibility, a canonical ULID in `id` with no `amby-id` is a legacy
-identity candidate. Normal indexing and body-only saves keep that file's
-frontmatter unchanged. A ULID alone cannot prove Amby ownership: migration is
+identity candidate, never a trusted identity. Normal indexing leaves its bytes
+unchanged and uses a disposable path-scoped conflict key: the note is visible,
+openable and searchable, but body/property writes require explicit migration.
+A ULID alone cannot prove Amby ownership: migration is
 separately confirmed with a read-only file preview, raw backups, journal, and
 rollback. It adds `amby-id` with the same value and leaves the entire generic
 `id` property untouched. Duplicate candidates are reported, not migrated.
-Stable IDs and all durable sidecar keys remain unchanged in this migration.
+Existing durable sidecar keys remain unchanged in this migration; candidate cache
+keys are replaced by the confirmed namespaced identity after refreshing the vault.
 
 Both notes with a duplicate ID remain visible in the tree and searchable.
 The existing primary path (or first deterministic path on a rebuild) retains
@@ -53,9 +56,15 @@ custom-property mutations are refused until the identity is unique again.
 The editor and properties panel show a localized read-only warning. Malformed
 YAML uses the separate body-editing policy below; it is not an ID conflict.
 
-The index's `identity_version = 2` marker invalidates the metadata skip path
+The index's `identity_version = 3` marker invalidates the metadata skip path
 once so older cached interpretations are re-read. SQLite is still disposable;
 rebuilding it neither migrates legacy IDs nor deletes durable property data.
+
+Version 3 invalidates the disposable metadata cache only; it never migrates
+Markdown or sidecars. Reverting to version 2 would trust ambiguous generic IDs
+again and is not a safe identity rollback. Use the existing versioned migration
+journal/backups to undo an explicit source migration, and delete only the SQLite
+cache to rebuild its keys.
 
 ### Malformed frontmatter
 

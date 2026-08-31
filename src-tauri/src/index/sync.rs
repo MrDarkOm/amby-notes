@@ -147,7 +147,7 @@ pub fn scan_disk(
             path: path.to_path_buf(),
             rel_path,
             parsed_id,
-            identity_error: parsed.identity_error,
+            identity_error: parsed.indexing_identity_error(),
             body: parsed.body,
             frontmatter_tags: parsed.frontmatter_tags,
             mtime,
@@ -182,7 +182,7 @@ pub fn sync_vault_with_changes(
         .optional()
         .map_err(|error| error.to_string())?;
     // Invalidate only the cache fast path once; do not rewrite legacy sources.
-    let mut prev = if identity_version.as_deref() == Some("2") {
+    let mut prev = if identity_version.as_deref() == Some("3") {
         db_path_stamps(conn)?
     } else {
         HashMap::new()
@@ -374,7 +374,7 @@ pub fn sync_vault_with_changes(
     if inserted > 0 || updated > 0 || deleted > 0 {
         resolve_links(&tx)?;
     }
-    tx.execute("INSERT INTO index_metadata (key, value) VALUES ('identity_version', '2') ON CONFLICT(key) DO UPDATE SET value = excluded.value", [])
+    tx.execute("INSERT INTO index_metadata (key, value) VALUES ('identity_version', '3') ON CONFLICT(key) DO UPDATE SET value = excluded.value", [])
         .map_err(|error| error.to_string())?;
     tx.commit().map_err(|e| e.to_string())?;
 
