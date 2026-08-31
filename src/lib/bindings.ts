@@ -590,6 +590,7 @@ export type FileMetadata = { created: number | null; modified: number | null; wo
  * on disk untouched; `value` is only a display representation for the UI.
  */
 export type FrontmatterProperty = { key: string; value: string; valueKind: string }
+export type FrontmatterStatus = "none" | "valid" | "invalid" | "unterminated"
 export type FsMutationResult = { primaryId: string | null; primaryPath: string | null; pathChanges: PathChange[]; deletedPaths: string[]; deletedIds: string[] }
 export type HistoryCleanupPreview = { removedCount: number; freedBytes: number; remaining: HistoryStats }
 export type HistoryCleanupResult = { removedCount: number; freedBytes: number; remaining: HistoryStats }
@@ -620,12 +621,12 @@ export type LoadVaultResult = { generation: number; vaultPath: string; tree: Tre
 export type MutationOutcome = { mutation: FsMutationResult; indexState: IndexState; warnings: OperationWarning[] }
 export type NoteLayers = { canvas: boolean; sketch: boolean; database: boolean }
 export type NoteMetadata = { created: number | null; modified: number | null; wordCount: number }
-export type NoteProperties = { hasFrontmatter: boolean; properties: FrontmatterProperty[]; parseError: string | null; customProperties: CustomProperty[] }
+export type NoteProperties = { hasFrontmatter: boolean; frontmatterStatus: FrontmatterStatus; bodyReadOnly: boolean; properties: FrontmatterProperty[]; parseError: string | null; customProperties: CustomProperty[] }
 /**
- * Body text, its on-disk revision, and the complete source retained as a
- * restore template while the note is open. The revision is a SHA-256 hash of
- * the unnormalised body bytes, so it remains valid even when the frontend
- * renders CRLF text as LF. Body-only editing still uses `content`.
+ * Editor text, its on-disk revision, and the complete source retained as a
+ * restore template. Revisions hash unnormalised body bytes for stable IDs and
+ * the complete source for opaque path keys, detecting YAML-only external edits.
+ * Unterminated frontmatter is edited as full source; other notes expose body.
  */
 export type NoteReadOutcome = { content: string; revision: string; source: string }
 export type OperationWarning = "indexRebuildRequired"

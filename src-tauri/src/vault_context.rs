@@ -1,6 +1,7 @@
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
@@ -12,6 +13,24 @@ pub struct ActiveVault {
     pub generation: u64,
     pub watcher_identity: Option<u64>,
     pub index_health: IndexState,
+    /// Owned by this activation, so delayed callbacks cannot dirty a new vault.
+    pub index_changes: Arc<Mutex<HashSet<PathBuf>>>,
+}
+
+impl ActiveVault {
+    pub fn refresh(&self) -> Result<vault_index::LoadVaultResult, String> {
+        // Do not hold the event queue lock during I/O. New events remain queued
+        // for the next refresh, even when they refer to a path in this batch.
+        let changed = std::mem::take(&mut *self.index_changes.lock().unwrap());
+        let result = vault_index::load_vault_with_changes(self, &self.root, &changed);
+        if result.is_err() {
+            self.index_changes.lock().unwrap().extend(changed);
+        }
+        result.map(|mut loaded| {
+            loaded.generation = self.generation;
+            loaded
+        })
+    }
 }
 
 impl Deref for ActiveVault {
@@ -123,6 +142,7 @@ impl VaultContext {
             generation,
             watcher_identity: None,
             index_health: IndexState::Healthy,
+            index_changes: Arc::new(Mutex::new(HashSet::new())),
         });
         if let Err(error) = after_commit(active.as_ref().expect("active vault was just set")) {
             *active = previous;

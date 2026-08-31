@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod identity;
 pub mod links;
 pub mod note_index;
 pub mod query;
@@ -18,3 +19,12 @@ pub use tags::*;
 
 #[cfg(test)]
 mod compatibility_fixtures_test;
+
+#[cfg(test)]
+mod identity_tests;
+
+#[cfg(test)]
+mod incremental_tests;
+
+#[cfg(test)]
+mod malformed_tests;

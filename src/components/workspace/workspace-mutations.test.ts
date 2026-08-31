@@ -426,5 +426,16 @@ describe("applySessionRemap", () => {
     expect(result.lockedFileIds).toEqual([])
     expect(result.tabs).toEqual([])
     expect(result.activeFileId).toBe("")
+    expect(result.closedTreeIds).toEqual([])
+  })
+
+  it("restores collapsed branches independently of tabs, remapping IDs and dropping missing items", () => {
+    const result = applySessionRemap(
+      session({ closedTreeIds: ["oldA", "folder:/vault/folder", "gone"] }),
+      { oldA: "note-id" },
+      new Set(["note-id", "folder:/vault/folder"]),
+      false,
+    )
+    expect(result.closedTreeIds).toEqual(["note-id", "folder:/vault/folder"])
   })
 })

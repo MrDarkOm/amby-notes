@@ -7,11 +7,6 @@ import { findTreeItem } from "../workspace-tree-utils"
 import type { TreeItem } from "../sidebar-tree"
 
 export function useNoteWindows(treeItems: TreeItem[]) {
-  const noteIdFromUrl = React.useMemo(() => {
-    if (typeof window === "undefined") return null
-    return new URLSearchParams(window.location.search).get("ambyFile")
-  }, [])
-
   const handleOpenInNewWindow = React.useCallback(
     (fileId: string) => {
       const item = findTreeItem(treeItems, fileId)
@@ -39,7 +34,6 @@ export function useNoteWindows(treeItems: TreeItem[]) {
   )
 
   return {
-    noteIdFromUrl,
     handleOpenInNewWindow,
   }
 }

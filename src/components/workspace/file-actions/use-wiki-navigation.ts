@@ -4,7 +4,6 @@ import { createNote, readNote } from "@/lib/storage"
 import { scrollEditorToAnchor } from "../anchor-navigation"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
-import { newTabKey } from "../workspace-tree-utils"
 import { findWikiLinkItem, normalizeWikiLinkTarget } from "../wiki-links"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
@@ -14,13 +13,14 @@ export function useWikiNavigation({
   refreshTree,
   handleApplyMutation,
   handleSelect,
+  releaseUnusedDocumentBuffers,
 }: Pick<UseFileActionsParams, "vault" | "treeItems" | "refreshTree"> &
-  Pick<MarkdownAutosaveActions, "handleApplyMutation"> & {
+  Pick<MarkdownAutosaveActions, "handleApplyMutation" | "releaseUnusedDocumentBuffers"> & {
     handleSelect: (fileId: string) => Promise<void>
   }) {
   const t = i18n.t.bind(i18n)
   const { setDoc } = useDocStore.getState()
-  const { setTabs, setActiveTabKey } = useTabsStore.getState()
+  const { openItem } = useTabsStore.getState()
   const handleWikiLinkClick = React.useCallback(
     async (rawLink: string) => {
       if (!vault) return
@@ -57,12 +57,8 @@ export function useWikiNavigation({
           source: note.source,
         }
         setDoc(id, document)
-        const key = newTabKey()
-        setTabs((previous) => [
-          ...previous,
-          { key, kind: "document", fileId: id, title, history: [id], historyIndex: 0 },
-        ])
-        setActiveTabKey(key)
+        openItem({ kind: "document", fileId: id, title })
+        void releaseUnusedDocumentBuffers()
       } catch (error) {
         console.error("Failed to open wiki link:", error)
       }
@@ -71,9 +67,9 @@ export function useWikiNavigation({
       handleApplyMutation,
       handleSelect,
       refreshTree,
-      setActiveTabKey,
+      openItem,
+      releaseUnusedDocumentBuffers,
       setDoc,
-      setTabs,
       t,
       treeItems,
       vault,

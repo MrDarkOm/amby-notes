@@ -67,8 +67,6 @@ export interface SidebarTreeProps {
   onMoveItem?: (sourceId: string, targetId: string | null) => void
   onSetIcon?: (id: string, icon: string) => void
   triggerRenameId?: string | null
-  folderResetKey?: number
-  folderTargetOpen?: boolean
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
   onAttachLayer?: (id: string, layer: AttachableLayer) => void

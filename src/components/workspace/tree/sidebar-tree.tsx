@@ -6,12 +6,8 @@ import { FileText } from "lucide-react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 
 import { cn } from "@/lib/utils"
-import {
-  flattenVisible,
-  ROOT_DROP_TARGET,
-  type SidebarTreeProps,
-  type TreeItem,
-} from "./tree-types"
+import { flattenVisible, ROOT_DROP_TARGET, type SidebarTreeProps } from "./tree-types"
+import { useViewStateStore } from "../use-view-state-store"
 import { TreeNode } from "./tree-row"
 import { useTreeKeyboard } from "./use-tree-keyboard"
 import { useTreeDnd } from "./use-tree-dnd"
@@ -31,8 +27,6 @@ export function SidebarTree({
   onMoveItem,
   onSetIcon,
   triggerRenameId,
-  folderResetKey,
-  folderTargetOpen,
   favorites,
   onToggleFavorite,
   onAttachLayer,
@@ -40,38 +34,10 @@ export function SidebarTree({
   findActiveKey,
 }: SidebarTreeProps) {
   const { t } = useTranslation()
-  const [closedIds, setClosedIds] = React.useState<Set<string>>(() => new Set())
+  const closedIds = useViewStateStore((s) => s.closedTreeIds)
+  const toggleOpen = useViewStateStore((s) => s.toggleTreeItem)
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [keyboardFocusId, setKeyboardFocusId] = React.useState<string | null>(selectedId)
-
-  const toggleOpen = React.useCallback((id: string) => {
-    setClosedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-
-  // ── Respond to external expand/collapse trigger ─────────────────────────────
-  const prevFolderResetKeyRef = React.useRef<number | undefined>(undefined)
-  React.useEffect(() => {
-    if (folderResetKey === undefined || folderResetKey === prevFolderResetKeyRef.current) return
-    prevFolderResetKeyRef.current = folderResetKey
-    if (folderTargetOpen === false) {
-      const ids = new Set<string>()
-      function collect(list: TreeItem[]) {
-        for (const it of list) {
-          ids.add(it.id)
-          if (it.children) collect(it.children)
-        }
-      }
-      collect(items)
-      setClosedIds(ids)
-    } else {
-      setClosedIds(new Set())
-    }
-  }, [folderResetKey, folderTargetOpen, items])
 
   // ── Respond to external rename trigger ─────────────────────────────────────
   React.useEffect(() => {

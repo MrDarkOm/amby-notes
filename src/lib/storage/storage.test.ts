@@ -34,6 +34,20 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
       })
     })
 
+    it("restores plain Markdown without writing a browser path into a YAML id", async () => {
+      const path = "web-vault/Restored.md"
+      await adapter.restoreDeletedNote(
+        "web-vault",
+        path,
+        path,
+        "New body",
+        "Old body",
+        null,
+        "main",
+      )
+      expect(await adapter.readFile(path)).toBe("New body")
+    })
+
     it("normalizes browser quota errors without exposing the storage operation", async () => {
       vi.stubGlobal("localStorage", {
         getItem: (k: string) => store.get(k) ?? null,

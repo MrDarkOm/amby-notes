@@ -483,7 +483,7 @@ export function HeaderTabs({
               className={cn(
                 "group relative flex h-8 min-w-0 max-w-52 cursor-pointer items-center gap-2 self-center rounded-lg border border-border/80 px-3 text-sm transition-colors",
                 activeTabKey === tab.key
-                  ? "bg-accent text-foreground shadow-sm"
+                  ? "bg-[var(--note-surface)] text-foreground shadow-sm"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
               )}
             >

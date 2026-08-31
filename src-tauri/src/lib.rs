@@ -20,6 +20,9 @@ mod watcher;
 #[cfg(test)]
 mod security_integration_test;
 
+#[cfg(test)]
+mod desktop_e2e_tests;
+
 use state::*;
 use watcher::WatcherState;
 

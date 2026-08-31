@@ -138,10 +138,14 @@ pub fn write_note(
         &request.content,
         &request.expected_revision,
     )?;
-    let expected = watcher::fingerprint_for_bytes(
-        &frontmatter::text_bytes_for_write(&prepared_note.path, &prepared_note.next)
-            .map_err(WriteNoteError::failed)?,
-    );
+    let expected = if prepared_note.preserve_opaque_bytes {
+        watcher::fingerprint_for_bytes(prepared_note.next.as_bytes())
+    } else {
+        watcher::fingerprint_for_bytes(
+            &frontmatter::text_bytes_for_write(&prepared_note.path, &prepared_note.next)
+                .map_err(WriteNoteError::failed)?,
+        )
+    };
     let prepared_write = watcher_state.prepare_write([(&prepared_note.path, expected)]);
     let (path, body, revision) =
         match vault_index::commit_prepared_note_write(&conn.root, prepared_note) {
@@ -208,6 +212,13 @@ pub fn restore_deleted_note(
             "Vault changed before deleted note restoration",
         ));
     }
+    let opaque = request
+        .note_id
+        .starts_with(crate::index::identity::OPAQUE_PREFIX);
+    if !opaque {
+        crate::index::identity::ensure_unique_identity(conn, &request.note_id)
+            .map_err(WriteNoteError::failed)?;
+    }
     let path = paths::confine(&conn.root, std::path::Path::new(&request.path))
         .map_err(WriteNoteError::failed)?;
     if path.exists() {
@@ -219,14 +230,28 @@ pub fn restore_deleted_note(
     // The complete source captured by read_note is the only safe place to get
     // opaque YAML and the deleted file's original text convention. The body is
     // replaced independently so the user's latest local editor text wins.
-    let next = frontmatter::replace_body_preserving_id(
-        &request.source_template,
-        &request.content,
-        &request.note_id,
-    )
+    let next = if opaque {
+        vault_index::prepare_opaque_note_text(
+            &conn.root,
+            &path,
+            &request.note_id,
+            &request.source_template,
+            &request.content,
+        )
+    } else {
+        frontmatter::replace_body_preserving_id(
+            &request.source_template,
+            &request.content,
+            &request.note_id,
+        )
+    }
     .map_err(WriteNoteError::failed)?;
-    let bytes = frontmatter::text_bytes_from_template(&request.source_template, &next)
-        .map_err(WriteNoteError::failed)?;
+    let bytes = if opaque {
+        next.as_bytes().to_vec()
+    } else {
+        frontmatter::text_bytes_from_template(&request.source_template, &next)
+            .map_err(WriteNoteError::failed)?
+    };
     let prepared_write =
         watcher_state.prepare_write([(&path, watcher::fingerprint_for_bytes(&bytes))]);
     match frontmatter::atomic_write_bytes_new(&path, &bytes) {
@@ -246,7 +271,7 @@ pub fn restore_deleted_note(
     let persisted =
         fs::read_to_string(&path).map_err(|error| WriteNoteError::failed(error.to_string()))?;
     let body = frontmatter::parse_markdown(&persisted).body;
-    let revision = vault_index::body_revision(&body);
+    let revision = vault_index::body_revision(if opaque { &persisted } else { &body });
     let index_result =
         vault_index::upsert_note_index(conn, &conn.root, &request.note_id, &body, &path)
             .and_then(|_| property_store::restore_cache(conn, &conn.root));

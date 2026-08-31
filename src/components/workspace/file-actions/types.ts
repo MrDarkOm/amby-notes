@@ -10,7 +10,7 @@ export interface UseFileActionsParams {
   setTreeItems: React.Dispatch<React.SetStateAction<TreeItem[]>>
   refreshTree: (path?: string | null) => Promise<TreeItem[]>
   applyMutationResult: (result: FsMutationResult) => void
-  openCanvasTab: (path: string, title: string) => void
+  loadCanvas: (path: string) => Promise<void>
   setOpenCanvases: React.Dispatch<React.SetStateAction<Record<string, string>>>
   setPendingRenameId: React.Dispatch<React.SetStateAction<string | null>>
   autosaveGeneration: number

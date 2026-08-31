@@ -7,6 +7,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use ulid::Ulid;
 
+use super::identity::{
+    conflict_id, ensure_unique_identity, is_path_identity, opaque_id, OPAQUE_PREFIX,
+    OPAQUE_SOURCE_PREFIX,
+};
 use super::links::{extract_links, resolve_links_for_note};
 use super::tags::extract_tags;
 use crate::frontmatter;
@@ -29,6 +33,7 @@ pub struct PreparedNoteIndex {
     pub rel_path: String,
     pub title: String,
     pub mtime: i64,
+    pub mtime_ns: Option<i64>,
     pub size: i64,
     pub body: String,
     pub frontmatter_tags: Vec<String>,
@@ -39,6 +44,7 @@ pub struct PreparedNoteWrite {
     pub path: PathBuf,
     pub next: String,
     pub body: String,
+    pub preserve_opaque_bytes: bool,
 }
 
 #[cfg(test)]
@@ -125,11 +131,20 @@ pub fn read_note(
             // with LF; `preserve_text_format` converts back on write.  Without
             // this, the watcher reads CRLF from disk while the editor holds LF,
             // triggering false external-conflict detection that pauses autosave.
-            let revision = body_revision(&parsed.body);
-            let content = if parsed.body.contains("\r\n") {
-                parsed.body.replace("\r\n", "\n")
+            let revision = body_revision(if note_id.starts_with(OPAQUE_PREFIX) {
+                &source
+            } else {
+                &parsed.body
+            });
+            let editor_content = if note_id.starts_with(OPAQUE_SOURCE_PREFIX) {
+                source.clone()
             } else {
                 parsed.body
+            };
+            let content = if editor_content.contains("\r\n") {
+                editor_content.replace("\r\n", "\n")
+            } else {
+                editor_content
             };
             NoteReadOutcome {
                 content,
@@ -148,6 +163,20 @@ pub fn note_properties(
     let note = note_by_id(conn, vault, note_id)?;
     let content = fs::read_to_string(&note.path).map_err(|error| error.to_string())?;
     let mut properties = frontmatter::note_properties(&content);
+    let parsed = frontmatter::parse_markdown(&content);
+    if parsed.frontmatter_status.is_malformed() {
+        properties.body_read_only = note_id
+            != opaque_id(
+                &relative_path(vault, Path::new(&note.path))?,
+                parsed.frontmatter_status,
+            );
+        return Ok(properties);
+    }
+    if let Err(error) = ensure_unique_identity(conn, note_id) {
+        properties.parse_error = Some(error);
+        properties.body_read_only = true;
+        return Ok(properties);
+    }
     properties.custom_properties = crate::property_store::list(conn, note_id)?;
     Ok(properties)
 }
@@ -171,7 +200,11 @@ pub fn prepare_note_index(
     body: &str,
     note_path: &Path,
 ) -> Result<PreparedNoteIndex, String> {
-    let (mtime, size) = metadata_stamp(note_path)?;
+    let FileStamp {
+        mtime,
+        mtime_ns,
+        size,
+    } = metadata_stamp(note_path)?;
     let rel_path = note_path
         .strip_prefix(vault)
         .map(normalize_rel_path)
@@ -186,6 +219,7 @@ pub fn prepare_note_index(
         rel_path,
         title,
         mtime,
+        mtime_ns,
         size,
         body: body.to_string(),
         frontmatter_tags,
@@ -200,13 +234,20 @@ pub fn apply_prepared_note_index(
     let note_id = &prepared.note_id;
 
     tx.execute(
+        "DELETE FROM notes WHERE path = ?1 AND id <> ?2",
+        rusqlite::params![prepared.rel_path, note_id],
+    )
+    .map_err(|error| error.to_string())?;
+
+    tx.execute(
         r#"
-        INSERT INTO notes (id, path, title, mtime, size, content, word_count, created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%s','now'), strftime('%s','now'))
+        INSERT INTO notes (id, path, title, mtime, size, content, word_count, mtime_ns, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, strftime('%s','now'), strftime('%s','now'))
         ON CONFLICT(id) DO UPDATE SET
             path       = excluded.path,
             title      = excluded.title,
             mtime      = excluded.mtime,
+            mtime_ns   = excluded.mtime_ns,
             size       = excluded.size,
             content    = excluded.content,
             word_count = excluded.word_count,
@@ -219,7 +260,8 @@ pub fn apply_prepared_note_index(
             prepared.mtime,
             prepared.size,
             prepared.body,
-            word_count(&prepared.body) as i64
+            word_count(&prepared.body) as i64,
+            prepared.mtime_ns
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -260,19 +302,59 @@ pub fn prepare_note_write(
     content: &str,
     expected_revision: &str,
 ) -> Result<PreparedNoteWrite, WriteNoteError> {
+    let opaque = note_id.starts_with(OPAQUE_PREFIX);
+    if !opaque {
+        ensure_unique_identity(conn, note_id).map_err(WriteNoteError::failed)?;
+    }
     let note = note_by_id(conn, vault, note_id).map_err(WriteNoteError::failed)?;
     let path = PathBuf::from(&note.path);
     let current =
         fs::read_to_string(&path).map_err(|error| WriteNoteError::failed(error.to_string()))?;
     let current_body = frontmatter::parse_markdown(&current).body;
-    let actual_revision = body_revision(&current_body);
+    let actual_revision = body_revision(if opaque { &current } else { &current_body });
     if expected_revision != actual_revision {
         return Err(WriteNoteError::RevisionConflict { actual_revision });
     }
-    let next = frontmatter::replace_body_preserving_id(&current, content, note_id)
-        .map_err(WriteNoteError::failed)?;
+    let next = if opaque {
+        prepare_opaque_note_text(vault, &path, note_id, &current, content)
+    } else {
+        frontmatter::replace_body_preserving_id(&current, content, note_id)
+    }
+    .map_err(WriteNoteError::failed)?;
     let body = frontmatter::parse_markdown(&next).body;
-    Ok(PreparedNoteWrite { path, next, body })
+    Ok(PreparedNoteWrite {
+        path,
+        next,
+        body,
+        preserve_opaque_bytes: opaque,
+    })
+}
+
+/// Validate the cache key against the current path and malformed envelope before
+/// permitting a body edit. Never trust a stale alias after external YAML repair.
+pub fn prepare_opaque_note_text(
+    vault: &Path,
+    path: &Path,
+    note_id: &str,
+    current: &str,
+    content: &str,
+) -> Result<String, String> {
+    let parsed = frontmatter::parse_markdown(current);
+    if !parsed.frontmatter_status.is_malformed()
+        || note_id != opaque_id(&relative_path(vault, path)?, parsed.frontmatter_status)
+    {
+        return Err(
+            "The frontmatter boundary or identity changed; refresh and reopen the note".into(),
+        );
+    }
+    if note_id.starts_with(OPAQUE_SOURCE_PREFIX) {
+        // With no closing delimiter there is no safe body boundary. This is an
+        // explicit full-source edit, never an automatic YAML repair or ID write.
+        String::from_utf8(frontmatter::text_bytes_from_template(current, content)?)
+            .map_err(|error| error.to_string())
+    } else {
+        frontmatter::replace_body_preserving_opaque_frontmatter(current, content)
+    }
 }
 
 pub fn commit_prepared_note_write(
@@ -281,14 +363,23 @@ pub fn commit_prepared_note_write(
 ) -> Result<(PathBuf, String, String), WriteNoteError> {
     history::snapshot_before_write(vault, &prepared.path, prepared.next.as_bytes(), "note-save")
         .map_err(WriteNoteError::failed)?;
-    frontmatter::atomic_write(&prepared.path, &prepared.next).map_err(WriteNoteError::failed)?;
+    if prepared.preserve_opaque_bytes {
+        frontmatter::atomic_write_bytes(&prepared.path, prepared.next.as_bytes())
+    } else {
+        frontmatter::atomic_write(&prepared.path, &prepared.next)
+    }
+    .map_err(WriteNoteError::failed)?;
     // atomic_write restores a note's original BOM/line-ending convention. Read
     // back the persisted body so the returned CAS token hashes the actual bytes,
     // not the frontend-normalised LF buffer.
     let persisted = fs::read_to_string(&prepared.path)
         .map_err(|error| WriteNoteError::failed(error.to_string()))?;
     let persisted_body = frontmatter::parse_markdown(&persisted).body;
-    let revision = body_revision(&persisted_body);
+    let revision = body_revision(if prepared.preserve_opaque_bytes {
+        &persisted
+    } else {
+        &persisted_body
+    });
     Ok((prepared.path, prepared.body, revision))
 }
 
@@ -341,13 +432,18 @@ pub fn prepare_note_at_path(
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let parsed = frontmatter::parse_markdown(&content);
 
-    let existing_id = parsed.id.filter(|id| !id.is_empty());
-    if let Some(id) = existing_id.as_deref() {
-        if !is_amby_id(id) {
-            return Err("Refusing to replace an existing non-Amby frontmatter id".to_string());
-        }
+    if parsed.frontmatter_status.is_malformed() {
+        return prepare_note_index(
+            vault,
+            &opaque_id(&rel_path, parsed.frontmatter_status),
+            &parsed.body,
+            path,
+        );
     }
-    let id = existing_id;
+    if parsed.identity_error.is_some() {
+        return prepare_note_index(vault, &conflict_id(None, &rel_path), &parsed.body, path);
+    }
+    let id = parsed.note_id().map(str::to_string);
     if let Some(existing_id) = &id {
         let indexed_path: Option<String> = conn
             .query_row(
@@ -359,11 +455,14 @@ pub fn prepare_note_at_path(
             .map_err(|e| e.to_string())?;
         if indexed_path
             .as_deref()
-            .is_some_and(|indexed| indexed != rel_path)
+            .is_some_and(|indexed| indexed != rel_path && abs_from_rel(vault, indexed).is_file())
         {
-            return Err(format!(
-                "Duplicate Amby id {existing_id}; the source file was left unchanged"
-            ));
+            return prepare_note_index(
+                vault,
+                &conflict_id(Some(existing_id), &rel_path),
+                &parsed.body,
+                path,
+            );
         }
     }
 
@@ -371,9 +470,14 @@ pub fn prepare_note_at_path(
         (id, parsed.body)
     } else {
         let id = Ulid::generate().to_string();
-        let next = frontmatter::body_with_id(&content, &id)?;
+        let next = match frontmatter::body_with_id(&content, &id) {
+            Ok(next) => next,
+            Err(_) => {
+                return prepare_note_index(vault, &conflict_id(None, &rel_path), &parsed.body, path)
+            }
+        };
         history::snapshot_before_write(vault, path, next.as_bytes(), "id-assignment")?;
-        frontmatter::atomic_write(path, &next)?;
+        frontmatter::atomic_write_bytes(path, next.as_bytes())?;
         let reparsed = frontmatter::parse_markdown(&next);
         (id, reparsed.body)
     };
@@ -409,12 +513,22 @@ pub fn prepare_path_changes(
             .optional()
             .map_err(|e| e.to_string())?;
 
-        if let Some(id) = id {
+        if let Some(id) = id.filter(|id| !is_path_identity(id)) {
             let content = fs::read_to_string(new_path).map_err(|e| e.to_string())?;
-            let body = frontmatter::parse_markdown(&content).body;
-            prepared.push(prepare_note_index(vault, &id, &body, new_path)?);
+            let parsed = frontmatter::parse_markdown(&content);
+            if parsed.frontmatter_status.is_malformed() {
+                prepared.push(prepare_note_at_path(conn, vault, new_path)?);
+            } else {
+                prepared.push(prepare_note_index(vault, &id, &parsed.body, new_path)?);
+            }
         } else {
             prepared.push(prepare_note_at_path(conn, vault, new_path)?);
+        }
+    }
+    let mut identities = std::collections::HashSet::new();
+    for note in &mut prepared {
+        if !identities.insert(note.note_id.clone()) {
+            note.note_id = conflict_id(Some(&note.note_id), &note.rel_path);
         }
     }
     Ok(prepared)
@@ -520,9 +634,10 @@ pub fn index_update_note(
 ) -> Result<(), String> {
     let parsed = frontmatter::parse_markdown(content);
     let note_id = parsed
-        .id
+        .note_id()
         .ok_or_else(|| "Note does not have a frontmatter ID".to_string())?;
-    upsert_note_index(conn, vault, &note_id, &parsed.body, path)
+    ensure_unique_identity(conn, note_id)?;
+    upsert_note_index(conn, vault, note_id, &parsed.body, path)
 }
 
 #[cfg(test)]
@@ -538,19 +653,32 @@ mod tests {
         let vault = std::env::temp_dir().join(format!("amby_note_cas_{}", ulid::Ulid::generate()));
         fs::create_dir_all(&vault).expect("create vault");
         let path = vault.join("Note.md");
-        fs::write(&path, "---\nid: note-1\n---\ninitial\n").expect("write note");
+        fs::write(
+            &path,
+            "---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n---\ninitial\n",
+        )
+        .expect("write note");
         let conn = open_connection(&vault).expect("open index");
-        upsert_note_index(&conn, &vault, "note-1", "initial\n", &path).expect("index note");
+        upsert_note_index(
+            &conn,
+            &vault,
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "initial\n",
+            &path,
+        )
+        .expect("index note");
 
         // Two independent renderer reads observe the same initial revision.
-        let first_reader = read_note(&conn, &vault, "note-1").expect("first read");
-        let second_reader = read_note(&conn, &vault, "note-1").expect("second read");
+        let first_reader =
+            read_note(&conn, &vault, "01ARZ3NDEKTSV4RRFFQ69G5FAV").expect("first read");
+        let second_reader =
+            read_note(&conn, &vault, "01ARZ3NDEKTSV4RRFFQ69G5FAV").expect("second read");
         assert_eq!(first_reader.revision, second_reader.revision);
 
         let (_, _, written_revision) = write_note_filesystem(
             &conn,
             &vault,
-            "note-1",
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
             "saved by first renderer\n",
             &first_reader.revision,
         )
@@ -559,7 +687,7 @@ mod tests {
         let error = write_note_filesystem(
             &conn,
             &vault,
-            "note-1",
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
             "stale second renderer buffer\n",
             &second_reader.revision,
         )
@@ -571,7 +699,7 @@ mod tests {
             WriteNoteError::Failed { message } => panic!("unexpected write failure: {message}"),
         }
         assert_eq!(
-            read_note(&conn, &vault, "note-1")
+            read_note(&conn, &vault, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
                 .expect("read saved note")
                 .content,
             "saved by first renderer\n"
@@ -595,24 +723,49 @@ mod tests {
             std::env::temp_dir().join(format!("amby_note_crlf_cas_{}", ulid::Ulid::generate()));
         fs::create_dir_all(&vault).expect("create vault");
         let path = vault.join("Note.md");
-        fs::write(&path, "---\r\nid: note-1\r\n---\r\none\r\n").expect("write note");
+        fs::write(
+            &path,
+            "---\r\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\r\n---\r\none\r\n",
+        )
+        .expect("write note");
         let conn = open_connection(&vault).expect("open index");
-        upsert_note_index(&conn, &vault, "note-1", "one\r\n", &path).expect("index note");
+        upsert_note_index(
+            &conn,
+            &vault,
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "one\r\n",
+            &path,
+        )
+        .expect("index note");
 
-        let initial = read_note(&conn, &vault, "note-1").expect("read initial");
+        let initial = read_note(&conn, &vault, "01ARZ3NDEKTSV4RRFFQ69G5FAV").expect("read initial");
         assert_eq!(initial.content, "one\n");
-        assert_eq!(initial.source, "---\r\nid: note-1\r\n---\r\none\r\n");
-        let (_, _, first_revision) =
-            write_note_filesystem(&conn, &vault, "note-1", "two\n", &initial.revision)
-                .expect("first save");
         assert_eq!(
-            read_note(&conn, &vault, "note-1")
+            initial.source,
+            "---\r\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\r\n---\r\none\r\n"
+        );
+        let (_, _, first_revision) = write_note_filesystem(
+            &conn,
+            &vault,
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "two\n",
+            &initial.revision,
+        )
+        .expect("first save");
+        assert_eq!(
+            read_note(&conn, &vault, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
                 .expect("read after first save")
                 .revision,
             first_revision
         );
-        write_note_filesystem(&conn, &vault, "note-1", "three\n", &first_revision)
-            .expect("second save with returned revision");
+        write_note_filesystem(
+            &conn,
+            &vault,
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "three\n",
+            &first_revision,
+        )
+        .expect("second save with returned revision");
 
         let _ = fs::remove_dir_all(vault);
     }

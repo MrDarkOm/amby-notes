@@ -5,6 +5,14 @@ interface OpenDocumentLocation {
   title: string
 }
 
+/** Folder events and root-level rescan notifications also cover open descendants. */
+export function watcherChangeAffectsDocument(documentPath: string, changedPath: string): boolean {
+  const normalize = (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, "")
+  const document = normalize(documentPath)
+  const changed = normalize(changedPath)
+  return document === changed || document.startsWith(`${changed}/`)
+}
+
 export type OpenDocumentTreeChange =
   | { kind: "deleted"; fileId: string }
   | { kind: "relocated"; fileId: string; path: string; title: string }

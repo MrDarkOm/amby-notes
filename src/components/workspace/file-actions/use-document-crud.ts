@@ -14,7 +14,7 @@ import { DeleteConfirmationDialog } from "../delete-confirmation-dialog"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useViewStateStore } from "../use-view-state-store"
-import { findTreeItem, newTabKey, updateInTree, wsPathStem } from "../workspace-tree-utils"
+import { findTreeItem, updateInTree, wsPathStem } from "../workspace-tree-utils"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
 type DeleteResolution = "confirm" | "keep_recovery" | "discard" | "cancel"
@@ -35,6 +35,7 @@ export function useDocumentCrud({
   autosaveKey,
   handleApplyMutation,
   loadDoc,
+  releaseUnusedDocumentBuffers,
 }: Params) {
   const t = i18n.t.bind(i18n)
   const [pendingDelete, setPendingDelete] = React.useState<{
@@ -44,8 +45,7 @@ export function useDocumentCrud({
     resolve: (action: DeleteResolution, dontAskAgain?: boolean) => void
   } | null>(null)
   const { setDoc } = useDocStore.getState()
-  const tabs = useTabsStore((state) => state.tabs)
-  const { setTabs, setActiveTabKey } = useTabsStore.getState()
+  const { setTabs, openItem } = useTabsStore.getState()
   const { setActiveLayer } = useViewStateStore.getState()
   const requestDeleteConfirmation = React.useCallback(
     async (id: string, name: string, isDirtyOrConflicted: boolean): Promise<DeleteResolution> => {
@@ -118,14 +118,22 @@ export function useDocumentCrud({
     ],
   )
   const createDocumentIn = React.useCallback(
-    async (parentId: string | null) => {
+    async (parentId: string | null, inNewTab = false) => {
       if (!vault) return
       const parent = parentId ? findTreeItem(treeItems, parentId) : null
       const title = t("defaults.untitled")
       try {
         const result = await createNote(vault, parent?.path ?? parentId ?? vault, title)
         handleApplyMutation(result)
-        await refreshTree()
+        const updatedTree = await refreshTree()
+        // The web adapter uses paths as IDs, so promoting a note can change its ID.
+        const parentPath = result.pathChanges.find(
+          (change) => change.oldPath === parent?.path,
+        )?.newPath
+        const updatedParent = parent
+          ? (findTreeItem(updatedTree, parent.id) ?? findTreeItem(updatedTree, parentPath ?? ""))
+          : null
+        if (updatedParent) useViewStateStore.getState().expandTreeItem(updatedParent.id)
         const id = result.primaryId ?? result.primaryPath
         if (!id) return
         const note = await readNote(vault, id)
@@ -140,12 +148,8 @@ export function useDocumentCrud({
           revision: note.revision,
           source: note.source,
         })
-        const key = newTabKey()
-        setTabs((previous) => [
-          ...previous,
-          { key, kind: "document", fileId: id, title, history: [id], historyIndex: 0 },
-        ])
-        setActiveTabKey(key)
+        openItem({ kind: "document", fileId: id, title }, inNewTab)
+        void releaseUnusedDocumentBuffers()
         setPendingRenameId(id)
         setTimeout(() => setPendingRenameId(null), 500)
       } catch (error) {
@@ -155,10 +159,10 @@ export function useDocumentCrud({
     [
       handleApplyMutation,
       refreshTree,
-      setActiveTabKey,
+      openItem,
+      releaseUnusedDocumentBuffers,
       setDoc,
       setPendingRenameId,
-      setTabs,
       t,
       treeItems,
       vault,
@@ -207,17 +211,13 @@ export function useDocumentCrud({
         await refreshTree()
         setOpenCanvases((previous) => ({ ...previous, [path]: "{}\n" }))
         const title = wsPathStem(path)
-        const key = newTabKey()
-        setTabs((previous) => [
-          ...previous,
-          { key, kind: "canvas", fileId: path, title, history: [], historyIndex: 0 },
-        ])
-        setActiveTabKey(key)
+        openItem({ kind: "canvas", fileId: path, title })
+        void releaseUnusedDocumentBuffers()
       } catch (error) {
         console.error("Failed to create canvas:", error)
       }
     },
-    [refreshTree, setActiveTabKey, setOpenCanvases, setTabs, t, treeItems, vault],
+    [refreshTree, openItem, releaseUnusedDocumentBuffers, setOpenCanvases, t, treeItems, vault],
   )
   const handleAttachCanvasToNote = React.useCallback(
     async (canvasId: string) => {
@@ -241,16 +241,8 @@ export function useDocumentCrud({
           /* best effort */
         }
         setActiveLayer(id, "canvas")
-        const existing = tabs.find((tab) => tab.kind === "document" && tab.fileId === id)
-        if (existing) setActiveTabKey(existing.key)
-        else {
-          const key = newTabKey()
-          setTabs((previous) => [
-            ...previous,
-            { key, kind: "document", fileId: id, title, history: [id], historyIndex: 0 },
-          ])
-          setActiveTabKey(key)
-        }
+        openItem({ kind: "document", fileId: id, title })
+        void releaseUnusedDocumentBuffers()
       } catch (error) {
         console.error("Failed to attach canvas to note:", error)
       }
@@ -260,9 +252,9 @@ export function useDocumentCrud({
       loadDoc,
       refreshTree,
       setActiveLayer,
-      setActiveTabKey,
+      openItem,
+      releaseUnusedDocumentBuffers,
       setTabs,
-      tabs,
       treeItems,
       vault,
     ],

@@ -326,7 +326,7 @@ export class WebAdapterCore implements StoragePort {
 
   async restoreDeletedNote(
     _vaultPath: string,
-    noteId: string,
+    _noteId: string,
     path: string,
     content: string,
     sourceTemplate: string,
@@ -337,7 +337,7 @@ export class WebAdapterCore implements StoragePort {
       throw new Error("The deleted note path reappeared; refusing to overwrite it")
     }
     const template = splitWebFrontmatter(sourceTemplate)
-    const source = `${template?.envelope ?? `---\nid: ${noteId}\n---\n`}${content}`
+    const source = `${template?.envelope ?? ""}${content}`
     webSet(FILE_PREFIX + path, source)
     return {
       path,

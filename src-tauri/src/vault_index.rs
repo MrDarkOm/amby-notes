@@ -36,7 +36,9 @@ mod tests {
         let loaded = load_vault(&conn, &vault).unwrap();
 
         assert_eq!(loaded.notes.len(), 1);
-        assert!(fs::read_to_string(note).unwrap().starts_with("---\nid: "));
+        assert!(fs::read_to_string(note)
+            .unwrap()
+            .starts_with("---\namby-id: "));
         assert_eq!(loaded.tree[0].id, loaded.notes[0].id);
     }
 
@@ -112,16 +114,15 @@ mod tests {
         let conn = open_conn(&vault);
         let loaded = load_vault(&conn, &vault).unwrap();
 
-        assert_eq!(loaded.notes.len(), 1);
-        assert_eq!(
-            fs::read_to_string(&user_managed).unwrap(),
-            "---\nid: external-system\n---\nUser-managed"
-        );
+        assert_eq!(loaded.notes.len(), 3);
+        assert!(fs::read_to_string(&user_managed)
+            .unwrap()
+            .ends_with("id: external-system\n---\nUser-managed"));
         assert_eq!(
             fs::read_to_string(&duplicate).unwrap(),
             format!("---\nid: {id}\n---\nDuplicate")
         );
-        assert!(loaded
+        assert!(!loaded
             .sync
             .warnings
             .iter()
@@ -169,7 +170,9 @@ mod tests {
 
         let migration = apply_id_migration(&vault).unwrap();
         assert_eq!(migration.modified_paths, vec!["Untitled.md"]);
-        assert!(fs::read_to_string(&note).unwrap().starts_with("---\nid: "));
+        assert!(fs::read_to_string(&note)
+            .unwrap()
+            .starts_with("---\namby-id: "));
         assert_eq!(
             fs::read_to_string(format!("{}/Untitled.md", migration.backup_path)).unwrap(),
             original
@@ -215,6 +218,113 @@ mod tests {
     }
 
     #[test]
+    fn id_insertion_persists_exact_bytes_in_sync_incremental_and_migration_paths() {
+        for operation in ["sync", "incremental", "migration"] {
+            let vault = temp_vault(operation);
+            let note = vault.join("Note.md");
+            // Mixed endings deliberately exercise the identity-only write path:
+            // it must not run the body editor's dominant-EOL normalization.
+            let original = "\u{feff}---\r\n# keep\r\ntitle: 'Quoted'\r\n---\r\nBody\n\n";
+            fs::write(&note, original).unwrap();
+            let conn = open_conn(&vault);
+            let migration = match operation {
+                "sync" => {
+                    sync_vault(&conn, &vault).unwrap();
+                    None
+                }
+                "incremental" => {
+                    prepare_note_at_path(&conn, &vault, &note).unwrap();
+                    None
+                }
+                "migration" => {
+                    let migration = apply_id_migration(&vault).unwrap();
+                    assert_eq!(
+                        fs::read(Path::new(&migration.backup_path).join("Note.md")).unwrap(),
+                        original.as_bytes()
+                    );
+                    Some(migration)
+                }
+                _ => unreachable!(),
+            };
+            let persisted = fs::read_to_string(&note).unwrap();
+            let id = crate::frontmatter::parse_markdown(&persisted).id.unwrap();
+            let expected = original.replacen("---\r\n", &format!("---\r\namby-id: {id}\r\n"), 1);
+            assert_eq!(persisted.as_bytes(), expected.as_bytes(), "{operation}");
+
+            // A subsequent scan must not add a second ID or normalize the file.
+            sync_vault(&conn, &vault).unwrap();
+            assert_eq!(fs::read(&note).unwrap(), expected.as_bytes());
+            if let Some(migration) = migration {
+                let recovery = recover_id_migration(
+                    &vault,
+                    &migration.journal_path,
+                    IdMigrationRecoveryAction::Rollback,
+                )
+                .unwrap();
+                assert_eq!(recovery.status, IdMigrationStatus::RolledBack);
+            } else {
+                let snapshots = crate::history::list_snapshots(&vault, &note).unwrap();
+                assert_eq!(snapshots.len(), 1);
+                assert_eq!(snapshots[0].reason, "id-assignment");
+                let restore =
+                    crate::history::prepare_snapshot_restore(&vault, &snapshots[0].id).unwrap();
+                assert_eq!(restore.bytes, original.as_bytes());
+                crate::history::restore_snapshot(&vault, &snapshots[0].id).unwrap();
+            }
+            assert_eq!(fs::read(&note).unwrap(), original.as_bytes());
+            drop(conn);
+            fs::remove_dir_all(vault).unwrap();
+        }
+    }
+
+    #[test]
+    fn id_insertion_failure_leaves_original_files_intact() {
+        for operation in ["sync", "incremental", "migration"] {
+            for original in [
+                "\u{feff}---\r\n{title: 'Flow'}\r\n---\r\nBody\n",
+                "---\namby-id: 42\n---\nBody",
+                "---\ntitle: open\nBody",
+            ] {
+                let vault = temp_vault(operation);
+                let note = vault.join("Note.md");
+                fs::write(&note, original).unwrap();
+                let conn = open_conn(&vault);
+                match operation {
+                    "sync" => {
+                        let report = sync_vault(&conn, &vault).unwrap();
+                        assert!(report
+                            .warnings
+                            .iter()
+                            .any(|warning| warning.contains("Note.md")));
+                    }
+                    "incremental" => {
+                        let prepared = prepare_note_at_path(&conn, &vault, &note).unwrap();
+                        let prefix = if crate::frontmatter::parse_markdown(original)
+                            .frontmatter_status
+                            .is_malformed()
+                        {
+                            "amby-opaque:"
+                        } else {
+                            "amby-conflict:"
+                        };
+                        assert!(prepared.note_id.starts_with(prefix));
+                    }
+                    "migration" => {
+                        assert!(apply_id_migration(&vault)
+                            .unwrap()
+                            .modified_paths
+                            .is_empty());
+                    }
+                    _ => unreachable!(),
+                }
+                assert_eq!(fs::read(&note).unwrap(), original.as_bytes());
+                drop(conn);
+                fs::remove_dir_all(vault).unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn completed_legacy_migration_journal_does_not_block_preflight() {
         let vault = temp_vault("legacy-id-migration-journal");
         fs::write(
@@ -239,7 +349,7 @@ mod tests {
 
         let preflight = preflight_vault(&vault).unwrap();
         assert!(preflight.unfinished_migrations.is_empty());
-        assert!(preflight.planned_id_writes.is_empty());
+        assert_eq!(preflight.planned_id_writes, vec!["Note.md"]);
         fs::remove_dir_all(vault).unwrap();
     }
 
@@ -394,7 +504,9 @@ mod tests {
 
         let id = note_id_for_path(&conn, &vault, &note).unwrap().unwrap();
         assert!(!id.is_empty());
-        assert!(fs::read_to_string(&note).unwrap().starts_with("---\nid: "));
+        assert!(fs::read_to_string(&note)
+            .unwrap()
+            .starts_with("---\namby-id: "));
         assert_eq!(list_notes(&conn, &vault).unwrap().len(), 1);
     }
 

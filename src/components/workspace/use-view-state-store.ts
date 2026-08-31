@@ -1,12 +1,18 @@
 import { create } from "zustand"
 import type { DocumentViewMode } from "./document-editor"
 import type { NoteLayers, LayerKind } from "@/lib/storage"
+import type { TreeItem } from "./sidebar-tree"
 
 /** "editor" layer or any named layer kind (canvas / database / sketch). */
 export type EditorLayer = "editor" | LayerKind
 export type NestedNotesPlacement = "top" | "bottom" | "hidden"
 
 interface ViewStateStore {
+  /** Collapsed folders and note bundles in the vault tree. */
+  closedTreeIds: Set<string>
+  toggleTreeItem: (id: string) => void
+  expandTreeItem: (id: string) => void
+  setTreeExpanded: (items: TreeItem[], expanded: boolean) => void
   /** File ids the user has starred. */
   favorites: Set<string>
   /** Per-file editor view-mode override (source / editor / split). */
@@ -35,10 +41,10 @@ interface ViewStateStore {
 
   /**
    * After a filesystem mutation, remove entries for deleted file ids from every
-   * map/set. View-state keys are file ids (ULIDs in Tauri, paths in web-mode) —
-   * they don't need path remapping; deleted files simply lose their view state.
+   * map/set. Also remap collapsed tree IDs that use paths (folders and web
+   * notes); desktop note IDs remain stable across renames and moves.
    */
-  applyMutation: (deletedIds: string[]) => void
+  applyMutation: (deletedIds: string[], remapPath?: (path: string) => string) => void
 
   /**
    * Replace the entire view state from a restored session. Called by `loadVault`
@@ -50,6 +56,7 @@ interface ViewStateStore {
     viewModes: Record<string, string>
     nestedNotesPlacements?: Record<string, string>
     lockedFileIds: string[]
+    closedTreeIds?: string[]
   }) => void
 }
 
@@ -60,6 +67,33 @@ interface ViewStateStore {
  */
 function createViewStateStore() {
   return create<ViewStateStore>((set) => ({
+    closedTreeIds: new Set(),
+    toggleTreeItem: (id) =>
+      set((s) => {
+        const closedTreeIds = new Set(s.closedTreeIds)
+        if (closedTreeIds.has(id)) closedTreeIds.delete(id)
+        else closedTreeIds.add(id)
+        return { closedTreeIds }
+      }),
+    expandTreeItem: (id) =>
+      set((s) => {
+        if (!s.closedTreeIds.has(id)) return s
+        const closedTreeIds = new Set(s.closedTreeIds)
+        closedTreeIds.delete(id)
+        return { closedTreeIds }
+      }),
+    setTreeExpanded: (items, expanded) =>
+      set(() => {
+        const closedTreeIds = new Set<string>()
+        function collect(list: TreeItem[]) {
+          for (const item of list) {
+            if (item.type === "folder" || item.children?.length) closedTreeIds.add(item.id)
+            if (item.children) collect(item.children)
+          }
+        }
+        if (!expanded) collect(items)
+        return { closedTreeIds }
+      }),
     favorites: new Set(),
     viewModes: {},
     nestedNotesPlacements: {},
@@ -99,9 +133,16 @@ function createViewStateStore() {
     setLinkedLayers: (id, layers) =>
       set((s) => ({ linkedLayersByDoc: { ...s.linkedLayersByDoc, [id]: layers } })),
 
-    applyMutation: (deletedIds) =>
+    applyMutation: (deletedIds, remapPath = (path) => path) =>
       set((s) => {
         const deleted = new Set(deletedIds)
+        const closedTreeIds = new Set<string>()
+        for (const id of s.closedTreeIds) {
+          if (deleted.has(id)) continue
+          closedTreeIds.add(
+            id.startsWith("folder:") ? `folder:${remapPath(id.slice(7))}` : remapPath(id),
+          )
+        }
 
         const favorites = new Set<string>()
         for (const id of s.favorites) if (!deleted.has(id)) favorites.add(id)
@@ -126,6 +167,7 @@ function createViewStateStore() {
           if (!deleted.has(id)) nestedNotesPlacements[id] = placement
 
         return {
+          closedTreeIds,
           favorites,
           lockedFileIds,
           iconOverrides,
@@ -141,8 +183,10 @@ function createViewStateStore() {
       viewModes,
       nestedNotesPlacements = {},
       lockedFileIds,
+      closedTreeIds = [],
     }) =>
       set({
+        closedTreeIds: new Set(closedTreeIds),
         iconOverrides: icons,
         favorites: new Set(favorites),
         viewModes: viewModes as Record<string, DocumentViewMode>,

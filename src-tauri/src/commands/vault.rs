@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
@@ -59,9 +59,7 @@ pub fn load_active_vault(
 ) -> Result<vault_index::LoadVaultResult, String> {
     let active = context.conn.lock().unwrap();
     let active = active.as_ref().ok_or("No vault open")?;
-    let mut loaded = vault_index::load_vault(active, &active.root)?;
-    loaded.generation = active.generation;
-    Ok(loaded)
+    active.refresh()
 }
 
 #[tauri::command]
@@ -116,7 +114,7 @@ pub fn list_files(
 ) -> Result<Vec<vault_index::TreeItem>, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    vault_index::load_vault(conn, &conn.root).map(|loaded| loaded.tree)
+    conn.refresh().map(|loaded| loaded.tree)
 }
 
 #[tauri::command]
@@ -129,46 +127,34 @@ pub fn start_vault_watcher(
     use notify::Watcher;
     use tauri::Emitter;
 
-    let vault = context.root()?;
-    let generation = context.generation()?;
+    let (vault, generation, index_changes) = {
+        let active = context.conn.lock().unwrap();
+        let active = active.as_ref().ok_or("No vault open")?;
+        (
+            active.root.clone(),
+            active.generation,
+            Arc::clone(&active.index_changes),
+        )
+    };
     state.active_generation.store(generation, Ordering::Release);
     let own_writes = Arc::clone(&state.own_writes);
     let active_generation = Arc::clone(&state.active_generation);
     let app_handle = app.clone();
+    let watched_vault = vault.clone();
 
     let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
-        let Ok(event) = res else { return };
         if active_generation.load(Ordering::Acquire) != generation {
             return;
         }
 
-        let Some(kind_str) = watcher::watched_event_kind(&event.kind) else {
-            return;
-        };
-
-        let relevant: Vec<&PathBuf> = event
-            .paths
-            .iter()
-            .filter(|p| {
-                !p.components().any(|c| c.as_os_str() == ".amby")
-                    && !watcher::is_amby_temporary_file(p)
-            })
-            .collect();
-        if relevant.is_empty() {
-            return;
-        }
-
-        for path in relevant {
-            if watcher::reconcile_self_write(&own_writes, path, kind_str, generation) {
-                continue;
-            }
-            let _ = app_handle.emit(
-                "vault-file-changed",
-                watcher::VaultFileChangedPayload {
-                    kind: kind_str.to_string(),
-                    path: path.to_string_lossy().to_string(),
-                },
-            );
+        for change in watcher::queue_external_changes(
+            res,
+            &watched_vault,
+            &own_writes,
+            generation,
+            &index_changes,
+        ) {
+            let _ = app_handle.emit("vault-file-changed", change);
         }
     })
     .map_err(|e| e.to_string())?;

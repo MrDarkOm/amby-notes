@@ -4,9 +4,18 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::model::{FrontmatterProperty, NoteProperties};
+use crate::model::{FrontmatterProperty, FrontmatterStatus, NoteProperties};
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+pub const AMBY_ID_FIELD: &str = "amby-id";
+pub const LEGACY_ID_FIELD: &str = "id";
+
+pub fn is_amby_id(id: &str) -> bool {
+    ulid::Ulid::from_string(id)
+        .map(|parsed| parsed.to_string() == id)
+        .unwrap_or(false)
+}
 
 #[cfg(test)]
 thread_local! {
@@ -129,12 +138,28 @@ fn publish_prepared_no_replace(temp: &Path, target: &Path) -> Result<(), AtomicC
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedMarkdown {
+    pub frontmatter_status: FrontmatterStatus,
     pub id: Option<String>,
+    pub legacy_id: Option<String>,
+    pub identity_error: Option<String>,
     pub body: String,
     pub frontmatter_tags: Vec<String>,
     pub has_frontmatter: bool,
     pub yaml_is_map: bool,
     pub parse_error: Option<String>,
+}
+
+impl ParsedMarkdown {
+    /// Legacy IDs are read-only compatibility candidates, never permission to
+    /// rewrite the user's generic `id`. An explicit namespaced value wins even
+    /// when invalid: do not fall back and hide that conflict.
+    pub fn note_id(&self) -> Option<&str> {
+        if self.identity_error.is_some() {
+            None
+        } else {
+            self.id.as_deref().or(self.legacy_id.as_deref())
+        }
+    }
 }
 
 fn split_frontmatter(content: &str) -> Option<(&str, &str)> {
@@ -170,30 +195,70 @@ fn split_frontmatter(content: &str) -> Option<(&str, &str)> {
 /// so drops comments, key ordering and presentation details that belong to the
 /// user. This companion keeps the exact prefix (opening fence, YAML, closing
 /// fence and its following line break) for safe body-only writes.
-fn split_frontmatter_envelope(content: &str) -> Option<(&str, &str)> {
+pub(crate) fn split_frontmatter_envelope(content: &str) -> Option<(&str, &str)> {
     let (_, body) = split_frontmatter(content)?;
     let prefix_len = content.len().checked_sub(body.len())?;
     Some((&content[..prefix_len], body))
 }
 
+fn parse_yaml(yaml: &str) -> Result<Value, serde_yaml::Error> {
+    // Empty/comment-only envelopes can accept their first property. Explicit
+    // YAML null scalars (`null`, `~`) remain non-maps and must not be replaced.
+    let value = serde_yaml::from_str(yaml)?;
+    if matches!(value, Value::Null)
+        && yaml.lines().all(|line| {
+            let line = line.trim();
+            line.is_empty() || line.starts_with('#')
+        })
+    {
+        Ok(Value::Mapping(Mapping::new()))
+    } else {
+        Ok(value)
+    }
+}
+
 pub fn parse_markdown(content: &str) -> ParsedMarkdown {
     let Some((yaml, body)) = split_frontmatter(content) else {
+        let without_bom = content.strip_prefix('\u{feff}').unwrap_or(content);
+        let unclosed = without_bom.starts_with("---\n") || without_bom.starts_with("---\r\n");
         return ParsedMarkdown {
+            frontmatter_status: if unclosed {
+                FrontmatterStatus::Unterminated
+            } else {
+                FrontmatterStatus::None
+            },
             id: None,
+            legacy_id: None,
+            identity_error: None,
             body: content.to_string(),
             frontmatter_tags: Vec::new(),
-            has_frontmatter: false,
-            yaml_is_map: true,
-            parse_error: None,
+            has_frontmatter: unclosed,
+            yaml_is_map: !unclosed,
+            parse_error: unclosed.then(|| {
+                "Frontmatter closing delimiter is missing; showing the complete source".into()
+            }),
         };
     };
 
-    match serde_yaml::from_str::<Value>(yaml) {
+    match parse_yaml(yaml) {
         Ok(Value::Mapping(map)) => ParsedMarkdown {
+            frontmatter_status: FrontmatterStatus::Valid,
             id: map
-                .get(Value::String("id".to_string()))
+                .get(Value::String(AMBY_ID_FIELD.to_string()))
                 .and_then(Value::as_str)
                 .map(str::to_string),
+            legacy_id: if map.contains_key(Value::String(AMBY_ID_FIELD.to_string())) {
+                None
+            } else {
+                map.get(Value::String(LEGACY_ID_FIELD.to_string()))
+                    .and_then(Value::as_str)
+                    .filter(|id| is_amby_id(id))
+                    .map(str::to_string)
+            },
+            identity_error: map
+                .get(Value::String(AMBY_ID_FIELD.to_string()))
+                .filter(|value| !value.as_str().is_some_and(is_amby_id))
+                .map(|_| format!("Invalid {AMBY_ID_FIELD}: expected a canonical uppercase ULID")),
             body: body.to_string(),
             frontmatter_tags: map
                 .get(Value::String("tags".to_string()))
@@ -210,15 +275,21 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
             parse_error: None,
         },
         Ok(_) => ParsedMarkdown {
+            frontmatter_status: FrontmatterStatus::Invalid,
             id: None,
+            legacy_id: None,
+            identity_error: None,
             body: body.to_string(),
             frontmatter_tags: Vec::new(),
             has_frontmatter: true,
             yaml_is_map: false,
-            parse_error: None,
+            parse_error: Some("Frontmatter must be a YAML mapping".into()),
         },
         Err(err) => ParsedMarkdown {
+            frontmatter_status: FrontmatterStatus::Invalid,
             id: None,
+            legacy_id: None,
+            identity_error: None,
             body: body.to_string(),
             frontmatter_tags: Vec::new(),
             has_frontmatter: true,
@@ -257,9 +328,11 @@ pub fn note_properties(content: &str) -> NoteProperties {
     let parsed = parse_markdown(content);
     let Some((yaml, _)) = split_frontmatter(content) else {
         return NoteProperties {
-            has_frontmatter: false,
+            has_frontmatter: parsed.has_frontmatter,
+            frontmatter_status: parsed.frontmatter_status,
+            body_read_only: false,
             properties: Vec::new(),
-            parse_error: None,
+            parse_error: parsed.parse_error,
             custom_properties: Vec::new(),
         };
     };
@@ -277,8 +350,10 @@ pub fn note_properties(content: &str) -> NoteProperties {
     };
     NoteProperties {
         has_frontmatter: parsed.has_frontmatter,
+        frontmatter_status: parsed.frontmatter_status,
+        body_read_only: parsed.identity_error.is_some(),
         properties,
-        parse_error: parsed.parse_error,
+        parse_error: parsed.parse_error.or(parsed.identity_error),
         custom_properties: Vec::new(),
     }
 }
@@ -290,35 +365,76 @@ pub fn read_markdown(path: &Path) -> Result<ParsedMarkdown, String> {
 }
 
 pub fn body_with_id(content: &str, id: &str) -> Result<String, String> {
-    let parsed = parse_markdown(content);
-    if parsed.has_frontmatter && !parsed.yaml_is_map {
-        return Err("Cannot update malformed or non-map frontmatter".to_string());
+    if !is_amby_id(id) {
+        return Err(format!(
+            "Invalid {AMBY_ID_FIELD}: expected a canonical uppercase ULID"
+        ));
     }
-    if parsed.id.is_some() {
-        return Err("Refusing to replace an existing frontmatter id".to_string());
-    }
+    body_with_identity_field(content, id, AMBY_ID_FIELD)
+}
 
+// The field parameter is only used to recognize/restore version-1 migration
+// output. New note writes always go through body_with_id and AMBY_ID_FIELD.
+pub(crate) fn body_with_identity_field(
+    content: &str,
+    id: &str,
+    field: &str,
+) -> Result<String, String> {
     // Keep a source BOM at byte zero while inserting the generated envelope.
     // Leaving it attached to the old body would make `atomic_write` restore a
     // second BOM at byte zero and persist the original one inside Markdown.
     let (bom, content_without_bom) = content
         .strip_prefix('\u{feff}')
         .map_or(("", content), |content| ("\u{feff}", content));
-
-    if let Some((yaml, body)) = split_frontmatter(content) {
-        let mut map = serde_yaml::from_str::<Mapping>(yaml).map_err(|e| e.to_string())?;
-        map.insert(
-            Value::String("id".to_string()),
-            Value::String(id.to_string()),
-        );
-        let yaml = serde_yaml::to_string(&map).map_err(|e| e.to_string())?;
-        Ok(format!("{bom}---\n{}---\n{}", yaml, body))
+    let opening = if content_without_bom.starts_with("---\r\n") {
+        Some("---\r\n")
+    } else if content_without_bom.starts_with("---\n") {
+        Some("---\n")
     } else {
-        Ok(format!(
-            "{bom}---\nid: {}\n---\n{}",
-            id, content_without_bom
-        ))
+        None
+    };
+    let mut expected = Mapping::new();
+    let next = if let Some(opening) = opening {
+        let (yaml, _) = split_frontmatter(content)
+            .ok_or_else(|| "Cannot insert an id into unterminated frontmatter".to_string())?;
+        expected = match parse_yaml(yaml).map_err(|e| e.to_string())? {
+            Value::Mapping(map) => map,
+            _ => return Err("Cannot update malformed or non-map frontmatter".to_string()),
+        };
+        if expected.contains_key(Value::String(field.to_string())) {
+            return Err(format!(
+                "Refusing to replace an existing frontmatter {field}"
+            ));
+        }
+        let insertion = bom.len() + opening.len();
+        let eol = opening.strip_prefix("---").unwrap();
+        format!(
+            "{}{field}: {id}{eol}{}",
+            &content[..insertion],
+            &content[insertion..]
+        )
+    } else {
+        let eol = content_without_bom
+            .find('\n')
+            .filter(|index| content_without_bom[..*index].ends_with('\r'))
+            .map_or("\n", |_| "\r\n");
+        format!("{bom}---{eol}{field}: {id}{eol}---{eol}{content_without_bom}")
+    };
+    expected.insert(
+        Value::String(field.to_string()),
+        Value::String(id.to_string()),
+    );
+
+    // Validate the splice without serializing user YAML. Flow/indented root
+    // maps and other representations that cannot accept this line safely are
+    // rejected; anchors, comments, scalar styles and all source bytes survive.
+    let valid = split_frontmatter(&next)
+        .and_then(|(yaml, _)| parse_yaml(yaml).ok())
+        .is_some_and(|value| value == Value::Mapping(expected));
+    if !valid {
+        return Err("Cannot insert an id without changing existing YAML".to_string());
     }
+    Ok(next)
 }
 
 pub fn replace_body_preserving_id(content: &str, body: &str, id: &str) -> Result<String, String> {
@@ -332,15 +448,59 @@ pub fn replace_body_preserving_id(content: &str, body: &str, id: &str) -> Result
         // note is indexed, so rewriting YAML here would provide no benefit and
         // would silently normalize comments, ordering and unknown YAML forms.
         // Refuse an unexpected identity instead of replacing a user edit.
-        if parsed.id.as_deref() != Some(id) {
+        if parsed.note_id() != Some(id) {
             return Err(
                 "Refusing to replace frontmatter whose id no longer matches this note".to_string(),
             );
         }
         Ok(format!("{envelope}{body}"))
     } else {
-        Ok(format!("---\nid: {}\n---\n{}", id, body))
+        body_with_id(body, id)
     }
+}
+
+/// Body-only editing does not require parsing the opaque YAML envelope. This
+/// helper is only used after validating a path-scoped malformed-note key.
+pub fn replace_body_preserving_opaque_frontmatter(
+    content: &str,
+    body: &str,
+) -> Result<String, String> {
+    let (envelope, old_body) = split_frontmatter_envelope(content)
+        .ok_or("The frontmatter boundary changed; refresh and reopen the note")?;
+    let body = text_bytes_from_template(old_body, body)?;
+    let body = String::from_utf8(body).map_err(|error| error.to_string())?;
+    Ok(format!("{envelope}{body}"))
+}
+
+/// Read-only reconstruction of historical version-1 migration outputs. Used
+/// solely to verify crash recovery/rollback against raw backups. Never publish
+/// these bytes: all new assignments use the namespaced field.
+pub(crate) fn legacy_migration_outputs(content: &str, id: &str) -> Result<Vec<Vec<u8>>, String> {
+    let mut outputs = Vec::new();
+    if let Ok(lossless) = body_with_identity_field(content, id, LEGACY_ID_FIELD) {
+        outputs.push(lossless.into_bytes());
+    }
+    let (bom, without_bom) = content
+        .strip_prefix('\u{feff}')
+        .map_or(("", content), |text| ("\u{feff}", text));
+    let serialized = if let Some((yaml, body)) = split_frontmatter(content) {
+        let mut map = match parse_yaml(yaml).map_err(|e| e.to_string())? {
+            Value::Mapping(map) => map,
+            _ => return Err("Invalid legacy migration backup".into()),
+        };
+        map.insert(
+            Value::String(LEGACY_ID_FIELD.into()),
+            Value::String(id.into()),
+        );
+        format!(
+            "{bom}---\n{}---\n{body}",
+            serde_yaml::to_string(&map).map_err(|e| e.to_string())?
+        )
+    } else {
+        format!("{bom}---\n{LEGACY_ID_FIELD}: {id}\n---\n{without_bom}")
+    };
+    outputs.push(text_bytes_from_template(content, &serialized)?);
+    Ok(outputs)
 }
 
 pub fn atomic_write(path: &Path, content: &str) -> Result<(), String> {
@@ -553,25 +713,27 @@ mod tests {
 
     #[test]
     fn parses_existing_id_and_body() {
-        let parsed = parse_markdown("---\nid: 01ABC\n---\nHello");
-        assert_eq!(parsed.id.as_deref(), Some("01ABC"));
+        let parsed = parse_markdown("---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n---\nHello");
+        assert_eq!(parsed.id.as_deref(), Some("01ARZ3NDEKTSV4RRFFQ69G5FAV"));
         assert_eq!(parsed.body, "Hello");
     }
 
     #[test]
     fn parses_crlf_frontmatter_without_treating_it_as_note_body() {
-        let parsed = parse_markdown("---\r\nid: 01ABC\r\ntags:\r\n  - Finnish\r\n---\r\nHello\r\n");
+        let parsed = parse_markdown("---\r\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\r\ntags:\r\n  - Finnish\r\n---\r\nHello\r\n");
 
-        assert_eq!(parsed.id.as_deref(), Some("01ABC"));
+        assert_eq!(parsed.id.as_deref(), Some("01ARZ3NDEKTSV4RRFFQ69G5FAV"));
         assert_eq!(parsed.frontmatter_tags, vec!["Finnish"]);
         assert_eq!(parsed.body, "Hello\r\n");
     }
 
     #[test]
     fn parses_bom_prefixed_crlf_frontmatter() {
-        let parsed = parse_markdown("\u{feff}---\r\nid: 01ABC\r\n---\r\nHello\r\n");
+        let parsed = parse_markdown(
+            "\u{feff}---\r\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\r\n---\r\nHello\r\n",
+        );
 
-        assert_eq!(parsed.id.as_deref(), Some("01ABC"));
+        assert_eq!(parsed.id.as_deref(), Some("01ARZ3NDEKTSV4RRFFQ69G5FAV"));
         assert_eq!(parsed.body, "Hello\r\n");
     }
 
@@ -591,24 +753,134 @@ mod tests {
 
     #[test]
     fn inserts_id_without_frontmatter() {
-        let content = body_with_id("Hello", "01ABC").unwrap();
-        assert!(content.starts_with("---\nid: 01ABC\n---\n"));
+        let content = body_with_id("Hello", "01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap();
+        assert!(content.starts_with("---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n---\n"));
         assert!(content.ends_with("Hello"));
     }
 
     #[test]
     fn inserts_id_before_a_bom_prefixed_body_without_duplicating_the_bom() {
-        let content = body_with_id("\u{feff}Hello", "01ABC").unwrap();
+        let content = body_with_id("\u{feff}Hello", "01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap();
 
-        assert!(content.starts_with("\u{feff}---\nid: 01ABC\n---\n"));
+        assert!(content.starts_with("\u{feff}---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n---\n"));
         assert_eq!(content.matches('\u{feff}').count(), 1);
         assert_eq!(parse_markdown(&content).body, "Hello");
     }
 
     #[test]
     fn refuses_to_replace_an_existing_id() {
-        let result = body_with_id("---\nid: user-managed\n---\nHello", "01ABC");
+        let result = body_with_id(
+            "---\namby-id: user-managed\n---\nHello",
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn id_insertion_preserves_yaml_presentation_and_envelope_bytes() {
+        for bom in ["", "\u{feff}"] {
+            for eol in ["\n", "\r\n"] {
+                for suffix in ["", "\nBody\n\n"] {
+                    let yaml = concat!(
+                        "# before first property\n",
+                        "title: 'Single quoted'  # inline comment\n",
+                        "double: \"Double quoted\"\n",
+                        "inline: [a, b]\n",
+                        "\n",
+                        "nested: &nested\n",
+                        "  value: 1\n",
+                        "alias: *nested\n",
+                        "literal: |\n",
+                        "  keep these lines\n",
+                        "  and their indentation\n",
+                        "# after last property\n",
+                    )
+                    .replace('\n', eol);
+                    let tail = format!("{yaml}---{}", suffix.replace('\n', eol));
+                    let original = format!("{bom}---{eol}{tail}");
+                    let inserted = body_with_id(&original, "01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap();
+
+                    assert_eq!(
+                        inserted,
+                        format!("{bom}---{eol}amby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV{eol}{tail}")
+                    );
+                    assert_eq!(
+                        parse_markdown(&inserted).id.as_deref(),
+                        Some("01ARZ3NDEKTSV4RRFFQ69G5FAV")
+                    );
+                    assert_eq!(
+                        parse_markdown(&inserted).body,
+                        parse_markdown(&original).body
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn id_insertion_accepts_empty_and_comment_only_frontmatter() {
+        for yaml in ["", "\n", "# comment\n", "  # comment\n\n"] {
+            let original = format!("---\n{yaml}---\nBody");
+            assert!(parse_markdown(&original).yaml_is_map);
+            assert_eq!(
+                body_with_id(&original, "01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap(),
+                format!("---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n{yaml}---\nBody")
+            );
+        }
+    }
+
+    #[test]
+    fn id_insertion_without_frontmatter_uses_source_line_ending() {
+        for bom in ["", "\u{feff}"] {
+            for body in ["", "# Hello", "# Hello\nBody\n", "# Hello\r\nBody\r\n"] {
+                let eol = if body.contains("\r\n") { "\r\n" } else { "\n" };
+                assert_eq!(
+                    body_with_id(&format!("{bom}{body}"), "01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap(),
+                    format!("{bom}---{eol}amby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV{eol}---{eol}{body}")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn id_insertion_refuses_every_existing_id_value() {
+        for value in [
+            "external", "''", "null", "", "42", "false", "[a, b]", "{a: b}",
+        ] {
+            let original = format!("---\n'amby-id': {value}\n---\nBody");
+            assert!(
+                body_with_id(&original, "01ARZ3NDEKTSV4RRFFQ69G5FAV").is_err(),
+                "{original}"
+            );
+        }
+    }
+
+    #[test]
+    fn id_insertion_refuses_yaml_that_cannot_be_extended_losslessly() {
+        for yaml in [
+            "tags: [one,\n",
+            "title: one\n  other: two\n",
+            "null\n",
+            "~\n",
+            "scalar\n",
+            "[one, two]\n",
+            "{title: 'flow mapping'}\n",
+            "{}\n",
+            "  title: indented\n",
+        ] {
+            let original = format!("---\n{yaml}---\nBody");
+            assert!(
+                body_with_id(&original, "01ARZ3NDEKTSV4RRFFQ69G5FAV").is_err(),
+                "{original}"
+            );
+        }
+    }
+
+    #[test]
+    fn id_insertion_refuses_unterminated_frontmatter() {
+        for original in ["---\ntitle: open\nBody", "\u{feff}---\r\ntags: [one,\r\n"] {
+            assert!(body_with_id(original, "01ARZ3NDEKTSV4RRFFQ69G5FAV").is_err());
+        }
     }
 
     #[test]
@@ -618,12 +890,14 @@ mod tests {
             "# User-owned comment\n",
             "title: Example\n",
             "custom: [one, two]\n",
-            "id: 01ABC\n",
+            "amby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n",
             "---\n",
             "Original body\n",
         );
 
-        let replaced = replace_body_preserving_id(original, "Edited body\n", "01ABC").unwrap();
+        let replaced =
+            replace_body_preserving_id(original, "Edited body\n", "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+                .unwrap();
 
         assert_eq!(
             replaced,
@@ -632,7 +906,7 @@ mod tests {
                 "# User-owned comment\n",
                 "title: Example\n",
                 "custom: [one, two]\n",
-                "id: 01ABC\n",
+                "amby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n",
                 "---\n",
                 "Edited body\n",
             )
@@ -645,12 +919,14 @@ mod tests {
             "\u{feff}---\r\n",
             "# User-owned comment\r\n",
             "title: Example\r\n",
-            "id: 01ABC\r\n",
+            "amby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\r\n",
             "---\r\n",
             "Original body\r\n",
         );
 
-        let replaced = replace_body_preserving_id(original, "Edited body\r\n", "01ABC").unwrap();
+        let replaced =
+            replace_body_preserving_id(original, "Edited body\r\n", "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+                .unwrap();
 
         assert_eq!(
             replaced,
@@ -658,7 +934,7 @@ mod tests {
                 "\u{feff}---\r\n",
                 "# User-owned comment\r\n",
                 "title: Example\r\n",
-                "id: 01ABC\r\n",
+                "amby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\r\n",
                 "---\r\n",
                 "Edited body\r\n",
             )
@@ -671,11 +947,13 @@ mod tests {
             "\u{feff}---\r\n",
             "# User-owned comment\r\n",
             "custom: [one, two]\r\n",
-            "id: 01ABC\r\n",
+            "amby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\r\n",
             "---\r\n",
             "Original body\r\n",
         );
-        let next = replace_body_preserving_id(template, "Restored\nbody\n", "01ABC").unwrap();
+        let next =
+            replace_body_preserving_id(template, "Restored\nbody\n", "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+                .unwrap();
         let bytes = text_bytes_from_template(template, &next).unwrap();
 
         assert_eq!(
@@ -684,7 +962,7 @@ mod tests {
                 "\u{feff}---\r\n",
                 "# User-owned comment\r\n",
                 "custom: [one, two]\r\n",
-                "id: 01ABC\r\n",
+                "amby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\r\n",
                 "---\r\n",
                 "Restored\r\n",
                 "body\r\n",
@@ -695,8 +973,11 @@ mod tests {
 
     #[test]
     fn body_replacement_refuses_an_unexpected_frontmatter_id() {
-        let original = "---\nid: user-managed\n---\nOriginal body";
-        assert!(replace_body_preserving_id(original, "Edited body", "01ABC").is_err());
+        let original = "---\namby-id: user-managed\n---\nOriginal body";
+        assert!(
+            replace_body_preserving_id(original, "Edited body", "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+                .is_err()
+        );
     }
 
     #[test]
@@ -746,7 +1027,7 @@ mod tests {
         fs::write(&path, b"\xEF\xBB\xBFbody\r\n\r\n\r\n").unwrap();
 
         let source = fs::read_to_string(&path).unwrap();
-        let next = body_with_id(&source, "01ABC").unwrap();
+        let next = body_with_id(&source, "01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap();
         atomic_write(&path, &next).unwrap();
 
         let persisted = fs::read(&path).unwrap();
@@ -874,7 +1155,7 @@ mod tests {
 
     #[test]
     fn reads_yaml_tag_lists_without_changing_frontmatter() {
-        let source = "---\nid: 01ABC\ntags:\n  - Project\n  - inbox/to-read\n---\nBody";
+        let source = "---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\ntags:\n  - Project\n  - inbox/to-read\n---\nBody";
         let parsed = parse_markdown(source);
         assert_eq!(
             parsed.frontmatter_tags,

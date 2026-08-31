@@ -86,6 +86,7 @@ export function applySessionRemap(
   viewModes: Record<string, string>
   nestedNotesPlacements: Record<string, string>
   lockedFileIds: string[]
+  closedTreeIds: string[]
   tabs: { fileId: string; title: string }[]
   activeFileId: string
 } {
@@ -102,6 +103,7 @@ export function applySessionRemap(
   // Favorites / locked: remap + filter to existing ids.
   const favorites = session.favorites.map(remap).filter((id) => allIds.has(id))
   const lockedFileIds = session.locked.map(remap).filter((id) => allIds.has(id))
+  const closedTreeIds = (session.closedTreeIds ?? []).map(remap).filter((id) => allIds.has(id))
 
   // View modes: remap + filter.
   const viewModes: Record<string, string> = {}
@@ -132,6 +134,7 @@ export function applySessionRemap(
     viewModes,
     nestedNotesPlacements,
     lockedFileIds,
+    closedTreeIds,
     tabs,
     activeFileId,
   }

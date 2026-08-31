@@ -39,6 +39,14 @@ their source is still preserved exactly.
 | Mixed CRLF/LF line endings                                             | **Source-only**            | Their exact distribution needs a token-level on-disk model.                                                                                                                                    |
 | MathJax source and Mermaid fences                                      | **Live, byte-exact**       | Block math is held as an opaque source block; Mermaid remains a portable code fence. Dedicated MathJax/Mermaid rendering may be layered on without changing the file format.                   |
 
+Malformed closed YAML is kept outside the editor's Markdown body and preserved
+byte-for-byte on body saves. The body may enter Live Preview only after the usual
+lossless round-trip check. Non-mapping YAML roots use the same policy. Missing
+closing fences have no trustworthy body boundary: the full source stays
+searchable and editable in Source mode, with a warning and no automatic repair.
+YAML properties are unavailable in both cases; see `vault-format.md` for identity,
+save, conflict, and restoration rules.
+
 ## Test fixtures
 
 - `src/components/workspace/tiptap/fixtures/live-preview-safe.md` is the
@@ -49,6 +57,9 @@ their source is still preserved exactly.
   by the Rust write boundary.
 - `src/components/workspace/tiptap/fixtures/malformed-frontmatter.md` verifies
   that malformed YAML is never passed through visual serialization.
+- `src-tauri/src/index/malformed_tests.rs` covers malformed lists/indentation,
+  scalar/sequence roots, missing fences, searchable bodies, opaque saves, external
+  conflicts, restore/move behavior, and envelope-preserving link refactors.
 - `tests/fixtures/markdown-compatibility.json` is the shared cross-platform
   corpus executed by both TypeScript (Vitest) and Rust (`cargo test`) to ensure
   identical indexing of tags, wikilinks, targets, labels and protected regions

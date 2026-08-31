@@ -88,6 +88,17 @@ pub fn plan_inbound_wiki_rewrites(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| error.to_string())?;
         for (source_rel, raw) in rows {
+            let original_path = vault.join(&source_rel);
+            let readable_path = if original_path.is_file() {
+                original_path
+            } else {
+                vault.join(moved_sources.get(&source_rel).unwrap_or(&source_rel))
+            };
+            if frontmatter::read_markdown(&readable_path)?.frontmatter_status
+                == crate::model::FrontmatterStatus::Unterminated
+            {
+                continue;
+            }
             let source_rel = moved_sources.get(&source_rel).unwrap_or(&source_rel);
             let source = vault.join(source_rel);
             let next = replace_wiki_target(&raw, &replacement);
@@ -130,6 +141,18 @@ pub fn plan_inbound_wiki_rewrites(
         let Ok(content) = fs::read_to_string(source) else {
             continue;
         };
+        let editable = if is_markdown(source)
+            && frontmatter::parse_markdown(&content)
+                .frontmatter_status
+                .is_malformed()
+        {
+            let Some((_, body)) = frontmatter::split_frontmatter_envelope(&content) else {
+                continue;
+            };
+            body
+        } else {
+            content.as_str()
+        };
         let rewritten_source = moved_absolute
             .get(source)
             .cloned()
@@ -144,7 +167,7 @@ pub fn plan_inbound_wiki_rewrites(
                 (format!("](/{old_rel}^"), format!("](/{new_rel}^")),
                 (format!("\"{old_rel}\""), format!("\"{new_rel}\"")),
             ] {
-                if content.contains(&old) {
+                if editable.contains(&old) {
                     literal_by_source
                         .entry(rewritten_source.clone())
                         .or_default()
@@ -184,13 +207,28 @@ pub fn apply_planned_wiki_rewrites(
     for rewrite in plan {
         let original =
             fs::read_to_string(&rewrite.source_path).map_err(|error| error.to_string())?;
-        let mut next = original.clone();
+        let malformed = is_markdown(&rewrite.source_path)
+            && frontmatter::parse_markdown(&original)
+                .frontmatter_status
+                .is_malformed();
+        let (envelope, editable) = if malformed {
+            // With no closing fence, YAML/body boundaries are unknown. A link
+            // refactor must not guess and modify possible YAML properties.
+            let Some(parts) = frontmatter::split_frontmatter_envelope(&original) else {
+                continue;
+            };
+            parts
+        } else {
+            ("", original.as_str())
+        };
+        let mut next = editable.to_string();
         for (raw, replacement) in &rewrite.replacements {
             next = next.replace(&format!("[[{raw}]]"), &format!("[[{replacement}]]"));
         }
         for (raw, replacement) in &rewrite.literal_replacements {
             next = next.replace(raw, replacement);
         }
+        let next = format!("{envelope}{next}");
         if next != original {
             proposed.push((rewrite.source_path.clone(), original, next));
         }
@@ -199,10 +237,10 @@ pub fn apply_planned_wiki_rewrites(
     let mut applied = Vec::<(PathBuf, String)>::new();
     for (path, original, next) in proposed {
         let result = history::snapshot_before_write(vault, &path, next.as_bytes(), "link-refactor")
-            .and_then(|_| frontmatter::atomic_write(&path, &next));
+            .and_then(|_| frontmatter::atomic_write_bytes(&path, next.as_bytes()));
         if let Err(error) = result {
             for (applied_path, applied_original) in applied.into_iter().rev() {
-                let _ = frontmatter::atomic_write(&applied_path, &applied_original);
+                let _ = frontmatter::atomic_write_bytes(&applied_path, applied_original.as_bytes());
             }
             return Err(error);
         }

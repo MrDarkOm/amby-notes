@@ -57,10 +57,10 @@ pub struct RestoreDeletedNoteRequest {
     pub origin_window: String,
 }
 
-/// Body text, its on-disk revision, and the complete source retained as a
-/// restore template while the note is open. The revision is a SHA-256 hash of
-/// the unnormalised body bytes, so it remains valid even when the frontend
-/// renders CRLF text as LF. Body-only editing still uses `content`.
+/// Editor text, its on-disk revision, and the complete source retained as a
+/// restore template. Revisions hash unnormalised body bytes for stable IDs and
+/// the complete source for opaque path keys, detecting YAML-only external edits.
+/// Unterminated frontmatter is edited as full source; other notes expose body.
 #[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteReadOutcome {
@@ -165,10 +165,27 @@ pub struct CustomProperty {
     pub settings: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum FrontmatterStatus {
+    None,
+    Valid,
+    Invalid,
+    Unterminated,
+}
+
+impl FrontmatterStatus {
+    pub fn is_malformed(self) -> bool {
+        matches!(self, Self::Invalid | Self::Unterminated)
+    }
+}
+
 #[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteProperties {
     pub has_frontmatter: bool,
+    pub frontmatter_status: FrontmatterStatus,
+    pub body_read_only: bool,
     pub properties: Vec<FrontmatterProperty>,
     pub parse_error: Option<String>,
     pub custom_properties: Vec<CustomProperty>,

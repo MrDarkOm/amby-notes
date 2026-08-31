@@ -1,18 +1,21 @@
+pub use crate::frontmatter::is_amby_id;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
-use ulid::Ulid;
 use walkdir::DirEntry;
 
 pub struct ScannedNote {
+    pub frontmatter_status: crate::model::FrontmatterStatus,
     pub path: PathBuf,
     pub rel_path: String,
     pub parsed_id: Option<String>,
+    pub identity_error: Option<String>,
     pub body: String,
     pub frontmatter_tags: Vec<String>,
     pub mtime: i64,
+    pub mtime_ns: Option<i64>,
     pub size: i64,
-    /// Set when the file's mtime+size match the index, so its body was not read
+    /// Set when the file's precise mtime+size match the index, so its body was not read
     /// and the existing row can be kept as-is.
     pub unchanged: bool,
 }
@@ -38,15 +41,6 @@ pub fn is_markdown(path: &Path) -> bool {
 
 pub fn is_canvas(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "canvas")
-}
-
-/// The `id` frontmatter field belongs to Amby only when it is a canonical,
-/// uppercase ULID. Any other value may be user-managed and must never be
-/// replaced implicitly.
-pub fn is_amby_id(id: &str) -> bool {
-    Ulid::from_string(id)
-        .map(|parsed| parsed.to_string() == id)
-        .unwrap_or(false)
 }
 
 pub fn file_stem(path: &Path) -> String {
@@ -90,15 +84,25 @@ pub fn should_descend(entry: &DirEntry) -> bool {
     )
 }
 
-pub fn metadata_stamp(path: &Path) -> Result<(i64, i64), String> {
+pub struct FileStamp {
+    /// Unix seconds retained for UI date compatibility.
+    pub mtime: i64,
+    /// Unknown or unrepresentable timestamps must never qualify for a cache hit.
+    pub mtime_ns: Option<i64>,
+    pub size: i64,
+}
+
+pub fn metadata_stamp(path: &Path) -> Result<FileStamp, String> {
     let meta = fs::metadata(path).map_err(|e| e.to_string())?;
-    let mtime = meta
+    let modified = meta
         .modified()
         .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
-    Ok((mtime, meta.len() as i64))
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok());
+    Ok(FileStamp {
+        mtime: modified.map(|d| d.as_secs() as i64).unwrap_or(0),
+        mtime_ns: modified.and_then(|d| i64::try_from(d.as_nanos()).ok()),
+        size: meta.len() as i64,
+    })
 }
 
 pub fn word_count(content: &str) -> usize {

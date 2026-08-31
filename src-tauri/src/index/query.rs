@@ -7,6 +7,13 @@ use crate::vault::scan::{abs_from_rel, path_string};
 
 const SEARCH_LIMIT: i64 = 50;
 const SNIPPET_RADIUS: usize = 60;
+// FTS5 BM25 returns lower (normally negative) values for more relevant rows.
+// Keep enough precision when exposing the existing integer score over IPC, while
+// reserving bounded adjustments for clearly stronger title matches.
+const BM25_SCORE_SCALE: f64 = 1_000_000_000.0;
+const TITLE_EXACT_BONUS: i64 = 1_200;
+const TITLE_PREFIX_BONUS: i64 = 700;
+const TITLE_CONTAINS_BONUS: i64 = 250;
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -83,18 +90,46 @@ pub fn snippet(content: &str, query: &str) -> Option<String> {
     ))
 }
 
-fn fts_query(query: &str) -> Option<String> {
-    let terms = query
-        .split_whitespace()
-        .map(|term| {
-            term.chars()
-                .filter(|character| character.is_alphanumeric() || *character == '_')
-                .collect::<String>()
-        })
+/// Split a user search string into the word-like units understood by FTS.
+///
+/// Underscores stay within a token to preserve identifier searches, while all
+/// other punctuation is a boundary. This deliberately turns `foo-bar` into
+/// `foo`, `bar` rather than silently searching for `foobar`.
+fn search_terms(query: &str) -> Vec<String> {
+    query
+        .split(|character: char| !(character.is_alphanumeric() || character == '_'))
         .filter(|term| !term.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn fts_query(query: &str) -> Option<String> {
+    let terms = search_terms(query)
+        // Terms are generated exclusively by `search_terms`, rather than
+        // accepting FTS syntax from the user. Quoting them also keeps the
+        // expression shape fixed as an AND of prefix searches.
+        .iter()
         .map(|term| format!("\"{term}\"*"))
         .collect::<Vec<_>>();
     (!terms.is_empty()).then(|| terms.join(" AND "))
+}
+
+fn search_score(rank: f64, title: &str, query: &str) -> i64 {
+    let normalized_title = title.trim().to_lowercase();
+    let normalized_query = query.trim().to_lowercase();
+    let title_bonus = if normalized_title == normalized_query {
+        TITLE_EXACT_BONUS
+    } else if normalized_title.starts_with(&normalized_query) {
+        TITLE_PREFIX_BONUS
+    } else if normalized_title.contains(&normalized_query) {
+        TITLE_CONTAINS_BONUS
+    } else {
+        0
+    };
+
+    // Negating preserves FTS5's direction: a lower BM25 rank becomes a higher
+    // score. The bonuses deliberately adjust, rather than replace, relevance.
+    (-rank * BM25_SCORE_SCALE).round() as i64 + title_bonus
 }
 
 fn row_to_note(vault: &Path, row: &rusqlite::Row<'_>) -> rusqlite::Result<IndexedNote> {
@@ -128,7 +163,8 @@ pub fn search_notes(
     let mut statement = conn
         .prepare(
             r#"
-            SELECT notes.id, notes.path, notes.title, notes.mtime, notes.word_count, notes.content
+            SELECT notes.id, notes.path, notes.title, notes.mtime, notes.word_count, notes.content,
+                   bm25(notes_fts) AS rank
             FROM notes_fts
             JOIN notes ON notes.rowid = notes_fts.rowid
             WHERE notes_fts MATCH ?1
@@ -140,15 +176,15 @@ pub fn search_notes(
     let rows = statement
         .query_map(params![fts_query, SEARCH_LIMIT], |row| {
             let note = row_to_note(vault, row)?;
-            Ok((note, row.get::<_, String>(5)?))
+            Ok((note, row.get::<_, String>(5)?, row.get::<_, f64>(6)?))
         })
         .map_err(|error| error.to_string())?;
     let mut results = Vec::new();
     for row in rows {
-        let (note, content) = row.map_err(|error| error.to_string())?;
+        let (note, content, rank) = row.map_err(|error| error.to_string())?;
         let title_match = casefolded_range(&note.title, query).is_some();
         results.push(SearchResult {
-            score: if title_match { 3 } else { 1 },
+            score: search_score(rank, &note.title, query),
             match_type: if title_match { "name" } else { "content" }.to_string(),
             snippet: (!title_match).then(|| snippet(&content, query)).flatten(),
             note,
@@ -158,7 +194,7 @@ pub fn search_notes(
         right
             .score
             .cmp(&left.score)
-            .then(left.note.title.cmp(&right.note.title))
+            .then_with(|| left.note.path.cmp(&right.note.path))
     });
     Ok(results)
 }
@@ -230,6 +266,55 @@ mod tests {
     }
 
     #[test]
+    fn search_terms_split_punctuation_without_losing_unicode_words() {
+        assert_eq!(search_terms("foo-bar"), ["foo", "bar"]);
+        assert_eq!(search_terms("foo/bar"), ["foo", "bar"]);
+        assert_eq!(search_terms("hello.world"), ["hello", "world"]);
+        assert_eq!(
+            search_terms("русский/український"),
+            ["русский", "український"]
+        );
+        assert_eq!(search_terms("emoji 🔥"), ["emoji"]);
+    }
+
+    #[test]
+    fn search_terms_define_special_query_behavior() {
+        assert_eq!(search_terms("C++"), ["C"]);
+        assert_eq!(search_terms("C#"), ["C"]);
+        assert_eq!(search_terms("node.js"), ["node", "js"]);
+        assert_eq!(search_terms("file-name"), ["file", "name"]);
+        assert_eq!(search_terms("foo/bar"), ["foo", "bar"]);
+        assert_eq!(search_terms("snake_case"), ["snake_case"]);
+    }
+
+    #[test]
+    fn fts_queries_do_not_admit_user_fts_syntax() {
+        assert_eq!(
+            fts_query("foo OR bar\" NEAR/10 baz*"),
+            Some(
+                "\"foo\"* AND \"OR\"* AND \"bar\"* AND \"NEAR\"* AND \"10\"* AND \"baz\"*"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn punctuation_separated_terms_match_independently() {
+        let conn = test_connection();
+        insert_note(&conn, "separated", "Separated", "foo-bar baz");
+        insert_note(&conn, "joined", "Joined", "foobar baz");
+
+        let results = search_notes(&conn, Path::new("/vault"), "foo-bar").unwrap();
+        assert_eq!(
+            results
+                .iter()
+                .map(|result| result.note.id.as_str())
+                .collect::<Vec<_>>(),
+            ["separated"]
+        );
+    }
+
+    #[test]
     fn fts_search_limits_results_and_uses_indexed_content() {
         let conn = test_connection();
         for index in 0..55 {
@@ -244,6 +329,86 @@ mod tests {
         let results = search_notes(&conn, Path::new("/vault"), "needle").unwrap();
         assert_eq!(results.len(), SEARCH_LIMIT as usize);
         assert!(results.iter().all(|result| result.match_type == "content"));
+    }
+
+    #[test]
+    fn fts_ranking_is_preserved_with_title_match_bonuses() {
+        let conn = test_connection();
+        insert_note(&conn, "apple", "Apple", "A short note about fruit.");
+        insert_note(&conn, "pie", "Apple pie", "A short dessert recipe.");
+        insert_note(
+            &conn,
+            "cooking",
+            "Cooking",
+            "apple apple apple apple apple apple apple apple apple apple apple apple",
+        );
+        let long_fruit_note = format!("apple apple apple apple {}", "orchard ".repeat(100));
+        insert_note(&conn, "fruit", "Fruit", &long_fruit_note);
+        insert_note(&conn, "random", "Random", "apple");
+
+        let results = search_notes(&conn, Path::new("/vault"), "apple").unwrap();
+        let ids = results
+            .iter()
+            .map(|result| result.note.id.as_str())
+            .collect::<Vec<_>>();
+
+        // Exact and prefix title matches are elevated, while content-only rows
+        // retain their FTS relevance order instead of falling back to titles.
+        assert_eq!(
+            ids,
+            ["apple", "pie", "cooking", "random", "fruit"],
+            "scores: {:?}",
+            results
+                .iter()
+                .map(|result| result.score)
+                .collect::<Vec<_>>()
+        );
+        assert!(results[0].score > results[1].score);
+        assert!(
+            results[2].score > results[3].score,
+            "content scores: {} then {}",
+            results[2].score,
+            results[3].score
+        );
+        assert!(results[3].score > results[4].score);
+    }
+
+    #[test]
+    fn fts_ranking_handles_cyrillic_emoji_and_mixed_text() {
+        let conn = test_connection();
+        insert_note(&conn, "russian", "русский", "Текст о языке");
+        insert_note(&conn, "ukrainian", "український", "Текст про мову");
+        insert_note(&conn, "emoji", "Emoji 🔥", "emoji fire 🔥");
+        insert_note(
+            &conn,
+            "mixed",
+            "Mixed English/русский",
+            "English и русский текст",
+        );
+
+        assert_eq!(
+            search_notes(&conn, Path::new("/vault"), "русский")
+                .unwrap()
+                .iter()
+                .map(|result| result.note.id.as_str())
+                .collect::<Vec<_>>(),
+            ["russian", "mixed"]
+        );
+        assert_eq!(
+            search_notes(&conn, Path::new("/vault"), "український").unwrap()[0]
+                .note
+                .id,
+            "ukrainian"
+        );
+        let emoji_results = search_notes(&conn, Path::new("/vault"), "emoji").unwrap();
+        assert_eq!(emoji_results[0].note.id, "emoji");
+        assert!(emoji_results[0].note.title.contains('🔥'));
+        assert_eq!(
+            search_notes(&conn, Path::new("/vault"), "English").unwrap()[0]
+                .note
+                .id,
+            "mixed"
+        );
     }
 
     #[test]

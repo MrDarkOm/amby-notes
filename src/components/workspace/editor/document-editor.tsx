@@ -14,6 +14,7 @@ import { flattenTree, relativeToVault } from "./document-breadcrumbs-utils"
 import { FilePickerModal, LayerConfirmDialog, type LayerKind } from "./document-actions"
 import { DocumentHeader } from "./document-header"
 import { DocumentBody } from "./document-body"
+import { noteEditingPolicy } from "./note-editing-policy"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
 
 export interface Document {
@@ -141,6 +142,8 @@ export function DocumentEditor({
   const editorSelectionRef = React.useRef<MarkdownSelection | null>(null)
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
   const { t } = useTranslation()
+  const editingPolicy = noteEditingPolicy(document?.noteProperties)
+  const effectiveViewMode = editingPolicy.sourceOnly ? "source" : viewMode
 
   const flatTreeItems = React.useMemo(() => flattenTree(treeItems ?? []), [treeItems])
   const moveFolders = flatTreeItems.filter((item) => item.type === "folder")
@@ -194,7 +197,7 @@ export function DocumentEditor({
   }, [document?.content])
 
   const handleContentChange = (v: string) => {
-    if (!document) return
+    if (!document || editingPolicy.readOnly) return
     setContent(v)
     onContentChange?.(v, document.id)
   }
@@ -205,10 +208,11 @@ export function DocumentEditor({
 
   const handleEditorViewModeChange = React.useCallback(
     (mode: DocumentViewMode) => {
+      if (editingPolicy.sourceOnly && mode !== "source") return
       setEditorSelection(editorSelectionRef.current)
       onViewModeChange?.(mode)
     },
-    [onViewModeChange],
+    [onViewModeChange, editingPolicy.sourceOnly],
   )
 
   const headerElement = (
@@ -237,11 +241,11 @@ export function DocumentEditor({
       linkedLayers={linkedLayers}
       onUnlinkLayer={onUnlinkLayer}
       onDeleteLayer={onDeleteLayer}
-      isLocked={isLocked}
+      isLocked={isLocked || editingPolicy.readOnly}
       isFavorite={isFavorite}
       onToggleFavorite={onToggleFavorite}
       onOpenInNewTab={onOpenInNewTab}
-      viewMode={viewMode}
+      viewMode={effectiveViewMode}
       onViewModeChange={handleEditorViewModeChange}
       nestedNotes={nestedNotes}
       nestedNotesPlacement={nestedNotesPlacement}
@@ -298,6 +302,11 @@ export function DocumentEditor({
     return (
       <div className="relative flex h-full flex-1 flex-col bg-background">
         {headerElement}
+        {editingPolicy.warningKey && (
+          <p role="status" className="px-4 py-2 text-xs text-muted-foreground">
+            {t(editingPolicy.warningKey)}
+          </p>
+        )}
         <DocumentBody
           docId={document.id}
           docTitle={document.title}
@@ -306,9 +315,9 @@ export function DocumentEditor({
           content={content}
           onContentChange={handleContentChange}
           activeLayer={activeLayer}
-          viewMode={viewMode}
+          viewMode={effectiveViewMode}
           onViewModeChange={handleEditorViewModeChange}
-          isLocked={isLocked}
+          isLocked={isLocked || editingPolicy.readOnly}
           fileIcon={fileIcon}
           onFileIconChange={onFileIconChange}
           editingTitle={editingTitle}
@@ -344,6 +353,11 @@ export function DocumentEditor({
         style={{ boxShadow: "var(--note-surface-shadow)" }}
       >
         {headerElement}
+        {editingPolicy.warningKey && (
+          <p role="status" className="px-4 py-2 text-xs text-muted-foreground">
+            {t(editingPolicy.warningKey)}
+          </p>
+        )}
         <DocumentBody
           docId={document.id}
           docTitle={document.title}
@@ -352,9 +366,9 @@ export function DocumentEditor({
           content={content}
           onContentChange={handleContentChange}
           activeLayer={activeLayer}
-          viewMode={viewMode}
+          viewMode={effectiveViewMode}
           onViewModeChange={handleEditorViewModeChange}
-          isLocked={isLocked}
+          isLocked={isLocked || editingPolicy.readOnly}
           fileIcon={fileIcon}
           onFileIconChange={onFileIconChange}
           editingTitle={editingTitle}

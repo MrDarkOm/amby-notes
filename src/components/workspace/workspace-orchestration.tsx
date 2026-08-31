@@ -100,7 +100,7 @@ export function WorkspaceOrchestration() {
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
   const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
   // Stable setters (value-or-updater, like setState); see use-tabs-store.
-  const { setTabs, setActiveTabKey, openOrActivateSingletonTab } = useTabsStore.getState()
+  const { setTabs, setActiveTabKey } = useTabsStore.getState()
   const unsavedFileIds = useDocStore((s) => s.unsavedFileIds)
 
   // Per-document view state (favorites, viewModes, lockedFileIds, iconOverrides,
@@ -126,7 +126,7 @@ export function WorkspaceOrchestration() {
     [toggleFavorite],
   )
 
-  const [quickOpenOpen, setQuickOpenOpen] = React.useState(false)
+  const [quickOpenMode, setQuickOpenMode] = React.useState<"current" | "new" | null>(null)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const defaultViewMode = useSettingsStore((s) => s.prefs.editor.defaultViewMode)
@@ -227,20 +227,11 @@ export function WorkspaceOrchestration() {
     setActiveTabKey(key)
   }
 
-  function openCanvasTab(path: string, title: string) {
+  async function loadCanvas(path: string) {
     if (openCanvases[path] === undefined) {
-      void loadCanvasBuffer(path).then((c) =>
-        setOpenCanvases((p) => (p[path] !== undefined ? p : { ...p, [path]: c })),
-      )
+      const content = await loadCanvasBuffer(path)
+      setOpenCanvases((p) => (p[path] !== undefined ? p : { ...p, [path]: content }))
     }
-    openOrActivateSingletonTab({
-      key: newTabKey(),
-      kind: "canvas",
-      fileId: path,
-      title,
-      history: [],
-      historyIndex: 0,
-    })
   }
 
   async function refreshVault() {
@@ -345,7 +336,7 @@ export function WorkspaceOrchestration() {
     const deleted = new Set(deletedIds)
     // Fan out to each store with the same deletedIds.
     applyMutation(deletedIds, remapFn) // doc store: remaps content paths + drops deleted
-    applyViewMutation(deletedIds) // view state store: drops deleted from all maps/sets
+    applyViewMutation(deletedIds, remapFn)
 
     for (const [id, doc] of Object.entries(openDocs)) {
       if (!deleted.has(id)) {
@@ -422,7 +413,7 @@ export function WorkspaceOrchestration() {
     setTreeItems,
     refreshTree,
     applyMutationResult,
-    openCanvasTab,
+    loadCanvas,
     setOpenCanvases,
     setPendingRenameId,
     autosaveGeneration,
@@ -430,17 +421,7 @@ export function WorkspaceOrchestration() {
     windowLabel,
   })
 
-  const initialWindowFileRef = React.useRef(false)
-  const { noteIdFromUrl, handleOpenInNewWindow } = useNoteWindows(treeItems)
-
-  React.useEffect(() => {
-    if (initialWindowFileRef.current || treeItems.length === 0) return
-    const fileId = noteIdFromUrl
-    if (!fileId || !findTreeItem(treeItems, fileId)) return
-    initialWindowFileRef.current = true
-    void handleOpenInNewTab(fileId)
-    window.history.replaceState({}, "", window.location.pathname)
-  }, [handleOpenInNewTab, noteIdFromUrl, treeItems])
+  const { handleOpenInNewWindow } = useNoteWindows(treeItems)
 
   const {
     handleBack,
@@ -472,7 +453,7 @@ export function WorkspaceOrchestration() {
       const key = event.key.toLowerCase()
       if (key === "p") {
         event.preventDefault()
-        setQuickOpenOpen(true)
+        setQuickOpenMode("current")
       } else if (key === "f" && event.shiftKey) {
         event.preventDefault()
         setSearchOpen(true)
@@ -519,15 +500,27 @@ export function WorkspaceOrchestration() {
   }
 
   const handleHistoryRestored = React.useCallback(async () => {
-    if (!vault || !currentDocId) return
+    if (!vault) return
+    await refreshTree(vault)
+    if (!currentDocId) return
+    const beforeRead = useDocStore.getState().openDocs[currentDocId]
     const note = await readNote(vault, currentDocId)
+    // A restored trash item may refresh a different, actively edited note.
+    // Never replace new edits that arrived while the backend was responding.
+    const state = useDocStore.getState()
+    if (
+      useVaultStore.getState().vault !== vault ||
+      state.openDocs[currentDocId] !== beforeRead ||
+      state.unsavedFileIds.has(currentDocId) ||
+      state.externalConflicts[currentDocId]
+    )
+      return
     patchDoc(currentDocId, {
       content: note.content,
       revision: note.revision,
       source: note.source,
     })
     markSaved(currentDocId)
-    await refreshTree(vault)
   }, [vault, currentDocId, patchDoc, markSaved, refreshTree])
 
   // Lazily load the canvas layer file when the canvas layer becomes active.
@@ -952,11 +945,11 @@ export function WorkspaceOrchestration() {
         </div>
 
         <QuickOpenModal
-          open={quickOpenOpen}
-          onClose={() => setQuickOpenOpen(false)}
+          open={quickOpenMode !== null}
+          onClose={() => setQuickOpenMode(null)}
           treeItems={displayTreeItems}
-          onSelectFile={handleOpenInNewTab}
-          onNewNote={() => handleNewFileIn(null)}
+          onSelectFile={quickOpenMode === "new" ? handleOpenInNewTab : handleSelect}
+          onNewNote={() => handleNewFileIn(null, quickOpenMode === "new")}
         />
 
         <SearchModal
@@ -1004,7 +997,7 @@ export function WorkspaceOrchestration() {
         onSetRightDockVisible={(visible) => setDockVisible("right", visible)}
         onSetLeftDockPinned={(pinned) => setDockPinned("left", pinned)}
         onSetRightDockPinned={(pinned) => setDockPinned("right", pinned)}
-        onOpenPlusModal={() => setQuickOpenOpen(true)}
+        onOpenPlusModal={() => setQuickOpenMode("new")}
         vaultName={vaultName}
         vaults={vaults}
         currentVaultPath={vault}
@@ -1146,11 +1139,11 @@ export function WorkspaceOrchestration() {
       </div>
 
       <QuickOpenModal
-        open={quickOpenOpen}
-        onClose={() => setQuickOpenOpen(false)}
+        open={quickOpenMode !== null}
+        onClose={() => setQuickOpenMode(null)}
         treeItems={displayTreeItems}
-        onSelectFile={handleOpenInNewTab}
-        onNewNote={() => handleNewFileIn(null)}
+        onSelectFile={quickOpenMode === "new" ? handleOpenInNewTab : handleSelect}
+        onNewNote={() => handleNewFileIn(null, quickOpenMode === "new")}
       />
 
       <SearchModal

@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { newTabKey } from "./workspace-tree-utils"
 
 export type TabKind = "document" | "folder" | "graph" | "canvas"
 
@@ -9,6 +10,10 @@ export interface Tab {
   title: string
   history: string[]
   historyIndex: number
+}
+
+export type TabTarget = Pick<Tab, "fileId" | "title"> & {
+  kind: Exclude<TabKind, "graph">
 }
 
 type Updater<T> = T | ((prev: T) => T)
@@ -26,6 +31,8 @@ interface TabsStore {
   setActiveTabKey: (updater: Updater<string>) => void
   setSecondaryTabKey: (updater: Updater<string | null>) => void
   openOrActivateSingletonTab: (tab: Tab) => string
+  /** Ordinary navigation reuses an open tab or replaces the active one. */
+  openItem: (target: TabTarget, inNewTab?: boolean) => void
 }
 
 /**
@@ -41,6 +48,41 @@ export const useTabsStore = create<TabsStore>((set) => ({
   setActiveTabKey: (updater) => set((s) => ({ activeTabKey: resolve(updater, s.activeTabKey) })),
   setSecondaryTabKey: (updater) =>
     set((s) => ({ secondaryTabKey: resolve(updater, s.secondaryTabKey) })),
+  openItem: (target, inNewTab = false) =>
+    set((state) => {
+      const active = state.tabs.find((tab) => tab.key === state.activeTabKey)
+      const matches = (tab: Tab) => tab.kind === target.kind && tab.fileId === target.fileId
+      if (!inNewTab) {
+        const existing = active && matches(active) ? active : state.tabs.find(matches)
+        if (existing) return { activeTabKey: existing.key }
+        if (active) {
+          const history = active.history.length
+            ? active.history.slice(0, active.historyIndex + 1)
+            : active.kind === "graph"
+              ? []
+              : [active.fileId]
+          history.push(target.fileId)
+          return {
+            tabs: state.tabs.map((tab) =>
+              tab.key === active.key
+                ? { ...tab, ...target, history, historyIndex: history.length - 1 }
+                : tab,
+            ),
+            secondaryTabKey:
+              state.secondaryTabKey === active.key && target.kind !== "document"
+                ? null
+                : state.secondaryTabKey,
+          }
+        }
+      }
+      const tab: Tab = {
+        ...target,
+        key: newTabKey(),
+        history: [target.fileId],
+        historyIndex: 0,
+      }
+      return { tabs: [...state.tabs, tab], activeTabKey: tab.key }
+    }),
   openOrActivateSingletonTab: (tab) => {
     let activeKey = tab.key
     set((state) => {

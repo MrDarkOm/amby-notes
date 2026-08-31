@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import type { TreeItem } from "@/lib/storage"
 import { SidebarTree } from "../sidebar-tree"
+import { useViewStateStore } from "../use-view-state-store"
 import { NewItemModal } from "../new-item-modal"
 import type { PanelRenderProps } from "../panel-registry"
 
@@ -106,9 +107,9 @@ export function FilesPanel(props: PanelRenderProps) {
     workspaceSwitcher,
   } = props
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
-  const [folderResetKey, setFolderResetKey] = React.useState(0)
-  const [folderTargetOpen, setFolderTargetOpen] = React.useState(true)
-  const [allOpen, setAllOpen] = React.useState(true)
+  const closedTreeIds = useViewStateStore((s) => s.closedTreeIds)
+  const setTreeExpanded = useViewStateStore((s) => s.setTreeExpanded)
+  const allOpen = closedTreeIds.size === 0
   const [findActiveKey, setFindActiveKey] = React.useState(0)
   const [sortKey, setSortKey] = React.useState<TreeSortKey>("name")
   const [sortDirection, setSortDirection] = React.useState<TreeSortDirection>("asc")
@@ -126,10 +127,7 @@ export function FilesPanel(props: PanelRenderProps) {
   }
 
   function handleToggleFolders() {
-    const next = !allOpen
-    setAllOpen(next)
-    setFolderTargetOpen(next)
-    setFolderResetKey((k) => k + 1)
+    setTreeExpanded(treeItems, !allOpen)
   }
 
   function handleFindActive() {
@@ -235,8 +233,6 @@ export function FilesPanel(props: PanelRenderProps) {
                   onMoveItem={onMoveItem}
                   onSetIcon={onSetIcon}
                   triggerRenameId={triggerRenameId}
-                  folderResetKey={folderResetKey}
-                  folderTargetOpen={folderTargetOpen}
                   favorites={favorites}
                   onToggleFavorite={onToggleFavorite}
                   onAttachLayer={onAttachLayer}

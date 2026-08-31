@@ -33,7 +33,7 @@ export function DocumentBreadcrumbs({
     breadcrumb.length > 0 ? (
       breadcrumb.map((seg, idx) => {
         const isLast = idx === breadcrumb.length - 1
-        const isClickable = !isLast && seg.kind === "file" && !!onOpenItem
+        const isClickable = !isLast && !!onOpenItem
         return (
           <React.Fragment key={seg.id}>
             {isClickable ? (

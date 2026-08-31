@@ -644,6 +644,8 @@ export interface SessionFile {
   nestedNotesPlacements: Record<string, string>
   locked: string[]
   icons: Record<string, string>
+  /** Optional for sessions saved before tree expansion was persisted. */
+  closedTreeIds?: string[]
 }
 
 export async function loadSession(vaultPath: string): Promise<SessionFile> {
@@ -685,6 +687,9 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
     nestedNotesPlacements: isRecord(d.nestedNotesPlacements) ? d.nestedNotesPlacements : {},
     locked: Array.isArray(d.locked) ? d.locked : [],
     icons: isRecord(d.icons) ? d.icons : {},
+    closedTreeIds: Array.isArray(d.closedTreeIds)
+      ? d.closedTreeIds.filter((id): id is string => typeof id === "string")
+      : [],
   }
 }
 

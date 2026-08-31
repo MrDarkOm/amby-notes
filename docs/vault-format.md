@@ -25,27 +25,106 @@ Those directories, along with `.amby/`, are excluded from the note index.
 The directory is application metadata, not an Obsidian configuration directory.
 Amby must not change `.obsidian` settings or plugin data.
 
-## Frontmatter `id`
+## Frontmatter `amby-id`
 
-Amby's service identifier is the top-level YAML field `id`. A valid Amby ID is
-a canonical uppercase ULID: exactly the string produced by the ULID library
-(for example, `01J1K2M3N4P5Q6R7S8T9V0WXYZ`). It is stable across rename and
-move operations.
+Amby's service identifier is the top-level YAML field `amby-id`. It is a
+canonical uppercase ULID, for example `01ARZ3NDEKTSV4RRFFQ69G5FAV`, stable across
+rename and move. The generic `id` field belongs to the user, including numbers,
+nulls, external strings such as `jira-123`, and collections. New assignments
+never replace or remove it. An explicit `amby-id` always takes precedence;
+an invalid value produces a diagnostic and never falls back to generic `id`.
 
-An existing `id` with any other format is treated as user-managed. Amby leaves
-it unchanged and reports the conflict during indexing. If the same valid Amby
-ULID is present in multiple files, Amby indexes only the first deterministic
-path and reports every other conflict without changing source files.
+For compatibility, a canonical ULID in `id` with no `amby-id` is a legacy
+identity candidate. Normal indexing and body-only saves keep that file's
+frontmatter unchanged. A ULID alone cannot prove Amby ownership: migration is
+separately confirmed with a read-only file preview, raw backups, journal, and
+rollback. It adds `amby-id` with the same value and leaves the entire generic
+`id` property untouched. Duplicate candidates are reported, not migrated.
+Stable IDs and all durable sidecar keys remain unchanged in this migration.
 
-Adding or repairing IDs for an existing vault is a separately confirmed
-migration: it needs a read-only preflight report, backup, preview, journal, and
-rollback path. Amby never silently replaces an existing frontmatter `id`.
+Both notes with a duplicate ID remain visible in the tree and searchable.
+The existing primary path (or first deterministic path on a rebuild) retains
+the stable index ID; other duplicates get a rebuildable path-scoped conflict
+key. Invalid namespaced IDs and YAML forms that cannot accept ID insertion
+also get conflict keys where their body can be parsed. No conflict key is
+written into Markdown. Conflicts are re-read on refresh, including the primary
+member of a duplicate group. Body saves, deleted-note restoration, and durable
+custom-property mutations are refused until the identity is unique again.
+The editor and properties panel show a localized read-only warning. Malformed
+YAML uses the separate body-editing policy below; it is not an ID conflict.
+
+The index's `identity_version = 2` marker invalidates the metadata skip path
+once so older cached interpretations are re-read. SQLite is still disposable;
+rebuilding it neither migrates legacy IDs nor deletes durable property data.
+
+### Malformed frontmatter
+
+Frontmatter status is `none`, `valid`, `invalid`, or `unterminated`. A closed
+envelope with a YAML parse error or a non-mapping root (including a scalar,
+sequence, or explicit null) still exposes the Markdown body. The index keeps its
+path, filename/title fallback, body-derived title, tags, wiki links, word count,
+and search text. YAML-derived properties/tags are unavailable, and the properties
+panel displays a localized diagnostic rather than hiding the note.
+
+Invalid YAML cannot establish a trusted stable ID. The index uses disposable
+`amby-opaque:body:<relative-path>` keys, re-read on every scan, without inserting
+or changing an ID in the source. These keys never identify durable custom
+properties. Body saves validate the key against the current path and envelope,
+preserve the complete YAML envelope byte-for-byte (including BOM and mixed line
+endings), and apply the existing line-ending convention only to the body. Saves
+snapshot the original bytes before an atomic publication. Opaque-note revisions
+hash the full source, so even a YAML-only external change conflicts with an older
+save. Property mutations are blocked in the backend as well as the UI.
+
+An opening `---` line with no closing fence is `unterminated`: there is no safe
+boundary between YAML and Markdown. Amby indexes the complete source to keep it
+discoverable, uses `amby-opaque:source:<relative-path>`, and forces the editor to
+Source mode. The user can explicitly edit that full source, with normal BOM and
+dominant line-ending preservation; Amby never inserts a delimiter or repairs YAML
+automatically. Once repaired, save, refresh the vault, and reopen the note. A
+stale opaque key cannot save after its source becomes valid or its boundary
+changes. Refresh replaces it with the recovered/new stable identity.
+
+Opaque keys are path-scoped, not stable across moves or cache rebuilds after
+repair. Move indexing derives a key for the new path without rewriting YAML.
+Deleted-note restoration validates the path against the retained source template
+and uses the no-replace writer. Link refactors preserve invalid closed envelopes
+and replace references only in the body; unterminated sources are excluded from
+automatic link replacement because their YAML boundary is unknown. Invalid YAML
+is never a reason to discard the source, apply a frontmatter migration, or hide
+its text from the tree/search.
+
+Recoverable YAML warnings acknowledge completed watcher events. Filesystem or
+UTF-8 read failures abort the scan before index changes, keeping the previous
+cache and pending events available for retry instead of treating unreadable notes
+as deleted.
+
+### Lossless ID insertion
+
+When an ID is assigned, Amby inserts one line immediately after the opening
+frontmatter fence without serializing the existing YAML. The original BOM,
+comments, quotes, anchors, whitespace, fence bytes, and body remain unchanged,
+including mixed line endings. The inserted line uses the opening fence's line
+ending. If there is no envelope, Amby creates one using the body's first line
+ending (LF for an empty or single-line body), keeping any BOM at byte zero.
+
+Empty and comment-only envelopes accept their first property. Every existing
+`amby-id` value, including null, numbers, and collections, is protected from
+replacement. Generic `id` values are preserved as ordinary YAML properties. Malformed or unterminated frontmatter, scalar/sequence roots, and
+representations that cannot accept the splice safely (such as root flow maps)
+return an error identifying the file; Amby does not reformat them to make the
+insertion succeed. It validates the resulting YAML against the original
+mapping plus the new ID before writing any bytes.
+
+ID assignment uses the atomic raw-byte writer, with the existing history
+snapshot or migration backup. The body editor's dominant-line-ending conversion
+does not run for this metadata-only operation.
 
 ### ID migration recovery
 
 An ID migration creates its versioned journal in `.amby/migrations/` before it
 creates a backup or changes a note. The journal contains the complete planned
-file list, a generated ID for each file, a vault-relative backup root, and
+file list, a generated or retained legacy ID for each file, a vault-relative backup root, and
 durable per-file progress (`pending`, `backupCreated`, `applied`, or
 `rolledBack`). Journal writes are atomic and sync both the journal and its
 parent directory.
@@ -56,10 +135,21 @@ was applied. A journal is marked `completed` only after every file is applied.
 On the next vault-open attempt an incomplete (`planned` or `inProgress`)
 journal is surfaced before indexing; the user may resume it, roll it back, or
 inspect it without opening the vault. Resume recognises a note that already
-has its planned ID when a crash occurred between the note write and the journal
-update. Rollback restores raw backup bytes only when the current note still
-has the planned migration ID; later user edits cause recovery to stop rather
-than overwrite them. Both resume and rollback are idempotent.
+matches the exact planned output when a crash occurred between the note write
+and the journal update. Rollback restores raw backup bytes only when the
+current bytes equal the original or the exact migration result; an unchanged
+ID alone is insufficient. Later body or frontmatter edits stop recovery rather
+than being overwritten. Both resume and rollback are idempotent.
+
+New journals use version 2. Version-1 journals remain recoverable: the old
+serialized and lossless generic-ID outputs are reconstructed only for
+read-only comparison with the backup. Already-applied v1 notes remain as-is
+on resume; pending writes use `amby-id`. No new write uses generic `id`.
+Rollback of a completed migration uses the same journal and restores its raw
+backups, provided subsequent edits have not changed the files. Do not delete
+backups or journals until recovery is no longer needed, and do not downgrade
+to an older Amby build against newly created namespaced-only notes: older
+builds do not understand this identity format.
 
 ## Compatibility invariant
 
@@ -90,6 +180,34 @@ Autosave work is serialized per file. A completed older write cannot clear the
 unsaved state of a newer in-memory buffer, and a stale queued buffer is skipped.
 
 ## External changes
+
+The rebuildable SQLite index stores `mtime_ns` as Unix nanoseconds at the
+filesystem's available precision. The existing `mtime`/IPC `modified` values
+remain Unix seconds for display. Unknown or unrepresentable precise timestamps
+are stored as NULL and never qualify for a metadata cache hit. A cold scan can
+skip a note only when its precise timestamp and size match; this assumes those
+metadata changed when the contents changed while Amby was not watching.
+
+Watcher events invalidate the affected paths before notifying any renderer,
+even when the precise timestamp and size are identical. Folder events include
+descendants; OS rescan flags, missing event paths, and watcher errors request a
+full content scan. Access-only events are ignored. Exact self-write fingerprints
+still suppress Amby's own events, but do not suppress external text with equal
+size/time. Content is re-read directly for invalidated files; no additional
+persistent hash algorithm or cryptographic hash is needed for this decision.
+Events arriving during a refresh remain queued, and failed refreshes retain
+their invalidations for retry. Queues belong to one vault activation. Renderers
+also re-read open descendants on folder/root events, applying the usual dirty
+buffer conflict rules.
+
+Cache stamp format version 2 is recorded as `index_metadata.file_stamp_version`.
+Initialization inspects the schema before adding the nullable `mtime_ns` column;
+the column and outcome marker commit in one SQLite transaction. Existing rows
+start with NULL and are re-read once. A failed upgrade rolls back to the prior
+cache schema/rows; retry is safe. Markdown, IDs, and durable property sidecars are
+not migrated. For rollback/recovery, close Amby and remove only the rebuildable
+`.amby/notes.db` database and its `-wal`/`-shm` companions, then reopen to rebuild
+from Markdown and durable sidecars. Do not remove the `.amby/` directory.
 
 Changes from outside Amby are coalesced during short filesystem bursts and then
 re-indexed. Clean open documents reload automatically. If an open document has

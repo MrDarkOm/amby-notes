@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::cell::Cell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -106,7 +106,7 @@ pub struct IdMigrationRecovery {
     pub files: Vec<IdMigrationFile>,
 }
 
-pub const ID_MIGRATION_VERSION: u8 = 1;
+pub const ID_MIGRATION_VERSION: u8 = 2;
 pub const ID_MIGRATION_KIND: &str = "add-amby-ids";
 
 #[cfg(test)]
@@ -168,7 +168,7 @@ pub fn read_migration_journal(path: &Path) -> Result<StoredIdMigrationJournal, S
         StoredIdMigrationJournal::Recoverable(journal) => (journal.version, &journal.kind),
         StoredIdMigrationJournal::LegacyCompleted(journal) => (journal.version, &journal.kind),
     };
-    if version != ID_MIGRATION_VERSION || kind != ID_MIGRATION_KIND {
+    if !matches!(version, 1 | ID_MIGRATION_VERSION) || kind != ID_MIGRATION_KIND {
         return Err(format!("Unsupported migration journal: {}", path.display()));
     }
     Ok(journal)
@@ -269,21 +269,24 @@ pub fn apply_migration_journal(
             write_migration_journal(journal_path, journal)?;
         }
 
-        let content = fs::read_to_string(&source).map_err(|error| error.to_string())?;
-        let parsed = frontmatter::parse_markdown(&content);
-        if parsed.id.as_deref() == Some(file_id.as_str()) {
+        let original = fs::read(&backup).map_err(|error| error.to_string())?;
+        let current = fs::read(&source).map_err(|error| error.to_string())?;
+        let outputs = migration_outputs(&original, &file_id, journal.version)
+            .map_err(|error| format!("{file_path}: {error}"))?;
+        if outputs.contains(&current) {
             journal.files[index].status = IdMigrationFileStatus::Applied;
             write_migration_journal(journal_path, journal)?;
             continue;
         }
-        if parsed.id.is_some() {
+        if current != original {
             return Err(format!(
-                "Refusing to overwrite a frontmatter id changed after planning: {}",
+                "Refusing to overwrite a note changed after its migration backup: {}",
                 file_path
             ));
         }
-        let next = frontmatter::body_with_id(&content, &file_id)?;
-        frontmatter::atomic_write(&source, &next)?;
+        let original_text = std::str::from_utf8(&original).map_err(|error| error.to_string())?;
+        let next = frontmatter::body_with_id(original_text, &file_id)?;
+        frontmatter::atomic_write_bytes(&source, next.as_bytes())?;
         check_migration_failure(2)?;
         journal.files[index].status = IdMigrationFileStatus::Applied;
         write_migration_journal(journal_path, journal)?;
@@ -291,6 +294,27 @@ pub fn apply_migration_journal(
 
     journal.status = IdMigrationStatus::Completed;
     write_migration_journal(journal_path, journal)
+}
+
+fn migration_outputs(original: &[u8], id: &str, version: u8) -> Result<Vec<Vec<u8>>, String> {
+    if !is_amby_id(id) {
+        return Err("Invalid planned migration ID".into());
+    }
+    let content = std::str::from_utf8(original).map_err(|e| e.to_string())?;
+    let parsed = frontmatter::parse_markdown(content);
+    if parsed.note_id().is_some_and(|existing| existing != id) {
+        return Err("Migration would change an existing identity".into());
+    }
+    let mut outputs = Vec::new();
+    match frontmatter::body_with_id(content, id) {
+        Ok(next) => outputs.push(next.into_bytes()),
+        Err(error) if version != 1 => return Err(error),
+        Err(_) => {}
+    }
+    if version == 1 {
+        outputs.extend(frontmatter::legacy_migration_outputs(content, id)?);
+    }
+    Ok(outputs)
 }
 
 pub fn rollback_migration_journal(
@@ -313,14 +337,19 @@ pub fn rollback_migration_journal(
         let source = abs_from_rel(vault, &file_path);
         let backup = backup_root.join(&backup_path);
         if !backup.is_file() {
+            if matches!(file.status, IdMigrationFileStatus::Pending) {
+                // No backup means this file has not reached a write boundary.
+                journal.files[index].status = IdMigrationFileStatus::RolledBack;
+                write_migration_journal(journal_path, journal)?;
+                continue;
+            }
             return Err(format!("Migration backup is missing: {}", backup.display()));
         }
         let original = fs::read(&backup).map_err(|error| error.to_string())?;
         let current = fs::read(&source).map_err(|error| error.to_string())?;
         if current != original {
-            let current_text = std::str::from_utf8(&current)
-                .map_err(|_| format!("Cannot safely roll back non-UTF-8 note: {file_path}"))?;
-            if frontmatter::parse_markdown(current_text).id.as_deref() != Some(file_id.as_str()) {
+            let outputs = migration_outputs(&original, &file_id, journal.version)?;
+            if !outputs.contains(&current) {
                 return Err(format!(
                     "Refusing to roll back a note changed after migration: {}",
                     file_path
@@ -349,6 +378,8 @@ pub fn preflight_vault(vault: &Path) -> Result<VaultPreflight, String> {
         unfinished_migrations: unfinished_id_migrations(vault)?,
     };
     let mut ids = HashMap::<String, String>::new();
+    let mut duplicates = HashSet::new();
+    let mut planned = Vec::new();
 
     for entry in WalkDir::new(vault)
         .into_iter()
@@ -368,23 +399,41 @@ pub fn preflight_vault(vault: &Path) -> Result<VaultPreflight, String> {
             .map(normalize_rel_path)
             .map_err(|e| e.to_string())?;
         report.notes += 1;
-        let parsed = frontmatter::read_markdown(path)?;
+        let content = fs::read_to_string(path).map_err(|error| error.to_string())?;
+        let parsed = frontmatter::parse_markdown(&content);
         if parsed.has_frontmatter && !parsed.yaml_is_map {
             report.malformed_frontmatter.push(rel_path);
             continue;
         }
-        match parsed.id.filter(|id| !id.is_empty()) {
-            None => report.planned_id_writes.push(rel_path),
-            Some(id) if !is_amby_id(&id) => report.user_managed_ids.push(rel_path),
-            Some(id) => {
-                if let Some(first_path) = ids.insert(id.clone(), rel_path.clone()) {
-                    report
-                        .duplicate_ids
-                        .push(format!("{id}: {first_path}, {rel_path}"));
-                }
+        if parsed.identity_error.is_some() {
+            report.user_managed_ids.push(rel_path);
+            continue;
+        }
+        if let Some(id) = parsed.note_id() {
+            if let Some(first_path) = ids.insert(id.to_string(), rel_path.clone()) {
+                duplicates.insert(id.to_string());
+                report
+                    .duplicate_ids
+                    .push(format!("{id}: {first_path}, {rel_path}"));
+            }
+        }
+        if parsed.id.is_none() {
+            let id = parsed
+                .legacy_id
+                .clone()
+                .unwrap_or_else(|| Ulid::generate().to_string());
+            if frontmatter::body_with_id(&content, &id).is_ok() {
+                planned.push((rel_path, id));
+            } else {
+                report.malformed_frontmatter.push(rel_path);
             }
         }
     }
+    report.planned_id_writes = planned
+        .into_iter()
+        .filter(|(_, id)| !duplicates.contains(id))
+        .map(|(path, _)| path)
+        .collect();
     report.planned_id_writes.sort();
     Ok(report)
 }
@@ -437,13 +486,17 @@ pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
         files: preflight
             .planned_id_writes
             .iter()
-            .map(|path| IdMigrationFile {
-                path: path.clone(),
-                backup_path: path.clone(),
-                id: Ulid::generate().to_string(),
-                status: IdMigrationFileStatus::Pending,
+            .map(|path| {
+                Ok(IdMigrationFile {
+                    path: path.clone(),
+                    backup_path: path.clone(),
+                    id: frontmatter::read_markdown(&abs_from_rel(vault, path))?
+                        .legacy_id
+                        .unwrap_or_else(|| Ulid::generate().to_string()),
+                    status: IdMigrationFileStatus::Pending,
+                })
             })
-            .collect(),
+            .collect::<Result<Vec<_>, String>>()?,
     };
     write_migration_journal(&journal_path, &journal)?;
     apply_migration_journal(vault, &journal_path, &mut journal)?;

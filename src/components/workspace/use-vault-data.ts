@@ -52,7 +52,10 @@ import {
   planVaultStartup,
   type VaultActivatedPayload,
 } from "./windows/vault-window-lifecycle"
-import { planOpenDocumentTreeChanges } from "./watcher-tree-reconciliation"
+import {
+  planOpenDocumentTreeChanges,
+  watcherChangeAffectsDocument,
+} from "./watcher-tree-reconciliation"
 
 const VAULT_ACTIVATED_EVENT = "amby:vault-activated"
 
@@ -68,8 +71,16 @@ export function useVaultData() {
   const { t } = useTranslation()
   const desktop = isTauri()
   const windowLabel = desktop ? getCurrentWindow().label : MAIN_WINDOW_LABEL
+  // Keep the launch target in the URL so a browser note window also retains
+  // its isolated session ownership after reloads and development remounts.
+  const [launchFileId] = React.useState(() =>
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("ambyFile"),
+  )
+  const launchFileHandledRef = React.useRef(false)
   const ownsWatcher = ownsVaultWatcher(desktop, windowLabel)
-  const ownsPersistence = ownsWorkspacePersistence(desktop, windowLabel)
+  const ownsPersistence = ownsWorkspacePersistence(desktop, windowLabel) && !launchFileId
   const vault = useVaultStore((s) => s.vault)
   const vaults = useVaultStore((s) => s.vaults)
   const { setVault, setVaults, setBackendGeneration } = useVaultStore.getState()
@@ -86,6 +97,7 @@ export function useVaultData() {
   const nestedNotesPlacements = useViewStateStore((s) => s.nestedNotesPlacements)
   const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
   const iconOverrides = useViewStateStore((s) => s.iconOverrides)
+  const closedTreeIds = useViewStateStore((s) => s.closedTreeIds)
   const { hydrateFromSession } = useViewStateStore.getState()
 
   const [treeItems, setTreeItems] = React.useState<TreeItem[]>([])
@@ -139,7 +151,19 @@ export function useVaultData() {
   async function loadVault(path: string | null, activateBackend = true) {
     const currentVault = useVaultStore.getState().vault
     if (switchRef.current.inFlight) return
-    if (activateBackend && (!path || path === currentVault)) return
+    if (activateBackend && !path) return
+    // React Refresh can remount this hook while the stores and backend remain
+    // alive. Reload its local tree without activating the vault again, flushing
+    // or clearing document buffers, or restoring an older session over live tabs.
+    if (activateBackend && path === currentVault) {
+      try {
+        await refreshTree(path)
+        if (useVaultStore.getState().vault === path) sessionHydratedRef.current = true
+      } catch (error) {
+        logger.warn("vault_tree.reload_failed", { errorType: errorType(error) })
+      }
+      return
+    }
     const requestId = switchRef.current.requestId + 1
     switchRef.current = { inFlight: true, requestId }
     const oldGeneration = useVaultStore.getState().generation
@@ -177,16 +201,15 @@ export function useVaultData() {
         if (preflight.plannedIdWrites.length > 0) {
           const preview = preflight.plannedIdWrites.slice(0, 8).join("\n")
           const remaining = preflight.plannedIdWrites.length - 8
-          const conflicts = [
-            preflight.malformedFrontmatter.length > 0 &&
-              `${preflight.malformedFrontmatter.length} malformed frontmatter file(s)`,
-            preflight.userManagedIds.length > 0 &&
-              `${preflight.userManagedIds.length} user-managed id(s)`,
-            preflight.duplicateIds.length > 0 &&
-              `${preflight.duplicateIds.length} duplicate Amby id(s)`,
-          ].filter(Boolean)
           const accepted = await confirmAction(
-            `Amby found ${preflight.notes} note(s) and will add IDs to ${preflight.plannedIdWrites.length} file(s).\n\n${preview}${remaining > 0 ? `\n… and ${remaining} more` : ""}\n\nA backup and migration journal will be created first.${conflicts.length ? `\n\nReported without changes: ${conflicts.join(", ")}` : ""}\n\nContinue?`,
+            t("workspace.identityMigrationConfirm", {
+              notes: preflight.notes,
+              files: preflight.plannedIdWrites.length,
+              preview,
+              remaining: Math.max(0, remaining),
+              malformed: preflight.malformedFrontmatter.length,
+              conflicts: preflight.userManagedIds.length + preflight.duplicateIds.length,
+            }),
           )
           if (!accepted) return
           await applyIdMigration(path)
@@ -217,7 +240,10 @@ export function useVaultData() {
       const session = await loadSession(activePath)
       if (switchRef.current.requestId !== requestId) return
 
-      const restoreSession = useSettingsStore.getState().prefs.startup.restoreSession
+      // Only the main workspace restores its tabs. Note windows still share
+      // icons, favorites and other vault view settings from the session.
+      const restoreSession =
+        ownsPersistence && useSettingsStore.getState().prefs.startup.restoreSession
       const remapped = applySessionRemap(session, pathToId, allIds, restoreSession)
 
       hydrateFromSession({
@@ -226,10 +252,20 @@ export function useVaultData() {
         viewModes: remapped.viewModes,
         nestedNotesPlacements: remapped.nestedNotesPlacements,
         lockedFileIds: remapped.lockedFileIds,
+        closedTreeIds: remapped.closedTreeIds,
       })
 
-      const valid = remapped.tabs
-      const mappedActiveFileId = remapped.activeFileId
+      let valid = remapped.tabs
+      let mappedActiveFileId = remapped.activeFileId
+      // Apply the launch target as part of hydration, before document loading.
+      // Opening it from a separate tree effect races with loadSession and can
+      // either append old tabs or clear the newly opened note afterward.
+      if (launchFileId && !launchFileHandledRef.current) {
+        const item = findTreeItem(tree, pathToId[launchFileId] ?? launchFileId)
+        valid = item?.type === "file" ? [{ fileId: item.id, title: item.name }] : []
+        mappedActiveFileId = valid[0]?.fileId ?? ""
+        launchFileHandledRef.current = true
+      }
       if (valid.length > 0) {
         const newTabs: Tab[] = valid.map((e) => ({
           key: newTabKey(),
@@ -399,6 +435,7 @@ export function useVaultData() {
         nestedNotesPlacements,
         locked: [...lockedFileIds],
         icons: iconOverrides,
+        closedTreeIds: [...closedTreeIds],
       })
     }, 400)
     return () => clearTimeout(timer)
@@ -411,6 +448,7 @@ export function useVaultData() {
     nestedNotesPlacements,
     lockedFileIds,
     iconOverrides,
+    closedTreeIds,
     ownsPersistence,
   ])
 
@@ -489,7 +527,7 @@ export function useVaultData() {
 
           for (const change of changes) {
             for (const [id, doc] of Object.entries(useDocStore.getState().openDocs)) {
-              if (normalize(doc.path) !== normalize(change.path)) continue
+              if (!watcherChangeAffectsDocument(doc.path, change.path)) continue
               const activeConflict = useDocStore.getState().externalConflicts[id]
               // The tree reconciliation above already classified this ID as
               // deleted. Do not turn the expected read failure into a hidden
@@ -627,6 +665,14 @@ export function useVaultData() {
       const reopen = useSettingsStore.getState().prefs.startup.reopenLastVault
       const file = await loadWorkspaces()
       if (cancelled) return
+      // A live vault takes precedence over saved startup preferences on remount.
+      // Its tabs, dirty buffers and view state must not be restored from disk.
+      const currentVault = useVaultStore.getState().vault
+      if (currentVault) {
+        workspacesHydrated.current = true
+        await loadVault(currentVault)
+        return
+      }
       setVaults(file.recent)
       workspacesHydrated.current = true
       const startup = planVaultStartup({

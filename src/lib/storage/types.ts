@@ -33,6 +33,8 @@ export interface CustomProperty {
 
 export interface NoteProperties {
   hasFrontmatter: boolean
+  frontmatterStatus?: "none" | "valid" | "invalid" | "unterminated"
+  bodyReadOnly?: boolean
   properties: FrontmatterProperty[]
   parseError?: string
   customProperties: CustomProperty[]

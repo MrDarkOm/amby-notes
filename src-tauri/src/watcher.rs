@@ -1,4 +1,4 @@
-use std::collections::{hash_map::DefaultHasher, HashMap};
+use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -22,11 +22,59 @@ pub struct VaultFileChangedPayload {
 pub fn watched_event_kind(kind: &notify::EventKind) -> Option<&'static str> {
     match kind {
         notify::EventKind::Create(_) => Some("create"),
-        notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => Some("modify"),
         notify::EventKind::Modify(notify::event::ModifyKind::Name(_)) => Some("rename"),
+        notify::EventKind::Modify(_) | notify::EventKind::Any => Some("modify"),
         notify::EventKind::Remove(_) => Some("remove"),
         _ => None,
     }
+}
+
+/// Queue invalidations before notifying renderers. Missing event detail or OS
+/// overflow requires a content rescan, not a metadata-only refresh.
+pub fn queue_external_changes(
+    event: notify::Result<notify::Event>,
+    vault: &Path,
+    own_writes: &Mutex<HashMap<PathBuf, SelfWriteRecord>>,
+    generation: u64,
+    index_changes: &Mutex<HashSet<PathBuf>>,
+) -> Vec<VaultFileChangedPayload> {
+    let changes = match event {
+        Ok(event) if !event.need_rescan() => {
+            let Some(kind) = watched_event_kind(&event.kind) else {
+                return Vec::new();
+            };
+            if event.paths.is_empty() {
+                vec![VaultFileChangedPayload {
+                    kind: "modify".into(),
+                    path: vault.to_string_lossy().into(),
+                }]
+            } else {
+                event
+                    .paths
+                    .iter()
+                    .filter(|path| {
+                        path.starts_with(vault)
+                            && !path.components().any(|c| c.as_os_str() == ".amby")
+                            && !is_amby_temporary_file(path)
+                            && !reconcile_self_write(own_writes, path, kind, generation)
+                    })
+                    .map(|path| VaultFileChangedPayload {
+                        kind: kind.into(),
+                        path: path.to_string_lossy().into(),
+                    })
+                    .collect()
+            }
+        }
+        _ => vec![VaultFileChangedPayload {
+            kind: "modify".into(),
+            path: vault.to_string_lossy().into(),
+        }],
+    };
+    index_changes
+        .lock()
+        .unwrap()
+        .extend(changes.iter().map(|change| PathBuf::from(&change.path)));
+    changes
 }
 
 pub fn is_amby_temporary_file(path: &Path) -> bool {

@@ -71,6 +71,30 @@ pub fn init_schema(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|e| e.to_string())?;
 
+    // Cache-only schema version 2. Introspection makes an interrupted upgrade
+    // repeatable; NULL stamps force one read of old rows without touching Markdown
+    // or durable property sidecars. DDL and the outcome marker commit together.
+    let has_mtime_ns: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('notes') WHERE name = 'mtime_ns')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    if !has_mtime_ns {
+        tx.execute("ALTER TABLE notes ADD COLUMN mtime_ns INTEGER", [])
+            .map_err(|error| error.to_string())?;
+    }
+    tx.execute(
+        "INSERT INTO index_metadata (key, value) VALUES ('file_stamp_version', '2') ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [],
+    )
+    .map_err(|error| error.to_string())?;
+    tx.commit().map_err(|error| error.to_string())?;
+
     // Existing vault indexes predate the FTS table. Keep the rebuildable cache
     // in sync once without changing any user-owned Markdown source files.
     let fts_version: Option<String> = conn

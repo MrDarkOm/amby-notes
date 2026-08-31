@@ -53,6 +53,16 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     vi.restoreAllMocks()
   })
 
+  it("round-trips collapsed tree IDs without requiring an existing session migration", async () => {
+    const session = await loadSession("/test/vault")
+    expect(session.closedTreeIds ?? []).toEqual([])
+    await saveSession({ ...session, closedTreeIds: ["folder:/test/vault/Projects", "note-id"] })
+    expect((await loadSession("/test/vault")).closedTreeIds).toEqual([
+      "folder:/test/vault/Projects",
+      "note-id",
+    ])
+  })
+
   it("handles missing file by returning typed result and defaults with schemaVersion", async () => {
     const res = await readGlobalSettingsResult<unknown>("non-existent.json")
     expect(res.status).toBe("missing")

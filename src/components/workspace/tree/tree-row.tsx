@@ -130,7 +130,7 @@ export const TreeNode = React.memo(
     const ctxItems = (
       <ContextMenuContent className="w-60 border-border bg-popover text-foreground">
         {/* Zone 1: actions affecting the selected file. */}
-        {item.type === "file" && onOpenInNewTab && (
+        {onOpenInNewTab && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => onOpenInNewTab(item.id)}
@@ -231,7 +231,7 @@ export const TreeNode = React.memo(
         {/* Zone 3: creation. */}
         <ContextMenuItem
           className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-          onSelect={() => onNewFile?.(item.type === "folder" ? item.id : null)}
+          onSelect={() => onNewFile?.(item.type === "canvas" ? null : item.id)}
         >
           <FileText className="size-3.5 text-muted-foreground" />
           {t("tree.newNote")}
@@ -423,6 +423,8 @@ export const TreeNode = React.memo(
     prev.isKeyboardFocused === next.isKeyboardFocused &&
     prev.isOpen === next.isOpen &&
     prev.isEditing === next.isEditing &&
+    prev.onSelect === next.onSelect &&
+    prev.onOpenInNewTab === next.onOpenInNewTab &&
     prev.ptrDragSourceId === next.ptrDragSourceId &&
     prev.ptrDragTargetId === next.ptrDragTargetId &&
     prev.favorites === next.favorites &&

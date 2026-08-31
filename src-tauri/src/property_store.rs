@@ -111,6 +111,8 @@ pub fn upsert(
     note_id: &str,
     mut property: CustomProperty,
 ) -> Result<CustomProperty, String> {
+    crate::index::identity::ensure_unique_identity(conn, note_id)?;
+    ensure_frontmatter_properties_available(conn, vault, note_id)?;
     let exists: bool = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM notes WHERE id = ?1)",
@@ -147,6 +149,8 @@ pub fn delete(
     note_id: &str,
     property_id: &str,
 ) -> Result<(), String> {
+    crate::index::identity::ensure_unique_identity(conn, note_id)?;
+    ensure_frontmatter_properties_available(conn, vault, note_id)?;
     let mut file = read(vault)?;
     if let Some(properties) = file.notes.get_mut(note_id) {
         properties.retain(|property| property.id != property_id);
@@ -163,29 +167,49 @@ pub fn delete(
     Ok(())
 }
 
+fn ensure_frontmatter_properties_available(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+) -> Result<(), String> {
+    use rusqlite::OptionalExtension;
+    let path: Option<String> = conn
+        .query_row("SELECT path FROM notes WHERE id = ?1", [note_id], |row| {
+            row.get(0)
+        })
+        .optional()
+        .map_err(|error| error.to_string())?;
+    if let Some(path) = path {
+        if crate::frontmatter::read_markdown(&vault.join(path))?
+            .frontmatter_status
+            .is_malformed()
+        {
+            return Err("Properties are unavailable while frontmatter is malformed".into());
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn fixture() -> (std::path::PathBuf, Connection) {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = Ulid::generate();
         let vault = std::env::temp_dir().join(format!("amby-properties-{unique}"));
         fs::create_dir_all(vault.join(".amby")).unwrap();
+        fs::write(vault.join("Note.md"), "# Note").unwrap();
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
             r#"
-            CREATE TABLE notes (id TEXT PRIMARY KEY);
+            CREATE TABLE notes (id TEXT PRIMARY KEY, path TEXT NOT NULL);
             CREATE TABLE note_custom_properties (
                 id TEXT NOT NULL, note_id TEXT NOT NULL, name TEXT NOT NULL,
                 icon TEXT NOT NULL, property_type TEXT NOT NULL, value TEXT NOT NULL,
                 settings TEXT NOT NULL, position INTEGER NOT NULL,
                 PRIMARY KEY (note_id, id)
             );
-            INSERT INTO notes (id) VALUES ('01TEST');
+            INSERT INTO notes (id, path) VALUES ('01TEST', 'Note.md');
             "#,
         )
         .unwrap();

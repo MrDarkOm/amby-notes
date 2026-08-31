@@ -10,7 +10,8 @@ import {
   readNote,
   writeNote,
 } from "@/lib/storage"
-import { formatModified, findTreeItem, newTabKey } from "../workspace-tree-utils"
+import { formatModified, findTreeItem } from "../workspace-tree-utils"
+import { findTabTreeItem, treeItemTabTarget } from "../tab-target"
 import {
   InFlightDocumentLoads,
   resolveMarkdownRecoveryLoad,
@@ -26,7 +27,7 @@ type Params = Pick<
   | "vault"
   | "treeItems"
   | "refreshTree"
-  | "openCanvasTab"
+  | "loadCanvas"
   | "setPendingRenameId"
   | "backendGeneration"
   | "windowLabel"
@@ -37,7 +38,7 @@ export function useDocumentLoading({
   vault,
   treeItems,
   refreshTree,
-  openCanvasTab,
+  loadCanvas,
   setPendingRenameId,
   backendGeneration,
   windowLabel,
@@ -47,9 +48,8 @@ export function useDocumentLoading({
   releaseUnusedDocumentBuffers,
 }: Params) {
   const t = i18n.t.bind(i18n)
-  const tabs = useTabsStore((state) => state.tabs)
-  const activeTabKey = useTabsStore((state) => state.activeTabKey)
-  const { setTabs, setActiveTabKey } = useTabsStore.getState()
+  const { openItem } = useTabsStore.getState()
+  const selectionRequestRef = React.useRef(0)
   const { setDoc, markUnsaved } = useDocStore.getState()
   const loadRegistryRef = React.useRef<InFlightDocumentLoads<Document> | null>(null)
   if (!loadRegistryRef.current) loadRegistryRef.current = new InFlightDocumentLoads<Document>()
@@ -130,111 +130,57 @@ export function useDocumentLoading({
     },
     [autosave, autosaveKey, backendGeneration, markUnsaved, setDoc, t, treeItems, vault],
   )
-  const handleSelect = React.useCallback(
-    async (fileId: string) => {
-      const item = findTreeItem(treeItems, fileId)
-      if (item?.type === "folder") {
-        const active = tabs.find((tab) => tab.key === activeTabKey)
-        if (active?.kind === "folder")
-          setTabs((previous) =>
-            previous.map((tab) =>
-              tab.key === activeTabKey
-                ? {
-                    ...tab,
-                    fileId,
-                    title: item.name,
-                    history: [...tab.history.slice(0, tab.historyIndex + 1), fileId],
-                    historyIndex: tab.historyIndex + 1,
-                  }
-                : tab,
-            ),
-          )
-        else {
-          const existing = tabs.find((tab) => tab.kind === "folder" && tab.fileId === fileId)
-          if (existing) setActiveTabKey(existing.key)
-          else {
-            const key = newTabKey()
-            setTabs((previous) => [
-              ...previous,
-              { key, kind: "folder", fileId, title: item.name, history: [fileId], historyIndex: 0 },
-            ])
-            setActiveTabKey(key)
-          }
-        }
+  const openTreeItem = React.useCallback(
+    async (fileId: string, inNewTab = false) => {
+      const item = findTabTreeItem(treeItems, fileId)
+      if (!item) return
+      const request = ++selectionRequestRef.current
+      const initial = useTabsStore.getState()
+      const initialTab = initial.tabs.find((tab) => tab.key === initial.activeTabKey)
+      const target = treeItemTabTarget(item)
+      // Existing tabs already own their buffers. Activate them immediately.
+      if (
+        !inNewTab &&
+        initial.tabs.some((tab) => tab.kind === target.kind && tab.fileId === target.fileId)
+      ) {
+        openItem(target)
         return
       }
-      if (item?.type === "canvas") return openCanvasTab(item.path, item.name)
-      if (!item || item.type !== "file") return
       try {
-        await loadDoc(fileId, item.name)
+        if (item.type === "file") await loadDoc(item.id, item.name)
+        else if (item.type === "canvas") await loadCanvas(item.path)
       } catch (error) {
         console.error("Failed to load file:", error)
         return
       }
-      const active = tabs.find((tab) => tab.key === activeTabKey)
-      if (active?.kind === "document")
-        setTabs((previous) =>
-          previous.map((tab) =>
-            tab.key !== activeTabKey
-              ? tab
-              : {
-                  ...tab,
-                  fileId,
-                  title: item.name,
-                  history: [...tab.history.slice(0, tab.historyIndex + 1), fileId],
-                  historyIndex: tab.historyIndex + 1,
-                },
-          ),
-        )
-      else {
-        const key = newTabKey()
-        setTabs((previous) => [
-          ...previous,
-          { key, kind: "document", fileId, title: item.name, history: [fileId], historyIndex: 0 },
-        ])
-        setActiveTabKey(key)
-      }
+      const currentVault = useVaultStore.getState()
+      if (currentVault.vault !== vault || currentVault.backendGeneration !== backendGeneration)
+        return
+      const current = useTabsStore.getState()
+      if (
+        !inNewTab &&
+        (request !== selectionRequestRef.current ||
+          current.activeTabKey !== initial.activeTabKey ||
+          current.tabs.find((tab) => tab.key === current.activeTabKey) !== initialTab)
+      )
+        return
+      openItem(target, inNewTab)
       void releaseUnusedDocumentBuffers()
     },
     [
-      activeTabKey,
+      backendGeneration,
+      loadCanvas,
       loadDoc,
-      openCanvasTab,
+      openItem,
       releaseUnusedDocumentBuffers,
-      setActiveTabKey,
-      setTabs,
-      tabs,
       treeItems,
+      vault,
     ],
   )
+  const handleSelect = React.useCallback((fileId: string) => openTreeItem(fileId), [openTreeItem])
   const handleOpenInNewTab = React.useCallback(
-    async (fileId: string) => {
-      const item = findTreeItem(treeItems, fileId)
-      if (item?.type === "folder") {
-        const key = newTabKey()
-        setTabs((previous) => [
-          ...previous,
-          { key, kind: "folder", fileId, title: item.name, history: [fileId], historyIndex: 0 },
-        ])
-        setActiveTabKey(key)
-        return
-      }
-      if (item?.type === "canvas") return openCanvasTab(item.path, item.name)
-      if (!item || item.type !== "file") return
-      try {
-        await loadDoc(fileId, item.name)
-      } catch (error) {
-        console.error("Failed to load file:", error)
-        return
-      }
-      const key = newTabKey()
-      setTabs((previous) => [
-        ...previous,
-        { key, kind: "document", fileId, title: item.name, history: [fileId], historyIndex: 0 },
-      ])
-      setActiveTabKey(key)
-    },
-    [loadDoc, openCanvasTab, setActiveTabKey, setTabs, treeItems],
+    (fileId: string) => openTreeItem(fileId, true),
+    [openTreeItem],
   )
   const handleCloneFile = React.useCallback(
     async (fileId: string) => {
@@ -271,12 +217,8 @@ export function useDocumentLoading({
           revision: outcome.revision,
           source: target.source,
         })
-        const key = newTabKey()
-        setTabs((previous) => [
-          ...previous,
-          { key, kind: "document", fileId: id, title, history: [id], historyIndex: 0 },
-        ])
-        setActiveTabKey(key)
+        openItem({ kind: "document", fileId: id, title })
+        void releaseUnusedDocumentBuffers()
         setPendingRenameId(id)
         setTimeout(() => setPendingRenameId(null), 500)
       } catch (error) {
@@ -287,10 +229,10 @@ export function useDocumentLoading({
       backendGeneration,
       handleApplyMutation,
       refreshTree,
-      setActiveTabKey,
+      openItem,
+      releaseUnusedDocumentBuffers,
       setDoc,
       setPendingRenameId,
-      setTabs,
       t,
       treeItems,
       vault,
@@ -299,15 +241,16 @@ export function useDocumentLoading({
   )
   const navigateToFile = React.useCallback(
     async (fileId: string) => {
-      const item = findTreeItem(treeItems, fileId)
+      const item = findTabTreeItem(treeItems, fileId)
       if (!item) return
       try {
-        await loadDoc(fileId, item.name)
+        if (item.type === "file") await loadDoc(item.id, item.name)
+        else if (item.type === "canvas") await loadCanvas(item.path)
       } catch {
         /* navigation is best-effort */
       }
     },
-    [loadDoc, treeItems],
+    [loadCanvas, loadDoc, treeItems],
   )
   return { loadDoc, handleSelect, handleOpenInNewTab, handleCloneFile, navigateToFile }
 }

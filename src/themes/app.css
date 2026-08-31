@@ -2624,3 +2624,11 @@ select {
     animation-iteration-count: 1 !important;
   }
 }
+
+/* History comparisons use semantic surfaces and explicit +/- markers. */
+.history-diff-added {
+  background: color-mix(in srgb, #168447 12%, transparent);
+}
+.history-diff-removed {
+  background: hsl(var(--destructive) / 0.1);
+}

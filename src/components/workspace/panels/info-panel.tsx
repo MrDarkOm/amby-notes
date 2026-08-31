@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import type { CustomProperty } from "@/lib/storage"
 import { IconValue } from "../icon-value"
+import { noteEditingPolicy } from "../editor/note-editing-policy"
 import { PropertyEditor } from "./property-editor"
 import type { PanelRenderProps } from "../panel-registry"
 
@@ -151,8 +152,12 @@ export function InfoPanel({
     )
   }
   const nestedNotes = properties.nestedNotes ?? []
+  const warningKey =
+    properties.kind === "folder" ? null : noteEditingPolicy(properties.frontmatter).warningKey
   const customProperties =
-    properties.kind === "folder" ? [] : (properties.frontmatter.customProperties ?? [])
+    properties.kind === "folder" || properties.frontmatter.parseError
+      ? []
+      : (properties.frontmatter.customProperties ?? [])
 
   async function copyId(id: string) {
     try {
@@ -264,6 +269,11 @@ export function InfoPanel({
       </div>
       <ScrollArea className="flex-1">
         <div className="space-y-5 px-3 py-3">
+          {warningKey && (
+            <p role="status" className="text-xs text-muted-foreground">
+              {t(warningKey)}
+            </p>
+          )}
           <section>
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -273,6 +283,7 @@ export function InfoPanel({
                 type="button"
                 className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                 title={t("infoPanel.addProperty")}
+                disabled={Boolean(properties.frontmatter.parseError)}
                 onClick={() => {
                   setEditingProperty(null)
                   setPropertyEditorOpen(true)

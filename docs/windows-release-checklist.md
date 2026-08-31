@@ -4,8 +4,9 @@
 а не свидетельство прохождения. Заполняй результат каждого шага после проверки.
 MacOS/APFS, unit-тесты и успешная Windows-сборка не заменяют Windows runtime.
 
-Связанные требования: `AUDIT_ISSUES.md`, MANUAL-01—07, особенно MANUAL-05;
-контракты: `docs/vault-format.md`, `docs/markdown-compatibility.md`.
+Оставшиеся задачи: [AUDIT_ISSUES.md](../AUDIT_ISSUES.md), особенно MANUAL-05.
+Полный исторический протокол MANUAL-01—07: `git show 1d3f0d6:AUDIT_ISSUES.md`.
+Контракты: `docs/vault-format.md`, `docs/markdown-compatibility.md`.
 
 ## 1. Безопасное окружение
 
@@ -149,7 +150,8 @@ $sourceFiles | ForEach-Object {
 ## 5. Windows data-safety smoke
 
 Это перенос проверок на Windows, не новый PASS старых macOS-пакетов.
-Подробные альтернативные ветки остаются в соответствующих MANUAL-разделах.
+Подробные альтернативные ветки доступны в MANUAL-разделах исторического
+протокола: `git show 1d3f0d6:AUDIT_ISSUES.md`.
 
 - [ ] **WIN-DATA.1 / MANUAL-01:** открыть одну заметку в двух окнах. Чистое окно
       получает изменения; при конкурирующих unsaved edits появляется conflict.
