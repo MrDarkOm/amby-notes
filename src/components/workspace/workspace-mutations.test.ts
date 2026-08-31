@@ -3,12 +3,14 @@ import {
   applySessionRemap,
   applyTreePatch,
   planMutation,
+  reconcileTreeBackedTabTitles,
   remapPath,
   remapStoredId,
 } from "./workspace-mutations"
 import type { FsMutationResult } from "@/lib/storage"
 import type { SessionFile } from "./app-config"
 import type { TreeItem } from "./sidebar-tree"
+import type { Tab } from "./use-tabs-store"
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -132,6 +134,69 @@ describe("planMutation", () => {
 function tree(items: TreeItem[] = []): TreeItem[] {
   return items
 }
+
+function documentTab(fileId: string, title: string): Tab {
+  return {
+    key: `tab-${fileId}`,
+    kind: "document",
+    fileId,
+    title,
+    history: [fileId],
+    historyIndex: 0,
+  }
+}
+
+describe("reconcileTreeBackedTabTitles", () => {
+  it("updates a stable-ID tab after an external rename", () => {
+    const tabs = [documentTab("note-1", "external-watch")]
+    const next = reconcileTreeBackedTabTitles(tabs, [
+      {
+        id: "note-1",
+        name: "renamed-watch",
+        path: "/vault/renamed-watch.md",
+        type: "file",
+      },
+    ])
+
+    expect(next[0]).toMatchObject({ fileId: "note-1", title: "renamed-watch" })
+    expect(next).not.toBe(tabs)
+  })
+
+  it("finds nested items and preserves the array when every title already matches", () => {
+    const tabs = [documentTab("note-1", "renamed-watch")]
+    const next = reconcileTreeBackedTabTitles(tabs, [
+      {
+        id: "folder:/vault/Folder",
+        name: "Folder",
+        path: "/vault/Folder",
+        type: "folder",
+        children: [
+          {
+            id: "note-1",
+            name: "renamed-watch",
+            path: "/vault/Folder/renamed-watch.md",
+            type: "file",
+          },
+        ],
+      },
+    ])
+
+    expect(next).toBe(tabs)
+  })
+
+  it("leaves non-tree tabs unchanged", () => {
+    const graph: Tab = {
+      key: "graph",
+      kind: "graph",
+      fileId: "graph",
+      title: "Graph",
+      history: [],
+      historyIndex: 0,
+    }
+
+    expect(reconcileTreeBackedTabTitles([graph], [])).toEqual([graph])
+  })
+})
 
 describe("applyTreePatch", () => {
   it("inserts a newly indexed note without a full refresh", () => {

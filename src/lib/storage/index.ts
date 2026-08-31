@@ -114,6 +114,24 @@ export const writeNote = (
     expectedRevision,
     originWindow,
   )
+export const restoreDeletedNote = (
+  vaultPath: string,
+  noteId: string,
+  path: string,
+  content: string,
+  sourceTemplate: string,
+  expectedGeneration: number | null,
+  originWindow: string,
+): Promise<WriteNoteOutcome> =>
+  notesRepository.restoreDeletedNote(
+    vaultPath,
+    noteId,
+    path,
+    content,
+    sourceTemplate,
+    expectedGeneration,
+    originWindow,
+  )
 export const saveConflictCopy = (path: string, content: string): Promise<string> =>
   notesRepository.saveConflictCopy(path, content)
 export const createNote = (

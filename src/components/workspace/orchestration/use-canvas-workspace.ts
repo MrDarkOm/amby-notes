@@ -11,12 +11,14 @@ import { confirmAction, readFile, writeFile } from "@/lib/storage"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
 import { recoveryNeedsConfirmation, resolveRecoveryContent } from "../recovery-restore"
+import { CanvasLoadDeduplicator } from "./canvas-load-dedup"
 
 type CanvasAutosavePayload = { path: string; json: string }
 
 /** Owns Canvas buffers and their recovery/autosave lifecycle. */
 export function useCanvasWorkspace(generation: number, t: TFunction) {
   const [openCanvases, setOpenCanvases] = React.useState<Record<string, string>>({})
+  const canvasLoadsRef = React.useRef(new CanvasLoadDeduplicator())
   const vaultGenerationRef = React.useRef({ generation })
   vaultGenerationRef.current.generation = generation
 
@@ -52,34 +54,35 @@ export function useCanvasWorkspace(generation: number, t: TFunction) {
   )
 
   const loadCanvasBuffer = React.useCallback(
-    async (path: string): Promise<string> => {
-      let diskContent: string
-      try {
-        diskContent = validateAndSerializeCanvas(await readFile(path))
-      } catch {
-        diskContent = "{}"
-      }
-      const recovery = (await readRecoveryDraft(path))?.content
-      let recoveredContent: string | undefined
-      if (recovery !== undefined) {
+    (path: string): Promise<string> =>
+      canvasLoadsRef.current.run(generation, path, async () => {
+        let diskContent: string
         try {
-          recoveredContent = validateAndSerializeCanvas(recovery)
-        } catch (error) {
-          console.error("Ignoring invalid canvas recovery draft:", error)
+          diskContent = validateAndSerializeCanvas(await readFile(path))
+        } catch {
+          diskContent = "{}"
         }
-      }
-      const restoreConfirmed = recoveryNeedsConfirmation(diskContent, recoveredContent)
-        ? await confirmAction(t("recovery.restorePrompt"))
-        : false
-      const resolved = resolveRecoveryContent(diskContent, recoveredContent, restoreConfirmed)
-      if (resolved.discardDraft) void discardRecoveryDraft(path)
-      if (resolved.restored) {
-        void saveRecoveryDraft(path, resolved.content, "canvas", path)
-        autosave.enqueueImmediate(autosaveKey(path), { path, json: resolved.content })
-      }
-      return resolved.content
-    },
-    [autosave, autosaveKey, t],
+        const recovery = (await readRecoveryDraft(path))?.content
+        let recoveredContent: string | undefined
+        if (recovery !== undefined) {
+          try {
+            recoveredContent = validateAndSerializeCanvas(recovery)
+          } catch (error) {
+            console.error("Ignoring invalid canvas recovery draft:", error)
+          }
+        }
+        const restoreConfirmed = recoveryNeedsConfirmation(diskContent, recoveredContent)
+          ? await confirmAction(t("recovery.restorePrompt"))
+          : false
+        const resolved = resolveRecoveryContent(diskContent, recoveredContent, restoreConfirmed)
+        if (resolved.discardDraft) void discardRecoveryDraft(path)
+        if (resolved.restored) {
+          void saveRecoveryDraft(path, resolved.content, "canvas", path)
+          autosave.enqueueImmediate(autosaveKey(path), { path, json: resolved.content })
+        }
+        return resolved.content
+      }),
+    [autosave, autosaveKey, generation, t],
   )
 
   const handleCanvasSave = React.useCallback(

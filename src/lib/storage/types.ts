@@ -176,6 +176,7 @@ export interface WriteNoteOutcome {
 export interface NoteReadOutcome {
   content: string
   revision: string
+  source: string
 }
 
 /** A compare-and-swap rejected a stale renderer buffer. */

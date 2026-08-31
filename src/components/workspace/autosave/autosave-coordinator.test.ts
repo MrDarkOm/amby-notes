@@ -214,6 +214,25 @@ describe("AutosaveCoordinator", () => {
     expect(coordinator.inspect(key)).toMatchObject({ dirty: false })
   })
 
+  it("retains an accepted Markdown recovery draft when its immediate save fails", async () => {
+    const failure = new Error("vault is read-only")
+    let recoveryDraftPresent = true
+    const coordinator = new AutosaveCoordinator<string>({
+      delayMs: 10_000,
+      save: async () => Promise.reject(failure),
+      onSaveSuccess: () => {
+        recoveryDraftPresent = false
+      },
+    })
+    const key = markdownKey("recovered-note")
+
+    coordinator.enqueueImmediate(key, "recovered content")
+    await vi.waitFor(() => expect(coordinator.inspect(key)?.lastError).toBe(failure))
+
+    expect(recoveryDraftPresent).toBe(true)
+    expect(coordinator.inspect(key)).toMatchObject({ dirty: true, lastError: failure })
+  })
+
   it("retains a recovered Canvas buffer as dirty when its immediate save fails", async () => {
     const failure = new Error("disk full")
     const coordinator = new AutosaveCoordinator<string>({

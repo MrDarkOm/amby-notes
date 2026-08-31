@@ -14,11 +14,17 @@ interface BackendEvent {
 
 class RevisionConflict extends Error {}
 
+interface WriteGate {
+  started: Promise<void>
+  release: () => void
+}
+
 /** Shared fake IPC/backend used to exercise two independent renderer buffers. */
 class SharedFakeBackend {
   private readonly notes = new Map<string, NoteState>()
   private readonly listeners = new Set<(event: BackendEvent) => void>()
   private nextRevision = 1
+  private nextWriteGate: { signalStarted: () => void; waitUntilReleased: Promise<void> } | undefined
   watcherOwner: string | null = null
 
   constructor(noteId: string, content: string) {
@@ -32,12 +38,31 @@ class SharedFakeBackend {
   }
 
   async write(noteId: string, content: string, expectedRevision: string, origin: string) {
+    const gate = this.nextWriteGate
+    this.nextWriteGate = undefined
+    if (gate) {
+      gate.signalStarted()
+      await gate.waitUntilReleased
+    }
     const current = this.read(noteId)
     if (current.revision !== expectedRevision) throw new RevisionConflict()
     const next = { content, revision: this.revision() }
     this.notes.set(noteId, next)
     this.emit({ noteId, revision: next.revision, origin })
     return { ...next }
+  }
+
+  blockNextWrite(): WriteGate {
+    let signalStarted!: () => void
+    let release!: () => void
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve
+    })
+    const waitUntilReleased = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    this.nextWriteGate = { signalStarted, waitUntilReleased }
+    return { started, release }
   }
 
   externalEdit(noteId: string, content: string) {
@@ -86,10 +111,11 @@ class FakeRenderer {
     this.autosave = new AutosaveCoordinator({
       delayMs: 200,
       save: async ({ value }) => {
-        const saved = await backend.write(value.noteId, value.content, value.revision, label)
         const document = this.documents.get(value.noteId)
+        if (!document) throw new Error(`Renderer ${label} lost ${value.noteId} before autosave`)
+        const saved = await backend.write(value.noteId, value.content, document.revision, label)
+        document.revision = saved.revision
         if (document?.content === value.content) {
-          document.revision = saved.revision
           document.dirty = false
         }
       },
@@ -166,6 +192,28 @@ class FakeRenderer {
 }
 
 describe("two-renderer autosave integration harness", () => {
+  it("chains the saved revision into an edit queued while the previous save is in flight", async () => {
+    const backend = new SharedFakeBackend("note", "initial")
+    const main = new FakeRenderer("main", backend)
+    main.open("note")
+    const firstWrite = backend.blockNextWrite()
+
+    main.edit("note", "first local version", true)
+    await firstWrite.started
+    main.edit("note", "second local version", true)
+    firstWrite.release()
+    await main.flush("note")
+
+    expect(backend.read("note")).toMatchObject({ content: "second local version" })
+    const saved = main.snapshot("note")
+    expect(saved).toMatchObject({
+      content: "second local version",
+      dirty: false,
+    })
+    expect(saved).not.toHaveProperty("conflict")
+    main.dispose()
+  })
+
   it("converges rapid edits, preserves a stale dirty buffer as conflict, and keeps watcher ownership in main", async () => {
     const backend = new SharedFakeBackend("note", "initial")
     backend.startWatcher("main")

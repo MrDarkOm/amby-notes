@@ -100,6 +100,15 @@ can preserve the local text before
 accepting an external version. An externally deleted open document is never closed silently; its
 local version can be restored by an explicit save.
 
+Deletion is classified after the coalesced tree refresh by the stable note ID,
+not only by the platform-specific raw watcher event (`remove` versus `rename`).
+While a Markdown buffer is open, Amby retains its last complete source as an
+in-memory restore template. Explicit restoration validates the active vault and
+stable ID, publishes with the atomic no-replace path, preserves opaque
+frontmatter, UTF-8 BOM, and the dominant line-ending convention, then rebuilds
+the SQLite cache entry. If the path reappears before publication, restoration
+fails instead of overwriting the new file.
+
 ## Local history
 
 Before Amby replaces an existing note or text file, it stores the original raw
@@ -110,6 +119,14 @@ authoritative snapshot metadata index, so opening one note's history does not
 scan every metadata JSON file. Older per-snapshot JSON metadata is imported once
 when the manifest is first needed; it may remain on disk as harmless legacy
 metadata.
+
+Normal `note-save` and `file-save` autosaves create at most one pre-write
+history snapshot per source file in a rolling ten-minute interval. This
+coalesces versions only: the Markdown/text file is still saved after the normal
+short editor debounce, recovery drafts remain durable, and no existing history
+entry is deleted. ID assignment, link refactor, restore, and other explicitly
+forced snapshots keep their recovery points regardless of the autosave interval;
+rename and move retain their existing rollback/recovery contracts.
 
 History is append-only and is **not automatically pruned**. The History panel
 shows per-note and vault-wide version counts and storage use. Its explicit
@@ -138,7 +155,14 @@ size limits (5 MB), vault-wide storage caps (50 MB), entry count limits (100
 entries), and a 14-day TTL. On startup and vault activation, expired or corrupted
 entries are automatically swept, and quota limits are enforced by pruning the
 oldest drafts. When opening a document with an unpersisted draft differing from
-the on-disk version, Amby prompts the user to restore the recovered text.
+the on-disk version, Amby prompts the user to restore the recovered text. Tabs
+restored from the previous session use the same recovery-aware load path as an
+explicitly opened note, and native recovery prompts are serialized. Accepting a
+draft marks the buffer dirty and immediately queues a versioned filesystem save;
+the draft remains until that save succeeds. Declining loads the disk version and
+deletes only that document's draft. A vault-generation change while a prompt is
+open abandons the stale decision without changing either the new vault or the
+old draft.
 
 ## Backup and Git policy
 

@@ -16,6 +16,7 @@ describe("useDocStore external conflicts", () => {
       modified: "",
       wordCount: 1,
       path: "/vault/Note.md",
+      source: "---\nid: note\n---\nlocal",
     })
     store.markUnsaved("note")
     store.setExternalConflict({
@@ -42,6 +43,7 @@ describe("useDocStore external conflicts", () => {
       modified: "",
       wordCount: 1,
       path: "/vault/Old.md",
+      source: "---\nid: survivor\n---\nlocal",
     })
     store.setDoc("deleted", {
       id: "deleted",
@@ -51,6 +53,7 @@ describe("useDocStore external conflicts", () => {
       modified: "",
       wordCount: 1,
       path: "/vault/Deleted.md",
+      source: "---\nid: deleted\n---\nlocal",
     })
     store.setExternalConflict({
       fileId: "survivor",
@@ -88,6 +91,7 @@ describe("useDocStore external conflicts", () => {
         modified: "",
         wordCount: 1,
         path: `/vault/${fileId}.md`,
+        source: `---\nid: ${fileId}\n---\ncontent`,
       })
     }
     store.markUnsaved("dirty")

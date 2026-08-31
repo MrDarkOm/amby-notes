@@ -1,6 +1,6 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
-import { createNote } from "@/lib/storage"
+import { createNote, readNote } from "@/lib/storage"
 import { scrollEditorToAnchor } from "../anchor-navigation"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
@@ -43,6 +43,7 @@ export function useWikiNavigation({
         await refreshTree()
         const id = result.primaryId ?? result.primaryPath
         if (!id) return
+        const note = await readNote(vault, id)
         const title = target.split("/").pop() ?? target
         const document: Document = {
           id,
@@ -52,6 +53,8 @@ export function useWikiNavigation({
           modified: t("time.justNow"),
           wordCount: 0,
           path: result.primaryPath ?? id,
+          revision: note.revision,
+          source: note.source,
         }
         setDoc(id, document)
         const key = newTabKey()

@@ -25,7 +25,7 @@ import { BlockInsertPanel } from "./BlockInsertPanel"
 import { WikiLinkContextMenu } from "./WikiLinkContextMenu"
 import { primeAssetConverter, setAssetContext } from "./asset-resolver"
 import { setTransclusionFetcher } from "./transclusion-context"
-import { bindTauriFileDrop } from "./media-drop"
+import { bindTauriFileDrop, getTauriDropPosForView } from "./media-drop"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
 import { registerEditorSerialization } from "./editor-serialization-lifecycle"
 import {
@@ -314,17 +314,7 @@ export function TiptapEditor({
       view,
       (clientX, clientY) => {
         if (editor.isDestroyed) return null
-        const rect = view.dom.getBoundingClientRect()
-        if (
-          clientX < rect.left ||
-          clientX > rect.right ||
-          clientY < rect.top ||
-          clientY > rect.bottom
-        ) {
-          return null
-        }
-        const coords = view.posAtCoords({ left: clientX, top: clientY })
-        return coords?.pos ?? null
+        return getTauriDropPosForView(view, clientX, clientY)
       },
       controller.signal,
     ).then((unsub) => {

@@ -293,9 +293,9 @@ export class WebAdapterCore implements StoragePort {
   }
 
   async readNote(_vaultPath: string, noteId: string): Promise<NoteReadOutcome> {
-    const content = await this.readFile(noteId)
-    const body = splitWebFrontmatter(content)?.body ?? content
-    return { content: body, revision: webRevision(body) }
+    const source = await this.readFile(noteId)
+    const body = splitWebFrontmatter(source)?.body ?? source
+    return { content: body, revision: webRevision(body), source }
   }
 
   async writeFile(path: string, content: string): Promise<void> {
@@ -318,6 +318,29 @@ export class WebAdapterCore implements StoragePort {
     await this.writeFile(noteId, `${frontmatter?.envelope ?? ""}${content}`)
     return {
       path: noteId,
+      revision: webRevision(content),
+      indexState: "healthy",
+      warnings: [],
+    }
+  }
+
+  async restoreDeletedNote(
+    _vaultPath: string,
+    noteId: string,
+    path: string,
+    content: string,
+    sourceTemplate: string,
+    _expectedGeneration: number | null,
+    _originWindow: string,
+  ): Promise<WriteNoteOutcome> {
+    if (webGet(FILE_PREFIX + path) !== null) {
+      throw new Error("The deleted note path reappeared; refusing to overwrite it")
+    }
+    const template = splitWebFrontmatter(sourceTemplate)
+    const source = `${template?.envelope ?? `---\nid: ${noteId}\n---\n`}${content}`
+    webSet(FILE_PREFIX + path, source)
+    return {
+      path,
       revision: webRevision(content),
       indexState: "healthy",
       warnings: [],

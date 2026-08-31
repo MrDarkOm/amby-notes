@@ -298,6 +298,13 @@ pub fn body_with_id(content: &str, id: &str) -> Result<String, String> {
         return Err("Refusing to replace an existing frontmatter id".to_string());
     }
 
+    // Keep a source BOM at byte zero while inserting the generated envelope.
+    // Leaving it attached to the old body would make `atomic_write` restore a
+    // second BOM at byte zero and persist the original one inside Markdown.
+    let (bom, content_without_bom) = content
+        .strip_prefix('\u{feff}')
+        .map_or(("", content), |content| ("\u{feff}", content));
+
     if let Some((yaml, body)) = split_frontmatter(content) {
         let mut map = serde_yaml::from_str::<Mapping>(yaml).map_err(|e| e.to_string())?;
         map.insert(
@@ -305,9 +312,12 @@ pub fn body_with_id(content: &str, id: &str) -> Result<String, String> {
             Value::String(id.to_string()),
         );
         let yaml = serde_yaml::to_string(&map).map_err(|e| e.to_string())?;
-        Ok(format!("---\n{}---\n{}", yaml, body))
+        Ok(format!("{bom}---\n{}---\n{}", yaml, body))
     } else {
-        Ok(format!("---\nid: {}\n---\n{}", id, content))
+        Ok(format!(
+            "{bom}---\nid: {}\n---\n{}",
+            id, content_without_bom
+        ))
     }
 }
 
@@ -344,6 +354,13 @@ pub fn text_bytes_for_write(path: &Path, content: &str) -> Result<Vec<u8>, Strin
     preserve_text_format(path, content)
 }
 
+/// Apply the BOM and dominant line-ending convention of an in-memory source
+/// template. External deletion removes the path before Amby can inspect its
+/// bytes, so explicit restoration uses the last complete source read instead.
+pub fn text_bytes_from_template(template: &str, content: &str) -> Result<Vec<u8>, String> {
+    preserve_text_format_bytes(template.as_bytes(), content, "restore template")
+}
+
 /// Keep the on-disk text convention when replacing an existing UTF-8 file.
 /// Editors commonly normalize strings to LF and omit a BOM, so restoring both
 /// characteristics here prevents an otherwise unrelated save from reformatting
@@ -356,18 +373,18 @@ fn preserve_text_format(path: &Path, content: &str) -> Result<Vec<u8>, String> {
         }
         Err(err) => return Err(err.to_string()),
     };
+    preserve_text_format_bytes(&existing, content, &path.display().to_string())
+}
+
+fn preserve_text_format_bytes(
+    existing: &[u8],
+    content: &str,
+    source_label: &str,
+) -> Result<Vec<u8>, String> {
     let has_bom = existing.starts_with(&[0xEF, 0xBB, 0xBF]);
-    let text = if has_bom {
-        &existing[3..]
-    } else {
-        &existing[..]
-    };
-    std::str::from_utf8(text).map_err(|_| {
-        format!(
-            "Refusing to overwrite non-UTF-8 text file: {}",
-            path.display()
-        )
-    })?;
+    let text = if has_bom { &existing[3..] } else { existing };
+    std::str::from_utf8(text)
+        .map_err(|_| format!("Refusing to use non-UTF-8 text template: {source_label}"))?;
 
     let mut normalized = content
         .strip_prefix('\u{feff}')
@@ -580,6 +597,15 @@ mod tests {
     }
 
     #[test]
+    fn inserts_id_before_a_bom_prefixed_body_without_duplicating_the_bom() {
+        let content = body_with_id("\u{feff}Hello", "01ABC").unwrap();
+
+        assert!(content.starts_with("\u{feff}---\nid: 01ABC\n---\n"));
+        assert_eq!(content.matches('\u{feff}').count(), 1);
+        assert_eq!(parse_markdown(&content).body, "Hello");
+    }
+
+    #[test]
     fn refuses_to_replace_an_existing_id() {
         let result = body_with_id("---\nid: user-managed\n---\nHello", "01ABC");
         assert!(result.is_err());
@@ -640,6 +666,34 @@ mod tests {
     }
 
     #[test]
+    fn deleted_note_restore_template_preserves_opaque_yaml_bom_and_crlf() {
+        let template = concat!(
+            "\u{feff}---\r\n",
+            "# User-owned comment\r\n",
+            "custom: [one, two]\r\n",
+            "id: 01ABC\r\n",
+            "---\r\n",
+            "Original body\r\n",
+        );
+        let next = replace_body_preserving_id(template, "Restored\nbody\n", "01ABC").unwrap();
+        let bytes = text_bytes_from_template(template, &next).unwrap();
+
+        assert_eq!(
+            bytes,
+            concat!(
+                "\u{feff}---\r\n",
+                "# User-owned comment\r\n",
+                "custom: [one, two]\r\n",
+                "id: 01ABC\r\n",
+                "---\r\n",
+                "Restored\r\n",
+                "body\r\n",
+            )
+            .as_bytes()
+        );
+    }
+
+    #[test]
     fn body_replacement_refuses_an_unexpected_frontmatter_id() {
         let original = "---\nid: user-managed\n---\nOriginal body";
         assert!(replace_body_preserving_id(original, "Edited body", "01ABC").is_err());
@@ -677,6 +731,35 @@ mod tests {
         atomic_write(&path, "after\ntext\n").unwrap();
 
         assert_eq!(fs::read(&path).unwrap(), b"\xEF\xBB\xBFafter\r\ntext\r\n");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn id_insertion_preserves_one_bom_crlf_and_terminal_line_breaks() {
+        let dir = std::env::temp_dir().join(format!(
+            "amby-frontmatter-format-{}-{}",
+            std::process::id(),
+            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("note.md");
+        fs::write(&path, b"\xEF\xBB\xBFbody\r\n\r\n\r\n").unwrap();
+
+        let source = fs::read_to_string(&path).unwrap();
+        let next = body_with_id(&source, "01ABC").unwrap();
+        atomic_write(&path, &next).unwrap();
+
+        let persisted = fs::read(&path).unwrap();
+        assert!(persisted.starts_with(b"\xEF\xBB\xBF---\r\n"));
+        assert_eq!(
+            persisted
+                .windows(3)
+                .filter(|bytes| *bytes == b"\xEF\xBB\xBF")
+                .count(),
+            1
+        );
+        assert!(!persisted.windows(2).any(|bytes| bytes == b"\n\n"));
+        assert!(persisted.ends_with(b"body\r\n\r\n\r\n"));
         fs::remove_dir_all(dir).unwrap();
     }
 

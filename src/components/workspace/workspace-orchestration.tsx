@@ -100,7 +100,7 @@ export function WorkspaceOrchestration() {
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
   const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
   // Stable setters (value-or-updater, like setState); see use-tabs-store.
-  const { setTabs, setActiveTabKey } = useTabsStore.getState()
+  const { setTabs, setActiveTabKey, openOrActivateSingletonTab } = useTabsStore.getState()
   const unsavedFileIds = useDocStore((s) => s.unsavedFileIds)
 
   // Per-document view state (favorites, viewModes, lockedFileIds, iconOverrides,
@@ -228,24 +228,19 @@ export function WorkspaceOrchestration() {
   }
 
   function openCanvasTab(path: string, title: string) {
-    setOpenCanvases((prev) => {
-      if (prev[path] !== undefined) return prev
-      loadCanvasBuffer(path).then((c) =>
+    if (openCanvases[path] === undefined) {
+      void loadCanvasBuffer(path).then((c) =>
         setOpenCanvases((p) => (p[path] !== undefined ? p : { ...p, [path]: c })),
       )
-      return prev
-    })
-    const existing = tabs.find((t) => t.kind === "canvas" && t.fileId === path)
-    if (existing) {
-      setActiveTabKey(existing.key)
-      return
     }
-    const key = newTabKey()
-    setTabs((prev) => [
-      ...prev,
-      { key, kind: "canvas", fileId: path, title, history: [], historyIndex: 0 },
-    ])
-    setActiveTabKey(key)
+    openOrActivateSingletonTab({
+      key: newTabKey(),
+      kind: "canvas",
+      fileId: path,
+      title,
+      history: [],
+      historyIndex: 0,
+    })
   }
 
   async function refreshVault() {
@@ -447,20 +442,26 @@ export function WorkspaceOrchestration() {
     window.history.replaceState({}, "", window.location.pathname)
   }, [handleOpenInNewTab, noteIdFromUrl, treeItems])
 
-  const { handleBack, handleForward, handleTabChange, handleTabClose, handleCloseAllTabs } =
-    useTabActions({
-      activeTab,
-      activeTabKey,
-      secondaryTabKey,
-      tabs,
-      treeItems,
-      canGoBack,
-      canGoForward,
-      navigateToFile,
-      onTabUsageChanged: () => {
-        void releaseUnusedDocumentBuffers()
-      },
-    })
+  const {
+    handleBack,
+    handleForward,
+    handleTabChange,
+    toggleSplit,
+    handleTabClose,
+    handleCloseAllTabs,
+  } = useTabActions({
+    activeTab,
+    activeTabKey,
+    secondaryTabKey,
+    tabs,
+    treeItems,
+    canGoBack,
+    canGoForward,
+    navigateToFile,
+    onTabUsageChanged: () => {
+      void releaseUnusedDocumentBuffers()
+    },
+  })
 
   // Workspace-wide shortcuts deliberately leave plain typing alone. Native editing
   // shortcuts still belong to the focused editor; these only invoke app navigation.
@@ -520,7 +521,11 @@ export function WorkspaceOrchestration() {
   const handleHistoryRestored = React.useCallback(async () => {
     if (!vault || !currentDocId) return
     const note = await readNote(vault, currentDocId)
-    patchDoc(currentDocId, { content: note.content, revision: note.revision })
+    patchDoc(currentDocId, {
+      content: note.content,
+      revision: note.revision,
+      source: note.source,
+    })
     markSaved(currentDocId)
     await refreshTree(vault)
   }, [vault, currentDocId, patchDoc, markSaved, refreshTree])
@@ -987,8 +992,10 @@ export function WorkspaceOrchestration() {
         onTabClose={handleTabClose}
         onToggleLeftSidebar={() => setIsLeftSidebarOpen((v) => !v)}
         onToggleRightSidebar={() => setIsRightSidebarOpen((v) => !v)}
+        onToggleSplit={toggleSplit}
         isLeftSidebarOpen={isLeftSidebarOpen}
         isRightSidebarOpen={isRightSidebarOpen}
+        isSplit={secondaryTabKey !== null}
         isLeftDockVisible={isDockVisible("left")}
         isRightDockVisible={isDockVisible("right")}
         isLeftDockPinned={isDockPinned("left")}

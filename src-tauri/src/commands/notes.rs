@@ -191,6 +191,112 @@ pub fn write_note(
 
 #[tauri::command]
 #[specta::specta]
+pub fn restore_deleted_note(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, VaultContext>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    request: RestoreDeletedNoteRequest,
+) -> Result<WriteNoteOutcome, WriteNoteError> {
+    use tauri::Emitter;
+
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard
+        .as_ref()
+        .ok_or_else(|| WriteNoteError::failed("No vault open"))?;
+    if request.expected_generation != conn.generation {
+        return Err(WriteNoteError::failed(
+            "Vault changed before deleted note restoration",
+        ));
+    }
+    let path = paths::confine(&conn.root, std::path::Path::new(&request.path))
+        .map_err(WriteNoteError::failed)?;
+    if path.exists() {
+        return Err(WriteNoteError::failed(
+            "The deleted note path reappeared; refusing to overwrite it",
+        ));
+    }
+
+    // The complete source captured by read_note is the only safe place to get
+    // opaque YAML and the deleted file's original text convention. The body is
+    // replaced independently so the user's latest local editor text wins.
+    let next = frontmatter::replace_body_preserving_id(
+        &request.source_template,
+        &request.content,
+        &request.note_id,
+    )
+    .map_err(WriteNoteError::failed)?;
+    let bytes = frontmatter::text_bytes_from_template(&request.source_template, &next)
+        .map_err(WriteNoteError::failed)?;
+    let prepared_write =
+        watcher_state.prepare_write([(&path, watcher::fingerprint_for_bytes(&bytes))]);
+    match frontmatter::atomic_write_bytes_new(&path, &bytes) {
+        Ok(()) => watcher_state.confirm_prepared_write(&prepared_write),
+        Err(frontmatter::AtomicCreateError::AlreadyExists) => {
+            watcher_state.cancel_prepared_write(&prepared_write);
+            return Err(WriteNoteError::failed(
+                "The deleted note path reappeared; refusing to overwrite it",
+            ));
+        }
+        Err(frontmatter::AtomicCreateError::Other(error)) => {
+            watcher_state.cancel_prepared_write(&prepared_write);
+            return Err(WriteNoteError::failed(error));
+        }
+    }
+
+    let persisted =
+        fs::read_to_string(&path).map_err(|error| WriteNoteError::failed(error.to_string()))?;
+    let body = frontmatter::parse_markdown(&persisted).body;
+    let revision = vault_index::body_revision(&body);
+    let index_result =
+        vault_index::upsert_note_index(conn, &conn.root, &request.note_id, &body, &path)
+            .and_then(|_| property_store::restore_cache(conn, &conn.root));
+    let path_string = path.to_string_lossy().to_string();
+    drop(conn_guard);
+
+    let outcome = match index_result {
+        Ok(()) => WriteNoteOutcome {
+            path: path_string.clone(),
+            revision: revision.clone(),
+            index_state: IndexState::Healthy,
+            warnings: Vec::new(),
+        },
+        Err(error) => {
+            tracing::warn!(event = "deleted_note_restore_index_failed", error = %error);
+            db.mark_index_rebuild_required()
+                .map_err(WriteNoteError::failed)?;
+            WriteNoteOutcome {
+                path: path_string.clone(),
+                revision: revision.clone(),
+                index_state: IndexState::RebuildRequired,
+                warnings: vec![OperationWarning::IndexRebuildRequired],
+            }
+        }
+    };
+
+    if let Err(error) = app.emit(
+        "amby:note-written",
+        NoteWrittenPayload {
+            note_id: request.note_id,
+            revision,
+            origin_window: request.origin_window,
+        },
+    ) {
+        tracing::warn!(event = "note_write_event_failed", error = %error);
+    }
+    if let Err(error) = app.emit(
+        "vault-file-changed",
+        watcher::VaultFileChangedPayload {
+            kind: "create".to_string(),
+            path: path_string,
+        },
+    ) {
+        tracing::warn!(event = "restored_note_tree_event_failed", error = %error);
+    }
+    Ok(outcome)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn get_note_metadata(
     db: tauri::State<'_, VaultContext>,
     note_id: String,

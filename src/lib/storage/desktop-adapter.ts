@@ -139,6 +139,35 @@ export class DesktopAdapter implements StoragePort {
     return outcome
   }
 
+  async restoreDeletedNote(
+    _vaultPath: string,
+    noteId: string,
+    path: string,
+    content: string,
+    sourceTemplate: string,
+    expectedGeneration: number | null,
+    originWindow: string,
+  ): Promise<WriteNoteOutcome> {
+    if (expectedGeneration === null) throw new Error("No active vault generation")
+    const result = await commands.restoreDeletedNote({
+      expectedGeneration,
+      noteId,
+      path,
+      content,
+      sourceTemplate,
+      originWindow,
+    })
+    if (result.status === "error") {
+      if (result.error.kind === "revisionConflict") {
+        throw new NoteRevisionConflictError(result.error.actual_revision)
+      }
+      throw new Error(result.error.message)
+    }
+    const outcome = result.data
+    reportIndexOutcome(outcome)
+    return outcome
+  }
+
   async saveConflictCopy(path: string, content: string): Promise<string> {
     return unwrapCommand(commands.saveConflictCopy(path, content))
   }

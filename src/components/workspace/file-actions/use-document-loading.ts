@@ -11,9 +11,14 @@ import {
   writeNote,
 } from "@/lib/storage"
 import { formatModified, findTreeItem, newTabKey } from "../workspace-tree-utils"
-import { recoveryNeedsConfirmation, resolveRecoveryContent } from "../recovery-restore"
+import {
+  InFlightDocumentLoads,
+  resolveMarkdownRecoveryLoad,
+  StaleDocumentLoadError,
+} from "../markdown-recovery-load"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
+import { useVaultStore } from "../use-vault-store"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
 type Params = Pick<
@@ -46,57 +51,82 @@ export function useDocumentLoading({
   const activeTabKey = useTabsStore((state) => state.activeTabKey)
   const { setTabs, setActiveTabKey } = useTabsStore.getState()
   const { setDoc, markUnsaved } = useDocStore.getState()
+  const loadRegistryRef = React.useRef<InFlightDocumentLoads<Document> | null>(null)
+  if (!loadRegistryRef.current) loadRegistryRef.current = new InFlightDocumentLoads<Document>()
   const loadDoc = React.useCallback(
-    async (fileId: string, itemName: string): Promise<Document> => {
+    (fileId: string, itemName: string): Promise<Document> => {
       const existing = useDocStore.getState().openDocs[fileId]
-      if (existing) return existing
-      const item = findTreeItem(treeItems, fileId)
-      const [note, meta, noteProperties] = vault
-        ? await Promise.all([
-            readNote(vault, fileId),
-            getNoteMetadata(vault, fileId),
-            getNoteProperties(vault, fileId),
-          ])
-        : await Promise.all([
-            readFile(item?.path ?? fileId).then((content) => ({ content, revision: "" })),
-            getNoteMetadata("", fileId),
-            getNoteProperties("", fileId),
-          ])
-      const path = item?.path ?? fileId
-      const recovered = (await readRecoveryDraft(fileId)) ?? (await readRecoveryDraft(path))
-      const recovery = resolveRecoveryContent(
-        note.content,
-        recovered?.content,
-        recoveryNeedsConfirmation(note.content, recovered?.content)
-          ? await confirmAction(t("recovery.restorePrompt"))
-          : false,
-      )
-      const document: Document = {
-        id: fileId,
-        title: itemName,
-        content: recovery.content,
-        created: formatModified(meta.created),
-        modified: formatModified(meta.modified),
-        wordCount: meta.word_count,
-        path,
-        revision: note.revision,
-        noteProperties,
-      }
-      setDoc(fileId, document)
-      if (recovery.restored) {
-        markUnsaved(fileId)
-        autosave.enqueueImmediate(autosaveKey(fileId), {
+      if (existing) return Promise.resolve(existing)
+      const scope = JSON.stringify([vault, backendGeneration])
+      return loadRegistryRef.current!.run(scope, fileId, async () => {
+        const alreadyLoaded = useDocStore.getState().openDocs[fileId]
+        if (alreadyLoaded) return alreadyLoaded
+
+        const expectedVault = vault
+        const expectedBackendGeneration = backendGeneration
+        const isCurrent = () => {
+          const current = useVaultStore.getState()
+          return (
+            current.vault === expectedVault &&
+            current.backendGeneration === expectedBackendGeneration
+          )
+        }
+        const item = findTreeItem(treeItems, fileId)
+        const [note, meta, noteProperties] = vault
+          ? await Promise.all([
+              readNote(vault, fileId),
+              getNoteMetadata(vault, fileId),
+              getNoteProperties(vault, fileId),
+            ])
+          : await Promise.all([
+              readFile(item?.path ?? fileId).then((content) => ({
+                content,
+                revision: "",
+                source: content,
+              })),
+              getNoteMetadata("", fileId),
+              getNoteProperties("", fileId),
+            ])
+        if (!isCurrent()) throw new StaleDocumentLoadError()
+
+        const path = item?.path ?? fileId
+        const recovery = await resolveMarkdownRecoveryLoad({
           fileId,
           path,
-          content: recovery.content,
-          backendGeneration,
-          expectedRevision: note.revision,
+          diskContent: note.content,
+          readDraft: readRecoveryDraft,
+          confirmRestore: () => confirmAction(t("recovery.restorePrompt")),
+          isCurrent,
         })
-      } else if (recovery.discardDraft) {
-        void discardRecoveryDraft(fileId)
-        void discardRecoveryDraft(path)
-      }
-      return document
+        if (recovery.status === "stale") throw new StaleDocumentLoadError()
+
+        const document: Document = {
+          id: fileId,
+          title: itemName,
+          content: recovery.content,
+          created: formatModified(meta.created),
+          modified: formatModified(meta.modified),
+          wordCount: meta.word_count,
+          path,
+          revision: note.revision,
+          source: note.source,
+          noteProperties,
+        }
+        setDoc(fileId, document)
+        if (recovery.restored) {
+          markUnsaved(fileId)
+          autosave.enqueueImmediate(autosaveKey(fileId), {
+            fileId,
+            path,
+            content: recovery.content,
+            backendGeneration,
+            expectedRevision: note.revision,
+          })
+        } else if (recovery.discardDraft) {
+          await Promise.all([discardRecoveryDraft(fileId), discardRecoveryDraft(path)])
+        }
+        return document
+      })
     },
     [autosave, autosaveKey, backendGeneration, markUnsaved, setDoc, t, treeItems, vault],
   )
@@ -239,6 +269,7 @@ export function useDocumentLoading({
           wordCount: source.content.trim() ? source.content.trim().split(/\s+/u).length : 0,
           path: result.primaryPath ?? id,
           revision: outcome.revision,
+          source: target.source,
         })
         const key = newTabKey()
         setTabs((previous) => [

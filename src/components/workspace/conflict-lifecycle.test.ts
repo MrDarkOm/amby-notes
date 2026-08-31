@@ -59,6 +59,7 @@ describe("Conflict lifecycle across filesystem mutations (WP-18)", () => {
       modified: "today",
       wordCount: 3,
       path: "/vault/Note.md",
+      source: "---\nid: note-1\n---\nlocal content modified",
     })
     store.markUnsaved("note-1")
     store.setExternalConflict({
@@ -108,6 +109,7 @@ describe("Conflict lifecycle across filesystem mutations (WP-18)", () => {
       modified: "today",
       wordCount: 2,
       path: "/vault/OldFolder/Nested.md",
+      source: "---\nid: nested-1\n---\nnested local",
     })
     store.markUnsaved("nested-1")
     store.setExternalConflict({
@@ -175,6 +177,7 @@ describe("Conflict lifecycle across filesystem mutations (WP-18)", () => {
       modified: "today",
       wordCount: 3,
       path: "/vault/DeleteMe.md",
+      source: "---\nid: note-del\n---\nunsaved local version",
     })
     store.markUnsaved("note-del")
     store.setExternalConflict({
@@ -232,6 +235,7 @@ describe("Conflict lifecycle across filesystem mutations (WP-18)", () => {
       modified: "today",
       wordCount: 5,
       path: "/vault/ExtDel.md",
+      source: "---\nid: note-ext-del\n---\ndirty edits before external delete",
     })
     store.markUnsaved("note-ext-del")
 

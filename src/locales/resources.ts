@@ -21,6 +21,8 @@ const ru = {
     moveTargetNotFound: "Источник или назначение перемещения не найдено.",
     sourceNotFound: "Источник не найден: {{path}}",
     vaultOpenFailed: "Не удалось открыть хранилище.\n\n{{details}}",
+    autosaveFailed:
+      "Не удалось сохранить изменения на диск. Проверьте доступ к хранилищу и свободное место.",
     settingsSaveError:
       "Не удалось сохранить настройки. Проверьте права доступа к файлам конфигурации.",
     storageQuotaExceeded:
@@ -480,7 +482,7 @@ const ru = {
     keyStoredInKeychain: "Сохранён в защищённом хранилище ОС",
     clearKey: "Удалить ключ",
     keySaved: "Ключ сохранён",
-    keychainError: "Не удалось сохранить ключ в хранилище ОС",
+    keychainError: "Не удалось выполнить операцию с ключом в хранилище ОС",
     privacyNote: "Текст текущей заметки уйдёт на сервер провайдера. Ключ хранится локально.",
   },
   editor: {
@@ -809,6 +811,7 @@ const en: typeof ru = {
     moveTargetNotFound: "Move source or target not found.",
     sourceNotFound: "Source not found: {{path}}",
     vaultOpenFailed: "Could not open the vault.\n\n{{details}}",
+    autosaveFailed: "Could not save changes to disk. Check vault access and free space.",
     settingsSaveError: "Failed to save settings. Check configuration file permissions.",
     storageQuotaExceeded: "Browser storage is full. Free up space and try again.",
     storageUnavailable: "Browser storage is unavailable. Check browser settings and try again.",
@@ -1265,7 +1268,7 @@ const en: typeof ru = {
     keyStoredInKeychain: "Stored in OS Keychain",
     clearKey: "Remove key",
     keySaved: "Key saved",
-    keychainError: "Failed to store key in OS Keychain",
+    keychainError: "Could not complete the operation in OS credential storage",
     privacyNote:
       "The current note's text will be sent to the provider's server. The key is stored locally.",
   },

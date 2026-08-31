@@ -25,6 +25,7 @@ interface TabsStore {
   setTabs: (updater: Updater<Tab[]>) => void
   setActiveTabKey: (updater: Updater<string>) => void
   setSecondaryTabKey: (updater: Updater<string | null>) => void
+  openOrActivateSingletonTab: (tab: Tab) => string
 }
 
 /**
@@ -40,4 +41,18 @@ export const useTabsStore = create<TabsStore>((set) => ({
   setActiveTabKey: (updater) => set((s) => ({ activeTabKey: resolve(updater, s.activeTabKey) })),
   setSecondaryTabKey: (updater) =>
     set((s) => ({ secondaryTabKey: resolve(updater, s.secondaryTabKey) })),
+  openOrActivateSingletonTab: (tab) => {
+    let activeKey = tab.key
+    set((state) => {
+      const existing = state.tabs.find(
+        (candidate) => candidate.kind === tab.kind && candidate.fileId === tab.fileId,
+      )
+      if (existing) {
+        activeKey = existing.key
+        return { activeTabKey: existing.key }
+      }
+      return { tabs: [...state.tabs, tab], activeTabKey: tab.key }
+    })
+    return activeKey
+  },
 }))

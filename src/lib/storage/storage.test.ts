@@ -172,11 +172,19 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
     it("delegates readNote and writeNote to generated commands", async () => {
       const readSpy = vi.spyOn(commands, "readNote").mockResolvedValue({
         status: "ok",
-        data: { content: "desktop note content", revision: "revision-1" },
+        data: {
+          content: "desktop note content",
+          revision: "revision-1",
+          source: "---\nid: note-ulid-1\n---\ndesktop note content",
+        },
       })
 
       const note = await notesRepository.readNote("/vault", "note-ulid-1")
-      expect(note).toEqual({ content: "desktop note content", revision: "revision-1" })
+      expect(note).toEqual({
+        content: "desktop note content",
+        revision: "revision-1",
+        source: "---\nid: note-ulid-1\n---\ndesktop note content",
+      })
       expect(readSpy).toHaveBeenCalledWith("note-ulid-1")
 
       const writeSpy = vi.spyOn(commands, "writeNote").mockResolvedValue({
@@ -224,6 +232,38 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
       ).rejects.toMatchObject({
         name: "NoteRevisionConflictError",
         actualRevision: "revision-current",
+      })
+    })
+
+    it("delegates deleted-note restoration with the exact source template", async () => {
+      const restoreSpy = vi.spyOn(commands, "restoreDeletedNote").mockResolvedValue({
+        status: "ok",
+        data: {
+          path: "/vault/Note.md",
+          revision: "restored-revision",
+          indexState: "healthy",
+          warnings: [],
+        },
+      })
+      const sourceTemplate = "---\n# opaque\nid: note-ulid-1\n---\nold body"
+
+      await notesRepository.restoreDeletedNote(
+        "/vault",
+        "note-ulid-1",
+        "/vault/Note.md",
+        "latest local body",
+        sourceTemplate,
+        5,
+        "main",
+      )
+
+      expect(restoreSpy).toHaveBeenCalledWith({
+        expectedGeneration: 5,
+        noteId: "note-ulid-1",
+        path: "/vault/Note.md",
+        content: "latest local body",
+        sourceTemplate,
+        originWindow: "main",
       })
     })
 

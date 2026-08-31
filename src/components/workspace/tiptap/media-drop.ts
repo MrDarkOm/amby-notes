@@ -1,9 +1,10 @@
 import { Extension } from "@tiptap/core"
-import { Plugin, PluginKey } from "@tiptap/pm/state"
+import { Plugin, PluginKey, Selection } from "@tiptap/pm/state"
 import type { EditorView } from "@tiptap/pm/view"
 
 import { getAssetContext } from "./asset-resolver"
 import { importAsset, importAssetBytes, isTauri, type ImportedAsset } from "@/lib/storage"
+import { errorType, logger } from "@/lib/logger"
 
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|avif)$/i
 const mediaDropSessions = new WeakMap<EditorView, AbortController>()
@@ -21,6 +22,21 @@ function createImageNode(view: EditorView, src: string) {
   return node.create({ src })
 }
 
+function inlineInsertionPos(view: EditorView, requestedPos: number): number | null {
+  const { doc } = view.state
+  const clamped = Math.max(0, Math.min(requestedPos, doc.content.size))
+  const $requested = doc.resolve(clamped)
+  if ($requested.parent.inlineContent) return clamped
+
+  // A drop in the empty area below the final block resolves to the document
+  // boundary, where inline images and link text are invalid. Move to the
+  // nearest text cursor instead of copying files and then losing their links.
+  const preferredDirection = clamped === 0 ? 1 : -1
+  const preferred = Selection.findFrom($requested, preferredDirection, true)
+  const fallback = Selection.findFrom($requested, -preferredDirection, true)
+  return preferred?.from ?? fallback?.from ?? null
+}
+
 /** Insert a completed media batch into exactly one current editor transaction. */
 export function insertImportedAssets(
   view: EditorView,
@@ -31,7 +47,9 @@ export function insertImportedAssets(
   if (signal?.aborted || assets.length === 0) return false
   const { state } = view
   const tr = state.tr
-  let insertPos = Math.max(0, Math.min(requestedPos, state.doc.content.size))
+  let insertPos = inlineInsertionPos(view, requestedPos)
+  if (insertPos == null) return false
+  const insertionAnchor = insertPos
   for (const asset of assets) {
     if (signal?.aborted) return false
     if (asset.kind === "image") {
@@ -44,9 +62,10 @@ export function insertImportedAssets(
       const link = state.schema.marks.link
       if (link) tr.addMark(insertPos, insertPos + text.length, link.create({ href: asset.relPath }))
     }
-    // Mapping accounts for image nodeSize=1 and the actual UTF-16 text length
-    // of a file link without hand-maintained position arithmetic.
-    insertPos = tr.mapping.map(insertPos, 1)
+    // Always remap the original anchor through every completed step. Remapping
+    // an already-mapped position compounds earlier offsets and eventually
+    // produces an out-of-range position for batches of three or more items.
+    insertPos = tr.mapping.map(insertionAnchor, 1)
   }
   if (signal?.aborted || !tr.docChanged) return false
   view.dispatch(tr)
@@ -56,6 +75,69 @@ export function insertImportedAssets(
 export interface ImportCtx {
   vaultPath: string
   notePath: string
+}
+
+type DroppedAssetImporter = (
+  vaultPath: string,
+  notePath: string,
+  sourcePath: string,
+) => Promise<ImportedAsset | null>
+
+/** Import a dropped batch sequentially so its visible order matches the OS payload. */
+export async function importDroppedPaths(
+  ctx: ImportCtx,
+  paths: string[],
+  signal?: AbortSignal,
+  importer: DroppedAssetImporter = importAsset,
+): Promise<ImportedAsset[]> {
+  const imported: ImportedAsset[] = []
+  for (const sourcePath of paths) {
+    if (signal?.aborted) return []
+    try {
+      const result = await importer(ctx.vaultPath, ctx.notePath, sourcePath)
+      if (signal?.aborted) return []
+      if (result) imported.push(result)
+    } catch (error) {
+      // One unreadable/oversized item must not orphan all assets imported
+      // before it. Do not log paths because they can contain private data.
+      logger.warn("media_drop.import_failed", { errorType: errorType(error) })
+    }
+  }
+  return imported
+}
+
+/**
+ * Wry reports client coordinates on macOS/Linux but native physical pixels on
+ * Windows even though Tauri wraps every payload as `PhysicalPosition`.
+ */
+export function tauriDropClientPosition(
+  position: { x: number; y: number },
+  scale: number,
+  platform: string,
+): { x: number; y: number } {
+  const divisor = /^win/i.test(platform) && Number.isFinite(scale) && scale > 0 ? scale : 1
+  return { x: position.x / divisor, y: position.y / divisor }
+}
+
+/** Resolve drops against the editor container, including its empty tail below ProseMirror. */
+export function getTauriDropPosForView(
+  view: EditorView,
+  clientX: number,
+  clientY: number,
+): number | null {
+  const contentRect = view.dom.getBoundingClientRect()
+  const containerRect = view.dom.closest(".amby-tiptap")?.getBoundingClientRect() ?? contentRect
+  if (
+    clientX < containerRect.left ||
+    clientX > containerRect.right ||
+    clientY < containerRect.top ||
+    clientY > containerRect.bottom
+  ) {
+    return null
+  }
+  if (clientY < contentRect.top) return 0
+  if (clientY > contentRect.bottom) return view.state.doc.content.size
+  return view.posAtCoords({ left: clientX, top: clientY })?.pos ?? null
 }
 
 export function getImportContextForView(view: EditorView): ImportCtx | null {
@@ -227,19 +309,15 @@ export async function bindTauriFileDrop(
     if (signal?.aborted) return
     const ctx = getImportContextForView(view)
     if (!ctx) return
-    // Tauri reports a PhysicalPosition while posAtCoords expects CSS pixels.
     const scale = window.devicePixelRatio || 1
+    const clientPosition = payload.position
+      ? tauriDropClientPosition(payload.position, scale, navigator.platform)
+      : null
     const pos = payload.position
-      ? getDropPos(payload.position.x / scale, payload.position.y / scale)
+      ? getDropPos(clientPosition!.x, clientPosition!.y)
       : view.state.selection.from
     if (pos == null) return
-    const imported: ImportedAsset[] = []
-    for (const src of payload.paths) {
-      if (signal?.aborted) return
-      const result = await importAsset(ctx.vaultPath, ctx.notePath, src)
-      if (signal?.aborted) return
-      if (result) imported.push(result)
-    }
+    const imported = await importDroppedPaths(ctx, payload.paths, signal)
     insertImportedAssets(view, pos, imported, signal)
   })
   return () => {

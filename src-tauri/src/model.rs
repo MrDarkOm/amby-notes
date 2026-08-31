@@ -46,14 +46,27 @@ pub struct WriteNoteRequest {
     pub origin_window: String,
 }
 
-/// Body text and its on-disk revision. The revision is a SHA-256 hash of the
-/// unnormalised body bytes, so it remains valid even when the frontend renders
-/// CRLF text as LF.
+#[derive(Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreDeletedNoteRequest {
+    pub expected_generation: u64,
+    pub note_id: String,
+    pub path: String,
+    pub content: String,
+    pub source_template: String,
+    pub origin_window: String,
+}
+
+/// Body text, its on-disk revision, and the complete source retained as a
+/// restore template while the note is open. The revision is a SHA-256 hash of
+/// the unnormalised body bytes, so it remains valid even when the frontend
+/// renders CRLF text as LF. Body-only editing still uses `content`.
 #[derive(Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteReadOutcome {
     pub content: String,
     pub revision: String,
+    pub source: String,
 }
 
 /// A save failure that callers can distinguish from transport and filesystem

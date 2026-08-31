@@ -202,6 +202,14 @@ async writeNote(request: WriteNoteRequest) : Promise<Result<WriteNoteOutcome, Wr
     else return { status: "error", error: e  as any };
 }
 },
+async restoreDeletedNote(request: RestoreDeletedNoteRequest) : Promise<Result<WriteNoteOutcome, WriteNoteError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_deleted_note", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getNoteMetadata(noteId: string) : Promise<Result<NoteMetadata, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_note_metadata", { noteId }) };
@@ -614,15 +622,17 @@ export type NoteLayers = { canvas: boolean; sketch: boolean; database: boolean }
 export type NoteMetadata = { created: number | null; modified: number | null; wordCount: number }
 export type NoteProperties = { hasFrontmatter: boolean; properties: FrontmatterProperty[]; parseError: string | null; customProperties: CustomProperty[] }
 /**
- * Body text and its on-disk revision. The revision is a SHA-256 hash of the
- * unnormalised body bytes, so it remains valid even when the frontend renders
- * CRLF text as LF.
+ * Body text, its on-disk revision, and the complete source retained as a
+ * restore template while the note is open. The revision is a SHA-256 hash of
+ * the unnormalised body bytes, so it remains valid even when the frontend
+ * renders CRLF text as LF. Body-only editing still uses `content`.
  */
-export type NoteReadOutcome = { content: string; revision: string }
+export type NoteReadOutcome = { content: string; revision: string; source: string }
 export type OperationWarning = "indexRebuildRequired"
 export type PathChange = { oldPath: string; newPath: string }
 export type RecoveryEntry = { version: number; vaultGeneration: number; documentKind: string; id: string; pathHint: string; savedAtMs: number; content: string; contentHash: string }
 export type RefactorPreview = { notes: number; replacements: number }
+export type RestoreDeletedNoteRequest = { expectedGeneration: number; noteId: string; path: string; content: string; sourceTemplate: string; originWindow: string }
 export type SearchResult = { note: IndexedNote; matchType: string; snippet: string | null; score: number }
 export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }
 export type SnapshotText = { sourcePath: string; content: string }

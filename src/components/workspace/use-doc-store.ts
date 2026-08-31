@@ -12,6 +12,10 @@ export interface Document {
   wordCount: number
   path: string
   revision?: string
+  /** Last complete on-disk source used only for safe external-delete restore. */
+  source: string
+  /** The stable-ID note is absent from the latest indexed filesystem tree. */
+  externallyDeleted?: boolean
   noteProperties?: NoteProperties
 }
 
@@ -21,6 +25,8 @@ export interface ExternalConflict {
   localContent: string
   externalContent: string | null
   externalRevision?: string
+  /** Complete source template used to preserve opaque YAML on resolution/restore. */
+  sourceTemplate?: string
 }
 
 interface DocStore {

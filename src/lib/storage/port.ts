@@ -57,6 +57,15 @@ export interface StoragePort {
     expectedRevision: string,
     originWindow: string,
   ): Promise<WriteNoteOutcome>
+  restoreDeletedNote(
+    vaultPath: string,
+    noteId: string,
+    path: string,
+    content: string,
+    sourceTemplate: string,
+    expectedGeneration: number | null,
+    originWindow: string,
+  ): Promise<WriteNoteOutcome>
   saveConflictCopy(path: string, content: string): Promise<string>
   createNote(vaultPath: string, parentPath: string, name: string): Promise<FsMutationResult>
   createFolder(vaultPath: string, name: string): Promise<string>

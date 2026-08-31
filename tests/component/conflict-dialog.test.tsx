@@ -36,6 +36,7 @@ describe("ExternalConflictDialog component", () => {
         path: "Note 1.md",
         localContent: "Local draft content",
         externalContent: "External disk changes",
+        externalRevision: "external-revision",
       })
     })
 
@@ -52,6 +53,7 @@ describe("ExternalConflictDialog component", () => {
 
     const doc = useDocStore.getState().openDocs["note-1"]
     expect(doc?.content).toBe("External disk changes")
+    expect(doc?.revision).toBe("external-revision")
     expect(useDocStore.getState().unsavedFileIds.has("note-1")).toBe(false)
     expect(useDocStore.getState().externalConflicts["note-1"]).toBeUndefined()
   })
@@ -63,6 +65,7 @@ describe("ExternalConflictDialog component", () => {
         path: "Note 1.md",
         localContent: "Local draft content",
         externalContent: "External disk changes",
+        externalRevision: "external-revision",
       })
     })
 
@@ -79,6 +82,7 @@ describe("ExternalConflictDialog component", () => {
     expect(doc?.content).toContain("=======")
     expect(doc?.content).toContain("External disk changes")
     expect(doc?.content).toContain(">>>>>>> External file")
+    expect(doc?.revision).toBe("external-revision")
     expect(doc?.isDirty).toBe(true)
     expect(useDocStore.getState().externalConflicts["note-1"]).toBeUndefined()
   })

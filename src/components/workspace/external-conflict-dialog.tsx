@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
-import { isTauri, saveConflictCopy, writeFile, writeNote } from "@/lib/storage"
+import { isTauri, restoreDeletedNote, saveConflictCopy, writeFile, writeNote } from "@/lib/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useDocStore } from "./use-doc-store"
 import { useVaultStore } from "./use-vault-store"
@@ -40,7 +40,22 @@ export function ExternalConflictDialog() {
     try {
       const content =
         useDocStore.getState().openDocs[conflict.fileId]?.content ?? conflict.localContent
-      if (vault) {
+      if (vault && conflict.externalContent === null) {
+        const outcome = await restoreDeletedNote(
+          vault,
+          conflict.fileId,
+          conflict.path,
+          content,
+          conflict.sourceTemplate ?? document.source,
+          backendGeneration,
+          originWindow,
+        )
+        patchDoc(conflict.fileId, {
+          revision: outcome.revision,
+          source: conflict.sourceTemplate ?? document.source,
+          externallyDeleted: false,
+        })
+      } else if (vault) {
         const outcome = await writeNote(
           vault,
           conflict.fileId,
@@ -49,7 +64,10 @@ export function ExternalConflictDialog() {
           conflict.externalRevision ?? document.revision ?? "",
           originWindow,
         )
-        patchDoc(conflict.fileId, { revision: outcome.revision })
+        patchDoc(conflict.fileId, {
+          revision: outcome.revision,
+          source: conflict.sourceTemplate ?? document.source,
+        })
       } else await writeFile(conflict.path, content)
       markSaved(conflict.fileId)
       clearExternalConflict(conflict.fileId)
@@ -66,6 +84,7 @@ export function ExternalConflictDialog() {
       patchDoc(conflict.fileId, {
         content: conflict.externalContent,
         revision: conflict.externalRevision,
+        source: conflict.sourceTemplate ?? document.source,
       })
       markSaved(conflict.fileId)
     }
@@ -77,6 +96,8 @@ export function ExternalConflictDialog() {
     if (conflict.externalContent === null) return
     patchDoc(conflict.fileId, {
       content: `<<<<<<< Local Amby\n${conflict.localContent}\n=======\n${conflict.externalContent}\n>>>>>>> External file\n`,
+      revision: conflict.externalRevision,
+      source: conflict.sourceTemplate ?? document.source,
     })
     markUnsaved(conflict.fileId)
     clearExternalConflict(conflict.fileId)

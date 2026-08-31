@@ -15,6 +15,7 @@ const note = (id: string): Document => ({
   modified: "",
   wordCount: 1,
   path: `/vault/${id}.md`,
+  source: `---\nid: ${id}\n---\n${id}`,
 })
 
 const tab = (key: string, fileId: string): Tab => ({

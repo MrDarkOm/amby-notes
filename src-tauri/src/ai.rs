@@ -93,7 +93,12 @@ pub struct AiChatError {
 
 fn ai_chat_error(provider: &str, detail: &str) -> AiChatError {
     let detail = detail.to_lowercase();
-    let code = if detail.contains("cancelled") || detail.contains("interrupted") {
+    let code = if let Some(status) = detail.strip_prefix("http status ") {
+        match status.parse::<u16>() {
+            Ok(401 | 403 | 429) => AiErrorCode::ProviderRejected,
+            _ => AiErrorCode::RequestFailed,
+        }
+    } else if detail.contains("cancelled") || detail.contains("interrupted") {
         AiErrorCode::Cancelled
     } else if detail.contains("api-ключ") || detail.contains("api key") {
         AiErrorCode::MissingCredential
@@ -104,14 +109,6 @@ fn ai_chat_error(provider: &str, detail: &str) -> AiChatError {
         || detail.contains("must use https")
     {
         AiErrorCode::InvalidConfiguration
-    } else if detail.contains("error 401")
-        || detail.contains("error 403")
-        || detail.contains("error 429")
-        || detail.contains("http status 401")
-        || detail.contains("http status 403")
-        || detail.contains("http status 429")
-    {
-        AiErrorCode::ProviderRejected
     } else if detail.contains("not valid")
         || detail.contains("unexpected")
         || detail.contains("stream exceeded")
@@ -133,6 +130,13 @@ fn ai_chat_error(provider: &str, detail: &str) -> AiChatError {
     }
 }
 
+// One trusted representation for all wire families. Do not read or interpolate
+// an unsuccessful response body: it can echo credentials and must not determine
+// error classification (nor leak through diagnostics).
+fn provider_http_error(status: reqwest::StatusCode) -> String {
+    format!("HTTP status {}", status.as_u16())
+}
+
 #[cfg(test)]
 mod error_tests {
     use super::*;
@@ -147,6 +151,25 @@ mod error_tests {
             serde_json::to_string(&error).unwrap(),
             r#"{"code":"network","provider":"openai"}"#,
         );
+    }
+
+    #[test]
+    fn provider_http_status_is_classified_consistently_for_every_family() {
+        for provider in ["ollama", "openai", "anthropic", "azure"] {
+            for status in [401, 403, 429, 500] {
+                let detail = provider_http_error(reqwest::StatusCode::from_u16(status).unwrap());
+                assert_eq!(detail, format!("HTTP status {status}"));
+                let error = ai_chat_error(provider, &detail);
+                assert_eq!(
+                    error.code,
+                    if status == 500 {
+                        AiErrorCode::RequestFailed
+                    } else {
+                        AiErrorCode::ProviderRejected
+                    }
+                );
+            }
+        }
     }
 }
 
@@ -329,10 +352,10 @@ async fn chat_ollama(
     };
 
     let status = resp.status();
-    let text = read_bounded_text(resp, MAX_RESPONSE_BYTES).await?;
     if !status.is_success() {
-        return Err(format!("Ollama error {status}: {}", truncate_error(&text)));
+        return Err(provider_http_error(status));
     }
+    let text = read_bounded_text(resp, MAX_RESPONSE_BYTES).await?;
     let v: Value = serde_json::from_str(&text).map_err(|e| truncate_error(&e.to_string()))?;
     v.get("message")
         .and_then(|m| m.get("content"))
@@ -370,11 +393,7 @@ async fn stream_ollama(
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let err_text = read_bounded_text(resp, 4096).await.unwrap_or_default();
-        return Err(format!(
-            "Ollama error {status}: {}",
-            truncate_error(&err_text)
-        ));
+        return Err(provider_http_error(status));
     }
 
     let mut stream = resp.bytes_stream();
@@ -488,8 +507,8 @@ async fn chat_openai_like(
         };
 
         let status = resp.status();
-        let text = read_bounded_text(resp, MAX_RESPONSE_BYTES).await?;
         if status.is_success() {
+            let text = read_bounded_text(resp, MAX_RESPONSE_BYTES).await?;
             let v: Value =
                 serde_json::from_str(&text).map_err(|e| truncate_error(&e.to_string()))?;
             return v
@@ -501,10 +520,7 @@ async fn chat_openai_like(
                 .map(|s| s.to_string())
                 .ok_or_else(|| format!("Unexpected response: {}", truncate_error(&text)));
         }
-        last_err = format!(
-            "Ошибка провайдера {status} ({url}): {}",
-            truncate_error(&text)
-        );
+        last_err = provider_http_error(status);
         if status.as_u16() != 404 || i == last {
             return Err(last_err);
         }
@@ -558,11 +574,7 @@ async fn stream_openai_like(
             break;
         }
         let status = resp.status();
-        let err_text = read_bounded_text(resp, 4096).await.unwrap_or_default();
-        last_err = format!(
-            "Ошибка провайдера {status} ({url}): {}",
-            truncate_error(&err_text)
-        );
+        last_err = provider_http_error(status);
         if status.as_u16() != 404 || i == last {
             return Err(last_err);
         }
@@ -706,13 +718,10 @@ async fn chat_anthropic(
     };
 
     let status = resp.status();
-    let text = read_bounded_text(resp, MAX_RESPONSE_BYTES).await?;
     if !status.is_success() {
-        return Err(format!(
-            "Anthropic error {status}: {}",
-            truncate_error(&text)
-        ));
+        return Err(provider_http_error(status));
     }
+    let text = read_bounded_text(resp, MAX_RESPONSE_BYTES).await?;
     let v: Value = serde_json::from_str(&text).map_err(|e| truncate_error(&e.to_string()))?;
     let out: String = v
         .get("content")
@@ -767,11 +776,7 @@ async fn stream_anthropic(
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let err_text = read_bounded_text(resp, 4096).await.unwrap_or_default();
-        return Err(format!(
-            "Anthropic error {status}: {}",
-            truncate_error(&err_text)
-        ));
+        return Err(provider_http_error(status));
     }
 
     let mut stream = resp.bytes_stream();

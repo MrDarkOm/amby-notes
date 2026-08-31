@@ -6,6 +6,7 @@ import {
   useWikiNavigation,
   type UseFileActionsParams,
 } from "./file-actions"
+import { useSessionDocumentLoading } from "./use-session-document-loading"
 
 /**
  * Compatibility façade for workspace file actions. The stateful behaviour is
@@ -14,6 +15,7 @@ import {
 export function useFileActions(params: UseFileActionsParams) {
   const markdownAutosave = useMarkdownAutosave(params)
   const loading = useDocumentLoading({ ...params, ...markdownAutosave })
+  useSessionDocumentLoading(loading.loadDoc)
   const wikiNavigation = useWikiNavigation({
     ...params,
     ...markdownAutosave,

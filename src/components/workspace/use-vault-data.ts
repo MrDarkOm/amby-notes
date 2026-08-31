@@ -14,7 +14,7 @@ import {
   WORKSPACES_SCHEMA_VERSION,
 } from "./app-config"
 import { remapRecoveryDraft } from "@/lib/recovery-drafts"
-import { applySessionRemap } from "./workspace-mutations"
+import { applySessionRemap, reconcileTreeBackedTabTitles } from "./workspace-mutations"
 import {
   flattenFileItems,
   flattenTree,
@@ -34,8 +34,6 @@ import {
   applyIdMigration,
   recoverIdMigration,
   getLinkGraph,
-  getNoteMetadata,
-  getNoteProperties,
   startVaultWatcher,
   stopVaultWatcher,
   confirmAction,
@@ -54,6 +52,7 @@ import {
   planVaultStartup,
   type VaultActivatedPayload,
 } from "./windows/vault-window-lifecycle"
+import { planOpenDocumentTreeChanges } from "./watcher-tree-reconciliation"
 
 const VAULT_ACTIVATED_EVENT = "amby:vault-activated"
 
@@ -75,7 +74,8 @@ export function useVaultData() {
   const vaults = useVaultStore((s) => s.vaults)
   const { setVault, setVaults, setBackendGeneration } = useVaultStore.getState()
 
-  const { setDoc, patchDoc, markSaved, setExternalConflict, clearDocs } = useDocStore.getState()
+  const { patchDoc, markSaved, setExternalConflict, clearExternalConflict, clearDocs } =
+    useDocStore.getState()
   const { setTabs, setActiveTabKey } = useTabsStore.getState()
 
   // For the session persist effect we need reactive reads.
@@ -123,6 +123,7 @@ export function useVaultData() {
     }
     setBackendGeneration(loaded.generation)
     setTreeItems(loaded.tree)
+    setTabs((previous) => reconcileTreeBackedTabTitles(previous, loaded.tree))
     return loaded.tree
   }
 
@@ -241,34 +242,6 @@ export function useVaultData() {
         setTabs(newTabs)
         const activeTab = newTabs.find((t) => t.fileId === mappedActiveFileId) ?? newTabs[0]
         setActiveTabKey(activeTab.key)
-        // Pre-load documents for all restored tabs in the background.
-        valid.forEach((e) => {
-          const item = findTreeItem(tree, e.fileId)
-          Promise.all([
-            readNote(activePath, e.fileId),
-            getNoteMetadata(activePath, e.fileId),
-            getNoteProperties(activePath, e.fileId),
-          ])
-            .then(([note, metadata, noteProperties]) => {
-              if (switchRef.current.requestId !== requestId) return
-              setDoc(e.fileId, {
-                id: e.fileId,
-                title: e.title,
-                content: note.content,
-                created: metadata.created
-                  ? new Date(metadata.created * 1000).toLocaleString()
-                  : "—",
-                modified: metadata.modified
-                  ? new Date(metadata.modified * 1000).toLocaleString()
-                  : "—",
-                wordCount: metadata.word_count,
-                path: item?.path ?? e.fileId,
-                revision: note.revision,
-                noteProperties,
-              })
-            })
-            .catch(() => {})
-        })
       } else {
         setTabs([])
         clearDocs()
@@ -342,12 +315,10 @@ export function useVaultData() {
   // already have recovery drafts, so closing remains safe after the flush.
   React.useEffect(() => {
     if (!desktop) return
-    let allowClose = false
     let closing = false
     let unlisten: (() => void) | undefined
     getCurrentWindow()
       .onCloseRequested(async (event) => {
-        if (allowClose) return
         event.preventDefault()
         if (closing) return
         closing = true
@@ -358,10 +329,14 @@ export function useVaultData() {
         } catch (error) {
           logger.warn("window_close.autosave_flush_failed", { errorType: errorType(error) })
         } finally {
-          allowClose = true
-          await getCurrentWindow()
-            .close()
-            .catch((error) => logger.warn("window_close.failed", { errorType: errorType(error) }))
+          try {
+            await getCurrentWindow().destroy()
+          } catch (error) {
+            // A transient native/permission failure must not make the still-open
+            // window permanently ignore subsequent close attempts.
+            closing = false
+            logger.warn("window_close.failed", { errorType: errorType(error) })
+          }
         }
       })
       .then((dispose) => {
@@ -467,18 +442,6 @@ export function useVaultData() {
     listen<{ kind: string; path: string }>("vault-file-changed", (event) => {
       const change = event.payload
       pending.set(`${change.kind}:${normalize(change.path)}`, change)
-      if (change.kind === "remove") {
-        for (const [id, doc] of Object.entries(useDocStore.getState().openDocs)) {
-          if (normalize(doc.path) === normalize(change.path)) {
-            setExternalConflict({
-              fileId: id,
-              path: doc.path,
-              localContent: doc.content,
-              externalContent: null,
-            })
-          }
-        }
-      }
       if (refreshTimer) clearTimeout(refreshTimer)
       refreshTimer = setTimeout(async () => {
         try {
@@ -488,18 +451,37 @@ export function useVaultData() {
           const openDocs = useDocStore.getState().openDocs
 
           // A rename/move retains its frontmatter ID, so after rebuilding the
-          // tree we can update the open tab's path without closing it.
-          for (const [id, doc] of Object.entries(openDocs)) {
-            const item = findTreeItem(tree, id)
-            if (item?.type === "file" && item.path !== doc.path) {
-              patchDoc(id, { path: item.path, title: item.name })
-              void remapRecoveryDraft(id, id, "markdown", item.path)
-              void remapRecoveryDraft(doc.path, item.path, "markdown", item.path)
+          // tree we can update the open tab's path without closing it. macOS
+          // reports a move out of the watched vault as `rename`, not `remove`;
+          // absence of the stable ID after refresh is therefore the portable
+          // external-deletion signal.
+          for (const treeChange of planOpenDocumentTreeChanges(openDocs, tree)) {
+            const id = treeChange.fileId
+            const doc = openDocs[id]
+            if (!doc) continue
+            if (treeChange.kind === "deleted") {
+              const latest = useDocStore.getState().openDocs[id] ?? doc
+              if (!latest.externallyDeleted) {
+                patchDoc(id, { externallyDeleted: true })
+                setExternalConflict({
+                  fileId: id,
+                  path: latest.path,
+                  localContent: latest.content,
+                  externalContent: null,
+                  sourceTemplate: latest.source,
+                })
+              }
+              continue
+            }
+            if (treeChange.kind === "relocated") {
+              patchDoc(id, { path: treeChange.path, title: treeChange.title })
+              void remapRecoveryDraft(id, id, "markdown", treeChange.path)
+              void remapRecoveryDraft(doc.path, treeChange.path, "markdown", treeChange.path)
               const conflict = useDocStore.getState().externalConflicts[id]
               if (conflict) {
                 setExternalConflict({
                   ...conflict,
-                  path: item.path,
+                  path: treeChange.path,
                 })
               }
             }
@@ -508,24 +490,38 @@ export function useVaultData() {
           for (const change of changes) {
             for (const [id, doc] of Object.entries(useDocStore.getState().openDocs)) {
               if (normalize(doc.path) !== normalize(change.path)) continue
-              if (change.kind === "remove") {
-                const latest = useDocStore.getState().openDocs[id] ?? doc
-                setExternalConflict({
-                  fileId: id,
-                  path: latest.path,
-                  localContent: latest.content,
-                  externalContent: null,
-                })
-                continue
-              }
+              const activeConflict = useDocStore.getState().externalConflicts[id]
+              // The tree reconciliation above already classified this ID as
+              // deleted. Do not turn the expected read failure into a hidden
+              // warning while the path remains absent.
+              if (activeConflict?.externalContent === null && !findTreeItem(tree, id)) continue
               try {
                 const note = await readNote(vault, id)
                 const latest = useDocStore.getState().openDocs[id]
-                if (
-                  !latest ||
-                  (note.content === latest.content && note.revision === latest.revision)
-                )
+                if (!latest) continue
+                const currentConflict = useDocStore.getState().externalConflicts[id]
+                if (latest.externallyDeleted || currentConflict?.externalContent === null) {
+                  patchDoc(id, { externallyDeleted: false })
+                  if (note.content === latest.content) {
+                    patchDoc(id, {
+                      revision: note.revision,
+                      source: note.source,
+                    })
+                    markSaved(id)
+                    clearExternalConflict(id)
+                  } else {
+                    setExternalConflict({
+                      fileId: id,
+                      path: latest.path,
+                      localContent: latest.content,
+                      externalContent: note.content,
+                      externalRevision: note.revision,
+                      sourceTemplate: note.source,
+                    })
+                  }
                   continue
+                }
+                if (note.content === latest.content && note.revision === latest.revision) continue
                 if (useDocStore.getState().unsavedFileIds.has(id)) {
                   setExternalConflict({
                     fileId: id,
@@ -533,13 +529,18 @@ export function useVaultData() {
                     localContent: latest.content,
                     externalContent: note.content,
                     externalRevision: note.revision,
+                    sourceTemplate: note.source,
                   })
                   continue
                 }
                 // Do not replace a buffer if the user started editing during
                 // the asynchronous refresh.
                 if (!useDocStore.getState().unsavedFileIds.has(id)) {
-                  patchDoc(id, { content: note.content, revision: note.revision })
+                  patchDoc(id, {
+                    content: note.content,
+                    revision: note.revision,
+                    source: note.source,
+                  })
                   markSaved(id)
                 }
               } catch (err) {
@@ -594,10 +595,15 @@ export function useVaultData() {
               localContent: latest.content,
               externalContent: note.content,
               externalRevision: note.revision,
+              sourceTemplate: note.source,
             })
             return
           }
-          patchDoc(noteId, { content: note.content, revision: note.revision })
+          patchDoc(noteId, {
+            content: note.content,
+            revision: note.revision,
+            source: note.source,
+          })
           markSaved(noteId)
         } catch (error) {
           logger.warn("note_written.open_document_reload_failed", { errorType: errorType(error) })

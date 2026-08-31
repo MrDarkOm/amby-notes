@@ -7,6 +7,7 @@
 import type { FsMutationResult, PathChange } from "@/lib/storage"
 import type { SessionFile } from "./app-config"
 import type { TreeItem } from "./sidebar-tree"
+import type { Tab } from "./use-tabs-store"
 
 // ── Filesystem mutation planning ────────────────────────────────────────────
 
@@ -161,6 +162,23 @@ function flattenTree(items: TreeItem[]): TreeItem[] {
     { ...item, children: undefined },
     ...(item.children ? flattenTree(item.children) : []),
   ])
+}
+
+/**
+ * Refresh labels for stable-ID tabs from the newly indexed tree. External
+ * rename/move events do not produce a frontend FsMutationResult, so their tab
+ * titles must converge when refreshTree receives the updated item names.
+ */
+export function reconcileTreeBackedTabTitles(tabs: Tab[], tree: TreeItem[]): Tab[] {
+  const titlesById = new Map(flattenTree(tree).map((item) => [item.id, item.name]))
+  let changed = false
+  const next = tabs.map((tab) => {
+    const title = titlesById.get(tab.fileId)
+    if (!title || title === tab.title) return tab
+    changed = true
+    return { ...tab, title }
+  })
+  return changed ? next : tabs
 }
 
 function commonDir(paths: string[]): string | null {

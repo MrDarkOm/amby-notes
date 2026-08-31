@@ -118,19 +118,26 @@ pub fn read_note(
     note_id: &str,
 ) -> Result<NoteReadOutcome, String> {
     let note = note_by_id(conn, vault, note_id)?;
-    frontmatter::read_markdown(Path::new(&note.path)).map(|parsed| {
-        // Normalize CRLF → LF for the frontend.  The editor works exclusively
-        // with LF; `preserve_text_format` converts back on write.  Without
-        // this, the watcher reads CRLF from disk while the editor holds LF,
-        // triggering false external-conflict detection that pauses autosave.
-        let revision = body_revision(&parsed.body);
-        let content = if parsed.body.contains("\r\n") {
-            parsed.body.replace("\r\n", "\n")
-        } else {
-            parsed.body
-        };
-        NoteReadOutcome { content, revision }
-    })
+    fs::read_to_string(Path::new(&note.path))
+        .map(|source| {
+            let parsed = frontmatter::parse_markdown(&source);
+            // Normalize CRLF → LF for the frontend.  The editor works exclusively
+            // with LF; `preserve_text_format` converts back on write.  Without
+            // this, the watcher reads CRLF from disk while the editor holds LF,
+            // triggering false external-conflict detection that pauses autosave.
+            let revision = body_revision(&parsed.body);
+            let content = if parsed.body.contains("\r\n") {
+                parsed.body.replace("\r\n", "\n")
+            } else {
+                parsed.body
+            };
+            NoteReadOutcome {
+                content,
+                revision,
+                source,
+            }
+        })
+        .map_err(|error| error.to_string())
 }
 
 pub fn note_properties(
@@ -594,6 +601,7 @@ mod tests {
 
         let initial = read_note(&conn, &vault, "note-1").expect("read initial");
         assert_eq!(initial.content, "one\n");
+        assert_eq!(initial.source, "---\r\nid: note-1\r\n---\r\none\r\n");
         let (_, _, first_revision) =
             write_note_filesystem(&conn, &vault, "note-1", "two\n", &initial.revision)
                 .expect("first save");

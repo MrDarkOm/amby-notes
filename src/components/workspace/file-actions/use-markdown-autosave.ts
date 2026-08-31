@@ -1,4 +1,5 @@
 import * as React from "react"
+import i18n from "@/lib/i18n"
 import { errorType, logger } from "@/lib/logger"
 import {
   discardRecoveryDraft,
@@ -9,6 +10,7 @@ import {
 import {
   NoteRevisionConflictError,
   readNote,
+  showErrorMessage,
   writeFile,
   writeNote,
   type FsMutationResult,
@@ -61,14 +63,31 @@ export function useMarkdownAutosave({
         }
         const activeVault = vaultRef.current
         if (!activeVault) return writeFile(snapshot.value.path, snapshot.value.content)
-        if (!snapshot.value.expectedRevision) throw new Error("Missing note revision for autosave")
+        // A newer local edit can enter the queue while the previous save is in
+        // flight. The previous save updates the open document's revision before
+        // the coordinator starts this snapshot, so read the CAS baseline at
+        // execution time instead of reusing the revision captured on edit.
+        const currentDocument = useDocStore.getState().openDocs[snapshot.value.fileId]
+        if (currentDocument?.externallyDeleted) {
+          useDocStore.getState().setExternalConflict({
+            fileId: currentDocument.id,
+            path: currentDocument.path,
+            localContent: currentDocument.content,
+            externalContent: null,
+            sourceTemplate: currentDocument.source,
+          })
+          autosaveRef.current?.pause(snapshot.key)
+          throw new AutosaveConflictPausedError()
+        }
+        const expectedRevision = currentDocument?.revision ?? snapshot.value.expectedRevision
+        if (!expectedRevision) throw new Error("Missing note revision for autosave")
         try {
           const outcome = await writeNote(
             activeVault,
             snapshot.value.fileId,
             snapshot.value.content,
             snapshot.value.backendGeneration,
-            snapshot.value.expectedRevision,
+            expectedRevision,
             windowLabel,
           )
           useDocStore.getState().patchDoc(snapshot.value.fileId, { revision: outcome.revision })
@@ -83,6 +102,7 @@ export function useMarkdownAutosave({
               localContent: current.content,
               externalContent: external.content,
               externalRevision: external.revision,
+              sourceTemplate: external.source,
             })
           autosaveRef.current?.pause(snapshot.key)
           throw new AutosaveConflictPausedError()
@@ -108,6 +128,9 @@ export function useMarkdownAutosave({
         )
           return
         logger.error("autosave.failed", { errorType: errorType(error) })
+        void showErrorMessage(i18n.t("errors.autosaveFailed")).catch((dialogError) =>
+          logger.warn("autosave.error_dialog_failed", { errorType: errorType(dialogError) }),
+        )
       },
     })
   }

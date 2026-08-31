@@ -105,50 +105,67 @@ function ModelEditor({
   const [credInfo, setCredInfo] = React.useState<CredentialInfo | null>(null)
   const [savingKey, setSavingKey] = React.useState(false)
   const [keyError, setKeyError] = React.useState<string | null>(null)
+  const keyOperation = React.useRef(false)
 
   React.useEffect(() => {
     let active = true
     if (model.credentialId) {
-      void inspectAiCredential(model.credentialId).then((info) => {
-        if (active) setCredInfo(info)
-      })
+      void inspectAiCredential(model.credentialId)
+        .then((info) => {
+          if (active) setCredInfo(info)
+        })
+        .catch(() => {
+          if (active) {
+            setCredInfo(null)
+            setKeyError(t("models.keychainError"))
+          }
+        })
     } else {
       setCredInfo(null)
     }
     return () => {
       active = false
     }
-  }, [model.credentialId])
+  }, [model.credentialId, t])
 
   const handleSaveKey = async (rawSecret: string) => {
     const secret = rawSecret.trim()
-    if (!secret) return
+    if (!rawSecret || keyOperation.current) return
+    keyOperation.current = true
     setSavingKey(true)
     setKeyError(null)
     try {
       const credId = model.credentialId || crypto.randomUUID()
       await storeAiCredential(credId, secret)
       const info = await inspectAiCredential(credId)
+      if (info.exists !== Boolean(secret)) throw new Error("Credential verification failed")
       setCredInfo(info)
-      set({ credentialId: credId })
+      set({ credentialId: secret ? credId : null })
       setInputKey("")
     } catch {
       setKeyError(t("models.keychainError"))
     } finally {
+      keyOperation.current = false
       setSavingKey(false)
     }
   }
 
   const handleClearKey = async () => {
+    if (keyOperation.current) return
+    keyOperation.current = true
+    setSavingKey(true)
+    setKeyError(null)
     try {
       if (model.credentialId) await deleteAiCredential(model.credentialId)
+      setCredInfo(null)
+      setInputKey("")
+      set({ credentialId: null })
     } catch {
       setKeyError(t("models.keychainError"))
-      return
+    } finally {
+      keyOperation.current = false
+      setSavingKey(false)
     }
-    setCredInfo(null)
-    setInputKey("")
-    set({ credentialId: null })
   }
 
   const locals = AI_PROVIDERS.filter((p) => p.kind === "local")
@@ -245,17 +262,17 @@ function ModelEditor({
               value={inputKey}
               onChange={(e) => setInputKey(e.target.value)}
               onBlur={() => {
-                if (inputKey.trim()) void handleSaveKey(inputKey)
+                if (inputKey) void handleSaveKey(inputKey)
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && inputKey.trim()) {
+                if (e.key === "Enter" && inputKey) {
                   e.preventDefault()
                   void handleSaveKey(inputKey)
                 }
               }}
               placeholder={credInfo?.masked || t("models.keyPlaceholder")}
             />
-            {inputKey.trim() ? (
+            {inputKey ? (
               <button
                 type="button"
                 title={t("models.keySaved")}
@@ -269,6 +286,7 @@ function ModelEditor({
               <button
                 type="button"
                 title={t("models.clearKey")}
+                disabled={savingKey}
                 onClick={() => void handleClearKey()}
                 className="shrink-0 rounded p-1 text-muted-foreground hover:bg-accent hover:text-red-400"
               >

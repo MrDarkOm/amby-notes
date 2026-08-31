@@ -7,6 +7,7 @@ import {
   createFolder,
   createNote,
   deleteItem,
+  readNote,
 } from "@/lib/storage"
 import { loadWorkspaceConfig, saveWorkspaceConfigPatch } from "../app-config"
 import { DeleteConfirmationDialog } from "../delete-confirmation-dialog"
@@ -127,6 +128,7 @@ export function useDocumentCrud({
         await refreshTree()
         const id = result.primaryId ?? result.primaryPath
         if (!id) return
+        const note = await readNote(vault, id)
         setDoc(id, {
           id,
           title,
@@ -135,6 +137,8 @@ export function useDocumentCrud({
           modified: t("time.justNow"),
           wordCount: 0,
           path: result.primaryPath ?? id,
+          revision: note.revision,
+          source: note.source,
         })
         const key = newTabKey()
         setTabs((previous) => [

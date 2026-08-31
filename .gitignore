@@ -12,6 +12,8 @@ dist
 build/
 src-tauri/target/
 dist-ssr
+# Local release evidence and generated installers; never source data for Git.
+/.release-evidence/
 *.local
 .env
 .env.*
@@ -32,4 +34,3 @@ dist-ssr
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 OldPlans/
-

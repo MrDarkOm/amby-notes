@@ -97,6 +97,26 @@ export class NotesRepository {
     )
   }
 
+  async restoreDeletedNote(
+    vaultPath: string,
+    noteId: string,
+    path: string,
+    content: string,
+    sourceTemplate: string,
+    expectedGeneration: number | null,
+    originWindow: string,
+  ): Promise<WriteNoteOutcome> {
+    return this.port().restoreDeletedNote(
+      vaultPath,
+      noteId,
+      path,
+      content,
+      sourceTemplate,
+      expectedGeneration,
+      originWindow,
+    )
+  }
+
   async saveConflictCopy(path: string, content: string): Promise<string> {
     return this.port().saveConflictCopy(path, content)
   }

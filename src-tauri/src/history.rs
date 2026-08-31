@@ -12,6 +12,7 @@ const MANIFEST_FILE: &str = "manifest.json";
 const SNAPSHOT_JOURNAL_FILE: &str = "snapshot-journal.json";
 const CLEANUP_JOURNAL_FILE: &str = "cleanup-journal.json";
 const HISTORY_FORMAT_VERSION: u8 = 1;
+const AUTOSAVE_SNAPSHOT_INTERVAL_MS: u64 = 10 * 60 * 1_000;
 
 static HISTORY_LOCK: Mutex<()> = Mutex::new(());
 
@@ -405,6 +406,20 @@ pub fn snapshot_before_write(
     replacement: &[u8],
     reason: &str,
 ) -> Result<Option<String>, String> {
+    snapshot_before_write_at(vault, source, replacement, reason, now_ms()?)
+}
+
+fn is_autosave_snapshot(reason: &str) -> bool {
+    matches!(reason, "note-save" | "file-save")
+}
+
+fn snapshot_before_write_at(
+    vault: &Path,
+    source: &Path,
+    replacement: &[u8],
+    reason: &str,
+    created_at_ms: u64,
+) -> Result<Option<String>, String> {
     let _lock = history_lock();
     let current = match fs::read(source) {
         Ok(current) => current,
@@ -419,8 +434,24 @@ pub fn snapshot_before_write(
     fs::create_dir_all(&root).map_err(|error| error.to_string())?;
     let mut manifest = load_manifest(&root)?;
 
+    // The source file and recovery draft remain frequent and durable. Only
+    // history versions are coalesced: the first autosave in each ten-minute
+    // rolling window preserves its pre-write bytes, while structural/refactor/
+    // restore reasons always create an explicit recovery point. A future-dated
+    // manifest entry must not suppress snapshots after a wall-clock rollback.
+    if is_autosave_snapshot(reason)
+        && manifest.snapshots.iter().rev().any(|snapshot| {
+            snapshot.source_path == source_path
+                && is_autosave_snapshot(&snapshot.reason)
+                && snapshot.created_at_ms <= created_at_ms
+                && created_at_ms.saturating_sub(snapshot.created_at_ms)
+                    < AUTOSAVE_SNAPSHOT_INTERVAL_MS
+        })
+    {
+        return Ok(None);
+    }
+
     let id = Ulid::generate().to_string();
-    let created_at_ms = now_ms()?;
     let metadata = SnapshotMetadata {
         version: 2,
         id: id.clone(),
@@ -733,6 +764,112 @@ mod tests {
     }
 
     #[test]
+    fn coalesces_rapid_autosave_history_without_delaying_file_writes() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "initial").unwrap();
+
+        assert!(snapshot_before_write(&vault, &note, b"first", "note-save")
+            .unwrap()
+            .is_some());
+        fs::write(&note, "first").unwrap();
+        assert!(snapshot_before_write(&vault, &note, b"second", "note-save")
+            .unwrap()
+            .is_none());
+        fs::write(&note, "second").unwrap();
+
+        assert_eq!(fs::read_to_string(&note).unwrap(), "second");
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 1);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn autosave_history_opens_a_new_bucket_after_ten_minutes() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        let started_at = 1_000_000;
+        fs::write(&note, "initial").unwrap();
+
+        assert!(
+            snapshot_before_write_at(&vault, &note, b"first", "note-save", started_at,)
+                .unwrap()
+                .is_some()
+        );
+        fs::write(&note, "first").unwrap();
+        assert!(snapshot_before_write_at(
+            &vault,
+            &note,
+            b"second",
+            "note-save",
+            started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS - 1,
+        )
+        .unwrap()
+        .is_none());
+        fs::write(&note, "second").unwrap();
+        assert!(snapshot_before_write_at(
+            &vault,
+            &note,
+            b"third",
+            "note-save",
+            started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS,
+        )
+        .unwrap()
+        .is_some());
+
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn future_dated_autosave_does_not_suppress_history_after_clock_rollback() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        let current_time = 1_000_000;
+        fs::write(&note, "initial").unwrap();
+
+        snapshot_before_write_at(
+            &vault,
+            &note,
+            b"future",
+            "note-save",
+            current_time + AUTOSAVE_SNAPSHOT_INTERVAL_MS,
+        )
+        .unwrap()
+        .unwrap();
+        fs::write(&note, "future").unwrap();
+
+        assert!(snapshot_before_write_at(
+            &vault,
+            &note,
+            b"after rollback",
+            "note-save",
+            current_time,
+        )
+        .unwrap()
+        .is_some());
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn forced_history_reasons_are_never_coalesced_with_autosave() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "initial").unwrap();
+
+        snapshot_before_write_at(&vault, &note, b"first", "note-save", 10)
+            .unwrap()
+            .unwrap();
+        fs::write(&note, "first").unwrap();
+        snapshot_before_write_at(&vault, &note, b"refactored", "link-refactor", 11)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
     fn restores_a_snapshot_and_snapshots_the_replaced_version() {
         let vault = temp_vault();
         let note = vault.join("Note.md");
@@ -930,6 +1067,48 @@ mod tests {
         assert_eq!(result.remaining.note_count, 1);
         assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 1);
         assert!(!cleanup_journal_path(&history_root(&vault)).exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn cleanup_removes_only_versions_older_than_the_requested_age() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "one").unwrap();
+        let old_id = snapshot_before_write(&vault, &note, b"two", "save")
+            .unwrap()
+            .unwrap();
+        fs::write(&note, "two").unwrap();
+        let recent_id = snapshot_before_write(&vault, &note, b"three", "save")
+            .unwrap()
+            .unwrap();
+
+        let root = history_root(&vault);
+        let mut manifest = load_manifest(&root).unwrap();
+        let now = now_ms().unwrap();
+        manifest
+            .snapshots
+            .iter_mut()
+            .find(|snapshot| snapshot.id == old_id)
+            .unwrap()
+            .created_at_ms = now.saturating_sub(31 * 86_400_000);
+        write_manifest(&root, &manifest).unwrap();
+
+        let retention = HistoryRetention {
+            max_snapshots_per_note: 10,
+            max_age_days: Some(30),
+        };
+        let preview = preview_history_cleanup(&vault, retention.clone()).unwrap();
+        assert_eq!(preview.removed_count, 1);
+        assert_eq!(preview.remaining.snapshot_count, 1);
+
+        let result = cleanup_history(&vault, retention).unwrap();
+        assert_eq!(result.removed_count, 1);
+        assert_eq!(result.remaining.snapshot_count, 1);
+        assert!(!snapshot_data_path(&root, &old_id).exists());
+        assert!(snapshot_data_path(&root, &recent_id).is_file());
+        assert_eq!(list_snapshots(&vault, &note).unwrap()[0].id, recent_id);
+        assert!(!cleanup_journal_path(&root).exists());
         fs::remove_dir_all(vault).unwrap();
     }
 
