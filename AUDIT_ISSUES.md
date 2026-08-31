@@ -2345,6 +2345,36 @@ release signing. Заявленная поддержка платформ не �
 
 ## 9. Промпт для следующей работы
 
+### Дополнение 31.08.2026 — checkpoint и локальная подпись
+
+- По явному запросу пользователя создан checkpoint `8d9bf73`
+  (`fix: preserve notes through desktop lifecycle and recovery`): 64 файла,
+  все накопленные manual fixes, bindings и тесты включены вместе; vaults,
+  evidence и bundles исключены. Hooks прошли; основной рабочий каталог после
+  checkpoint был чистым.
+- `npm run verify` на checkpoint — **exit 0**, 341 Vitest, 147 Rust,
+  generated bindings без diff. Блокер незакоммиченных bindings устранён,
+  генератор и check не менялись.
+- Первоначальный push в `origin/dev`
+  (`https://github.com/MrDarkOm/amby-notes.git`) отклонён auto-review как
+  sensitive egress до явного подтверждения destination/payload. Пользователю
+  отправлен запрос; обход другим инструментом/транспортом и force push не делались.
+- Ошибка strict codesign исправлена в macOS-only config:
+  `bundle.macOS.signingIdentity = "-"`. До этого linker подписывал только Mach-O,
+  теперь Tauri подписывает весь `.app` с resource seal до упаковки DMG.
+  Добавлен `src/lib/tauri-build-config.test.ts`.
+- После fix полный `npm run verify` — **exit 0**, 342 Vitest/58 files,
+  147 Rust; `npm run tauri build` — exit 0; strict `codesign` — exit 0.
+  `Identifier=amby-notes`, `Sealed Resources version=2`, hardened runtime;
+  ad-hoc подпись не означает Developer ID trust/notarization.
+- Новый DMG SHA-256:
+  `bd27688e7dd63fbfbe7d516879635e6ba74759593aec71157f3e0810d0c41c5a`.
+  Логи и отдельная копия — `.release-evidence/2026-08-31/fixes/`.
+  Исходные FAIL logs/DMG сохранены, исторические строки выше не переписаны.
+- Статус остаётся `RELEASE_BLOCKED`: Windows/exFAT/FAT/network, недоступное
+  раннее raw evidence и доверенный distribution signing ещё не закрыты.
+  Пользовательский Keychain, настройки и vaults при исправлении не использовались.
+
 `MANUAL-01` — `MANUAL-04` завершены со статусом `PASS`; доступная macOS/APFS
 часть `MANUAL-05` выполнена, а отсутствующие filesystem/platform пункты явно
 записаны как `BLOCKED`. `MANUAL-06` и `MANUAL-07` пройдены на macOS.
@@ -2355,9 +2385,9 @@ release signing. Заявленная поддержка платформ не �
 
 Последовательность: `MANUAL-01` — `MANUAL-04` выполнены, доступная часть
 `MANUAL-05` выполнена, `MANUAL-06` и `MANUAL-07` выполнены на macOS;
-`PERF-01` и проверка `FINAL-02` выполнены. До зелёного `verify` требуется отдельно
-разобраться с накопленным generated bindings diff и checkpoint рабочего дерева;
-не удалять корректные bindings и не смешивать чужие изменения ради exit 0.
+`PERF-01` и проверка `FINAL-02` выполнены. Checkpoint создан, `verify` даёт
+exit 0; локальная подпись bundle исправлена. Остались разрешённый push,
+недоступный raw evidence, Windows/filesystem matrix и Developer ID/notarization.
 
 Windows-прогон выполняется отдельно по `docs/windows-release-checklist.md`.
 Также нужны восстановление раннего raw evidence либо новые изолированные

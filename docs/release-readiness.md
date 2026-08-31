@@ -1,6 +1,7 @@
 # FINAL-02: готовность релиза на 31 августа 2026 года
 
-Итог: **RELEASE_BLOCKED**. Финальная проверка выполнена; это отрицательное
+Итог: **RELEASE_BLOCKED**. Обновлено после локальных исправлений 31.08.2026.
+Финальная проверка выполнена; это отрицательное
 решение о production release, а не невыполненная проверка и не новый FAIL
 исторических MANUAL-пакетов. Публикация, push и изменение support matrix не
 выполнялись. Непроверенная Windows-часть вынесена в отдельный
@@ -8,39 +9,51 @@
 
 ## Проверяемая сборка
 
-- Ветка `dev`, baseline `9294076` + накопленные исправления MANUAL-01—07 и
-  PERF-01. На момент проверки это рабочее дерево, не checkpoint-коммит.
+- Ветка `dev`: накопленные исправления MANUAL-01—07, PERF-01 и первоначальный
+  FINAL-02 зафиксированы checkpoint-коммитом `8d9bf73`. Поверх него проверено
+  исправление macOS bundle signing и добавлен regression test.
 - macOS 26.6.2 arm64, Apple M5, 16 GiB RAM, APFS; 31.08.2026 EEST.
 - `npm run tauri build` создал production `.app` и
   `Amby_0.1.0_aarch64.dmg`; приложение не запускалось в пользовательском профиле.
 - SHA-256 DMG:
-  `24f2e6de4396987a5990cd2402ec7039cc72b05ca23b6a6a96e753ae391cda37`.
-- Сохранённая копия: `.release-evidence/2026-08-31/build/Amby_0.1.0_aarch64.dmg`.
-  Это локальный результат сборки, **не подписанный distribution-ready релиз**.
+  `bd27688e7dd63fbfbe7d516879635e6ba74759593aec71157f3e0810d0c41c5a`.
+- Сохранённая копия:
+  `.release-evidence/2026-08-31/fixes/Amby_0.1.0_aarch64_adhoc.dmg`.
+  Это корректно ad-hoc подписанная локальная сборка, **не Developer ID signed /
+  notarized distribution-ready релиз**. Первая сборка с SHA-256
+  `24f2e6de4396987a5990cd2402ec7039cc72b05ca23b6a6a96e753ae391cda37`
+  оставлена в `build/` как историческое evidence ошибки подписи.
 
 ## Автоматические проверки
 
-| Проверка                            | Фактический результат                                                                  |
-| ----------------------------------- | -------------------------------------------------------------------------------------- |
-| TypeScript, ESLint                  | PASS                                                                                   |
-| Vitest                              | PASS: 341 тест, 57 файлов                                                              |
-| Prettier, Knip, Rustfmt             | PASS; Knip сообщает прежнюю configuration hint `.css`                                  |
-| Strict Clippy                       | PASS                                                                                   |
-| Rust tests                          | PASS: 147 тестов; дополнительный bindings export test PASS                             |
-| Актуальность генерации bindings     | PASS: повторный экспорт byte-exact, см. ниже                                           |
-| `npm run verify` целиком            | **FAIL, exit 1**: последний `git diff --exit-code` видит накопленный diff bindings     |
-| Frontend production build           | PASS: `npm run build` выполнен как beforeBuildCommand Tauri                            |
-| `npm run audit`                     | PASS: npm 0 vulnerabilities; RustSec без новых блокирующих advisories                  |
-| Rust warning / exceptions           | Прежний `chacha20 0.10.1` yanked; allowlist не расширялась, review 24.11.2026          |
-| `npm run tauri build`               | PASS: release `.app` и arm64 `.dmg`                                                    |
-| `hdiutil verify`                    | PASS, exit 0; целостность DMG, не подпись приложения                                   |
-| `codesign --verify --deep --strict` | **FAIL, exit 1**: `code has no resources but signature indicates they must be present` |
-| `git diff --check`                  | PASS                                                                                   |
+| Проверка                            | Фактический результат                                                           |
+| ----------------------------------- | ------------------------------------------------------------------------------- |
+| TypeScript, ESLint                  | PASS                                                                            |
+| Vitest                              | PASS: 342 теста, 58 файлов после signing regression                             |
+| Prettier, Knip, Rustfmt             | PASS; Knip сообщает прежнюю configuration hint `.css`                           |
+| Strict Clippy                       | PASS                                                                            |
+| Rust tests                          | PASS: 147 тестов; дополнительный bindings export test PASS                      |
+| Актуальность генерации bindings     | PASS: повторный экспорт byte-exact, см. ниже                                    |
+| `npm run verify` целиком            | **PASS, exit 0**: на checkpoint и повторно после signing fix; bindings без diff |
+| Frontend production build           | PASS: `npm run build` выполнен как beforeBuildCommand Tauri                     |
+| `npm run audit`                     | PASS: npm 0 vulnerabilities; RustSec без новых блокирующих advisories           |
+| Rust warning / exceptions           | Прежний `chacha20 0.10.1` yanked; allowlist не расширялась, review 24.11.2026   |
+| `npm run tauri build`               | PASS: release `.app` и arm64 `.dmg`                                             |
+| `hdiutil verify`                    | PASS, exit 0; целостность DMG, не подпись приложения                            |
+| `codesign --verify --deep --strict` | **PASS, exit 0** после полной ad-hoc подписи bundle                             |
+| `git diff --check`                  | PASS                                                                            |
 
-Подпись бинарника — linker/ad-hoc; `TeamIdentifier` не задан, resource seal
-отсутствует. Developer ID signing и notarization этим прогоном не подтверждены.
-Не переименовывать это в успешную строгую проверку подписи и не предлагать
-отключение системной защиты вместо release signing workflow.
+Ранее Tauri не подписывал весь `.app`: оставалась linker/ad-hoc подпись бинарника
+без resource seal, strict check возвращал exit 1. Теперь macOS-only config
+явно задаёт `bundle.macOS.signingIdentity: "-"`; Tauri подписывает бинарник и
+bundle до создания DMG. Подтверждены `Identifier=amby-notes`, hardened runtime,
+`Sealed Resources version=2`, strict check exit 0. Regression закрепляет настройку.
+
+`TeamIdentifier` по-прежнему не задан: ad-hoc не создаёт доверие Apple.
+Developer ID signing/notarization остаются отдельным этапом; системная защита
+не отключалась. Tauri поддерживает настоящую identity через
+`APPLE_SIGNING_IDENTITY` либо release config override; секреты не хранятся в Git.
+См. [официальную инструкцию Tauri](https://v2.tauri.app/distribute/sign/macos/).
 
 ## Bindings и подготовка изменений
 
@@ -51,14 +64,19 @@ Generated diff нужен: Rust экспортирует `restore_deleted_note`,
 
 `src/lib/bindings.ts` не редактировался вручную; повторный экспорт не изменил
 SHA-256 `c7a1ae82235a41ed90a642eb3413cfe0df8414c25b18410096a3592942e66efa`.
-Ненулевой `verify` обусловлен сравнением с Git index, а не ошибкой генератора.
+Прежний ненулевой `verify` был обусловлен сравнением с Git index, не генератором.
 Ни check, ни generated файл не ослаблялись/стирались; файл не стейджился отдельно
 только ради зелёного результата.
 
-Для checkpoint необходимо совместно включить backend, storage boundary,
-generated bindings, UI/lifecycle fixes, связанные тесты и документацию.
-Локальный checkpoint-коммит запрошен отдельно; без подтверждения коммит и push
-не выполняются. После checkpoint повторить `npm run verify` и записать exit 0.
+По явному запросу пользователя создан checkpoint `8d9bf73`: backend, storage
+boundary, generated bindings, UI/lifecycle fixes, связанные тесты и документы
+включены вместе (64 файла). На нём `npm run verify` завершился exit 0.
+Дополнительно проверен signing fix: 342 Vitest, 147 Rust, полный verify exit 0.
+
+Push в `https://github.com/MrDarkOm/amby-notes.git`, ветку `dev`, остановлен
+auto-review как чувствительная передача кода во внешний remote; требуется
+явное подтверждение этого destination/payload. Повтор через другой транспорт
+или force push не выполнялся. Удалённый CI для этих изменений не подтверждён.
 
 Классы накопленных изменений для просмотра:
 
@@ -73,8 +91,9 @@ generated bindings, UI/lifecycle fixes, связанные тесты и док�
   безопасная классификация AI ошибок и регрессии.
 - PERF-01/FINAL-02: результаты измерений, Windows checklist и release decision.
 
-Эта группировка не заменяет отдельный независимый code review. Текущая задача
-не меняла runtime-код: добавлены release-документы и ignore-правило для evidence.
+Эта группировка не заменяет независимый code review. Сам FINAL-02 добавил
+документы и ignore-правило; последующее исправление меняет только macOS build
+configuration и regression test, не storage/runtime логику или permissions.
 
 ## Evidence ручной приёмки
 
@@ -108,13 +127,13 @@ name/content/tag на 10k — 3/24/21 ms; UI с debounce — 230/258/259 ms.
 
 ## Что блокирует production release
 
-1. `verify` ещё не даёт exit 0 для зафиксированного checkpoint исходников.
-2. Не восстановлен/не повторён отсутствующий raw evidence ранних data-safety
+1. Не восстановлен/не повторён отсутствующий raw evidence ранних data-safety
    пакетов. Журнал содержит исторические PASS, но не заменяет потерянные артефакты.
-3. Windows, exFAT, FAT32 и network-часть MANUAL-05 не проверены. Вынос в отдельный
+2. Windows, exFAT, FAT32 и network-часть MANUAL-05 не проверены. Вынос в отдельный
    файл переносит работу, **не исключает платформы из заявленной поддержки**.
-4. Строгая проверка подписи `.app` не проходит; production signing/notarization
-   требует отдельного release workflow и соответствующих разрешений/identity.
+3. Полная локальная ad-hoc подпись исправлена, но доверенная production
+   Developer ID signing/notarization требует identity и отдельного release
+   workflow. Push и удалённые проверки также ожидают подтверждённого доступа.
 
 Linux runtime, macOS Intel и Windows ARM64 этим прогоном также не подтверждены;
 не распространять на них результаты macOS arm64 автоматически.
@@ -133,11 +152,13 @@ Linux runtime, macOS Intel и Windows ARM64 этим прогоном также
 - `final/`: verify/audit/build/DMG/signing logs и снимки документов.
 - `manual/`, `perf/`: отобранное доступное evidence без пользовательских vaults
   и секретов. Исходные временные каталоги не удалялись.
-- `build/`: сохранённый DMG указанного SHA-256.
+- `build/`: исторический DMG первой сборки с ошибкой resource seal.
+- `fixes/`: новые verify/build/signing/DMG logs и исправленный ad-hoc DMG;
+  предыдущие артефакты не перезаписываются.
 
 Архив не является резервной копией на другом физическом носителе. Его можно
 скопировать в своё защищённое хранилище после проверки состава; не добавлять
 его, `.amby`, vault data, `dist` или `src-tauri/target` в Git.
 
-После checkpoint, Windows-прогона, восстановления evidence и решения signing
+После push, Windows-прогона, восстановления evidence и решения Developer ID signing
 повторить FINAL-02. До этого `RELEASE_READY` не установлен.
