@@ -3,7 +3,11 @@ mod tests {
     use crate::frontmatter::parse_markdown;
     use crate::index::links::{extract_links, protected_markdown_ranges};
     use crate::index::tags::extract_tags;
+    use crate::index::{db_path, load_vault, open_connection, read_note, write_note_filesystem};
     use serde::Deserialize;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use ulid::Ulid;
 
     #[derive(Debug, Deserialize, PartialEq, Eq)]
     #[serde(rename_all = "camelCase")]
@@ -27,6 +31,19 @@ mod tests {
         expected_tags: Vec<String>,
         expected_links: Vec<ExpectedLink>,
         excluded_regions: Vec<ExcludedRegion>,
+    }
+
+    fn copy_tree(source: &Path, target: &Path) {
+        fs::create_dir_all(target).unwrap();
+        for entry in fs::read_dir(source).unwrap() {
+            let entry = entry.unwrap();
+            let destination = target.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_tree(&entry.path(), &destination);
+            } else {
+                fs::copy(entry.path(), destination).unwrap();
+            }
+        }
     }
 
     #[test]
@@ -73,5 +90,59 @@ mod tests {
                 fixture.name
             );
         }
+    }
+
+    #[test]
+    fn compatibility_vault_rebuild_does_not_mutate_sources_and_safe_body_save_preserves_envelope() {
+        let source =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tests/fixtures/compatibility-vault");
+        let vault = std::env::temp_dir().join(format!("amby-compatibility-{}", Ulid::generate()));
+        copy_tree(&source, &vault);
+        let snapshots = fs::read_dir(&vault)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "md")
+            })
+            .map(|entry| (entry.path(), fs::read(entry.path()).unwrap()))
+            .collect::<Vec<_>>();
+
+        let conn = open_connection(&vault).unwrap();
+        let first = load_vault(&conn, &vault).unwrap();
+        assert_eq!(first.notes.len(), 6);
+        drop(conn);
+        fs::remove_dir_all(vault.join(".amby")).unwrap();
+
+        let rebuilt = open_connection(&vault).unwrap();
+        let second = load_vault(&rebuilt, &vault).unwrap();
+        assert_eq!(second.notes.len(), 6);
+        for (path, original) in snapshots {
+            assert_eq!(fs::read(path).unwrap(), original);
+        }
+
+        let safe = second
+            .notes
+            .iter()
+            .find(|note| note.path.ends_with("Plain Markdown.md"))
+            .unwrap();
+        let current = read_note(&rebuilt, &vault, &safe.id).unwrap();
+        write_note_filesystem(
+            &rebuilt,
+            &vault,
+            &safe.id,
+            "# Plain Markdown\n\nEdited known body.\n",
+            &current.revision,
+        )
+        .unwrap();
+        let saved = fs::read_to_string(vault.join("Plain Markdown.md")).unwrap();
+        assert!(saved.starts_with("---\namby-id: 01J00000000000000000000001\n---\n"));
+        assert!(saved.ends_with("Edited known body.\n"));
+
+        drop(rebuilt);
+        assert!(db_path(&vault).exists());
+        fs::remove_dir_all(vault).unwrap();
     }
 }

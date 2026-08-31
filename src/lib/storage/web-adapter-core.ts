@@ -289,7 +289,10 @@ export class WebAdapterCore implements StoragePort {
   }
 
   async readFile(path: string): Promise<string> {
-    return webGet(FILE_PREFIX + path) ?? webDefaultContent(path)
+    const stored = webGet(FILE_PREFIX + path)
+    if (stored !== null) return stored
+    if (webFindItem(webGetTree(), path)) return webDefaultContent(path)
+    throw new Error(i18n.t("errors.pathNotFound", { path }))
   }
 
   async readNote(_vaultPath: string, noteId: string): Promise<NoteReadOutcome> {
@@ -409,6 +412,9 @@ export class WebAdapterCore implements StoragePort {
   async createFolder(vaultPath: string, name: string): Promise<string> {
     const path = joinPath(vaultPath, name)
     const tree = webGetTree()
+    if (!name.trim() || name.includes("/") || name.includes("\\") || webFindItem(tree, path)) {
+      throw new Error(i18n.t("errors.pathNotFound", { path }))
+    }
     const parent = webFindItem(tree, vaultPath)
     const folder: TreeItem = {
       id: path,
@@ -500,6 +506,9 @@ export class WebAdapterCore implements StoragePort {
       ? joinPath(pathDir(pathDir(path)), newName)
       : joinPath(pathDir(path), item.type === "file" ? `${newName}.md` : newName)
     const primaryPath = isBundleMainPath(path) ? joinPath(newPrefix, `${newName}.md`) : newPrefix
+    if (primaryPath !== path && webFindItem(tree, primaryPath)) {
+      throw new Error(i18n.t("errors.noteExists", { path: primaryPath }))
+    }
 
     const pathChanges = oldIds.map((oldPath) => ({
       oldPath,
@@ -581,6 +590,7 @@ export class WebAdapterCore implements StoragePort {
   async deleteItem(_vaultPath: string, path: string): Promise<FsMutationResult> {
     const tree = webGetTree()
     const removed = webRemoveItem(tree, path)
+    if (!removed.item) throw new Error(i18n.t("errors.pathNotFound", { path }))
     const deletedPaths = removed.item ? webCollectFileIds(removed.item) : [path]
     for (const deletedPath of deletedPaths) webRemove(FILE_PREFIX + deletedPath)
     webSaveTree(removed.tree)

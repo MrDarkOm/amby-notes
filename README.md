@@ -65,8 +65,8 @@ npm run tauri dev
 # Browser-only dev server (no Tauri APIs; storage falls back to localStorage)
 npm run dev
 
-# Run all required local checks: TypeScript, ESLint, Vitest, and Rust
-npm run verify
+# Run the release-quality local gate
+npm run verify:full
 ```
 
 ### Build
@@ -101,21 +101,47 @@ amby-notes/
 │   ├── components/
 │   │   ├── workspace/          # App-specific UI (editor, sidebar, tabs, search)
 │   │   └── ui/                 # Reusable Radix + shadcn-style primitives
-│   ├── hooks/                  # React hooks
-│   └── lib/
-│       └── storage.ts          # Tauri IPC wrapper (+ localStorage fallback)
+│   ├── lib/storage/            # Storage port, repositories, browser and desktop adapters
+│   ├── locales/                # Visible interface strings
+│   └── themes/                 # Portable theme definitions and appearance tokens
 └── src-tauri/                  # Rust backend
     └── src/
-        ├── lib.rs              # All Tauri commands
-        ├── vault_index.rs      # SQLite note index
-        └── frontmatter.rs      # YAML frontmatter parser
+        ├── commands/           # Narrow Tauri IPC boundaries
+        ├── index/              # Rebuildable SQLite search/link index
+        ├── vault/              # Vault scan and identity migration
+        ├── bundle/             # Filesystem mutations and bundle operations
+        └── frontmatter.rs      # Lossless frontmatter and atomic text writes
 ```
 
 ## Architecture notes
 
-The frontend never accesses the filesystem directly — all I/O goes through `storage.ts`, which calls Rust commands over Tauri IPC. This means the app works in a browser (`npm run dev`) using localStorage as a fallback, and in production it uses the real filesystem through Rust.
+```
+React workspace
+    ↓
+Storage port / repositories
+    ↓
+Tauri IPC commands
+    ↓
+Rust vault, history, and index services
+    ↓
+Markdown filesystem (authoritative) + SQLite index (rebuildable)
+```
 
-When adding new filesystem behavior: add a Rust command in `lib.rs` → expose it in `storage.ts` → add the required permission in `src-tauri/capabilities/default.json`.
+The frontend never accesses the filesystem directly — all I/O goes through
+`src/lib/storage`, which calls Rust commands over Tauri IPC. Browser development
+uses a localStorage fallback with the same core storage contract, but it has no
+native watcher, dialog, history, trash, or filesystem guarantees.
+
+Markdown files and attachments are authoritative. SQLite can be removed and
+rebuilt without losing user content. Amby writes its own identity only as
+`amby-id`; a generic frontmatter `id` belongs to the user or another tool.
+Unsupported Markdown and YAML remain source-owned: Live Preview is used only
+when a document can round-trip without loss, otherwise the source editor stays
+authoritative.
+
+When adding filesystem behavior, add a narrow Rust command, expose it through
+the storage adapter, and update the least-privilege permission in
+`src-tauri/capabilities/default.json`.
 
 ## License
 

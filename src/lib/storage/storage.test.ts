@@ -9,6 +9,7 @@ import {
 } from "./index"
 import { commands } from "@/lib/bindings"
 import { NoteRevisionConflictError } from "./types"
+import { runStorageContract } from "./storage-contract.test-support"
 
 describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
   describe("WebAdapter domain contract", () => {
@@ -26,6 +27,8 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
       adapter = new WebAdapter()
       setStorageAdapter(adapter)
     })
+
+    runStorageContract("browser", () => ({ adapter, vaultPath: "web-vault" }))
 
     it("returns the authoritative active vault identity with refresh data", async () => {
       await expect(adapter.loadActiveVaultData()).resolves.toMatchObject({

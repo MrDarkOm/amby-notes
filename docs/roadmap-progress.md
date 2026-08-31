@@ -315,18 +315,64 @@ and watcher invalidation. It deliberately does not use the browser localStorage
 adapter or a user vault.
 
 `npm run test:e2e` covers save → close → reopen, flush-before-rename (no stale
-file), dirty-vault flush before switching, external edit/delete/rename refresh,
-and CRLF+BOM/frontmatter/opaque-Markdown preservation with duplicate IDs left
-on disk. `npm run test:e2e:large` is an opt-in regression signal that measures
-initial scan, reopen, one-file update, and search for 1,000 notes by default;
-set `AMBY_E2E_LARGE_VAULT_SIZE` to `5000` or `10000` for the other roadmap
-sizes.
+file), dirty-vault flush before switching, external edit/delete/rename/create
+refresh, failed stale save, failed collision rename, malformed YAML, an external
+generic `id`, and CRLF+BOM/frontmatter/opaque-Markdown preservation with
+duplicate IDs left on disk. `npm run test:e2e:large` is an opt-in regression
+signal that measures initial scan, reopen, one-file update, and search for
+1,000 notes by default; set `AMBY_E2E_LARGE_VAULT_SIZE` to `5000` or `10000`
+for the other roadmap sizes.
 
 The native Tauri WebView/IPC driver and Windows/Linux runs remain release-gate
 work, because they require platform-specific GUI automation and must not be
 silently represented by this deterministic backend suite.
 
-Verification: `npm run test:e2e` passed (5 tests); `npm run test:e2e:large`
-passed at 1,000 notes, reporting initial scan 145 ms, reopen 53 ms, one-file
-update 38 ms, and search below 1 ms on the development machine. Rustfmt and
-strict Clippy passed. Phase 8 (storage contract tests) is next.
+Verification: `npm run test:e2e` passed (7 tests); `npm run test:e2e:large`
+passed at 1,000 notes, reporting initial scan 140 ms, reopen 50 ms, one-file
+update 36 ms, and search below 1 ms on the development machine. Rustfmt,
+strict Clippy, all 196 Rust tests, and generated IPC-binding verification
+passed. `npm run verify:full` reached formatting and stopped only because the
+pre-existing user edit to `AMBY_CODEX_ROADMAP.md` does not satisfy Prettier;
+the touched E2E file itself passes Prettier. Phase 8 (storage contract tests)
+is next.
+
+## Phase 8 — Storage contract suite (in progress)
+
+`src/lib/storage/storage-contract.test-support.ts` now defines one reusable
+browser-storage contract. It covers folder and nested-note creation, read,
+write and overwrite, rename, recursive listing, deletion, missing paths,
+name collisions, and the required Unicode paths (`Заметка`, `Нотатка`,
+`日本語`, `emoji🔥`, and a folder containing spaces). The browser adapter runs
+the contract against a fresh `localStorage` map for every test. It now rejects
+missing reads, duplicate folders, rename collisions, and deletion of a missing
+item rather than silently manufacturing an empty value or success.
+
+The focused browser suite passes with 13 tests and the full frontend suite
+passes with 409 tests. A real backend reliability suite already covers actual
+temporary vaults in Phase 7, but it is not represented as a Tauri adapter
+contract: testing generated `DesktopAdapter` invocations against a live Tauri
+WebView still needs a native GUI driver. That remaining platform-native portion
+must remain explicit before Phase 8 can be marked complete.
+
+## Phases 9, 12, 13, 15, and 16 — release preparation
+
+`docs/filesystem-security.md` records the vault-path security matrix and the
+remaining pathname TOCTOU limitation. Existing path, symlink, recycle-bin,
+atomic-write, and mutation regressions are the enforcement suite. `README.md`
+now describes the actual storage/IPC architecture, source-of-truth model,
+namespaced identity, preservation policy, and browser fallback limitations.
+
+`tests/fixtures/compatibility-vault/` is a permanent compatibility corpus. A
+Rust test copies it to a unique temporary vault, rebuilds SQLite from scratch,
+asserts source bytes are unchanged, and performs a safe body save while
+retaining its frontmatter envelope. `docs/performance-baseline.md` documents
+the reproducible 1k/5k/10k command; the generator now varies folders, tags,
+wikilinks, body length, and Unicode. `docs/release-1.0-checklist.md` separates
+verified local gates from the required native and multi-platform release gates.
+
+Phase 10's backend cleanup remains intentionally limited to the already-split
+bundle and index modules: further frontmatter/AI file moves would be unrelated
+churn without a correctness benefit. Phase 11 likewise remains deferred until
+there is a concrete orchestration defect; current focused workspace lifecycle
+tests cover the existing hooks. Native Tauri adapter/UI E2E and Windows/Linux
+release checks cannot be completed from this headless macOS session.

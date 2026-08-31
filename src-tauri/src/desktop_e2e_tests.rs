@@ -10,6 +10,7 @@
 use crate::{
     frontmatter,
     index::{self, note_index::body_revision},
+    model::WriteNoteError,
     vault_context::VaultContext,
     watcher::{self, WatcherState},
 };
@@ -231,6 +232,97 @@ fn desktop_e2e_external_edit_delete_and_rename_refresh_the_index() {
 }
 
 #[test]
+fn desktop_e2e_external_create_indexes_malformed_and_generic_id_notes_without_rewriting_them() {
+    let vault = DesktopVault::new("external-create");
+    let context = VaultContext::new();
+    activate(&context, &vault.0);
+
+    let external_id = vault.0.join("External-id.md");
+    let external_id_source = "---\nid: issue-481\n---\nexternal generic identity token";
+    fs::write(&external_id, external_id_source).unwrap();
+    queue_change(&context, &vault.0, external_id.clone());
+
+    let malformed = vault.0.join("Malformed.md");
+    let malformed_source = "---\ntags: [broken\n---\nmalformed searchable token";
+    fs::write(&malformed, malformed_source).unwrap();
+    queue_change(&context, &vault.0, malformed.clone());
+
+    context
+        .with_active(|active| {
+            active.refresh()?;
+            assert_eq!(
+                index::search_notes(active, &active.root, "external generic identity")?.len(),
+                1
+            );
+            assert_eq!(
+                index::search_notes(active, &active.root, "malformed searchable")?.len(),
+                1
+            );
+            let malformed_note = index::list_notes(active, &active.root)?
+                .into_iter()
+                .find(|note| note.path == malformed.to_string_lossy())
+                .expect("external malformed note stays visible");
+            assert!(
+                index::note_properties(active, &active.root, &malformed_note.id)?
+                    .parse_error
+                    .is_some()
+            );
+            Ok(())
+        })
+        .unwrap();
+
+    // A generic `id` belongs to the external author. The index may add its own
+    // namespaced identity, but it must neither replace nor reinterpret this value.
+    let external_persisted = fs::read_to_string(&external_id).unwrap();
+    assert!(external_persisted.contains("id: issue-481\n"));
+    assert!(external_persisted.contains("amby-id: "));
+    assert_eq!(fs::read_to_string(&malformed).unwrap(), malformed_source);
+}
+
+#[test]
+fn desktop_e2e_failed_save_and_rename_leave_existing_data_and_index_intact() {
+    let vault = DesktopVault::new("failed-operations");
+    let (path, id) = vault.note("Draft.md", "original content");
+    let collision = vault.0.join("Taken.md");
+    fs::write(&collision, "unrelated file").unwrap();
+    let context = VaultContext::new();
+    activate(&context, &vault.0);
+
+    context
+        .with_active(|active| {
+            let stale = index::read_note(active, &active.root, &id)?;
+            let external = source(&id, "external winning content");
+            fs::write(&path, &external).unwrap();
+            let error = index::write_note_filesystem(
+                active,
+                &active.root,
+                &id,
+                "stale renderer content",
+                &stale.revision,
+            )
+            .unwrap_err();
+            assert!(matches!(error, WriteNoteError::RevisionConflict { .. }));
+            assert_eq!(fs::read_to_string(&path).unwrap(), external);
+
+            assert!(crate::bundle::rename_item_impl(&path, "Taken").is_err());
+            assert_eq!(fs::read_to_string(&path).unwrap(), external);
+            assert_eq!(
+                frontmatter::parse_markdown(&fs::read_to_string(&collision).unwrap()).body,
+                "unrelated file"
+            );
+
+            active.refresh()?;
+            assert_eq!(index::note_path_for_id(active, &active.root, &id)?, path);
+            assert_eq!(
+                index::read_note(active, &active.root, &id)?.content,
+                "external winning content"
+            );
+            Ok(())
+        })
+        .unwrap();
+}
+
+#[test]
 fn desktop_e2e_lossless_envelopes_and_identity_conflicts_survive_save() {
     let vault = DesktopVault::new("lossless");
     let id = Ulid::generate().to_string();
@@ -294,10 +386,23 @@ fn desktop_e2e_large_vault_smoke_reports_scan_reopen_update_and_search() {
         "use 1000, 5000, or 10000 notes"
     );
     let vault = DesktopVault::new("large");
+    let folders = ["Projects", "Заметки", "日本語 🔥"];
+    for folder in folders {
+        fs::create_dir_all(vault.0.join(folder)).unwrap();
+    }
     for number in 0..count {
+        let folder = folders[number % folders.len()];
         vault.note(
-            &format!("Note-{number:05}.md"),
-            &format!("synthetic token-{number}"),
+            &format!("{folder}/Note-{number:05}.md"),
+            &format!(
+                "synthetic token-{number} #tag{} [[Note-00000]] {}",
+                number % 11,
+                if number % 3 == 0 {
+                    "длинный Unicode body 日本語 🔥"
+                } else {
+                    "short body"
+                }
+            ),
         );
     }
     let context = VaultContext::new();
@@ -309,7 +414,7 @@ fn desktop_e2e_large_vault_smoke_reports_scan_reopen_update_and_search() {
     activate(&reopened, &vault.0);
     let reopen = reopen_started.elapsed();
     let update_started = Instant::now();
-    let path = vault.0.join("Note-00000.md");
+    let path = vault.0.join("Projects/Note-00000.md");
     fs::write(
         &path,
         fs::read_to_string(&path)
