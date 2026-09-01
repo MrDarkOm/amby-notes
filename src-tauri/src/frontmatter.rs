@@ -21,6 +21,7 @@ pub fn is_amby_id(id: &str) -> bool {
 thread_local! {
     static FORCE_HARD_LINK_UNSUPPORTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FAIL_NO_REPLACE_FALLBACK_COPY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static CREATE_TARGET_AT_PUBLISH: std::cell::RefCell<Option<Vec<u8>>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Flush the containing directory after publishing a rename. On Unix this
@@ -126,6 +127,10 @@ fn fallback_copy_temp_new(source: &Path, target: &Path) -> Result<(), AtomicCrea
 /// reject them use a create_new reservation plus streamed, synced copy; the
 /// reservation preserves the no-overwrite guarantee even under a collision.
 fn publish_prepared_no_replace(temp: &Path, target: &Path) -> Result<(), AtomicCreateError> {
+    #[cfg(test)]
+    if let Some(content) = CREATE_TARGET_AT_PUBLISH.with(|pending| pending.borrow_mut().take()) {
+        fs::write(target, content).map_err(atomic_create_error)?;
+    }
     match create_hard_link(temp, target) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -1121,6 +1126,27 @@ mod tests {
         let new_path = dir.join("copy.md");
         atomic_write_new(&new_path, "copy").unwrap();
         assert_eq!(fs::read_to_string(&new_path).unwrap(), "copy");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn target_created_at_publish_barrier_is_never_replaced() {
+        let dir = std::env::temp_dir().join(format!(
+            "amby-publish-race-{}-{}",
+            std::process::id(),
+            TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("note.md");
+        let sentinel = b"foreign target bytes".to_vec();
+
+        CREATE_TARGET_AT_PUBLISH.with(|pending| pending.replace(Some(sentinel.clone())));
+        let result = atomic_write_new(&path, "our prepared bytes");
+
+        eprintln!("WIN-FS.4b: foreign target created at pre-publication barrier");
+        assert_eq!(result, Err(AtomicCreateError::AlreadyExists));
+        assert_eq!(fs::read(&path).unwrap(), sentinel);
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
         fs::remove_dir_all(dir).unwrap();
     }
 

@@ -13,6 +13,26 @@ use super::planning::{
 };
 use super::scan::is_bundle_main_note;
 
+#[cfg(test)]
+thread_local! {
+    static FAIL_BUNDLE_RENAME_BEFORE_INNER_STEP: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(super) fn fail_bundle_rename_before_inner_step(step: usize) {
+    FAIL_BUNDLE_RENAME_BEFORE_INNER_STEP.with(|requested| requested.set(step));
+}
+
+fn rename_bundle_file(current: &Path, renamed: &Path, _step: usize) -> Result<(), String> {
+    #[cfg(test)]
+    if FAIL_BUNDLE_RENAME_BEFORE_INNER_STEP.with(|requested| requested.get()) == _step {
+        return Err(format!(
+            "injected bundle rename failure before inner step {_step}"
+        ));
+    }
+    rename_path_case_safe(current, renamed)
+}
+
 fn rollback_partial_bundle_rename(
     new_dir: &Path,
     old_dir: &Path,
@@ -67,6 +87,7 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
         rename_path_case_safe(bundle_dir, &new_dir)?;
 
         let mut renamed_inside_new_dir = Vec::new();
+        let mut inner_step = 0;
         for (old_path, new_path) in rename_specs {
             let old_name = old_path.file_name().ok_or("Bundle file has no name")?;
             let new_name = new_path.file_name().ok_or("Bundle file has no name")?;
@@ -75,7 +96,8 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
             if current == renamed {
                 continue;
             }
-            if let Err(error) = rename_path_case_safe(&current, &renamed) {
+            inner_step += 1;
+            if let Err(error) = rename_bundle_file(&current, &renamed, inner_step) {
                 return Err(
                     match rollback_partial_bundle_rename(
                         &new_dir,

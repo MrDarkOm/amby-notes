@@ -1,8 +1,9 @@
 # Windows: отдельная ручная приёмка Amby Notes
 
 Статус: **PARTIAL**, 1 сентября 2026 года: автоматические core/live-storage,
-изолированный полный UI-smoke, сборка MSI/NSIS и точный NSIS
-install/launch/uninstall выполнены; отдельные filesystem-проверки ещё не пройдены.
+изолированный полный UI-smoke, сборка MSI/NSIS, точный NSIS
+install/launch/uninstall и NTFS race/rollback barriers выполнены. Расширенная
+ручная матрица остаётся частичной; недоступные среды явно отмечены BLOCKED.
 
 NSIS install/launch/uninstall passed in an isolated directory on 2026-09-01,
 including registry cleanup. The exact installed production executable passed
@@ -142,17 +143,17 @@ $sourceFiles | ForEach-Object {
 
 ## 4. Filesystem portability — обязательное продолжение MANUAL-05
 
-| Шаг       | Где выполнить            | Действие и критерий PASS                                                                                                                                                                                                                                                                                                 |
-| --------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| WIN-FS.1  | Windows / NTFS           | В UI переименовать `CaseNote` → `casenote` → `CaseNote`. На диске ровно одна заметка с нужным регистром, stable ID и body сохранены; вкладка и ссылка открывают правильную заметку.                                                                                                                                      |
-| WIN-FS.2  | Windows / NTFS           | Аналогично `CaseFolder` → `casefolder` → `CaseFolder`. Все children доступны, их ID/content неизменны; дерево не дублируется после restart.                                                                                                                                                                              |
-| WIN-FS.3  | Windows / NTFS           | Аналогично переименовать bundle. Container, main Markdown, Canvas и Excalidraw согласованно меняют basename; children/assets сохранены. Все слои открываются после restart.                                                                                                                                              |
-| WIN-FS.4a | Каждая заявляемая FS     | Заранее создать target с sentinel `DO-NOT-OVERWRITE-WIN`. Попробовать rename/create/import в занятый путь. Допустим безопасный отказ или выбор другого имени по контракту операции; sentinel byte-exact, исходник цел. Это только pre-existing collision, не race.                                                       |
-| WIN-FS.4b | Каждая заявляемая FS     | Отдельно проверить target, появившийся **между проверкой и публикацией**. Нужен воспроизводимый timing trace/barrier в изолированном тестовом драйвере. Чужой target остаётся byte-exact; операция не подтверждает overwrite; своих temp/reservation не оставляет. Если попадание в окно не доказано — BLOCKED, не PASS. |
-| WIN-FS.5  | Windows / NTFS           | Воспроизвести отказ в середине bundle rename и rollback: после успешного первого шага заблокировать следующий шаг контролируемым fault injection/точечным sharing lock. Вернуться должны все исходные имена и bytes, без смешанного container/main/sidecars. Отказ до первого шага не доказывает rollback.               |
-| WIN-FS.6  | Реальный exFAT           | Создать заметку, импортировать файл и изображение, переоткрыть, сравнить bytes. Повторить WIN-FS.4a/4b; проверить фактический fallback без hard links, а не выводить его из успешного NTFS-теста.                                                                                                                        |
-| WIN-FS.7  | Реальный FAT32           | Отдельно повторить WIN-FS.6; использовать небольшие файлы, не проверять 100MB лимит на многогигабайтных fixtures.                                                                                                                                                                                                        |
-| WIN-FS.8  | Выделенный SMB/NFS mount | Записать фактические свойства share/hard-link support, повторить create/import/collision и restart. Для конфигурации без hard links отдельно подтвердить fallback. Если такой mount недоступен, BLOCKED. Не отключать общую сеть ради сбоя.                                                                              |
+| Шаг       | Где выполнить            | Действие и критерий PASS                                                                                                                                                                                                                                                                                                     |
+| --------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WIN-FS.1  | Windows / NTFS           | В UI переименовать `CaseNote` → `casenote` → `CaseNote`. На диске ровно одна заметка с нужным регистром, stable ID и body сохранены; вкладка и ссылка открывают правильную заметку.                                                                                                                                          |
+| WIN-FS.2  | Windows / NTFS           | Аналогично `CaseFolder` → `casefolder` → `CaseFolder`. Все children доступны, их ID/content неизменны; дерево не дублируется после restart.                                                                                                                                                                                  |
+| WIN-FS.3  | Windows / NTFS           | Аналогично переименовать bundle. Container, main Markdown, Canvas и Excalidraw согласованно меняют basename; children/assets сохранены. Все слои открываются после restart.                                                                                                                                                  |
+| WIN-FS.4a | Каждая заявляемая FS     | Заранее создать target с sentinel `DO-NOT-OVERWRITE-WIN`. Попробовать rename/create/import в занятый путь. Допустим безопасный отказ или выбор другого имени по контракту операции; sentinel byte-exact, исходник цел. Это только pre-existing collision, не race.                                                           |
+| WIN-FS.4b | Каждая заявляемая FS     | **PASS для NTFS 2026-09-01.** Отдельно проверить target, появившийся **между проверкой и публикацией**. Нужен воспроизводимый timing trace/barrier в изолированном тестовом драйвере. Чужой target остаётся byte-exact; операция не подтверждает overwrite; своих temp/reservation не оставляет. Другие FS остаются BLOCKED. |
+| WIN-FS.5  | Windows / NTFS           | **PASS 2026-09-01.** Воспроизвести отказ в середине bundle rename и rollback: после успешного первого шага заблокировать следующий шаг контролируемым fault injection/точечным sharing lock. Вернуться должны все исходные имена и bytes, без смешанного container/main/sidecars.                                            |
+| WIN-FS.6  | Реальный exFAT           | Создать заметку, импортировать файл и изображение, переоткрыть, сравнить bytes. Повторить WIN-FS.4a/4b; проверить фактический fallback без hard links, а не выводить его из успешного NTFS-теста.                                                                                                                            |
+| WIN-FS.7  | Реальный FAT32           | Отдельно повторить WIN-FS.6; использовать небольшие файлы, не проверять 100MB лимит на многогигабайтных fixtures.                                                                                                                                                                                                            |
+| WIN-FS.8  | Выделенный SMB/NFS mount | Записать фактические свойства share/hard-link support, повторить create/import/collision и restart. Для конфигурации без hard links отдельно подтвердить fallback. Если такой mount недоступен, BLOCKED. Не отключать общую сеть ради сбоя.                                                                                  |
 
 Для WIN-FS.4b/5 **не меняй production-код наугад** и не пытайся многократным
 ручным кликом выдать preflight collision за гонку. При отсутствии готового
@@ -160,6 +161,18 @@ $sourceFiles | ForEach-Object {
 барьеров в копии проекта и реальных файловых операций. Existing Rust tests
 `case_only`, `rollback`, `no_replace` полезны как регрессии, но не закрывают эти
 ручные строки сами по себе. Сохрани injection diff и timing log с результатом.
+
+Фактический NTFS-прогон 2026-09-01 использовал test-only thread-local barriers,
+которые отсутствуют в release-сборке. `target_created_at_publish_barrier_is_never_replaced`
+создал чужой target непосредственно перед hard-link publication: операция вернула
+`AlreadyExists`, sentinel остался byte-exact, в каталоге остался ровно один файл.
+`bundle_rename_failure_after_first_inner_step_rolls_back_every_file` успешно
+переименовал main внутри уже перемещённого container, затем ввёл ошибку перед
+вторым inner step: old container/main/Canvas/Excalidraw/child вернулись с исходными
+bytes, нового container и временных siblings нет. Evidence:
+`.release-evidence/windows-fs-boundaries.log` и
+`.release-evidence/windows-fs-boundaries-rollback.log`; injection находится
+только под `cfg(test)` в `frontmatter.rs` и `bundle/execute.rs`.
 
 ## 5. Windows data-safety smoke
 
@@ -242,17 +255,17 @@ Evidence: относительные имена log/screenshot/before-after hash
 Примечание / issue:
 ```
 
-| Раздел             | Итог до прогона |
-| ------------------ | --------------- |
-| WIN-BUILD          | NOT RUN         |
-| WIN-FS.1—5 / NTFS  | NOT RUN         |
-| WIN-FS.6 / exFAT   | NOT RUN         |
-| WIN-FS.7 / FAT32   | NOT RUN         |
-| WIN-FS.8 / network | NOT RUN         |
-| WIN-DATA           | NOT RUN         |
-| WIN-UI             | NOT RUN         |
-| WIN-KEY            | NOT RUN         |
-| WIN-PERF           | NOT RUN         |
+| Раздел             | Итог 2026-09-01                                                                                                                                                                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| WIN-BUILD          | PARTIAL: build/install/open/edit/save/restart/uninstall PASS; clean create-note в установленной сборке и signed/SmartScreen flow не доказаны.                                  |
+| WIN-FS.1—5 / NTFS  | PARTIAL: 4b/5 PASS с реальными файлами и barriers; case-only file/folder/bundle и collision проходят Rust tests, но новый UI-прогон не был виден automation API.               |
+| WIN-FS.6 / exFAT   | BLOCKED: подготовленного disposable exFAT volume нет.                                                                                                                          |
+| WIN-FS.7 / FAT32   | BLOCKED: подготовленного disposable FAT32 volume нет.                                                                                                                          |
+| WIN-FS.8 / network | BLOCKED: выделенного SMB/NFS mount нет.                                                                                                                                        |
+| WIN-DATA           | PARTIAL: native UI external/conflict/recovery smoke и backend failure/history/trash/BOM contracts PASS; multi-window, crash window и ACL UI branches не доказаны.              |
+| WIN-UI             | PARTIAL: media order/DPI, resize cleanup, tree transaction, Quick Open/split/dirty contracts проходят tests; полный ручной пакет не повторён.                                  |
+| WIN-KEY            | PARTIAL: реальный synthetic Credential Manager store/masked readback/exact backend read/delete PASS, остаточных test credentials нет; UI model/settings branches не повторены. |
+| WIN-PERF           | PARTIAL: Windows 1k/10k backend scan/reopen/update/search PASS; WebView input latency и resident memory не измерены.                                                           |
 
 Закрой тестовые процессы, удали только созданные тестовые credentials через UI,
 сохрани fixture/evidence до приёмки. Не удаляй их автоматически и не коммить

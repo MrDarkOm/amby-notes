@@ -183,4 +183,39 @@ mod tests {
 
         assert_eq!(*operation.borrow(), Some("delete"));
     }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "writes and removes one uniquely named synthetic Windows Credential Manager entry"]
+    fn windows_credential_manager_round_trip_and_delete() {
+        struct Cleanup(String);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = delete_credential_entry(&self.0);
+            }
+        }
+
+        let credential_id = format!(
+            "amby-windows-smoke-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let cleanup = Cleanup(credential_id.clone());
+        let synthetic_secret = "amby-synthetic-key-123456789";
+
+        set_credential(&credential_id, synthetic_secret).unwrap();
+        let info = inspect_ai_credential(credential_id.clone()).unwrap();
+        assert!(info.exists);
+        assert_eq!(info.masked.as_deref(), Some("amb••••6789"));
+        assert_eq!(get_credential(&credential_id).unwrap(), synthetic_secret);
+
+        delete_credential_entry(&credential_id).unwrap();
+        let info = inspect_ai_credential(credential_id.clone()).unwrap();
+        assert!(!info.exists);
+        assert!(info.masked.is_none());
+        std::mem::forget(cleanup);
+    }
 }

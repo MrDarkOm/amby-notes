@@ -64,9 +64,11 @@ Rust dependencies initially required network access outside the sandbox.
 
 - `npm.cmd run verify:full`: **PASS**, exit 0, 2026-09-01. TypeScript, ESLint,
   418 frontend tests in 67 files, Prettier, Knip, Rustfmt, strict Clippy,
-  200 Rust tests and generated-binding freshness all passed. Two Rust tests are
-  ignored in the default suite: performance (run separately for all three sizes)
-  and Windows symlink (blocked by OS privilege). The same gate passed from clean
+  202 Rust tests and generated-binding freshness all passed. Three Rust tests are
+  ignored in the default suite: performance (run separately for the recorded sizes),
+  Windows symlink (blocked by OS privilege), and the synthetic Windows Credential
+  Manager round-trip (run separately with explicit system-store authorization).
+  The same gate passed from clean
   committed candidate `974ff43`; evidence: `windows-committed-verify.log`.
 - Native test TypeScript and the new React regression were additionally checked
   with TypeScript; the live runner now typechecks its test entry before building.
@@ -91,6 +93,15 @@ Rust dependencies initially required network access outside the sandbox.
 - `cargo test ... windows_symlink_escape_is_rejected -- --ignored --nocapture`:
   **BLOCKED** by missing `SeCreateSymbolicLinkPrivilege` (OS error 1314).
   The ignored test is explicit and no Windows security setting was changed.
+- NTFS publication-race and mid-bundle-rename rollback barriers passed with
+  byte-level assertions. Evidence: `.release-evidence/windows-fs-boundaries.log`
+  and `.release-evidence/windows-fs-boundaries-rollback.log`.
+- The ignored Windows Credential Manager integration passed outside the filesystem
+  sandbox in the normal user logon session: unique synthetic store, masked and exact
+  backend readback, explicit delete, and missing-after-delete all succeeded. A final
+  `cmdkey /list` prefix count was zero. Evidence:
+  `.release-evidence/windows-credential-manager-summary.log`. No real key or provider
+  request was used.
 - Generated IPC bindings were regenerated through Rust tests; no binding content
   change, new production command, persistent-data migration, or permission scope.
 
@@ -98,7 +109,7 @@ The native harness is behind the opt-in Cargo feature `native-contract`; never
 ship that feature. Its fixtures and WebView profile are temporary. No user vault,
 global workspace settings, credentials, or installed app files were modified.
 
-## Remaining work to finish this roadmap
+## Remaining Windows acceptance work
 
 1. If a suitably privileged test account is available, rerun Windows symlink security; do
    not disable security controls just to turn a checkbox green.
@@ -108,12 +119,21 @@ global workspace settings, credentials, or installed app files were modified.
    certificate becomes available; neither the user nor machine certificate store
    currently contains one.
 4. macOS work is excluded by the user's instruction. Linux remains deferred.
-5. Re-run full verification after any change made to complete a remaining gate,
+5. Complete the still-manual portions of `windows-release-checklist.md`: clean
+   create-note in the installed build; multi-window conflict branches; controlled
+   crash/ACL recovery; Explorer batch drop; case-only UI rename; model/settings UI
+   persistence around the now-passing Credential Manager backend; and WebView
+   input/memory measurements. The 2026-09-01 repeat UI
+   process was healthy in Win32 but unavailable to the desktop automation API, so
+   no invisible interaction is reported as PASS.
+6. Re-run full verification after any change made to complete a remaining gate,
    then apply the feature freeze. Optional architecture recommendations remain out of scope.
 
 ## Release status
 
-The non-macOS roadmap is **complete except for explicitly blocked environment
-gates**: privileged symlink creation, prepared exFAT/FAT32/SMB media and trusted
-Windows code signing. Full native UI and installed-production acceptance passed;
+The implementation portion of the non-macOS roadmap is complete and its automated
+release gate is green. Extended Windows acceptance remains **PARTIAL**: several
+manual interaction branches are not yet evidenced, in addition to the environment
+blocks for symlink privilege, prepared exFAT/FAT32/SMB media and trusted code
+signing. Full native UI lifecycle and installed-production open/edit/restart passed;
 successful bundle generation alone is not used as runtime evidence.

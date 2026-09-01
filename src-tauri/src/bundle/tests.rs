@@ -481,6 +481,45 @@ fn rollback_bundle_rename_restores_every_bundle_file() {
 }
 
 #[test]
+fn bundle_rename_failure_after_first_inner_step_rolls_back_every_file() {
+    let vault = temp_vault("rollback-rename-mid-operation");
+    let bundle = vault.join("Old");
+    fs::create_dir(&bundle).unwrap();
+    fs::write(bundle.join("Old.md"), b"main bytes").unwrap();
+    fs::write(bundle.join("Old.canvas"), b"canvas bytes").unwrap();
+    fs::write(bundle.join("Old.excalidraw"), b"excalidraw bytes").unwrap();
+    fs::write(bundle.join("Child.md"), b"child bytes").unwrap();
+
+    super::execute::fail_bundle_rename_before_inner_step(2);
+    let error = match rename_item_impl(&bundle.join("Old.md"), "New") {
+        Ok(_) => panic!("injected bundle rename unexpectedly succeeded"),
+        Err(error) => error,
+    };
+    super::execute::fail_bundle_rename_before_inner_step(0);
+
+    eprintln!("WIN-FS.5: first inner rename completed; failure injected before step 2");
+    assert!(error.contains("injected bundle rename failure before inner step 2"));
+    assert_eq!(
+        fs::read(vault.join("Old").join("Old.md")).unwrap(),
+        b"main bytes"
+    );
+    assert_eq!(
+        fs::read(vault.join("Old").join("Old.canvas")).unwrap(),
+        b"canvas bytes"
+    );
+    assert_eq!(
+        fs::read(vault.join("Old").join("Old.excalidraw")).unwrap(),
+        b"excalidraw bytes"
+    );
+    assert_eq!(
+        fs::read(vault.join("Old").join("Child.md")).unwrap(),
+        b"child bytes"
+    );
+    assert!(!vault.join("New").exists());
+    assert_eq!(fs::read_dir(&vault).unwrap().count(), 1);
+}
+
+#[test]
 fn rollback_move_restores_standalone_target_from_temporary_bundle() {
     let vault = temp_vault("rollback-move");
     let source = vault.join("A.md");

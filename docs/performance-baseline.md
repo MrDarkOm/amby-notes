@@ -33,3 +33,18 @@ All three assertions passed. Logs: `performance-1000.log`,
 The update metric includes the full refresh, not just the single SQLite row.
 Do not compare these Windows/debug numbers directly to the older macOS sample.
 Resident WebView memory remains unmeasured.
+
+## Windows repeat — 2026-09-01
+
+Current `dev` working tree after the NTFS race/rollback regressions, on the same
+Windows machine and debug test profile. Both deterministic generators passed.
+
+| Notes  | Initial scan | Warm reopen | One-file update + refresh | Search   |
+| ------ | ------------ | ----------- | ------------------------- | -------- |
+| 1,000  | 1.157 s      | 0.584 s     | 0.511 s                   | 1.456 ms |
+| 10,000 | 14.925 s     | 7.206 s     | 4.962 s                   | 3.260 ms |
+
+Evidence: `.release-evidence/windows-perf-1k.log` and
+`.release-evidence/windows-perf-10k.log`. These measurements cover the indexed
+backend path. WebView input latency and resident memory remain unmeasured, so
+the full manual `WIN-PERF` row remains PARTIAL.
