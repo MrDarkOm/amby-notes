@@ -104,6 +104,7 @@ export interface StoragePort {
   readSnapshotText(snapshotId: string): Promise<SnapshotText>
   listTrash(): Promise<TrashEntry[]>
   restoreTrash(trashId: string): Promise<FsMutationResult>
+  purgeTrash(trashId: string): Promise<void>
   previewRenameRefactor(vaultPath: string, path: string, newName: string): Promise<RefactorPreview>
   previewMoveRefactor(
     vaultPath: string,

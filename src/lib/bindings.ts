@@ -186,6 +186,14 @@ async restoreTrash(trashId: string) : Promise<Result<MutationOutcome, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async purgeTrash(trashId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("purge_trash", { trashId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async readNote(noteId: string) : Promise<Result<NoteReadOutcome, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("read_note", { noteId }) };

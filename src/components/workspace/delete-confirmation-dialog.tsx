@@ -16,6 +16,7 @@ interface DeleteConfirmationDialogProps {
   isDirtyOrConflicted?: boolean
   onCancel: () => void
   onConfirm: (dontAskAgain: boolean) => void
+  onArchive?: () => void
   onKeepRecovery?: () => void
   onDiscard?: () => void
 }
@@ -26,6 +27,7 @@ export function DeleteConfirmationDialog({
   isDirtyOrConflicted = false,
   onCancel,
   onConfirm,
+  onArchive,
   onKeepRecovery,
   onDiscard,
 }: DeleteConfirmationDialogProps) {
@@ -107,6 +109,15 @@ export function DeleteConfirmationDialog({
           >
             {t("docEditor.delete")}
           </button>
+          {onArchive && (
+            <button
+              type="button"
+              className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent"
+              onClick={onArchive}
+            >
+              {t("workspace.archive")}
+            </button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

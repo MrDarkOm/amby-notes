@@ -306,6 +306,9 @@ export class DesktopAdapter implements StoragePort {
   async restoreTrash(trashId: string): Promise<FsMutationResult> {
     return unwrapMutation(commands.restoreTrash(trashId))
   }
+  async purgeTrash(trashId: string): Promise<void> {
+    await unwrapCommand(commands.purgeTrash(trashId))
+  }
 
   async previewRenameRefactor(
     _vaultPath: string,

@@ -9,7 +9,6 @@ import {
   Loader2,
   MoreHorizontal,
   RefreshCw,
-  RotateCcw,
   Search,
   Trash2,
 } from "lucide-react"
@@ -44,7 +43,6 @@ function HistoryContents({
 }: PanelRenderProps) {
   const { t, i18n } = useTranslation()
   const history = useHistory(currentDocPath, onHistoryRestored)
-  const [section, setSection] = React.useState<"versions" | "trash">("versions")
   const [query, setQuery] = React.useState("")
   const [limit, setLimit] = React.useState(PAGE_SIZE)
   const locale = i18n.language
@@ -69,11 +67,8 @@ function HistoryContents({
       .toLocaleLowerCase(locale)
       .includes(search),
   )
-  const deleted = history.trash.filter((entry) =>
-    `${entry.name} ${entry.originalPath}`.toLocaleLowerCase(locale).includes(search),
-  )
   const groups = groupHistoryByDay(versions.slice(0, limit))
-  const count = section === "versions" ? versions.length : deleted.length
+  const count = versions.length
   function dayLabel(date: Date) {
     const today = new Date()
     const yesterday = new Date(today)
@@ -124,52 +119,15 @@ function HistoryContents({
           </DropdownMenu>
         </div>
       </header>
-      <div
-        className="mx-3 mb-3 flex shrink-0 gap-1 rounded-lg bg-muted/60 p-1"
-        role="group"
-        aria-label={t("historyPanel.sections")}
-      >
-        {(["versions", "trash"] as const).map((value) => (
-          <button
-            key={value}
-            aria-pressed={section === value}
-            onClick={() => {
-              setSection(value)
-              setQuery("")
-              setLimit(PAGE_SIZE)
-            }}
-            className={cn(
-              "flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              section === value
-                ? "bg-[var(--note-surface)] font-medium text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t(`historyPanel.${value}`)}
-            <span className="text-[10px] tabular-nums text-muted-foreground">
-              {value === "versions" ? history.snapshots.length : history.trash.length}
-            </span>
-          </button>
-        ))}
-      </div>
       <div className="space-y-3 border-b px-4 pb-3">
         <div className="flex min-w-0 items-start gap-2.5">
-          {section === "versions" ? (
-            <FileClock className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          ) : (
-            <Trash2 className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          )}
+          <FileClock className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
-            <p
-              className="truncate text-xs font-medium"
-              title={section === "versions" ? (currentDocPath ?? undefined) : undefined}
-            >
-              {section === "versions" ? name : t("historyPanel.deletedFiles")}
+            <p className="truncate text-xs font-medium" title={currentDocPath ?? undefined}>
+              {name}
             </p>
             <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              {section === "versions"
-                ? t("historyPanel.versionsHint")
-                : t("historyPanel.trashHint")}
+              {t("historyPanel.versionsHint")}
             </p>
           </div>
         </div>
@@ -181,12 +139,8 @@ function HistoryContents({
               setQuery(event.target.value)
               setLimit(PAGE_SIZE)
             }}
-            aria-label={t(
-              section === "versions" ? "historyPanel.searchVersions" : "historyPanel.searchTrash",
-            )}
-            placeholder={t(
-              section === "versions" ? "historyPanel.searchVersions" : "historyPanel.searchTrash",
-            )}
+            aria-label={t("historyPanel.searchVersions")}
+            placeholder={t("historyPanel.searchVersions")}
             className="h-8 min-w-0 bg-transparent pl-8 text-xs"
           />
         </div>
@@ -226,24 +180,16 @@ function HistoryContents({
               {t(
                 search
                   ? "historyPanel.noResults"
-                  : section === "trash"
-                    ? "historyPanel.trashEmpty"
-                    : currentDocPath
-                      ? "historyPanel.empty"
-                      : "historyPanel.openNote",
+                  : currentDocPath
+                    ? "historyPanel.empty"
+                    : "historyPanel.openNote",
               )}
             </p>
             <p className="text-[11px] leading-relaxed text-muted-foreground">
-              {t(
-                search
-                  ? "historyPanel.searchHint"
-                  : section === "trash"
-                    ? "historyPanel.trashEmptyHint"
-                    : "historyPanel.emptyHint",
-              )}
+              {t(search ? "historyPanel.searchHint" : "historyPanel.emptyHint")}
             </p>
           </div>
-        ) : section === "versions" ? (
+        ) : (
           groups.map((group) => (
             <section key={group.date.toDateString()}>
               <h3 className="flex items-center justify-between px-1 pb-2 pt-4 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -281,37 +227,6 @@ function HistoryContents({
               </div>
             </section>
           ))
-        ) : (
-          <div className="divide-y divide-border/60">
-            {deleted.slice(0, limit).map((entry) => (
-              <div key={entry.id} className="flex min-w-0 items-center gap-2 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium" title={entry.name}>
-                    {entry.name}
-                  </p>
-                  <p
-                    className="mt-1 truncate text-[10px] text-muted-foreground"
-                    title={entry.originalPath}
-                  >
-                    {entry.originalPath}
-                  </p>
-                  <p className="mt-1 text-[10px] text-muted-foreground">
-                    {dateFormat.format(entry.deletedAtMs)}
-                  </p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  title={t("historyPanel.return")}
-                  aria-label={t("historyPanel.returnNamed", { name: entry.name })}
-                  disabled={history.busy}
-                  onClick={() => void history.returnTrash(entry)}
-                >
-                  <RotateCcw className="size-3.5" />
-                </Button>
-              </div>
-            ))}
-          </div>
         )}
         {count > limit && (
           <Button

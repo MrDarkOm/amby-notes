@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ChevronDown,
@@ -109,6 +110,7 @@ export function DocumentHeader({
   onMoreActionsOpenChange,
 }: DocumentHeaderProps) {
   const { t } = useTranslation()
+  const [pathHovered, setPathHovered] = useState(false)
 
   if (hideNavigation) return null
 
@@ -119,12 +121,14 @@ export function DocumentHeader({
       docTitle={docTitle}
       docPath={docPath}
       onOpenItem={onOpenItem}
+      expanded={pathHovered}
+      onExpandChange={setPathHovered}
     />
   )
 
   return (
     <div
-      className={`h-10 shrink-0 items-center px-2 ${
+      className={`relative h-10 shrink-0 items-center px-2 ${
         isFocusMode
           ? "z-30 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] bg-transparent"
           : "flex justify-between bg-transparent"
@@ -136,7 +140,7 @@ export function DocumentHeader({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30"
+          className={`size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30 transition-opacity ${!isFocusMode && pathHovered ? "pointer-events-none opacity-0" : ""}`}
           onClick={onBack}
           disabled={!canGoBack}
         >
@@ -145,7 +149,7 @@ export function DocumentHeader({
         <Button
           variant="ghost"
           size="icon"
-          className="size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30"
+          className={`size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30 transition-opacity ${!isFocusMode && pathHovered ? "pointer-events-none opacity-0" : ""}`}
           onClick={onForward}
           disabled={!canGoForward}
         >
@@ -159,7 +163,11 @@ export function DocumentHeader({
       </div>
 
       {/* Center: current tab menu in focus mode; breadcrumb otherwise. */}
-      <div className="flex min-w-0 flex-1 items-center justify-center gap-1 overflow-hidden px-2 text-xs">
+      <div
+        data-path-expanded={pathHovered || undefined}
+        className={`flex min-w-0 flex-1 items-center justify-center gap-1 px-2 text-xs transition-[inset,padding,transform,box-shadow,border-radius,min-height] duration-300 ease-out [&[data-path-expanded=true]_[data-breadcrumb-segment]]:max-w-none ${pathHovered ? "absolute inset-x-4 top-2 z-20 min-h-10 translate-y-0 scale-[1.01] justify-start overflow-visible rounded-lg bg-white px-5 text-sm text-slate-900 shadow-lg ring-1 ring-slate-200" : "overflow-hidden scale-100"}`}
+        onMouseLeave={() => pathHovered && setPathHovered(false)}
+      >
         {isFocusMode ? (
           <TabsMenu
             trigger={
@@ -187,7 +195,9 @@ export function DocumentHeader({
       </div>
 
       {/* Right: layer + focus + more */}
-      <div className={`flex items-center gap-0.5 ${isFocusMode ? "justify-self-end" : ""}`}>
+      <div
+        className={`flex items-center gap-0.5 transition-opacity ${isFocusMode ? "justify-self-end" : ""} ${!isFocusMode && pathHovered ? "pointer-events-none opacity-0" : ""}`}
+      >
         {hasDocument && (
           <div className="mr-1 flex items-center gap-1 rounded-full bg-background/70 p-0.5 shadow-sm">
             <button

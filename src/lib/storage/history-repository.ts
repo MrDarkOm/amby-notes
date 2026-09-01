@@ -45,6 +45,9 @@ export class HistoryRepository {
   async restoreTrash(trashId: string): Promise<FsMutationResult> {
     return this.port().restoreTrash(trashId)
   }
+  async purgeTrash(trashId: string): Promise<void> {
+    return this.port().purgeTrash(trashId)
+  }
 
   async previewRenameRefactor(
     vaultPath: string,

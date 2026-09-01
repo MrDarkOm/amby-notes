@@ -28,6 +28,11 @@ pub fn is_valid_tag(tag: &str) -> bool {
             .any(|character| character.is_alphabetic() || matches!(character, '_' | '-'))
 }
 
+fn is_hex_color(tag: &str) -> bool {
+    matches!(tag.len(), 3 | 4 | 6 | 8)
+        && tag.chars().all(|character| character.is_ascii_hexdigit())
+}
+
 pub fn extract_tags(content: &str, frontmatter_tags: &[String]) -> Vec<String> {
     let mut tags = HashSet::new();
     let chars: Vec<char> = content.chars().collect();
@@ -113,8 +118,10 @@ pub fn extract_tags(content: &str, frontmatter_tags: &[String]) -> Vec<String> {
             continue;
         }
 
-        let prev_is_boundary = i == 0
-            || (!chars[i - 1].is_alphanumeric() && !matches!(chars[i - 1], '_' | '/' | '#' | '\\'));
+        // Obsidian tags start at a whitespace (or the beginning of a line).
+        // Treating every punctuation mark as a boundary also picked up URL
+        // fragments (`](#section)`) and CSS colours (`color: #fff`).
+        let prev_is_boundary = i == 0 || chars[i - 1].is_whitespace();
         if prev_is_boundary && chars[i] == '#' && i + 1 < chars.len() {
             let start = i + 1;
             let mut end = start;
@@ -122,7 +129,7 @@ pub fn extract_tags(content: &str, frontmatter_tags: &[String]) -> Vec<String> {
                 end += 1;
             }
             let tag = chars[start..end].iter().collect::<String>();
-            if is_valid_tag(&tag) {
+            if is_valid_tag(&tag) && !is_hex_color(&tag) {
                 tags.insert(tag.to_lowercase());
             }
             i = end;
@@ -182,4 +189,18 @@ pub fn list_tags(conn: &Connection, vault: &Path) -> Result<Vec<TagEntry>, Strin
         }
     }
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_tags;
+
+    #[test]
+    fn ignores_link_fragments_and_hex_colours() {
+        let body = "See [section](#details) and color: #fff, but keep #project and #work/items";
+        assert_eq!(
+            extract_tags(body, &[]),
+            vec!["project".to_string(), "work/items".to_string()]
+        );
+    }
 }

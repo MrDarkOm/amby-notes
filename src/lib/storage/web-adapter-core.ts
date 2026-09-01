@@ -788,6 +788,10 @@ export class WebAdapterCore implements StoragePort {
     return webTrashUnavailable()
   }
 
+  async purgeTrash(_trashId: string): Promise<void> {
+    return webTrashUnavailable()
+  }
+
   async previewRenameRefactor(
     _vaultPath: string,
     _path: string,

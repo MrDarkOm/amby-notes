@@ -178,6 +178,15 @@ pub fn restore_trash(
 
 #[tauri::command]
 #[specta::specta]
+pub fn purge_trash(
+    scope: tauri::State<paths::VaultScope>,
+    trash_id: String,
+) -> Result<(), String> {
+    recycle_bin::purge(&scope.get()?, &trash_id)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn preview_rename_refactor(
     db: tauri::State<'_, VaultContext>,
     path: String,

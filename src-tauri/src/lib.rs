@@ -58,6 +58,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::history::list_recovery,
         commands::history::list_trash,
         commands::history::restore_trash,
+        commands::history::purge_trash,
         commands::notes::read_note,
         commands::notes::write_note,
         commands::notes::restore_deleted_note,

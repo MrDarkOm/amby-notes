@@ -17,7 +17,7 @@ import { useViewStateStore } from "../use-view-state-store"
 import { findTreeItem, updateInTree, wsPathStem } from "../workspace-tree-utils"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
-type DeleteResolution = "confirm" | "keep_recovery" | "discard" | "cancel"
+type DeleteResolution = "confirm" | "archive" | "keep_recovery" | "discard" | "cancel"
 type Params = Pick<
   UseFileActionsParams,
   "vault" | "treeItems" | "setTreeItems" | "refreshTree" | "setOpenCanvases" | "setPendingRenameId"
@@ -271,6 +271,7 @@ export function useDocumentCrud({
           isDirtyOrConflicted: pendingDelete.isDirtyOrConflicted,
           onCancel: () => settleDeleteConfirmation("cancel"),
           onConfirm: (dontAskAgain: boolean) => settleDeleteConfirmation("confirm", dontAskAgain),
+          onArchive: () => settleDeleteConfirmation("archive"),
           onKeepRecovery: () => settleDeleteConfirmation("keep_recovery"),
           onDiscard: () => settleDeleteConfirmation("discard"),
         })

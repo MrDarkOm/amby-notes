@@ -213,6 +213,7 @@ export const readSnapshotText = (snapshotId: string): Promise<SnapshotText> =>
 export const listTrash = (): Promise<TrashEntry[]> => historyRepository.listTrash()
 export const restoreTrash = (trashId: string): Promise<FsMutationResult> =>
   historyRepository.restoreTrash(trashId)
+export const purgeTrash = (trashId: string): Promise<void> => historyRepository.purgeTrash(trashId)
 export const previewRenameRefactor = (
   vaultPath: string,
   path: string,

@@ -31,6 +31,7 @@ import {
   type PanelId,
   type Side,
 } from "./panel-registry"
+import { ArchivePanel } from "./panels/archive-panel"
 
 export const PANEL_DEFS: PanelDef[] = [
   {
@@ -66,7 +67,7 @@ export const PANEL_DEFS: PanelDef[] = [
     labelKey: "panels.archive",
     icon: Archive,
     kind: "view",
-    render: () => <ComingSoonPanel labelKey="panels.archive" />,
+    render: (props) => <ArchivePanel {...props} />,
   },
   {
     id: "info",
