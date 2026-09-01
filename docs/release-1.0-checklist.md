@@ -21,7 +21,8 @@ This is not a released or fully accepted candidate.
 - [x] NSIS silent install/uninstall lifecycle in an isolated directory; uninstall
       registration and cleanup verified on the exact final candidate. Artifact is
       not code-signed.
-- [ ] Windows installer installation and production critical-flow smoke.
+- [x] Windows NSIS installation and installed-production critical-flow smoke:
+      open/edit/autosave/full close/reopen/readback.
 - [ ] macOS production build and critical-flow smoke.
 - Linux: **deferred / not claimed for this release verification**.
 - [ ] Compatibility-vault checks on every supported platform.

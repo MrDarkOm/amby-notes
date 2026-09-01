@@ -55,10 +55,10 @@ Rust dependencies initially required network access outside the sandbox.
 | 6 failures       | Atomic write stages including final publication preserve original/cleanup; dirty-state/retry/recovery/CAS tests; rename-failure React test preserves pending autosave path; real mutation index-failure deadlock regression. Native history/recycle/CAS/event tests supplement backend coverage. |
 | 7 full native UI | **PASS on Windows** in the isolated real WebView harness: save/close/reopen, rename, dirty switch refusal, normal switch, external create/edit/rename/delete, recovery and conflict preservation. See `native-ui-smoke.md`.                                                                      |
 | 8 macOS          | **EXCLUDED BY USER** from this execution. Historical macOS evidence is not evidence for these working changes.                                                                                                                                                                                   |
-| 9 Windows        | Production MSI/NSIS build, exact-candidate NSIS install/uninstall, and live storage/UI lifecycle passed. Installed production runtime remains separate; symlink permission test is explicitly skipped with Windows error 1314.                                                                   |
+| 9 Windows        | Production MSI/NSIS build, exact-candidate NSIS install/launch/uninstall, and live storage/UI lifecycle passed. Installed production open/edit/autosave/full close/reopen/readback passed; symlink permission test is explicitly skipped with Windows error 1314.                                |
 | 10 Linux         | **DEFERRED** per supplied roadmap; not claimed supported by this verification.                                                                                                                                                                                                                   |
 | 11 performance   | 1k/5k/10k recorded with machine/build context in `performance-baseline.md`; all generator assertions passed.                                                                                                                                                                                     |
-| 12 release       | **PARTIAL**: automated, isolated full native UI, audit, bundle/install and clean committed-candidate gates passed. Installed production runtime and prepared filesystem media remain. No release/promotion/publication performed.                                                                |
+| 12 release       | **PARTIAL**: automated, isolated full native UI, audit, installed-production and clean committed-candidate gates passed. Prepared filesystem media and release signing remain. No release/promotion/publication performed.                                                                       |
 
 ## Verification and artifacts
 
@@ -82,6 +82,12 @@ Rust dependencies initially required network access outside the sandbox.
   exit code 0 in an isolated workspace directory; its uninstall registration and
   executable were removed. Installer files are ignored generated output, not
   committed source artifacts.
+- The exact installed NSIS production executable opened the disposable vault,
+  edited and autosaved a note, fully closed, reopened and displayed the saved
+  bytes. The original `%LOCALAPPDATA%\\Amby\\notes` directory was moved only after
+  a recovery record and SHA-256 manifest were written, then restored with both
+  original files byte-identical. The test installation and uninstall registration
+  were removed. Evidence: `.release-evidence/production-smoke-20260901-152130/`.
 - `cargo test ... windows_symlink_escape_is_rejected -- --ignored --nocapture`:
   **BLOCKED** by missing `SeCreateSymbolicLinkPrivilege` (OS error 1314).
   The ignored test is explicit and no Windows security setting was changed.
@@ -94,21 +100,20 @@ global workspace settings, credentials, or installed app files were modified.
 
 ## Remaining work to finish this roadmap
 
-1. With explicit authorization, temporarily back up and replace
-   `%LOCALAPPDATA%\\Amby\\notes` with disposable settings, launch the exact installed
-   production executable, then restore the original settings with hash verification.
-   Auto-review rejected this settings relocation without specific user approval.
-2. If a suitably privileged test account is available, rerun Windows symlink security; do
+1. If a suitably privileged test account is available, rerun Windows symlink security; do
    not disable security controls just to turn a checkbox green.
-3. Run exFAT, FAT32 and SMB cases only when prepared disposable media/mounts exist.
+2. Run exFAT, FAT32 and SMB cases only when prepared disposable media/mounts exist.
    None was available in this session; no disk was formatted and no share invented.
+3. Sign the Windows artifacts and exercise SmartScreen if a trusted code-signing
+   certificate becomes available; neither the user nor machine certificate store
+   currently contains one.
 4. macOS work is excluded by the user's instruction. Linux remains deferred.
 5. Re-run full verification after any change made to complete a remaining gate,
    then apply the feature freeze. Optional architecture recommendations remain out of scope.
 
 ## Release status
 
-The non-macOS roadmap is **complete except for explicitly blocked environment and
-authorization gates**: installed-production launch, privileged symlink creation and
-prepared exFAT/FAT32/SMB media. Full native UI acceptance passed in the isolated
-real WebView harness; successful bundle generation alone is not used as runtime evidence.
+The non-macOS roadmap is **complete except for explicitly blocked environment
+gates**: privileged symlink creation, prepared exFAT/FAT32/SMB media and trusted
+Windows code signing. Full native UI and installed-production acceptance passed;
+successful bundle generation alone is not used as runtime evidence.

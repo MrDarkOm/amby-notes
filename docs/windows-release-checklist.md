@@ -1,15 +1,14 @@
 # Windows: отдельная ручная приёмка Amby Notes
 
 Статус: **PARTIAL**, 1 сентября 2026 года: автоматические core/live-storage,
-изолированный полный UI-smoke, сборка MSI/NSIS и точный NSIS install/uninstall
-выполнены; запуск установленного production artifact и отдельные filesystem-проверки
-ещё не пройдены.
+изолированный полный UI-smoke, сборка MSI/NSIS и точный NSIS
+install/launch/uninstall выполнены; отдельные filesystem-проверки ещё не пройдены.
 
-NSIS install/uninstall itself passed in an isolated directory on 2026-09-01,
-including registry cleanup. The installed production executable was not launched:
-safe isolation would require temporarily relocating the existing user settings,
-which auto-review rejected without explicit user approval. The exact final artifacts
-report `NotSigned`: MSI SHA-256
+NSIS install/launch/uninstall passed in an isolated directory on 2026-09-01,
+including registry cleanup. The exact installed production executable passed
+open/edit/autosave/full close/reopen/readback against a disposable vault. The real
+settings directory was restored with both original files matching their preflight
+SHA-256 manifest. The exact final artifacts report `NotSigned`: MSI SHA-256
 `ADAA5D09A641C7343A84E5B2A28862CA8ECD7DA5994A891B84D722F4BF6CC6BA`, NSIS SHA-256
 `BBEDCF0F6FCE7773AE4A98EAFCB003733386BAD2F0A193A992EDFC55E716F984`.
 Symlink-тест остановлен системным отказом 1314 (недостаточно привилегий).
@@ -94,13 +93,13 @@ npm run tauri build
 шага. Не добавляй новые advisory exceptions. Linux CI audit не заменяет runtime.
 
 - [x] **WIN-BUILD.1** Все доступные команды завершились успешно; логи сохранены.
-- [ ] **WIN-BUILD.2** Выбранный `.msi`/NSIS `.exe` из
+- [x] **WIN-BUILD.2** Выбранный `.msi`/NSIS `.exe` из
       `src-tauri/target/release/bundle/` устанавливается и запускается в тестовом
       профиле. Отдельно запиши, какой тип installer проверен.
 - [ ] **WIN-BUILD.3** Первое окно не пустое; можно выбрать тестовый vault,
       создать заметку, сохранить и прочитать её после полного перезапуска.
-- [x] **WIN-BUILD.4** Зафиксирована подпись (`NotSigned`); SmartScreen не запускался,
-      потому что production executable не запускался. Успешная
+- [x] **WIN-BUILD.4** Зафиксирована подпись (`NotSigned`); отдельный SmartScreen
+      warning-flow не запускался. Успешная
       сборка сама по себе не доказывает доверенную подпись или безопасную установку.
 
 ## 3. Минимальные fixtures и снимки состояния

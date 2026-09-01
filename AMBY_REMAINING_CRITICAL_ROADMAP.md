@@ -1128,7 +1128,7 @@ known limitations:
 Фактический gate 2026-09-01:
 
 ```text
-Windows: PARTIAL (production installed-runtime launch requires explicit settings-isolation approval)
+Windows: PARTIAL (installed production runtime green; removable/network filesystem and signing limitations remain)
 commit: 974ff43 (verified committed candidate; gate-record synchronization follows)
 date: 2026-09-01
 Windows version: 25H2, build 26200.9168
@@ -1140,7 +1140,7 @@ known limitations: NotSigned; privileged symlink test blocked by OS 1314; no pre
 ## Definition of Done
 
 - [x] Windows `verify:full` green.
-- [ ] Installer builds/installs/launches.
+- [x] Installer builds/installs/launches; installed NSIS open/edit/save/close/reopen/readback green.
 - [x] Native lifecycle smoke green.
 - [x] Windows path cases green.
 - [x] Compatibility vault green.
