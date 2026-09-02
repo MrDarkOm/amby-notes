@@ -1,230 +1,308 @@
-# Amby — Roadmap стабилизации архитектуры перед 1.0
+# AMBY — MASTER IMPLEMENTATION ROADMAP FOR CODEX
 
-## Текущее состояние и передача в следующий чат — 2026-08-31
+## Назначение документа
 
-**Фазы 0–7 реализованы. Фаза 7 добавляет headless desktop reliability suite;
-нативный UI-driver остаётся отдельным release-gate для Windows/Linux.**
-Исходные описания проблем ниже оставлены как контекст; актуальные результаты
-отмечены в этом разделе и под заголовками фаз. Подробная история реализации и
-проверок: [docs/roadmap-progress.md](docs/roadmap-progress.md).
+Этот roadmap предназначен для самостоятельного выполнения Codex в репозитории Amby.
 
-| Фаза                     | Состояние                           | Результат                                                                                                                                                 |
-| ------------------------ | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0 — Baseline             | Выполнена                           | Зафиксированы ветка, исходные проверки и карта модулей.                                                                                                   |
-| 1 — Identity             | Реализована                         | `amby-id`, совместимость legacy IDs, миграция v2 с восстановлением v1, диагностика конфликтов без скрытия заметок.                                        |
-| 2 — Lossless insertion   | Реализована                         | Вставка одной строки без сериализации YAML; сохранены комментарии, BOM и окончания строк. Выполнялась перед фазой 1 как необходимая основа.               |
-| 3 — Incremental indexing | Реализована                         | `mtime_ns`, безопасное обновление кэша SQLite, перечитывание затронутых watcher-файлов даже при одинаковых metadata.                                      |
-| 4 — Malformed YAML       | Реализована                         | Текст остаётся в дереве/поиске и редактируется; свойства отключены; незакрытый frontmatter открывается целиком в Source.                                  |
-| 5 — Search ranking       | Реализована                         | BM25 возвращается из SQL и остаётся основой итогового score; title bonuses лишь корректируют relevance.                                                   |
-| 6 — Query tokenization   | Реализована                         | Единый Unicode-токенайзер разделяет пунктуацию, сохраняет `_` в идентификаторах и не пропускает FTS-синтаксис пользователя.                               |
-| 7 — Desktop E2E          | Реализована                         | Headless suite использует временный vault, backend lifecycle, SQLite, atomic writes и watcher invalidation; есть отдельный large-vault regression signal. |
-| 8–13                     | Не выполнены в рамках этого roadmap | Storage contracts, security, cleanup и release gates остаются отдельными задачами. Нативный UI-driver на Windows/Linux остаётся частью release-проверки.  |
+Задача Codex — последовательно довести проект от текущего состояния `dev` до архитектурно стабильной версии, готовой к публичной Beta / 1.0.
 
-### Состояние рабочей копии
+Главный приоритет:
 
-- Проект: `/Users/paul/Codding/amby-notes`.
-- Ветка: `dev`; HEAD: `1d3f0d6213d41ce0dea88266c98ef914c2d34875`.
-- Реализация находится в **незакоммиченных изменениях и новых файлах** этой
-  рабочей папки. Коммиты и PR для этапов не создавались. При продолжении из
-  чистого checkout/worktree эти изменения нужно сначала перенести.
-- До roadmap уже были изменения workspace/history/navigation, тестов и audit/release
-  документов. Не сбрасывать их и не считать весь `git diff` результатом roadmap.
-  Перед продолжением проверить актуальный `git status` и инструкции `AGENTS.md`.
-- Этот файл первоначально скопирован с Desktop без изменений; теперь, по запросу
-  пользователя, ведётся как актуальный roadmap. Файл-источник на Desktop не менялся.
+```text
+DATA INTEGRITY
+↓
+FILESYSTEM CORRECTNESS
+↓
+INDEX CORRECTNESS
+↓
+EDITOR ROUNDTRIP
+↓
+AUTOSAVE / EXTERNAL CHANGES
+↓
+TEST COVERAGE
+↓
+SECURITY
+↓
+ARCHITECTURAL CLEANUP
+↓
+NEW FEATURES
+```
 
-### Принятые решения, которые важно сохранить
-
-- Generic `id` остаётся пользовательским. Канонический ULID в нём без `amby-id`
-  читается как legacy-кандидат; один формат ULID не доказывает происхождение ID.
-  Копирование в `amby-id` выполняется только подтверждённой миграцией с backup,
-  журналом и rollback. Новые ID записываются только в `amby-id`.
-- `amby-conflict:` — ключи кэша для конфликтов ID: текст виден, небезопасные
-  записи и изменения свойств заблокированы. `amby-opaque:body:` и
-  `amby-opaque:source:` — отдельные ключи по пути для повреждённого YAML: текст
-  редактируется, durable properties недоступны. Эти ключи никогда не пишутся в YAML.
-- У закрытого повреждённого frontmatter body-save сохраняет весь YAML envelope
-  побайтно. Без закрывающего разделителя доступно явное редактирование полного
-  Source; автоматического исправления нет. После исправления YAML нужно сохранить,
-  обновить хранилище и заново открыть вкладку. Ключи по пути не гарантируют
-  стабильную идентичность после перемещения/исправления.
-- `mtime_ns` используется для кэша; даты UI/IPC по-прежнему в секундах. Отдельный
-  persistent content hash не добавлен: watcher заставляет перечитывать content,
-  а собственные записи сверяются существующим fingerprint. Cold scan может
-  пропустить изменение, сделанное при выключенном watcher с восстановлением
-  **точного** mtime и размера — это известное ограничение.
-- Ошибка чтения/UTF-8 отменяет скан без удаления записей индекса и сохраняет
-  события для retry. Предупреждение о YAML не мешает успешной индексации и
-  подтверждению обработанных событий.
-- Контракты: [vault-format.md](docs/vault-format.md) и
-  [markdown-compatibility.md](docs/markdown-compatibility.md).
-
-### Последняя проверка реализации
-
-- TypeScript, ESLint, Prettier, Knip, Rustfmt и strict Clippy прошли.
-- После PHASE 5 прошли TypeScript, ESLint, Prettier, Knip, Rustfmt и strict
-  Clippy; прошли 407 frontend-тестов в 65 файлах и все шесть тестов
-  `index::query`.
-- Полный `npm run verify:full` дошёл до Rust-тестов: 184 из 185 прошли, а
-  `incremental_native_watcher_refreshes_search_tags_and_links_with_identical_metadata`
-  завершился timeout, потому что sandbox не доставил файловое событие. Это
-  известное ограничение окружения и не связано с ranking.
-- После PHASE 6 и исправления watcher-теста прошли Rustfmt, strict Clippy и
-  полный `npm run rust:test`: 189 из 189 тестов. Интеграционный тест использует
-  content-aware `PollWatcher`, поскольку нативный notify backend не доставляет
-  события из sandbox; production watcher остаётся нативным.
-- Настоящий macOS watcher проверен на временном vault, включая одинаковые mtime
-  и размер. В sandbox системные события не приходили; интеграционный тест и
-  полный Rust-набор прошли вне sandbox.
-- Browser smoke реальных DocumentEditor/InfoPanel прошёл: редактируемый body,
-  принудительный Source, отключённые свойства, сохранённая блокировка ID-конфликтов.
-  Временный стенд удалён, dev server остановлен.
-- Native Tauri UI-driver, Windows/Linux и remote CI не подтверждены. Новый
-  headless suite проверяет реальный desktop backend и filesystem, но не заменяет
-  платформенную проверку WebView/UI.
-  Пользовательское хранилище не открывалось и не мигрировалось; разрешения Tauri
-  не расширялись. Release gates ниже не считать выполненными автоматически.
-
-### С чего начать в следующем чате
-
-1. Прочитать этот статус, `docs/roadmap-progress.md` и текущие инструкции проекта;
-   проверить, что доступны незакоммиченные изменения фаз 0–5.
-2. Перейти к PHASE 8: определить contract tests для desktop и browser storage.
-3. Не повторять реализацию фаз 1–6. Сохранить новые регрессии в
-   `src-tauri/src/index/{identity_tests,incremental_tests,malformed_tests}.rs`
-   и `src/components/workspace/editor/note-editing-policy.test.ts`.
+Новые крупные функции не должны иметь приоритет над сохранностью пользовательских данных.
 
 ---
 
-## Цель
+# 0. Глобальные архитектурные инварианты
 
-Довести текущую архитектуру Amby до состояния, в котором приложение безопасно работает с существующими Markdown vault без потери данных, корректно сосуществует с Obsidian и другими редакторами, надёжно индексирует внешние изменения и имеет достаточное desktop-level тестирование перед дальнейшим развитием Collections, AI, Git и Canvas.
+Codex НЕ должен нарушать следующие правила.
 
-Главный принцип на всём протяжении работ:
+## 0.1. Source of truth
 
-> Markdown-файлы остаются единственным source of truth. SQLite является только производным и полностью восстанавливаемым индексом.
+```text
+Markdown filesystem = authoritative source of truth
+SQLite = disposable derived index
+```
 
-Не менять этот принцип без отдельного архитектурного решения.
+SQLite должен быть полностью rebuildable.
 
----
-
-# Общие правила выполнения
-
-Перед каждым этапом:
-
-1. Изучить связанные существующие тесты.
-2. Не удалять текущие проверки ради упрощения реализации.
-3. Сначала добавить regression test, который воспроизводит проблему.
-4. Затем внести минимально необходимое исправление.
-5. После изменения прогнать релевантные unit/integration tests.
-6. В конце этапа прогнать полный `verify:full`.
-7. Не проводить крупный unrelated refactoring одновременно с correctness fix.
-8. Не менять публичное поведение приложения вне явно указанной задачи.
-9. Любая операция над пользовательским Markdown должна по возможности быть lossless.
-10. Unsupported или неизвестный пользовательский контент нельзя молча удалять или нормализовать.
+Удаление SQLite не должно приводить к потере пользовательских данных.
 
 ---
 
-# PHASE 0 — Baseline и фиксация текущего состояния
+## 0.2. Markdown ownership
 
-**Статус: выполнена.** Baseline и карта модулей записаны в `docs/roadmap-progress.md`.
+Пользователь владеет Markdown.
 
-## Цель
+Amby не должен без необходимости:
 
-Получить воспроизводимую отправную точку перед архитектурными изменениями.
+- переписывать YAML;
+- менять кавычки;
+- переставлять properties;
+- удалять YAML comments;
+- нормализовать неизвестную разметку;
+- удалять unsupported Markdown;
+- присваивать себе generic metadata fields;
+- менять CRLF/LF без необходимости;
+- удалять BOM.
 
-## Задачи
+---
 
-### 0.1. Проверить текущую ветку
+## 0.3. Unsupported != disposable
 
-Работать от актуальной `dev`.
+Если редактор не понимает конструкцию:
 
-Убедиться, что локальная ветка синхронизирована с remote.
+```text
+unknown Markdown
+HTML
+Obsidian syntax
+custom directives
+future syntax
+```
 
-### 0.2. Запустить полный verification pipeline
+она должна быть сохранена как opaque/raw representation.
 
-Запустить:
+---
+
+## 0.4. Не делать premature rewrite
+
+Без отдельного доказанного основания не:
+
+```text
+заменять Tauri
+заменять Rust
+заменять React
+заменять Tiptap
+заменять CodeMirror
+переписывать autosave
+переводить source of truth в SQLite
+писать собственный Markdown parser с нуля
+```
+
+---
+
+# 1. Общий рабочий процесс Codex
+
+Для КАЖДОЙ фазы использовать один и тот же цикл.
+
+## STEP A — Sync
+
+Работать от актуальной:
+
+```bash
+git checkout dev
+git pull
+```
+
+Не предполагать, что roadmap полностью соответствует текущим именам файлов.
+
+Сначала изучить актуальный код.
+
+---
+
+## STEP B — Baseline
+
+Перед изменением выполнить релевантные тесты.
+
+Минимум в конце каждого PR:
 
 ```bash
 npm run verify:full
 ```
 
-Зафиксировать все уже существующие ошибки отдельно.
+Для Rust-изменений дополнительно:
 
-Не смешивать pre-existing failures с регрессиями следующих этапов.
-
-### 0.3. Составить карту затрагиваемых модулей
-
-В первую очередь изучить:
-
-```text
-src-tauri/src/frontmatter.rs
-src-tauri/src/index/
-src-tauri/src/vault/
-src-tauri/src/paths.rs
-src-tauri/src/watcher.rs
-src-tauri/src/history.rs
-src-tauri/src/recovery.rs
-
-src/components/workspace/
-src/components/workspace/autosave/
-src/components/workspace/tiptap/
+```bash
+cargo fmt --check
+cargo clippy -- -D warnings
+cargo test
 ```
-
-Также найти все места использования поля:
-
-```yaml
-id:
-```
-
-для идентификации заметки.
-
-## Definition of Done
-
-- `verify:full` выполнен.
-- Pre-existing failures записаны.
-- Найдены все места чтения/записи Amby note ID.
-- Изменений поведения пока нет.
 
 ---
 
-# PHASE 1 — Исправить identity model заметок
+## STEP C — Inspect
 
-**Статус: реализована.** Namespaced identity, legacy migration/recovery и конфликтные ID покрыты регрессиями; см. актуальный статус в начале файла.
+Перед кодированием определить:
+
+```text
+Current behavior
+Expected behavior
+Root cause
+Affected modules
+Existing tests
+Risk of change
+```
+
+---
+
+## STEP D — Test first
+
+Если исправляется bug:
+
+1. Добавить regression test.
+2. Убедиться, что test реально воспроизводит проблему.
+3. Только затем менять implementation.
+
+---
+
+## STEP E — Minimal implementation
+
+Не делать unrelated cleanup.
+
+Один PR должен решать одну архитектурную проблему или один тесно связанный набор проблем.
+
+---
+
+## STEP F — Verification
+
+После изменения:
+
+1. targeted tests;
+2. full module tests;
+3. `verify:full`.
+
+---
+
+## STEP G — Report
+
+В конце каждого PR вывести:
+
+```text
+Summary
+Root cause
+Files changed
+Tests added
+Commands executed
+Result
+Remaining risks
+Out of scope
+```
+
+---
+
+# PHASE 0 — Baseline Verification
+
+## Статус
+
+Большая часть уже сделана.
+
+Codex должен только перепроверить состояние и НЕ переделывать рабочий код.
+
+---
+
+## STEP 0.1 — Проверить repository state
+
+```bash
+git status
+git branch --show-current
+git log -5 --oneline
+```
+
+Убедиться, что работа идёт от актуальной `dev`.
+
+---
+
+## STEP 0.2 — Запустить baseline
+
+```bash
+npm run verify:full
+```
+
+Зафиксировать:
+
+```text
+PASS
+или
+pre-existing failures
+```
+
+---
+
+## STEP 0.3 — Создать technical checklist
+
+Проверить существование/реализацию:
+
+```text
+amby-id
+lossless frontmatter
+mtime_ns
+malformed YAML indexing
+BM25 search
+query tokenizer
+Unicode-safe snippets
+desktop reliability tests
+```
+
+Если пункт уже реализован и покрыт тестами — не переписывать.
+
+---
+
+## Gate Phase 0
+
+Переходить дальше только если:
+
+- baseline известен;
+- текущий код понят;
+- existing failures отделены от новых.
+
+---
+
+# PHASE 1 — Note Identity Hardening
 
 ## Приоритет
 
-P0 / P1
+P1
 
-## Проблема
+## Цель
 
-Amby использует generic YAML property:
+Окончательно отделить внутреннюю идентичность Amby от пользовательского generic `id`.
 
-```yaml
-id: 01...
+---
+
+# 1.1. Проверить текущую модель
+
+Найти:
+
+```text
+AMBY_ID_FIELD
+LEGACY_ID_FIELD
+note_id()
+legacy_id
+amby-id
 ```
 
-в качестве внутреннего идентификатора заметки.
+Особенно:
 
-Но `id` является слишком общим пользовательским полем.
-
-Существующий vault вполне может содержать:
-
-```yaml
-id: jira-123
+```text
+src-tauri/src/frontmatter*
+src-tauri/src/index/
+src-tauri/src/vault/
 ```
 
-или:
+---
 
-```yaml
-id: article-42
-```
+# 1.2. Требуемая модель
 
-Такой Markdown не должен становиться несовместимым с Amby.
-
-## Целевое поведение
-
-Использовать отдельное namespaced-поле:
+Trusted identity:
 
 ```yaml
 amby-id: 01...
@@ -233,917 +311,1101 @@ amby-id: 01...
 Generic:
 
 ```yaml
-id:
+id: anything
 ```
 
-должно полностью принадлежать пользователю.
-
-Amby не должен:
-
-- интерпретировать его как собственный ID;
-- переписывать его;
-- удалять его;
-- отказываться индексировать заметку из-за его значения.
-
-## 1.1. Ввести новую константу internal ID
-
-Вынести название поля в одно место:
-
-```rust
-const AMBY_ID_FIELD: &str = "amby-id";
-```
-
-Не оставлять строковые `"amby-id"` по всему backend.
-
-## 1.2. Обновить frontmatter parsing
-
-Изменить определение Amby identity:
-
-```yaml
-amby-id: <canonical ULID>
-```
-
-валидный ID.
-
-Все остальные варианты:
-
-```yaml
-id: ...
-amby-id: invalid
-```
-
-обрабатывать отдельно.
-
-Generic `id` полностью игнорировать в identity layer.
-
-## 1.3. Добавить migration старого формата
-
-Существующие Amby vault могут содержать:
-
-```yaml
-id: <canonical Amby ULID>
-```
-
-Нужна безопасная миграция.
-
-### Правило
-
-Если:
-
-```yaml
-id:
-```
-
-содержит canonical ULID старого Amby-формата и `amby-id` отсутствует:
-
-можно считать его legacy Amby identity.
-
-Но миграция должна быть максимально осторожной.
-
-Необходимо проверить историю проекта и существующие fixtures, чтобы уменьшить риск принятия чужого ULID за Amby ID.
-
-Предпочтительный вариант:
-
-```text
-legacy id обнаружен
-→ индексировать как Amby identity
-→ при следующей безопасной mutation/snapshot мигрировать к amby-id
-```
-
-Не обязательно массово переписывать весь vault при первом открытии.
-
-## 1.4. Обработать конфликт
-
-Если существуют одновременно:
-
-```yaml
-id: external-value
-amby-id: 01...
-```
-
-Amby использует только `amby-id`.
-
-Если:
-
-```yaml
-amby-id: invalid-value
-```
-
-не уничтожать note и не переписывать поле молча.
-
-Вернуть диагностический статус.
-
-## 1.5. Исправить duplicate ID behavior
-
-Если две заметки имеют одинаковый:
-
-```yaml
-amby-id:
-```
-
-не терять ни одну заметку полностью из пользовательского интерфейса.
-
-Допустимое поведение:
-
-```text
-note indexed with conflict state
-identityConflict = duplicate
-```
-
-и ограничить только операции, требующие уникального identity.
-
-Минимум — убедиться, что пользователь всё ещё может найти и открыть обе заметки.
-
-## 1.6. Добавить тесты
-
-Обязательные cases:
-
-```yaml
-id: jira-123
-```
-
-→ note индексируется.
-
-```yaml
-id: 01VALIDULID...
-```
-
-→ проверить legacy migration behavior.
-
-```yaml
-amby-id: 01VALIDULID...
-```
-
-→ нормальная заметка.
-
-```yaml
-id: foo
-amby-id: 01VALIDULID...
-```
-
-→ Amby использует `amby-id`.
-
-```yaml
-amby-id: broken
-```
-
-→ graceful warning, без потери note.
-
-Duplicate `amby-id`:
-
-→ никакого silent deletion.
-
-## Definition of Done
-
-- Generic `id` полностью принадлежит пользователю.
-- Новые заметки получают `amby-id`.
-- Старые Amby заметки продолжают открываться.
-- Existing external `id` не мешает indexing/search.
-- Есть regression tests.
+принадлежит пользователю.
 
 ---
 
-# PHASE 2 — Сделать вставку Amby ID действительно lossless
+# 1.3. Не считать произвольный ULID trusted Amby ID
 
-**Статус: реализована.** YAML не пересериализуется; сохранение исходных байтов и отказ от небезопасной вставки проверены тестами.
+Проблемный сценарий:
+
+```yaml
+---
+id: 01JABCDEFG...
+---
+```
+
+Этот ULID может принадлежать другой программе.
+
+Нельзя автоматически считать:
+
+```text
+canonical ULID == definitely legacy Amby
+```
+
+---
+
+# 1.4. Ввести явное различие identity states
+
+Предпочтительно:
+
+```rust
+enum NoteIdentity {
+    Amby(Ulid),
+    LegacyCandidate(Ulid),
+    Missing,
+    InvalidAmbyId(String),
+    Duplicate(Ulid),
+}
+```
+
+Конкретная форма может отличаться.
+
+Главное — не смешивать:
+
+```text
+trusted Amby identity
+```
+
+и:
+
+```text
+possible legacy candidate
+```
+
+---
+
+# 1.5. Migration policy
+
+Legacy generic `id` с canonical ULID:
+
+```text
+не переписывать автоматически при scan
+```
+
+Варианты:
+
+### Preferred
+
+```text
+legacy candidate
+→ note remains indexed/openable
+→ assign/migrate amby-id only during controlled migration
+→ preserve original generic id
+```
+
+Generic `id` НЕ удалять.
+
+---
+
+# 1.6. External user ID
+
+Fixture:
+
+```yaml
+---
+id: jira-123
+---
+```
+
+Должно быть:
+
+```text
+note indexed
+note searchable
+note editable
+id preserved
+Amby uses separate identity
+```
+
+---
+
+# 1.7. Duplicate `amby-id`
+
+Две заметки:
+
+```yaml
+amby-id: SAME
+```
+
+Обе должны:
+
+```text
+remain visible
+remain openable
+receive diagnostic conflict
+```
+
+Нельзя silent skip.
+
+---
+
+# 1.8. Tests
+
+Добавить:
+
+```text
+generic string id
+generic UUID id
+generic ULID id
+valid amby-id
+invalid amby-id
+generic id + amby-id
+duplicate amby-id
+legacy candidate
+```
+
+---
+
+## Gate Phase 1
+
+- [ ] Generic `id` не является trusted Amby identity.
+- [ ] `amby-id` является authoritative Amby identity.
+- [ ] Legacy data не теряется.
+- [ ] External IDs сохраняются.
+- [ ] Duplicate IDs диагностируются.
+- [ ] Tests green.
+
+---
+
+# PHASE 2 — Lossless Frontmatter Identity Operations
 
 ## Приоритет
 
 P1
 
-## Проблема
+## Статус
 
-Текущая первая вставка ID использует:
+Основная реализация уже существует.
 
-```rust
-serde_yaml parse
-→ Mapping
-→ serialize
+Codex должен проверить её и расширить tests при необходимости.
+
+---
+
+# 2.1. Проверить отсутствие YAML reserialization
+
+При вставке:
+
+```yaml
+amby-id:
 ```
 
-Это потенциально меняет пользовательский YAML.
+нельзя делать:
 
-Могут изменяться:
+```text
+parse YAML
+→ mapping
+→ serialize entire mapping
+```
 
-- комментарии;
-- кавычки;
-- whitespace;
-- blank lines;
-- formatting;
-- некоторые YAML representation details.
+---
 
-Это конфликтует с preservation model проекта.
+# 2.2. Требуемый алгоритм
 
-## 2.1. Запретить YAML reserialization для ID insertion
-
-При наличии корректного YAML mapping:
+Для существующего valid frontmatter:
 
 ```yaml
 ---
-title: Test
-# user comment
-tags: [one, two]
+# comment
+title: "Hello"
+custom: [one, two]
 ---
 ```
 
-Amby должен вставить:
+результат:
 
 ```yaml
+---
 amby-id: ...
+# comment
+title: "Hello"
+custom: [one, two]
+---
 ```
 
-не сериализуя остальные свойства.
+Старый YAML должен остаться byte-preserved кроме вставленной строки.
 
-Пример результата:
+---
+
+# 2.3. Проверить LF
+
+Fixture LF.
+
+---
+
+# 2.4. Проверить CRLF
+
+Fixture CRLF.
+
+Вставленная строка также CRLF.
+
+---
+
+# 2.5. Проверить BOM
+
+UTF-8 BOM должен сохраняться.
+
+---
+
+# 2.6. Проверить comments
+
+До/после properties.
+
+---
+
+# 2.7. Проверить quotes
 
 ```yaml
----
-amby-id: 01...
-title: Test
-# user comment
-tags: [one, two]
----
+title: "00123"
+foo: "true"
 ```
 
-Весь старый YAML кроме добавленной строки должен оставаться byte-for-byte идентичным.
+не должны нормализоваться.
 
-## 2.2. Сохранять line ending
-
-Если файл использует:
-
-```text
-CRLF
-```
-
-вставленная строка тоже должна использовать CRLF.
-
-Если LF — LF.
-
-## 2.3. Сохранять BOM
-
-UTF-8 BOM не должен исчезать.
-
-## 2.4. Не нормализовать delimiters
-
-Frontmatter envelope:
-
-```text
 ---
-...
+
+# 2.8. Проверить malformed YAML
+
+Amby не должен автоматически "чинить" YAML serializer-ом.
+
 ---
-```
 
-не должен перестраиваться без необходимости.
-
-## 2.5. Создавать frontmatter корректно
-
-Если frontmatter отсутствует:
+# 2.9. Проверить no-frontmatter case
 
 ```markdown
 # Hello
 ```
 
-добавить:
-
-```yaml
----
-amby-id: ...
----
-```
-
-и затем исходный body.
-
-Не менять сам body.
-
-## 2.6. Malformed YAML не чинить автоматически
-
-Если frontmatter существует, но невалиден:
-
-```yaml
----
-tags: [one,
----
-```
-
-Amby не должен автоматически переписывать его через serializer.
-
-Вернуть диагностический результат.
-
-## 2.7. Tests
-
-Добавить byte-level tests.
-
-Особенно:
-
-```yaml
-# comments
-'quoted values'
-"double quoted"
-inline: [a, b]
-nested:
-  value: 1
-```
-
-Проверять, что старый substring сохраняется в точности.
-
-Отдельно:
-
-- LF;
-- CRLF;
-- BOM;
-- empty frontmatter;
-- no frontmatter;
-- comments before first property;
-- comments after property.
-
-## Definition of Done
-
-Любая вставка `amby-id` либо:
-
-1. сохраняет существующий frontmatter losslessly;
-2. либо ничего не меняет и возвращает понятную ошибку.
+должен получить новый frontmatter без изменения body.
 
 ---
 
-# PHASE 3 — Исправить точность incremental indexing
+## Gate Phase 2
 
-**Статус: реализована.** Добавлены `mtime_ns` и watcher invalidation. Отдельный persistent hash рассмотрен и не потребовался; ограничения cold scan указаны в начале файла.
+Все byte-level tests green.
+
+Если уже green — не менять implementation.
+
+---
+
+# PHASE 3 — Incremental Index Correctness
 
 ## Приоритет
 
-P0 / P1
+P1
 
-## Проблема
+## Статус
 
-Сейчас unchanged detection основан на:
+Основная проблема `mtime seconds + size` уже исправлена через high-resolution metadata/watcher invalidation.
 
-```text
-mtime в секундах
-+
-size
-```
+Нужно проверить residual edge cases.
 
-Это допускает false negative.
+---
 
-Два изменения файла в одну секунду при сохранении размера могут остаться незамеченными.
+# 3.1. Проверить schema
 
-## 3.1. Перейти на high-resolution file timestamp
+Индекс должен использовать high-resolution timestamp.
 
-Не использовать:
-
-```rust
-as_secs()
-```
-
-Хранить более точную величину.
-
-Предпочтительно nanoseconds:
+Не:
 
 ```text
-mtime_ns
-```
-
-Если целевая platform/filesystem не гарантирует ns precision, всё равно хранить максимально доступную точность.
-
-## 3.2. Обновить SQLite schema
-
-Добавить новую metadata representation.
-
-При необходимости создать migration.
-
-Не ломать существующую базу.
-
-Помнить:
-
-> SQLite является disposable index.
-
-Поэтому допустима простая migration/rebuild стратегия, если она безопаснее сложной migration.
-
-## 3.3. Рассмотреть content fingerprint
-
-Добавить дешёвый content hash.
-
-Предпочтительно:
-
-- BLAKE3;
-- xxHash;
-- другой быстрый non-cryptographic fingerprint.
-
-Не использовать SHA-256 без необходимости.
-
-## 3.4. Разделить cold scan и watcher-triggered scan
-
-Рекомендуемая стратегия:
-
-### Cold startup
-
-```text
-metadata unchanged
-→ быстрый skip
-```
-
-### Watcher сообщил modification
-
-Даже при совпавших metadata:
-
-```text
-→ перепроверить fingerprint/content
-```
-
-Так сохраняется производительность.
-
-## 3.5. Добавить тест exact bug
-
-Создать fixture:
-
-```text
-old content = "cat"
-new content = "dog"
-```
-
-Одинаковый размер.
-
-Имитировать одинаковый coarse timestamp.
-
-Индекс должен обнаружить изменение.
-
-## 3.6. Проверить external editor workflow
-
-Scenario:
-
-```text
-Amby открыт
-↓
-Obsidian меняет note
-↓
-watcher event
-↓
-index refresh
-↓
-search/backlinks/tags отражают новое состояние
-```
-
-## Definition of Done
-
-Нельзя получить stale SQLite state только из-за:
-
-```text
-same second + same size
+seconds only
 ```
 
 ---
 
-# PHASE 4 — Malformed frontmatter должен деградировать gracefully
+# 3.2. Same-size fast modification
 
-**Статус: реализована.** Заметки остаются видимыми и редактируемыми, YAML не исправляется автоматически. Незакрытый envelope редактируется как полный Source.
+Regression:
 
-## Приоритет
+```text
+cat
+→
+dog
+```
 
-P1 / P2
+одинаковый размер.
 
-## Проблема
+Изменение должно быть обнаружено.
 
-Невалидный YAML сейчас может привести к исключению всей note из индекса.
+---
 
-Это слишком сильная реакция.
+# 3.3. Watcher-triggered invalidation
 
-Markdown body может быть полностью валиден.
+Если watcher сообщил modification:
 
-## 4.1. Ввести статус frontmatter
+```text
+не доверять cached unchanged decision вслепую
+```
+
+---
+
+# 3.4. Cold-scan collision
+
+Проверить возможность:
+
+```text
+same mtime_ns
+same size
+different content
+```
+
+Если текущий код всё ещё может пропустить это на cold startup, решить:
+
+### Option A
+
+Добавить persistent fast fingerprint.
 
 Например:
 
-```rust
-enum FrontmatterStatus {
-    None,
-    Valid,
-    Invalid,
-}
-```
-
-или эквивалентная модель.
-
-## 4.2. Разделить body и properties parsing
-
-При malformed YAML всё равно индексировать:
-
-- path;
-- filename;
-- title fallback;
-- Markdown body;
-- body tags;
-- wiki links;
-- word count;
-- search text.
-
-Не индексировать только свойства, которые требуют валидного YAML.
-
-## 4.3. UI warning
-
-Если note имеет malformed frontmatter:
-
-показать ненавязчивое предупреждение.
-
-Пример:
-
 ```text
-Invalid YAML frontmatter.
-The note is still readable, but properties editing is disabled.
+BLAKE3
+xxHash
 ```
 
-Не блокировать редактирование Markdown body.
+### Option B
 
-## 4.4. Не исправлять YAML автоматически
+Если риск считается приемлемым:
 
-Пользовательский YAML должен оставаться untouched.
-
-## 4.5. Tests
-
-Проверить:
-
-- broken list;
-- broken indentation;
-- root scalar;
-- root array;
-- missing closing delimiter;
-- valid body после malformed YAML.
-
-Search должен находить body.
-
-## Definition of Done
-
-Malformed YAML больше не делает Markdown invisible для Amby.
+зафиксировать как documented limitation.
 
 ---
 
-# PHASE 5 — Улучшить search ranking
+# 3.5. Не хешировать весь vault без необходимости
 
-**Статус: реализована.** Точка входа — `src-tauri/src/index/query.rs::search_notes`.
+Предпочтительная схема:
+
+```text
+metadata clearly changed
+→ read/reindex
+
+watcher says changed
+→ force recheck
+
+cold startup exact metadata match
+→ fast path
+```
+
+Content hash использовать только если архитектурно оправдано.
+
+---
+
+# 3.6. Rebuild guarantee
+
+Удаление SQLite и rebuild не должны изменять Markdown.
+
+Добавить test.
+
+---
+
+## Gate Phase 3
+
+- [ ] Same-size edit обнаруживается.
+- [ ] Watcher invalidation работает.
+- [ ] Rebuild lossless.
+- [ ] Residual cold-scan risk либо исправлен, либо документирован.
+
+---
+
+# PHASE 4 — Malformed Frontmatter Graceful Degradation
+
+## Приоритет
+
+P1
+
+## Статус
+
+Основная реализация уже существует.
+
+---
+
+# 4.1. Требуемый behavior
+
+Для:
+
+```yaml
+---
+tags: [broken,
+---
+# Important body
+```
+
+должно быть:
+
+```text
+note visible
+body readable
+body searchable
+links in body indexable
+warning available
+properties editor limited/disabled
+```
+
+---
+
+# 4.2. Нельзя
+
+```text
+skip entire note
+```
+
+из-за YAML parse error.
+
+---
+
+# 4.3. Test cases
+
+```text
+broken array
+broken indentation
+root scalar
+root array
+missing close delimiter
+valid body after broken YAML
+```
+
+---
+
+# 4.4. Не mutate
+
+Indexing malformed YAML не должен изменять файл.
+
+---
+
+## Gate Phase 4
+
+Если tests проходят — phase закрыть без rewrite.
+
+---
+
+# PHASE 5 — Search Ranking
 
 ## Приоритет
 
 P2
 
-## Проблема
+## Статус
 
-SQLite FTS уже рассчитывает BM25, но Rust-level ranking затем почти полностью заменяет его грубым score.
+BM25 уже интегрирован.
 
-В результате content matches становятся преимущественно alphabetical.
+Нужно только проверить ranking contracts.
 
-## Реализация
+---
 
-- SQL возвращает `bm25(notes_fts) AS rank`; Rust преобразует отрицательный FTS5
-  rank в сохраняющий направление integer `SearchResult.score` без изменения IPC.
-- Exact title, title-prefix и title-contains получают bounded bonus к score.
-  Итоговая сортировка остаётся по combined relevance, с path как
-  детерминированным tie-breaker.
-- Добавлены fixtures для `Apple`, `Apple pie`, `Cooking`, `Fruit`, `Random`, а
-  также русского, украинского, emoji и mixed English/русский текста.
+# 5.1. SQL
 
-## 5.1. Возвращать BM25 rank из SQL
-
-Пример:
+Должен использовать:
 
 ```sql
-SELECT
-    ...,
-    bm25(notes_fts) AS rank
+bm25(notes_fts)
 ```
 
-## 5.2. Не уничтожать FTS relevance
+---
 
-Финальный ranking должен учитывать BM25.
+# 5.2. Final ranking
 
-Добавить bonuses:
+BM25 нельзя заменять грубым:
 
 ```text
-exact title match
-title starts with query
-title contains query
+title = 3
+content = 1
 ```
 
-Но они должны модифицировать relevance, а не полностью её заменять.
+Title bonus должен быть дополнением.
 
-## 5.3. Создать ranking fixtures
+---
 
-Набор заметок:
+# 5.3. Fixtures
+
+Создать predictable corpus:
 
 ```text
 Apple
 Apple pie
-Cooking
-Fruit
+Fruit guide
+Cooking apple pie
 Random
 ```
 
-Запрос:
+Query:
 
 ```text
 apple
 ```
 
-Проверить ожидаемый порядок.
+Закрепить разумный порядок.
 
-## 5.4. Проверить кириллицу
+---
 
-Обязательно:
+# 5.4. Title bonuses
+
+Проверить:
 
 ```text
-русский
-український
-emoji 🔥
-mixed English/русский
+exact title
+prefix
+substring
+body only
 ```
 
 ---
 
-# PHASE 6 — Исправить query tokenization
+## Gate Phase 5
+
+Ranking tests green.
+
+---
+
+# PHASE 6 — Search Tokenization + Snippet Consistency
 
 ## Приоритет
 
 P2
 
-## Проблема
+## Эта фаза требует дополнительного исправления
 
-Символы punctuation сейчас могут просто удаляться.
+Tokenization уже улучшена, но необходимо сделать snippet/title matching согласованными с FTS query.
 
-Например:
+---
+
+# 6.1. Проверить tokenizer
+
+Queries:
+
+```text
+foo-bar
+foo/bar
+hello.world
+snake_case
+C++
+C#
+node.js
+```
+
+---
+
+# 6.2. FTS safety
+
+User query не должен превращаться в arbitrary FTS expression.
+
+Все tokens должны безопасно escape-иться.
+
+---
+
+# 6.3. Исправить snippet mismatch
+
+Сценарий:
+
+```text
+query = foo-bar
+
+document:
+foo something bar
+```
+
+FTS может найти документ как:
+
+```text
+foo AND bar
+```
+
+Но raw substring:
 
 ```text
 foo-bar
 ```
 
-может превращаться в:
+в документе отсутствует.
 
-```text
-foobar
-```
-
-вместо двух токенов.
-
-## 6.1. Сделать единый tokenizer
-
-Не просто:
-
-```rust
-filter(is_alphanumeric)
-```
-
-а разбивать query на meaningful tokens.
-
-Примеры:
-
-```text
-foo-bar → foo, bar
-foo/bar → foo, bar
-hello.world → hello, world
-```
-
-## 6.2. Определить поведение специальных запросов
-
-Проверить:
-
-```text
-C++
-C#
-node.js
-file-name
-foo/bar
-snake_case
-```
-
-Не обязательно поддерживать каждый случай идеально, но поведение должно быть осознанным и протестированным.
-
-## 6.3. Не допускать FTS syntax injection/error
-
-Вход пользователя не должен напрямую становиться произвольным FTS expression.
-
-## Definition of Done
-
-Search query normalization имеет отдельные unit tests и одинаково работает с Unicode.
+Snippet всё равно должен существовать.
 
 ---
 
-# PHASE 7 — Desktop E2E reliability suite
+# 6.4. Preferred solution
+
+Использовать SQLite FTS:
+
+```sql
+snippet(...)
+```
+
+или:
+
+```sql
+highlight(...)
+```
+
+чтобы snippet строился из реального FTS match.
+
+---
+
+# 6.5. Если FTS snippet неудобен
+
+Использовать тот же normalized token set, что и FTS query.
+
+НЕ писать независимую вторую query-normalization систему.
+
+---
+
+# 6.6. Title matching
+
+Title bonus должен использовать normalized tokens.
+
+Например:
+
+```text
+query: foo-bar
+title: Foo Bar
+```
+
+должен корректно распознаваться.
+
+---
+
+# 6.7. Unicode
+
+Обязательные tests:
+
+```text
+русский
+український
+日本語
+🔥
+mixed English русский
+```
+
+---
+
+# 6.8. UTF-8 slicing
+
+Любой manual slicing обязан работать только по valid char boundaries.
+
+---
+
+## Gate Phase 6
+
+- [ ] Tokenizer tested.
+- [ ] FTS injection impossible.
+- [ ] Snippet соответствует реальному FTS match.
+- [ ] Title bonuses используют ту же normalization model.
+- [ ] Unicode-safe.
+
+---
+
+# PHASE 7 — Desktop Reliability Tests
 
 ## Приоритет
 
 P1 / P2
 
-## Цель
+## Статус
 
-Проверять реальные cross-layer сценарии:
+Backend filesystem E2E уже реализован.
 
-```text
-React
-→ Tauri IPC
-→ Rust
-→ filesystem
-→ watcher
-→ index
-→ frontend
-```
-
-Browser localStorage fallback не считается полноценной заменой этих тестов.
-
-## 7.1. Создать небольшой E2E framework
-
-Не строить огромную инфраструктуру.
-
-Нужны smoke/integration tests для самых опасных flows.
-
-## 7.2. Обязательные сценарии
-
-### Save lifecycle
-
-```text
-edit
-→ autosave
-→ close
-→ reopen
-→ content preserved
-```
-
-### Rename during autosave
-
-```text
-edit
-→ save in-flight
-→ rename
-→ final content only in correct file
-```
-
-### Vault switching
-
-```text
-dirty note
-→ switch vault
-→ correct flush/persist behavior
-```
-
-### External edit
-
-```text
-Amby open
-→ external process modifies file
-→ watcher
-→ index/UI update
-```
-
-### External delete
-
-UI корректно реагирует.
-
-### External rename
-
-Нет phantom old file.
-
-### Unsupported Markdown
-
-```text
-open
-→ edit supported region
-→ save
-```
-
-unsupported block остаётся lossless.
-
-### CRLF + BOM
-
-Roundtrip без нормализации.
-
-### Malformed YAML
-
-Body доступен.
-
-### Duplicate `amby-id`
-
-Нет потери файлов.
-
-### External `id`
-
-```yaml
-id: jira-123
-```
-
-полностью сохраняется.
-
-### Crash/interrupted write
-
-Проверить recovery/history guarantees там, где возможно.
-
-## 7.3. Large vault smoke test
-
-Создать synthetic vault:
-
-```text
-1k notes
-5k notes
-10k notes
-```
-
-Измерить:
-
-- initial scan;
-- reopen;
-- one-file update;
-- search latency.
-
-Это пока не performance benchmark gate, а regression signal.
-
-## Definition of Done
-
-Критические user flows проверяются на настоящем filesystem/Tauri backend, а не только browser mock.
+Не переписывать его.
 
 ---
 
-# PHASE 8 — Storage contract tests
+# 7.1. Существующий suite должен покрывать
+
+```text
+save → reopen
+rename during save
+vault switch
+external edit
+external rename
+external delete
+CRLF/BOM
+unsupported Markdown
+duplicate identity
+large vault
+```
+
+---
+
+# 7.2. Добавить missing cases
+
+Если отсутствуют:
+
+```text
+external create
+failed save
+failed rename
+malformed YAML
+external generic id
+```
+
+---
+
+# 7.3. Не называть backend test полноценным UI E2E
+
+Существующий Rust suite:
+
+```text
+filesystem + index + vault context
+```
+
+Это хорошо.
+
+Но он не проверяет:
+
+```text
+React
+WebView
+actual invoke wiring
+window lifecycle
+native UI
+```
+
+Полноценный native UI smoke будет отдельным release gate.
+
+---
+
+## Gate Phase 7
+
+Backend reliability suite стабилен и green.
+
+---
+
+# PHASE 8 — Real Storage Contract Suite
 
 ## Приоритет
 
 P2
 
-## Цель
+## Эта фаза ещё требует полноценной реализации
 
-Browser storage и Tauri storage должны соблюдать одинаковые application-level invariants.
+---
 
-## 8.1. Определить общий contract
+# 8.1. Инвентаризация
 
-Например:
+Найти:
+
+```text
+WebStorage / BrowserStorage
+DesktopStorage
+Tauri commands
+storage interfaces
+storage tests
+```
+
+---
+
+# 8.2. Текущую mocked DesktopAdapter проверку не считать достаточной
+
+Mock:
+
+```ts
+vi.spyOn(commands, ...)
+```
+
+проверяет delegation.
+
+Он НЕ доказывает storage semantics.
+
+---
+
+# 8.3. Создать reusable contract
+
+Один suite:
+
+```ts
+runStorageContract(adapterFactory)
+```
+
+---
+
+# 8.4. Contract operations
+
+Обязательно:
 
 ```text
 create
 read
 write
+overwrite
 rename
 delete
 list
-open vault
-properties
+folder create
+folder rename
+nested note
 ```
-
-## 8.2. Запускать один suite против разных adapters
-
-```text
-BrowserStorage
-TauriStorage
-```
-
-Но platform-specific semantics можно тестировать отдельно.
-
-## 8.3. Не пытаться сделать localStorage filesystem
-
-Browser adapter нужен для UI development, а не для симуляции symlink/watcher behavior.
 
 ---
 
-# PHASE 9 — Усилить filesystem security
+# 8.5. Browser adapter
+
+Запустить contract против browser implementation.
+
+---
+
+# 8.6. REAL Tauri-backed adapter
+
+Не mock Tauri commands.
+
+Тест должен доходить до:
+
+```text
+real Rust storage
+real temp directory
+real filesystem
+```
+
+---
+
+# 8.7. Isolation
+
+Каждый test:
+
+```text
+temp vault
+unique ID
+cleanup
+```
+
+---
+
+# 8.8. Unicode paths
+
+```text
+Заметка.md
+Нотатка.md
+日本語.md
+emoji🔥.md
+folder with spaces
+```
+
+---
+
+# 8.9. Contract errors
+
+Минимальные категории:
+
+```text
+not found
+already exists
+invalid path
+operation failed
+```
+
+Raw backend error может отличаться.
+
+Application-level semantics — нет.
+
+---
+
+# 8.10. Не включать platform-specific features
+
+В общий contract НЕ включать:
+
+```text
+watcher
+symlinks
+permissions
+native dialogs
+```
+
+---
+
+# 8.11. CI
+
+Browser suite:
+
+```text
+frontend job
+```
+
+Tauri suite:
+
+```text
+desktop integration job
+```
+
+---
+
+## Gate Phase 8
+
+- [ ] Один reusable contract.
+- [ ] Browser проходит.
+- [ ] Real Tauri проходит.
+- [ ] Mock delegation tests могут остаться отдельно.
+- [ ] Unicode/nested paths tested.
+- [ ] CI integration есть.
+
+---
+
+# PHASE 9 — Filesystem Security Hardening
 
 ## Приоритет
 
-P2 / P3
-
-Не блокировать 1.0, если нет конкретного exploit path, но постепенно улучшить.
-
-## 9.1. Провести аудит path validation
-
-Особенно операции:
-
-```text
-validate path
-↓
-filesystem mutation
-```
-
-Искать TOCTOU между проверкой и использованием.
-
-## 9.2. Проверить symlink scenarios
-
-Особенно:
-
-- rename;
-- delete;
-- copy;
-- attachment operations;
-- vault boundaries.
-
-## 9.3. Где разумно — переходить к handle/capability-based operations
-
-Не делать полный rewrite filesystem layer одним PR.
+P2
 
 ---
 
-# PHASE 10 — Архитектурный cleanup после correctness fixes
+# 9.1. Инвентаризировать все filesystem calls
+
+Найти:
+
+```text
+read
+write
+rename
+copy
+remove_file
+remove_dir
+remove_dir_all
+create_dir
+canonicalize
+metadata
+```
+
+---
+
+# 9.2. Создать security matrix
+
+Для каждой функции:
+
+```text
+input source
+relative/absolute
+read/write/delete
+vault-scoped?
+boundary check?
+symlink risk?
+```
+
+---
+
+# 9.3. Path traversal
+
+Tests:
+
+```text
+../outside.md
+../../outside.md
+folder/../../../outside.md
+```
+
+Windows:
+
+```text
+..\outside.md
+```
+
+---
+
+# 9.4. Absolute path injection
+
+Если API требует relative path:
+
+```text
+/etc/passwd
+C:\outside.txt
+\\server\share
+```
+
+reject.
+
+---
+
+# 9.5. Symlink escape
+
+Structure:
+
+```text
+vault/link -> outside/
+```
+
+Проверить:
+
+```text
+read
+write
+delete
+rename
+```
+
+через symlink.
+
+---
+
+# 9.6. Delete — самый высокий приоритет
+
+Каждый:
+
+```rust
+remove_dir_all
+```
+
+должен быть отдельно audited.
+
+---
+
+# 9.7. Rename
+
+Запретить:
+
+```text
+inside → outside
+inside → symlink outside
+```
+
+---
+
+# 9.8. Import/copy
+
+Разделить semantics:
+
+```text
+source may be external
+destination must be safe
+```
+
+---
+
+# 9.9. Archive extraction
+
+Если есть:
+
+проверить:
+
+```text
+../../outside
+```
+
+Zip Slip-style entries.
+
+---
+
+# 9.10. TOCTOU
+
+Искать:
+
+```text
+validate
+await
+mutate
+```
+
+Зафиксировать risks.
+
+Не обязательно делать полный capability rewrite.
+
+---
+
+## Gate Phase 9
+
+Все очевидные vault escape paths закрыты tests.
+
+---
+
+# PHASE 10 — Backend Module Cleanup
 
 ## Приоритет
 
 P3
 
-Только после Phase 1–8.
+Только после correctness/security phases.
 
-## 10.1. Разделить `frontmatter.rs`
+---
 
-Целевая структура примерно:
+# 10.1. Frontmatter module
+
+Цель:
 
 ```text
 frontmatter/
@@ -1154,7 +1416,9 @@ frontmatter/
   envelope.rs
 ```
 
-Filesystem utility вынести:
+---
+
+# 10.2. Generic FS helpers
 
 ```text
 fs/
@@ -1162,9 +1426,43 @@ fs/
   text_format.rs
 ```
 
-## 10.2. Разделить `ai.rs`
+---
 
-Пример:
+# 10.3. Responsibilities
+
+### parse.rs
+
+```text
+frontmatter detection
+range calculation
+parse status
+```
+
+### properties.rs
+
+```text
+user properties
+```
+
+### identity.rs
+
+```text
+amby-id
+legacy identity
+migration
+```
+
+### envelope.rs
+
+```text
+lossless raw operations
+```
+
+---
+
+# 10.4. AI module
+
+Цель:
 
 ```text
 ai/
@@ -1172,273 +1470,844 @@ ai/
   config.rs
   security.rs
   client.rs
-  providers/
+  types.rs
 ```
-
-Не проводить rewrite AI behavior.
-
-Цель — separation of responsibilities.
-
-## 10.3. Сохранить текущий autosave coordinator
-
-Не заменять его простым debounce-save.
-
-Текущая версия/versioning/generation модель является полезной частью архитектуры.
-
-Refactor допускается только при сохранении существующих guarantees и tests.
 
 ---
 
-# PHASE 11 — Усилить frontend application layer
+# 10.5. Не делать provider framework без необходимости
+
+Не вводить десятки traits ради будущего.
+
+---
+
+# 10.6. Refactor sequence
+
+Перемещать маленькими шагами.
+
+После каждого:
+
+```bash
+cargo test
+```
+
+---
+
+## Gate Phase 10
+
+Behavior unchanged, tests green, modules имеют понятные responsibilities.
+
+---
+
+# PHASE 11 — Frontend Application Layer
 
 ## Приоритет
 
 P3
 
-## Цель
+---
 
-Не допустить превращения Workspace в центр всей бизнес-логики по мере роста приложения.
+# 11.1. Найти orchestration hotspots
 
-## 11.1. Ввести application controllers/use-cases
-
-Пример направления:
+Искать user actions, которые трогают одновременно:
 
 ```text
-DocumentController
-VaultController
-WorkspaceController
-WindowController
+storage
+autosave
+tabs
+tree
+vault
+editor
+index
 ```
-
-или аналогичные сервисы.
-
-UI должен инициировать:
-
-```text
-document.rename()
-document.save()
-vault.switch()
-workspace.open()
-```
-
-вместо ручного координирования нескольких stores и IPC calls.
-
-## 11.2. Не делать hook explosion
-
-Не превращать один большой файл в 40 маленьких hooks без архитектурного выигрыша.
-
-Разделение должно идти по ответственности, а не LOC.
 
 ---
 
-# PHASE 12 — Обновить документацию
+# 11.2. Основные use-cases
+
+```text
+renameDocument
+deleteDocument
+closeDocument
+openDocument
+switchVault
+```
+
+---
+
+# 11.3. Не начинать с классов
+
+Сначала обычные use-case functions.
+
+---
+
+# 11.4. Создать application layer
+
+Например:
+
+```text
+src/application/
+  documents/
+  vault/
+  errors/
+```
+
+---
+
+# 11.5. Rename Document
+
+Централизовать:
+
+```text
+pending save
+storage rename
+autosave remap
+tab update
+tree update
+active document
+```
+
+---
+
+# 11.6. Failure handling
+
+Если rename failed:
+
+```text
+UI остаётся на old path
+autosave key не повреждён
+tree не врёт
+```
+
+---
+
+# 11.7. Switch Vault
+
+Use-case должен владеть:
+
+```text
+flush dirty buffers
+detach old subscriptions
+open new vault
+load state
+attach watcher
+```
+
+---
+
+# 11.8. Failure during switch
+
+Не оставлять half-switched state.
+
+---
+
+# 11.9. Close/Delete
+
+Централизовать autosave + tabs + storage sequencing.
+
+---
+
+# 11.10. Error normalization
+
+Создать небольшой application error model.
+
+Не сложный framework.
+
+---
+
+# 11.11. Tests
+
+Mock dependencies.
+
+Проверять не JSX, а orchestration sequence.
+
+---
+
+## Gate Phase 11
+
+UI знает меньше о storage/autosave implementation details.
+
+---
+
+# PHASE 12 — Architecture Documentation
 
 ## Приоритет
 
 P3
 
-Обновить README architecture section согласно реальной структуре backend.
+---
 
-Сейчас документация должна отражать:
+# 12.1. Обновить README structure
+
+Она должна соответствовать реальному repository.
+
+---
+
+# 12.2. Architecture diagram
 
 ```text
-commands/
-index/
-vault/
-bundle/
-frontmatter
-watcher
-history
-recovery
-...
+React
+↓
+Application layer
+↓
+Storage / IPC
+↓
+Tauri commands
+↓
+Rust services
+↓
+Filesystem
+↓
+SQLite index
 ```
 
-Также задокументировать:
+---
+
+# 12.3. Source-of-truth
+
+Явно документировать:
+
+```text
+Markdown authoritative
+SQLite rebuildable
+```
+
+---
+
+# 12.4. `amby-id`
+
+Документировать:
 
 ```yaml
 amby-id:
 ```
 
-и preservation policy.
+и generic `id` ownership.
 
 ---
 
-# PHASE 13 — Release gates перед Beta/1.0
+# 12.5. Preservation policy
 
-Не считать проект готовым к 1.0, пока не выполнены следующие условия.
-
-Отметки ниже отражают только подтверждённые результаты на 2026-08-31.
-Локальные проверки изменённых путей не заменяют desktop E2E и cross-platform CI.
-
-## Data integrity
-
-- [x] generic `id` не принадлежит Amby;
-- [x] используется `amby-id`;
-- [x] legacy IDs имеют безопасный migration path;
-- [x] ID insertion lossless;
-- [x] CRLF сохраняется в проверенных путях вставки ID и сохранения;
-- [x] BOM сохраняется в проверенных путях вставки ID и сохранения;
-- [x] YAML comments не уничтожаются при вставке ID и body-save закрытого envelope;
-- [ ] unsupported Markdown roundtrip безопасен.
-
-## Index
-
-- [x] нет second-resolution mtime bug;
-- [ ] external edits reliably detected на всех целевых платформах (macOS watcher integration пройден);
-- [x] malformed YAML не скрывает body;
-- [x] duplicate IDs диагностируются;
-- [ ] SQLite полностью rebuildable.
-
-## Search
-
-- [ ] BM25 участвует в final ranking;
-- [ ] Unicode search покрыт тестами;
-- [ ] punctuation queries имеют нормальное поведение;
-- [ ] snippet generation Unicode-safe.
-
-## Desktop reliability
-
-- [ ] autosave + rename E2E;
-- [ ] external edit E2E;
-- [ ] external delete E2E;
-- [ ] vault switch E2E;
-- [ ] crash/recovery smoke tests;
-- [x] actual filesystem tested на временных macOS vault; Windows/Linux ещё не проверены.
-
-## CI
-
-- [ ] `verify:full` green;
-- [ ] Windows green;
-- [ ] macOS green;
-- [ ] Linux green;
-- [x] generated IPC bindings current; ожидается коммит с Rust-типами, повторная генерация побайтно совпала.
-
----
-
-# Что НЕ делать сейчас
-
-До завершения базовой стабилизации не начинать большие архитектурные rewrites.
-
-Не нужно:
+Документировать:
 
 ```text
-переносить source of truth в SQLite
-заменять Rust backend
-заменять Tauri
-заменять Tiptap
-удалять CodeMirror
-переписывать autosave
-создавать собственный Markdown parser с нуля
+unknown syntax preserved
+comments preserved
+opaque nodes preserved
 ```
 
-Текущая общая архитектура проекта достаточно хорошая.
-
 ---
 
-# Приоритет выполнения
-
-Если времени мало, выполнять строго в следующем порядке:
-
-## Tier 1 — обязательно
-
-1. `id` → `amby-id`
-2. lossless ID insertion
-3. high-resolution index change detection
-4. malformed frontmatter graceful handling
-5. regression tests для всего выше
-
-## Tier 2 — перед публичной beta
-
-6. BM25 final ranking
-7. query tokenizer
-8. desktop E2E suite
-9. storage contracts
-
-## Tier 3 — после стабилизации
-
-10. filesystem security hardening
-11. split крупных Rust modules
-12. frontend controllers
-13. README/docs cleanup
-
----
-
-# Рекомендуемый порядок PR
-
-Не собирать всё в один гигантский PR.
-
-Оптимально:
+# 12.6. Dual editor
 
 ```text
-PR 1 — introduce amby-id + compatibility tests
-
-PR 2 — lossless frontmatter identity insertion
-
-PR 3 — index metadata precision + migration
-
-PR 4 — malformed frontmatter graceful indexing
-
-PR 5 — search ranking + tokenizer
-
-PR 6 — desktop E2E foundation
-
-PR 7 — core reliability E2E scenarios
-
-PR 8 — storage contract tests
-
-PR 9 — filesystem security hardening
-
-PR 10 — frontmatter module decomposition
-
-PR 11 — AI module decomposition
-
-PR 12 — frontend orchestration cleanup
-
-PR 13 — documentation update
+Tiptap = structured
+CodeMirror = source
 ```
 
-Каждый PR должен быть independently reviewable и по возможности не менять несколько архитектурных областей одновременно.
+---
+
+# 12.7. Browser vs desktop
+
+Объяснить ограничения browser fallback.
 
 ---
 
-# Инструкция Codex по выполнению каждого PR
+# 12.8. Testing
 
-Для каждого пункта roadmap:
-
-1. Сначала изучить текущую реализацию и связанные тесты.
-2. Кратко описать root cause.
-3. Указать затрагиваемые файлы.
-4. Добавить failing regression test.
-5. Реализовать минимальное исправление.
-6. Не проводить unrelated cleanup.
-7. Запустить локальные релевантные проверки.
-8. Запустить полный verification pipeline.
-9. В финальном отчёте указать:
-   - что было изменено;
-   - почему;
-   - какие edge cases покрыты;
-   - какие тесты добавлены;
-   - какие команды проверки прошли;
-   - что сознательно осталось вне scope.
+Все реальные команды должны быть актуальны.
 
 ---
 
-# Финальная архитектурная цель
+## Gate Phase 12
 
-После выполнения roadmap Amby должен удовлетворять следующему принципу:
+Новый contributor может понять core architecture из документации.
+
+---
+
+# PHASE 13 — Compatibility Vault
+
+## Приоритет
+
+P1 перед 1.0
+
+Создать постоянный fixture:
+
+```text
+fixtures/compatibility-vault/
+```
+
+---
+
+# 13.1. Fixtures
+
+Добавить:
+
+```text
+plain markdown
+frontmatter
+comments
+single quotes
+double quotes
+CRLF
+BOM
+Unicode
+Russian
+Ukrainian
+Japanese
+emoji
+wikilinks
+wikilink alias
+wikilink heading
+embeds
+HTML
+tables
+code blocks
+custom YAML
+generic id
+amby-id
+duplicate amby-id
+malformed YAML
+unsupported syntax
+```
+
+---
+
+# 13.2. Roundtrip suite
+
+Для каждой note:
+
+```text
+open
+modify known region
+save
+```
+
+Проверить expected preserved parts.
+
+---
+
+# 13.3. Rebuild
+
+Удалить SQLite.
+
+Rebuild.
+
+Markdown fixtures не должны измениться.
+
+---
+
+## Gate Phase 13
+
+Compatibility vault green на всех поддерживаемых платформах.
+
+---
+
+# PHASE 14 — Native Desktop Smoke / UI E2E
+
+## Приоритет
+
+P1 перед 1.0
+
+Существующие Rust desktop tests недостаточны для проверки WebView/Tauri wiring.
+
+---
+
+# 14.1. Минимальный native smoke
+
+Проверить настоящим app binary:
+
+```text
+launch
+open vault
+open note
+edit
+save
+close
+reopen
+```
+
+---
+
+# 14.2. Rename
+
+Через UI:
+
+```text
+edit
+rename
+close
+reopen
+```
+
+---
+
+# 14.3. External edit
+
+При запущенном UI внешний process изменяет файл.
+
+UI должен корректно reconciliate state.
+
+---
+
+# 14.4. External rename/delete/create
+
+Минимальные smoke scenarios.
+
+---
+
+# 14.5. Vault switch
+
+Через реальный UI.
+
+---
+
+# 14.6. Не строить огромный E2E framework
+
+Нужно 10–20 critical scenarios.
+
+Не сотни flaky UI tests.
+
+---
+
+## Gate Phase 14
+
+Critical native flows работают на реальном app binary.
+
+---
+
+# PHASE 15 — Performance Baseline
+
+## Приоритет
+
+P2
+
+---
+
+# 15.1. Synthetic vault generator
+
+Размеры:
+
+```text
+1k
+5k
+10k
+```
+
+---
+
+# 15.2. Variability
+
+Notes должны иметь:
+
+```text
+folders
+tags
+wikilinks
+different body sizes
+Unicode
+```
+
+---
+
+# 15.3. Measure
+
+```text
+initial scan
+warm open
+single-note reindex
+search latency
+memory after open
+```
+
+---
+
+# 15.4. Пока не ставить произвольные hard limits
+
+Сначала baseline.
+
+---
+
+# 15.5. Сохранить результаты
+
+```text
+docs/performance-baseline.md
+```
+
+---
+
+## Gate Phase 15
+
+Есть воспроизводимый baseline для будущих regression checks.
+
+---
+
+# PHASE 16 — Formal Release Gates
+
+## Приоритет
+
+P0 для Beta / 1.0
+
+Создать:
+
+```text
+docs/release-1.0-checklist.md
+```
+
+---
+
+# GATE A — Data Integrity
+
+- [ ] `amby-id` authoritative.
+- [ ] generic `id` user-owned.
+- [ ] Legacy migration safe.
+- [ ] Duplicate IDs diagnostic.
+- [ ] YAML comments preserved.
+- [ ] Quotes preserved.
+- [ ] CRLF preserved.
+- [ ] BOM preserved.
+- [ ] Unsupported Markdown preserved.
+
+---
+
+# GATE B — Index
+
+- [ ] same-size update detected.
+- [ ] external watcher update works.
+- [ ] malformed YAML searchable.
+- [ ] SQLite rebuild safe.
+- [ ] rebuild does not mutate Markdown.
+
+---
+
+# GATE C — Search
+
+- [ ] BM25 final ranking.
+- [ ] title bonus correct.
+- [ ] punctuation tokenizer correct.
+- [ ] snippets consistent with FTS.
+- [ ] Russian.
+- [ ] Ukrainian.
+- [ ] Unicode.
+- [ ] emoji.
+
+---
+
+# GATE D — Autosave
+
+- [ ] normal autosave.
+- [ ] rename during save.
+- [ ] switch vault dirty note.
+- [ ] close app dirty note.
+- [ ] save failure remains dirty.
+
+---
+
+# GATE E — External editor
+
+- [ ] edit.
+- [ ] rename.
+- [ ] delete.
+- [ ] create.
+
+---
+
+# GATE F — Recovery
+
+- [ ] atomic write failure.
+- [ ] failed rename.
+- [ ] failed save.
+- [ ] history snapshot.
+- [ ] recovery.
+- [ ] recycle bin.
+
+---
+
+# GATE G — Filesystem Security
+
+- [ ] traversal read blocked.
+- [ ] traversal write blocked.
+- [ ] traversal delete blocked.
+- [ ] symlink escape blocked.
+- [ ] recursive delete guarded.
+
+---
+
+# GATE H — AI Security
+
+- [ ] private endpoint restrictions.
+- [ ] link-local restrictions.
+- [ ] redirect policy.
+- [ ] timeout.
+- [ ] response-size limit.
+- [ ] credentials not leaked.
+
+---
+
+# GATE I — Platform
+
+## Windows
+
+- [ ] build
+- [ ] installer
+- [ ] open/edit/save
+- [ ] rename
+- [ ] external edit
+
+## macOS
+
+- [ ] build
+- [ ] open/edit/save
+- [ ] rename
+- [ ] external edit
+
+## Linux
+
+- [ ] build
+- [ ] open/edit/save
+- [ ] rename
+- [ ] external edit
+
+---
+
+# GATE J — CI
+
+```bash
+npm run verify:full
+```
+
+Green.
+
+Также:
+
+- [ ] TypeScript
+- [ ] ESLint
+- [ ] Prettier
+- [ ] Vitest
+- [ ] Knip
+- [ ] rustfmt
+- [ ] Clippy
+- [ ] cargo test
+- [ ] IPC bindings
+- [ ] storage contracts
+- [ ] desktop reliability
+- [ ] native smoke
+- [ ] builds/installers
+
+---
+
+# PHASE 17 — Release Candidate
+
+## Приоритет
+
+Final
+
+---
+
+# 17.1. Feature freeze
+
+После входа в RC:
+
+```text
+NO new large features
+```
+
+---
+
+# 17.2. Разрешены только
+
+```text
+bug fixes
+release blockers
+documentation corrections
+test fixes
+build fixes
+```
+
+---
+
+# 17.3. RC workflow
+
+```text
+dev
+↓
+feature freeze
+↓
+release candidate
+↓
+full verification
+↓
+compatibility vault
+↓
+native smoke
+↓
+platform checks
+↓
+release
+```
+
+---
+
+# Release blockers
+
+Следующие проблемы ОБЯЗАНЫ блокировать 1.0:
+
+```text
+possible data loss
+silent Markdown corruption
+silent YAML corruption
+latest autosave loss
+note inaccessible because of Amby metadata
+non-recoverable index divergence
+vault filesystem escape
+credential exposure
+```
+
+---
+
+# Не являются автоматическим blocker
+
+```text
+minor animation issue
+small visual inconsistency
+non-critical search ranking imperfection
+unfinished future Collections
+missing plugin ecosystem
+minor internal code organization issue
+```
+
+---
+
+# Рекомендуемое разбиение на PR
+
+Codex НЕ должен делать весь roadmap одним commit.
+
+## Correctness
+
+```text
+PR 1 — legacy identity hardening
+PR 2 — FTS snippet/title normalization
+PR 3 — index residual correctness tests
+PR 4 — malformed/frontmatter regression completion
+```
+
+## Storage / reliability
+
+```text
+PR 5 — storage contract framework
+PR 6 — browser storage contract
+PR 7 — real Tauri storage contract
+PR 8 — missing desktop reliability scenarios
+```
+
+## Security
+
+```text
+PR 9 — filesystem path traversal hardening
+PR 10 — symlink/delete/rename hardening
+```
+
+## Architecture
+
+```text
+PR 11 — frontmatter module decomposition
+PR 12 — fs utilities extraction
+PR 13 — AI module decomposition
+PR 14 — frontend application layer foundation
+PR 15 — rename use-case
+PR 16 — vault switch use-case
+PR 17 — close/delete/open use-cases
+```
+
+## Release preparation
+
+```text
+PR 18 — documentation sync
+PR 19 — compatibility vault
+PR 20 — native desktop smoke suite
+PR 21 — performance baseline
+PR 22 — release checklist / CI gates
+```
+
+---
+
+# Codex autonomous decision rules
+
+Codex может самостоятельно принимать небольшие технические решения, если соблюдены следующие условия.
+
+## Можно самостоятельно
+
+```text
+выбрать имя helper
+выбрать место небольшого internal type
+выбрать fixture structure
+добавить regression tests
+реорганизовать private helper
+выбрать BLAKE3/xxHash после сравнения текущих dependencies
+```
+
+---
+
+## Нельзя самостоятельно менять
+
+Без отдельного архитектурного основания:
+
+```text
+source-of-truth model
+public file format
+amby-id semantics
+autosave guarantees
+vault ownership model
+editor architecture
+sync model
+supported platform policy
+```
+
+---
+
+# Правило при обнаружении новой проблемы
+
+Если Codex во время работы обнаружил новый bug:
+
+### Если это data-loss/security P0/P1
+
+Остановить текущий feature work.
+
+Добавить:
+
+```text
+root cause
+reproduction
+severity
+recommended fix
+```
+
+и исправить до продолжения.
+
+### Если P2/P3
+
+Создать отдельный TODO/issue и не раздувать текущий PR.
+
+---
+
+# Финальное состояние проекта
+
+После выполнения roadmap должно быть истинно:
 
 ```text
 Пользователь может взять существующий Markdown/Obsidian vault,
 открыть его в Amby,
-работать одновременно через другие Markdown tools,
-а затем перестать использовать Amby,
-не обнаружив, что приложение присвоило себе его данные,
-сломало неизвестную разметку,
-изменило YAML без необходимости
-или спрятало часть заметок из-за внутренних требований Amby.
+редактировать заметки,
+параллельно использовать другой Markdown-редактор,
+закрывать и открывать Amby,
+переименовывать и перемещать файлы,
+а затем полностью перестать использовать Amby —
+и его Markdown останется валидным,
+понятным другим приложениям,
+не повреждённым и не привязанным к внутренней базе Amby.
 ```
 
-И только после достижения этого состояния стоит активно строить сверху:
+После этого архитектура готова для активного развития:
 
 ```text
 Collections
@@ -1446,7 +2315,7 @@ Databases
 Git sync
 AI workflows
 advanced Canvas
-plugin ecosystem
+plugin system
 ```
 
-Потому что все эти возможности будут зависеть от надёжности identity, indexing и preservation layer.
+без накопления нового фундаментального техдолга.

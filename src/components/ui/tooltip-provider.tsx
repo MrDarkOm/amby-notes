@@ -11,6 +11,8 @@ interface TooltipState {
 
 const TOOLTIP_GAP = 10
 const TOOLTIP_SAFE_WIDTH = 260
+const TOOLTIP_DELAY = 1000
+const TOOLTIP_DELAY_KEY = "amby:tooltip-delay-ms"
 
 /**
  * One visual tooltip system for the application.
@@ -22,8 +24,18 @@ const TOOLTIP_SAFE_WIDTH = 260
 export function TooltipProvider() {
   const [tooltip, setTooltip] = React.useState<TooltipState | null>(null)
   const activeTargetRef = React.useRef<HTMLElement | null>(null)
+  const pendingTargetRef = React.useRef<HTMLElement | null>(null)
+  const showTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const delayRef = React.useRef(TOOLTIP_DELAY)
 
   React.useLayoutEffect(() => {
+    const saved = Number(localStorage.getItem(TOOLTIP_DELAY_KEY))
+    if (Number.isFinite(saved) && saved >= -1) delayRef.current = saved
+    const onDelayChange = () => {
+      const next = Number(localStorage.getItem(TOOLTIP_DELAY_KEY))
+      if (Number.isFinite(next) && next >= -1) delayRef.current = next
+    }
+    window.addEventListener("amby:tooltip-delay-change", onDelayChange)
     const promoteTitle = (element: HTMLElement) => {
       const title = element.getAttribute("title")?.trim()
       if (!title) return
@@ -45,22 +57,35 @@ export function TooltipProvider() {
     const show = (target: HTMLElement) => {
       const content = target.dataset.ambyTooltip
       if (!content || target.matches(":disabled")) return
-      activeTargetRef.current = target
-      const rect = target.getBoundingClientRect()
-      const side =
-        rect.right + TOOLTIP_GAP + TOOLTIP_SAFE_WIDTH <= window.innerWidth ||
-        rect.left < TOOLTIP_SAFE_WIDTH
-          ? "right"
-          : "left"
-      setTooltip({
-        content,
-        left: side === "right" ? rect.right + TOOLTIP_GAP : rect.left - TOOLTIP_GAP,
-        top: rect.top + rect.height / 2,
-        side,
-      })
+      if (delayRef.current < 0) return
+      pendingTargetRef.current = target
+      if (showTimerRef.current) clearTimeout(showTimerRef.current)
+      showTimerRef.current = setTimeout(() => {
+        if (pendingTargetRef.current !== target) return
+        activeTargetRef.current = target
+        const rect = target.getBoundingClientRect()
+        const side =
+          rect.right + TOOLTIP_GAP + TOOLTIP_SAFE_WIDTH <= window.innerWidth ||
+          rect.left < TOOLTIP_SAFE_WIDTH
+            ? "right"
+            : "left"
+        setTooltip({
+          content,
+          left: side === "right" ? rect.right + TOOLTIP_GAP : rect.left - TOOLTIP_GAP,
+          top: rect.top + rect.height / 2,
+          side,
+        })
+      }, delayRef.current)
     }
 
     const hide = () => {
+      activeTargetRef.current = null
+      pendingTargetRef.current = null
+      if (showTimerRef.current) clearTimeout(showTimerRef.current)
+      showTimerRef.current = null
+      setTooltip(null)
+    }
+    const hideActive = () => {
       activeTargetRef.current = null
       setTooltip(null)
     }
@@ -80,7 +105,13 @@ export function TooltipProvider() {
         event.relatedTarget instanceof Element
           ? event.relatedTarget.closest<HTMLElement>("[data-amby-tooltip]")
           : null
-      if (target && target === activeTargetRef.current && next !== target) hide()
+      if (target && next !== target) {
+        if (target === activeTargetRef.current) hideActive()
+        if (target === pendingTargetRef.current) {
+          pendingTargetRef.current = null
+          if (showTimerRef.current) clearTimeout(showTimerRef.current)
+        }
+      }
     }
     const onFocusIn = (event: FocusEvent) => {
       const target = getTarget(event)
@@ -124,6 +155,7 @@ export function TooltipProvider() {
     window.addEventListener("scroll", reposition, true)
 
     return () => {
+      window.removeEventListener("amby:tooltip-delay-change", onDelayChange)
       observer.disconnect()
       document.removeEventListener("pointerover", onPointerOver)
       document.removeEventListener("pointerout", onPointerOut)
@@ -139,11 +171,10 @@ export function TooltipProvider() {
   return (
     <div
       role="tooltip"
-      className="pointer-events-none fixed z-[100] -translate-y-1/2 whitespace-nowrap rounded-lg border border-border bg-popover px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xl"
+      className={`pointer-events-none fixed z-[100] whitespace-nowrap rounded-lg border border-border bg-popover px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xl ${tooltip.side === "right" ? "amby-tooltip-from-right" : "amby-tooltip-from-left"}`}
       style={{
         left: tooltip.left,
         top: tooltip.top,
-        transform: tooltip.side === "left" ? "translate(-100%, -50%)" : "translateY(-50%)",
       }}
     >
       <span

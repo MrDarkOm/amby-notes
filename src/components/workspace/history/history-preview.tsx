@@ -1,33 +1,141 @@
 import * as React from "react"
-import { ChevronLeft, ChevronRight, Loader2, RotateCcw, ShieldCheck } from "lucide-react"
+import {
+  ArrowLeftRight,
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  FolderOpen,
+  History,
+  Loader2,
+  Search,
+  RotateCcw,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
-import { compactHistoryDiff, diffHistory, historyReasonKey } from "./history-model"
+import type { TreeItem } from "@/lib/storage"
+import { Input } from "@/components/ui/input"
+import { IconValue } from "../icon-value"
+import { diffHistory } from "./history-model"
 import type { useHistory } from "./use-history"
 
 export function HistoryPreview({
   history,
   name,
+  treeItems,
+  onSelect,
 }: {
   history: ReturnType<typeof useHistory>
   name: string
+  treeItems: TreeItem[]
+  onSelect: (id: string) => void
 }) {
   const { t, i18n } = useTranslation()
-  const [mode, setMode] = React.useState<"changes" | "version" | "current">("changes")
   const diff = React.useMemo(
     () => (history.preview ? diffHistory(history.preview.previous, history.preview.current) : null),
     [history.preview],
   )
   const entry = history.selected
-  const rows = React.useMemo(() => (diff ? compactHistoryDiff(diff.lines) : []), [diff])
-  const index = history.snapshots.findIndex((version) => version.id === entry?.id)
-  const date = entry
-    ? new Intl.DateTimeFormat(i18n.language, { dateStyle: "long", timeStyle: "short" }).format(
-        entry.createdAtMs,
+  const [browseOpen, setBrowseOpen] = React.useState(false)
+  const [expandedFolders, setExpandedFolders] = React.useState<Set<string>>(new Set())
+  const [browseQuery, setBrowseQuery] = React.useState("")
+  const visibleTree = React.useCallback(
+    (items: TreeItem[]): TreeItem[] => {
+      const query = browseQuery.trim().toLocaleLowerCase()
+      let sortKey: "name" | "created" | "modified" = "name"
+      let direction: "asc" | "desc" = "asc"
+      try {
+        const saved = JSON.parse(localStorage.getItem("amby:tree-sort") ?? "{}") as {
+          key?: string
+          direction?: string
+        }
+        if (saved.key === "created" || saved.key === "modified") sortKey = saved.key
+        if (saved.direction === "desc") direction = "desc"
+      } catch {
+        /* use defaults */
+      }
+      const multiplier = direction === "asc" ? 1 : -1
+      const sorted = [...items].sort((a, b) => {
+        const rank = (item: TreeItem) =>
+          item.type === "folder" || (item.type === "file" && Boolean(item.children?.length)) ? 0 : 1
+        const kind = rank(a) - rank(b)
+        if (kind) return kind
+        const result =
+          sortKey === "name"
+            ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+            : (a[sortKey] ?? 0) - (b[sortKey] ?? 0)
+        return (
+          result * multiplier || a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+        )
+      })
+      if (!query) return sorted
+      return sorted.flatMap((item) => {
+        const children = item.children ? visibleTree(item.children) : []
+        return item.name.toLocaleLowerCase().includes(query) || children.length
+          ? [{ ...item, children }]
+          : []
+      })
+    },
+    [browseQuery],
+  )
+  const renderTree = (items: TreeItem[], depth = 0): React.ReactNode =>
+    items.map((item) => {
+      const folder = item.type === "folder" || Boolean(item.children?.length)
+      const expanded = expandedFolders.has(item.id)
+      return (
+        <React.Fragment key={item.id}>
+          <button
+            type="button"
+            className="flex w-full items-center gap-1 rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
+            style={{ paddingLeft: `${8 + depth * 12}px` }}
+            onClick={() =>
+              folder
+                ? setExpandedFolders((current) => {
+                    const next = new Set(current)
+                    if (expanded) next.delete(item.id)
+                    else next.add(item.id)
+                    return next
+                  })
+                : (onSelect(item.id), setBrowseOpen(false), void history.select(null))
+            }
+          >
+            {folder ? (
+              <>
+                {expanded ? (
+                  <ChevronDown className="size-3.5" />
+                ) : (
+                  <ChevronRight className="size-3.5" />
+                )}
+                <IconValue
+                  value={
+                    item.icon && !["file", "folder", "canvas"].includes(item.icon)
+                      ? item.icon
+                      : undefined
+                  }
+                  fallback={<FolderOpen className="size-4 text-muted-foreground" />}
+                  className="size-4"
+                />
+              </>
+            ) : (
+              <IconValue
+                value={
+                  item.icon && !["file", "folder", "canvas"].includes(item.icon)
+                    ? item.icon
+                    : undefined
+                }
+                fallback={<FileText className="size-4 text-muted-foreground" />}
+                className="size-4"
+              />
+            )}
+            <span className="truncate">{item.name}</span>
+          </button>
+          {folder && expanded && item.children ? renderTree(item.children, depth + 1) : null}
+        </React.Fragment>
       )
-    : ""
+    })
   return (
     <Dialog
       open={Boolean(entry)}
@@ -36,64 +144,29 @@ export function HistoryPreview({
       }}
     >
       <DialogContent
-        className="flex h-[min(82vh,800px)] min-h-0 max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden bg-[var(--note-surface)] p-0 sm:max-w-5xl"
+        className="flex h-[min(76vh,720px)] min-h-0 max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-2xl bg-white p-0 shadow-2xl sm:max-w-4xl"
         onEscapeKeyDown={(event) => {
           if (history.busy) event.preventDefault()
         }}
         onPointerDownOutside={(event) => event.preventDefault()}
       >
-        <div className="border-b px-5 pb-4 pt-5 pr-12">
-          <p className="mb-1 text-xs text-muted-foreground">{t("historyPanel.versionHistory")}</p>
-          <DialogTitle className="truncate text-lg">{name}</DialogTitle>
-          <DialogDescription className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-            <span>{date}</span>
-            <span aria-hidden="true">·</span>
-            <span>{entry && t(historyReasonKey(entry.reason))}</span>
-          </DialogDescription>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
-          <div
-            className="flex flex-wrap gap-1"
-            role="group"
-            aria-label={t("historyPanel.previewMode")}
-          >
-            {(["changes", "version", "current"] as const).map((value) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={mode === value ? "secondary" : "ghost"}
-                aria-pressed={mode === value}
-                onClick={() => setMode(value)}
-                className="text-xs"
-              >
-                {t(`historyPanel.${value}`)}
-              </Button>
-            ))}
+        <div className="relative bg-white px-5 pb-4 pt-5 pr-12">
+          <div className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <History className="size-4" />
+            <span>{t("historyPanel.versionHistory")}</span>
           </div>
-          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2">
             <Button
               variant="ghost"
               size="icon-sm"
-              title={t("historyPanel.newer")}
-              aria-label={t("historyPanel.newer")}
-              disabled={index <= 0 || history.busy}
-              onClick={() => void history.select(history.snapshots[index - 1])}
+              className="size-7"
+              title={t("historyPanel.openNote")}
+              aria-label={t("historyPanel.openNote")}
+              onClick={() => setBrowseOpen((open) => !open)}
             >
-              <ChevronLeft />
+              <ArrowLeftRight className="size-4" />
             </Button>
-            <span className="tabular-nums">
-              {index + 1} / {history.snapshots.length}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              title={t("historyPanel.older")}
-              aria-label={t("historyPanel.older")}
-              disabled={index < 0 || index >= history.snapshots.length - 1 || history.busy}
-              onClick={() => void history.select(history.snapshots[index + 1])}
-            >
-              <ChevronRight />
-            </Button>
+            <DialogTitle className="truncate text-xl tracking-tight">{name}</DialogTitle>
           </div>
         </div>
         {history.error && (
@@ -111,85 +184,74 @@ export function HistoryPreview({
           </div>
         ) : diff && history.preview ? (
           <>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-muted/30 px-5 py-2 text-xs text-muted-foreground">
-              <span>
-                {t(
-                  mode === "changes"
-                    ? "historyPanel.changesSince"
-                    : mode === "current"
-                      ? "historyPanel.savedOnDisk"
-                      : "historyPanel.snapshotContent",
-                )}
-              </span>
-              {mode === "changes" && (
-                <span className="ml-auto flex gap-3 tabular-nums">
-                  <span>{t("historyPanel.addedLines", { count: diff.added })}</span>
-                  <span>{t("historyPanel.removedLines", { count: diff.removed })}</span>
-                </span>
-              )}
+            <div className="mx-3 mt-2 grid min-h-0 flex-1 grid-cols-[12rem_minmax(0,1fr)] gap-2">
+              <aside
+                className="min-h-0 overflow-auto rounded-lg border bg-white p-2"
+                aria-label={t("historyPanel.versionHistory")}
+              >
+                <div className="mb-2 flex items-center justify-between px-2 text-xs font-medium text-muted-foreground">
+                  <span className="flex items-center gap-2">
+                    <FolderOpen className="size-3.5" />
+                    {t("historyPanel.versions")}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-6 text-muted-foreground"
+                    title={t("historyPanel.clearNoteHistory")}
+                    aria-label={t("historyPanel.clearNoteHistory")}
+                    onClick={() => void history.cleanup()}
+                    disabled={history.busy}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </div>
+                <div className="space-y-1">
+                  {history.snapshots.map((snapshot) => (
+                    <button
+                      key={snapshot.id}
+                      type="button"
+                      disabled={history.busy}
+                      onClick={() => void history.select(snapshot)}
+                      className={cn(
+                        "w-full rounded-md px-2 py-2 text-left text-xs transition-colors hover:bg-muted",
+                        snapshot.id === entry?.id && "bg-muted/80 font-medium shadow-none",
+                      )}
+                    >
+                      <span className="block tabular-nums">
+                        {new Intl.DateTimeFormat(i18n.language, {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                        }).format(snapshot.createdAtMs)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </aside>
+              <div className="grid min-h-0 min-w-0 grid-cols-2 divide-x overflow-hidden rounded-lg border bg-white">
+                <section className="flex min-h-0 flex-col overflow-hidden">
+                  <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2 text-xs font-medium">
+                    {t("historyPanel.versionFromHistory")}
+                  </div>
+                  <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
+                    {history.preview.previous}
+                  </pre>
+                </section>
+                <section className="flex min-h-0 flex-col overflow-hidden">
+                  <div className="border-b bg-muted/30 px-4 py-2 text-xs font-medium">
+                    {t("historyPanel.currentVersion")}
+                  </div>
+                  <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
+                    {history.preview.current}
+                  </pre>
+                </section>
+              </div>
             </div>
-            {diff.simplified && mode === "changes" && (
+            {diff.simplified && (
               <p className="px-5 py-2 text-xs text-muted-foreground">
                 {t("historyPanel.simplifiedDiff")}
               </p>
             )}
-            <div
-              className="min-h-0 flex-1 overflow-auto"
-              tabIndex={0}
-              aria-label={t("historyPanel.previewContent")}
-            >
-              {mode === "changes" ? (
-                diff.identical ? (
-                  <div className="flex h-full min-h-40 flex-col items-center justify-center gap-2 p-6 text-center">
-                    <ShieldCheck className="size-8 text-muted-foreground" />
-                    <p className="text-sm">{t("historyPanel.identical")}</p>
-                  </div>
-                ) : (
-                  <div className="py-3 font-mono text-xs leading-6">
-                    {rows.slice(0, 1500).map((line, i) =>
-                      line.kind === "gap" ? (
-                        <p key={i} className="my-2 bg-muted/40 px-5 py-1 text-muted-foreground">
-                          {t("historyPanel.unchangedLines", { count: line.count })}
-                        </p>
-                      ) : (
-                        <div
-                          key={i}
-                          className={cn("history-diff-line flex", `history-diff-${line.kind}`)}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className="w-12 shrink-0 select-none pr-2 text-right text-muted-foreground"
-                          >
-                            {line.previousLine}
-                          </span>
-                          <span
-                            aria-hidden="true"
-                            className="w-12 shrink-0 select-none pr-2 text-right text-muted-foreground"
-                          >
-                            {line.currentLine}
-                          </span>
-                          <span className="w-6 shrink-0 select-none text-center">
-                            {line.kind === "added" ? "+" : line.kind === "removed" ? "−" : " "}
-                          </span>
-                          <pre className="min-w-0 flex-1 whitespace-pre-wrap break-words pr-4 [overflow-wrap:anywhere]">
-                            {line.text.replace(/\r?\n$/, "") || " "}
-                          </pre>
-                        </div>
-                      ),
-                    )}
-                    {rows.length > 1500 && (
-                      <p className="px-5 py-3 text-muted-foreground">
-                        {t("historyPanel.diffTruncated")}
-                      </p>
-                    )}
-                  </div>
-                )
-              ) : (
-                <pre className="whitespace-pre-wrap break-words p-5 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
-                  {mode === "version" ? history.preview.previous : history.preview.current}
-                </pre>
-              )}
-            </div>
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center">
@@ -198,11 +260,22 @@ export function HistoryPreview({
             </Button>
           </div>
         )}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/20 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-white px-6 py-3">
           <p className="flex min-w-0 flex-1 items-start gap-2 text-xs text-muted-foreground">
             <ShieldCheck className="size-4 shrink-0" />
             {t("historyPanel.restoreHint")}
           </p>
+          <Button
+            variant="outline"
+            size="icon"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            title={t("historyPanel.deleteVersion")}
+            aria-label={t("historyPanel.deleteVersion")}
+            disabled={history.busy || !history.preview || history.previewLoading}
+            onClick={() => entry && void history.removeSnapshot(entry)}
+          >
+            <Trash2 />
+          </Button>
           <Button
             disabled={history.busy || !history.preview || history.previewLoading}
             onClick={() => entry && void history.restore(entry)}
@@ -212,6 +285,40 @@ export function HistoryPreview({
           </Button>
         </div>
       </DialogContent>
+      <Dialog open={browseOpen} onOpenChange={setBrowseOpen}>
+        <DialogContent
+          showCloseButton={false}
+          className="w-[min(30rem,calc(100%-2rem))] overflow-hidden rounded-xl bg-white p-0"
+        >
+          <div className="overflow-hidden">
+            <div className="flex items-center gap-1 border-b px-4 py-3">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1.5 size-4 text-muted-foreground" />
+                <Input
+                  autoFocus
+                  value={browseQuery}
+                  onChange={(event) => setBrowseQuery(event.target.value)}
+                  placeholder={t("historyPanel.searchNotes")}
+                  className="h-7 rounded-none border-0 bg-transparent pl-8 text-xs shadow-none focus-visible:ring-0"
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-7 shrink-0"
+                title={t("common.close")}
+                aria-label={t("common.close")}
+                onClick={() => setBrowseOpen(false)}
+              >
+                <span className="text-lg leading-none">×</span>
+              </Button>
+            </div>
+            <div className="max-h-[65vh] overflow-auto px-4 py-3">
+              {renderTree(visibleTree(treeItems))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   )
 }

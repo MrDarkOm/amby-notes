@@ -51,6 +51,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::history::preview_history_cleanup,
         commands::history::cleanup_history,
         commands::history::restore_snapshot,
+        commands::history::delete_snapshot,
         commands::history::read_snapshot_text,
         commands::history::save_recovery,
         commands::history::read_recovery,

@@ -115,7 +115,13 @@ export function DocumentBody({
 
   const deferredContent = React.useDeferredValue(content)
   const liveWordCount = React.useMemo(
-    () => deferredContent.split(/\s+/).filter(Boolean).length,
+    () =>
+      deferredContent
+        .split("\n")
+        .map((line) => line.replace(/^\s{0,3}#{1,6}\s+/u, ""))
+        .join(" ")
+        .split(/\s+/)
+        .filter(Boolean).length,
     [deferredContent],
   )
 

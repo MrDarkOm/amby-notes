@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import {
   cleanupHistory,
   confirmAction,
+  deleteSnapshot,
   getHistoryStats,
   listSnapshots,
   listTrash,
@@ -21,7 +22,7 @@ import { useDocStore } from "../use-doc-store"
 import { useVaultStore } from "../use-vault-store"
 import { formatHistorySize } from "./history-model"
 
-const RETENTION = { maxSnapshotsPerNote: 20, maxAgeDays: null }
+const RETENTION = { maxSnapshotsPerNote: 0, maxAgeDays: null }
 
 export function useHistory(path: string | null | undefined, onRestored?: () => Promise<void>) {
   const { t, i18n } = useTranslation()
@@ -166,7 +167,8 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
 
   function cleanup() {
     return action(async (isCurrent) => {
-      const preview = await previewHistoryCleanup(RETENTION)
+      if (!path) return
+      const preview = await previewHistoryCleanup(RETENTION, path)
       if (!isCurrent()) return
       if (!preview.removedCount) {
         setNotice(t("historyPanel.nothingToClean"))
@@ -174,8 +176,7 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
       }
       if (
         !(await confirmAction(
-          t("historyPanel.cleanupConfirm", {
-            keep: RETENTION.maxSnapshotsPerNote,
+          t("historyPanel.deleteHistoryConfirm", {
             count: preview.removedCount,
             size: formatHistorySize(preview.freedBytes, i18n.language),
           }),
@@ -183,7 +184,7 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
         !isCurrent()
       )
         return
-      const result = await cleanupHistory(RETENTION)
+      const result = await cleanupHistory(RETENTION, path)
       if (!isCurrent()) return
       void select(null)
       await refresh()
@@ -194,6 +195,47 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
             size: formatHistorySize(result.freedBytes, i18n.language),
           }),
         )
+    })
+  }
+
+  function removeSnapshot(entry: SnapshotEntry) {
+    return action(async (isCurrent) => {
+      if (!(await confirmAction(t("historyPanel.deleteVersionConfirm"))) || !isCurrent()) return
+      await deleteSnapshot(entry.id)
+      if (!isCurrent()) return
+      void select(null)
+      await refresh()
+      if (isCurrent()) setNotice(t("historyPanel.versionDeleted"))
+    })
+  }
+
+  function openLatest() {
+    const latest = snapshots[0]
+    if (latest) void select(latest)
+    else {
+      setError("")
+      setNotice(t("historyPanel.empty"))
+    }
+  }
+
+  function clearAll() {
+    return action(async (isCurrent) => {
+      const preview = await previewHistoryCleanup({ maxSnapshotsPerNote: 0, maxAgeDays: null })
+      if (!isCurrent() || !preview.removedCount) return
+      if (
+        !(await confirmAction(
+          t("historyPanel.clearAllConfirm", {
+            count: preview.removedCount,
+            size: formatHistorySize(preview.freedBytes, i18n.language),
+          }),
+        )) ||
+        !isCurrent()
+      )
+        return
+      await cleanupHistory({ maxSnapshotsPerNote: 0, maxAgeDays: null })
+      if (!isCurrent()) return
+      await refresh()
+      setNotice(t("historyPanel.historyCleared"))
     })
   }
 
@@ -213,5 +255,8 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
     restore,
     returnTrash,
     cleanup,
+    removeSnapshot,
+    clearAll,
+    openLatest,
   }
 }

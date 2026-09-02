@@ -6,7 +6,6 @@ import {
   Bookmark,
   BookmarkCheck,
   ChevronDown,
-  Columns2,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -139,10 +138,8 @@ interface HeaderTabsProps {
   onTabClose: (key: string) => void
   onToggleLeftSidebar?: () => void
   onToggleRightSidebar?: () => void
-  onToggleSplit?: () => void
   isLeftSidebarOpen?: boolean
   isRightSidebarOpen?: boolean
-  isSplit?: boolean
   isLeftDockVisible?: boolean
   isRightDockVisible?: boolean
   isLeftDockPinned?: boolean
@@ -205,10 +202,8 @@ export function HeaderTabs({
   onTabClose,
   onToggleLeftSidebar,
   onToggleRightSidebar,
-  onToggleSplit,
   isLeftSidebarOpen = true,
   isRightSidebarOpen = true,
-  isSplit = false,
   isLeftDockVisible = true,
   isRightDockVisible = true,
   isLeftDockPinned = true,
@@ -383,17 +378,6 @@ export function HeaderTabs({
       className="absolute top-1.5 z-10 flex items-center gap-1"
       style={{ right: rightHeaderInset }}
     >
-      {onToggleSplit && (
-        <button
-          type="button"
-          title={t("tabs.splitEditor")}
-          aria-pressed={isSplit}
-          onClick={onToggleSplit}
-          className={cn(HEADER_ICON_BTN, isSplit && "bg-accent text-accent-foreground")}
-        >
-          <Columns2 className="size-4" />
-        </button>
-      )}
       <TabsMenu
         trigger={
           <button title={t("tabs.tabMenu")} className={HEADER_ICON_BTN}>
@@ -412,7 +396,17 @@ export function HeaderTabs({
   )
 
   return (
-    <header className="relative z-50 flex h-11 select-none items-stretch bg-background">
+    <header
+      className="relative z-50 flex h-11 select-none items-stretch bg-background"
+      onDoubleClick={(event) => {
+        if ((event.target as HTMLElement).closest("button, a, input, select, [role='button']"))
+          return
+        if (isTauri())
+          getCurrentWindow()
+            .toggleMaximize()
+            .catch(() => {})
+      }}
+    >
       {/* macOS traffic light spacer — native buttons live here */}
       {isMac ? (
         <div className="w-[80px] shrink-0" onMouseDown={handleDragStart} />

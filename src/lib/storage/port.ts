@@ -98,9 +98,13 @@ export interface StoragePort {
   // History & Trash
   listSnapshots(sourcePath: string): Promise<SnapshotEntry[]>
   getHistoryStats(): Promise<HistoryStats>
-  previewHistoryCleanup(retention: HistoryRetention): Promise<HistoryCleanupPreview>
-  cleanupHistory(retention: HistoryRetention): Promise<HistoryCleanupResult>
+  previewHistoryCleanup(
+    retention: HistoryRetention,
+    sourcePath?: string,
+  ): Promise<HistoryCleanupPreview>
+  cleanupHistory(retention: HistoryRetention, sourcePath?: string): Promise<HistoryCleanupResult>
   restoreSnapshot(snapshotId: string): Promise<string>
+  deleteSnapshot(snapshotId: string): Promise<void>
   readSnapshotText(snapshotId: string): Promise<SnapshotText>
   listTrash(): Promise<TrashEntry[]>
   restoreTrash(trashId: string): Promise<FsMutationResult>

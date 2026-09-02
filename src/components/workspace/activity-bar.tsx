@@ -1,7 +1,16 @@
 "use client"
 
 import * as React from "react"
-import { Check, Download, Upload } from "lucide-react"
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Download,
+  EyeOff,
+  Pin,
+  Settings2,
+  Upload,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
@@ -156,10 +165,20 @@ export function ActivityBar({
     return (
       <>
         <ContextMenuSeparator />
-        <ContextMenuCheckboxItem checked={pinned} onCheckedChange={onPinnedChange}>
-          {t("dock.pin")}
-        </ContextMenuCheckboxItem>
-        <ContextMenuItem onSelect={onHide}>{t("dock.hide")}</ContextMenuItem>
+        <ContextMenuItem
+          className="flex min-w-64 items-center justify-between gap-4"
+          onSelect={() => onPinnedChange?.(!pinned)}
+        >
+          <span className="flex items-center gap-2">
+            <Pin className="size-4 text-muted-foreground" />
+            {t("dock.pin")}
+          </span>
+          {pinned && <Check className="size-4" />}
+        </ContextMenuItem>
+        <ContextMenuItem className="flex min-w-64 items-center gap-2" onSelect={onHide}>
+          <EyeOff className="size-4 text-muted-foreground" />
+          {t("dock.hide")}
+        </ContextMenuItem>
       </>
     )
   }
@@ -203,11 +222,27 @@ export function ActivityBar({
           ) : (
             <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
           )}
-          <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
+          <ContextMenuContent className="min-w-64 w-auto border-border bg-popover p-1 text-foreground">
+            <ContextMenuItem className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground">
+              <Settings2 className="size-4 text-muted-foreground" />
+              {t(
+                def.id === "history"
+                  ? "activityBar.historySettings"
+                  : def.id === "ai"
+                    ? "activityBar.aiSettings"
+                    : "activityBar.generalSettings",
+              )}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
             <ContextMenuItem
               className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
               onSelect={() => onMoveToOtherSide(def.id)}
             >
+              {side === "left" ? (
+                <ArrowRight className="size-4 text-muted-foreground" />
+              ) : (
+                <ArrowLeft className="size-4 text-muted-foreground" />
+              )}
               {side === "left" ? t("activityBar.moveRight") : t("activityBar.moveLeft")}
             </ContextMenuItem>
             {dockMenuItems()}

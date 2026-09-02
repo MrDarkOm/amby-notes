@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
+  Archive,
   Bookmark,
   BookmarkCheck,
   Code2,
@@ -294,6 +295,7 @@ export function DocumentActionsDropdown({
           variant="ghost"
           size="icon"
           aria-label={t("docEditor.moreActions")}
+          title={t("docEditor.moreActions")}
           className="size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         >
           <MoreVertical className="size-3.5" />
@@ -457,6 +459,14 @@ export function DocumentActionsDropdown({
         >
           <PenLine className="size-3.5 text-muted-foreground" />
           {t("tree.rename")}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!hasDocument || !onDeleteFile}
+          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+          onSelect={onDeleteFile}
+        >
+          <Archive className="size-3.5 text-muted-foreground" />
+          {t("workspace.archive")}
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={!hasDocument || !onDeleteFile}

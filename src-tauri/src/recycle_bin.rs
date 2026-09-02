@@ -222,13 +222,18 @@ pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
 }
 
 pub fn purge(vault: &Path, id: &str) -> Result<(), String> {
-    id.parse::<Ulid>().map_err(|_| "Invalid trash identifier".to_string())?;
+    id.parse::<Ulid>()
+        .map_err(|_| "Invalid trash identifier".to_string())?;
     let trash_root = root(vault);
     let manifest = manifest_path(&trash_root, id);
-    if !manifest.is_file() { return Err("Trash entry not found".to_string()); }
+    if !manifest.is_file() {
+        return Err("Trash entry not found".to_string());
+    }
     fs::remove_file(manifest).map_err(|error| error.to_string())?;
     let payload = trash_root.join(id);
-    if payload.exists() { fs::remove_dir_all(payload).map_err(|error| error.to_string())?; }
+    if payload.exists() {
+        fs::remove_dir_all(payload).map_err(|error| error.to_string())?;
+    }
     Ok(())
 }
 

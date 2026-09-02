@@ -29,8 +29,7 @@ pub fn is_valid_tag(tag: &str) -> bool {
 }
 
 fn is_hex_color(tag: &str) -> bool {
-    matches!(tag.len(), 3 | 4 | 6 | 8)
-        && tag.chars().all(|character| character.is_ascii_hexdigit())
+    matches!(tag.len(), 3 | 4 | 6 | 8) && tag.chars().all(|character| character.is_ascii_hexdigit())
 }
 
 pub fn extract_tags(content: &str, frontmatter_tags: &[String]) -> Vec<String> {

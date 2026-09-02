@@ -106,7 +106,19 @@ pub fn metadata_stamp(path: &Path) -> Result<FileStamp, String> {
 }
 
 pub fn word_count(content: &str) -> usize {
-    content.split_whitespace().count()
+    content
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            let hashes = trimmed.bytes().take_while(|byte| *byte == b'#').count();
+            if (1..=6).contains(&hashes) && trimmed.as_bytes().get(hashes) == Some(&b' ') {
+                &trimmed[hashes + 1..]
+            } else {
+                line
+            }
+        })
+        .flat_map(str::split_whitespace)
+        .count()
 }
 
 pub fn title_for(path: &Path, body: &str) -> String {

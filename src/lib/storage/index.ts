@@ -203,11 +203,16 @@ export const listSnapshots = (sourcePath: string): Promise<SnapshotEntry[]> =>
 export const getHistoryStats = (): Promise<HistoryStats> => historyRepository.getHistoryStats()
 export const previewHistoryCleanup = (
   retention: HistoryRetention,
-): Promise<HistoryCleanupPreview> => historyRepository.previewHistoryCleanup(retention)
-export const cleanupHistory = (retention: HistoryRetention): Promise<HistoryCleanupResult> =>
-  historyRepository.cleanupHistory(retention)
+  sourcePath?: string,
+): Promise<HistoryCleanupPreview> => historyRepository.previewHistoryCleanup(retention, sourcePath)
+export const cleanupHistory = (
+  retention: HistoryRetention,
+  sourcePath?: string,
+): Promise<HistoryCleanupResult> => historyRepository.cleanupHistory(retention, sourcePath)
 export const restoreSnapshot = (snapshotId: string): Promise<string> =>
   historyRepository.restoreSnapshot(snapshotId)
+export const deleteSnapshot = (snapshotId: string): Promise<void> =>
+  historyRepository.deleteSnapshot(snapshotId)
 export const readSnapshotText = (snapshotId: string): Promise<SnapshotText> =>
   historyRepository.readSnapshotText(snapshotId)
 export const listTrash = (): Promise<TrashEntry[]> => historyRepository.listTrash()

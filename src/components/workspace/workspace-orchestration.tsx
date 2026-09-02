@@ -423,26 +423,20 @@ export function WorkspaceOrchestration() {
 
   const { handleOpenInNewWindow } = useNoteWindows(treeItems)
 
-  const {
-    handleBack,
-    handleForward,
-    handleTabChange,
-    toggleSplit,
-    handleTabClose,
-    handleCloseAllTabs,
-  } = useTabActions({
-    activeTab,
-    activeTabKey,
-    secondaryTabKey,
-    tabs,
-    treeItems,
-    canGoBack,
-    canGoForward,
-    navigateToFile,
-    onTabUsageChanged: () => {
-      void releaseUnusedDocumentBuffers()
-    },
-  })
+  const { handleBack, handleForward, handleTabChange, handleTabClose, handleCloseAllTabs } =
+    useTabActions({
+      activeTab,
+      activeTabKey,
+      secondaryTabKey,
+      tabs,
+      treeItems,
+      canGoBack,
+      canGoForward,
+      navigateToFile,
+      onTabUsageChanged: () => {
+        void releaseUnusedDocumentBuffers()
+      },
+    })
 
   // Workspace-wide shortcuts deliberately leave plain typing alone. Native editing
   // shortcuts still belong to the focused editor; these only invoke app navigation.
@@ -985,10 +979,8 @@ export function WorkspaceOrchestration() {
         onTabClose={handleTabClose}
         onToggleLeftSidebar={() => setIsLeftSidebarOpen((v) => !v)}
         onToggleRightSidebar={() => setIsRightSidebarOpen((v) => !v)}
-        onToggleSplit={toggleSplit}
         isLeftSidebarOpen={isLeftSidebarOpen}
         isRightSidebarOpen={isRightSidebarOpen}
-        isSplit={secondaryTabKey !== null}
         isLeftDockVisible={isDockVisible("left")}
         isRightDockVisible={isDockVisible("right")}
         isLeftDockPinned={isDockPinned("left")}

@@ -764,15 +764,25 @@ export class WebAdapterCore implements StoragePort {
     return webHistoryStats()
   }
 
-  async previewHistoryCleanup(_retention: HistoryRetention): Promise<HistoryCleanupPreview> {
+  async previewHistoryCleanup(
+    _retention: HistoryRetention,
+    _sourcePath?: string,
+  ): Promise<HistoryCleanupPreview> {
     return webHistoryPreview()
   }
 
-  async cleanupHistory(_retention: HistoryRetention): Promise<HistoryCleanupResult> {
+  async cleanupHistory(
+    _retention: HistoryRetention,
+    _sourcePath?: string,
+  ): Promise<HistoryCleanupResult> {
     return webHistoryUnavailable()
   }
 
   async restoreSnapshot(_snapshotId: string): Promise<string> {
+    return webHistoryUnavailable()
+  }
+
+  async deleteSnapshot(_snapshotId: string): Promise<void> {
     return webHistoryUnavailable()
   }
 

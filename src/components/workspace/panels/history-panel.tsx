@@ -1,26 +1,11 @@
 "use client"
 
 import * as React from "react"
-import {
-  ChevronRight,
-  Clock3,
-  FileClock,
-  History,
-  Loader2,
-  MoreHorizontal,
-  RefreshCw,
-  Search,
-  Trash2,
-} from "lucide-react"
+import { ChevronRight, Clock3, History, Loader2, RefreshCw, Search, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import {} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import type { PanelRenderProps } from "../panel-registry"
 import { formatHistorySize, groupHistoryByDay, historyReasonKey } from "../history/history-model"
@@ -39,10 +24,16 @@ function HistoryContents({
   currentDocPath,
   currentDocId,
   treeItems,
+  onSelect,
   onHistoryRestored,
 }: PanelRenderProps) {
   const { t, i18n } = useTranslation()
   const history = useHistory(currentDocPath, onHistoryRestored)
+  React.useEffect(() => {
+    const handler = () => void history.clearAll()
+    window.addEventListener("amby:history-clear-all", handler)
+    return () => window.removeEventListener("amby:history-clear-all", handler)
+  }, [history.clearAll])
   const [query, setQuery] = React.useState("")
   const [limit, setLimit] = React.useState(PAGE_SIZE)
   const locale = i18n.language
@@ -81,10 +72,21 @@ function HistoryContents({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <header className="flex shrink-0 items-center justify-between gap-2 px-4 pb-3 pt-4">
         <h2 className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-          <History className="size-4 text-muted-foreground" />
           {t("panels.history")}
         </h2>
         <div className="flex shrink-0 items-center gap-0.5">
+          {history.snapshots.length > 0 && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              title={t("historyPanel.openFullHistory")}
+              aria-label={t("historyPanel.openFullHistory")}
+              disabled={history.loading || history.busy}
+              onClick={history.openLatest}
+            >
+              <Clock3 className="size-3.5" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon-sm"
@@ -95,42 +97,20 @@ function HistoryContents({
           >
             <RefreshCw className={cn("size-3.5", history.loading && "animate-spin")} />
           </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                title={t("historyPanel.manage")}
-                aria-label={t("historyPanel.manage")}
-                disabled={history.busy}
-              >
-                <MoreHorizontal className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                disabled={history.loading || !history.stats.snapshotCount}
-                onSelect={() => void history.cleanup()}
-              >
-                <Trash2 className="mr-2 size-4" />
-                {t("historyPanel.cleanupOld")}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            disabled={history.loading || !history.stats.snapshotCount || history.busy}
+            title={t("historyPanel.deleteHistory")}
+            aria-label={t("historyPanel.deleteHistory")}
+            onClick={() => void history.cleanup()}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
         </div>
       </header>
       <div className="space-y-3 border-b px-4 pb-3">
-        <div className="flex min-w-0 items-start gap-2.5">
-          <FileClock className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          <div className="min-w-0">
-            <p className="truncate text-xs font-medium" title={currentDocPath ?? undefined}>
-              {name}
-            </p>
-            <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-              {t("historyPanel.versionsHint")}
-            </p>
-          </div>
-        </div>
         <div className="relative">
           <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
           <Input
@@ -239,20 +219,28 @@ function HistoryContents({
           </Button>
         )}
       </div>
-      <footer className="flex shrink-0 items-start gap-2 border-t bg-muted/20 px-4 py-3 text-[10px] leading-relaxed text-muted-foreground">
-        <Clock3 className="mt-0.5 size-3.5 shrink-0" />
-        <p className="min-w-0 break-words">
-          {t("historyPanel.storageUsage", {
+      <footer className="flex shrink-0 items-center gap-1 border-t bg-muted/20 px-3 py-2 text-[10px] leading-relaxed text-muted-foreground">
+        <p className="min-w-0 flex-1 break-words">
+          {t("historyPanel.storageVersions", { count: history.stats.snapshotCount })} ·{" "}
+          {t("historyPanel.storageNotes", { count: history.stats.noteCount })}
+          <br />
+          {t("historyPanel.storageSize", {
             size: formatHistorySize(history.stats.sizeBytes, locale),
           })}
-          <br />
-          {t("historyPanel.storageCount", {
-            snapshots: history.stats.snapshotCount,
-            notes: history.stats.noteCount,
-          })}
         </p>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="size-7 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+          title={t("historyPanel.clearAllHistory")}
+          aria-label={t("historyPanel.clearAllHistory")}
+          disabled={history.busy || !history.stats.snapshotCount}
+          onClick={() => void history.clearAll()}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
       </footer>
-      <HistoryPreview history={history} name={name} />
+      <HistoryPreview history={history} name={name} treeItems={treeItems} onSelect={onSelect} />
     </div>
   )
 }

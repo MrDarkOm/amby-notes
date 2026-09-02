@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
 import {
   Blocks,
   Bot,
@@ -118,6 +119,10 @@ export function SettingsDialog({
   const setPrefs = useSettingsStore((s) => s.setPrefs)
   const setThemes = useSettingsStore((s) => s.setThemes)
   const [saveError, setSaveError] = React.useState<string | null>(null)
+  const [tooltipDelay, setTooltipDelay] = React.useState(() => {
+    const saved = Number(localStorage.getItem("amby:tooltip-delay-ms"))
+    return Number.isFinite(saved) && saved >= -1 ? saved : 1000
+  })
 
   React.useEffect(() => {
     const onSaveError = (event: Event) => {
@@ -337,6 +342,28 @@ export function SettingsDialog({
                       {t("settings.appearance.comfortable")}
                     </SelectItem>
                     <SelectItem value="compact">{t("settings.appearance.compact")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Row>
+              <Row label={t("settings.interface.tooltipDelay")}>
+                <Select
+                  value={String(tooltipDelay)}
+                  onValueChange={(value) => {
+                    const next = Number(value)
+                    setTooltipDelay(next)
+                    localStorage.setItem("amby:tooltip-delay-ms", String(next))
+                    window.dispatchEvent(new Event("amby:tooltip-delay-change"))
+                  }}
+                >
+                  <SelectTrigger className={selectTrigger}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Без задержки</SelectItem>
+                    <SelectItem value="1000">1 с</SelectItem>
+                    <SelectItem value="1500">1,5 с</SelectItem>
+                    <SelectItem value="2000">2 с</SelectItem>
+                    <SelectItem value="-1">Без подсказок</SelectItem>
                   </SelectContent>
                 </Select>
               </Row>
@@ -718,6 +745,55 @@ function ModulesTab({
           <AiTab />
         </div>
       )}
+      {activeModules.includes("history") && <HistorySettings />}
+    </div>
+  )
+}
+
+function HistorySettings() {
+  const { t } = useTranslation()
+  const [maxCopies, setMaxCopies] = React.useState(() =>
+    Number(localStorage.getItem("amby:history-max-copies") ?? 20),
+  )
+  const [enabled, setEnabled] = React.useState(
+    () => localStorage.getItem("amby:history-disabled") !== "true",
+  )
+  return (
+    <div className="divide-y divide-border rounded-lg border border-border">
+      <Row label={t("settings.history.maxCopies")} hint={t("settings.history.maxCopiesHint")}>
+        <input
+          type="number"
+          min={0}
+          max={1000}
+          value={maxCopies}
+          disabled={!enabled}
+          onChange={(e) => {
+            const value = Math.max(0, Number(e.target.value) || 0)
+            setMaxCopies(value)
+            localStorage.setItem("amby:history-max-copies", String(value))
+          }}
+          className="h-8 w-24 rounded-md border border-border bg-card px-2 text-right text-[13px]"
+        />
+      </Row>
+      <Row label={t("settings.history.enabled")} hint={t("settings.history.enabledHint")}>
+        <Switch
+          checked={enabled}
+          onCheckedChange={(value) => {
+            setEnabled(value)
+            localStorage.setItem("amby:history-disabled", String(!value))
+            window.dispatchEvent(new Event("amby:history-setting-change"))
+          }}
+        />
+      </Row>
+      <Row label={t("settings.history.clear")}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => window.dispatchEvent(new Event("amby:history-clear-all"))}
+        >
+          {t("settings.history.clearAction")}
+        </Button>
+      </Row>
     </div>
   )
 }

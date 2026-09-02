@@ -640,9 +640,27 @@ pub fn preview_history_cleanup(
     vault: &Path,
     retention: HistoryRetention,
 ) -> Result<HistoryCleanupPreview, String> {
+    preview_history_cleanup_for_source(vault, retention, None)
+}
+
+pub fn preview_history_cleanup_for_source(
+    vault: &Path,
+    retention: HistoryRetention,
+    source_path: Option<&Path>,
+) -> Result<HistoryCleanupPreview, String> {
     let _lock = history_lock();
     let manifest = load_manifest(&history_root(vault))?;
-    let remove = cleanup_candidates(&manifest, &retention, now_ms()?);
+    let source_key = source_path
+        .map(|path| source_relative(vault, path))
+        .transpose()?;
+    let remove = cleanup_candidates(&manifest, &retention, now_ms()?)
+        .into_iter()
+        .filter(|snapshot| {
+            source_key
+                .as_deref()
+                .is_none_or(|path| snapshot.source_path == *path)
+        })
+        .collect::<Vec<_>>();
     Ok(cleanup_preview(&manifest, &remove))
 }
 
@@ -650,10 +668,28 @@ pub fn cleanup_history(
     vault: &Path,
     retention: HistoryRetention,
 ) -> Result<HistoryCleanupResult, String> {
+    cleanup_history_for_source(vault, retention, None)
+}
+
+pub fn cleanup_history_for_source(
+    vault: &Path,
+    retention: HistoryRetention,
+    source_path: Option<&Path>,
+) -> Result<HistoryCleanupResult, String> {
     let _lock = history_lock();
     let root = history_root(vault);
     let mut manifest = load_manifest(&root)?;
-    let remove = cleanup_candidates(&manifest, &retention, now_ms()?);
+    let source_key = source_path
+        .map(|path| source_relative(vault, path))
+        .transpose()?;
+    let remove = cleanup_candidates(&manifest, &retention, now_ms()?)
+        .into_iter()
+        .filter(|snapshot| {
+            source_key
+                .as_deref()
+                .is_none_or(|path| snapshot.source_path == *path)
+        })
+        .collect::<Vec<_>>();
 
     let mut freed_bytes = 0_u64;
     for snapshot in &remove {
@@ -665,6 +701,19 @@ pub fn cleanup_history(
         freed_bytes,
         remaining: history_stats(&manifest),
     })
+}
+
+pub fn delete_snapshot(vault: &Path, id: &str) -> Result<(), String> {
+    let _lock = history_lock();
+    let root = history_root(vault);
+    let mut manifest = load_manifest(&root)?;
+    let snapshot = manifest
+        .snapshots
+        .iter()
+        .find(|snapshot| snapshot.id == id)
+        .cloned()
+        .ok_or_else(|| "History version not found".to_string())?;
+    cleanup_snapshot(&root, &mut manifest, &snapshot)
 }
 
 /// Restore a snapshot as a new file operation. The current version is first

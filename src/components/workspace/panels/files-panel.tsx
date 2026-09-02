@@ -14,7 +14,6 @@ import {
   History,
   LayoutGrid,
   LocateFixed,
-  Type as TypeIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -38,7 +37,7 @@ import { useViewStateStore } from "../use-view-state-store"
 import { NewItemModal } from "../new-item-modal"
 import type { PanelRenderProps } from "../panel-registry"
 
-type TreeSortKey = "name" | "type" | "created" | "modified"
+type TreeSortKey = "name" | "created" | "modified"
 type TreeSortDirection = "asc" | "desc"
 
 const TREE_SORT_OPTIONS: Array<{
@@ -49,8 +48,6 @@ const TREE_SORT_OPTIONS: Array<{
 }> = [
   { key: "name", direction: "asc", labelKey: "filesPanel.sortNameAsc", icon: FileText },
   { key: "name", direction: "desc", labelKey: "filesPanel.sortNameDesc", icon: FileText },
-  { key: "type", direction: "asc", labelKey: "filesPanel.sortTypeAsc", icon: TypeIcon },
-  { key: "type", direction: "desc", labelKey: "filesPanel.sortTypeDesc", icon: TypeIcon },
   { key: "modified", direction: "desc", labelKey: "filesPanel.sortModifiedDesc", icon: History },
   { key: "modified", direction: "asc", labelKey: "filesPanel.sortModifiedAsc", icon: History },
   { key: "created", direction: "desc", labelKey: "filesPanel.sortCreatedDesc", icon: Clock },
@@ -69,12 +66,16 @@ function sortTreeItems(
       children: item.children ? sortTreeItems(item.children, key, direction) : item.children,
     }))
     .sort((a, b) => {
+      // Keep folders and notes with attached layers (bundle nodes) above
+      // standalone files for every sort mode.
+      const kindRank = (item: TreeItem) =>
+        item.type === "folder" || (item.type === "file" && Boolean(item.children?.length)) ? 0 : 1
+      const kindResult = kindRank(a) - kindRank(b)
+      if (kindResult) return kindResult
       const result =
         key === "name"
           ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-          : key === "type"
-            ? a.type.localeCompare(b.type)
-            : (a[key] ?? 0) - (b[key] ?? 0)
+          : (a[key] ?? 0) - (b[key] ?? 0)
       return result * multiplier || a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
     })
 }
@@ -113,6 +114,12 @@ export function FilesPanel(props: PanelRenderProps) {
   const [findActiveKey, setFindActiveKey] = React.useState(0)
   const [sortKey, setSortKey] = React.useState<TreeSortKey>("name")
   const [sortDirection, setSortDirection] = React.useState<TreeSortDirection>("asc")
+  React.useEffect(() => {
+    localStorage.setItem(
+      "amby:tree-sort",
+      JSON.stringify({ key: sortKey, direction: sortDirection }),
+    )
+  }, [sortKey, sortDirection])
   const sortedTreeItems = React.useMemo(
     () => sortTreeItems(treeItems, sortKey, sortDirection),
     [treeItems, sortKey, sortDirection],

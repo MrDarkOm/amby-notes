@@ -32,8 +32,13 @@ pub fn get_history_stats(
 pub fn cleanup_history(
     scope: tauri::State<paths::VaultScope>,
     retention: history::HistoryRetention,
+    source_path: Option<String>,
 ) -> Result<history::HistoryCleanupResult, String> {
-    history::cleanup_history(&scope.get()?, retention)
+    let source_path = source_path
+        .as_deref()
+        .map(|path| paths::guard(&scope, path))
+        .transpose()?;
+    history::cleanup_history_for_source(&scope.get()?, retention, source_path.as_deref())
 }
 
 #[tauri::command]
@@ -41,8 +46,13 @@ pub fn cleanup_history(
 pub fn preview_history_cleanup(
     scope: tauri::State<paths::VaultScope>,
     retention: history::HistoryRetention,
+    source_path: Option<String>,
 ) -> Result<history::HistoryCleanupPreview, String> {
-    history::preview_history_cleanup(&scope.get()?, retention)
+    let source_path = source_path
+        .as_deref()
+        .map(|path| paths::guard(&scope, path))
+        .transpose()?;
+    history::preview_history_cleanup_for_source(&scope.get()?, retention, source_path.as_deref())
 }
 
 #[tauri::command]
@@ -73,6 +83,15 @@ pub fn restore_snapshot(
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     vault_index::sync_vault(conn, &vault)?;
     Ok(crate::bundle::path_string(&path))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn delete_snapshot(
+    scope: tauri::State<paths::VaultScope>,
+    snapshot_id: String,
+) -> Result<(), String> {
+    history::delete_snapshot(&scope.get()?, &snapshot_id)
 }
 
 #[tauri::command]
@@ -178,10 +197,7 @@ pub fn restore_trash(
 
 #[tauri::command]
 #[specta::specta]
-pub fn purge_trash(
-    scope: tauri::State<paths::VaultScope>,
-    trash_id: String,
-) -> Result<(), String> {
+pub fn purge_trash(scope: tauri::State<paths::VaultScope>, trash_id: String) -> Result<(), String> {
     recycle_bin::purge(&scope.get()?, &trash_id)
 }
 

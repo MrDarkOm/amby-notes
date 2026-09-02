@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
+  Archive,
   AppWindow,
   Bookmark,
   BookmarkCheck,
@@ -255,6 +256,13 @@ export const TreeNode = React.memo(
         >
           <Pencil className="size-3.5 text-muted-foreground" />
           {t("tree.rename")}
+        </ContextMenuItem>
+        <ContextMenuItem
+          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+          onSelect={() => onDelete?.(item.id)}
+        >
+          <Archive className="size-3.5 text-muted-foreground" />
+          {t("tree.archive")}
         </ContextMenuItem>
         <ContextMenuItem
           className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"

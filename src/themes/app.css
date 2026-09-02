@@ -2,6 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes amby-tooltip-from-right {
+  from {
+    opacity: 0;
+    transform: translate(-6px, -50%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+}
+@keyframes amby-tooltip-from-left {
+  from {
+    opacity: 0;
+    transform: translate(calc(-100% + 6px), -50%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-100%, -50%);
+  }
+}
+.amby-tooltip-from-right {
+  animation: amby-tooltip-from-right 180ms ease-out both;
+}
+.amby-tooltip-from-left {
+  animation: amby-tooltip-from-left 180ms ease-out both;
+}
+
 @layer base {
   /* ── Light defaults (:root) ──────────────────────────────────────────────
        next-themes sets class="dark" on <html> for dark mode.

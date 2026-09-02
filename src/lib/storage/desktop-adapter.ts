@@ -106,6 +106,10 @@ export class DesktopAdapter implements StoragePort {
   }
 
   async readNote(_vaultPath: string, noteId: string): Promise<NoteReadOutcome> {
+    // A file can arrive through the watcher after vault activation. Re-run the
+    // safe identity migration before opening it so notes without amby-id become
+    // editable immediately (malformed/conflicting files remain untouched).
+    await unwrapCommand(commands.applyIdMigration(_vaultPath))
     return unwrapCommand(commands.readNote(noteId))
   }
 
@@ -283,16 +287,26 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.getHistoryStats())
   }
 
-  async previewHistoryCleanup(retention: HistoryRetention): Promise<HistoryCleanupPreview> {
-    return unwrapCommand(commands.previewHistoryCleanup(retention))
+  async previewHistoryCleanup(
+    retention: HistoryRetention,
+    sourcePath?: string,
+  ): Promise<HistoryCleanupPreview> {
+    return unwrapCommand(commands.previewHistoryCleanup(retention, sourcePath ?? null))
   }
 
-  async cleanupHistory(retention: HistoryRetention): Promise<HistoryCleanupResult> {
-    return unwrapCommand(commands.cleanupHistory(retention))
+  async cleanupHistory(
+    retention: HistoryRetention,
+    sourcePath?: string,
+  ): Promise<HistoryCleanupResult> {
+    return unwrapCommand(commands.cleanupHistory(retention, sourcePath ?? null))
   }
 
   async restoreSnapshot(snapshotId: string): Promise<string> {
     return unwrapCommand(commands.restoreSnapshot(snapshotId))
+  }
+
+  async deleteSnapshot(snapshotId: string): Promise<void> {
+    return unwrapCommand(commands.deleteSnapshot(snapshotId))
   }
 
   async readSnapshotText(snapshotId: string): Promise<SnapshotText> {

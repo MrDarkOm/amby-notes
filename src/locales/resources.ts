@@ -32,6 +32,14 @@ const ru = {
   },
   settings: {
     title: "Настройки",
+    history: {
+      maxCopies: "Максимум копий на заметку в истории",
+      maxCopiesHint: "0 — безлимитно",
+      enabled: "История версий",
+      enabledHint: "Можно отключить сохранение версий",
+      clear: "Очистить историю",
+      clearAction: "Очистить",
+    },
     tabs: {
       general: "Общие",
       appearance: "Оформление",
@@ -108,6 +116,7 @@ const ru = {
     interface: {
       leftDock: "Левая док-панель",
       rightDock: "Правая док-панель",
+      tooltipDelay: "Задержка подсказок",
     },
     editor: {
       defaultViewMode: "Режим по умолчанию",
@@ -253,6 +262,10 @@ const ru = {
     settings: "Настройки…",
     moveLeft: "Переместить влево",
     moveRight: "Переместить вправо",
+    openSettings: "Открыть настройки",
+    historySettings: "Настройки истории",
+    aiSettings: "Настройки ИИ",
+    generalSettings: "Общие настройки",
     presetSection: "Пресет",
     exportCurrent: "Экспорт текущего",
     importPreset: "Импорт пресета…",
@@ -384,6 +397,7 @@ const ru = {
     sections: "Разделы истории",
     manage: "Управление историей",
     cleanupOld: "Очистить старые версии…",
+    deleteHistory: "Удалить историю заметки",
     noNote: "Заметка не выбрана",
     versionsHint: "Выберите версию, чтобы посмотреть изменения.",
     deletedFiles: "Удалённые файлы",
@@ -456,6 +470,24 @@ const ru = {
     cleaning: "Очистка…",
     cleanupConfirm:
       "Удалить {{count}} старых версий и освободить {{size}}? Для каждой заметки останутся {{keep}} последних версий. Это действие нельзя отменить.",
+    deleteHistoryConfirm:
+      "Удалить историю этой заметки: {{count}} версий и {{size}}? Это действие нельзя отменить.",
+    deleteVersionConfirm: "Удалить выбранную версию? Это действие нельзя отменить.",
+    versionDeleted: "Версия удалена.",
+    versionFromHistory: "Версия из истории",
+    currentVersion: "Текущая версия",
+    deleteVersion: "Удалить версию",
+    clearNoteHistory: "Очистить историю",
+    clearAllHistory: "Очистить всю историю",
+    searchNotes: "Найти заметку…",
+    selectNote: "Выберите заметку",
+    clearAllConfirm:
+      "Удалить всю историю хранилища: {{count}} версий и {{size}}? Это действие нельзя отменить.",
+    historyCleared: "Вся история хранилища очищена.",
+    openFullHistory: "Открыть полную историю",
+    storageVersions: "Версий: {{count}}",
+    storageNotes: "Заметок: {{count}}",
+    storageSize: "Общий вес: {{size}}",
     restoreConfirm: "Восстановить эту версию? Текущая версия также будет сохранена в истории.",
     restoreTrashConfirm: "Восстановить «{{name}}» в исходное расположение?",
     openNote: "Откройте заметку, чтобы посмотреть её историю.",
@@ -606,6 +638,7 @@ const ru = {
       "Не удалось завершить сохранение всех изменений. Черновики восстановления сохранены. Всё равно переключить хранилище?",
   },
   tree: {
+    archive: "В архив",
     newNote: "Новая заметка",
     newPage: "Новая страница",
     newFolder: "Новая папка",
@@ -868,7 +901,7 @@ const ru = {
     identityMigrationConfirm:
       "В хранилище {{notes}} заметок. Поле amby-id будет добавлено в {{files}} файлов:\n\n{{preview}}\nЕщё файлов: {{remaining}}.\n\nСначала будут созданы резервные копии и журнал миграции. Существующее поле id останется без изменений; старый канонический ULID будет скопирован в amby-id. Некорректный YAML: {{malformed}}; конфликты ID: {{conflicts}} — эти файлы не изменятся.\n\nПродолжить?",
     identityReadOnly:
-      "Не удалось подтвердить уникальный ID заметки или прочитать её свойства. Заметка доступна для чтения; сохранение и изменение свойств заблокированы. Проверьте YAML и amby-id во внешнем редакторе, затем обновите хранилище и заново откройте вкладку заметки.",
+      "Не удалось определить amby-id. Исправьте YAML или конфликт ID во внешнем редакторе.",
     invalidFrontmatter:
       "Некорректный YAML: свойства недоступны. Текст заметки можно читать и редактировать; исходный YAML сохранится без изменений.",
     unterminatedFrontmatter:
@@ -903,6 +936,14 @@ const en: typeof ru = {
   },
   settings: {
     title: "Settings",
+    history: {
+      maxCopies: "Maximum history copies per note",
+      maxCopiesHint: "0 — unlimited",
+      enabled: "Version history",
+      enabledHint: "Disable saving versions",
+      clear: "Clear history",
+      clearAction: "Clear",
+    },
     tabs: {
       general: "General",
       appearance: "Appearance",
@@ -980,6 +1021,7 @@ const en: typeof ru = {
     interface: {
       leftDock: "Left dock panel",
       rightDock: "Right dock panel",
+      tooltipDelay: "Tooltip delay",
     },
     editor: {
       defaultViewMode: "Default mode",
@@ -1125,6 +1167,10 @@ const en: typeof ru = {
     settings: "Settings…",
     moveLeft: "Move to left",
     moveRight: "Move to right",
+    openSettings: "Open settings",
+    historySettings: "History settings",
+    aiSettings: "AI settings",
+    generalSettings: "General settings",
     presetSection: "Preset",
     exportCurrent: "Export current",
     importPreset: "Import preset…",
@@ -1256,6 +1302,7 @@ const en: typeof ru = {
     sections: "History sections",
     manage: "Manage history",
     cleanupOld: "Clean up older versions…",
+    deleteHistory: "Delete note history",
     noNote: "No note selected",
     versionsHint: "Select a version to view its changes.",
     deletedFiles: "Deleted files",
@@ -1325,6 +1372,24 @@ const en: typeof ru = {
     cleaning: "Cleaning…",
     cleanupConfirm:
       "Delete {{count}} older versions and free {{size}}? The latest {{keep}} versions of each note will remain. This cannot be undone.",
+    deleteHistoryConfirm:
+      "Delete this note’s history: {{count}} versions and {{size}}? This cannot be undone.",
+    deleteVersionConfirm: "Delete the selected version? This cannot be undone.",
+    versionDeleted: "Version deleted.",
+    versionFromHistory: "Version from history",
+    currentVersion: "Current version",
+    deleteVersion: "Delete version",
+    clearNoteHistory: "Clear history",
+    clearAllHistory: "Clear all history",
+    searchNotes: "Find a note…",
+    selectNote: "Select a note",
+    clearAllConfirm:
+      "Delete all vault history: {{count}} versions and {{size}}? This cannot be undone.",
+    historyCleared: "All vault history was cleared.",
+    openFullHistory: "Open full history",
+    storageVersions: "Versions: {{count}}",
+    storageNotes: "Notes: {{count}}",
+    storageSize: "Total size: {{size}}",
     restoreConfirm: "Restore this version? The current version will also be saved in history.",
     restoreTrashConfirm: "Restore “{{name}}” to its original location?",
     openNote: "Open a note to view its history.",
@@ -1474,6 +1539,7 @@ const en: typeof ru = {
       "Some changes could not be saved. Recovery drafts are preserved. Switch vaults anyway?",
   },
   tree: {
+    archive: "Archive",
     newNote: "New note",
     newPage: "New page",
     newFolder: "New folder",
@@ -1733,7 +1799,7 @@ const en: typeof ru = {
     identityMigrationConfirm:
       "The vault contains {{notes}} notes. amby-id will be added to {{files}} files:\n\n{{preview}}\nAdditional files: {{remaining}}.\n\nBackups and a migration journal will be created first. Existing id fields remain unchanged; a legacy canonical ULID will be copied to amby-id. Invalid YAML: {{malformed}}; ID conflicts: {{conflicts}} — those files will not be changed.\n\nContinue?",
     identityReadOnly:
-      "The note's unique identity or properties could not be verified. Reading is available; saving and property changes are disabled. Check YAML and amby-id in an external editor, then refresh the vault and reopen the note tab.",
+      "Could not determine amby-id. Fix YAML or the ID conflict in an external editor.",
     invalidFrontmatter:
       "Invalid YAML: properties are unavailable. You can read and edit the note text; the original YAML will remain unchanged.",
     unterminatedFrontmatter:

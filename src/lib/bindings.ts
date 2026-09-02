@@ -106,17 +106,17 @@ async getHistoryStats() : Promise<Result<HistoryStats, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async previewHistoryCleanup(retention: HistoryRetention) : Promise<Result<HistoryCleanupPreview, string>> {
+async previewHistoryCleanup(retention: HistoryRetention, sourcePath: string | null) : Promise<Result<HistoryCleanupPreview, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("preview_history_cleanup", { retention }) };
+    return { status: "ok", data: await TAURI_INVOKE("preview_history_cleanup", { retention, sourcePath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async cleanupHistory(retention: HistoryRetention) : Promise<Result<HistoryCleanupResult, string>> {
+async cleanupHistory(retention: HistoryRetention, sourcePath: string | null) : Promise<Result<HistoryCleanupResult, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("cleanup_history", { retention }) };
+    return { status: "ok", data: await TAURI_INVOKE("cleanup_history", { retention, sourcePath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -125,6 +125,14 @@ async cleanupHistory(retention: HistoryRetention) : Promise<Result<HistoryCleanu
 async restoreSnapshot(snapshotId: string) : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("restore_snapshot", { snapshotId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteSnapshot(snapshotId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_snapshot", { snapshotId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

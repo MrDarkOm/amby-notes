@@ -196,19 +196,6 @@ export function useVaultData() {
           }
         }
         if (preflight.plannedIdWrites.length > 0) {
-          const preview = preflight.plannedIdWrites.slice(0, 8).join("\n")
-          const remaining = preflight.plannedIdWrites.length - 8
-          const accepted = await confirmAction(
-            t("workspace.identityMigrationConfirm", {
-              notes: preflight.notes,
-              files: preflight.plannedIdWrites.length,
-              preview,
-              remaining: Math.max(0, remaining),
-              malformed: preflight.malformedFrontmatter.length,
-              conflicts: preflight.userManagedIds.length + preflight.duplicateIds.length,
-            }),
-          )
-          if (!accepted) return
           await applyIdMigration(path)
         }
       }

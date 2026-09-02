@@ -22,16 +22,26 @@ export class HistoryRepository {
     return this.port().getHistoryStats()
   }
 
-  async previewHistoryCleanup(retention: HistoryRetention): Promise<HistoryCleanupPreview> {
-    return this.port().previewHistoryCleanup(retention)
+  async previewHistoryCleanup(
+    retention: HistoryRetention,
+    sourcePath?: string,
+  ): Promise<HistoryCleanupPreview> {
+    return this.port().previewHistoryCleanup(retention, sourcePath)
   }
 
-  async cleanupHistory(retention: HistoryRetention): Promise<HistoryCleanupResult> {
-    return this.port().cleanupHistory(retention)
+  async cleanupHistory(
+    retention: HistoryRetention,
+    sourcePath?: string,
+  ): Promise<HistoryCleanupResult> {
+    return this.port().cleanupHistory(retention, sourcePath)
   }
 
   async restoreSnapshot(snapshotId: string): Promise<string> {
     return this.port().restoreSnapshot(snapshotId)
+  }
+
+  async deleteSnapshot(snapshotId: string): Promise<void> {
+    return this.port().deleteSnapshot(snapshotId)
   }
 
   async readSnapshotText(snapshotId: string): Promise<SnapshotText> {
