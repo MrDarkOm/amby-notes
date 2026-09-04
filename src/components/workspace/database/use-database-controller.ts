@@ -102,11 +102,4 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
     setRuntime,
     vaultGeneration,
   ])
-
-  return useDatabaseStore((state) => ({
-    status: state.catalogStatus,
-    databases: state.databases,
-    diagnostics: state.diagnostics,
-    error: state.error,
-  }))
 }
