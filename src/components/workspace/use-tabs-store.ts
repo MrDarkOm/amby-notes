@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { newTabKey } from "./workspace-tree-utils"
 
-export type TabKind = "document" | "folder" | "graph" | "canvas"
+export type TabKind = "document" | "folder" | "graph" | "canvas" | "database"
 
 export interface Tab {
   key: string
@@ -58,7 +58,7 @@ export const useTabsStore = create<TabsStore>((set) => ({
         if (active) {
           const history = active.history.length
             ? active.history.slice(0, active.historyIndex + 1)
-            : active.kind === "graph"
+            : active.kind === "graph" || active.kind === "database"
               ? []
               : [active.fileId]
           history.push(target.fileId)

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useSettingsStore } from "@/components/workspace/use-settings-store"
 
 interface TooltipState {
   content: string
@@ -12,7 +13,6 @@ interface TooltipState {
 const TOOLTIP_GAP = 10
 const TOOLTIP_SAFE_WIDTH = 260
 const TOOLTIP_DELAY = 1000
-const TOOLTIP_DELAY_KEY = "amby:tooltip-delay-ms"
 
 /**
  * One visual tooltip system for the application.
@@ -22,20 +22,18 @@ const TOOLTIP_DELAY_KEY = "amby:tooltip-delay-ms"
  * removes the browser tooltip, and renders the shared application tooltip.
  */
 export function TooltipProvider() {
+  const tooltipDelayMs = useSettingsStore((state) => state.prefs.tooltipDelayMs)
   const [tooltip, setTooltip] = React.useState<TooltipState | null>(null)
   const activeTargetRef = React.useRef<HTMLElement | null>(null)
   const pendingTargetRef = React.useRef<HTMLElement | null>(null)
   const showTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
-  const delayRef = React.useRef(TOOLTIP_DELAY)
+  const delayRef = React.useRef(tooltipDelayMs ?? TOOLTIP_DELAY)
+
+  React.useEffect(() => {
+    delayRef.current = tooltipDelayMs
+  }, [tooltipDelayMs])
 
   React.useLayoutEffect(() => {
-    const saved = Number(localStorage.getItem(TOOLTIP_DELAY_KEY))
-    if (Number.isFinite(saved) && saved >= -1) delayRef.current = saved
-    const onDelayChange = () => {
-      const next = Number(localStorage.getItem(TOOLTIP_DELAY_KEY))
-      if (Number.isFinite(next) && next >= -1) delayRef.current = next
-    }
-    window.addEventListener("amby:tooltip-delay-change", onDelayChange)
     const promoteTitle = (element: HTMLElement) => {
       const title = element.getAttribute("title")?.trim()
       if (!title) return
@@ -155,7 +153,6 @@ export function TooltipProvider() {
     window.addEventListener("scroll", reposition, true)
 
     return () => {
-      window.removeEventListener("amby:tooltip-delay-change", onDelayChange)
       observer.disconnect()
       document.removeEventListener("pointerover", onPointerOver)
       document.removeEventListener("pointerout", onPointerOut)

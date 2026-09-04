@@ -169,10 +169,11 @@ export function useDocumentCrud({
     ],
   )
   const handleNewFolderIn = React.useCallback(
-    async (parentId: string | null) => {
+    async (parentId: string | null, requestedName?: string) => {
       if (!vault) return
       const parent = parentId ? findTreeItem(treeItems, parentId) : null
-      const title = t("defaults.untitled")
+      const title = requestedName?.trim() || t("defaults.untitled")
+      if (!title || title === "." || title === ".." || /[\\/]/u.test(title)) return
       try {
         const path = await createFolder(parent?.path ?? parentId ?? vault, title)
         const item = {

@@ -1,3 +1,4 @@
+import type * as React from "react"
 import type { TreeItem } from "@/lib/storage"
 
 export type { TreeItem }
@@ -70,6 +71,7 @@ export interface SidebarTreeProps {
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
   onAttachLayer?: (id: string, layer: AttachableLayer) => void
+  canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, NodeLayers>
   /** Increment to scroll the currently selected item into view. */
   findActiveKey?: number
@@ -99,10 +101,10 @@ export interface TreeNodeProps {
   isEditing: boolean
   onStartEdit: () => void
   onFinishEdit: (newName: string | null) => void
-  selectedId: string | null
+  selectedIds: ReadonlySet<string>
   isKeyboardFocused: boolean
   onKeyboardFocus: (id: string) => void
-  onSelect: (id: string) => void
+  onSelect: (id: string, event?: React.MouseEvent<HTMLElement>) => void
   onDelete?: (id: string) => void
   onNewFile?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
@@ -117,5 +119,6 @@ export interface TreeNodeProps {
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
   onAttachLayer?: (id: string, layer: AttachableLayer) => void
+  canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, NodeLayers>
 }

@@ -27,8 +27,9 @@ import type {
   VaultTagEntry,
   WriteNoteOutcome,
 } from "./types"
+import type { DatabasePort } from "./database-port"
 
-export interface StoragePort {
+export interface StoragePort extends DatabasePort {
   // Vault Lifecycle & Index
   openVault(): Promise<string | null>
   startVaultWatcher(vaultPath: string): Promise<void>

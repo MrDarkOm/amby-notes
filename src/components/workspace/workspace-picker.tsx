@@ -109,7 +109,7 @@ export function WorkspacePicker({
                 />
               ) : (
                 <button
-                  className="flex-1 min-w-0 text-left"
+                  className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:bg-accent/70"
                   onClick={() => {
                     onSelect(vault.path)
                     setOpen(false)
@@ -128,7 +128,7 @@ export function WorkspacePicker({
                   <button
                     title={t("vaultPicker.actions")}
                     onClick={(e) => e.stopPropagation()}
-                    className="flex size-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent"
+                    className="flex size-5 shrink-0 items-center justify-center rounded opacity-0 outline-none transition-opacity group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100"
                   >
                     <MoreHorizontal className="size-3.5 text-muted-foreground" />
                   </button>
@@ -183,7 +183,7 @@ export function WorkspacePicker({
               onAdd()
               setOpen(false)
             }}
-            className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-[13px] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground"
           >
             <Plus className="size-3.5" />
             {t("vaultPicker.openOrCreate")}

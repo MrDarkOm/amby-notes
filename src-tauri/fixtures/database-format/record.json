@@ -1,0 +1,33 @@
+{
+  "format": "amby-database-record",
+  "formatVersion": 1,
+  "databaseId": "01J00000000000000000000000",
+  "noteId": "01J00000000000000000000008",
+  "values": {
+    "01J00000000000000000000001": {
+      "type": "text",
+      "value": "A lossless summary"
+    },
+    "01J00000000000000000000002": {
+      "type": "number",
+      "decimal": "12345678901234567890.005"
+    },
+    "01J00000000000000000000003": {
+      "type": "status",
+      "optionId": "01J00000000000000000000004"
+    }
+  },
+  "yamlSyncBases": {
+    "01J00000000000000000000001": {
+      "state": "value",
+      "value": {
+        "type": "text",
+        "value": "A lossless summary"
+      }
+    }
+  },
+  "futureRecordSetting": [
+    "preserve",
+    1
+  ]
+}

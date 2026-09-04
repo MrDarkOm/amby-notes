@@ -3,6 +3,7 @@ mod app_data;
 mod bundle;
 mod commands;
 mod credentials;
+mod database;
 mod frontmatter;
 mod history;
 pub mod index;
@@ -89,6 +90,17 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::vault::open_vault,
         commands::vault::start_vault_watcher,
         commands::vault::stop_vault_watcher,
+        commands::database::get_database_module_state,
+        commands::database::set_database_module_enabled,
+        commands::database::rebuild_database_projection,
+        commands::database::create_database,
+        commands::database::apply_database_value_batch,
+        commands::database::create_database_row,
+        commands::database::import_database_asset,
+        commands::database::sync_database_yaml,
+        commands::database::resolve_database_yaml_conflict,
+        commands::database::list_databases,
+        commands::database::query_database,
         commands::assets::open_in_explorer,
         commands::assets::import_asset,
         commands::assets::import_asset_bytes,
@@ -133,6 +145,8 @@ pub fn run() {
         .manage(vault_context::VaultContext::new())
         .manage(WatcherState::new())
         .manage(ai::AiStreamState::default())
+        .manage(database::runtime_state::DatabaseRuntimeState::default())
+        .manage(database::mutation_state::DatabaseMutationState::default())
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
             #[cfg(target_os = "macos")]

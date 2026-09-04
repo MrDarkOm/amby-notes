@@ -8,6 +8,8 @@ import { confirmAction, createLayer, unlinkLayer, deleteLayer, noteLayers } from
 
 interface UseLayersParams {
   vault: string | null
+  /** Database module state controls database-specific entry points. */
+  databasesEnabled: boolean
   currentDoc: Document | null
   treeItems: TreeItem[]
   refreshTree: (path?: string | null) => Promise<TreeItem[]>
@@ -23,6 +25,7 @@ interface UseLayersParams {
  */
 export function useLayers({
   vault,
+  databasesEnabled,
   currentDoc,
   treeItems,
   refreshTree,
@@ -45,6 +48,9 @@ export function useLayers({
   const handleLayerChange = async (layer: EditorLayer) => {
     const doc = currentDoc
     if (!doc) return
+    // DB-10 owns the new creator. Until then, never route this legacy writer
+    // through createLayer, even if a stale UI event reaches this hook.
+    if (layer === "database") return
     if (layer === "editor") {
       setActiveLayer(doc.id, "editor")
       return
@@ -66,6 +72,7 @@ export function useLayers({
 
   const handleAttachLayerToFile = React.useCallback(
     async (fileId: string, layer: "canvas" | "database") => {
+      if (layer === "database") return
       // Find the file path from the flat tree
       function findPath(items: TreeItem[]): string | null {
         for (const item of items) {
@@ -93,11 +100,12 @@ export function useLayers({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [treeItems, vault],
+    [databasesEnabled, treeItems, vault],
   )
 
   const handleUnlinkLayer = async (layer: LayerKind) => {
     if (!currentDoc || !vault) return
+    if (layer === "database") return
     try {
       const result = await unlinkLayer(vault, currentDoc.path, layer)
       applyMutationResult(result)
@@ -112,6 +120,7 @@ export function useLayers({
 
   const handleDeleteLayer = async (layer: LayerKind) => {
     if (!currentDoc || !vault) return
+    if (layer === "database") return
     if (
       !(await confirmAction(
         t("workspace.deleteLayerConfirm", { layer: t(`layer.${layer}`), title: currentDoc.title }),
@@ -136,6 +145,11 @@ export function useLayers({
     refreshLinkedLayers(currentDoc.id, currentDoc.path)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDoc?.id, currentDoc?.path])
+
+  React.useEffect(() => {
+    if (!currentDoc || databasesEnabled) return
+    if (activeLayers[currentDoc.id] === "database") setActiveLayer(currentDoc.id, "editor")
+  }, [activeLayers, currentDoc, databasesEnabled, setActiveLayer])
 
   return {
     refreshLinkedLayers,

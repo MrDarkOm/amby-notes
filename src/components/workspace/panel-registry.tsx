@@ -1,5 +1,6 @@
 import * as React from "react"
 import type { CustomProperty, NoteProperties, TreeItem } from "@/lib/storage"
+import type { SettingsNavigationTarget } from "./settings-navigation"
 
 export type Side = "left" | "right"
 
@@ -74,7 +75,11 @@ export interface PanelRenderProps {
 
   // Layer attachment from tree
   onAttachLayer?: (id: string, layer: "canvas" | "database") => void
+  /** Kept false until DB-10 replaces the legacy Metadata.md writer. */
+  canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, { canvas: boolean; database: boolean; sketch: boolean }>
+  databaseRuntimeEnabled?: boolean
+  onOpenDatabase?: (databaseId: string, title: string, inNewTab?: boolean) => void
 
   // Right side
   properties?: DocumentProperties | FolderProperties | null
@@ -93,7 +98,7 @@ export interface ActionContext {
   openGraphTab: () => void
   refreshVault: () => void
   openSearch: () => void
-  openSettings: () => void
+  openSettings: (target?: SettingsNavigationTarget) => void
 }
 
 export interface PanelDef {

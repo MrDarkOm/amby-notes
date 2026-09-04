@@ -7,6 +7,15 @@ import { HistoryRepository } from "./history-repository"
 import { SettingsRepository } from "./settings-repository"
 import type { StoragePort } from "./port"
 import type {
+  CreateDatabaseRequest,
+  DatabaseQueryRequest,
+  DatabaseValueBatchRequest,
+  CreateDatabaseRowRequest,
+  ImportDatabaseAssetRequest,
+  DatabaseYamlSyncRequest,
+  DatabaseYamlResolveRequest,
+} from "./database-types"
+import type {
   CredentialInfo,
   CustomProperty,
   FileMetadata,
@@ -38,6 +47,8 @@ import type {
 
 export * from "./types"
 export * from "./port"
+export * from "./database-port"
+export * from "./database-types"
 export * from "./desktop-adapter"
 export * from "./web-adapter"
 export * from "./notes-repository"
@@ -157,6 +168,26 @@ export const getLinkGraph = (vaultPath: string): Promise<LinkGraph> =>
   notesRepository.getLinkGraph(vaultPath)
 export const listTags = (vaultPath: string): Promise<VaultTagEntry[]> =>
   notesRepository.listTags(vaultPath)
+
+// Database runtime skeleton (DB-02). Discovery and durable files begin in DB-03/04.
+export const getDatabaseModuleState = () => getAdapter().getDatabaseModuleState()
+export const setDatabaseModuleEnabled = (enabled: boolean, expectedGeneration: number) =>
+  getAdapter().setDatabaseModuleEnabled(enabled, expectedGeneration)
+export const rebuildDatabaseProjection = () => getAdapter().rebuildDatabaseProjection()
+export const createDatabase = (request: CreateDatabaseRequest) =>
+  getAdapter().createDatabase(request)
+export const applyDatabaseValueBatch = (request: DatabaseValueBatchRequest) =>
+  getAdapter().applyDatabaseValueBatch(request)
+export const createDatabaseRow = (request: CreateDatabaseRowRequest) =>
+  getAdapter().createDatabaseRow(request)
+export const importDatabaseAsset = (request: ImportDatabaseAssetRequest) =>
+  getAdapter().importDatabaseAsset(request)
+export const syncDatabaseYaml = (request: DatabaseYamlSyncRequest) =>
+  getAdapter().syncDatabaseYaml(request)
+export const resolveDatabaseYamlConflict = (request: DatabaseYamlResolveRequest) =>
+  getAdapter().resolveDatabaseYamlConflict(request)
+export const listDatabases = () => getAdapter().listDatabases()
+export const queryDatabase = (request: DatabaseQueryRequest) => getAdapter().queryDatabase(request)
 
 // Mutations & Canvas / Layers
 export const createFolder = (vaultPath: string, name: string): Promise<string> =>

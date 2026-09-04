@@ -35,6 +35,7 @@ const targets: TabTarget[] = [
   { kind: "document", fileId: "note-id", title: "Note" },
   { kind: "folder", fileId: "folder:/vault/folder", title: "Folder" },
   { kind: "canvas", fileId: "/vault/board.canvas", title: "Board" },
+  { kind: "database", fileId: "database-id", title: "Database" },
 ]
 
 describe("ordinary item navigation", () => {
@@ -106,5 +107,17 @@ describe("ordinary item navigation", () => {
     expect(useTabsStore.getState().tabs).toEqual([
       { ...targets[0], key: "graph", history: [targets[0].fileId], historyIndex: 0 },
     ])
+  })
+
+  it("can create an explicit second database tab while normal opens stay singleton", () => {
+    const { openItem } = useTabsStore.getState()
+    const target = targets[3]
+    openItem(target)
+    const firstKey = useTabsStore.getState().activeTabKey
+    openItem(target)
+    expect(useTabsStore.getState().activeTabKey).toBe(firstKey)
+    openItem(target, true)
+    expect(useTabsStore.getState().tabs).toHaveLength(2)
+    expect(useTabsStore.getState().activeTabKey).not.toBe(firstKey)
   })
 })

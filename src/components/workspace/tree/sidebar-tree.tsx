@@ -30,6 +30,7 @@ export function SidebarTree({
   favorites,
   onToggleFavorite,
   onAttachLayer,
+  canCreateDatabaseLayer,
   linkedLayersByDoc,
   findActiveKey,
 }: SidebarTreeProps) {
@@ -38,6 +39,17 @@ export function SidebarTree({
   const toggleOpen = useViewStateStore((s) => s.toggleTreeItem)
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [keyboardFocusId, setKeyboardFocusId] = React.useState<string | null>(selectedId)
+  const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() =>
+    selectedId ? new Set([selectedId]) : new Set(),
+  )
+  const selectionAnchorRef = React.useRef<string | null>(selectedId)
+
+  // Opening a different note from another part of the app starts a new
+  // selection, while modifier-clicks inside the tree stay local to this view.
+  React.useEffect(() => {
+    setSelectedIds(selectedId ? new Set([selectedId]) : new Set())
+    selectionAnchorRef.current = selectedId
+  }, [selectedId])
 
   // ── Respond to external rename trigger ─────────────────────────────────────
   React.useEffect(() => {
@@ -58,6 +70,40 @@ export function SidebarTree({
     estimateSize: () => 29,
     overscan: 6,
   })
+
+  const handleSelect = React.useCallback(
+    (id: string, event?: React.MouseEvent<HTMLElement>) => {
+      const additive = Boolean(event?.metaKey || event?.ctrlKey)
+      const anchor = selectionAnchorRef.current
+      const anchorIndex = anchor ? flatRows.findIndex((row) => row.item.id === anchor) : -1
+      const currentIndex = flatRows.findIndex((row) => row.item.id === id)
+
+      if (event?.shiftKey && anchorIndex !== -1 && currentIndex !== -1) {
+        const from = Math.min(anchorIndex, currentIndex)
+        const to = Math.max(anchorIndex, currentIndex)
+        setSelectedIds(new Set(flatRows.slice(from, to + 1).map((row) => row.item.id)))
+        return
+      }
+
+      if (additive) {
+        setSelectedIds((current) => {
+          const next = new Set(current)
+          if (next.has(id)) next.delete(id)
+          else next.add(id)
+          return next
+        })
+        selectionAnchorRef.current = id
+        return
+      }
+
+      setSelectedIds(new Set([id]))
+      selectionAnchorRef.current = id
+      onSelect(id)
+    },
+    [flatRows, onSelect],
+  )
+
+  const handleKeyboardSelect = React.useCallback((id: string) => handleSelect(id), [handleSelect])
 
   const focusRow = React.useCallback(
     (id: string) => {
@@ -91,7 +137,7 @@ export function SidebarTree({
     keyboardFocusId,
     focusRow,
     setEditingId,
-    onSelect,
+    onSelect: handleKeyboardSelect,
     scrollRef,
   })
 
@@ -127,6 +173,7 @@ export function SidebarTree({
         ref={scrollRef}
         data-drag-target={ROOT_DROP_TARGET}
         role="tree"
+        aria-multiselectable="true"
         aria-label={t("panels.files")}
         tabIndex={keyboardFocusId ? -1 : 0}
         onKeyDown={handleTreeKeyDown}
@@ -162,10 +209,10 @@ export function SidebarTree({
                     if (newName) onRename?.(row.item.id, newName)
                     setEditingId(null)
                   }}
-                  selectedId={selectedId}
+                  selectedIds={selectedIds}
                   isKeyboardFocused={keyboardFocusId === row.item.id}
                   onKeyboardFocus={setKeyboardFocusId}
-                  onSelect={onSelect}
+                  onSelect={handleSelect}
                   onDelete={onDelete}
                   onNewFile={onNewFile}
                   onAttachCanvas={onAttachCanvas}
@@ -180,6 +227,7 @@ export function SidebarTree({
                   favorites={favorites}
                   onToggleFavorite={onToggleFavorite}
                   onAttachLayer={onAttachLayer}
+                  canCreateDatabaseLayer={canCreateDatabaseLayer}
                   linkedLayersByDoc={linkedLayersByDoc}
                 />
               </div>

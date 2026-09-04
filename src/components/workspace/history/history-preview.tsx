@@ -252,6 +252,28 @@ export function HistoryPreview({
                 {t("historyPanel.simplifiedDiff")}
               </p>
             )}
+            {!diff.identical && (
+              <p className="flex gap-3 px-5 py-2 text-xs text-muted-foreground">
+                {diff.added > 0 && (
+                  <span>
+                    {t(
+                      diff.added === 1 ? "historyPanel.addedLines_one" : "historyPanel.addedLines",
+                      { count: diff.added },
+                    )}
+                  </span>
+                )}
+                {diff.removed > 0 && (
+                  <span>
+                    {t(
+                      diff.removed === 1
+                        ? "historyPanel.removedLines_one"
+                        : "historyPanel.removedLines",
+                      { count: diff.removed },
+                    )}
+                  </span>
+                )}
+              </p>
+            )}
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center">

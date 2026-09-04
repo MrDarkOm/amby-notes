@@ -434,6 +434,99 @@ async stopVaultWatcher() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async getDatabaseModuleState() : Promise<Result<DatabaseModuleState, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_database_module_state") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Enabling the module rebuilds only the derived SQLite projection. Durable
+ * manifest, shard and template files remain untouched; the feature gate is a
+ * frontend/app setting and must still be followed by an explicit enable.
+ */
+async setDatabaseModuleEnabled(enabled: boolean, expectedGeneration: number) : Promise<Result<DatabaseModuleState, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_database_module_enabled", { enabled, expectedGeneration }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rebuildDatabaseProjection() : Promise<Result<DatabaseModuleState, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rebuild_database_projection") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createDatabase(request: CreateDatabaseRequest) : Promise<Result<CreatedDatabase, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_database", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async applyDatabaseValueBatch(request: DatabaseValueBatchRequest) : Promise<Result<DatabaseValueBatchResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("apply_database_value_batch", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createDatabaseRow(request: CreateDatabaseRowRequest) : Promise<Result<CreatedDatabaseRow, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_database_row", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async importDatabaseAsset(request: ImportDatabaseAssetRequest) : Promise<Result<ImportedDatabaseAsset, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("import_database_asset", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async syncDatabaseYaml(request: DatabaseYamlSyncRequest) : Promise<Result<DatabaseYamlSyncResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_database_yaml", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async resolveDatabaseYamlConflict(request: DatabaseYamlResolveRequest) : Promise<Result<DatabaseYamlSyncResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resolve_database_yaml_conflict", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listDatabases() : Promise<Result<DatabaseSummary[], DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_databases") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async queryDatabase(request: DatabaseQueryRequest) : Promise<Result<DatabaseQueryResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("query_database", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async openInExplorer(path: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("open_in_explorer", { path }) };
@@ -598,8 +691,40 @@ export type AiMessage = {
  * "user" | "assistant"
  */
 role: string; content: string }
+export type CreateDatabaseRequest = { expectedGeneration: number; mode: DatabaseCreateMode; parentPath: string | null; notePath: string | null; name: string }
+export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; title: string }
+export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string }
+export type CreatedDatabaseRow = { databaseId: string; noteId: string; title: string; notePath: string; recordPath: string; recordRevision: string }
 export type CredentialInfo = { exists: boolean; masked: string | null }
 export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }
+export type DatabaseCreateMode = "standalone" | "attached"
+export type DatabaseDiagnostic = { code: string; severity: string; path: string; message: string }
+export type DatabaseError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actual_generation: number } | { kind: "failed"; code: string; message: string }
+export type DatabaseFieldRef = { kind: "system"; field: string } | { kind: "property"; property_id: string }
+export type DatabaseFilterNode = { kind: "group"; operator: string; children: DatabaseFilterNode[] } | { kind: "condition"; field: DatabaseFieldRef; operator: string; value: string | null }
+export type DatabaseModuleState = { enabled: boolean; vaultGeneration: number | null; projection: ProjectionVersion | null }
+export type DatabaseNoteRevision = { noteId: string; revision: string }
+export type DatabasePageRequest = { limit: number; cursor: string | null }
+export type DatabaseQueryRequest = { expectedGeneration: number; databaseId: string; source: DatabaseQuerySource; page: DatabasePageRequest }
+export type DatabaseQueryResult = { database: DatabaseSummary; projection: ProjectionVersion; rows: DatabaseRow[]; nextCursor: string | null; diagnostics: DatabaseDiagnostic[] }
+export type DatabaseQuerySource = { kind: "savedView"; view_id: string; expected_revision: string | null } | { kind: "inline"; spec: DatabaseQuerySpec }
+export type DatabaseQuerySpec = { filter: DatabaseFilterNode | null; sorts: DatabaseSortSpec[] }
+export type DatabaseRow = { noteId: string; title: string; relativePath: string; parentNoteId: string | null; depth: number; categoryPath: string[]; valuesJson: string; rowRevision: string }
+export type DatabaseSortSpec = { field: DatabaseFieldRef; direction: string; nulls: string }
+/**
+ * A summary deliberately contains no filesystem path. Resource resolution
+ * stays backend-owned and only safe view metadata crosses the IPC boundary.
+ */
+export type DatabaseSummary = { databaseId: string; title: string; views: DatabaseViewSummary[]; diagnostics: DatabaseDiagnostic[] }
+export type DatabaseValueBatchRequest = { expectedGeneration: number; databaseId: string; operationId: string; cells: DatabaseValueMutation[] }
+export type DatabaseValueBatchResult = { operationId: string; databaseId: string; revisions: DatabaseNoteRevision[]; warnings: string[] }
+export type DatabaseValueMutation = { noteId: string; propertyId: string; valueJson: string | null; expectedRevision: string }
+export type DatabaseViewSummary = { viewId: string; title: string; layout: string; revision: string; groupField: DatabaseFieldRef | null }
+export type DatabaseYamlConflict = { databaseId: string; noteId: string; propertyId: string; yamlKey: string; baseJson: string; shardJson: string; yamlJson: string; noteRevision: string; recordRevision: string }
+export type DatabaseYamlResolution = "shard" | "yaml" | "manual"
+export type DatabaseYamlResolveRequest = { expectedGeneration: number; databaseId: string; noteId: string; propertyId: string; expectedNoteRevision: string; expectedRecordRevision: string; resolution: DatabaseYamlResolution; manualValueJson: string | null }
+export type DatabaseYamlSyncRequest = { expectedGeneration: number; databaseId: string; noteId: string; expectedRecordRevision: string }
+export type DatabaseYamlSyncResult = { databaseId: string; noteId: string; noteRevision: string; recordRevision: string; changed: boolean; conflicts: DatabaseYamlConflict[]; warnings: string[] }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 /**
  * Read-only view of a single YAML frontmatter entry. The original YAML stays
@@ -618,7 +743,9 @@ export type IdMigrationRecovery = { journalPath: string; backupPath: string; sta
 export type IdMigrationRecoveryAction = "resume" | "rollback" | "inspectOnly"
 export type IdMigrationResult = { backupPath: string; journalPath: string; modifiedPaths: string[]; status: IdMigrationStatus }
 export type IdMigrationStatus = "planned" | "inProgress" | "completed" | "rolledBack"
+export type ImportDatabaseAssetRequest = { expectedGeneration: number; databaseId: string; noteId: string; sourcePath: string }
 export type ImportedAsset = { relPath: string; absPath: string; fileName: string; kind: string }
+export type ImportedDatabaseAsset = { databaseId: string; noteId: string; assetId: string; name: string; relativePath: string; mimeType: string; sizeBytes: number }
 /**
  * Health of the rebuildable SQLite index. Markdown files remain authoritative
  * regardless of this state.
@@ -647,6 +774,11 @@ export type NoteProperties = { hasFrontmatter: boolean; frontmatterStatus: Front
 export type NoteReadOutcome = { content: string; revision: string; source: string }
 export type OperationWarning = "indexRebuildRequired"
 export type PathChange = { oldPath: string; newPath: string }
+/**
+ * Version of the rebuildable database projection. DB-02 does not publish a
+ * projection yet, but the typed boundary is established now.
+ */
+export type ProjectionVersion = { epoch: string; seq: number }
 export type RecoveryEntry = { version: number; vaultGeneration: number; documentKind: string; id: string; pathHint: string; savedAtMs: number; content: string; contentHash: string }
 export type RefactorPreview = { notes: number; replacements: number }
 export type RestoreDeletedNoteRequest = { expectedGeneration: number; noteId: string; path: string; content: string; sourceTemplate: string; originWindow: string }

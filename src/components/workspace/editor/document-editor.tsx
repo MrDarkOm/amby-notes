@@ -54,6 +54,8 @@ export interface DocumentEditorProps {
   fetchTransclusion?: (target: string) => Promise<string | null>
   activeLayer?: EditorLayer
   onLayerChange?: (layer: EditorLayer) => void
+  databasesEnabled?: boolean
+  canCreateDatabaseLayer?: boolean
   viewMode?: DocumentViewMode
   onViewModeChange?: (mode: DocumentViewMode) => void
   onFileIconChange?: (emoji: string) => void
@@ -68,6 +70,7 @@ export interface DocumentEditorProps {
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
   onOpenNestedNoteInNewTab?: (id: string) => void
   onMoveFile?: (targetFolderId: string | null) => void
+  onCreateFolder?: (parentId: string | null, name: string) => void
   onMergeFile?: (targetId: string) => void
   onShowInExplorer?: () => void
   onDeleteFile?: () => void
@@ -107,6 +110,8 @@ export function DocumentEditor({
   fetchTransclusion,
   activeLayer = "editor",
   onLayerChange,
+  databasesEnabled = false,
+  canCreateDatabaseLayer = false,
   viewMode = "live",
   onViewModeChange,
   onFileIconChange,
@@ -120,6 +125,7 @@ export function DocumentEditor({
   onNestedNotesPlacementChange,
   onOpenNestedNoteInNewTab,
   onMoveFile,
+  onCreateFolder,
   onMergeFile,
   onShowInExplorer,
   onDeleteFile,
@@ -150,9 +156,14 @@ export function DocumentEditor({
   const mergeFiles = flatTreeItems.filter(
     (item) => item.type === "file" && item.id !== document?.id,
   )
-  const pickerItems = (filePickerMode === "move" ? moveFolders : mergeFiles).filter((item) =>
-    item.name.toLocaleLowerCase().includes(filePickerQuery.trim().toLocaleLowerCase()),
-  )
+  const pickerQuery = filePickerQuery.trim().toLocaleLowerCase()
+  const pickerItems = (filePickerMode === "move" ? moveFolders : mergeFiles).filter((item) => {
+    if (!pickerQuery) return true
+    const relativePath = vault ? relativeToVault(item.path, vault) : item.path
+    return [item.name, relativePath].some((value) =>
+      value.toLocaleLowerCase().includes(pickerQuery),
+    )
+  })
 
   const copyPath = React.useCallback(
     async (kind: "app" | "vault" | "absolute") => {
@@ -239,6 +250,8 @@ export function DocumentEditor({
       activeLayer={activeLayer}
       onLayerChange={onLayerChange}
       linkedLayers={linkedLayers}
+      databasesEnabled={databasesEnabled}
+      canCreateDatabaseLayer={canCreateDatabaseLayer}
       onUnlinkLayer={onUnlinkLayer}
       onDeleteLayer={onDeleteLayer}
       isLocked={isLocked || editingPolicy.readOnly}
@@ -347,7 +360,7 @@ export function DocumentEditor({
   }
 
   return (
-    <div className="relative flex h-full min-w-0 flex-1 flex-col bg-[var(--workspace-bg)]">
+    <div className="relative flex h-full min-w-0 flex-1 flex-col">
       <div
         className={`${isFocusMode ? "" : "mb-2"} mt-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]`}
         style={{ boxShadow: "var(--note-surface-shadow)" }}
@@ -406,11 +419,16 @@ export function DocumentEditor({
 
       <FilePickerModal
         filePickerMode={filePickerMode}
-        onClose={() => setFilePickerMode(null)}
+        onClose={() => {
+          setFilePickerMode(null)
+          setFilePickerQuery("")
+        }}
         filePickerQuery={filePickerQuery}
         onQueryChange={setFilePickerQuery}
         pickerItems={pickerItems}
+        vault={vault}
         onMoveFile={onMoveFile}
+        onCreateFolder={onCreateFolder}
         onMergeFile={onMergeFile}
       />
     </div>

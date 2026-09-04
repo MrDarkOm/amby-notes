@@ -71,6 +71,7 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     expect(settings.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
     expect(settings.panelScope).toBe("global")
     expect(settings.prefs.theme).toBe("dark")
+    expect(settings.experimental.databasesV1).toBe(false)
 
     const workspaces = await loadWorkspaces()
     expect(workspaces.schemaVersion).toBe(WORKSPACES_SCHEMA_VERSION)
@@ -170,6 +171,17 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     const loadedWs = await loadWorkspaceConfig()
     expect(loadedWs.schemaVersion).toBe(1)
     expect(loadedWs.theme).toBe("nord")
+  })
+
+  it("preserves the explicit database gate without changing module layout", async () => {
+    store.set(
+      "amby:g:" + SETTINGS_FILE,
+      JSON.stringify({ experimental: { databasesV1: true }, layout: { activeModules: null } }),
+    )
+
+    const loaded = await loadSettings()
+    expect(loaded.experimental.databasesV1).toBe(true)
+    expect(loaded.layout.activeModules).toBeNull()
   })
 
   it("serializes concurrent patches without erasing parallel fields", async () => {

@@ -100,6 +100,27 @@ describe("sidebar tree interactions", () => {
     expect(screen.getByRole("treeitem", { name: "Parent" })).toBeTruthy()
   })
 
+  it("supports Cmd/Ctrl multi-selection and Shift range selection", () => {
+    const onSelect = vi.fn()
+    render(<SidebarTree items={items} selectedId={null} onSelect={onSelect} />)
+
+    const leaf = screen.getByRole("treeitem", { name: "Leaf" })
+    const projects = screen.getByRole("treeitem", { name: "Projects" })
+    const parent = screen.getByRole("treeitem", { name: "Parent" })
+
+    fireEvent.click(leaf)
+    fireEvent.click(projects, { ctrlKey: true })
+    expect(leaf.getAttribute("aria-selected")).toBe("true")
+    expect(projects.getAttribute("aria-selected")).toBe("true")
+    expect(onSelect).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(parent, { shiftKey: true })
+    expect(projects.getAttribute("aria-selected")).toBe("true")
+    expect(parent.getAttribute("aria-selected")).toBe("true")
+    expect(screen.getByRole("tree").getAttribute("aria-multiselectable")).toBe("true")
+    expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+
   it("preserves expand/collapse-all state after remounting", () => {
     const props = { items, selectedId: null, onSelect: vi.fn() }
     const tree = render(<SidebarTree {...props} />)

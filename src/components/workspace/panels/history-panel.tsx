@@ -1,7 +1,16 @@
 "use client"
 
 import * as React from "react"
-import { ChevronRight, Clock3, History, Loader2, RefreshCw, Search, Trash2 } from "lucide-react"
+import {
+  ChevronRight,
+  Clock3,
+  History,
+  Loader2,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Trash2,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -29,13 +38,15 @@ function HistoryContents({
 }: PanelRenderProps) {
   const { t, i18n } = useTranslation()
   const history = useHistory(currentDocPath, onHistoryRestored)
+  const clearHistory = history.clearAll
   React.useEffect(() => {
-    const handler = () => void history.clearAll()
+    const handler = () => void clearHistory()
     window.addEventListener("amby:history-clear-all", handler)
     return () => window.removeEventListener("amby:history-clear-all", handler)
-  }, [history.clearAll])
+  }, [clearHistory])
   const [query, setQuery] = React.useState("")
   const [limit, setLimit] = React.useState(PAGE_SIZE)
+  const [showTrash, setShowTrash] = React.useState(false)
   const locale = i18n.language
   const dateFormat = new Intl.DateTimeFormat(locale, {
     day: "numeric",
@@ -72,10 +83,19 @@ function HistoryContents({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <header className="flex shrink-0 items-center justify-between gap-2 px-4 pb-3 pt-4">
         <h2 className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-          {t("panels.history")}
+          {showTrash ? t("historyPanel.trash") : t("panels.history")}
         </h2>
         <div className="flex shrink-0 items-center gap-0.5">
-          {history.snapshots.length > 0 && (
+          <Button
+            variant={showTrash ? "secondary" : "ghost"}
+            size="icon-sm"
+            title={t("historyPanel.trash")}
+            aria-label={t("historyPanel.trash")}
+            onClick={() => setShowTrash((value) => !value)}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+          {!showTrash && history.snapshots.length > 0 && (
             <Button
               variant="ghost"
               size="icon-sm"
@@ -110,21 +130,23 @@ function HistoryContents({
           </Button>
         </div>
       </header>
-      <div className="space-y-3 border-b px-4 pb-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setLimit(PAGE_SIZE)
-            }}
-            aria-label={t("historyPanel.searchVersions")}
-            placeholder={t("historyPanel.searchVersions")}
-            className="h-8 min-w-0 bg-transparent pl-8 text-xs"
-          />
+      {!showTrash && (
+        <div className="space-y-3 border-b px-4 pb-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value)
+                setLimit(PAGE_SIZE)
+              }}
+              aria-label={t("historyPanel.searchVersions")}
+              placeholder={t("historyPanel.searchVersions")}
+              className="h-8 min-w-0 bg-transparent pl-8 text-xs"
+            />
+          </div>
         </div>
-      </div>
+      )}
       {history.error && !history.selected && (
         <p role="alert" className="shrink-0 border-b px-4 py-3 text-xs text-destructive">
           {history.error}
@@ -139,7 +161,40 @@ function HistoryContents({
         className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-3"
         aria-busy={history.loading}
       >
-        {history.error && !count ? (
+        {showTrash ? (
+          history.loading && !history.trash.length ? (
+            <p
+              role="status"
+              className="flex items-center justify-center gap-2 py-10 text-xs text-muted-foreground"
+            >
+              <Loader2 className="size-4 animate-spin" />
+              {t("historyPanel.loading")}
+            </p>
+          ) : !history.trash.length ? (
+            <p className="py-10 text-center text-xs text-muted-foreground">
+              {t("historyPanel.trashEmpty")}
+            </p>
+          ) : (
+            history.trash.map((entry) => (
+              <div key={entry.id} className="flex items-center gap-2 border-b py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium">{entry.name}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">{entry.originalPath}</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  disabled={history.busy}
+                  title={t("historyPanel.return")}
+                  aria-label={t("historyPanel.return")}
+                  onClick={() => void history.returnTrash(entry)}
+                >
+                  <RotateCcw className="size-3.5" />
+                </Button>
+              </div>
+            ))
+          )
+        ) : history.error && !count ? (
           <div className="flex justify-center py-8">
             <Button variant="outline" size="sm" onClick={() => void history.refresh()}>
               {t("historyPanel.retry")}

@@ -9,7 +9,13 @@ export const BASE_DEF_IDS = new Set(["files", "search", "archive", "info", "refr
  * would gate against in a later phase, so modules declare them from day one.
  */
 export type ModulePermission =
-  "read-notes" | "write-notes" | "read-vault-meta" | "ui-panel" | "ui-action"
+  | "read-notes"
+  | "write-notes"
+  | "read-vault-meta"
+  | "read-databases"
+  | "write-databases"
+  | "ui-panel"
+  | "ui-action"
 
 export interface ModuleManifest {
   permissions: ModulePermission[]
@@ -23,14 +29,32 @@ export interface ModuleContext {
 export interface ModuleDef {
   id: string
   labelKey: string
+  descriptionKey: string
+  /** Preview modules are visible in the catalogue but cannot be enabled yet. */
+  status: "ready" | "preview"
   manifest: ModuleManifest
   /** Panels (from panel-registry) this module contributes to the activity bar. */
   panels?: PanelId[]
   /** Action ids this module contributes. */
   actions?: string[]
+  /** Flush pending work before the module is committed as disabled. */
+  prepareDeactivate?: (ctx: ModuleContext) => void | Promise<void>
   onActivate?: (ctx: ModuleContext) => void
   onDeactivate?: (ctx: ModuleContext) => void
 }
+
+export interface ModuleAvailability {
+  databasesV1: boolean
+}
+
+export const DEFAULT_MODULE_AVAILABILITY: ModuleAvailability = {
+  databasesV1: false,
+}
+
+export const DATABASES_MODULE_ID = "databases"
+
+/** The old Metadata.md layer writer must stay unavailable until DB-10. */
+export const DATABASE_LAYER_CREATION_AVAILABLE = false
 
 /**
  * The built-in modules. Each wraps one of the existing panels/actions; this is
@@ -40,52 +64,99 @@ export const MODULE_REGISTRY: ModuleDef[] = [
   {
     id: "tags",
     labelKey: "settings.modules.tags",
+    descriptionKey: "settings.modules.descriptions.tags",
+    status: "ready",
     manifest: { permissions: ["ui-panel", "read-notes"] },
     panels: ["tags"],
   },
   {
     id: "favorites",
     labelKey: "settings.modules.favorites",
+    descriptionKey: "settings.modules.descriptions.favorites",
+    status: "ready",
     manifest: { permissions: ["ui-panel", "read-vault-meta"] },
     panels: ["favorites"],
   },
   {
     id: "databases",
     labelKey: "settings.modules.databases",
-    manifest: { permissions: ["ui-panel"] },
+    descriptionKey: "settings.modules.descriptions.databases",
+    status: "preview",
+    manifest: { permissions: ["ui-panel", "read-databases", "write-databases"] },
     panels: ["databases"],
   },
   {
     id: "history",
     labelKey: "settings.modules.history",
+    descriptionKey: "settings.modules.descriptions.history",
+    status: "ready",
     manifest: { permissions: ["ui-panel"] },
     panels: ["history"],
   },
   {
     id: "links",
     labelKey: "settings.modules.links",
+    descriptionKey: "settings.modules.descriptions.links",
+    status: "ready",
     manifest: { permissions: ["ui-panel", "read-vault-meta"] },
     panels: ["links"],
   },
   {
     id: "graph",
     labelKey: "settings.modules.graph",
+    descriptionKey: "settings.modules.descriptions.graph",
+    status: "ready",
     manifest: { permissions: ["ui-action", "read-vault-meta"] },
     actions: ["network"],
   },
-  { id: "sync", labelKey: "settings.modules.sync", manifest: { permissions: ["read-vault-meta"] } },
+  {
+    id: "sync",
+    labelKey: "settings.modules.sync",
+    descriptionKey: "settings.modules.descriptions.sync",
+    status: "preview",
+    manifest: { permissions: ["read-vault-meta"] },
+  },
   {
     id: "ai",
     labelKey: "settings.modules.ai",
+    descriptionKey: "settings.modules.descriptions.ai",
+    status: "ready",
     manifest: { permissions: ["ui-panel", "read-notes", "write-notes"] },
     panels: ["ai"],
   },
 ]
 
 export const ALL_MODULE_IDS: string[] = MODULE_REGISTRY.map((m) => m.id)
+/** Modules enabled by the Standard preset. Preview entries stay discoverable but inactive. */
+export const READY_MODULE_IDS: string[] = MODULE_REGISTRY.filter(
+  (module) => module.status === "ready",
+).map((module) => module.id)
 
 export function findModule(id: string): ModuleDef | undefined {
   return MODULE_REGISTRY.find((m) => m.id === id)
+}
+
+/**
+ * Preview modules remain visible in Settings, but are only actionable when
+ * their explicit feature gate is on. A gate never adds the module to a
+ * layout; it only makes an explicit enable action valid.
+ */
+export function isModuleAvailable(
+  id: string,
+  experimental: ModuleAvailability = DEFAULT_MODULE_AVAILABILITY,
+): boolean {
+  const module = findModule(id)
+  if (!module) return false
+  if (module.status === "ready") return true
+  return id === DATABASES_MODULE_ID && experimental.databasesV1
+}
+
+export function availableModuleIds(
+  experimental: ModuleAvailability = DEFAULT_MODULE_AVAILABILITY,
+): string[] {
+  return MODULE_REGISTRY.filter((module) => isModuleAvailable(module.id, experimental)).map(
+    (module) => module.id,
+  )
 }
 
 /** The panel + action defIds contributed by a set of active modules. */
@@ -98,16 +169,4 @@ export function contributedDefIds(activeModuleIds: string[]): Set<string> {
     mod.actions?.forEach((a) => ids.add(a))
   }
   return ids
-}
-
-/** Run on_deactivate/on_activate hooks for the transition prev -> next. */
-export function runModuleLifecycle(prev: string[], next: string[], ctx: ModuleContext): void {
-  const prevSet = new Set(prev)
-  const nextSet = new Set(next)
-  for (const id of prev) {
-    if (!nextSet.has(id)) findModule(id)?.onDeactivate?.(ctx)
-  }
-  for (const id of next) {
-    if (!prevSet.has(id)) findModule(id)?.onActivate?.(ctx)
-  }
 }

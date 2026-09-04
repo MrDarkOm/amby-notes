@@ -1,10 +1,23 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Amby</title>
+    <style>
+      /* Keep a full-page HMR reload from exposing the browser's white canvas
+         while the application stylesheet and persisted preferences load. */
+      html,
+      body {
+        background: #f7f8fa;
+      }
+      html.dark,
+      html.dark body {
+        background: #2e2e2e;
+      }
+    </style>
+    <script src="/theme-bootstrap.js"></script>
   </head>
 
   <body>

@@ -31,6 +31,7 @@ import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
 import { SearchModal } from "./search-modal"
 import { SettingsDialog } from "./settings-dialog"
+import type { SettingsNavigationTarget } from "./settings-navigation"
 import { useSettingsStore } from "./use-settings-store"
 import { findWikiLinkItem } from "./wiki-links"
 import { applyTreePatch, planMutation } from "./workspace-mutations"
@@ -44,6 +45,9 @@ import { canRenderSplit } from "./document-buffer-lifecycle"
 import { wsPathStem, canvasLayerPath, findTreeItem, newTabKey } from "./workspace-tree-utils"
 import { WorkspacePicker } from "./workspace-picker"
 import { FolderView } from "./folder-view"
+import { DatabaseWorkspace } from "./database/database-workspace"
+import { useDatabaseController } from "./database/use-database-controller"
+import { createDatabaseTab } from "./database/tab-target"
 import { discardRecoveryDraft, remapRecoveryDraft } from "@/lib/recovery-drafts"
 import {
   isTauri,
@@ -59,6 +63,8 @@ import { useCanvasWorkspace } from "./orchestration/use-canvas-workspace"
 import { usePropertyActions } from "./orchestration/use-property-actions"
 import { useVaultActions } from "./orchestration/use-vault-actions"
 import { WorkspaceLayout } from "./workspace-layout"
+import { matchesShortcut } from "./keyboard-shortcuts"
+import { DATABASE_LAYER_CREATION_AVAILABLE } from "./modules"
 
 import { EmptyStateHeader, workspaceRelativePath } from "./vault/use-vault-session"
 import { useNoteWindows } from "./windows/use-note-windows"
@@ -129,8 +135,11 @@ export function WorkspaceOrchestration() {
   const [quickOpenMode, setQuickOpenMode] = React.useState<"current" | "new" | null>(null)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [settingsOpen, setSettingsOpen] = React.useState(false)
+  const [settingsTarget, setSettingsTarget] = React.useState<SettingsNavigationTarget | null>(null)
   const defaultViewMode = useSettingsStore((s) => s.prefs.editor.defaultViewMode)
   const dockPrefs = useSettingsStore((s) => s.prefs.docks)
+  const shortcuts = useSettingsStore((s) => s.prefs.shortcuts)
+  const experimental = useSettingsStore((s) => s.experimental)
   const setPrefs = useSettingsStore((s) => s.setPrefs)
   const [dockNotice, setDockNotice] = React.useState<string | null>(null)
 
@@ -138,6 +147,11 @@ export function WorkspaceOrchestration() {
     (patch: Partial<typeof dockPrefs>) => setPrefs({ docks: { ...dockPrefs, ...patch } }),
     [dockPrefs, setPrefs],
   )
+
+  const openSettings = React.useCallback((target: SettingsNavigationTarget | null = null) => {
+    setSettingsTarget(target)
+    setSettingsOpen(true)
+  }, [])
 
   React.useEffect(() => {
     if (!dockNotice) return
@@ -160,7 +174,9 @@ export function WorkspaceOrchestration() {
     switchPreset,
     importPreset,
     exportPreset,
-  } = usePresets(vault)
+  } = usePresets(vault, experimental)
+  const databasesEnabled = experimental.databasesV1 && activeModules.includes("databases")
+  useDatabaseController({ enabled: databasesEnabled, vaultGeneration: backendGeneration })
   const presetOptions = React.useMemo(
     () =>
       presets.map((p) => ({
@@ -227,6 +243,18 @@ export function WorkspaceOrchestration() {
     setActiveTabKey(key)
   }
 
+  const openDatabaseTab = React.useCallback(
+    (databaseId: string, title: string, inNewTab = false) => {
+      const target = { kind: "database" as const, fileId: databaseId, title }
+      if (inNewTab) {
+        useTabsStore.getState().openItem(target, true)
+        return
+      }
+      useTabsStore.getState().openOrActivateSingletonTab(createDatabaseTab(target))
+    },
+    [],
+  )
+
   async function loadCanvas(path: string) {
     if (openCanvases[path] === undefined) {
       const content = await loadCanvasBuffer(path)
@@ -246,7 +274,7 @@ export function WorkspaceOrchestration() {
     openGraphTab,
     refreshVault,
     openSearch: () => setSearchOpen(true),
-    openSettings: () => setSettingsOpen(true),
+    openSettings,
   }
 
   const activityBarPresetProps = {
@@ -257,6 +285,7 @@ export function WorkspaceOrchestration() {
     onExportPreset: handleExportPreset,
     panelScope,
     onSetPanelScope: setPanelScope,
+    onOpenSettings: openSettings,
   }
 
   const {
@@ -388,7 +417,7 @@ export function WorkspaceOrchestration() {
   const currentDocPath = currentDoc?.path ?? null
 
   const { handleLayerChange, handleAttachLayerToFile, handleUnlinkLayer, handleDeleteLayer } =
-    useLayers({ vault, currentDoc, treeItems, refreshTree, applyMutationResult })
+    useLayers({ vault, currentDoc, treeItems, refreshTree, applyMutationResult, databasesEnabled })
 
   const {
     handleSelect,
@@ -442,38 +471,45 @@ export function WorkspaceOrchestration() {
   // shortcuts still belong to the focused editor; these only invoke app navigation.
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.altKey || (!event.metaKey && !event.ctrlKey)) return
+      if (event.defaultPrevented) return
 
-      const key = event.key.toLowerCase()
-      if (key === "p") {
+      if (matchesShortcut(event, shortcuts.quickOpen)) {
         event.preventDefault()
         setQuickOpenMode("current")
-      } else if (key === "f" && event.shiftKey) {
+      } else if (matchesShortcut(event, shortcuts.search)) {
         event.preventDefault()
         setSearchOpen(true)
-      } else if (key === "n" && !event.shiftKey) {
+      } else if (matchesShortcut(event, shortcuts.newNote)) {
         event.preventDefault()
         handleNewFileIn(null)
-      } else if (key === "b" && !event.shiftKey) {
+      } else if (matchesShortcut(event, shortcuts.toggleLeftSidebar)) {
         event.preventDefault()
         setIsLeftSidebarOpen((open) => !open)
-      } else if (key === "b" && event.shiftKey) {
+      } else if (matchesShortcut(event, shortcuts.toggleRightSidebar)) {
         event.preventDefault()
         setIsRightSidebarOpen((open) => !open)
-      } else if (key === ",") {
+      } else if (matchesShortcut(event, shortcuts.settings)) {
         event.preventDefault()
-        setSettingsOpen(true)
-      } else if (key === "[" && !event.shiftKey) {
+        openSettings()
+      } else if (matchesShortcut(event, shortcuts.back)) {
         event.preventDefault()
         handleBack()
-      } else if (key === "]" && !event.shiftKey) {
+      } else if (matchesShortcut(event, shortcuts.forward)) {
         event.preventDefault()
         handleForward()
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [handleBack, handleForward, handleNewFileIn, setIsLeftSidebarOpen, setIsRightSidebarOpen])
+  }, [
+    handleBack,
+    handleForward,
+    handleNewFileIn,
+    openSettings,
+    setIsLeftSidebarOpen,
+    setIsRightSidebarOpen,
+    shortcuts,
+  ])
 
   const { handleDeleteVault, handleMoveVault, handleOpenVault, handleRenameVault } =
     useVaultActions({
@@ -603,6 +639,9 @@ export function WorkspaceOrchestration() {
       onToggleFavorite: handleToggleFavorite,
       onAttachLayer: handleAttachLayerToFile,
       linkedLayersByDoc,
+      canCreateDatabaseLayer: DATABASE_LAYER_CREATION_AVAILABLE && databasesEnabled,
+      databaseRuntimeEnabled: databasesEnabled,
+      onOpenDatabase: openDatabaseTab,
       properties: currentProperties,
       linkGraph,
       currentDocId: currentDoc?.id ?? null,
@@ -622,8 +661,16 @@ export function WorkspaceOrchestration() {
           onMove={handleMoveVault}
           onOpenInExplorer={openInExplorer}
         >
-          <button className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-background/70 px-3 py-2 text-sm transition-colors hover:bg-accent">
-            <span className="truncate font-medium">{vaultName ?? t("workspace.name")}</span>
+          <button className="flex w-full items-center gap-2 rounded-lg border border-border bg-background/70 px-3 py-2.5 text-left outline-none transition-colors hover:bg-accent">
+            <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 leading-tight">
+              <span className="block whitespace-nowrap text-[8px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                {t("vaultPicker.workspaceLabel")}
+              </span>
+              <span className="block truncate text-sm font-medium text-foreground">
+                {vaultName ?? t("workspace.name")}
+              </span>
+            </span>
             <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
           </button>
         </WorkspacePicker>
@@ -652,6 +699,8 @@ export function WorkspaceOrchestration() {
       handleAttachLayerToFile,
       linkedLayersByDoc,
       currentProperties,
+      databasesEnabled,
+      openDatabaseTab,
       handleUpsertCustomProperty,
       handleDeleteCustomProperty,
       linkGraph,
@@ -733,6 +782,8 @@ export function WorkspaceOrchestration() {
             if (doc) setViewMode(doc.id, mode)
           },
       linkedLayers: isPrimary && doc ? (linkedLayersByDoc[doc.id] ?? NO_LAYERS) : NO_LAYERS,
+      databasesEnabled,
+      canCreateDatabaseLayer: DATABASE_LAYER_CREATION_AVAILABLE && databasesEnabled,
       isLocked: doc ? lockedFileIds.has(doc.id) : false,
       onToggleLock: isPrimary ? handleToggleLock : () => {},
       isFavorite: doc ? favorites.has(doc.id) : false,
@@ -747,6 +798,10 @@ export function WorkspaceOrchestration() {
       onMoveFile: doc
         ? (targetFolderId: string | null) => handleMoveItem(doc.id, targetFolderId)
         : undefined,
+      onCreateFolder:
+        doc && vault
+          ? (parentId: string | null, name: string) => handleNewFolderIn(parentId, name)
+          : undefined,
       onMergeFile: doc ? (targetId: string) => handleMergeFile(doc.id, targetId) : undefined,
       onShowInExplorer: doc ? () => openInExplorer(doc.path) : undefined,
       onDeleteFile: doc ? () => handleDeleteFile(doc.id) : undefined,
@@ -820,7 +875,13 @@ export function WorkspaceOrchestration() {
           if (e.clientX > w - 20) setFocusShowRight(true)
         }}
       >
-        {activeTab?.kind === "graph" ? (
+        {activeTab?.kind === "database" ? (
+          <DatabaseWorkspace
+            databaseId={activeTab.fileId}
+            title={activeTab.title}
+            onOpenInNewTab={() => openDatabaseTab(activeTab.fileId, activeTab.title, true)}
+          />
+        ) : activeTab?.kind === "graph" ? (
           <React.Suspense fallback={<LazyEditorFallback />}>
             <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
           </React.Suspense>
@@ -901,6 +962,7 @@ export function WorkspaceOrchestration() {
                 side="left"
                 buttons={leftButtons}
                 activeView={activeBySide.left}
+                isPanelOpen={focusShowLeft}
                 onActivate={handleActivate}
                 onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
                 onPointerDownButton={dnd.onPointerDown}
@@ -928,6 +990,7 @@ export function WorkspaceOrchestration() {
               side="right"
               buttons={rightButtons}
               activeView={activeBySide.right}
+              isPanelOpen={focusShowRight}
               onActivate={handleActivate}
               onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
               onPointerDownButton={dnd.onPointerDown}
@@ -956,7 +1019,12 @@ export function WorkspaceOrchestration() {
 
         <SettingsDialog
           open={settingsOpen}
-          onOpenChange={setSettingsOpen}
+          onOpenChange={(open) => {
+            setSettingsOpen(open)
+            if (!open) setSettingsTarget(null)
+          }}
+          vault={vault}
+          navigationTarget={settingsTarget}
           activeModules={activeModules}
           onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
           dockPrefs={dockPrefs}
@@ -970,7 +1038,7 @@ export function WorkspaceOrchestration() {
 
   // ── Normal layout ──────────────────────────────────────────────
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[var(--workspace-bg)]">
+    <div className="flex h-screen flex-col overflow-hidden">
       <HeaderTabs
         tabs={headerTabs}
         activeTabKey={activeTabKey}
@@ -1009,12 +1077,13 @@ export function WorkspaceOrchestration() {
       />
       {deleteConfirmationDialog}
 
-      <div className="flex flex-1 overflow-hidden bg-[var(--workspace-bg)]">
+      <div className="flex flex-1 overflow-hidden">
         {isDockVisible("left") && (
           <ActivityBar
             side="left"
             buttons={leftButtons}
             activeView={activeBySide.left}
+            isPanelOpen={isLeftSidebarOpen}
             onActivate={handleActivate}
             onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
             onPointerDownButton={dnd.onPointerDown}
@@ -1040,8 +1109,14 @@ export function WorkspaceOrchestration() {
           </>
         )}
 
-        <main className="flex flex-1 gap-0 overflow-hidden bg-[var(--workspace-bg)]">
-          {activeTab?.kind === "graph" ? (
+        <main className="flex flex-1 gap-0 overflow-hidden">
+          {activeTab?.kind === "database" ? (
+            <DatabaseWorkspace
+              databaseId={activeTab.fileId}
+              title={activeTab.title}
+              onOpenInNewTab={() => openDatabaseTab(activeTab.fileId, activeTab.title, true)}
+            />
+          ) : activeTab?.kind === "graph" ? (
             <React.Suspense fallback={<LazyEditorFallback />}>
               <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
             </React.Suspense>
@@ -1120,6 +1195,7 @@ export function WorkspaceOrchestration() {
             side="right"
             buttons={rightButtons}
             activeView={activeBySide.right}
+            isPanelOpen={isRightSidebarOpen}
             onActivate={handleActivate}
             onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
             onPointerDownButton={dnd.onPointerDown}
@@ -1148,7 +1224,12 @@ export function WorkspaceOrchestration() {
 
       <SettingsDialog
         open={settingsOpen}
-        onOpenChange={setSettingsOpen}
+        onOpenChange={(open) => {
+          setSettingsOpen(open)
+          if (!open) setSettingsTarget(null)
+        }}
+        vault={vault}
+        navigationTarget={settingsTarget}
         activeModules={activeModules}
         onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
         dockPrefs={dockPrefs}

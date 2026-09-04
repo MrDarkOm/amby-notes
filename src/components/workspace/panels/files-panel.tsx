@@ -104,6 +104,7 @@ export function FilesPanel(props: PanelRenderProps) {
     favorites,
     onToggleFavorite,
     onAttachLayer,
+    canCreateDatabaseLayer,
     linkedLayersByDoc,
     workspaceSwitcher,
   } = props
@@ -243,6 +244,7 @@ export function FilesPanel(props: PanelRenderProps) {
                   favorites={favorites}
                   onToggleFavorite={onToggleFavorite}
                   onAttachLayer={onAttachLayer}
+                  canCreateDatabaseLayer={canCreateDatabaseLayer}
                   linkedLayersByDoc={linkedLayersByDoc}
                   findActiveKey={findActiveKey}
                 />
@@ -251,7 +253,7 @@ export function FilesPanel(props: PanelRenderProps) {
 
             <div className="shrink-0 p-2">
               <Button
-                className="w-full gap-2 bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                className="w-full gap-2 border border-foreground/10 bg-foreground/10 font-medium text-foreground shadow-sm transition-[background-color,box-shadow,transform] hover:bg-foreground/15 hover:shadow-md active:translate-y-px active:shadow-sm focus-visible:ring-2 focus-visible:ring-foreground/20"
                 onClick={handleNewButtonClick}
               >
                 <FilePlus className="size-4" />

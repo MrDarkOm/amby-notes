@@ -43,6 +43,24 @@ import type {
   VaultTagEntry,
   WriteNoteOutcome,
 } from "./types"
+import type {
+  CreateDatabaseRequest,
+  CreatedDatabase,
+  DatabaseModuleState,
+  DatabaseQueryRequest,
+  DatabaseQueryResult,
+  DatabaseSummary,
+  DatabaseValueBatchRequest,
+  DatabaseValueBatchResult,
+  CreateDatabaseRowRequest,
+  CreatedDatabaseRow,
+  ImportDatabaseAssetRequest,
+  ImportedDatabaseAsset,
+  DatabaseYamlSyncRequest,
+  DatabaseYamlSyncResult,
+  DatabaseYamlResolveRequest,
+} from "./database-types"
+import { DatabaseOperationError } from "./database-types"
 
 const metadataStorage = new WebMetadataStorage()
 
@@ -226,6 +244,92 @@ function webAddChild(items: TreeItem[], parentId: string | null, child: TreeItem
  * so caller imports remain stable while browser-only domains are isolated.
  */
 export class WebAdapterCore implements StoragePort {
+  private databaseModuleState: DatabaseModuleState = {
+    enabled: false,
+    vaultGeneration: null,
+    projection: null,
+  }
+
+  async getDatabaseModuleState(): Promise<DatabaseModuleState> {
+    return { ...this.databaseModuleState }
+  }
+
+  async setDatabaseModuleEnabled(
+    enabled: boolean,
+    expectedGeneration: number,
+  ): Promise<DatabaseModuleState> {
+    if (expectedGeneration !== 0) {
+      throw new DatabaseOperationError(
+        "vaultGenerationConflict",
+        `Vault changed before database operation (generation 0)`,
+      )
+    }
+    this.databaseModuleState = {
+      enabled,
+      vaultGeneration: 0,
+      projection: null,
+    }
+    return { ...this.databaseModuleState }
+  }
+
+  async rebuildDatabaseProjection(): Promise<DatabaseModuleState> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database projection rebuild requires the desktop runtime",
+    )
+  }
+
+  async createDatabase(_request: CreateDatabaseRequest): Promise<CreatedDatabase> {
+    throw new DatabaseOperationError("failed", "Database creation requires the desktop runtime")
+  }
+
+  async applyDatabaseValueBatch(
+    _request: DatabaseValueBatchRequest,
+  ): Promise<DatabaseValueBatchResult> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database value editing requires the desktop runtime",
+    )
+  }
+
+  async createDatabaseRow(_request: CreateDatabaseRowRequest): Promise<CreatedDatabaseRow> {
+    throw new DatabaseOperationError("failed", "Database row creation requires the desktop runtime")
+  }
+
+  async importDatabaseAsset(_request: ImportDatabaseAssetRequest): Promise<ImportedDatabaseAsset> {
+    throw new DatabaseOperationError("failed", "Database asset import requires the desktop runtime")
+  }
+
+  async syncDatabaseYaml(_request: DatabaseYamlSyncRequest): Promise<DatabaseYamlSyncResult> {
+    throw new DatabaseOperationError("failed", "Database YAML sync requires the desktop runtime")
+  }
+
+  async resolveDatabaseYamlConflict(
+    _request: DatabaseYamlResolveRequest,
+  ): Promise<DatabaseYamlSyncResult> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database YAML conflict resolution requires the desktop runtime",
+    )
+  }
+
+  async listDatabases(): Promise<DatabaseSummary[]> {
+    if (!this.databaseModuleState.enabled) {
+      throw new DatabaseOperationError("moduleDisabled", "Database module is disabled")
+    }
+    return []
+  }
+
+  async queryDatabase(_request: DatabaseQueryRequest): Promise<DatabaseQueryResult> {
+    if (!this.databaseModuleState.enabled) {
+      throw new DatabaseOperationError("moduleDisabled", "Database module is disabled")
+    }
+    throw new DatabaseOperationError(
+      "failed",
+      "Database projection queries require the desktop runtime",
+    )
+  }
+
   async openVault(): Promise<string | null> {
     return WEB_VAULT
   }
@@ -635,17 +739,15 @@ export class WebAdapterCore implements StoragePort {
   }
 
   async createLayer(notePath: string, kind: LayerKind): Promise<LayerResult> {
+    if (kind === "database") {
+      throw new Error("Database layer creation is unavailable until DB-10")
+    }
     const ensured = webEnsureBundle(notePath)
     const stem = pathStem(ensured.notePath)
     const dir = pathDir(ensured.notePath)
-    const layerPath =
-      kind === "database"
-        ? joinPath(dir, "Metadata.md")
-        : joinPath(dir, `${stem}.${kind === "sketch" ? "excalidraw" : "canvas"}`)
-    webSet(
-      FILE_PREFIX + layerPath,
-      kind === "database" ? "# Metadata\n\n```amby-db\n[]\n```\n" : "{}\n",
-    )
+    const extension = kind === "sketch" ? "excalidraw" : "canvas"
+    const layerPath = joinPath(dir, `${stem}.${extension}`)
+    webSet(FILE_PREFIX + layerPath, "{}\n")
     return { notePath: ensured.notePath, layerPath, kind, pathChanges: ensured.changes }
   }
 
@@ -654,13 +756,15 @@ export class WebAdapterCore implements StoragePort {
     notePath: string,
     kind: LayerKind,
   ): Promise<FsMutationResult> {
+    if (kind === "database") {
+      throw new Error("Legacy database layers are read-only until DB-10")
+    }
     const dir = pathDir(notePath)
     const parentDir = pathDir(dir)
     const stem = pathStem(notePath)
-    const ext = kind === "canvas" ? "canvas" : kind === "sketch" ? "excalidraw" : "md"
-    const oldPath =
-      kind === "database" ? joinPath(dir, "Metadata.md") : joinPath(dir, `${stem}.${ext}`)
-    const newStem = kind === "database" ? `${stem}_metadata_ul` : `${stem}_ul`
+    const ext = kind === "sketch" ? "excalidraw" : "canvas"
+    const oldPath = joinPath(dir, `${stem}.${ext}`)
+    const newStem = `${stem}_ul`
     let newPath = joinPath(parentDir, `${newStem}.${ext}`)
     let i = 2
     while (webGet(FILE_PREFIX + newPath) !== null) {
@@ -674,7 +778,7 @@ export class WebAdapterCore implements StoragePort {
     return {
       primaryId: null,
       primaryPath: notePath,
-      pathChanges: ext === "md" ? [{ oldPath, newPath }] : [],
+      pathChanges: [],
       deletedPaths: [],
       deletedIds: [],
     }
@@ -685,18 +789,19 @@ export class WebAdapterCore implements StoragePort {
     notePath: string,
     kind: LayerKind,
   ): Promise<FsMutationResult> {
+    if (kind === "database") {
+      throw new Error("Legacy database layers are read-only until DB-10")
+    }
     const dir = pathDir(notePath)
     const stem = pathStem(notePath)
-    const layerPath =
-      kind === "database"
-        ? joinPath(dir, "Metadata.md")
-        : joinPath(dir, `${stem}.${kind === "sketch" ? "excalidraw" : "canvas"}`)
+    const extension = kind === "sketch" ? "excalidraw" : "canvas"
+    const layerPath = joinPath(dir, `${stem}.${extension}`)
     webRemove(FILE_PREFIX + layerPath)
     return {
       primaryId: null,
       primaryPath: notePath,
       pathChanges: [],
-      deletedPaths: kind === "database" ? [layerPath] : [],
+      deletedPaths: [],
       deletedIds: [],
     }
   }

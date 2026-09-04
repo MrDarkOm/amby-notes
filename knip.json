@@ -1,4 +1,9 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "project": ["src/**/*.{ts,tsx}"]
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignoreIssues": {
+    "src/lib/storage/index.ts": ["exports"],
+    "src/lib/storage/database-types.ts": ["types"],
+    "src/themes/palettes.ts": ["exports"]
+  }
 }

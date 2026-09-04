@@ -17,7 +17,6 @@ import {
 
 import { AiPanel } from "./ai-panel"
 import {
-  ComingSoonPanel,
   FavoritesPanel,
   FilesPanel,
   HistoryPanel,
@@ -32,6 +31,7 @@ import {
   type Side,
 } from "./panel-registry"
 import { ArchivePanel } from "./panels/archive-panel"
+import { DatabasesPanel } from "./panels/databases-panel"
 
 export const PANEL_DEFS: PanelDef[] = [
   {
@@ -60,7 +60,7 @@ export const PANEL_DEFS: PanelDef[] = [
     labelKey: "panels.databases",
     icon: Database,
     kind: "view",
-    render: () => <ComingSoonPanel labelKey="panels.databases" />,
+    render: (props) => <DatabasesPanel {...props} />,
   },
   {
     id: "archive",

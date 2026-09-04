@@ -48,3 +48,18 @@ Evidence: `.release-evidence/windows-perf-1k.log` and
 `.release-evidence/windows-perf-10k.log`. These measurements cover the indexed
 backend path. WebView input latency and resident memory remain unmeasured, so
 the full manual `WIN-PERF` row remains PARTIAL.
+
+## macOS repeat — 2026-09-04
+
+Current worktree on macOS arm64, Rust debug test profile. The deterministic
+large-vault smoke passed at every roadmap size:
+
+| Notes  | Initial scan | Warm reopen | One-file update + refresh | Search   |
+| ------ | ------------ | ----------- | ------------------------- | -------- |
+| 1,000  | 222 ms       | 53 ms       | 46 ms                     | 0.400 ms |
+| 5,000  | 1.177 s      | 294 ms      | 252 ms                    | 0.735 ms |
+| 10,000 | 2.399 s      | 619 ms      | 522 ms                    | 1.167 ms |
+
+Commands: `AMBY_E2E_LARGE_VAULT_SIZE=1000|5000|10000 npm run
+test:e2e:large`. These are indexed backend measurements only; WebView input
+latency, DOM counts and resident memory remain unmeasured.

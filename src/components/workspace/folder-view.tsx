@@ -52,7 +52,7 @@ export function FolderView({
   React.useEffect(() => setQuery(""), [folder.id])
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-auto bg-[var(--workspace-bg)]">
+    <div className="flex min-h-0 flex-1 overflow-auto">
       <div className="mx-auto flex w-full max-w-5xl flex-col px-8 py-10 md:px-12">
         <header className="mb-8 flex flex-wrap items-start justify-between gap-5">
           <div className="min-w-0">

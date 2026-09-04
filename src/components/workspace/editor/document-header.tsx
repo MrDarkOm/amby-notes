@@ -43,6 +43,8 @@ export interface DocumentHeaderProps {
   activeLayer?: EditorLayer
   onLayerChange?: (layer: EditorLayer) => void
   linkedLayers?: { canvas: boolean; sketch: boolean; database: boolean }
+  databasesEnabled?: boolean
+  canCreateDatabaseLayer?: boolean
   onUnlinkLayer?: (layer: LayerKind) => void
   onDeleteLayer?: (layer: LayerKind) => void
   isLocked?: boolean
@@ -88,6 +90,8 @@ export function DocumentHeader({
   activeLayer = "editor",
   onLayerChange,
   linkedLayers,
+  databasesEnabled = false,
+  canCreateDatabaseLayer = false,
   onUnlinkLayer,
   onDeleteLayer,
   isLocked = false,
@@ -223,7 +227,7 @@ export function DocumentHeader({
                 onDelete={onDeleteLayer}
               />
             )}
-            {linkedLayers?.database && (
+            {databasesEnabled && linkedLayers?.database && (
               <LayerButton
                 layer="database"
                 title={t("docEditor.databaseLayer")}
@@ -268,6 +272,7 @@ export function DocumentHeader({
           nestedNotesPlacement={nestedNotesPlacement}
           onNestedNotesPlacementChange={onNestedNotesPlacementChange}
           linkedLayers={linkedLayers}
+          canCreateDatabaseLayer={canCreateDatabaseLayer}
           onRequestAttachLayer={onRequestAttachLayer}
           isFavorite={isFavorite}
           onToggleFavorite={onToggleFavorite}

@@ -13,6 +13,9 @@ pub(crate) fn create_layer_impl(note_path: &Path, kind: &str) -> Result<LayerRes
     if !matches!(kind, "canvas" | "database" | "sketch") {
         return Err(format!("Unknown layer kind: {kind}"));
     }
+    if kind == "database" {
+        return Err("Database layer creation is unavailable until DB-10".to_string());
+    }
     let (main_note, path_changes) = ensure_bundle_path(note_path)?;
     let bundle_dir = main_note
         .parent()
@@ -231,6 +234,9 @@ fn unique_path(base_dir: &Path, stem: &str, ext: &str) -> PathBuf {
 }
 
 pub(crate) fn unlink_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutationResult, String> {
+    if kind == "database" {
+        return Err("Legacy database layers are read-only until DB-10".to_string());
+    }
     let layer_path = layer_file_path(note_path, kind)?;
     if !layer_path.exists() {
         return Err(format!(
@@ -280,6 +286,9 @@ pub(crate) fn delete_layer_impl(
     note_path: &Path,
     kind: &str,
 ) -> Result<FsMutationResult, String> {
+    if kind == "database" {
+        return Err("Legacy database layers are read-only until DB-10".to_string());
+    }
     let layer_path = layer_file_path(note_path, kind)?;
     if !layer_path.exists() {
         return Err(format!(

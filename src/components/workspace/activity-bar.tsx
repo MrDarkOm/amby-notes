@@ -32,11 +32,17 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { type ActivityButton, type ButtonDef, type PanelId, type Side } from "./panel-registry"
 import { ACTION_DEFS, PANEL_DEFS, buttonsForSide } from "./panel-definitions"
+import {
+  settingsLabelKeyForActivityButton,
+  settingsTargetForActivityButton,
+  type SettingsNavigationTarget,
+} from "./settings-navigation"
 
 interface ActivityBarProps {
   side: Side
   buttons: ActivityButton[]
   activeView: PanelId | null
+  isPanelOpen: boolean
   onActivate: (defId: string) => void
   onMoveToOtherSide: (defId: string) => void
   onPointerDownButton: (defId: string) => (event: React.PointerEvent<HTMLElement>) => void
@@ -51,6 +57,7 @@ interface ActivityBarProps {
   pinned?: boolean
   onPinnedChange?: (pinned: boolean) => void
   onHide?: () => void
+  onOpenSettings: (target: SettingsNavigationTarget) => void
 }
 
 type ActivityZone = "view" | "action"
@@ -63,6 +70,7 @@ export function ActivityBar({
   side,
   buttons,
   activeView,
+  isPanelOpen,
   onActivate,
   onMoveToOtherSide,
   onPointerDownButton,
@@ -77,6 +85,7 @@ export function ActivityBar({
   pinned = true,
   onPinnedChange,
   onHide,
+  onOpenSettings,
 }: ActivityBarProps) {
   const { t } = useTranslation()
   const [isAutoHideHover, setIsAutoHideHover] = React.useState(false)
@@ -186,23 +195,43 @@ export function ActivityBar({
   function renderButton(button: ActivityButton, zone: ActivityZone) {
     const def = findDef(button.defId)
     if (!def) return null
-    const isActive = def.kind === "view" && activeView === def.id
+    const isActive = def.kind === "view" && isPanelOpen && activeView === def.id
     const isDragging = draggingId === def.id
     const Icon = def.icon
     const label = t(def.labelKey)
+    const settingsTarget = settingsTargetForActivityButton(def.id)
+    const settingsLabelKey = settingsLabelKeyForActivityButton(def.id)
     const element = (
       <button
         type="button"
+        draggable={false}
         title={label}
         aria-label={label}
         data-activity-button={def.id}
         data-activity-zone={zone}
+        data-active={isActive || undefined}
         data-dragging={isDragging || undefined}
-        onPointerDown={onPointerDownButton(def.id)}
-        onClick={def.id === "presets" ? undefined : () => onActivate(def.id)}
+        onPointerDown={(event) => {
+          // Keep activity-bar drag gestures from reaching the tree's document
+          // pointer handler when the bar sits directly beside the file list.
+          event.stopPropagation()
+          onPointerDownButton(def.id)(event)
+        }}
+        onDragStart={(event) => event.preventDefault()}
+        onClick={(event) => {
+          if (event.currentTarget.getAttribute("data-suppress-click") === "true") {
+            event.preventDefault()
+            event.stopPropagation()
+            event.currentTarget.removeAttribute("data-suppress-click")
+            return
+          }
+          if (def.id !== "presets") onActivate(def.id)
+        }}
         className={cn(
-          "amby-activity-button flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
-          isActive && "bg-primary text-primary-foreground shadow-sm",
+          "amby-activity-button flex size-8 items-center justify-center rounded-md text-muted-foreground transition-[background-color,box-shadow,color] duration-150",
+          isActive
+            ? "text-muted-foreground"
+            : "hover:bg-[var(--note-surface)] hover:text-muted-foreground hover:shadow-sm",
         )}
       >
         <Icon className="size-4" />
@@ -223,15 +252,12 @@ export function ActivityBar({
             <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
           )}
           <ContextMenuContent className="min-w-64 w-auto border-border bg-popover p-1 text-foreground">
-            <ContextMenuItem className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground">
+            <ContextMenuItem
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+              onSelect={() => onOpenSettings(settingsTarget)}
+            >
               <Settings2 className="size-4 text-muted-foreground" />
-              {t(
-                def.id === "history"
-                  ? "activityBar.historySettings"
-                  : def.id === "ai"
-                    ? "activityBar.aiSettings"
-                    : "activityBar.generalSettings",
-              )}
+              {t(settingsLabelKey)}
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem

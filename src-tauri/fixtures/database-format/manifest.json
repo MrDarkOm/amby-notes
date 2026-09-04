@@ -1,0 +1,76 @@
+{
+  "format": "amby-database",
+  "formatVersion": 1,
+  "databaseId": "01J00000000000000000000000",
+  "name": "Characters",
+  "icon": "📚",
+  "cover": null,
+  "locked": false,
+  "membership": {
+    "kind": "filesystem-descendants",
+    "recursive": true
+  },
+  "properties": [
+    {
+      "id": "01J00000000000000000000001",
+      "name": "Summary",
+      "type": "text",
+      "pageVisibility": "alwaysShow",
+      "yamlBinding": {
+        "key": "summary",
+        "direction": "twoWay"
+      },
+      "config": {
+        "multiline": true
+      }
+    },
+    {
+      "id": "01J00000000000000000000002",
+      "name": "Score",
+      "type": "number",
+      "pageVisibility": "hideWhenEmpty",
+      "yamlBinding": null,
+      "config": {
+        "format": "number",
+        "currency": null
+      }
+    },
+    {
+      "id": "01J00000000000000000000003",
+      "name": "Status",
+      "type": "status",
+      "pageVisibility": "alwaysShow",
+      "yamlBinding": null,
+      "config": {
+        "options": [
+          {
+            "id": "01J00000000000000000000004",
+            "name": "Idea",
+            "color": "#999999",
+            "group": "notStarted"
+          },
+          {
+            "id": "01J00000000000000000000005",
+            "name": "Done",
+            "color": "#22c55e",
+            "group": "done"
+          }
+        ]
+      },
+      "futurePropertySetting": {
+        "keep": "me"
+      }
+    }
+  ],
+  "viewOrder": [
+    "01J00000000000000000000006"
+  ],
+  "defaultViewId": "01J00000000000000000000006",
+  "templateOrder": [
+    "01J00000000000000000000007"
+  ],
+  "defaultTemplateId": "01J00000000000000000000007",
+  "futureManifestSetting": {
+    "preserve": true
+  }
+}

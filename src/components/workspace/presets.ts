@@ -1,6 +1,6 @@
 import { type ActivityButton, type PanelId, type Side } from "./panel-registry"
 import { DEFAULT_BUTTONS, findButtonDef, PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
-import { ALL_MODULE_IDS, contributedDefIds } from "./modules"
+import { ALL_MODULE_IDS, READY_MODULE_IDS, contributedDefIds } from "./modules"
 import i18n from "@/lib/i18n"
 
 /**
@@ -46,7 +46,7 @@ export const STANDARD_PRESET: Preset = {
   id: "standard",
   labelKey: "presets.standard",
   builtin: true,
-  activeModules: ALL_MODULE_IDS,
+  activeModules: READY_MODULE_IDS,
   layout: DEFAULT_BUTTONS,
   activeBySide: { left: "files", right: "info" },
 }

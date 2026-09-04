@@ -1,9 +1,29 @@
 import i18n from "@/lib/i18n"
-import { commands } from "@/lib/bindings"
+import { commands, type DatabaseSummary as BindingDatabaseSummary } from "@/lib/bindings"
 import { unwrapCommand } from "./ipc-result"
 import { joinStoragePath } from "./storage-path"
 import type { StoragePort } from "./port"
 import { NoteRevisionConflictError } from "./types"
+import { unwrapDatabaseCommand } from "./database-port"
+import type {
+  DatabaseFieldRef,
+  DatabaseFilterNode,
+  DatabaseModuleState,
+  CreateDatabaseRequest,
+  CreatedDatabase,
+  DatabaseQueryRequest,
+  DatabaseQueryResult,
+  DatabaseSummary,
+  DatabaseValueBatchRequest,
+  DatabaseValueBatchResult,
+  CreateDatabaseRowRequest,
+  CreatedDatabaseRow,
+  ImportDatabaseAssetRequest,
+  ImportedDatabaseAsset,
+  DatabaseYamlSyncRequest,
+  DatabaseYamlSyncResult,
+  DatabaseYamlResolveRequest,
+} from "./database-types"
 import type {
   CredentialInfo,
   CustomProperty,
@@ -52,7 +72,193 @@ async function unwrapMutation(command: Promise<unknown>): Promise<FsMutationResu
   return outcome.mutation
 }
 
+function toBindingField(field: DatabaseFieldRef) {
+  return field.kind === "system"
+    ? { kind: "system" as const, field: field.field }
+    : { kind: "property" as const, property_id: field.propertyId }
+}
+
+function fromBindingField(field: {
+  kind: "system" | "property"
+  field?: string
+  property_id?: string
+}): DatabaseFieldRef {
+  return field.kind === "system"
+    ? { kind: "system", field: field.field ?? "" }
+    : { kind: "property", propertyId: field.property_id ?? "" }
+}
+
+function fromBindingSummary(summary: BindingDatabaseSummary): DatabaseSummary {
+  return {
+    databaseId: summary.databaseId,
+    title: summary.title,
+    views: summary.views.map((view) => ({
+      viewId: view.viewId,
+      title: view.title,
+      layout: view.layout,
+      revision: view.revision,
+      groupField: view.groupField ? fromBindingField(view.groupField) : null,
+    })),
+    diagnostics: summary.diagnostics,
+  }
+}
+
+function toBindingFilter(filter: DatabaseFilterNode):
+  | { kind: "group"; operator: string; children: ReturnType<typeof toBindingFilter>[] }
+  | {
+      kind: "condition"
+      field: ReturnType<typeof toBindingField>
+      operator: string
+      value: string | null
+    } {
+  if (filter.kind === "group") {
+    return {
+      kind: "group",
+      operator: filter.operator,
+      children: filter.children.map(toBindingFilter),
+    }
+  }
+  return {
+    kind: "condition",
+    field: toBindingField(filter.field),
+    operator: filter.operator,
+    value: filter.value ?? null,
+  }
+}
+
+function toBindingQueryRequest(request: DatabaseQueryRequest) {
+  const source =
+    request.source.kind === "savedView"
+      ? {
+          kind: "savedView" as const,
+          view_id: request.source.viewId,
+          expected_revision: request.source.expectedRevision ?? null,
+        }
+      : {
+          kind: "inline" as const,
+          spec: {
+            filter: request.source.spec.filter ? toBindingFilter(request.source.spec.filter) : null,
+            sorts: request.source.spec.sorts.map((sort) => ({
+              field: toBindingField(sort.field),
+              direction: sort.direction,
+              nulls: sort.nulls,
+            })),
+          },
+        }
+  return {
+    expectedGeneration: request.expectedGeneration,
+    databaseId: request.databaseId,
+    source,
+    page: {
+      limit: request.page.limit,
+      cursor: request.page.cursor ?? null,
+    },
+  }
+}
+
 export class DesktopAdapter implements StoragePort {
+  async getDatabaseModuleState(): Promise<DatabaseModuleState> {
+    return unwrapDatabaseCommand(await commands.getDatabaseModuleState())
+  }
+
+  async setDatabaseModuleEnabled(
+    enabled: boolean,
+    expectedGeneration: number,
+  ): Promise<DatabaseModuleState> {
+    return unwrapDatabaseCommand(
+      await commands.setDatabaseModuleEnabled(enabled, expectedGeneration),
+    )
+  }
+
+  async rebuildDatabaseProjection(): Promise<DatabaseModuleState> {
+    return unwrapDatabaseCommand(await commands.rebuildDatabaseProjection())
+  }
+
+  async createDatabase(request: CreateDatabaseRequest): Promise<CreatedDatabase> {
+    return unwrapDatabaseCommand(
+      await commands.createDatabase({
+        expectedGeneration: request.expectedGeneration,
+        mode: request.mode,
+        parentPath: request.parentPath ?? null,
+        notePath: request.notePath ?? null,
+        name: request.name,
+      }),
+    )
+  }
+
+  async applyDatabaseValueBatch(
+    request: DatabaseValueBatchRequest,
+  ): Promise<DatabaseValueBatchResult> {
+    return unwrapDatabaseCommand(
+      await commands.applyDatabaseValueBatch({
+        expectedGeneration: request.expectedGeneration,
+        databaseId: request.databaseId,
+        operationId: request.operationId,
+        cells: request.cells.map((cell) => ({
+          noteId: cell.noteId,
+          propertyId: cell.propertyId,
+          valueJson: cell.valueJson ?? null,
+          expectedRevision: cell.expectedRevision,
+        })),
+      }),
+    )
+  }
+
+  async createDatabaseRow(request: CreateDatabaseRowRequest): Promise<CreatedDatabaseRow> {
+    return unwrapDatabaseCommand(await commands.createDatabaseRow(request))
+  }
+
+  async importDatabaseAsset(request: ImportDatabaseAssetRequest): Promise<ImportedDatabaseAsset> {
+    return unwrapDatabaseCommand(
+      await commands.importDatabaseAsset({
+        expectedGeneration: request.expectedGeneration,
+        databaseId: request.databaseId,
+        noteId: request.noteId,
+        sourcePath: request.sourcePath,
+      }),
+    )
+  }
+
+  async syncDatabaseYaml(request: DatabaseYamlSyncRequest): Promise<DatabaseYamlSyncResult> {
+    return unwrapDatabaseCommand(
+      await commands.syncDatabaseYaml({
+        expectedGeneration: request.expectedGeneration,
+        databaseId: request.databaseId,
+        noteId: request.noteId,
+        expectedRecordRevision: request.expectedRecordRevision,
+      }),
+    )
+  }
+
+  async resolveDatabaseYamlConflict(
+    request: DatabaseYamlResolveRequest,
+  ): Promise<DatabaseYamlSyncResult> {
+    return unwrapDatabaseCommand(
+      await commands.resolveDatabaseYamlConflict({
+        expectedGeneration: request.expectedGeneration,
+        databaseId: request.databaseId,
+        noteId: request.noteId,
+        propertyId: request.propertyId,
+        expectedNoteRevision: request.expectedNoteRevision,
+        expectedRecordRevision: request.expectedRecordRevision,
+        resolution: request.resolution,
+        manualValueJson: request.manualValueJson ?? null,
+      }),
+    )
+  }
+
+  async listDatabases(): Promise<DatabaseSummary[]> {
+    const result = unwrapDatabaseCommand(await commands.listDatabases())
+    return result.map(fromBindingSummary)
+  }
+
+  async queryDatabase(request: DatabaseQueryRequest): Promise<DatabaseQueryResult> {
+    const result = unwrapDatabaseCommand(
+      await commands.queryDatabase(toBindingQueryRequest(request)),
+    )
+    return { ...result, database: fromBindingSummary(result.database) }
+  }
+
   async openVault(): Promise<string | null> {
     return unwrapCommand(commands.openVault())
   }

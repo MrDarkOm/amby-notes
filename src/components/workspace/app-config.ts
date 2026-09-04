@@ -24,7 +24,18 @@ import type { ActivityButton, PanelId, Side } from "./panel-registry"
 import type { Preset } from "./presets"
 import type { AiConfig, AiFamily } from "@/lib/ai"
 import i18n, { SUPPORTED_LANGUAGES, type LanguageCode } from "@/lib/i18n"
-import { BUILTIN_THEMES, isThemeId, parseThemeDefinition, type ThemeDefinition } from "@/lib/themes"
+import {
+  BUILTIN_THEMES,
+  isThemeId,
+  migrateThemeId,
+  parseThemeDefinition,
+  type ThemeDefinition,
+} from "@/lib/themes"
+import {
+  DEFAULT_SHORTCUTS,
+  normalizeShortcutBindings,
+  type ShortcutBindings,
+} from "./keyboard-shortcuts"
 
 export const WORKSPACES_FILE = "workspaces.json"
 export const SETTINGS_FILE = "settings.json"
@@ -321,6 +332,7 @@ export type ViewModePref = "source" | "live" | "read"
 export type ThemePref = string
 export type AccentId = "violet" | "sky" | "teal" | "emerald" | "amber" | "rose"
 export type FontScale = "sm" | "md" | "lg"
+export type FontFamily = "system" | "sans" | "serif" | "mono"
 export type Density = "comfortable" | "compact"
 export type Language = LanguageCode
 export type ContentWidth = "normal" | "wide" | "full"
@@ -351,22 +363,30 @@ export interface AppPreferences {
   theme: ThemePref
   accent: AccentId
   fontScale: FontScale
+  fontFamily: FontFamily
+  rainbowTree: boolean
   density: Density
+  tooltipDelayMs: number
   language: Language
   editor: EditorPrefs
   startup: StartupPrefs
   docks: DockPreferences
+  shortcuts: ShortcutBindings
 }
 
 export const DEFAULT_PREFS: AppPreferences = {
   theme: "dark",
   accent: "violet",
   fontScale: "md",
+  fontFamily: "system",
+  rainbowTree: false,
   density: "comfortable",
+  tooltipDelayMs: 1000,
   language: "ru",
   editor: { defaultViewMode: "live", contentWidth: "normal", autosaveMs: 500 },
   startup: { reopenLastVault: true, restoreSession: true },
   docks: { leftVisible: true, rightVisible: true, leftPinned: true, rightPinned: true },
+  shortcuts: { ...DEFAULT_SHORTCUTS },
 }
 
 function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
@@ -382,16 +402,31 @@ export function normalizeAppPreferences(
   const su = (d.startup ?? {}) as Partial<StartupPrefs>
   const dk = (d.docks ?? {}) as Partial<DockPreferences>
   const storedTheme = d.theme ?? legacyTheme
+  const migratedTheme = typeof storedTheme === "string" ? migrateThemeId(storedTheme) : storedTheme
   const autosaveMs =
     typeof ed.autosaveMs === "number" && ed.autosaveMs >= 200 && ed.autosaveMs <= 10000
       ? ed.autosaveMs
       : DEFAULT_PREFS.editor.autosaveMs
+  const legacyTooltipDelay = Number(readLS("amby:tooltip-delay-ms"))
+  const tooltipDelayMs =
+    typeof d.tooltipDelayMs === "number" && d.tooltipDelayMs >= -1
+      ? d.tooltipDelayMs
+      : Number.isFinite(legacyTooltipDelay) && legacyTooltipDelay >= -1
+        ? legacyTooltipDelay
+        : DEFAULT_PREFS.tooltipDelayMs
   return {
     // Migrate pre-prefs `defaultTheme` if no explicit theme was stored yet.
-    theme: isThemeId(storedTheme) || storedTheme === "system" ? storedTheme : "dark",
+    theme: isThemeId(migratedTheme) || migratedTheme === "system" ? migratedTheme : "dark",
     accent: oneOf<AccentId>(d.accent, ACCENTS, DEFAULT_PREFS.accent),
     fontScale: oneOf<FontScale>(d.fontScale, ["sm", "md", "lg"], DEFAULT_PREFS.fontScale),
+    fontFamily: oneOf<FontFamily>(
+      d.fontFamily,
+      ["system", "sans", "serif", "mono"],
+      DEFAULT_PREFS.fontFamily,
+    ),
+    rainbowTree: typeof d.rainbowTree === "boolean" ? d.rainbowTree : false,
     density: oneOf<Density>(d.density, ["comfortable", "compact"], DEFAULT_PREFS.density),
+    tooltipDelayMs,
     language: oneOf<Language>(
       d.language,
       SUPPORTED_LANGUAGES.map((language) => language.code),
@@ -412,6 +447,7 @@ export function normalizeAppPreferences(
       leftPinned: typeof dk.leftPinned === "boolean" ? dk.leftPinned : true,
       rightPinned: typeof dk.rightPinned === "boolean" ? dk.rightPinned : true,
     },
+    shortcuts: normalizeShortcutBindings(d.shortcuts),
   }
 }
 
@@ -421,10 +457,28 @@ export interface GlobalSettings {
   defaultTheme: string | null
   /** Used when panelScope === "global". */
   layout: LayoutConfig
+  /** Explicit opt-in switches for features that are not ready for normal use. */
+  experimental: ExperimentalSettings
   ai: AiSettings
   prefs: AppPreferences
   /** Globally installed user themes. Only validated portable JSON is persisted. */
   themes: ThemeDefinition[]
+}
+
+export interface ExperimentalSettings {
+  /** Allows the Databases preview module to be enabled; it does not enable it. */
+  databasesV1: boolean
+}
+
+export const DEFAULT_EXPERIMENTAL: ExperimentalSettings = {
+  databasesV1: false,
+}
+
+function normalizeExperimental(raw: unknown): ExperimentalSettings {
+  const d = (raw ?? {}) as Partial<ExperimentalSettings>
+  return {
+    databasesV1: d.databasesV1 === true,
+  }
 }
 
 export async function migrateLegacyAiKeys(
@@ -499,6 +553,7 @@ export async function loadSettings(): Promise<GlobalSettings> {
       panelScope: "global",
       defaultTheme: null,
       layout,
+      experimental: DEFAULT_EXPERIMENTAL,
       ai: DEFAULT_AI,
       prefs: DEFAULT_PREFS,
       themes: [],
@@ -526,6 +581,7 @@ export async function loadSettings(): Promise<GlobalSettings> {
     panelScope: d.panelScope === "workspace" ? "workspace" : "global",
     defaultTheme: legacyTheme,
     layout: { ...EMPTY_LAYOUT, ...(d.layout ?? {}) },
+    experimental: normalizeExperimental(d.experimental),
     ai,
     prefs,
     themes,

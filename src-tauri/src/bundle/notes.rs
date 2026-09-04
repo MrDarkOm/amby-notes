@@ -50,7 +50,7 @@ pub(crate) fn ensure_bundle_path(note_path: &Path) -> Result<(PathBuf, Vec<PathC
     ))
 }
 
-pub(super) fn rollback_bundle_promotion(
+pub(crate) fn rollback_bundle_promotion(
     original_note: &Path,
     main_note: &Path,
 ) -> Result<(), String> {

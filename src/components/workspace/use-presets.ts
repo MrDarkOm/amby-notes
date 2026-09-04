@@ -2,13 +2,16 @@ import * as React from "react"
 import i18n from "@/lib/i18n"
 import type { ActivityButton, PanelId, Side } from "./panel-registry"
 import {
-  ALL_MODULE_IDS,
   BASE_DEF_IDS,
+  DEFAULT_MODULE_AVAILABILITY,
+  availableModuleIds,
   contributedDefIds,
   findModule,
-  runModuleLifecycle,
+  isModuleAvailable,
   type ModuleContext,
+  type ModuleAvailability,
 } from "./modules"
+import { transitionModuleLifecycle } from "./module-lifecycle"
 import {
   BUILTIN_PRESETS,
   getPreset,
@@ -47,9 +50,9 @@ export interface UsePresets {
   panelScope: PanelScope
   setPanelScope: (scope: PanelScope) => void
   /** Enable or disable one built-in module in the current layout. */
-  setModuleEnabled: (id: string, enabled: boolean, ctx: ModuleContext) => void
+  setModuleEnabled: (id: string, enabled: boolean, ctx: ModuleContext) => Promise<boolean>
   /** Hot-swap to another preset: run module lifecycle, then apply its layout. */
-  switchPreset: (id: string, ctx: ModuleContext) => void
+  switchPreset: (id: string, ctx: ModuleContext) => Promise<boolean>
   /** Import a preset from its JSON text, store it, and switch to it. */
   importPreset: (text: string, ctx: ModuleContext) => ImportResult
   /** Serialize a preset to shareable JSON, or null if unknown. */
@@ -107,8 +110,12 @@ const mergeMissingButtons = (
  * `workspace.json`, while user-created presets always live per-vault. State is
  * hydrated asynchronously and re-hydrated whenever the vault or scope changes.
  */
-export function usePresets(vault: string | null): UsePresets {
+export function usePresets(
+  vault: string | null,
+  experimental: ModuleAvailability = DEFAULT_MODULE_AVAILABILITY,
+): UsePresets {
   const hasVault = !!vault
+  const availableIds = React.useMemo(() => availableModuleIds(experimental), [experimental])
 
   const [panelScope, setPanelScopeState] = React.useState<PanelScope>("global")
   const [userPresets, setUserPresets] = React.useState<Preset[]>([])
@@ -166,11 +173,9 @@ export function usePresets(vault: string | null): UsePresets {
       const all = [...BUILTIN_PRESETS, ...userP]
       const preset =
         all.find((p) => p.id === layout.activePresetId) ?? getPreset(layout.activePresetId)
-      const storedModules = Array.isArray(layout.activeModules)
-        ? layout.activeModules.filter(
-            (id): id is string => typeof id === "string" && ALL_MODULE_IDS.includes(id),
-          )
-        : preset.activeModules
+      const storedModules = (
+        Array.isArray(layout.activeModules) ? layout.activeModules : preset.activeModules
+      ).filter((id): id is string => typeof id === "string" && availableIds.includes(id))
       setUserPresets(userP)
       presetsRef.current = all
       setActivePresetId(layout.activePresetId ?? preset.id)
@@ -187,7 +192,7 @@ export function usePresets(vault: string | null): UsePresets {
     return () => {
       cancelled = true
     }
-  }, [vault, panelScope, hasVault])
+  }, [availableIds, vault, panelScope, hasVault])
 
   // Persist the working layout to whichever tier panelScope selects.
   React.useEffect(() => {
@@ -229,22 +234,35 @@ export function usePresets(vault: string | null): UsePresets {
 
   // Apply a resolved preset to live state, running the module lifecycle diff.
   const applyPreset = React.useCallback(
-    (next: Preset, ctx: ModuleContext) => {
+    async (next: Preset, ctx: ModuleContext): Promise<boolean> => {
+      const supportedNext = {
+        ...next,
+        activeModules: next.activeModules.filter((id) => isModuleAvailable(id, experimental)),
+      }
       const prev = { ...resolve(presetIdRef.current), activeModules: activeModulesRef.current }
       if (
-        prev.id === next.id &&
-        prev.activeModules.every((id) => next.activeModules.includes(id)) &&
-        prev.activeModules.length === next.activeModules.length
+        prev.id === supportedNext.id &&
+        prev.activeModules.every((id) => supportedNext.activeModules.includes(id)) &&
+        prev.activeModules.length === supportedNext.activeModules.length
       )
-        return
-      runModuleLifecycle(prev.activeModules, next.activeModules, ctx)
-      setActivePresetId(next.id)
-      activeModulesRef.current = next.activeModules
-      setActiveModules(next.activeModules)
-      setActivityButtons(visibleLayout(next))
-      setActiveBySide(next.activeBySide)
+        return true
+      const transition = await transitionModuleLifecycle(
+        prev.activeModules,
+        supportedNext.activeModules,
+        ctx,
+      )
+      if (!transition.ok) {
+        console.error("Failed to flush module before deactivation", transition.error)
+        return false
+      }
+      setActivePresetId(supportedNext.id)
+      activeModulesRef.current = supportedNext.activeModules
+      setActiveModules(supportedNext.activeModules)
+      setActivityButtons(visibleLayout(supportedNext))
+      setActiveBySide(supportedNext.activeBySide)
+      return true
     },
-    [resolve],
+    [experimental, resolve],
   )
 
   const switchPreset = React.useCallback(
@@ -253,22 +271,23 @@ export function usePresets(vault: string | null): UsePresets {
   )
 
   const setModuleEnabled = React.useCallback(
-    (id: string, enabled: boolean, ctx: ModuleContext) => {
-      if (!findModule(id)) return
+    async (id: string, enabled: boolean, ctx: ModuleContext): Promise<boolean> => {
+      const module = findModule(id)
+      if (!module || (enabled && !isModuleAvailable(id, experimental))) return false
       const prevModules = activeModulesRef.current
       const wasEnabled = prevModules.includes(id)
-      if (wasEnabled === enabled) return
+      if (wasEnabled === enabled) return true
 
       const nextModules = enabled
         ? [...prevModules, id]
         : prevModules.filter((moduleId) => moduleId !== id)
-      const moduleDefIds = new Set([
-        ...(findModule(id)?.panels ?? []),
-        ...(findModule(id)?.actions ?? []),
-      ])
+      const transition = await transitionModuleLifecycle(prevModules, nextModules, ctx)
+      if (!transition.ok) {
+        console.error("Failed to flush module before deactivation", transition.error)
+        return false
+      }
+      const moduleDefIds = new Set([...(module.panels ?? []), ...(module.actions ?? [])])
       const nextPreset = { ...resolve(presetIdRef.current), activeModules: nextModules }
-
-      runModuleLifecycle(prevModules, nextModules, ctx)
       activeModulesRef.current = nextModules
       setActiveModules(nextModules)
       setActivityButtons((current) => {
@@ -292,8 +311,9 @@ export function usePresets(vault: string | null): UsePresets {
         left: current.left && allowed.has(current.left) ? current.left : null,
         right: current.right && allowed.has(current.right) ? current.right : null,
       }))
+      return true
     },
-    [resolve],
+    [experimental, resolve],
   )
 
   const importPreset = React.useCallback(

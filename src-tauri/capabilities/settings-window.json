@@ -1,0 +1,21 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "settings-window",
+  "description": "Restricted capability for the native settings window",
+  "windows": ["settings"],
+  "permissions": [
+    "core:event:default",
+    "core:path:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "core:window:allow-start-dragging",
+    "core:window:allow-is-maximized",
+    "core:webview:default",
+    "dialog:allow-message",
+    "dialog:allow-open",
+    "dialog:allow-save"
+  ]
+}

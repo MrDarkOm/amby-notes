@@ -30,6 +30,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -47,6 +48,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { TreeItem } from "../sidebar-tree"
+import { relativeToVault } from "./document-breadcrumbs-utils"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
 
 export type LayerKind = "canvas" | "database" | "sketch"
@@ -164,7 +166,9 @@ export function FilePickerModal({
   filePickerQuery,
   onQueryChange,
   pickerItems,
+  vault,
   onMoveFile,
+  onCreateFolder,
   onMergeFile,
 }: {
   filePickerMode: "move" | "merge" | null
@@ -172,70 +176,219 @@ export function FilePickerModal({
   filePickerQuery: string
   onQueryChange: (query: string) => void
   pickerItems: TreeItem[]
+  vault?: string
   onMoveFile?: (targetFolderId: string | null) => void
+  onCreateFolder?: (parentId: string | null, name: string) => void
   onMergeFile?: (targetId: string) => void
 }) {
   const { t } = useTranslation()
+  const isMoveMode = filePickerMode === "move"
+  const [activeIndex, setActiveIndex] = React.useState(0)
+  const optionRefs = React.useRef<Array<HTMLButtonElement | null>>([])
+
+  const normalizedQuery = filePickerQuery.trim().toLocaleLowerCase()
+  const rootLabel = t("docEditor.vaultRoot")
+  const rootMatches = isMoveMode && rootLabel.toLocaleLowerCase().includes(normalizedQuery)
+  const moveOptions = React.useMemo(
+    () => [
+      ...(rootMatches
+        ? [{ id: "__amby_root__", item: null as TreeItem | null, label: rootLabel }]
+        : []),
+      ...pickerItems.map((item) => ({
+        id: item.id,
+        item,
+        label: relativeToVault(item.path, vault ?? "").replace(/^\/+/, "") || item.name,
+      })),
+    ],
+    [pickerItems, rootLabel, rootMatches, vault],
+  )
+  const options = isMoveMode
+    ? moveOptions
+    : pickerItems.map((item) => ({ id: item.id, item, label: item.name }))
+
+  React.useEffect(() => {
+    if (filePickerMode !== null) setActiveIndex(0)
+  }, [filePickerMode])
+
+  React.useEffect(() => {
+    setActiveIndex((current) => Math.min(current, Math.max(options.length - 1, 0)))
+  }, [options.length])
+
+  React.useEffect(() => {
+    optionRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" })
+  }, [activeIndex])
+
+  function activateOption(index: number) {
+    const option = options[index]
+    if (!option) return
+    if (isMoveMode) onMoveFile?.(option.item?.id ?? null)
+    else if (option.item) onMergeFile?.(option.item.id)
+    onClose()
+  }
+
+  function handlePickerKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault()
+      if (options.length === 0) return
+      setActiveIndex((current) => {
+        const offset = event.key === "ArrowDown" ? 1 : -1
+        return (current + offset + options.length) % options.length
+      })
+      return
+    }
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault()
+      setActiveIndex(event.key === "Home" ? 0 : Math.max(options.length - 1, 0))
+      return
+    }
+    if (event.key === "Enter") {
+      event.preventDefault()
+      if (event.shiftKey && isMoveMode) {
+        const folderName = filePickerQuery.trim()
+        if (folderName && onCreateFolder) {
+          onCreateFolder(options[activeIndex]?.item?.id ?? null, folderName)
+          onClose()
+        }
+      } else activateOption(activeIndex)
+      return
+    }
+    if (event.key === "Escape") {
+      event.preventDefault()
+      onClose()
+    }
+  }
+
   return (
     <Dialog open={filePickerMode !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-sm gap-3 p-4">
-        <DialogHeader>
-          <DialogTitle className="text-sm">
-            {filePickerMode === "move" ? t("docEditor.moveFile") : t("docEditor.mergeWith")}
-          </DialogTitle>
-        </DialogHeader>
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            autoFocus
-            value={filePickerQuery}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder={t("docEditor.filePickerSearch")}
-            className="h-9 pl-8 text-xs"
-          />
-        </div>
-        <div className="max-h-72 space-y-1 overflow-y-auto">
-          {filePickerMode === "move" &&
-            t("docEditor.vaultRoot")
-              .toLocaleLowerCase()
-              .includes(filePickerQuery.trim().toLocaleLowerCase()) && (
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
-                onClick={() => {
-                  onMoveFile?.(null)
-                  onClose()
-                }}
-              >
-                <FolderOpen className="size-4 text-muted-foreground" />
-                {t("docEditor.vaultRoot")}
-              </button>
-            )}
-          {pickerItems.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent"
-              onClick={() => {
-                if (filePickerMode === "move") onMoveFile?.(item.id)
-                else onMergeFile?.(item.id)
-                onClose()
-              }}
-            >
-              {filePickerMode === "move" ? (
-                <FolderOpen className="size-4 text-muted-foreground" />
-              ) : (
-                <FileText className="size-4 text-muted-foreground" />
-              )}
-              <span className="truncate">{item.name}</span>
-            </button>
-          ))}
-          {pickerItems.length === 0 && filePickerMode === "merge" && (
-            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-              {t("docEditor.noMergeTargets")}
+      <DialogContent
+        onKeyDown={isMoveMode ? handlePickerKeyDown : undefined}
+        className={
+          isMoveMode
+            ? "w-[min(44rem,calc(100vw-2rem))] max-w-none gap-0 overflow-hidden border-border bg-popover p-0 text-foreground sm:max-w-none"
+            : "max-w-sm gap-3 p-4"
+        }
+      >
+        {isMoveMode ? (
+          <>
+            <DialogHeader className="sr-only">
+              <DialogTitle>{t("docEditor.moveFile")}</DialogTitle>
+            </DialogHeader>
+            <div className="border-b border-border px-4 py-3">
+              <Input
+                autoFocus
+                value={filePickerQuery}
+                onChange={(event) => onQueryChange(event.target.value)}
+                placeholder={t("docEditor.filePickerPlaceholder")}
+                className="h-9 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
+                aria-controls="amby-move-folder-list"
+              />
             </div>
-          )}
-        </div>
+            <div
+              id="amby-move-folder-list"
+              role="listbox"
+              aria-label={t("docEditor.moveFile")}
+              className="max-h-[min(32rem,60vh)] overflow-y-auto px-2 py-2"
+            >
+              {moveOptions.length > 0 ? (
+                moveOptions.map((option, index) => (
+                  <button
+                    key={option.id}
+                    ref={(element) => {
+                      optionRefs.current[index] = element
+                    }}
+                    type="button"
+                    role="option"
+                    aria-selected={activeIndex === index}
+                    className={cn(
+                      "flex w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors",
+                      activeIndex === index
+                        ? "bg-accent text-accent-foreground"
+                        : "text-foreground hover:bg-accent/70",
+                    )}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => activateOption(index)}
+                  >
+                    {option.label}
+                  </button>
+                ))
+              ) : (
+                <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+                  {t("docEditor.noMergeTargets")}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 border-t border-border px-4 py-2 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-medium">
+                  ↑↓
+                </kbd>
+                {t("docEditor.filePickerNavigate")}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-medium">
+                  ↵
+                </kbd>
+                {t("docEditor.filePickerMoveHint")}
+              </span>
+              {onCreateFolder && (
+                <span className="inline-flex items-center gap-1.5">
+                  <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-medium">
+                    {t("docEditor.filePickerCreateFolderKey")}
+                  </kbd>
+                  {t("docEditor.filePickerCreateFolderHint")}
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1.5">
+                <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-medium">
+                  {t("docEditor.filePickerCancelKey")}
+                </kbd>
+                {t("docEditor.filePickerCancelHint")}
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle className="text-sm">{t("docEditor.mergeWith")}</DialogTitle>
+            </DialogHeader>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                autoFocus
+                value={filePickerQuery}
+                onChange={(event) => onQueryChange(event.target.value)}
+                onKeyDown={handlePickerKeyDown}
+                placeholder={t("docEditor.filePickerSearch")}
+                className="h-9 pl-8 text-xs"
+              />
+            </div>
+            <div className="max-h-72 space-y-1 overflow-y-auto">
+              {pickerItems.map((item, index) => (
+                <button
+                  key={item.id}
+                  ref={(element) => {
+                    optionRefs.current[index] = element
+                  }}
+                  type="button"
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs hover:bg-accent",
+                    activeIndex === index && "bg-accent text-accent-foreground",
+                  )}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => activateOption(index)}
+                >
+                  <FileText className="size-4 text-muted-foreground" />
+                  <span className="truncate">{item.name}</span>
+                </button>
+              ))}
+              {pickerItems.length === 0 && (
+                <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                  {t("docEditor.noMergeTargets")}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -253,6 +406,7 @@ export function DocumentActionsDropdown({
   nestedNotesPlacement,
   onNestedNotesPlacementChange,
   linkedLayers,
+  canCreateDatabaseLayer = false,
   onRequestAttachLayer,
   isFavorite,
   onToggleFavorite,
@@ -275,6 +429,7 @@ export function DocumentActionsDropdown({
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
   linkedLayers?: { canvas: boolean; sketch: boolean; database: boolean }
+  canCreateDatabaseLayer?: boolean
   onRequestAttachLayer: (layer: EditorLayer) => void
   isFavorite?: boolean
   onToggleFavorite?: () => void
@@ -368,14 +523,16 @@ export function DocumentActionsDropdown({
               <LayoutGrid className="size-3.5 text-muted-foreground" />
               {t("docEditor.attachCanvas")}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={linkedLayers?.database}
-              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-              onSelect={() => onRequestAttachLayer("database")}
-            >
-              <Database className="size-3.5 text-muted-foreground" />
-              {t("docEditor.attachDatabase")}
-            </DropdownMenuItem>
+            {canCreateDatabaseLayer && (
+              <DropdownMenuItem
+                disabled={linkedLayers?.database}
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={() => onRequestAttachLayer("database")}
+              >
+                <Database className="size-3.5 text-muted-foreground" />
+                {t("docEditor.attachDatabase")}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               disabled={linkedLayers?.sketch}
               className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"

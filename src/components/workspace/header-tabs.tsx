@@ -5,7 +5,9 @@ import { useTranslation } from "react-i18next"
 import {
   Bookmark,
   BookmarkCheck,
+  Columns2,
   ChevronDown,
+  FolderOpen,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -165,6 +167,8 @@ interface HeaderTabsProps {
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
   showWorkspacePicker?: boolean
+  onToggleSplit?: () => void
+  isSplit?: boolean
 }
 
 // Keep the title-bar controls aligned with the real `w-12` activity rails.
@@ -229,6 +233,8 @@ export function HeaderTabs({
   favorites,
   onToggleFavorite,
   showWorkspacePicker = true,
+  onToggleSplit,
+  isSplit = false,
 }: HeaderTabsProps) {
   const { t } = useTranslation()
   // The left header dock ends on the same divider as the left body panel.
@@ -378,6 +384,18 @@ export function HeaderTabs({
       className="absolute top-1.5 z-10 flex items-center gap-1"
       style={{ right: rightHeaderInset }}
     >
+      {onToggleSplit && (
+        <button
+          type="button"
+          title={t("tabs.splitEditor")}
+          aria-label={t("tabs.splitEditor")}
+          aria-pressed={isSplit}
+          onClick={onToggleSplit}
+          className={cn(HEADER_ICON_BTN, isSplit && "bg-accent text-foreground")}
+        >
+          <Columns2 className="size-4" />
+        </button>
+      )}
       <TabsMenu
         trigger={
           <button title={t("tabs.tabMenu")} className={HEADER_ICON_BTN}>
@@ -441,13 +459,19 @@ export function HeaderTabs({
               >
                 <button
                   title={t("vaultPicker.vaults")}
-                  className="flex min-w-0 items-center gap-1.5 rounded px-2 py-1 text-sm transition-colors hover:bg-accent"
+                  className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-left outline-none transition-colors hover:bg-accent"
                   onMouseDown={(e) => e.stopPropagation()}
                 >
-                  <span className="truncate font-medium text-foreground">
-                    {vaultName ?? t("workspace.name")}
+                  <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 leading-tight">
+                    <span className="block whitespace-nowrap text-[8px] font-medium uppercase tracking-[0.1em] text-muted-foreground">
+                      {t("vaultPicker.workspaceLabel")}
+                    </span>
+                    <span className="block truncate text-sm font-medium text-foreground">
+                      {vaultName ?? t("workspace.name")}
+                    </span>
                   </span>
-                  <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+                  <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
                 </button>
               </WorkspacePicker>
             )}

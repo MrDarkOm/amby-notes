@@ -55,15 +55,13 @@ export function WorkspaceLayout({
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[var(--workspace-bg)]">
+    <div className="flex h-screen flex-col overflow-hidden">
       {header}
       {deleteConfirmationDialog}
-      <div className="flex flex-1 overflow-hidden bg-[var(--workspace-bg)]">
+      <div className="flex flex-1 overflow-hidden">
         {leftActivityBar}
         {leftSidebar}
-        <main className="flex flex-1 gap-0 overflow-hidden bg-[var(--workspace-bg)]">
-          {normalContent}
-        </main>
+        <main className="flex flex-1 gap-0 overflow-hidden">{normalContent}</main>
         {rightSidebar}
         {rightActivityBar}
       </div>

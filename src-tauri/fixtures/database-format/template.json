@@ -1,0 +1,17 @@
+{
+  "format": "amby-database-template",
+  "formatVersion": 1,
+  "databaseId": "01J00000000000000000000000",
+  "templateId": "01J00000000000000000000007",
+  "name": "Character",
+  "body": "## Appearance\n\n## Personality\n",
+  "values": {
+    "01J00000000000000000000003": {
+      "type": "status",
+      "optionId": "01J00000000000000000000004"
+    }
+  },
+  "futureTemplateSetting": {
+    "preserve": true
+  }
+}

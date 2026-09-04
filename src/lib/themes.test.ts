@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { BUILTIN_THEMES, parseThemeDefinition, withUniqueThemeId } from "./themes"
+import {
+  BUILTIN_THEME_FAMILIES,
+  BUILTIN_THEMES,
+  migrateThemeId,
+  parseThemeDefinition,
+  themeById,
+  withUniqueThemeId,
+} from "./themes"
 
 const validTheme = {
   format: "amby-theme",
@@ -40,5 +47,25 @@ describe("portable themes", () => {
 
     expect(first.id).toBe("dark-2")
     expect(second.id).toBe("dark-3")
+  })
+
+  it("migrates the retired built-in theme ids", () => {
+    expect(migrateThemeId("midnight")).toBe("catppuccin")
+    expect(migrateThemeId("paper")).toBe("gruvbox")
+    expect(migrateThemeId("custom-theme")).toBe("custom-theme")
+  })
+
+  it("provides light and dark variants for the themed palettes", () => {
+    expect(BUILTIN_THEME_FAMILIES).toEqual(
+      expect.arrayContaining([
+        { id: "catppuccin", variants: { light: "catppuccin-light", dark: "catppuccin" } },
+        { id: "gruvbox", variants: { light: "gruvbox-light", dark: "gruvbox" } },
+      ]),
+    )
+    expect(themeById("catppuccin-light", [])).toMatchObject({ name: "Catppuccin", mode: "light" })
+    expect(themeById("gruvbox-light", [])).toMatchObject({
+      name: "Material Gruvbox",
+      mode: "light",
+    })
   })
 })

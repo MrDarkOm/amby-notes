@@ -38,16 +38,19 @@ pub async fn open_vault(app: tauri::AppHandle) -> Result<Option<String>, String>
 pub fn load_vault(
     app: tauri::AppHandle,
     context: tauri::State<'_, vault_context::VaultContext>,
+    runtime: tauri::State<'_, crate::database::runtime_state::DatabaseRuntimeState>,
     vault_path: String,
 ) -> Result<vault_index::LoadVaultResult, String> {
-    context.activate(
+    let loaded = context.activate(
         &vault_path,
         |root| grant_vault_scopes(&app, root),
         |mut loaded, generation| {
             loaded.generation = generation;
             loaded
         },
-    )
+    )?;
+    runtime.reset_for_generation(Some(loaded.generation));
+    Ok(loaded)
 }
 
 /// Read the vault that another window has already activated without replacing
@@ -56,10 +59,13 @@ pub fn load_vault(
 #[specta::specta]
 pub fn load_active_vault(
     context: tauri::State<'_, vault_context::VaultContext>,
+    runtime: tauri::State<'_, crate::database::runtime_state::DatabaseRuntimeState>,
 ) -> Result<vault_index::LoadVaultResult, String> {
     let active = context.conn.lock().unwrap();
     let active = active.as_ref().ok_or("No vault open")?;
-    active.refresh()
+    let loaded = active.refresh()?;
+    runtime.reset_for_generation(Some(loaded.generation));
+    Ok(loaded)
 }
 
 #[tauri::command]
@@ -147,14 +153,35 @@ pub fn start_vault_watcher(
             return;
         }
 
-        for change in watcher::queue_external_changes(
+        let changes = watcher::queue_external_changes(
             res,
             &watched_vault,
             &own_writes,
             generation,
             &index_changes,
-        ) {
+        );
+        for change in &changes {
             let _ = app_handle.emit("vault-file-changed", change);
+        }
+        let database_changes = changes
+            .iter()
+            .filter_map(|change| {
+                crate::database::events::classify_path(
+                    &watched_vault,
+                    Path::new(&change.path),
+                    generation,
+                )
+            })
+            .collect::<Vec<_>>();
+        let coalesced = crate::database::events::coalesce(database_changes.iter().cloned());
+        tracing::debug!(
+            changed_paths = coalesced.changed_paths.len(),
+            containers = coalesced.containers.len(),
+            requires_full_rebuild = coalesced.requires_full_rebuild,
+            "coalesced database watcher invalidations"
+        );
+        for database_change in database_changes {
+            let _ = app_handle.emit("database:changed", database_change);
         }
     })
     .map_err(|e| e.to_string())?;

@@ -193,6 +193,10 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
 
     beforeEach(() => {
       vi.stubGlobal("window", { __TAURI_INTERNALS__: {} })
+      vi.spyOn(commands, "applyIdMigration").mockResolvedValue({
+        status: "ok",
+        data: { backupPath: "", journalPath: "", modifiedPaths: [], status: "completed" },
+      })
       adapter = new DesktopAdapter()
       setStorageAdapter(adapter)
     })

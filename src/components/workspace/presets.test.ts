@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { ACTION_DEFS, PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
+import { availableModuleIds, MODULE_REGISTRY } from "./modules"
 import { SIMPLE_PRESET, STANDARD_PRESET, visibleLayout } from "./presets"
 
 describe("preset activity zones", () => {
@@ -18,6 +19,18 @@ describe("preset activity zones", () => {
     for (const action of PERSISTENT_ACTION_BUTTONS) {
       expect(ids.filter((id) => id === action.defId)).toHaveLength(1)
     }
+  })
+
+  it("keeps preview modules discoverable but disabled in the standard preset", () => {
+    for (const module of MODULE_REGISTRY) {
+      expect(STANDARD_PRESET.activeModules.includes(module.id)).toBe(module.status === "ready")
+    }
+  })
+
+  it("requires the explicit database gate without enabling the module", () => {
+    expect(availableModuleIds()).not.toContain("databases")
+    expect(availableModuleIds({ databasesV1: true })).toContain("databases")
+    expect(STANDARD_PRESET.activeModules).not.toContain("databases")
   })
 
   it("does not expose unimplemented notification or help actions", () => {

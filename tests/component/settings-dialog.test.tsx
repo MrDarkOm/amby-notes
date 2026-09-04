@@ -17,6 +17,7 @@ describe("SettingsDialog component", () => {
       <SettingsDialog
         open={false}
         onOpenChange={() => {}}
+        vault={null}
         activeModules={["files", "tags"]}
         onModuleEnabledChange={() => {}}
         dockPrefs={DEFAULT_PREFS.docks}
@@ -31,6 +32,7 @@ describe("SettingsDialog component", () => {
       <SettingsDialog
         open={true}
         onOpenChange={() => {}}
+        vault={null}
         activeModules={["files", "tags"]}
         onModuleEnabledChange={() => {}}
         dockPrefs={DEFAULT_PREFS.docks}
@@ -46,6 +48,26 @@ describe("SettingsDialog component", () => {
     expect(appearanceTab).toBeTruthy()
     expect(modulesTab).toBeTruthy()
     expect(generalTab.getAttribute("data-state")).toBe("active")
+  })
+
+  it("enables per-vault settings when the active vault is provided", () => {
+    const props = {
+      open: true,
+      onOpenChange: () => {},
+      activeModules: ["files", "tags"],
+      onModuleEnabledChange: () => {},
+      dockPrefs: DEFAULT_PREFS.docks,
+      onDockPrefsChange: () => {},
+    }
+    const { rerender } = render(<SettingsDialog {...props} vault={null} />)
+    const row = screen.getByText("Подтверждать удаление файлов").closest(".settings-row")
+    const toggle = row?.querySelector('[role="switch"]')
+
+    expect(toggle?.hasAttribute("disabled")).toBe(true)
+
+    rerender(<SettingsDialog {...props} vault="/vault/notes" />)
+
+    expect(toggle?.hasAttribute("disabled")).toBe(false)
   })
 
   it("updates theme preference in useSettingsStore", async () => {

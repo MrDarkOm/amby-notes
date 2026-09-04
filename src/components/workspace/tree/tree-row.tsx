@@ -46,7 +46,7 @@ export const TreeNode = React.memo(
     isEditing,
     onStartEdit,
     onFinishEdit,
-    selectedId,
+    selectedIds,
     isKeyboardFocused,
     onKeyboardFocus,
     onSelect,
@@ -64,6 +64,7 @@ export const TreeNode = React.memo(
     favorites,
     onToggleFavorite,
     onAttachLayer,
+    canCreateDatabaseLayer = false,
     linkedLayersByDoc,
   }: TreeNodeProps) {
     const { t } = useTranslation()
@@ -72,7 +73,7 @@ export const TreeNode = React.memo(
     const inputRef = React.useRef<HTMLInputElement>(null)
 
     const hasChildren = (item.children && item.children.length > 0) || item.type === "folder"
-    const isSelected = selectedId === item.id
+    const isSelected = selectedIds.has(item.id)
     const isDragSource = ptrDragSourceId === item.id
     const isDragTarget = ptrDragTargetId === item.id && item.type === "folder"
     // Indent: file leaves get an extra 15px offset (no chevron column)
@@ -123,7 +124,7 @@ export const TreeNode = React.memo(
 
     const layers = linkedLayersByDoc?.[item.id]
     const canvasAvailable = item.type === "file" && !layers?.canvas
-    const databaseAvailable = item.type === "file" && !layers?.database
+    const databaseAvailable = canCreateDatabaseLayer && item.type === "file" && !layers?.database
     const canAttach =
       (item.type === "canvas" && !!onAttachCanvas) ||
       (!!onAttachLayer && (canvasAvailable || databaseAvailable))
@@ -326,7 +327,7 @@ export const TreeNode = React.memo(
     )
 
     const buttonCls = cn(
-      "flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[13px] transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+      "amby-tree-row flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[13px] transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
       isSelected && "bg-accent",
       isDragSource && "opacity-40",
     )
@@ -360,6 +361,7 @@ export const TreeNode = React.memo(
                   </button>
                   <button
                     type="button"
+                    draggable={false}
                     data-tree-item-id={item.id}
                     role="treeitem"
                     aria-level={level + 1}
@@ -368,8 +370,8 @@ export const TreeNode = React.memo(
                     tabIndex={isKeyboardFocused ? 0 : -1}
                     onFocus={() => onKeyboardFocus(item.id)}
                     onPointerDown={handlePointerDown}
-                    onClick={() => {
-                      if (!isEditing) onSelect(item.id)
+                    onClick={(event) => {
+                      if (!isEditing) onSelect(item.id, event)
                     }}
                     className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                   >
@@ -397,6 +399,7 @@ export const TreeNode = React.memo(
               className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
             >
               <button
+                draggable={false}
                 data-tree-item-id={item.id}
                 role="treeitem"
                 aria-level={level + 1}
@@ -404,8 +407,8 @@ export const TreeNode = React.memo(
                 tabIndex={isKeyboardFocused ? 0 : -1}
                 onFocus={() => onKeyboardFocus(item.id)}
                 onPointerDown={handlePointerDown}
-                onClick={() => {
-                  if (!isEditing) onSelect(item.id)
+                onClick={(event) => {
+                  if (!isEditing) onSelect(item.id, event)
                 }}
                 className={buttonCls}
                 style={{ paddingLeft: paddingLeft + 15 }}
@@ -427,7 +430,7 @@ export const TreeNode = React.memo(
   },
   (prev, next) =>
     prev.item === next.item &&
-    prev.selectedId === next.selectedId &&
+    prev.selectedIds === next.selectedIds &&
     prev.isKeyboardFocused === next.isKeyboardFocused &&
     prev.isOpen === next.isOpen &&
     prev.isEditing === next.isEditing &&

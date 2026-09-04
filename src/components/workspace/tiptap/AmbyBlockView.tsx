@@ -4,6 +4,8 @@ import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
 import { Database, Plus, X } from "lucide-react"
 
 import { loadVaultJSON, saveVaultJSON } from "@/lib/storage"
+import { DatabaseLinkedView } from "@/components/workspace/database/linked-view"
+import { parseDatabaseLinkedReference } from "@/components/workspace/database/linked-reference"
 
 /** On-disk shape of a `db` block's sidecar (`.amby/blocks/<id>.json`). */
 interface DbData {
@@ -33,7 +35,15 @@ function normalize(d: Partial<DbData> | null): DbData {
   return { columns, rows }
 }
 
-export function AmbyBlockView({ node, editor }: NodeViewProps) {
+export function AmbyBlockView(props: NodeViewProps) {
+  const blockType = props.node.attrs.blockType as string
+  const blockId = props.node.attrs.blockId as string
+  const linkedReference = blockType === "db" ? parseDatabaseLinkedReference(blockId) : null
+  if (linkedReference) return <DatabaseLinkedView reference={linkedReference.value} />
+  return <LegacyAmbyBlockView {...props} />
+}
+
+function LegacyAmbyBlockView({ node, editor }: NodeViewProps) {
   const { t } = useTranslation()
   const blockId = node.attrs.blockId as string
   const editable = editor.isEditable

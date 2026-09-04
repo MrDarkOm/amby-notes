@@ -192,7 +192,7 @@
        ────────────────────────────────────────────────────────────────────── */
   .dark {
     /* shadcn surface tokens */
-    --background: 0 0% 4%;
+    --background: 0 0% 18%;
     --foreground: 0 0% 98%;
     --primary: 0 0% 98%;
     --primary-foreground: 240 5.9% 10%;
@@ -207,14 +207,14 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
-    --popover: 0 0% 0%;
+    --popover: 0 0% 11%;
     --popover-foreground: 0 0% 98%;
-    --card: 240 3.7% 10.6%;
+    --card: 0 0% 13%;
     --card-foreground: 0 0% 98%;
 
     /* The editor is a subtly raised sheet over the darker workspace. */
-    --workspace-bg: #080809;
-    --note-surface: #101012;
+    --workspace-bg: #2e2e2e;
+    --note-surface: #1c1c1c;
     --note-surface-shadow:
       0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 12px 32px rgba(0, 0, 0, 0.32);
 
@@ -289,7 +289,7 @@
     --broken-stripe-2: #232328;
 
     /* ── Menu / popup tokens ────────────────────────────────────────── */
-    --menu-bg: #000000;
+    --menu-bg: #1c1c1c;
     --menu-border: #1c1c1f;
     --menu-item-fg: #d4d4d8;
     --menu-item-hover-bg: #27272a;
@@ -297,7 +297,7 @@
     --menu-shadow: 0 8px 28px rgba(0, 0, 0, 0.7);
 
     /* ── Block panel tokens ─────────────────────────────────────────── */
-    --panel-bg: #000000;
+    --panel-bg: #1c1c1c;
     --panel-border: #1c1c1f;
     --panel-header-border: #18181b;
     --panel-input-bg: #0c0c0e;
@@ -2239,6 +2239,35 @@ em-emoji-picker {
   opacity: 0.4;
 }
 
+.amby-activity-button[data-active="true"] {
+  color: color-mix(in srgb, hsl(var(--muted-foreground)) 88%, #000);
+  background: color-mix(in srgb, hsl(var(--muted)) 92%, #000);
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.16),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.34);
+}
+
+.amby-activity-button[data-active="true"]:hover {
+  color: color-mix(in srgb, hsl(var(--muted-foreground)) 88%, #000);
+  background: color-mix(in srgb, hsl(var(--muted)) 84%, #000);
+}
+
+/* In dark themes the rail sits on a lighter workspace. Make the selected
+   button read as a pressed surface instead of letting it blend into the rail. */
+html.dark .amby-activity-button[data-active="true"] {
+  color: color-mix(in srgb, hsl(var(--foreground)) 58%, hsl(var(--muted-foreground)));
+  background: color-mix(in srgb, var(--note-surface) 80%, #000);
+  box-shadow:
+    inset 0 2px 4px rgb(0 0 0 / 46%),
+    inset 0 -1px 0 rgb(255 255 255 / 10%),
+    0 0 0 1px rgb(0 0 0 / 24%);
+}
+
+html.dark .amby-activity-button[data-active="true"]:hover {
+  color: color-mix(in srgb, hsl(var(--foreground)) 64%, hsl(var(--muted-foreground)));
+  background: color-mix(in srgb, var(--note-surface) 70%, #000);
+}
+
 .amby-activity-button[data-drop-target="true"] {
   outline: 2px solid var(--activity-drop-outline);
   outline-offset: -2px;
@@ -2251,6 +2280,40 @@ em-emoji-picker {
 [data-activity-zone][data-drop-target="true"] {
   border-radius: 8px;
   box-shadow: inset 0 0 0 1px var(--activity-drop-outline);
+}
+
+.amby-activity-drop-placeholder {
+  position: relative;
+  box-sizing: border-box;
+  flex: 0 0 2rem;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  background: transparent;
+  transition:
+    background 120ms ease,
+    box-shadow 120ms ease,
+    border-color 120ms ease;
+}
+
+.amby-activity-drop-placeholder::before {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  left: 2px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--activity-drop-outline);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--activity-drop-outline) 18%, transparent),
+    0 0 10px color-mix(in srgb, var(--activity-drop-outline) 42%, transparent);
+  content: "";
+  opacity: 0.92;
+  transform: translateY(-50%);
+}
+
+.amby-activity-drop-placeholder[data-drop-target="true"] {
+  background: color-mix(in srgb, var(--activity-drop-outline) 5%, transparent);
 }
 
 .amby-activity-ghost {
@@ -2381,11 +2444,11 @@ em-emoji-picker {
 }
 
 .dark {
-  --background: 0 0% 15.69%; /* #282828 — workspace background */
+  --background: 0 0% 18%; /* #2e2e2e — lighter workspace background */
   --foreground: 0 0% 95%;
-  --card: 0 0% 12.55%;
+  --card: 0 0% 13%;
   --card-foreground: 0 0% 95%;
-  --popover: 0 0% 11.75%;
+  --popover: 0 0% 11%;
   --popover-foreground: 0 0% 95%;
   --primary: 262 83% 71%;
   --primary-foreground: 262 42% 13%;
@@ -2401,7 +2464,7 @@ em-emoji-picker {
   --input: 0 0% 24%;
   --ring: 262 83% 71%;
 
-  --workspace-bg: #282828;
+  --workspace-bg: #2e2e2e;
   --note-surface: #1c1c1c;
   --note-surface-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 5px 14px rgba(0, 0, 0, 0.18);
   --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 4px 12px rgba(0, 0, 0, 0.16);
@@ -2551,18 +2614,95 @@ html.dark[data-accent="rose"] {
 
 html,
 body {
-  font-family:
+  font-family: var(
+    --app-font-family,
     Inter,
     ui-sans-serif,
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
-    sans-serif;
+    sans-serif
+  );
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color-scheme: light;
+}
+
+/* Do not let the browser add its own blue focus outline to plain controls.
+   Components keep their intentional input/drag states, while ordinary
+   buttons and links use their existing hover and active surfaces. */
+:where(button, [role="button"], a, input, textarea, select):focus {
+  outline: none;
+}
+
+html[data-rainbow-tree="true"] [role="treeitem"][aria-level="1"] > svg {
+  color: hsl(350 80% 65%);
+}
+
+html[data-rainbow-tree="true"] [role="treeitem"][aria-level="2"] > svg {
+  color: hsl(32 90% 62%);
+}
+
+html[data-rainbow-tree="true"] [role="treeitem"][aria-level="3"] > svg {
+  color: hsl(155 62% 54%);
+}
+
+html[data-rainbow-tree="true"] [role="treeitem"][aria-level="4"] > svg {
+  color: hsl(205 85% 65%);
+}
+
+html[data-rainbow-tree="true"] [role="treeitem"][aria-level="5"] > svg,
+html[data-rainbow-tree="true"] [role="treeitem"][aria-level="6"] > svg {
+  color: hsl(275 72% 68%);
+}
+
+.settings-row {
+  padding-block: 0.75rem;
+}
+
+html[data-density="compact"] .settings-row {
+  padding-block: 0.45rem;
+}
+
+html[data-density="compact"] [data-slot="tabs-trigger"] {
+  min-height: 2rem;
+}
+
+html[data-density="compact"] .amby-activity-button {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+html[data-density="compact"] [role="treeitem"] {
+  line-height: 1.15;
+}
+
+html[data-density="compact"] .amby-tree-row {
+  padding-block: 0.125rem;
+}
+
+html[data-density="compact"] .amby-panel-host input,
+html[data-density="compact"] .amby-panel-host select,
+html[data-density="compact"] .amby-panel-host textarea {
+  min-height: 1.75rem;
+}
+
+.text-\[13px\] {
+  font-size: 0.8125rem;
+}
+
+.text-\[12px\] {
+  font-size: 0.75rem;
+}
+
+.text-\[11px\] {
+  font-size: 0.6875rem;
+}
+
+.text-\[10px\] {
+  font-size: 0.625rem;
 }
 
 html.dark {
@@ -2596,7 +2736,7 @@ select {
     0 4px 12px hsl(var(--primary) / 0.22);
 }
 
-.amby-activity-button:hover {
+.amby-activity-button:hover:not([data-active="true"]) {
   color: hsl(var(--accent-foreground));
 }
 
@@ -2619,7 +2759,7 @@ select {
   color: var(--panel-row-fg);
 }
 
-/* The editor sheet is the visual anchor inside the #282828 workspace. */
+/* The editor sheet is the visual anchor inside the lighter #2e2e2e workspace. */
 .amby-read-body,
 .amby-source-editor,
 .amby-tiptap {
@@ -2658,4 +2798,28 @@ select {
 }
 .history-diff-removed {
   background: hsl(var(--destructive) / 0.1);
+}
+/* Browser fallback for the native settings window controls. */
+.settings-traffic-light {
+  border: 1px solid rgb(0 0 0 / 10%);
+}
+
+.settings-traffic-light--close {
+  background: #ff5f57;
+}
+
+.settings-traffic-light--minimize {
+  background: #febc2e;
+}
+
+.settings-traffic-light--maximize {
+  background: #28c840;
+}
+
+.settings-traffic-light-icon {
+  color: rgb(0 0 0 / 60%);
+}
+
+.settings-traffic-light-glyph {
+  border-color: rgb(0 0 0 / 50%);
 }

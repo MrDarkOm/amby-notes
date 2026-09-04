@@ -267,6 +267,19 @@ fn invalid_layer_does_not_promote_a_note() {
 }
 
 #[test]
+fn database_layer_writer_is_disabled_without_promoting_a_note() {
+    let vault = temp_vault("database-layer-disabled");
+    let note = vault.join("Note.md");
+    fs::write(&note, "note").unwrap();
+
+    let error = create_layer_impl(&note, "database").err().unwrap();
+
+    assert!(error.contains("DB-10"));
+    assert!(note.exists());
+    assert!(!vault.join("Note").exists());
+}
+
+#[test]
 fn deleting_a_layer_keeps_a_vault_local_recoverable_copy() {
     let vault = temp_vault("delete-layer");
     let bundle = vault.join("Note");

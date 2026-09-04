@@ -241,6 +241,19 @@ pub(crate) fn split_frontmatter_envelope(content: &str) -> Option<(&str, &str)> 
     Some((&content[..prefix_len], body))
 }
 
+/// Parse the user-owned YAML mapping without reconstructing its envelope.
+/// Callers that need to write must use one of the lossless splice helpers
+/// below; this read helper exists for database YAML conflict projection.
+pub(crate) fn frontmatter_yaml_mapping(content: &str) -> Result<Option<Mapping>, String> {
+    let Some((yaml, _)) = split_frontmatter(content) else {
+        return Ok(None);
+    };
+    match parse_yaml(yaml).map_err(|error| error.to_string())? {
+        Value::Mapping(mapping) => Ok(Some(mapping)),
+        _ => Err("Frontmatter must be a YAML mapping".to_owned()),
+    }
+}
+
 fn parse_yaml(yaml: &str) -> Result<Value, serde_yaml::Error> {
     // Empty/comment-only envelopes can accept their first property. Explicit
     // YAML null scalars (`null`, `~`) remain non-maps and must not be replaced.
@@ -255,6 +268,183 @@ fn parse_yaml(yaml: &str) -> Result<Value, serde_yaml::Error> {
     } else {
         Ok(value)
     }
+}
+
+/// Replace or append one top-level scalar YAML binding without serializing the
+/// surrounding document. Complex/multiline values are rejected until a
+/// dedicated lossless YAML AST splice is available.
+pub(crate) fn replace_yaml_binding_lossless(
+    content: &str,
+    key: &str,
+    value: &Value,
+) -> Result<String, String> {
+    if key.is_empty()
+        || !key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err("YAML binding key is not a safe top-level key".to_owned());
+    }
+    let scalar = yaml_inline_value(value)?;
+    let (yaml, _) = split_frontmatter(content)
+        .ok_or_else(|| "YAML binding requires a closed frontmatter envelope".to_owned())?;
+    let envelope = split_frontmatter_envelope(content)
+        .map(|(envelope, _)| envelope)
+        .ok_or_else(|| "YAML binding requires a closed frontmatter envelope".to_owned())?;
+    let without_bom = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let bom_len = content.len() - without_bom.len();
+    let opening_len = bom_len
+        + if without_bom.starts_with("---\r\n") {
+            5
+        } else {
+            4
+        };
+    let yaml_start = opening_len;
+    let yaml_end = yaml_start + yaml.len();
+    let mut found = false;
+    let mut rebuilt = String::with_capacity(yaml.len() + key.len() + scalar.len() + 4);
+    for line in yaml.split_inclusive('\n') {
+        let line_without_lf = line.strip_suffix('\n').unwrap_or(line);
+        let line_without_eol = line_without_lf
+            .strip_suffix('\r')
+            .unwrap_or(line_without_lf);
+        let leading = line_without_eol.len() - line_without_eol.trim_start().len();
+        let candidate = &line_without_eol[leading..];
+        let matches_key = candidate
+            .split_once(':')
+            .is_some_and(|(candidate_key, remainder)| {
+                candidate_key == key && !remainder.trim_start().starts_with('#')
+            });
+        if matches_key {
+            if found {
+                return Err("YAML binding key is duplicated".to_owned());
+            }
+            found = true;
+            let eol = if line.ends_with("\r\n") {
+                "\r\n"
+            } else if line.ends_with('\n') {
+                "\n"
+            } else {
+                ""
+            };
+            rebuilt.push_str(&line_without_eol[..leading]);
+            rebuilt.push_str(key);
+            rebuilt.push_str(": ");
+            rebuilt.push_str(&scalar);
+            rebuilt.push_str(eol);
+        } else {
+            rebuilt.push_str(line);
+        }
+    }
+    if !found {
+        let eol = if content.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        if !rebuilt.is_empty() {
+            rebuilt.push_str(eol);
+        }
+        rebuilt.push_str(key);
+        rebuilt.push_str(": ");
+        rebuilt.push_str(&scalar);
+    }
+    let next = format!(
+        "{}{}{}{}",
+        &content[..yaml_start],
+        rebuilt,
+        &envelope[yaml_end..],
+        &content[envelope.len()..]
+    );
+    let parsed = parse_markdown(&next);
+    if parsed.frontmatter_status != FrontmatterStatus::Valid {
+        return Err("YAML binding update produced invalid frontmatter".to_owned());
+    }
+    Ok(next)
+}
+
+fn yaml_inline_value(value: &Value) -> Result<String, String> {
+    if let Value::Sequence(items) = value {
+        let rendered = items
+            .iter()
+            .map(yaml_inline_value)
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        return Ok(format!("[{rendered}]"));
+    }
+    let scalar = serde_yaml::to_string(value)
+        .map_err(|error| error.to_string())?
+        .trim()
+        .to_owned();
+    if scalar.is_empty() || scalar.contains(['\n', '\r']) {
+        return Err("YAML binding value must be a scalar or inline sequence".to_owned());
+    }
+    Ok(scalar)
+}
+
+/// Remove one top-level scalar YAML binding while preserving every other byte
+/// in the frontmatter envelope. A missing key is a no-op; duplicate keys are
+/// refused rather than guessing which user value should be removed.
+pub(crate) fn remove_yaml_binding_lossless(content: &str, key: &str) -> Result<String, String> {
+    if key.is_empty()
+        || !key
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+    {
+        return Err("YAML binding key is not a safe top-level key".to_owned());
+    }
+    let (yaml, _) = split_frontmatter(content)
+        .ok_or_else(|| "YAML binding requires a closed frontmatter envelope".to_owned())?;
+    let envelope = split_frontmatter_envelope(content)
+        .map(|(envelope, _)| envelope)
+        .ok_or_else(|| "YAML binding requires a closed frontmatter envelope".to_owned())?;
+    let without_bom = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let bom_len = content.len() - without_bom.len();
+    let opening_len = bom_len
+        + if without_bom.starts_with("---\r\n") {
+            5
+        } else {
+            4
+        };
+    let yaml_start = opening_len;
+    let yaml_end = yaml_start + yaml.len();
+    let mut found = false;
+    let mut rebuilt = String::with_capacity(yaml.len());
+    for line in yaml.split_inclusive('\n') {
+        let line_without_lf = line.strip_suffix('\n').unwrap_or(line);
+        let line_without_eol = line_without_lf
+            .strip_suffix('\r')
+            .unwrap_or(line_without_lf);
+        let leading = line_without_eol.len() - line_without_eol.trim_start().len();
+        let candidate = &line_without_eol[leading..];
+        let matches_key = candidate
+            .split_once(':')
+            .is_some_and(|(candidate_key, remainder)| {
+                candidate_key == key && !remainder.trim_start().starts_with('#')
+            });
+        if matches_key {
+            if found {
+                return Err("YAML binding key is duplicated".to_owned());
+            }
+            found = true;
+            continue;
+        }
+        rebuilt.push_str(line);
+    }
+    if !found {
+        return Ok(content.to_owned());
+    }
+    let next = format!(
+        "{}{}{}{}",
+        &content[..yaml_start],
+        rebuilt,
+        &envelope[yaml_end..],
+        &content[envelope.len()..]
+    );
+    if parse_markdown(&next).frontmatter_status != FrontmatterStatus::Valid {
+        return Err("YAML binding removal produced invalid frontmatter".to_owned());
+    }
+    Ok(next)
 }
 
 pub fn parse_markdown(content: &str) -> ParsedMarkdown {
@@ -1257,5 +1447,40 @@ mod tests {
         assert!(!dest_small_limit.exists());
 
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn yaml_binding_splice_preserves_bom_crlf_comments_and_unknown_keys() {
+        let source = "\u{feff}---\r\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\r\n# keep\r\nstatus: old\r\nunknown: keep\r\n---\r\nBody";
+        let next =
+            replace_yaml_binding_lossless(source, "status", &Value::String("done".into())).unwrap();
+        assert!(next.starts_with("\u{feff}---\r\n"));
+        assert!(next.contains("# keep\r\n"));
+        assert!(next.contains("status: done\r\n"));
+        assert!(next.contains("unknown: keep\r\n"));
+    }
+
+    #[test]
+    fn yaml_binding_splice_refuses_multiline_values_and_malformed_envelopes() {
+        let source = "---\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n---\nBody";
+        assert!(
+            replace_yaml_binding_lossless(source, "status", &Value::String("a\nb".into())).is_err()
+        );
+        assert!(replace_yaml_binding_lossless(
+            "---\nstatus: [\nBody",
+            "status",
+            &Value::String("done".into())
+        )
+        .is_err());
+        let sequence = replace_yaml_binding_lossless(
+            source,
+            "labels",
+            &Value::Sequence(vec![
+                Value::String("one".into()),
+                Value::String("two".into()),
+            ]),
+        )
+        .unwrap();
+        assert!(sequence.contains("labels: [one, two]"));
     }
 }

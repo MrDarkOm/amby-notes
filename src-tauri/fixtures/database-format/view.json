@@ -1,0 +1,79 @@
+{
+  "format": "amby-database-view",
+  "formatVersion": 1,
+  "databaseId": "01J00000000000000000000000",
+  "viewId": "01J00000000000000000000006",
+  "name": "All characters",
+  "layout": "table",
+  "openMode": "sidePeek",
+  "subitemsMode": "nested",
+  "density": "default",
+  "fields": [
+    {
+      "field": {
+        "kind": "system",
+        "field": "title"
+      },
+      "visible": true,
+      "width": null,
+      "frozen": true
+    },
+    {
+      "field": {
+        "kind": "property",
+        "propertyId": "01J00000000000000000000003"
+      },
+      "visible": true,
+      "width": 180,
+      "frozen": false
+    }
+  ],
+  "filter": {
+    "kind": "group",
+    "operator": "and",
+    "children": [
+      {
+        "kind": "condition",
+        "field": {
+          "kind": "property",
+          "propertyId": "01J00000000000000000000003"
+        },
+        "operator": "is",
+        "value": "01J00000000000000000000004"
+      }
+    ]
+  },
+  "sorts": [
+    {
+      "field": {
+        "kind": "system",
+        "field": "title"
+      },
+      "direction": "asc",
+      "nulls": "last"
+    }
+  ],
+  "group": {
+    "field": {
+      "kind": "property",
+      "propertyId": "01J00000000000000000000003"
+    }
+  },
+  "manualOrder": [
+    "01J00000000000000000000008"
+  ],
+  "aggregates": [
+    {
+      "field": {
+        "kind": "property",
+        "propertyId": "01J00000000000000000000002"
+      },
+      "function": "sum"
+    }
+  ],
+  "layoutConfig": {
+    "columnBorders": true,
+    "rowHeight": "default",
+    "frozenBoundary": 1
+  }
+}
