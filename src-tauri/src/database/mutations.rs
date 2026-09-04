@@ -41,6 +41,7 @@ pub struct CreatedDatabase {
     pub view_revision: String,
     pub manifest_path: String,
     pub view_path: String,
+    pub note_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
@@ -88,6 +89,7 @@ pub fn create_database(
     }
 
     let mut promoted_from: Option<(PathBuf, PathBuf)> = None;
+    let mut created_note_path: Option<String> = None;
     let container = match request.mode {
         DatabaseCreateMode::Standalone => {
             let parent = request
@@ -114,6 +116,7 @@ pub fn create_database(
             if main_note != original {
                 promoted_from = Some((original, main_note.clone()));
             }
+            created_note_path = Some(main_note.to_string_lossy().to_string());
             main_note
                 .parent()
                 .ok_or("Attached note has no bundle parent")?
@@ -220,6 +223,7 @@ pub fn create_database(
         view_revision: raw_revision(&view_bytes),
         manifest_path: manifest_path.to_string_lossy().to_string(),
         view_path: view_path.to_string_lossy().to_string(),
+        note_path: created_note_path,
     })
 }
 

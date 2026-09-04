@@ -693,7 +693,7 @@ export type AiMessage = {
 role: string; content: string }
 export type CreateDatabaseRequest = { expectedGeneration: number; mode: DatabaseCreateMode; parentPath: string | null; notePath: string | null; name: string }
 export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; title: string }
-export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string }
+export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string; notePath: string | null }
 export type CreatedDatabaseRow = { databaseId: string; noteId: string; title: string; notePath: string; recordPath: string; recordRevision: string }
 export type CredentialInfo = { exists: boolean; masked: string | null }
 export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }

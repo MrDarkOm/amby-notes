@@ -29,6 +29,28 @@ pub fn mutation_paths(result: &FsMutationResult) -> Vec<PathBuf> {
     paths
 }
 
+fn inspect_note_layers(path: &Path) -> Result<NoteLayers, String> {
+    let mut layers = NoteLayers::default();
+    if !path.is_file() {
+        return Ok(layers);
+    }
+    let Some(parent) = path.parent() else {
+        return Ok(layers);
+    };
+    let Some(parent_name) = parent.file_name().map(|s| s.to_string_lossy().to_string()) else {
+        return Ok(layers);
+    };
+    let stem = file_stem(path)?;
+    if parent_name != stem {
+        return Ok(layers);
+    }
+    layers.canvas = parent.join(format!("{stem}.canvas")).is_file();
+    layers.sketch = parent.join(format!("{stem}.excalidraw")).is_file();
+    // Metadata.md is the readable legacy layer; ambd.json is the released DB layer.
+    layers.database = parent.join("Metadata.md").is_file() || parent.join("ambd.json").is_file();
+    Ok(layers)
+}
+
 /// Register a rename/move plan before it publishes filesystem events. Each old
 /// path must become missing and each new path must retain the old path's exact
 /// fingerprint; no directory-wide marker is ever used.
@@ -260,24 +282,29 @@ pub fn note_layers(
     note_path: String,
 ) -> Result<NoteLayers, String> {
     let path = paths::guard(&scope, &note_path)?;
-    let mut layers = NoteLayers::default();
-    if !path.is_file() {
-        return Ok(layers);
+    inspect_note_layers(&path)
+}
+
+#[cfg(test)]
+mod layer_tests {
+    use super::*;
+
+    #[test]
+    fn note_layers_detects_the_durable_database_manifest() {
+        let root =
+            std::env::temp_dir().join(format!("amby-note-layers-{}", ulid::Ulid::generate()));
+        let bundle = root.join("Meeting");
+        fs::create_dir_all(&bundle).unwrap();
+        let note = bundle.join("Meeting.md");
+        fs::write(&note, "# Meeting\n").unwrap();
+        fs::write(bundle.join("ambd.json"), "{}\n").unwrap();
+
+        let layers = inspect_note_layers(&note).unwrap();
+        assert!(layers.database);
+        assert!(!layers.canvas);
+        assert!(!layers.sketch);
+        fs::remove_dir_all(root).unwrap();
     }
-    let Some(parent) = path.parent() else {
-        return Ok(layers);
-    };
-    let Some(parent_name) = parent.file_name().map(|s| s.to_string_lossy().to_string()) else {
-        return Ok(layers);
-    };
-    let stem = file_stem(&path)?;
-    if parent_name != stem {
-        return Ok(layers);
-    }
-    layers.canvas = parent.join(format!("{stem}.canvas")).is_file();
-    layers.sketch = parent.join(format!("{stem}.excalidraw")).is_file();
-    layers.database = parent.join("Metadata.md").is_file();
-    Ok(layers)
 }
 
 #[tauri::command]

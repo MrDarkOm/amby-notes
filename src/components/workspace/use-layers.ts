@@ -4,15 +4,25 @@ import { useViewStateStore, type EditorLayer } from "./use-view-state-store"
 import type { Document } from "./use-doc-store"
 import type { TreeItem } from "./sidebar-tree"
 import type { FsMutationResult, LayerKind } from "@/lib/storage"
-import { confirmAction, createLayer, unlinkLayer, deleteLayer, noteLayers } from "@/lib/storage"
+import {
+  confirmAction,
+  createDatabase,
+  createLayer,
+  unlinkLayer,
+  deleteLayer,
+  noteLayers,
+} from "@/lib/storage"
 
 interface UseLayersParams {
   vault: string | null
   /** Database module state controls database-specific entry points. */
   databasesEnabled: boolean
+  backendGeneration: number | null
   currentDoc: Document | null
   treeItems: TreeItem[]
   refreshTree: (path?: string | null) => Promise<TreeItem[]>
+  refreshDatabaseCatalog?: () => Promise<void>
+  onOpenDatabase?: (databaseId: string, title: string, inNewTab?: boolean) => void
   applyMutationResult: (result: FsMutationResult) => void
 }
 
@@ -26,9 +36,12 @@ interface UseLayersParams {
 export function useLayers({
   vault,
   databasesEnabled,
+  backendGeneration,
   currentDoc,
   treeItems,
   refreshTree,
+  refreshDatabaseCatalog,
+  onOpenDatabase,
   applyMutationResult,
 }: UseLayersParams) {
   const t = i18n.t.bind(i18n)
@@ -36,21 +49,71 @@ export function useLayers({
   const linkedLayersByDoc = useViewStateStore((s) => s.linkedLayersByDoc)
   const { setActiveLayer, setLinkedLayers } = useViewStateStore.getState()
 
-  async function refreshLinkedLayers(docId: string, notePath: string) {
-    try {
-      const layers = await noteLayers(notePath)
-      setLinkedLayers(docId, layers)
-    } catch (err) {
-      console.error("Failed to load note layers:", err)
-    }
-  }
+  const refreshLinkedLayers = React.useCallback(
+    async (docId: string, notePath: string) => {
+      try {
+        const layers = await noteLayers(notePath)
+        setLinkedLayers(docId, layers)
+      } catch (err) {
+        console.error("Failed to load note layers:", err)
+      }
+    },
+    [setLinkedLayers],
+  )
+
+  const applyDatabasePathChange = React.useCallback(
+    (oldPath: string, newPath: string) => {
+      if (oldPath === newPath) return
+      applyMutationResult({
+        primaryPath: newPath,
+        pathChanges: [{ oldPath, newPath }],
+        deletedPaths: [],
+      })
+    },
+    [applyMutationResult],
+  )
+
+  const createAttachedDatabase = React.useCallback(
+    async (noteId: string, notePath: string, title: string) => {
+      if (!vault || !databasesEnabled || backendGeneration === null) return
+      const created = await createDatabase({
+        expectedGeneration: backendGeneration,
+        mode: "attached",
+        notePath,
+        name: title.replace(/\.md$/iu, "") || title,
+      })
+      const nextNotePath = created.notePath ?? notePath
+      applyDatabasePathChange(notePath, nextNotePath)
+      await refreshTree()
+      await refreshDatabaseCatalog?.()
+      await refreshLinkedLayers(noteId, nextNotePath)
+      setActiveLayer(noteId, "database")
+      onOpenDatabase?.(created.databaseId, created.title)
+    },
+    [
+      applyDatabasePathChange,
+      backendGeneration,
+      databasesEnabled,
+      onOpenDatabase,
+      refreshDatabaseCatalog,
+      refreshLinkedLayers,
+      refreshTree,
+      setActiveLayer,
+      vault,
+    ],
+  )
 
   const handleLayerChange = async (layer: EditorLayer) => {
     const doc = currentDoc
     if (!doc) return
-    // DB-10 owns the new creator. Until then, never route this legacy writer
-    // through createLayer, even if a stale UI event reaches this hook.
-    if (layer === "database") return
+    if (layer === "database") {
+      try {
+        await createAttachedDatabase(doc.id, doc.path, doc.title)
+      } catch (err) {
+        console.error("Failed to create database layer:", err)
+      }
+      return
+    }
     if (layer === "editor") {
       setActiveLayer(doc.id, "editor")
       return
@@ -71,22 +134,25 @@ export function useLayers({
   }
 
   const handleAttachLayerToFile = React.useCallback(
-    async (fileId: string, layer: "canvas" | "database") => {
-      if (layer === "database") return
-      // Find the file path from the flat tree
-      function findPath(items: TreeItem[]): string | null {
+    async (fileId: string, layer: "canvas" | "database" | "sketch") => {
+      function findFile(items: TreeItem[]): TreeItem | null {
         for (const item of items) {
-          if (item.id === fileId && item.type === "file") return item.path
+          if (item.id === fileId && item.type === "file") return item
           if (item.children) {
-            const found = findPath(item.children)
+            const found = findFile(item.children)
             if (found) return found
           }
         }
         return null
       }
-      const filePath = findPath(treeItems)
-      if (!filePath) return
+      const item = findFile(treeItems)
+      if (!item) return
       try {
+        if (layer === "database") {
+          await createAttachedDatabase(fileId, item.path, item.name)
+          return
+        }
+        const filePath = item.path
         const result = await createLayer(filePath, layer)
         applyMutationResult({
           primaryPath: result.notePath,
@@ -99,8 +165,32 @@ export function useLayers({
         console.error("Failed to attach layer:", err)
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [databasesEnabled, treeItems, vault],
+    [applyMutationResult, createAttachedDatabase, refreshLinkedLayers, refreshTree, treeItems],
+  )
+
+  const handleNewDatabase = React.useCallback(
+    async (parentId: string | null, name: string) => {
+      if (!vault || !databasesEnabled || backendGeneration === null) return
+      const parent = parentId ? findFileOrFolder(treeItems, parentId) : null
+      const created = await createDatabase({
+        expectedGeneration: backendGeneration,
+        mode: "standalone",
+        parentPath: parent?.path ?? vault,
+        name,
+      })
+      await refreshTree()
+      await refreshDatabaseCatalog?.()
+      onOpenDatabase?.(created.databaseId, created.title)
+    },
+    [
+      backendGeneration,
+      databasesEnabled,
+      onOpenDatabase,
+      refreshDatabaseCatalog,
+      refreshTree,
+      treeItems,
+      vault,
+    ],
   )
 
   const handleUnlinkLayer = async (layer: LayerKind) => {
@@ -157,5 +247,17 @@ export function useLayers({
     handleAttachLayerToFile,
     handleUnlinkLayer,
     handleDeleteLayer,
+    handleNewDatabase,
   }
+}
+
+function findFileOrFolder(items: TreeItem[], id: string): TreeItem | null {
+  for (const item of items) {
+    if (item.id === id) return item
+    if (item.children) {
+      const found = findFileOrFolder(item.children, id)
+      if (found) return found
+    }
+  }
+  return null
 }

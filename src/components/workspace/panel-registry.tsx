@@ -59,6 +59,7 @@ export interface PanelRenderProps {
   onNewFile?: (parentId: string | null) => void
   onNewFolder?: (parentId: string | null) => void
   onNewCanvas?: (parentId: string | null) => void
+  onNewDatabase?: (parentId: string | null, name: string) => void | Promise<void>
   onAttachCanvas?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
@@ -74,8 +75,8 @@ export interface PanelRenderProps {
   onToggleFavorite?: (id: string) => void
 
   // Layer attachment from tree
-  onAttachLayer?: (id: string, layer: "canvas" | "database") => void
-  /** Kept false until DB-10 replaces the legacy Metadata.md writer. */
+  onAttachLayer?: (id: string, layer: "canvas" | "database" | "sketch") => void
+  /** Enabled when the released durable database creator is available. */
   canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, { canvas: boolean; database: boolean; sketch: boolean }>
   databaseRuntimeEnabled?: boolean

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { FilePlus, FolderOpen } from "lucide-react"
+import { AlertTriangle, FilePlus, FolderOpen } from "lucide-react"
 
 import type { EditorHandle } from "../tiptap/constants"
 import type { MarkdownSelection } from "../tiptap/markdown-selection"
@@ -16,6 +16,7 @@ import { DocumentHeader } from "./document-header"
 import { DocumentBody } from "./document-body"
 import { noteEditingPolicy } from "./note-editing-policy"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
+import { Button } from "@/components/ui/button"
 
 export interface Document {
   id: string
@@ -25,11 +26,13 @@ export interface Document {
   wordCount: number
   path: string
   noteProperties?: NoteProperties
+  externallyDeleted?: boolean
 }
 
 export interface DocumentEditorProps {
   document: Document | null
   onContentChange?: (content: string, sourceDocumentId: string) => void
+  onRestoreDeleted?: () => void | Promise<void>
   onBack?: () => void
   onForward?: () => void
   canGoBack?: boolean
@@ -86,6 +89,7 @@ export interface DocumentEditorProps {
 export function DocumentEditor({
   document,
   onContentChange,
+  onRestoreDeleted,
   onBack,
   onForward,
   canGoBack = false,
@@ -145,6 +149,8 @@ export function DocumentEditor({
   const [filePickerQuery, setFilePickerQuery] = React.useState("")
   const [layerConfirm, setLayerConfirm] = React.useState<EditorLayer | null>(null)
   const [editorSelection, setEditorSelection] = React.useState<MarkdownSelection | null>(null)
+  const [restoringDeleted, setRestoringDeleted] = React.useState(false)
+  const [restoreError, setRestoreError] = React.useState(false)
   const editorSelectionRef = React.useRef<MarkdownSelection | null>(null)
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
   const { t } = useTranslation()
@@ -206,6 +212,24 @@ export function DocumentEditor({
   React.useEffect(() => {
     setContent(document?.content ?? "")
   }, [document?.content])
+
+  React.useEffect(() => {
+    setRestoringDeleted(false)
+    setRestoreError(false)
+  }, [document?.id, document?.externallyDeleted])
+
+  async function restoreDeletedDocument() {
+    if (!onRestoreDeleted || restoringDeleted) return
+    setRestoringDeleted(true)
+    setRestoreError(false)
+    try {
+      await onRestoreDeleted()
+    } catch {
+      setRestoreError(true)
+    } finally {
+      setRestoringDeleted(false)
+    }
+  }
 
   const handleContentChange = (v: string) => {
     if (!document || editingPolicy.readOnly) return
@@ -281,6 +305,34 @@ export function DocumentEditor({
     />
   )
 
+  const deletedBanner = document?.externallyDeleted ? (
+    <div
+      role="alert"
+      className="flex shrink-0 items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-950 dark:text-amber-100"
+    >
+      <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-300" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">{t("conflict.deletedBannerTitle")}</p>
+        <p className="text-xs text-amber-900/75 dark:text-amber-100/75">
+          {t("conflict.deletedBannerDescription")}
+        </p>
+        {restoreError && (
+          <p className="mt-1 text-xs text-destructive">{t("conflict.restoreFailed")}</p>
+        )}
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={restoringDeleted}
+        onClick={() => void restoreDeletedDocument()}
+        className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
+      >
+        {restoringDeleted ? t("conflict.saving") : t("conflict.restoreDeleted")}
+      </Button>
+    </div>
+  ) : null
+
   if (!document) {
     return (
       <div className="flex h-full flex-1 flex-col bg-background">
@@ -315,6 +367,7 @@ export function DocumentEditor({
     return (
       <div className="relative flex h-full flex-1 flex-col bg-background">
         {headerElement}
+        {deletedBanner}
         {editingPolicy.warningKey && (
           <p role="status" className="px-4 py-2 text-xs text-muted-foreground">
             {t(editingPolicy.warningKey)}
@@ -366,6 +419,7 @@ export function DocumentEditor({
         style={{ boxShadow: "var(--note-surface-shadow)" }}
       >
         {headerElement}
+        {deletedBanner}
         {editingPolicy.warningKey && (
           <p role="status" className="px-4 py-2 text-xs text-muted-foreground">
             {t(editingPolicy.warningKey)}

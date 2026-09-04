@@ -19,6 +19,15 @@ import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -93,6 +102,7 @@ export function FilesPanel(props: PanelRenderProps) {
     onNewFile,
     onNewFolder,
     onNewCanvas,
+    onNewDatabase,
     onAttachCanvas,
     onOpenInNewTab,
     onOpenInNewWindow,
@@ -109,6 +119,9 @@ export function FilesPanel(props: PanelRenderProps) {
     workspaceSwitcher,
   } = props
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
+  const [databaseDialogOpen, setDatabaseDialogOpen] = React.useState(false)
+  const [databaseName, setDatabaseName] = React.useState("")
+  const [databaseNameError, setDatabaseNameError] = React.useState(false)
   const closedTreeIds = useViewStateStore((s) => s.closedTreeIds)
   const setTreeExpanded = useViewStateStore((s) => s.setTreeExpanded)
   const allOpen = closedTreeIds.size === 0
@@ -132,6 +145,27 @@ export function FilesPanel(props: PanelRenderProps) {
       return
     }
     setNewItemModalOpen(true)
+  }
+
+  function handleNewDatabaseClick() {
+    if (!vault) {
+      onOpenVault()
+      return
+    }
+    setDatabaseName(t("defaults.untitled"))
+    setDatabaseNameError(false)
+    setDatabaseDialogOpen(true)
+  }
+
+  async function handleCreateDatabase(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const name = databaseName.trim()
+    if (!name) {
+      setDatabaseNameError(true)
+      return
+    }
+    await onNewDatabase?.(null, name)
+    setDatabaseDialogOpen(false)
   }
 
   function handleToggleFolders() {
@@ -295,14 +329,12 @@ export function FilesPanel(props: PanelRenderProps) {
             {t("filesPanel.newCanvas")}
           </ContextMenuItem>
           <ContextMenuItem
-            disabled
-            className="flex items-center gap-2 text-[13px] text-muted-foreground"
+            disabled={!canCreateDatabaseLayer}
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white disabled:opacity-50"
+            onSelect={handleNewDatabaseClick}
           >
             <Database className="size-3.5" />
             {t("filesPanel.database")}
-            <span className="ml-auto text-[10px] text-muted-foreground">
-              {t("common.comingSoon")}
-            </span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -313,7 +345,45 @@ export function FilesPanel(props: PanelRenderProps) {
         onCreateNote={() => onNewFile?.(null)}
         onCreateFolder={() => onNewFolder?.(null)}
         onCreateCanvas={() => onNewCanvas?.(null)}
+        onCreateDatabase={handleNewDatabaseClick}
+        canCreateDatabase={canCreateDatabaseLayer}
       />
+
+      <Dialog open={databaseDialogOpen} onOpenChange={setDatabaseDialogOpen}>
+        <DialogContent className="max-w-sm border-border bg-background text-foreground">
+          <DialogHeader>
+            <DialogTitle>{t("newItem.databaseTitle")}</DialogTitle>
+            <DialogDescription>{t("newItem.databaseDescription")}</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleCreateDatabase} className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="new-database-name" className="text-sm font-medium">
+                {t("newItem.databaseName")}
+              </label>
+              <Input
+                id="new-database-name"
+                autoFocus
+                value={databaseName}
+                onChange={(event) => {
+                  setDatabaseName(event.target.value)
+                  setDatabaseNameError(false)
+                }}
+                placeholder={t("newItem.databaseNamePlaceholder")}
+                aria-invalid={databaseNameError}
+              />
+              {databaseNameError && (
+                <p className="text-xs text-destructive">{t("newItem.databaseNameRequired")}</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setDatabaseDialogOpen(false)}>
+                {t("newItem.cancel")}
+              </Button>
+              <Button type="submit">{t("newItem.createDatabase")}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

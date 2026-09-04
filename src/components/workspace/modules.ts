@@ -51,8 +51,8 @@ export const DEFAULT_MODULE_AVAILABILITY: ModuleAvailability = {
   databasesV1: false,
 }
 
-/** The old Metadata.md layer writer must stay unavailable until DB-10. */
-export const DATABASE_LAYER_CREATION_AVAILABLE = false
+/** Database layer creation uses the durable DB-10 creator, not Metadata.md. */
+export const DATABASE_LAYER_CREATION_AVAILABLE = true
 
 /**
  * The built-in modules. Each wraps one of the existing panels/actions; this is

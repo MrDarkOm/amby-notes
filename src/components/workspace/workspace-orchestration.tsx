@@ -53,6 +53,7 @@ import {
   isTauri,
   readFile,
   readNote,
+  restoreDeletedNote,
   searchNotes,
   openInExplorer,
   exportTextFile,
@@ -101,7 +102,7 @@ export function WorkspaceOrchestration() {
 
   const openDocs = useDocStore((s) => s.openDocs)
   // Action is stable in zustand, so read it once without subscribing.
-  const { applyMutation, patchDoc, markSaved } = useDocStore.getState()
+  const { applyMutation, patchDoc, markSaved, clearExternalConflict } = useDocStore.getState()
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
   const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
@@ -176,7 +177,10 @@ export function WorkspaceOrchestration() {
     exportPreset,
   } = usePresets(vault, experimental)
   const databasesEnabled = activeModules.includes("databases")
-  useDatabaseController({ enabled: databasesEnabled, vaultGeneration: backendGeneration })
+  const { refreshCatalog: refreshDatabaseCatalog } = useDatabaseController({
+    enabled: databasesEnabled,
+    vaultGeneration: backendGeneration,
+  })
   const presetOptions = React.useMemo(
     () =>
       presets.map((p) => ({
@@ -416,8 +420,58 @@ export function WorkspaceOrchestration() {
   const currentDocId = currentDoc?.id ?? null
   const currentDocPath = currentDoc?.path ?? null
 
-  const { handleLayerChange, handleAttachLayerToFile, handleUnlinkLayer, handleDeleteLayer } =
-    useLayers({ vault, currentDoc, treeItems, refreshTree, applyMutationResult, databasesEnabled })
+  const handleRestoreDeleted = React.useCallback(
+    async (fileId: string) => {
+      if (!vault) return
+      const document = useDocStore.getState().openDocs[fileId]
+      if (!document?.externallyDeleted) return
+      const conflict = useDocStore.getState().externalConflicts[fileId]
+      const outcome = await restoreDeletedNote(
+        vault,
+        fileId,
+        document.path,
+        document.content,
+        conflict?.sourceTemplate ?? document.source,
+        backendGeneration,
+        windowLabel,
+      )
+      patchDoc(fileId, {
+        revision: outcome.revision,
+        source: conflict?.sourceTemplate ?? document.source,
+        externallyDeleted: false,
+      })
+      markSaved(fileId)
+      clearExternalConflict(fileId)
+      await refreshTree(vault)
+    },
+    [
+      backendGeneration,
+      clearExternalConflict,
+      markSaved,
+      patchDoc,
+      refreshTree,
+      vault,
+      windowLabel,
+    ],
+  )
+
+  const {
+    handleLayerChange,
+    handleAttachLayerToFile,
+    handleUnlinkLayer,
+    handleDeleteLayer,
+    handleNewDatabase,
+  } = useLayers({
+    vault,
+    currentDoc,
+    treeItems,
+    refreshTree,
+    applyMutationResult,
+    databasesEnabled,
+    backendGeneration,
+    refreshDatabaseCatalog,
+    onOpenDatabase: openDatabaseTab,
+  })
 
   const {
     handleSelect,
@@ -626,6 +680,7 @@ export function WorkspaceOrchestration() {
       onNewFile: handleNewFileIn,
       onNewFolder: handleNewFolderIn,
       onNewCanvas: handleNewCanvasIn,
+      onNewDatabase: handleNewDatabase,
       onAttachCanvas: handleAttachCanvasToNote,
       onOpenInNewTab: handleOpenInNewTab,
       onOpenInNewWindow: handleOpenInNewWindow,
@@ -687,6 +742,7 @@ export function WorkspaceOrchestration() {
       handleNewFileIn,
       handleNewFolderIn,
       handleNewCanvasIn,
+      handleNewDatabase,
       handleAttachCanvasToNote,
       handleOpenInNewTab,
       handleOpenInNewWindow,
@@ -775,6 +831,7 @@ export function WorkspaceOrchestration() {
       },
       activeLayer: isPrimary && doc ? (activeLayers[doc.id] ?? "editor") : "editor",
       onLayerChange: isPrimary ? handleLayerChange : async (_layer: EditorLayer) => {},
+      onRestoreDeleted: doc ? () => handleRestoreDeleted(doc.id) : undefined,
       viewMode: doc ? (viewModes[doc.id] ?? defaultViewMode) : defaultViewMode,
       onViewModeChange: isPrimary
         ? handleViewModeChange

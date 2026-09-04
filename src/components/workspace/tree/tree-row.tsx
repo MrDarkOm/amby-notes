@@ -15,6 +15,7 @@ import {
   LayoutGrid,
   Paperclip,
   Pencil,
+  PenLine,
   Smile,
   SquareArrowOutUpRight,
   Star,
@@ -125,9 +126,10 @@ export const TreeNode = React.memo(
     const layers = linkedLayersByDoc?.[item.id]
     const canvasAvailable = item.type === "file" && !layers?.canvas
     const databaseAvailable = canCreateDatabaseLayer && item.type === "file" && !layers?.database
+    const sketchAvailable = item.type === "file" && !layers?.sketch
     const canAttach =
       (item.type === "canvas" && !!onAttachCanvas) ||
-      (!!onAttachLayer && (canvasAvailable || databaseAvailable))
+      (!!onAttachLayer && (canvasAvailable || databaseAvailable || sketchAvailable))
 
     const ctxItems = (
       <ContextMenuContent className="w-60 border-border bg-popover text-foreground">
@@ -191,6 +193,15 @@ export const TreeNode = React.memo(
                 >
                   <Database className="size-3.5 text-muted-foreground" />
                   {t("tree.attachDatabase")}
+                </ContextMenuItem>
+              )}
+              {sketchAvailable && (
+                <ContextMenuItem
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                  onSelect={() => setPendingAttach("sketch")}
+                >
+                  <PenLine className="size-3.5 text-muted-foreground" />
+                  {t("tree.attachSketch")}
                 </ContextMenuItem>
               )}
             </ContextMenuSubContent>
@@ -298,7 +309,9 @@ export const TreeNode = React.memo(
           <p className="text-[13px] leading-snug">
             {pendingAttach === "canvas"
               ? t("tree.confirmAttachCanvas", { name: item.name })
-              : t("tree.confirmAttachDatabase", { name: item.name })}
+              : pendingAttach === "database"
+                ? t("tree.confirmAttachDatabase", { name: item.name })
+                : t("tree.confirmAttachSketch", { name: item.name })}
           </p>
           <div className="mt-1 flex justify-end gap-2">
             <button
@@ -439,5 +452,7 @@ export const TreeNode = React.memo(
     prev.ptrDragSourceId === next.ptrDragSourceId &&
     prev.ptrDragTargetId === next.ptrDragTargetId &&
     prev.favorites === next.favorites &&
-    prev.linkedLayersByDoc === next.linkedLayersByDoc,
+    prev.linkedLayersByDoc === next.linkedLayersByDoc &&
+    prev.onAttachLayer === next.onAttachLayer &&
+    prev.canCreateDatabaseLayer === next.canCreateDatabaseLayer,
 )

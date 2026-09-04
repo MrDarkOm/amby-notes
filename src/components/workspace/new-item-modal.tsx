@@ -10,6 +10,8 @@ interface NewItemModalProps {
   onCreateNote: () => void
   onCreateFolder: () => void
   onCreateCanvas: () => void
+  onCreateDatabase?: () => void
+  canCreateDatabase?: boolean
 }
 
 export function NewItemModal({
@@ -18,6 +20,8 @@ export function NewItemModal({
   onCreateNote,
   onCreateFolder,
   onCreateCanvas,
+  onCreateDatabase,
+  canCreateDatabase = false,
 }: NewItemModalProps) {
   const { t } = useTranslation()
   return (
@@ -69,10 +73,14 @@ export function NewItemModal({
 
           <button
             type="button"
-            disabled
-            title={`${t("newItem.database")} · ${t("common.comingSoon")}`}
+            disabled={!canCreateDatabase}
+            onClick={() => {
+              onClose()
+              onCreateDatabase?.()
+            }}
+            title={t("newItem.database")}
             aria-label={t("newItem.database")}
-            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-muted-foreground opacity-50"
+            className={`flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors ${canCreateDatabase ? "hover:border-border hover:bg-accent" : "cursor-not-allowed opacity-50"}`}
           >
             <Database className="size-5" />
           </button>

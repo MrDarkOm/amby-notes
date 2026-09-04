@@ -3,7 +3,7 @@ import type { TreeItem } from "@/lib/storage"
 
 export type { TreeItem }
 
-export type AttachableLayer = "canvas" | "database"
+export type AttachableLayer = "canvas" | "database" | "sketch"
 
 export interface NodeLayers {
   canvas: boolean

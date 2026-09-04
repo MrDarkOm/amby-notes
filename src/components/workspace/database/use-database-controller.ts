@@ -102,4 +102,6 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
     setRuntime,
     vaultGeneration,
   ])
+
+  return { refreshCatalog }
 }

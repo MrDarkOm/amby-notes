@@ -1117,6 +1117,11 @@ status в `ready` завершены; platform-specific manual evidence оста
   portability contracts покрыты исходными тестами и документами. Native storage
   runner в этой macOS-сессии не выдал structured report до остановки процесса;
   это не отмечается как PASS и не меняет production-код.
+- Post-release UI gap closure завершён: standalone и attached database creation
+  подключены к новым entry points, legacy `Metadata.md` writer не используется,
+  а Files/tree/editor menus показывают единый набор Canvas, Excalidraw и Database.
+- Для открытой заметки, удалённой внешним редактором, добавлены persistent banner
+  и безопасное восстановление локальной версии с сохранением исходного frontmatter.
 
 ### Acceptance
 

@@ -734,7 +734,9 @@ export class WebAdapterCore implements StoragePort {
     return {
       canvas: webGet(FILE_PREFIX + joinPath(dir, `${stem}.canvas`)) !== null,
       sketch: webGet(FILE_PREFIX + joinPath(dir, `${stem}.excalidraw`)) !== null,
-      database: webGet(FILE_PREFIX + joinPath(dir, "Metadata.md")) !== null,
+      database:
+        webGet(FILE_PREFIX + joinPath(dir, "ambd.json")) !== null ||
+        webGet(FILE_PREFIX + joinPath(dir, "Metadata.md")) !== null,
     }
   }
 

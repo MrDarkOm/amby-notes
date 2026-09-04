@@ -51,6 +51,7 @@ export interface CreatedDatabase {
   viewRevision: string
   manifestPath: string
   viewPath: string
+  notePath: string | null
 }
 
 export interface DatabaseValueMutation {
