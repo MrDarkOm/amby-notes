@@ -175,7 +175,7 @@ export function WorkspaceOrchestration() {
     importPreset,
     exportPreset,
   } = usePresets(vault, experimental)
-  const databasesEnabled = experimental.databasesV1 && activeModules.includes("databases")
+  const databasesEnabled = activeModules.includes("databases")
   useDatabaseController({ enabled: databasesEnabled, vaultGeneration: backendGeneration })
   const presetOptions = React.useMemo(
     () =>

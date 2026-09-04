@@ -457,7 +457,7 @@ export interface GlobalSettings {
   defaultTheme: string | null
   /** Used when panelScope === "global". */
   layout: LayoutConfig
-  /** Explicit opt-in switches for features that are not ready for normal use. */
+  /** Retained for backwards-compatible settings reads; released modules do not depend on it. */
   experimental: ExperimentalSettings
   ai: AiSettings
   prefs: AppPreferences
@@ -466,7 +466,7 @@ export interface GlobalSettings {
 }
 
 export interface ExperimentalSettings {
-  /** Allows the Databases preview module to be enabled; it does not enable it. */
+  /** Legacy field retained so older settings remain readable and writable. */
   databasesV1: boolean
 }
 

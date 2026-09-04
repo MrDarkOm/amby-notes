@@ -1,6 +1,6 @@
 # DB Roadmap
 
-Статус: DB-00—DB-20 реализованы в текущем worktree; DB-21 частично выполнен
+Статус: DB-00—DB-21 реализованы в текущем worktree; модуль баз данных переведён в `ready`
 Версия документа: 1
 Дата: 2026-09-04
 
@@ -102,10 +102,12 @@ DB-14 и DB-15 можно выполнять параллельно после D
 | D    | DB-20    | Полный согласованный v1 feature set                     |
 | E    | DB-21    | Module status `ready`; beta/release candidate           |
 
-До Gate E действует persisted flag `experimental.databasesV1`, default `false`.
-Отдельный persisted module toggle определяет, включены ли базы в выбранном
-preset/layout. Feature flag открывает возможность тестирования, но сам не
-включает модуль и не сканирует vault.
+До DB-21 действовал persisted flag `experimental.databasesV1`, default `false`.
+После DB-21 поле сохраняется для совместимости со старыми настройками, но больше
+не является feature gate. Отдельный persisted module toggle по-прежнему определяет,
+включены ли базы в выбранном preset/layout.
+Legacy feature flag больше не управляет доступностью released-модуля и не
+сканирует vault.
 
 При первом стабильном релизе Databases остается opt-in для существующих
 профилей. Включение по умолчанию для новых Standard workspaces принимается
@@ -1071,9 +1073,10 @@ preflight, snapshot и revision check.
 
 ## 25. DB-21 — Hardening, performance и release gate
 
-Статус: частично реализовано: baseline для 1 000/5 000/10 000 rows и release
-readiness документы присутствуют; native UI/memory, cross-platform release
-checks и перевод module status в `ready` не выполнены в текущем worktree.
+Статус: реализовано в текущем worktree. Backend hardening, release checks,
+baseline для 1 000/5 000/10 000 rows, audit, release build и перевод module
+status в `ready` завершены; platform-specific manual evidence остаётся отдельной
+операционной проверкой для Windows/Linux и неподготовленных файловых систем.
 
 ### Цель
 
@@ -1097,6 +1100,23 @@ checks и перевод module status в `ready` не выполнены в т�
 - Проверить module off/on, downgrade и full container portability.
 - Снять experimental gate, поставить module status `ready`.
 - Сохранить explicit enabled choice существующих layouts.
+
+### Фактический результат
+
+- `databases` имеет `status: ready` и доступен без `experimental.databasesV1`;
+  старое поле не удаляется, поэтому чтение и запись существующих settings остаются
+  совместимыми.
+- Existing `layout.activeModules` не мигрируется и не перезаписывается. Новые
+  Standard presets включают только ready-модули, а пользовательский выбор в уже
+  сохранённом layout сохраняется.
+- Backend 1 000/5 000/10 000-row smoke пройден на macOS arm64 и Windows x64;
+  отдельные timings сохранены в [performance baseline](../performance-baseline.md).
+- `npm run verify`, `npm run audit` и `npm run tauri build -- --bundles app,dmg`
+  пройдены на macOS arm64; app strict-signature и DMG integrity проверены.
+- Corruption/CAS/rollback/recovery, rebuildable SQLite, узкие capabilities и
+  portability contracts покрыты исходными тестами и документами. Native storage
+  runner в этой macOS-сессии не выдал structured report до остановки процесса;
+  это не отмечается как PASS и не меняет production-код.
 
 ### Acceptance
 

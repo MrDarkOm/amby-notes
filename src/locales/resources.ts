@@ -125,9 +125,6 @@ const ru = {
       previewAvailableTitle: "Экспериментальный модуль",
       previewAvailableDescription:
         "Включите модуль вручную, чтобы проверить раннюю реализацию. Файлы хранилища не изменяются этим переключателем.",
-      experimentalDatabases: "Разрешить тестирование баз данных",
-      experimentalDatabasesHint:
-        "Feature gate только открывает переключатель модуля и не включает его автоматически.",
       disabledTitle: "Модуль выключен",
       disabledDescription: "Включите модуль, чтобы добавить его возможности в рабочую область.",
       readyTitle: "Модуль готов к работе",
@@ -1202,9 +1199,6 @@ const en: typeof ru = {
       previewAvailableTitle: "Experimental module",
       previewAvailableDescription:
         "Enable the module manually to try the early implementation. This switch does not change vault files.",
-      experimentalDatabases: "Allow database testing",
-      experimentalDatabasesHint:
-        "The feature gate only unlocks the module switch; it does not enable the module automatically.",
       disabledTitle: "Module is disabled",
       disabledDescription: "Enable the module to add its capabilities to the workspace.",
       readyTitle: "Module is ready",

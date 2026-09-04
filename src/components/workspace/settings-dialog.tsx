@@ -1415,7 +1415,6 @@ function ModulesTab({
 }) {
   const { t } = useTranslation()
   const experimental = useSettingsStore((state) => state.experimental)
-  const setExperimental = useSettingsStore((state) => state.setExperimental)
   const selected = MODULE_REGISTRY.find((module) => module.id === selectedId) ?? MODULE_REGISTRY[0]
 
   if (!selected) return null
@@ -1479,23 +1478,6 @@ function ModulesTab({
 
       <section className="flex min-w-0 flex-col px-5 py-5 sm:px-7">
         <div className="min-h-[300px] flex-1 pb-6">
-          {selected.id === "databases" && (
-            <div className="mb-5 rounded-lg border border-border bg-card/40 p-3">
-              <Row
-                label={t("settings.modules.experimentalDatabases")}
-                hint={t("settings.modules.experimentalDatabasesHint")}
-              >
-                <Switch
-                  checked={experimental.databasesV1}
-                  disabled={experimental.databasesV1 && activeModules.includes("databases")}
-                  onCheckedChange={(databasesV1) => {
-                    void setExperimental({ databasesV1 })
-                  }}
-                  aria-label={t("settings.modules.experimentalDatabases")}
-                />
-              </Row>
-            </div>
-          )}
           {selected.status === "preview" && !isModuleAvailable(selected.id, experimental) ? (
             <ModuleMessage
               title={t("settings.modules.previewTitle")}

@@ -60,6 +60,6 @@ large-vault smoke passed at every roadmap size:
 | 5,000  | 1.177 s      | 294 ms      | 252 ms                    | 0.735 ms |
 | 10,000 | 2.399 s      | 619 ms      | 522 ms                    | 1.167 ms |
 
-Commands: `AMBY_E2E_LARGE_VAULT_SIZE=1000|5000|10000 npm run
-test:e2e:large`. These are indexed backend measurements only; WebView input
-latency, DOM counts and resident memory remain unmeasured.
+Commands: `AMBY_E2E_LARGE_VAULT_SIZE=1000 npm run test:e2e:large`, then the same
+command with `5000` and `10000`. These are indexed backend measurements only;
+WebView input latency, DOM counts and resident memory remain unmeasured.

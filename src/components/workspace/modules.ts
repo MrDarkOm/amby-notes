@@ -51,8 +51,6 @@ export const DEFAULT_MODULE_AVAILABILITY: ModuleAvailability = {
   databasesV1: false,
 }
 
-export const DATABASES_MODULE_ID = "databases"
-
 /** The old Metadata.md layer writer must stay unavailable until DB-10. */
 export const DATABASE_LAYER_CREATION_AVAILABLE = false
 
@@ -81,7 +79,7 @@ export const MODULE_REGISTRY: ModuleDef[] = [
     id: "databases",
     labelKey: "settings.modules.databases",
     descriptionKey: "settings.modules.descriptions.databases",
-    status: "preview",
+    status: "ready",
     manifest: { permissions: ["ui-panel", "read-databases", "write-databases"] },
     panels: ["databases"],
   },
@@ -137,18 +135,17 @@ export function findModule(id: string): ModuleDef | undefined {
 }
 
 /**
- * Preview modules remain visible in Settings, but are only actionable when
- * their explicit feature gate is on. A gate never adds the module to a
- * layout; it only makes an explicit enable action valid.
+ * Preview modules remain visible in Settings, but are not actionable until
+ * their own release gate is lifted. The database module is now stable and is
+ * therefore available independently of the legacy experimental setting.
  */
 export function isModuleAvailable(
   id: string,
-  experimental: ModuleAvailability = DEFAULT_MODULE_AVAILABILITY,
+  _experimental: ModuleAvailability = DEFAULT_MODULE_AVAILABILITY,
 ): boolean {
   const module = findModule(id)
   if (!module) return false
-  if (module.status === "ready") return true
-  return id === DATABASES_MODULE_ID && experimental.databasesV1
+  return module.status === "ready"
 }
 
 export function availableModuleIds(

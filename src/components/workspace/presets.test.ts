@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { ACTION_DEFS, PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
-import { availableModuleIds, MODULE_REGISTRY } from "./modules"
+import { availableModuleIds, isModuleAvailable, MODULE_REGISTRY } from "./modules"
 import { SIMPLE_PRESET, STANDARD_PRESET, visibleLayout } from "./presets"
 
 describe("preset activity zones", () => {
@@ -27,10 +27,11 @@ describe("preset activity zones", () => {
     }
   })
 
-  it("requires the explicit database gate without enabling the module", () => {
-    expect(availableModuleIds()).not.toContain("databases")
+  it("keeps the released database module available without the legacy gate", () => {
+    expect(isModuleAvailable("databases")).toBe(true)
+    expect(availableModuleIds()).toContain("databases")
     expect(availableModuleIds({ databasesV1: true })).toContain("databases")
-    expect(STANDARD_PRESET.activeModules).not.toContain("databases")
+    expect(STANDARD_PRESET.activeModules).toContain("databases")
   })
 
   it("does not expose unimplemented notification or help actions", () => {
