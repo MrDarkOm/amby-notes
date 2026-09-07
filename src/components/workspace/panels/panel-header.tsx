@@ -22,13 +22,11 @@ export function PanelHeader({ title, leading, actions, hideTitle = false }: Pane
         hideTitle ? "justify-start" : "justify-between",
       )}
     >
-      {!hideTitle ? (
+      {!hideTitle && (
         <div className="flex min-w-0 items-center gap-2">
           {leading}
           <h2 className="min-w-0 truncate text-sm font-semibold">{title}</h2>
         </div>
-      ) : (
-        <span aria-hidden="true" />
       )}
       {actions && <div className="flex shrink-0 items-center gap-0.5">{actions}</div>}
     </header>
