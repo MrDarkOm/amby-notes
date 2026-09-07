@@ -402,6 +402,29 @@ pub fn delete_custom_property(
 
 #[tauri::command]
 #[specta::specta]
+pub fn reorder_custom_properties(
+    db: tauri::State<'_, VaultContext>,
+    note_id: String,
+    property_ids: Vec<String>,
+) -> Result<(), String> {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    property_store::reorder(conn, &conn.root, &note_id, &property_ids)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn backup_custom_properties(
+    db: tauri::State<'_, VaultContext>,
+    note_id: String,
+) -> Result<String, String> {
+    let conn_guard = db.conn.lock().unwrap();
+    let conn = conn_guard.as_ref().ok_or("No vault open")?;
+    property_store::backup_and_clear(conn, &conn.root, &note_id)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn list_tags(db: tauri::State<'_, VaultContext>) -> Result<Vec<vault_index::TagEntry>, String> {
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;

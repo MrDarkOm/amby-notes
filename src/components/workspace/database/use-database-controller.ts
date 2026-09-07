@@ -30,6 +30,7 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
   const setCatalog = useDatabaseStore((state) => state.setCatalog)
   const setCatalogError = useDatabaseStore((state) => state.setCatalogError)
   const setCatalogDisabled = useDatabaseStore((state) => state.setCatalogDisabled)
+  const invalidateHosts = useDatabaseStore((state) => state.invalidateHosts)
 
   const refreshCatalog = React.useCallback(
     async (signal?: { cancelled: boolean }) => {
@@ -75,12 +76,14 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
         dispose = await listen<DatabaseChangedPayload>("database:changed", () => {
           void (async () => {
             try {
-              await rebuildDatabaseProjection()
+              const nextRuntime = await rebuildDatabaseProjection()
+              if (!signal.cancelled) setRuntime(nextRuntime)
             } catch {
               // The next catalog refresh still exposes diagnostics when a
               // malformed source keeps the prior projection read-only.
             }
             await refreshCatalog(signal)
+            if (!signal.cancelled) invalidateHosts()
           })()
         })
         if (signal.cancelled) dispose?.()
@@ -95,6 +98,7 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
     }
   }, [
     enabled,
+    invalidateHosts,
     refreshCatalog,
     reset,
     setCatalogDisabled,

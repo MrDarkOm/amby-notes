@@ -6,9 +6,20 @@ describe("database store lifecycle", () => {
 
   it("clears catalog and host sessions when the vault generation changes", () => {
     const host = emptyDatabaseHost("tab", "db-1")
-    useDatabaseStore
-      .getState()
-      .setCatalog([{ databaseId: "db-1", title: "Notes", views: [], diagnostics: [] }])
+    useDatabaseStore.getState().setCatalog([
+      {
+        databaseId: "db-1",
+        title: "Notes",
+        icon: null,
+        attachedNoteId: null,
+        manifestRevision: "rev-1",
+        locked: false,
+        properties: [],
+        views: [],
+        templates: [],
+        diagnostics: [],
+      },
+    ])
     useDatabaseStore.getState().setHost({ ...host, status: "ready" })
     useDatabaseStore.getState().reset(12)
 
@@ -28,5 +39,26 @@ describe("database store lifecycle", () => {
     const state = useDatabaseStore.getState()
     expect(state.hosts[databaseHostKey("tab", "db-1")]?.status).toBe("ready")
     expect(state.hosts[databaseHostKey("tab", "db-1", "view-1")]?.status).toBe("loading")
+  })
+
+  it("keeps two mounted hosts for the same database and view isolated", () => {
+    const first = emptyDatabaseHost("layer", "db-1", "view-1", "note-1")
+    const second = emptyDatabaseHost("layer", "db-1", "view-1", "note-2")
+    useDatabaseStore.getState().setHost({ ...first, status: "ready" })
+    useDatabaseStore.getState().setHost({ ...second, status: "error" })
+
+    const state = useDatabaseStore.getState()
+    expect(state.hosts[databaseHostKey("layer", "db-1", "view-1", "note-1")]?.status).toBe("ready")
+    expect(state.hosts[databaseHostKey("layer", "db-1", "view-1", "note-2")]?.status).toBe("error")
+  })
+
+  it("increments invalidation without discarding visible host rows", () => {
+    const host = emptyDatabaseHost("tab", "db-1")
+    useDatabaseStore.getState().setHost({ ...host, status: "ready" })
+    useDatabaseStore.getState().invalidateHosts()
+
+    const state = useDatabaseStore.getState()
+    expect(state.invalidationSeq).toBe(1)
+    expect(state.hosts[host.key]?.status).toBe("ready")
   })
 })

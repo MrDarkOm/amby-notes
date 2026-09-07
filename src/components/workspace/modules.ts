@@ -31,7 +31,7 @@ export interface ModuleDef {
   labelKey: string
   descriptionKey: string
   /** Preview modules are visible in the catalogue but cannot be enabled yet. */
-  status: "ready" | "preview"
+  status: "ready" | "beta" | "preview"
   manifest: ModuleManifest
   /** Panels (from panel-registry) this module contributes to the activity bar. */
   panels?: PanelId[]
@@ -79,7 +79,7 @@ export const MODULE_REGISTRY: ModuleDef[] = [
     id: "databases",
     labelKey: "settings.modules.databases",
     descriptionKey: "settings.modules.descriptions.databases",
-    status: "ready",
+    status: "beta",
     manifest: { permissions: ["ui-panel", "read-databases", "write-databases"] },
     panels: ["databases"],
   },
@@ -135,9 +135,8 @@ export function findModule(id: string): ModuleDef | undefined {
 }
 
 /**
- * Preview modules remain visible in Settings, but are not actionable until
- * their own release gate is lifted. The database module is now stable and is
- * therefore available independently of the legacy experimental setting.
+ * Preview modules remain visible in Settings but cannot be enabled. Beta
+ * modules are explicitly available without silently entering new presets.
  */
 export function isModuleAvailable(
   id: string,
@@ -145,7 +144,7 @@ export function isModuleAvailable(
 ): boolean {
   const module = findModule(id)
   if (!module) return false
-  return module.status === "ready"
+  return module.status !== "preview"
 }
 
 export function availableModuleIds(

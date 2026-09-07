@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {} from "@/components/ui/dropdown-menu"
-import { cn } from "@/lib/utils"
+import { MotionSpinner } from "@/lib/motion"
 import type { PanelRenderProps } from "../panel-registry"
 import { formatHistorySize, groupHistoryByDay, historyReasonKey } from "../history/history-model"
 import { HistoryPreview } from "../history/history-preview"
@@ -115,7 +115,13 @@ function HistoryContents({
             aria-label={t("historyPanel.refresh")}
             onClick={() => void history.refresh()}
           >
-            <RefreshCw className={cn("size-3.5", history.loading && "animate-spin")} />
+            {history.loading ? (
+              <MotionSpinner>
+                <RefreshCw className="size-3.5" />
+              </MotionSpinner>
+            ) : (
+              <RefreshCw className="size-3.5" />
+            )}
           </Button>
           <Button
             variant="ghost"
@@ -167,7 +173,9 @@ function HistoryContents({
               role="status"
               className="flex items-center justify-center gap-2 py-10 text-xs text-muted-foreground"
             >
-              <Loader2 className="size-4 animate-spin" />
+              <MotionSpinner>
+                <Loader2 className="size-4" />
+              </MotionSpinner>
               {t("historyPanel.loading")}
             </p>
           ) : !history.trash.length ? (
@@ -205,7 +213,9 @@ function HistoryContents({
             role="status"
             className="flex items-center justify-center gap-2 py-10 text-xs text-muted-foreground"
           >
-            <Loader2 className="size-4 animate-spin" />
+            <MotionSpinner>
+              <Loader2 className="size-4" />
+            </MotionSpinner>
             {t("historyPanel.loading")}
           </p>
         ) : !count ? (
@@ -240,7 +250,7 @@ function HistoryContents({
                     aria-label={t("historyPanel.viewVersion", {
                       date: `${dateFormat.format(entry.createdAtMs)}, ${timeFormat.format(entry.createdAtMs)}`,
                     })}
-                    className="group relative ml-2 flex w-[calc(100%-0.5rem)] min-w-0 items-center gap-2 rounded-lg px-2 py-2.5 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="group relative ml-2 flex w-[calc(100%-0.5rem)] min-w-0 items-center gap-2 rounded-lg px-2 py-2.5 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <span className="absolute -left-[13px] top-[19px] size-2 rounded-full border-2 border-border bg-[var(--note-surface)]" />
                     <div className="min-w-0 flex-1">

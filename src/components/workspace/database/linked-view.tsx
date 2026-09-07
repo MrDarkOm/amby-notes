@@ -1,3 +1,4 @@
+import * as React from "react"
 import { useTranslation } from "react-i18next"
 import type { DatabaseLinkedReference } from "./linked-reference"
 import { useDatabaseQuery } from "./use-database-query"
@@ -9,6 +10,7 @@ interface DatabaseLinkedViewProps {
 
 export function DatabaseLinkedView({ reference }: DatabaseLinkedViewProps) {
   const { t } = useTranslation()
+  const hostId = React.useId()
   const runtime = useDatabaseStore((state) => state.runtime)
   const catalogStatus = useDatabaseStore((state) => state.catalogStatus)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
@@ -16,6 +18,7 @@ export function DatabaseLinkedView({ reference }: DatabaseLinkedViewProps) {
     databaseId: reference.databaseId,
     viewId: reference.viewId,
     hostKind: "block",
+    hostId,
     vaultGeneration,
     enabled: Boolean(runtime?.enabled) && catalogStatus === "ready",
   })

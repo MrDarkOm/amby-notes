@@ -41,6 +41,7 @@ import {
   showErrorMessage,
   type LinkGraph,
 } from "@/lib/storage"
+
 import { emit, listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { errorType, logger } from "@/lib/logger"
@@ -58,6 +59,7 @@ import {
   watcherChangeAffectsDocument,
 } from "./watcher-tree-reconciliation"
 
+const EMPTY_SESSION_MAP: Record<string, string> = {}
 const VAULT_ACTIVATED_EVENT = "amby:vault-activated"
 
 /**
@@ -95,6 +97,8 @@ export function useVaultData() {
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
   const favorites = useViewStateStore((s) => s.favorites)
   const viewModes = useViewStateStore((s) => s.viewModes)
+  const contentWidths = useViewStateStore((s) => s.contentWidths ?? EMPTY_SESSION_MAP)
+  const databaseTitleLabels = useViewStateStore((s) => s.databaseTitleLabels ?? EMPTY_SESSION_MAP)
   const nestedNotesPlacements = useViewStateStore((s) => s.nestedNotesPlacements)
   const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
   const iconOverrides = useViewStateStore((s) => s.iconOverrides)
@@ -234,6 +238,8 @@ export function useVaultData() {
         icons: remapped.icons,
         favorites: remapped.favorites,
         viewModes: remapped.viewModes,
+        contentWidths: remapped.contentWidths,
+        databaseTitleLabels: remapped.databaseTitleLabels,
         nestedNotesPlacements: remapped.nestedNotesPlacements,
         lockedFileIds: remapped.lockedFileIds,
         closedTreeIds: remapped.closedTreeIds,
@@ -402,7 +408,7 @@ export function useVaultData() {
     // from re-running on every keystroke.
   }, [treeItems, vault])
 
-  // Debounced session persistence (tabs + favorites + view-modes + locked + icons).
+  // Debounced session persistence (tabs + favorites + view-modes + content widths + database labels + locked + icons).
   // Gated on sessionHydratedRef so loadVault's hydration doesn't echo back.
   React.useEffect(() => {
     if (!ownsPersistence || !vault || !sessionHydratedRef.current) return
@@ -416,6 +422,8 @@ export function useVaultData() {
         activeFileId: active?.fileId ?? entries[0]?.fileId ?? "",
         favorites: [...favorites],
         viewModes,
+        contentWidths,
+        databaseTitleLabels,
         nestedNotesPlacements,
         locked: [...lockedFileIds],
         icons: iconOverrides,
@@ -429,6 +437,8 @@ export function useVaultData() {
     activeTabKey,
     favorites,
     viewModes,
+    contentWidths,
+    databaseTitleLabels,
     nestedNotesPlacements,
     lockedFileIds,
     iconOverrides,

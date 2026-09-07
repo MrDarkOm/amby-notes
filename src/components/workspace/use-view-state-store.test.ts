@@ -32,4 +32,16 @@ describe("tree view state", () => {
       "stable-id",
     ])
   })
+
+  it("hydrates per-page widths and database title labels", () => {
+    useViewStateStore.getState().hydrateFromSession({
+      ...session,
+      contentWidths: { note: "wide", invalid: "huge" },
+      databaseTitleLabels: { "database:db-1": "Страницы" },
+    })
+    expect(useViewStateStore.getState().contentWidths).toEqual({ note: "wide" })
+    expect(useViewStateStore.getState().databaseTitleLabels).toEqual({
+      "database:db-1": "Страницы",
+    })
+  })
 })

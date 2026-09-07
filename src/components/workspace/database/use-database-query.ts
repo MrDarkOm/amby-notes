@@ -23,6 +23,7 @@ interface UseDatabaseQueryOptions {
   enabled: boolean
   viewId?: string | null
   hostKind?: DatabaseHostKind
+  hostId?: string | null
 }
 
 export function useDatabaseQuery({
@@ -31,10 +32,12 @@ export function useDatabaseQuery({
   enabled,
   viewId = null,
   hostKind = "tab",
+  hostId = null,
 }: UseDatabaseQueryOptions) {
-  const key = databaseHostKey(hostKind, databaseId, viewId)
+  const key = databaseHostKey(hostKind, databaseId, viewId, hostId)
   const host = useDatabaseStore((state) => state.hosts[key])
   const runtime = useDatabaseStore((state) => state.runtime)
+  const invalidationSeq = useDatabaseStore((state) => state.invalidationSeq)
   const setHost = useDatabaseStore((state) => state.setHost)
   const requestSerial = React.useRef(0)
 
@@ -43,7 +46,8 @@ export function useDatabaseQuery({
       if (!enabled || vaultGeneration === null) return
       const serial = ++requestSerial.current
       const current =
-        useDatabaseStore.getState().hosts[key] ?? emptyDatabaseHost(hostKind, databaseId, viewId)
+        useDatabaseStore.getState().hosts[key] ??
+        emptyDatabaseHost(hostKind, databaseId, viewId, hostId)
       setHost({ ...current, status: "loading", error: null })
       try {
         const result = await queryDatabase({
@@ -88,27 +92,38 @@ export function useDatabaseQuery({
         setHost({ ...latest, status: "error", error: messageOf(error) })
       }
     },
-    [databaseId, enabled, hostKind, key, setHost, viewId, vaultGeneration],
+    [databaseId, enabled, hostId, hostKind, key, setHost, viewId, vaultGeneration],
   )
 
   React.useEffect(() => {
     requestSerial.current += 1
     if (!enabled || vaultGeneration === null || !runtime?.enabled) return
-    setHost(emptyDatabaseHost(hostKind, databaseId, viewId))
+    setHost(emptyDatabaseHost(hostKind, databaseId, viewId, hostId))
     void loadPage(null, false)
     return () => {
       requestSerial.current += 1
     }
-  }, [databaseId, enabled, hostKind, loadPage, runtime?.enabled, setHost, vaultGeneration, viewId])
+  }, [
+    databaseId,
+    enabled,
+    hostId,
+    hostKind,
+    invalidationSeq,
+    loadPage,
+    runtime?.enabled,
+    setHost,
+    vaultGeneration,
+    viewId,
+  ])
 
-  const loadNextPage = React.useCallback(() => {
+  const loadNextPage = React.useCallback(async () => {
     const latest = useDatabaseStore.getState().hosts[key]
     if (!latest || latest.status === "loading" || !latest.nextCursor) return
-    void loadPage(latest.nextCursor, true)
+    await loadPage(latest.nextCursor, true)
   }, [key, loadPage])
 
-  const retry = React.useCallback(() => {
-    void loadPage(null, false)
+  const retry = React.useCallback(async () => {
+    await loadPage(null, false)
   }, [loadPage])
 
   return {

@@ -3,6 +3,7 @@
 import * as React from "react"
 import type { Editor } from "@tiptap/react"
 import { useTranslation } from "react-i18next"
+import { MotionSpinner } from "@/lib/motion"
 import {
   Bold,
   CheckSquare,
@@ -91,7 +92,7 @@ function ToolbarButton({
     <button
       type="button"
       title={title}
-      className={`flex size-7 items-center justify-center rounded transition-colors ${
+      className={`flex size-7 items-center justify-center rounded ${
         active
           ? "bg-accent text-foreground"
           : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -547,7 +548,9 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
               ))}
               {aiBusy && (
                 <div className="flex items-center gap-2 px-2 py-1.5 text-[12px] text-muted-foreground">
-                  <Loader2 className="size-3.5 animate-spin" />
+                  <MotionSpinner>
+                    <Loader2 className="size-3.5" />
+                  </MotionSpinner>
                   {t("ai.generating")}
                 </div>
               )}

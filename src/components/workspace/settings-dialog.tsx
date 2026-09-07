@@ -6,6 +6,7 @@ import { LogicalPosition } from "@tauri-apps/api/dpi"
 import { emitTo, listen } from "@tauri-apps/api/event"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { getCurrentWindow } from "@tauri-apps/api/window"
+import { motion } from "motion/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -38,6 +39,7 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { motionTransitions } from "@/lib/motion-config"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
@@ -552,7 +554,7 @@ export function SettingsDialog({
                   <Row label={t("settings.appearance.accent")}>
                     <div className="flex items-center gap-1.5">
                       {ACCENTS.map((a) => (
-                        <button
+                        <motion.button
                           key={a}
                           type="button"
                           title={a}
@@ -560,14 +562,18 @@ export function SettingsDialog({
                           onClick={() => setPrefs({ accent: a })}
                           style={{ background: ACCENT_HEX[a] }}
                           className={cn(
-                            "flex size-6 items-center justify-center rounded-full ring-2 ring-offset-2 ring-offset-background transition-all",
+                            "flex size-6 items-center justify-center rounded-full ring-2 ring-offset-2 ring-offset-background",
                             prefs.accent === a
                               ? "ring-foreground/80"
                               : "ring-transparent hover:ring-foreground/30",
                           )}
+                          initial={false}
+                          animate={{ scale: prefs.accent === a ? 1.08 : 1 }}
+                          whileTap={{ scale: 0.94 }}
+                          transition={motionTransitions.default}
                         >
                           {prefs.accent === a && <Check className="size-3.5 text-white" />}
-                        </button>
+                        </motion.button>
                       ))}
                     </div>
                   </Row>
@@ -912,7 +918,7 @@ function SettingsWindowHeader({
             onClick={onMinimize}
             onDoubleClick={(event) => event.stopPropagation()}
             aria-label={t("settings.window.minimize")}
-            className="flex h-11 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="flex h-11 w-12 items-center justify-center text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           >
             <Minus className="size-3.5" />
           </button>
@@ -921,7 +927,7 @@ function SettingsWindowHeader({
             onClick={onToggleMaximize}
             onDoubleClick={(event) => event.stopPropagation()}
             aria-label={maximized ? t("settings.window.restore") : t("settings.window.maximize")}
-            className="flex h-11 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="flex h-11 w-12 items-center justify-center text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           >
             {maximized ? (
               <span className="relative size-3">
@@ -937,7 +943,7 @@ function SettingsWindowHeader({
             onClick={onClose}
             onDoubleClick={(event) => event.stopPropagation()}
             aria-label={t("settings.window.close")}
-            className="flex h-11 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-red-600 hover:text-white"
+            className="flex h-11 w-12 items-center justify-center text-muted-foreground hover:bg-red-600 hover:text-white"
           >
             <X className="size-4" />
           </button>
@@ -1019,7 +1025,7 @@ function SearchResults({
               key={`${result.section}-${result.label}-${index}`}
               type="button"
               onClick={() => onOpen(result.section, result.targetId)}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-card"
+              className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-card"
             >
               <span className="min-w-0 flex-1">
                 <span className="block text-[13px] text-foreground">{result.label}</span>
@@ -1266,7 +1272,7 @@ function ThemeLibrary({
 }
 
 const themeActionClass =
-  "inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] text-foreground transition-colors hover:bg-card"
+  "inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[11px] text-foreground hover:bg-card"
 
 function ShortcutsTab() {
   const { t } = useTranslation()
@@ -1351,7 +1357,7 @@ function ShortcutsTab() {
                     updateShortcut(definition.id, result.binding)
                   }}
                   className={cn(
-                    "min-w-32 rounded-md border px-3 py-1.5 text-center font-mono text-[11px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
+                    "min-w-32 rounded-md border px-3 py-1.5 text-center font-mono text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
                     isRecording
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",
@@ -1436,7 +1442,7 @@ function ModulesTab({
               <div
                 key={module.id}
                 className={cn(
-                  "flex items-center gap-1 rounded-md transition-colors",
+                  "flex items-center gap-1 rounded-md",
                   selected.id === module.id
                     ? "bg-accent text-accent-foreground"
                     : "hover:bg-accent/50",
@@ -1453,13 +1459,15 @@ function ModulesTab({
                       {t(module.labelKey)}
                     </span>
                     <span className="block text-[10px] text-muted-foreground">
-                      {module.status === "preview"
-                        ? isAvailable
-                          ? t("settings.modules.previewAvailable")
-                          : t("settings.modules.preview")
-                        : isEnabled
-                          ? t("settings.modules.enabled")
-                          : t("settings.modules.disabled")}
+                      {module.status === "beta"
+                        ? t("settings.modules.beta")
+                        : module.status === "preview"
+                          ? isAvailable
+                            ? t("settings.modules.previewAvailable")
+                            : t("settings.modules.preview")
+                          : isEnabled
+                            ? t("settings.modules.enabled")
+                            : t("settings.modules.disabled")}
                     </span>
                   </span>
                 </button>
@@ -1625,7 +1633,7 @@ function DataTab({ vault }: { vault: string | null }) {
   }, [])
 
   const btn =
-    "flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] text-foreground transition-colors hover:bg-card"
+    "flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] text-foreground hover:bg-card"
 
   return (
     <div className="flex flex-col gap-4 p-4">

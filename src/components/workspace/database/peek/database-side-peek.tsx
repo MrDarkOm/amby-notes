@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { ArrowLeft, ArrowRight, ExternalLink, RefreshCw, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { MotionSpinner } from "@/lib/motion"
 import type {
   DatabaseRow,
   DatabaseYamlConflict,
@@ -87,24 +88,38 @@ export function DatabaseSidePeek({
             title={t("databasePeek.syncYaml")}
             aria-label={t("databasePeek.syncYaml")}
           >
-            <RefreshCw className={yamlSync.busy ? "size-4 animate-spin" : "size-4"} />
+            {yamlSync.busy ? (
+              <MotionSpinner>
+                <RefreshCw className="size-4" />
+              </MotionSpinner>
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
           </Button>
         )}
         <Button variant="ghost" size="icon-sm" onClick={onClose} title={t("common.close")}>
           <X className="size-4" />
         </Button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {body ?? (
+      <div
+        className={
+          body
+            ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+            : "min-h-0 flex-1 overflow-y-auto p-4"
+        }
+      >
+        {body ? (
+          <div className="flex min-h-0 flex-1">{body}</div>
+        ) : (
           <p className="text-sm text-muted-foreground">{t("databasePeek.bodyPlaceholder")}</p>
         )}
         {yamlSync?.error && (
-          <p role="alert" className="mt-4 text-xs text-destructive">
+          <p role="alert" className="m-4 text-xs text-destructive">
             {yamlSync.error}
           </p>
         )}
         {yamlSync?.result && yamlSync.result.conflicts.length > 0 && (
-          <section className="mt-4 space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-3">
+          <section className="m-4 max-h-64 space-y-2 overflow-y-auto rounded-md border border-destructive/30 bg-destructive/5 p-3">
             <h3 className="text-xs font-semibold">
               {t("databasePeek.yamlConflicts", { count: yamlSync.result.conflicts.length })}
             </h3>

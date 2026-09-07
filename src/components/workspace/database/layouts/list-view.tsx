@@ -41,7 +41,7 @@ export function ListView({
           <button
             key={row.noteId}
             type="button"
-            className="flex w-full items-center gap-3 rounded-lg border border-border/70 bg-card/50 px-4 py-3 text-left transition-colors hover:bg-accent/40"
+            className="flex w-full items-center gap-3 rounded-lg border border-border/70 bg-card/50 px-4 py-3 text-left hover:bg-accent/40"
             onClick={() => onRowSelect?.(row)}
           >
             <span className="min-w-0 flex-1" style={{ paddingLeft: 12 + row.depth * 12 }}>

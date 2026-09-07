@@ -2,33 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
-@keyframes amby-tooltip-from-right {
-  from {
-    opacity: 0;
-    transform: translate(-6px, -50%);
-  }
-  to {
-    opacity: 1;
-    transform: translate(0, -50%);
-  }
-}
-@keyframes amby-tooltip-from-left {
-  from {
-    opacity: 0;
-    transform: translate(calc(-100% + 6px), -50%);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-100%, -50%);
-  }
-}
-.amby-tooltip-from-right {
-  animation: amby-tooltip-from-right 180ms ease-out both;
-}
-.amby-tooltip-from-left {
-  animation: amby-tooltip-from-left 180ms ease-out both;
+.database-property-drop-before {
+  box-shadow: inset 0 2px 0 hsl(var(--primary));
 }
 
+.database-property-drop-after {
+  box-shadow: inset 0 -2px 0 hsl(var(--primary));
+}
 @layer base {
   /* ── Light defaults (:root) ──────────────────────────────────────────────
        next-themes sets class="dark" on <html> for dark mode.
@@ -133,6 +113,10 @@
 
     /* Image / drag */
     --image-selected-border: #7c3aed;
+    --image-shadow: 0 8px 24px rgb(0 0 0 / 10%);
+    --image-selected-shadow:
+      0 0 0 2px color-mix(in srgb, var(--image-selected-border) 35%, transparent),
+      0 8px 24px rgb(0 0 0 / 12%);
     --broken-stripe-1: #f4f4f5;
     --broken-stripe-2: #e4e4e7;
 
@@ -692,6 +676,15 @@
   padding-bottom: 0.4rem;
 }
 
+.amby-tiptap .ProseMirror > h1:first-child,
+.amby-tiptap .ProseMirror > h2:first-child,
+.amby-tiptap .ProseMirror > h3:first-child,
+.amby-tiptap .ProseMirror > h4:first-child,
+.amby-tiptap .ProseMirror > h5:first-child,
+.amby-tiptap .ProseMirror > h6:first-child {
+  margin-top: 0.5rem;
+}
+
 .amby-tiptap .ProseMirror h2 {
   font-size: 1.5rem;
   margin: 1.4rem 0 0.6rem;
@@ -955,14 +948,10 @@
   border: none;
   border-radius: 4px;
   padding: 0;
-  transition:
-    transform 0.15s,
-    background-color 0.15s;
 }
 
 .amby-callout-emoji-btn:hover {
   background: var(--callout-emoji-hover-bg);
-  transform: scale(1.15);
 }
 
 .amby-callout-content {
@@ -1034,9 +1023,6 @@
   color: var(--block-handle-fg);
   background: transparent;
   border: none;
-  transition:
-    color 0.15s,
-    background-color 0.15s;
   padding: 0;
 }
 
@@ -1104,15 +1090,10 @@
   border: 1px solid var(--callout-border-alpha);
   cursor: pointer;
   padding: 0;
-  transition:
-    transform 0.1s,
-    border-color 0.1s;
 }
 
 .amby-block-handle-swatch:hover {
-  transform: scale(1.1);
   border-color: var(--callout-border-alpha);
-  opacity: 0.85;
 }
 
 .amby-block-handle-swatch--none {
@@ -1136,7 +1117,6 @@
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background-color 0.1s;
   white-space: nowrap;
 }
 
@@ -1205,7 +1185,6 @@
   min-height: 2.5rem;
   padding: 6px 9px;
   border-radius: 8px;
-  transition: background-color 120ms ease;
 }
 
 /* Reserve the area between divider and content exclusively for the grab. */
@@ -1233,10 +1212,6 @@
   border-radius: 2px;
   background: var(--rule-color);
   pointer-events: none;
-  transition:
-    width 100ms ease,
-    background-color 100ms ease,
-    box-shadow 100ms ease;
 }
 
 .amby-tiptap .ProseMirror .amby-column.is-resize-edge::before,
@@ -1259,9 +1234,6 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--drop-indicator-color) 16%, transparent);
   opacity: 0;
   pointer-events: none;
-  transition:
-    opacity 100ms ease,
-    transform 100ms ease;
 }
 
 .amby-tiptap .ProseMirror .amby-column.is-resize-edge::after,
@@ -1334,7 +1306,6 @@ body.amby-resizing-columns * {
 /* Dim source block while drag is active. */
 .amby-block-drag-source {
   opacity: 0.35;
-  transition: opacity 0.1s;
 }
 
 /* ── Block insert + actions panel (v2) ───────────────────────────────────── */
@@ -1425,7 +1396,6 @@ body.amby-resizing-columns * {
   color: var(--panel-row-fg);
   font-size: 0.78rem;
   text-align: left;
-  transition: background-color 0.1s;
 }
 
 .amby-block-row:hover,
@@ -1599,17 +1569,12 @@ body.amby-resizing-columns * {
   border: 1px solid var(--callout-border-alpha);
   cursor: pointer;
   padding: 0;
-  transition:
-    transform 0.1s,
-    border-color 0.1s;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .amby-ctx-swatch:hover {
-  transform: scale(1.1);
-  opacity: 0.85;
 }
 
 .amby-ctx-swatch--none {
@@ -1773,17 +1738,12 @@ body.amby-resizing-columns * {
   border-radius: 10px;
   border: 1px solid var(--image-border, var(--border));
   background: var(--surface-bg, var(--card));
-  box-shadow: 0 8px 24px rgb(0 0 0 / 10%);
-  transition:
-    border-color 120ms ease,
-    box-shadow 120ms ease;
+  box-shadow: var(--image-shadow);
 }
 
 .amby-image-wrap.is-selected img {
   border-color: var(--image-selected-border);
-  box-shadow:
-    0 0 0 2px color-mix(in srgb, var(--image-selected-border) 35%, transparent),
-    0 8px 24px rgb(0 0 0 / 12%);
+  box-shadow: var(--image-selected-shadow);
 }
 
 .amby-image-wrap img.is-broken {
@@ -1895,9 +1855,6 @@ em-emoji-picker {
   border: 1px solid hsl(var(--muted-foreground) / 0.45);
   border-radius: 0.28rem;
   background: hsl(var(--background) / 0.55);
-  transition:
-    background-color 150ms ease,
-    border-color 150ms ease;
 }
 
 .amby-tiptap .ProseMirror input[type="checkbox"]::after {
@@ -1907,7 +1864,6 @@ em-emoji-picker {
   transform: rotate(45deg) scale(0);
   border-right: 2px solid hsl(var(--primary-foreground));
   border-bottom: 2px solid hsl(var(--primary-foreground));
-  transition: transform 120ms ease;
 }
 
 .amby-tiptap .ProseMirror input[type="checkbox"]:checked {
@@ -2000,11 +1956,6 @@ em-emoji-picker {
   vertical-align: baseline;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
   user-select: none;
-  transition:
-    background-color 0.15s,
-    border-color 0.15s,
-    color 0.15s,
-    transform 0.15s;
 }
 
 .amby-tiptap .amby-live-wikilink-button::before {
@@ -2017,7 +1968,6 @@ em-emoji-picker {
   background: color-mix(in srgb, var(--wikilink-bg) 65%, var(--wikilink-fg));
   border-color: var(--wikilink-fg);
   color: var(--link-hover-color);
-  transform: translateY(-1px);
 }
 
 .amby-floating-menu {
@@ -2213,7 +2163,6 @@ em-emoji-picker {
   border-radius: 5px;
   text-align: left;
   color: var(--menu-item-fg);
-  transition: background-color 0.12s;
 }
 
 .amby-slash-item:hover,
@@ -2290,10 +2239,6 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   height: 2rem;
   border: 0;
   background: transparent;
-  transition:
-    background 120ms ease,
-    box-shadow 120ms ease,
-    border-color 120ms ease;
 }
 
 .amby-activity-drop-placeholder::before {
@@ -2779,17 +2724,6 @@ select {
 .amby-tiptap .ProseMirror h2,
 .md-body h2 {
   letter-spacing: -0.018em;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-  }
 }
 
 /* History comparisons use semantic surfaces and explicit +/- markers. */

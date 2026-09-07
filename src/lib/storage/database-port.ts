@@ -5,6 +5,14 @@ import {
   type DatabaseError,
   type CreateDatabaseRequest,
   type CreatedDatabase,
+  type CreateDatabasePropertyRequest,
+  type CreatedDatabaseProperty,
+  type DeleteDatabasePropertyRequest,
+  type DeletedDatabaseProperty,
+  type RenameDatabasePropertyRequest,
+  type RenamedDatabaseProperty,
+  type RenameDatabaseRequest,
+  type RenamedDatabase,
   type DatabaseValueBatchRequest,
   type DatabaseValueBatchResult,
   type CreateDatabaseRowRequest,
@@ -18,6 +26,9 @@ import {
   type DatabaseQueryRequest,
   type DatabaseQueryResult,
   type DatabaseSummary,
+  type DatabaseNoteContext,
+  type ReorderDatabasePropertiesRequest,
+  type ReorderedDatabaseProperties,
 } from "./database-types"
 
 export interface DatabasePort {
@@ -28,12 +39,20 @@ export interface DatabasePort {
   ): Promise<DatabaseModuleState>
   rebuildDatabaseProjection(): Promise<DatabaseModuleState>
   createDatabase(request: CreateDatabaseRequest): Promise<CreatedDatabase>
+  createDatabaseProperty(request: CreateDatabasePropertyRequest): Promise<CreatedDatabaseProperty>
+  deleteDatabaseProperty(request: DeleteDatabasePropertyRequest): Promise<DeletedDatabaseProperty>
+  renameDatabaseProperty(request: RenameDatabasePropertyRequest): Promise<RenamedDatabaseProperty>
+  renameDatabase(request: RenameDatabaseRequest): Promise<RenamedDatabase>
   applyDatabaseValueBatch(request: DatabaseValueBatchRequest): Promise<DatabaseValueBatchResult>
   createDatabaseRow(request: CreateDatabaseRowRequest): Promise<CreatedDatabaseRow>
   importDatabaseAsset(request: ImportDatabaseAssetRequest): Promise<ImportedDatabaseAsset>
   syncDatabaseYaml(request: DatabaseYamlSyncRequest): Promise<DatabaseYamlSyncResult>
   resolveDatabaseYamlConflict(request: DatabaseYamlResolveRequest): Promise<DatabaseYamlSyncResult>
   listDatabases(): Promise<DatabaseSummary[]>
+  getDatabaseNoteContext(noteId: string): Promise<DatabaseNoteContext | null>
+  reorderDatabaseProperties(
+    request: ReorderDatabasePropertiesRequest,
+  ): Promise<ReorderedDatabaseProperties>
   queryDatabase(request: DatabaseQueryRequest): Promise<DatabaseQueryResult>
 }
 

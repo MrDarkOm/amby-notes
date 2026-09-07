@@ -42,9 +42,21 @@ impl QueryFailure {
     }
 }
 
-#[derive(Clone, Copy)]
-enum SortKeyKind {
-    Blob,
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+enum SortKey {
+    Null,
+    Blob(Vec<u8>),
+    Integer(i64),
+}
+
+impl SortKey {
+    fn binding(&self) -> Value {
+        match self {
+            Self::Null => Value::Null,
+            Self::Blob(value) => Value::Blob(value.clone()),
+            Self::Integer(value) => Value::Integer(*value),
+        }
+    }
 }
 
 struct SortPlan {
@@ -52,16 +64,17 @@ struct SortPlan {
     join_sql: String,
     property_id: Option<String>,
     direction: &'static str,
-    key_kind: SortKeyKind,
+    nulls: &'static str,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Cursor {
     epoch: String,
     seq: u64,
     query_hash: String,
-    last_sort_key: Vec<u8>,
+    last_sort_keys: Vec<SortKey>,
     last_note_id: String,
-    direction: String,
 }
 
 struct RawRow {
@@ -71,7 +84,7 @@ struct RawRow {
     parent_note_id: Option<String>,
     depth: usize,
     category_path: Vec<String>,
-    sort_key: Vec<u8>,
+    sort_keys: Vec<SortKey>,
     row_revision: String,
 }
 
@@ -140,59 +153,54 @@ pub fn query_database(
         .as_deref()
         .map(|value| decode_cursor(value, &projection, &query_hash))
         .transpose()?;
-    let sort = sort_plan(conn, &request.database_id, &view_spec.sorts)?;
-    if let Some(cursor) = &cursor {
-        if cursor.direction != sort.direction {
-            return Err(QueryFailure::new(
-                "staleCursor",
-                "cursor sort direction is stale",
-            ));
-        }
+    let sorts = sort_plans(conn, &request.database_id, &view_spec.sorts)?;
+    if cursor
+        .as_ref()
+        .is_some_and(|cursor| cursor.last_sort_keys.len() != sorts.len())
+    {
+        return Err(QueryFailure::new(
+            "staleCursor",
+            "cursor sort keys are incomplete",
+        ));
     }
 
-    let mut bindings = Vec::new();
-    if let Some(property_id) = &sort.property_id {
-        bindings.push(Value::Text(property_id.clone()));
-    }
+    let mut bindings = sorts
+        .iter()
+        .filter_map(|sort| sort.property_id.as_ref().map(|id| Value::Text(id.clone())))
+        .collect::<Vec<_>>();
     bindings.push(Value::Text(request.database_id.clone()));
     let filter_sql = if let Some(filter) = &view_spec.filter {
         compile_filter(conn, &request.database_id, filter, 0, &mut 0, &mut bindings)?
     } else {
         "1 = 1".to_owned()
     };
-    let cursor_sql = if let Some(cursor) = &cursor {
-        bindings.push(Value::Blob(cursor.last_sort_key.clone()));
-        bindings.push(Value::Text(cursor.last_note_id.clone()));
-        let comparison = if sort.direction == "asc" { ">" } else { "<" };
-        format!(
-            " AND (({expr}) {comparison} ? OR (({expr}) = ? AND m.note_id {comparison} ?))",
-            expr = sort.expression,
-        )
-    } else {
-        String::new()
-    };
-    // The cursor predicate has two sort-key placeholders but the binding list
-    // currently contains one key. Insert the duplicate before note ID.
-    if cursor.is_some() {
-        let note_id = bindings.pop().expect("cursor note id");
-        let sort_key = bindings.pop().expect("cursor sort key");
-        bindings.push(sort_key.clone());
-        bindings.push(sort_key);
-        bindings.push(note_id);
-    }
-    let limit_index = bindings.len() + 1;
+    let cursor_sql = cursor
+        .as_ref()
+        .map(|cursor| format!(" AND ({})", cursor_predicate(&sorts, cursor, &mut bindings)))
+        .unwrap_or_default();
     bindings.push(Value::Integer(i64::from(request.page.limit) + 1));
-    let sort_key_expression = match sort.key_kind {
-        SortKeyKind::Blob => format!("COALESCE(CAST(({}) AS BLOB), X'')", sort.expression),
-    };
+    let sort_keys = sorts
+        .iter()
+        .map(|sort| sort.expression.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let joins = sorts
+        .iter()
+        .map(|sort| sort.join_sql.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let order = sorts
+        .iter()
+        .map(|sort| {
+            format!(
+                "{} {} NULLS {}",
+                sort.expression, sort.direction, sort.nulls
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     let sql = format!(
-        "SELECT m.note_id, n.title, m.relative_path, m.parent_note_id, m.depth, m.category_path, {sort_key}, COALESCE(r.revision, '') FROM db_members m JOIN notes n ON n.id = m.note_id LEFT JOIN db_record_revisions r ON r.database_id = m.database_id AND r.note_id = m.note_id {join_sql} WHERE m.database_id = ? AND ({filter}) {cursor} ORDER BY ({expr}) {direction}, m.note_id {direction} LIMIT ?{limit_index}",
-        filter = filter_sql,
-        cursor = cursor_sql,
-        sort_key = sort_key_expression,
-        expr = sort.expression,
-        direction = sort.direction,
-        join_sql = sort.join_sql,
+        "SELECT m.note_id, n.title, m.relative_path, m.parent_note_id, m.depth, m.category_path, COALESCE(r.revision, ''), {sort_keys} FROM db_members m JOIN notes n ON n.id = m.note_id LEFT JOIN db_record_revisions r ON r.database_id = m.database_id AND r.note_id = m.note_id {joins} WHERE m.database_id = ? AND ({filter_sql}) {cursor_sql} ORDER BY {order}, m.note_id ASC LIMIT ?"
     );
     let mut statement = conn.prepare(&sql).map_err(sql_failure)?;
     let mut rows = statement
@@ -200,9 +208,16 @@ pub fn query_database(
         .map_err(sql_failure)?;
     let mut raw_rows = Vec::new();
     while let Some(row) = rows.next().map_err(sql_failure)? {
-        let sort_key = match sort.key_kind {
-            SortKeyKind::Blob => row.get::<_, Vec<u8>>(6).unwrap_or_default(),
-        };
+        let sort_keys = (0..sorts.len())
+            .map(
+                |index| match row.get::<_, Value>(7 + index).map_err(sql_failure)? {
+                    Value::Null => Ok(SortKey::Null),
+                    Value::Blob(value) => Ok(SortKey::Blob(value)),
+                    Value::Integer(value) => Ok(SortKey::Integer(value)),
+                    _ => Err(QueryFailure::new("queryFailed", "unexpected sort key type")),
+                },
+            )
+            .collect::<Result<Vec<_>, _>>()?;
         raw_rows.push(RawRow {
             note_id: row.get(0).map_err(sql_failure)?,
             title: row.get(1).map_err(sql_failure)?,
@@ -211,8 +226,8 @@ pub fn query_database(
             depth: row.get::<_, i64>(4).map_err(sql_failure)?.max(0) as usize,
             category_path: serde_json::from_str(&row.get::<_, String>(5).map_err(sql_failure)?)
                 .unwrap_or_default(),
-            sort_key,
-            row_revision: row.get(7).map_err(sql_failure)?,
+            sort_keys,
+            row_revision: row.get(6).map_err(sql_failure)?,
         });
     }
     let has_next = raw_rows.len() > request.page.limit as usize;
@@ -241,12 +256,11 @@ pub fn query_database(
                     epoch: projection.epoch.clone(),
                     seq: projection.seq,
                     query_hash: query_hash.clone(),
-                    last_sort_key: raw_rows
+                    last_sort_keys: raw_rows
                         .last()
-                        .map(|raw| raw.sort_key.clone())
+                        .map(|raw| raw.sort_keys.clone())
                         .unwrap_or_default(),
                     last_note_id: row.note_id.clone(),
-                    direction: sort.direction.to_owned(),
                 })
             })
         })
@@ -255,7 +269,13 @@ pub fn query_database(
         database: DatabaseSummary {
             database_id: request.database_id.clone(),
             title: database_name,
+            icon: None,
+            attached_note_id: None,
+            manifest_revision: String::new(),
+            locked: false,
+            properties: Vec::new(),
             views: Vec::new(),
+            templates: Vec::new(),
             diagnostics: Vec::new(),
         },
         projection,
@@ -300,80 +320,140 @@ fn metadata(conn: &Connection, key: &str) -> Result<Option<String>, QueryFailure
     .map_err(sql_failure)
 }
 
-fn sort_plan(
+/// Compare each key only after all earlier keys are equal. `IS` deliberately
+/// treats two NULL keys as equal; their placement is independent of direction.
+fn cursor_predicate(sorts: &[SortPlan], cursor: &Cursor, bindings: &mut Vec<Value>) -> String {
+    let mut branches = Vec::new();
+    for index in 0..=sorts.len() {
+        let mut terms = Vec::new();
+        for (sort, key) in sorts.iter().zip(&cursor.last_sort_keys).take(index) {
+            terms.push(format!("{} IS ?", sort.expression));
+            bindings.push(key.binding());
+        }
+        if let Some(sort) = sorts.get(index) {
+            let key = &cursor.last_sort_keys[index];
+            if matches!(key, SortKey::Null) {
+                terms.push(if sort.nulls == "first" {
+                    format!("{} IS NOT NULL", sort.expression)
+                } else {
+                    "0".to_owned()
+                });
+            } else {
+                let comparator = if sort.direction == "asc" { ">" } else { "<" };
+                let comparison = format!("{} {comparator} ?", sort.expression);
+                bindings.push(key.binding());
+                terms.push(if sort.nulls == "last" {
+                    format!("({comparison} OR {} IS NULL)", sort.expression)
+                } else {
+                    comparison
+                });
+            }
+        } else {
+            terms.push("m.note_id > ?".to_owned());
+            bindings.push(Value::Text(cursor.last_note_id.clone()));
+        }
+        branches.push(format!("({})", terms.join(" AND ")));
+    }
+    branches.join(" OR ")
+}
+
+fn sort_plans(
     conn: &Connection,
     database_id: &str,
     sorts: &[DatabaseSortSpec],
+) -> Result<Vec<SortPlan>, QueryFailure> {
+    if sorts.len() > 32 {
+        return Err(QueryFailure::new(
+            "invalidSort",
+            "at most 32 sort rules are allowed",
+        ));
+    }
+    if sorts.is_empty() {
+        return Ok(vec![SortPlan {
+            expression: "m.title_sort_key".to_owned(),
+            join_sql: String::new(),
+            property_id: None,
+            direction: "asc",
+            nulls: "last",
+        }]);
+    }
+    sorts
+        .iter()
+        .enumerate()
+        .map(|(index, sort)| sort_plan(conn, database_id, sort, index))
+        .collect()
+}
+
+fn sort_plan(
+    conn: &Connection,
+    database_id: &str,
+    sort: &DatabaseSortSpec,
+    index: usize,
 ) -> Result<SortPlan, QueryFailure> {
-    let sort = sorts.first();
-    let direction = match sort.map(|sort| sort.direction.as_str()) {
-        None | Some("asc") => "asc",
-        Some("desc") => "desc",
-        Some(_) => {
+    let direction = match sort.direction.as_str() {
+        "asc" => "asc",
+        "desc" => "desc",
+        _ => {
             return Err(QueryFailure::new(
                 "invalidSort",
                 "sort direction must be asc or desc",
             ))
         }
     };
-    let Some(sort) = sort else {
-        return Ok(SortPlan {
-            expression: "m.title_sort_key".to_owned(),
-            join_sql: String::new(),
-            property_id: None,
-            direction,
-            key_kind: SortKeyKind::Blob,
-        });
+    let nulls = match sort.nulls.as_str() {
+        "first" => "first",
+        "last" => "last",
+        _ => {
+            return Err(QueryFailure::new(
+                "invalidSort",
+                "null placement must be first or last",
+            ))
+        }
     };
-    if !matches!(sort.nulls.as_str(), "first" | "last") {
-        return Err(QueryFailure::new(
-            "invalidSort",
-            "null placement must be first or last",
-        ));
-    }
     let (expression, join_sql, property_id) = match &sort.field {
-        DatabaseFieldRef::System { field } => match field.as_str() {
-            "title" => ("m.title_sort_key".to_owned(), String::new(), None),
-            "path" => (
-                "CAST(m.relative_path AS BLOB)".to_owned(),
-                String::new(),
-                None,
-            ),
-            "depth" => ("printf('%020d', m.depth)".to_owned(), String::new(), None),
-            "parent" => (
-                "COALESCE(CAST(m.parent_note_id AS BLOB), X'')".to_owned(),
-                String::new(),
-                None,
-            ),
-            _ => {
-                return Err(QueryFailure::new(
-                    "invalidSortField",
-                    "unknown system sort field",
-                ))
-            }
-        },
-        DatabaseFieldRef::Property { property_id } => {
-            let property_type = conn
-                .query_row(
-                    "SELECT property_type FROM db_properties WHERE database_id = ?1 AND property_id = ?2",
-                    [database_id, property_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()
-                .map_err(sql_failure)?
-                .ok_or_else(|| QueryFailure::new("missingReference", "sort property is missing"))?;
-            let expression = match property_type.as_str() {
-                "number" => "sort_value.decimal_sort_key",
-                "date" => "printf('%020d', sort_value.date_start_key)",
-                "checkbox" => "printf('%d', sort_value.bool_value)",
-                "select" | "status" => "CAST(sort_value.option_id AS BLOB)",
-                _ => "sort_value.text_sort_key",
+        DatabaseFieldRef::System { field } => {
+            let expression = match field.as_str() {
+                "title" => "m.title_sort_key",
+                "path" => "CAST(m.relative_path AS BLOB)",
+                "depth" => "m.depth",
+                "parent" => "CAST(m.parent_note_id AS BLOB)",
+                _ => {
+                    return Err(QueryFailure::new(
+                        "invalidSortField",
+                        "unknown system sort field",
+                    ))
+                }
             };
-            (
-                expression.to_owned(),
-                "LEFT JOIN db_values sort_value ON sort_value.database_id = m.database_id AND sort_value.note_id = m.note_id AND sort_value.property_id = ?".to_owned(),
-                Some(property_id.clone()),
-            )
+            (expression.to_owned(), String::new(), None)
+        }
+        DatabaseFieldRef::Property { property_id } => {
+            let property_type = conn.query_row(
+                "SELECT property_type FROM db_properties WHERE database_id = ?1 AND property_id = ?2",
+                [database_id, property_id], |row| row.get::<_, String>(0),
+            ).optional().map_err(sql_failure)?
+                .ok_or_else(|| QueryFailure::new("missingReference", "sort property is missing"))?;
+            let alias = format!("sort_value_{index}");
+            let column = match property_type.as_str() {
+                "number" => "decimal_sort_key",
+                "date" => "date_start_key",
+                "checkbox" => "bool_value",
+                "select" | "status" => "option_id",
+                "text" | "url" => "text_sort_key",
+                _ => {
+                    return Err(QueryFailure::new(
+                        "invalidSortField",
+                        "property type does not support sorting",
+                    ))
+                }
+            };
+            let expression = if matches!(property_type.as_str(), "select" | "status") {
+                format!("CAST({alias}.{column} AS BLOB)")
+            } else {
+                format!("{alias}.{column}")
+            };
+            (expression,
+                format!("LEFT JOIN db_values {alias} ON {alias}.database_id = m.database_id AND {alias}.note_id = m.note_id AND {alias}.property_id = ?"),
+                Some(property_id.clone()))
         }
     };
     Ok(SortPlan {
@@ -381,7 +461,7 @@ fn sort_plan(
         join_sql,
         property_id,
         direction,
-        key_kind: SortKeyKind::Blob,
+        nulls,
     })
 }
 
@@ -498,11 +578,11 @@ fn compile_system_condition(
             let value = operand_string(operand)?;
             let (expression, bind_value) = match operator {
                 "contains" => (
-                    format!("{column} LIKE ? ESCAPE '\\\\'"),
+                    format!("{column} LIKE ? ESCAPE '\\'"),
                     format!("%{}%", like_escape(&value)),
                 ),
                 "startsWith" => (
-                    format!("{column} LIKE ? ESCAPE '\\\\'"),
+                    format!("{column} LIKE ? ESCAPE '\\'"),
                     format!("{}%", like_escape(&value)),
                 ),
                 _ => (
@@ -540,7 +620,7 @@ fn compile_property_condition(
 ) -> Result<String, QueryFailure> {
     let value_column = match property_type {
         "text" | "url" => "text_value",
-        "number" => "decimal_value",
+        "number" => "decimal_sort_key",
         "checkbox" => "bool_value",
         "select" | "status" => "option_id",
         _ => "canonical_json",
@@ -572,7 +652,7 @@ fn compile_property_condition(
             } else {
                 format!("{}%", like_escape(&operand))
             }));
-            Ok(format!("{exists} LIKE ? ESCAPE '\\\\')"))
+            Ok(format!("{exists} LIKE ? ESCAPE '\\')"))
         }
         "greaterThan" | "lessThan" if property_type == "number" => {
             let operand = operand_string(operand)?;
@@ -604,6 +684,11 @@ fn property_operand(
     operand: Option<JsonValue>,
 ) -> Result<Value, QueryFailure> {
     match property_type {
+        "number" => decimal_sort_key(&operand_string(operand)?)
+            .map(Value::Blob)
+            .ok_or_else(|| {
+                QueryFailure::new("invalidOperand", "number operand is not exact decimal")
+            }),
         "checkbox" => operand
             .and_then(|value| value.as_bool())
             .map(|value| Value::Integer(value as i64))
@@ -659,15 +744,7 @@ fn query_hash(
 }
 
 fn encode_cursor(cursor: &Cursor) -> String {
-    let value = serde_json::json!({
-        "epoch": cursor.epoch,
-        "seq": cursor.seq,
-        "queryHash": cursor.query_hash,
-        "lastSortKey": cursor.last_sort_key,
-        "lastNoteId": cursor.last_note_id,
-        "direction": cursor.direction,
-    });
-    let bytes = serde_json::to_vec(&value).unwrap_or_default();
+    let bytes = serde_json::to_vec(cursor).unwrap_or_default();
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
@@ -688,45 +765,8 @@ fn decode_cursor(
                 .map_err(|_| QueryFailure::new("staleCursor", "cursor is not hexadecimal"))?,
         );
     }
-    let value: serde_json::Value = serde_json::from_slice(&bytes)
+    let cursor: Cursor = serde_json::from_slice(&bytes)
         .map_err(|_| QueryFailure::new("staleCursor", "cursor JSON is invalid"))?;
-    let cursor = Cursor {
-        epoch: value
-            .get("epoch")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-        seq: value
-            .get("seq")
-            .and_then(JsonValue::as_u64)
-            .unwrap_or_default(),
-        query_hash: value
-            .get("queryHash")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-        last_sort_key: value
-            .get("lastSortKey")
-            .and_then(JsonValue::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(JsonValue::as_u64)
-                    .map(|value| value as u8)
-                    .collect()
-            })
-            .unwrap_or_default(),
-        last_note_id: value
-            .get("lastNoteId")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-        direction: value
-            .get("direction")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default()
-            .to_owned(),
-    };
     if cursor.epoch != projection.epoch
         || cursor.seq != projection.seq
         || cursor.query_hash != query_hash
@@ -736,7 +776,7 @@ fn decode_cursor(
             "cursor belongs to another projection or query",
         ));
     }
-    if cursor.last_note_id.is_empty() || cursor.direction.is_empty() {
+    if cursor.last_note_id.is_empty() || cursor.last_sort_keys.is_empty() {
         return Err(QueryFailure::new("staleCursor", "cursor is incomplete"));
     }
     Ok(cursor)
@@ -845,9 +885,8 @@ fn load_diagnostics(
         .map_err(sql_failure)?;
     let rows = statement
         .query_map([database_id], |row| {
-            let details: JsonValue = serde_json::from_str::<String>(&row.get::<_, String>(2)?)
+            let details: JsonValue = serde_json::from_str(&row.get::<_, String>(2)?)
                 .ok()
-                .and_then(|value| serde_json::from_str(&value).ok())
                 .unwrap_or(JsonValue::Null);
             Ok(DatabaseDiagnostic {
                 code: row.get(0)?,
@@ -935,6 +974,285 @@ mod tests {
             },
             page,
         }
+    }
+
+    fn property(conn: &Connection, kind: &str, values: &[Option<JsonValue>]) {
+        conn.execute(
+            "INSERT INTO db_properties (database_id, property_id, position, name, property_type, page_visibility, config_json) VALUES ('01J00000000000000000000000', ?1, 0, ?1, ?1, 'alwaysShow', '{}')",
+            [kind],
+        ).unwrap();
+        for (index, value) in values.iter().enumerate() {
+            let Some(value) = value else { continue };
+            let decimal = value.get("decimal").and_then(JsonValue::as_str);
+            conn.execute(
+                "INSERT INTO db_values (database_id, note_id, property_id, value_type, canonical_json, text_value, text_sort_key, decimal_value, decimal_sort_key, bool_value, date_start_key, source_revision) VALUES ('01J00000000000000000000000', ?1, ?2, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'record')",
+                params![
+                    format!("01J0000000000000000000000{}", index + 1), kind,
+                    value.to_string(), value.get("value").and_then(JsonValue::as_str),
+                    value.get("value").and_then(JsonValue::as_str).map(|value| value.to_lowercase().into_bytes()),
+                    decimal, decimal.and_then(decimal_sort_key),
+                    value.get("checked").and_then(JsonValue::as_bool).map(i64::from),
+                    value.get("dateKey").and_then(JsonValue::as_i64),
+                ],
+            ).unwrap();
+        }
+    }
+
+    fn sorted_request(kind: &str, direction: &str, nulls: &str) -> DatabaseQueryRequest {
+        let mut request = request(
+            None,
+            DatabasePageRequest {
+                limit: 1,
+                cursor: None,
+            },
+        );
+        request.source = DatabaseQuerySource::Inline {
+            spec: DatabaseQuerySpec {
+                filter: None,
+                sorts: vec![DatabaseSortSpec {
+                    field: DatabaseFieldRef::Property {
+                        property_id: kind.to_owned(),
+                    },
+                    direction: direction.to_owned(),
+                    nulls: nulls.to_owned(),
+                }],
+            },
+        };
+        request
+    }
+
+    fn all_pages(conn: &Connection, mut request: DatabaseQueryRequest) -> Vec<String> {
+        let mut titles = Vec::new();
+        for _ in 0..10 {
+            let page = query_database(conn, &request).unwrap();
+            titles.extend(page.rows.into_iter().map(|row| row.title));
+            request.page.cursor = page.next_cursor;
+            if request.page.cursor.is_none() {
+                return titles;
+            }
+        }
+        panic!("pagination did not terminate");
+    }
+
+    #[test]
+    fn typed_pagination_preserves_nulls_and_every_row_in_both_directions() {
+        for (kind, low, high) in [
+            (
+                "number",
+                serde_json::json!({"decimal":"-1.23"}),
+                serde_json::json!({"decimal":"-1.2"}),
+            ),
+            (
+                "text",
+                serde_json::json!({"value":""}),
+                serde_json::json!({"value":"z"}),
+            ),
+            (
+                "checkbox",
+                serde_json::json!({"checked":false}),
+                serde_json::json!({"checked":true}),
+            ),
+            (
+                "date",
+                serde_json::json!({"dateKey":-200}),
+                serde_json::json!({"dateKey":-100}),
+            ),
+        ] {
+            let conn = connection();
+            property(&conn, kind, &[None, Some(high), Some(low)]);
+            for (direction, nulls, expected) in [
+                ("asc", "first", vec!["Alpha", "Gamma", "Beta"]),
+                ("asc", "last", vec!["Gamma", "Beta", "Alpha"]),
+                ("desc", "first", vec!["Alpha", "Beta", "Gamma"]),
+                ("desc", "last", vec!["Beta", "Gamma", "Alpha"]),
+            ] {
+                assert_eq!(
+                    all_pages(&conn, sorted_request(kind, direction, nulls)),
+                    expected,
+                    "{kind} {direction} nulls {nulls}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pagination_applies_secondary_sorts_before_the_note_id_tie_breaker() {
+        for values in [vec![], vec![Some(serde_json::json!({"value":"same"})); 3]] {
+            let conn = connection();
+            property(&conn, "text", &values);
+            let mut request = sorted_request("text", "asc", "last");
+            let DatabaseQuerySource::Inline { spec } = &mut request.source else {
+                unreachable!()
+            };
+            spec.sorts.push(DatabaseSortSpec {
+                field: DatabaseFieldRef::System {
+                    field: "title".to_owned(),
+                },
+                direction: "desc".to_owned(),
+                nulls: "last".to_owned(),
+            });
+            assert_eq!(all_pages(&conn, request), ["Gamma", "Beta", "Alpha"]);
+        }
+    }
+
+    #[test]
+    fn number_filters_use_exact_normalized_values() {
+        let conn = connection();
+        property(
+            &conn,
+            "number",
+            &[
+                Some(serde_json::json!({"decimal":"-1.200"})),
+                Some(serde_json::json!({"decimal":"-1.23"})),
+                Some(serde_json::json!({"decimal":"90071992547409931234567890.125"})),
+            ],
+        );
+        for (operator, operand, expected) in [
+            ("equals", "-12e-1", vec!["Alpha"]),
+            ("notEquals", "-1.2", vec!["Beta", "Gamma"]),
+            ("lessThan", "-1.2", vec!["Beta"]),
+            (
+                "greaterThan",
+                "90071992547409931234567890.12",
+                vec!["Gamma"],
+            ),
+        ] {
+            let request = request(
+                Some(DatabaseFilterNode::Condition {
+                    field: DatabaseFieldRef::Property {
+                        property_id: "number".to_owned(),
+                    },
+                    operator: operator.to_owned(),
+                    value: Some(serde_json::json!(operand).to_string()),
+                }),
+                DatabasePageRequest {
+                    limit: 1,
+                    cursor: None,
+                },
+            );
+            assert_eq!(all_pages(&conn, request), expected);
+        }
+        let invalid = request(
+            Some(DatabaseFilterNode::Condition {
+                field: DatabaseFieldRef::Property {
+                    property_id: "number".to_owned(),
+                },
+                operator: "equals".to_owned(),
+                value: Some(serde_json::json!("not a number").to_string()),
+            }),
+            DatabasePageRequest {
+                limit: 1,
+                cursor: None,
+            },
+        );
+        assert_eq!(
+            query_database(&conn, &invalid).unwrap_err().code,
+            "invalidOperand"
+        );
+    }
+
+    #[test]
+    fn malformed_cursor_keys_are_rejected_instead_of_silently_truncated() {
+        let conn = connection();
+        let mut request = request(
+            None,
+            DatabasePageRequest {
+                limit: 1,
+                cursor: None,
+            },
+        );
+        let first = query_database(&conn, &request).unwrap();
+        let projection = projection_version(&conn).unwrap();
+        let DatabaseQuerySource::Inline { spec } = &request.source else {
+            unreachable!()
+        };
+        let hash = query_hash(&request, spec).unwrap();
+        let cursor = decode_cursor(&first.next_cursor.unwrap(), &projection, &hash).unwrap();
+        for keys in [
+            serde_json::json!([]),
+            serde_json::json!([{"Blob":[256]}]),
+            serde_json::json!([{"Blob":[-1]}]),
+        ] {
+            let mut value = serde_json::to_value(&cursor).unwrap();
+            value["lastSortKeys"] = keys;
+            request.page.cursor = Some(
+                serde_json::to_vec(&value)
+                    .unwrap()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect(),
+            );
+            assert_eq!(
+                query_database(&conn, &request).unwrap_err().code,
+                "staleCursor"
+            );
+        }
+    }
+
+    #[test]
+    fn text_filters_treat_like_metacharacters_as_literal_text() {
+        let conn = connection();
+        property(
+            &conn,
+            "text",
+            &[
+                Some(serde_json::json!({"value":"100%_\\done"})),
+                Some(serde_json::json!({"value":"100xxdone"})),
+            ],
+        );
+        conn.execute(
+            "UPDATE notes SET title = '100%_\\done' WHERE title = 'Alpha'",
+            [],
+        )
+        .unwrap();
+        for field in [
+            DatabaseFieldRef::System {
+                field: "title".to_owned(),
+            },
+            DatabaseFieldRef::Property {
+                property_id: "text".to_owned(),
+            },
+        ] {
+            for (operator, operand) in [("contains", "%_\\"), ("startsWith", "100%_\\")] {
+                let page = query_database(
+                    &conn,
+                    &request(
+                        Some(DatabaseFilterNode::Condition {
+                            field: field.clone(),
+                            operator: operator.to_owned(),
+                            value: Some(serde_json::json!(operand).to_string()),
+                        }),
+                        DatabasePageRequest {
+                            limit: 20,
+                            cursor: None,
+                        },
+                    ),
+                )
+                .unwrap();
+                assert_eq!(page.rows.len(), 1);
+                assert_eq!(page.rows[0].title, "100%_\\done");
+            }
+        }
+    }
+
+    #[test]
+    fn diagnostics_retain_their_source_path_and_message() {
+        let conn = connection();
+        conn.execute("INSERT INTO db_diagnostics (diagnostic_id, scope_kind, scope_key, code, severity, details_json, first_seen_at, last_seen_at) VALUES ('diagnostic', 'vault', 'Database/ambd.json', 'brokenManifest', 'error', ?1, 0, 0)",
+            [serde_json::json!({"path":"Database/ambd.json", "message":"Invalid JSON"}).to_string()]).unwrap();
+        let page = query_database(
+            &conn,
+            &request(
+                None,
+                DatabasePageRequest {
+                    limit: 20,
+                    cursor: None,
+                },
+            ),
+        )
+        .unwrap();
+        assert_eq!(page.diagnostics[0].path, "Database/ambd.json");
+        assert_eq!(page.diagnostics[0].message, "Invalid JSON");
     }
 
     #[test]

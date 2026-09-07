@@ -1,7 +1,12 @@
 use crate::{frontmatter, model::CustomProperty};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, path::Path};
+use std::{
+    collections::HashMap,
+    fs,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use ulid::Ulid;
 
 const FORMAT_VERSION: u32 = 1;
@@ -11,6 +16,17 @@ const FORMAT_VERSION: u32 = 1;
 struct PropertyFile {
     version: u32,
     notes: HashMap<String, Vec<CustomProperty>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PropertyBackup<'a> {
+    format: &'static str,
+    format_version: u32,
+    status: &'static str,
+    note_id: &'a str,
+    created_at_ms: u128,
+    properties: &'a [CustomProperty],
 }
 
 fn path(vault: &Path) -> std::path::PathBuf {
@@ -167,6 +183,82 @@ pub fn delete(
     Ok(())
 }
 
+pub fn reorder(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+    property_ids: &[String],
+) -> Result<(), String> {
+    crate::index::identity::ensure_unique_identity(conn, note_id)?;
+    ensure_frontmatter_properties_available(conn, vault, note_id)?;
+    let mut file = read(vault)?;
+    let properties = file.notes.get(note_id).cloned().unwrap_or_default();
+    if properties.len() != property_ids.len() {
+        return Err("Property order must include every property exactly once".to_owned());
+    }
+    let mut by_id = properties
+        .into_iter()
+        .map(|property| (property.id.clone(), property))
+        .collect::<HashMap<_, _>>();
+    let mut reordered = Vec::with_capacity(property_ids.len());
+    for property_id in property_ids {
+        let property = by_id
+            .remove(property_id)
+            .ok_or_else(|| "Property order contains an unknown or duplicate ID".to_owned())?;
+        reordered.push(property);
+    }
+    if !by_id.is_empty() {
+        return Err("Property order does not include every property".to_owned());
+    }
+    file.notes.insert(note_id.to_owned(), reordered.clone());
+    write(vault, &file)?;
+    replace_note_cache(conn, note_id, &reordered)
+}
+
+pub fn backup_and_clear(conn: &Connection, vault: &Path, note_id: &str) -> Result<String, String> {
+    crate::index::identity::ensure_unique_identity(conn, note_id)?;
+    ensure_frontmatter_properties_available(conn, vault, note_id)?;
+    let mut file = read(vault)?;
+    let properties = file.notes.get(note_id).cloned().unwrap_or_default();
+    if properties.is_empty() {
+        return Err("Note has no custom properties to back up".to_owned());
+    }
+
+    let backup_dir = vault.join(".amby").join("property-backups").join(note_id);
+    fs::create_dir_all(&backup_dir).map_err(|error| error.to_string())?;
+    let backup_path = backup_dir.join(format!("{}.json", Ulid::generate()));
+    let backup = PropertyBackup {
+        format: "amby-note-property-backup",
+        format_version: 1,
+        status: "backedUp",
+        note_id,
+        created_at_ms: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_millis(),
+        properties: &properties,
+    };
+    let mut bytes = serde_json::to_vec_pretty(&backup).map_err(|error| error.to_string())?;
+    bytes.push(b'\n');
+    frontmatter::atomic_write_bytes_new(&backup_path, &bytes)
+        .map_err(|error| format!("Failed to create property backup: {error:?}"))?;
+
+    file.notes.remove(note_id);
+    if let Err(error) = write(vault, &file) {
+        return Err(format!(
+            "Property backup was created at {}, but active properties could not be cleared: {error}",
+            backup_path.display()
+        ));
+    }
+    replace_note_cache(conn, note_id, &[])?;
+    backup_path
+        .strip_prefix(vault)
+        .unwrap_or(&backup_path)
+        .to_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "Property backup path is not valid UTF-8".to_owned())
+}
+
 fn ensure_frontmatter_properties_available(
     conn: &Connection,
     vault: &Path,
@@ -248,6 +340,50 @@ mod tests {
         saved.value = "Idea".to_string();
         upsert(&conn, &vault, "01TEST", saved.clone()).unwrap();
         assert_eq!(list(&conn, "01TEST").unwrap(), vec![saved]);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn backup_is_published_before_active_properties_are_cleared() {
+        let (vault, conn) = fixture();
+        let saved = upsert(&conn, &vault, "01TEST", property()).unwrap();
+
+        let relative_backup = backup_and_clear(&conn, &vault, "01TEST").unwrap();
+        let backup_path = vault.join(relative_backup);
+        let backup: serde_json::Value =
+            serde_json::from_slice(&fs::read(&backup_path).unwrap()).unwrap();
+
+        assert_eq!(backup["format"], "amby-note-property-backup");
+        assert_eq!(backup["formatVersion"], 1);
+        assert_eq!(backup["status"], "backedUp");
+        assert_eq!(backup["noteId"], "01TEST");
+        assert_eq!(backup["properties"][0]["id"], saved.id);
+        assert!(list(&conn, "01TEST").unwrap().is_empty());
+        assert!(!read(&vault).unwrap().notes.contains_key("01TEST"));
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn reorder_requires_the_exact_property_set_and_persists_order() {
+        let (vault, conn) = fixture();
+        let first = upsert(&conn, &vault, "01TEST", property()).unwrap();
+        let mut second_property = property();
+        second_property.name = "Owner".to_owned();
+        let second = upsert(&conn, &vault, "01TEST", second_property).unwrap();
+
+        reorder(
+            &conn,
+            &vault,
+            "01TEST",
+            &[second.id.clone(), first.id.clone()],
+        )
+        .unwrap();
+        assert_eq!(
+            list(&conn, "01TEST").unwrap(),
+            vec![second.clone(), first.clone()]
+        );
+        assert!(reorder(&conn, &vault, "01TEST", &[first.id.clone()]).is_err());
+        assert_eq!(list(&conn, "01TEST").unwrap(), vec![second, first]);
         fs::remove_dir_all(vault).unwrap();
     }
 

@@ -1,3 +1,34 @@
+import { animate } from "motion/react"
+
+import { motionTransitions } from "@/lib/motion-config"
+
+function scrollContainerFor(element: HTMLElement): HTMLElement {
+  let parent = element.parentElement
+  while (parent) {
+    const overflowY = window.getComputedStyle(parent).overflowY
+    if (/auto|scroll/.test(overflowY) && parent.scrollHeight > parent.clientHeight) return parent
+    parent = parent.parentElement
+  }
+  return (document.scrollingElement as HTMLElement | null) ?? document.documentElement
+}
+
+function motionScrollIntoView(target: HTMLElement): void {
+  const container = scrollContainerFor(target)
+  const containerTop =
+    container === document.scrollingElement ? 0 : container.getBoundingClientRect().top
+  const targetTop = target.getBoundingClientRect().top - containerTop + container.scrollTop
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    container.scrollTop = targetTop
+    return
+  }
+  animate(container.scrollTop, targetTop, {
+    ...motionTransitions.slow,
+    onUpdate: (value) => {
+      container.scrollTop = value
+    },
+  })
+}
+
 /** Schedule navigation after the current editor has rendered its document. */
 export function scrollEditorToAnchor(anchor: string | null): void {
   if (!anchor) return
@@ -23,6 +54,6 @@ export function scrollEditorToAnchor(anchor: string | null): void {
             .toLowerCase()
             .endsWith(` ^${anchor.slice(1).toLowerCase()}`),
         ))
-    target?.scrollIntoView({ behavior: "smooth", block: "start" })
+    if (target) motionScrollIntoView(target)
   }, 250)
 }

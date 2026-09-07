@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import type { DocumentViewMode } from "./document-editor"
+import type { ContentWidth } from "./app-config"
 import type { NoteLayers, LayerKind } from "@/lib/storage"
 import type { TreeItem } from "./sidebar-tree"
 
@@ -17,6 +18,10 @@ interface ViewStateStore {
   favorites: Set<string>
   /** Per-file editor view-mode override (source / editor / split). */
   viewModes: Record<string, DocumentViewMode>
+  /** Per-page content width overrides; keys are note ids or database ids. */
+  contentWidths: Record<string, ContentWidth>
+  /** Custom labels for the title column on database pages. */
+  databaseTitleLabels: Record<string, string>
   nestedNotesPlacements: Record<string, NestedNotesPlacement>
   /** File ids the user has locked (read-only). */
   lockedFileIds: Set<string>
@@ -32,6 +37,8 @@ interface ViewStateStore {
   toggleFavorite: (id: string) => void
   setIcon: (id: string, icon: string) => void
   setViewMode: (id: string, mode: DocumentViewMode) => void
+  setContentWidth: (id: string, width: ContentWidth) => void
+  setDatabaseTitleLabel: (id: string, label: string) => void
   setNestedNotesPlacement: (id: string, placement: NestedNotesPlacement) => void
   toggleLock: (id: string) => void
   setActiveLayer: (id: string, layer: EditorLayer) => void
@@ -54,6 +61,8 @@ interface ViewStateStore {
     icons: Record<string, string>
     favorites: string[]
     viewModes: Record<string, string>
+    contentWidths?: Record<string, string>
+    databaseTitleLabels?: Record<string, string>
     nestedNotesPlacements?: Record<string, string>
     lockedFileIds: string[]
     closedTreeIds?: string[]
@@ -96,6 +105,8 @@ function createViewStateStore() {
       }),
     favorites: new Set(),
     viewModes: {},
+    contentWidths: {},
+    databaseTitleLabels: {},
     nestedNotesPlacements: {},
     lockedFileIds: new Set(),
     iconOverrides: {},
@@ -113,6 +124,14 @@ function createViewStateStore() {
     setIcon: (id, icon) => set((s) => ({ iconOverrides: { ...s.iconOverrides, [id]: icon } })),
 
     setViewMode: (id, mode) => set((s) => ({ viewModes: { ...s.viewModes, [id]: mode } })),
+
+    setContentWidth: (id, width) =>
+      set((s) => ({ contentWidths: { ...(s.contentWidths ?? {}), [id]: width } })),
+
+    setDatabaseTitleLabel: (id, label) =>
+      set((s) => ({
+        databaseTitleLabels: { ...(s.databaseTitleLabels ?? {}), [id]: label },
+      })),
 
     setNestedNotesPlacement: (id, placement) =>
       set((s) => ({
@@ -162,6 +181,16 @@ function createViewStateStore() {
         for (const [id, mode] of Object.entries(s.viewModes))
           if (!deleted.has(id)) viewModes[id] = mode
 
+        const contentWidths: Record<string, ContentWidth> = {}
+        for (const [id, width] of Object.entries(s.contentWidths ?? {}))
+          if (!deleted.has(id)) contentWidths[id] = width
+
+        const databaseTitleLabels: Record<string, string> = {}
+        for (const [id, label] of Object.entries(s.databaseTitleLabels ?? {}))
+          if (!deleted.has(id) && !(id.startsWith("database:") && deleted.has(id.slice(9)))) {
+            databaseTitleLabels[id] = label
+          }
+
         const nestedNotesPlacements: Record<string, NestedNotesPlacement> = {}
         for (const [id, placement] of Object.entries(s.nestedNotesPlacements))
           if (!deleted.has(id)) nestedNotesPlacements[id] = placement
@@ -173,6 +202,8 @@ function createViewStateStore() {
           iconOverrides,
           activeLayers,
           viewModes,
+          contentWidths,
+          databaseTitleLabels,
           nestedNotesPlacements,
         }
       }),
@@ -181,6 +212,8 @@ function createViewStateStore() {
       icons,
       favorites,
       viewModes,
+      contentWidths = {},
+      databaseTitleLabels = {},
       nestedNotesPlacements = {},
       lockedFileIds,
       closedTreeIds = [],
@@ -190,6 +223,17 @@ function createViewStateStore() {
         iconOverrides: icons,
         favorites: new Set(favorites),
         viewModes: viewModes as Record<string, DocumentViewMode>,
+        contentWidths: Object.fromEntries(
+          Object.entries(contentWidths).filter((entry): entry is [string, ContentWidth] =>
+            ["normal", "wide", "full"].includes(entry[1]),
+          ),
+        ),
+        databaseTitleLabels: Object.fromEntries(
+          Object.entries(databaseTitleLabels).filter(
+            (entry): entry is [string, string] =>
+              typeof entry[1] === "string" && entry[1].trim().length > 0,
+          ),
+        ),
         nestedNotesPlacements: Object.fromEntries(
           Object.entries(nestedNotesPlacements).filter(
             (entry): entry is [string, NestedNotesPlacement] =>
@@ -213,4 +257,27 @@ const viewStateGlobal = globalThis as typeof globalThis & {
 // store instance so file emojis and other session state do not blink away or
 // get persisted as an empty map during development HMR.
 export const useViewStateStore = viewStateGlobal.__ambyViewStateStore ?? createViewStateStore()
-if (import.meta.env.DEV) viewStateGlobal.__ambyViewStateStore = useViewStateStore
+if (import.meta.env.DEV) {
+  // Keep a running desktop session compatible with stores created before a
+  // newly added action was introduced. Vite preserves the global store during
+  // HMR, so the old object may otherwise expose the field as undefined until
+  // the application is restarted.
+  const current = useViewStateStore.getState()
+  if (typeof current.setContentWidth !== "function") {
+    useViewStateStore.setState({
+      setContentWidth: (id, width) =>
+        useViewStateStore.setState((state) => ({
+          contentWidths: { ...(state.contentWidths ?? {}), [id]: width },
+        })),
+    })
+  }
+  if (typeof current.setDatabaseTitleLabel !== "function") {
+    useViewStateStore.setState({
+      setDatabaseTitleLabel: (id, label) =>
+        useViewStateStore.setState((state) => ({
+          databaseTitleLabels: { ...(state.databaseTitleLabels ?? {}), [id]: label },
+        })),
+    })
+  }
+  viewStateGlobal.__ambyViewStateStore = useViewStateStore
+}

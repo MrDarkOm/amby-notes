@@ -11,6 +11,17 @@ import type {
   DatabaseModuleState,
   CreateDatabaseRequest,
   CreatedDatabase,
+  CreateDatabasePropertyRequest,
+  DeleteDatabasePropertyRequest,
+  DeletedDatabaseProperty,
+  RenameDatabasePropertyRequest,
+  RenamedDatabaseProperty,
+  CreatedDatabaseProperty,
+  DatabaseNoteContext,
+  ReorderDatabasePropertiesRequest,
+  ReorderedDatabaseProperties,
+  RenameDatabaseRequest,
+  RenamedDatabase,
   DatabaseQueryRequest,
   DatabaseQueryResult,
   DatabaseSummary,
@@ -92,12 +103,22 @@ function fromBindingSummary(summary: BindingDatabaseSummary): DatabaseSummary {
   return {
     databaseId: summary.databaseId,
     title: summary.title,
+    icon: summary.icon,
+    attachedNoteId: summary.attachedNoteId,
+    manifestRevision: summary.manifestRevision,
+    locked: summary.locked,
+    properties: summary.properties,
     views: summary.views.map((view) => ({
       viewId: view.viewId,
       title: view.title,
       layout: view.layout,
       revision: view.revision,
       groupField: view.groupField ? fromBindingField(view.groupField) : null,
+    })),
+    templates: summary.templates.map((template) => ({
+      templateId: template.templateId,
+      name: template.name,
+      revision: template.revision,
     })),
     diagnostics: summary.diagnostics,
   }
@@ -184,6 +205,44 @@ export class DesktopAdapter implements StoragePort {
         name: request.name,
       }),
     )
+  }
+
+  async createDatabaseProperty(
+    request: CreateDatabasePropertyRequest,
+  ): Promise<CreatedDatabaseProperty> {
+    return unwrapDatabaseCommand(
+      await commands.createDatabaseProperty({
+        ...request,
+        beforePropertyId: request.beforePropertyId ?? null,
+        options: request.options ?? [],
+      }),
+    )
+  }
+
+  async deleteDatabaseProperty(
+    request: DeleteDatabasePropertyRequest,
+  ): Promise<DeletedDatabaseProperty> {
+    return unwrapDatabaseCommand(await commands.deleteDatabaseProperty(request))
+  }
+
+  async renameDatabaseProperty(
+    request: RenameDatabasePropertyRequest,
+  ): Promise<RenamedDatabaseProperty> {
+    return unwrapDatabaseCommand(await commands.renameDatabaseProperty(request))
+  }
+
+  async getDatabaseNoteContext(noteId: string): Promise<DatabaseNoteContext | null> {
+    return unwrapDatabaseCommand(await commands.getDatabaseNoteContext(noteId))
+  }
+
+  async reorderDatabaseProperties(
+    request: ReorderDatabasePropertiesRequest,
+  ): Promise<ReorderedDatabaseProperties> {
+    return unwrapDatabaseCommand(await commands.reorderDatabaseProperties(request))
+  }
+
+  async renameDatabase(request: RenameDatabaseRequest): Promise<RenamedDatabase> {
+    return unwrapDatabaseCommand(await commands.renameDatabase(request))
   }
 
   async applyDatabaseValueBatch(
@@ -475,6 +534,18 @@ export class DesktopAdapter implements StoragePort {
     propertyId: string,
   ): Promise<void> {
     await unwrapCommand(commands.deleteCustomProperty(noteId, propertyId))
+  }
+
+  async reorderCustomProperties(
+    _vaultPath: string,
+    noteId: string,
+    propertyIds: string[],
+  ): Promise<void> {
+    await unwrapCommand(commands.reorderCustomProperties(noteId, propertyIds))
+  }
+
+  async backupCustomProperties(_vaultPath: string, noteId: string): Promise<string> {
+    return unwrapCommand(commands.backupCustomProperties(noteId))
   }
 
   async getLinkGraph(_vaultPath: string): Promise<LinkGraph> {

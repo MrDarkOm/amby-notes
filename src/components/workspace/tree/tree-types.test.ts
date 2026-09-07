@@ -74,5 +74,16 @@ describe("flattenVisible", () => {
     expect(isValidTreeDropTarget("01-source", "/vault/Folder", "01-source", "/vault/Other")).toBe(
       false,
     )
+    expect(
+      isValidTreeDropTarget("01-source", "/vault/Source.md", "01-target", "/vault/Target.md"),
+    ).toBe(true)
+    expect(
+      isValidTreeDropTarget(
+        "01-child",
+        "/vault/Target/Child.md",
+        "01-target",
+        "/vault/Target/Target.md",
+      ),
+    ).toBe(false)
   })
 })

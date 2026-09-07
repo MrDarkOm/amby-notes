@@ -84,6 +84,8 @@ export function applySessionRemap(
   icons: Record<string, string>
   favorites: string[]
   viewModes: Record<string, string>
+  contentWidths: Record<string, string>
+  databaseTitleLabels: Record<string, string>
   nestedNotesPlacements: Record<string, string>
   lockedFileIds: string[]
   closedTreeIds: string[]
@@ -118,6 +120,19 @@ export function applySessionRemap(
     if (allIds.has(nextId)) nestedNotesPlacements[nextId] = placement
   }
 
+  // Content width overrides use the same stable ids as the other per-page
+  // settings. Database ids are not present in the note tree, so preserve them
+  // while still remapping legacy path ids when available.
+  const contentWidths: Record<string, string> = {}
+  for (const [id, width] of Object.entries(session.contentWidths ?? {})) {
+    contentWidths[remap(id)] = width
+  }
+
+  const databaseTitleLabels: Record<string, string> = {}
+  for (const [id, label] of Object.entries(session.databaseTitleLabels ?? {})) {
+    databaseTitleLabels[remap(id)] = label
+  }
+
   // Tabs: remap then filter; honour the restoreSession setting.
   const tabs = restoreSession
     ? session.tabs
@@ -132,6 +147,8 @@ export function applySessionRemap(
     icons,
     favorites,
     viewModes,
+    contentWidths,
+    databaseTitleLabels,
     nestedNotesPlacements,
     lockedFileIds,
     closedTreeIds,

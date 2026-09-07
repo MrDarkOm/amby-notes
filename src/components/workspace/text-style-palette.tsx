@@ -3,6 +3,8 @@
 import { Eraser, Highlighter, Type } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { useTheme } from "next-themes"
+import { motion } from "motion/react"
+import { motionTransitions } from "@/lib/motion-config"
 import {
   EDITOR_BACKGROUND_COLORS,
   EDITOR_BACKGROUND_COLOR_PREVIEWS,
@@ -22,10 +24,13 @@ function ColorButton({
   onClick: (color: string) => void
 }) {
   return (
-    <button
+    <motion.button
       type="button"
       title={title}
-      className="size-5 rounded border border-border transition-transform hover:scale-110 focus:outline-none focus:ring-1 focus:ring-foreground/30"
+      className="size-5 rounded border border-border focus:outline-none focus:ring-1 focus:ring-foreground/30"
+      whileHover={{ scale: 1.1 }}
+      whileTap={{ scale: 0.94 }}
+      transition={motionTransitions.fast}
       style={{ backgroundColor: color }}
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => onClick(value)}
@@ -43,16 +48,18 @@ function ClearButton({
   onClick: () => void
 }) {
   return (
-    <button
+    <motion.button
       type="button"
       title={title}
-      className="flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="flex h-6 items-center gap-1 rounded border border-border px-1.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+      whileTap={{ scale: 0.96 }}
+      transition={motionTransitions.fast}
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
     >
       <Eraser className="size-3" />
       {label}
-    </button>
+    </motion.button>
   )
 }
 

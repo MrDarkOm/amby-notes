@@ -6,7 +6,7 @@
 //!     settings.json    — panelScope, default theme, global layout
 //!   Per-vault ({vault}/.amby/)
 //!     workspace.json   — workspace theme, custom presets, workspace layout
-//!     session.json     — open tabs/favorites/view-modes/locked/icons (see workspace.tsx)
+//!     session.json     — open tabs/favorites/view-modes/content-widths/database labels/locked/icons
 
 import {
   globalFileMissing,
@@ -697,6 +697,10 @@ export interface SessionFile {
   activeFileId: string
   favorites: string[]
   viewModes: Record<string, string>
+  /** Per-page content width overrides; database pages use database:<id> keys. */
+  contentWidths?: Record<string, string>
+  /** Custom title-column labels for database pages, keyed by database:<id>. */
+  databaseTitleLabels?: Record<string, string>
   nestedNotesPlacements: Record<string, string>
   locked: string[]
   icons: Record<string, string>
@@ -719,6 +723,8 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
       activeFileId: typeof t?.activeFileId === "string" ? t!.activeFileId : "",
       favorites: parseLS<string[]>(`amby:favorites:${vaultPath}`, Array.isArray) ?? [],
       viewModes: parseLS<Record<string, string>>(`amby:view-modes:${vaultPath}`, isRecord) ?? {},
+      contentWidths: {},
+      databaseTitleLabels: {},
       nestedNotesPlacements: {},
       locked: parseLS<string[]>(`amby:locked:${vaultPath}`, Array.isArray) ?? [],
       icons: parseLS<Record<string, string>>("amby:icons", isRecord) ?? {},
@@ -728,6 +734,8 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
       session.favorites.length ||
       session.locked.length ||
       Object.keys(session.viewModes).length ||
+      Object.keys(session.contentWidths ?? {}).length ||
+      Object.keys(session.databaseTitleLabels ?? {}).length ||
       Object.keys(session.nestedNotesPlacements).length ||
       Object.keys(session.icons).length
     if (hasAny) await saveVaultJSON(SESSION_FILE, session)
@@ -740,6 +748,8 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
     activeFileId: typeof d.activeFileId === "string" ? d.activeFileId : "",
     favorites: Array.isArray(d.favorites) ? d.favorites : [],
     viewModes: isRecord(d.viewModes) ? d.viewModes : {},
+    contentWidths: isRecord(d.contentWidths) ? d.contentWidths : {},
+    databaseTitleLabels: isRecord(d.databaseTitleLabels) ? d.databaseTitleLabels : {},
     nestedNotesPlacements: isRecord(d.nestedNotesPlacements) ? d.nestedNotesPlacements : {},
     locked: Array.isArray(d.locked) ? d.locked : [],
     icons: isRecord(d.icons) ? d.icons : {},

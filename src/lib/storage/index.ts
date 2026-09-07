@@ -8,6 +8,11 @@ import { SettingsRepository } from "./settings-repository"
 import type { StoragePort } from "./port"
 import type {
   CreateDatabaseRequest,
+  CreateDatabasePropertyRequest,
+  DeleteDatabasePropertyRequest,
+  ReorderDatabasePropertiesRequest,
+  RenameDatabasePropertyRequest,
+  RenameDatabaseRequest,
   DatabaseQueryRequest,
   DatabaseValueBatchRequest,
   CreateDatabaseRowRequest,
@@ -164,6 +169,13 @@ export const deleteCustomProperty = (
   noteId: string,
   propertyId: string,
 ): Promise<void> => notesRepository.deleteCustomProperty(vaultPath, noteId, propertyId)
+export const reorderCustomProperties = (
+  vaultPath: string,
+  noteId: string,
+  propertyIds: string[],
+): Promise<void> => notesRepository.reorderCustomProperties(vaultPath, noteId, propertyIds)
+export const backupCustomProperties = (vaultPath: string, noteId: string): Promise<string> =>
+  notesRepository.backupCustomProperties(vaultPath, noteId)
 export const getLinkGraph = (vaultPath: string): Promise<LinkGraph> =>
   notesRepository.getLinkGraph(vaultPath)
 export const listTags = (vaultPath: string): Promise<VaultTagEntry[]> =>
@@ -176,6 +188,14 @@ export const setDatabaseModuleEnabled = (enabled: boolean, expectedGeneration: n
 export const rebuildDatabaseProjection = () => getAdapter().rebuildDatabaseProjection()
 export const createDatabase = (request: CreateDatabaseRequest) =>
   getAdapter().createDatabase(request)
+export const createDatabaseProperty = (request: CreateDatabasePropertyRequest) =>
+  getAdapter().createDatabaseProperty(request)
+export const deleteDatabaseProperty = (request: DeleteDatabasePropertyRequest) =>
+  getAdapter().deleteDatabaseProperty(request)
+export const renameDatabaseProperty = (request: RenameDatabasePropertyRequest) =>
+  getAdapter().renameDatabaseProperty(request)
+export const renameDatabase = (request: RenameDatabaseRequest) =>
+  getAdapter().renameDatabase(request)
 export const applyDatabaseValueBatch = (request: DatabaseValueBatchRequest) =>
   getAdapter().applyDatabaseValueBatch(request)
 export const createDatabaseRow = (request: CreateDatabaseRowRequest) =>
@@ -187,6 +207,10 @@ export const syncDatabaseYaml = (request: DatabaseYamlSyncRequest) =>
 export const resolveDatabaseYamlConflict = (request: DatabaseYamlResolveRequest) =>
   getAdapter().resolveDatabaseYamlConflict(request)
 export const listDatabases = () => getAdapter().listDatabases()
+export const getDatabaseNoteContext = (noteId: string) =>
+  getAdapter().getDatabaseNoteContext(noteId)
+export const reorderDatabaseProperties = (request: ReorderDatabasePropertiesRequest) =>
+  getAdapter().reorderDatabaseProperties(request)
 export const queryDatabase = (request: DatabaseQueryRequest) => getAdapter().queryDatabase(request)
 
 // Mutations & Canvas / Layers

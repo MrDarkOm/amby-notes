@@ -80,7 +80,7 @@ export function GalleryView({
                   <button
                     key={row.noteId}
                     type="button"
-                    className="group flex min-h-36 flex-col justify-between rounded-xl border border-border/70 bg-card/60 p-4 text-left transition-colors hover:border-primary/50 hover:bg-accent/40"
+                    className="group flex min-h-36 flex-col justify-between rounded-xl border border-border/70 bg-card/60 p-4 text-left hover:border-primary/50 hover:bg-accent/40"
                     onClick={() => onRowSelect?.(row)}
                   >
                     <span>

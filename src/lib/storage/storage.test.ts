@@ -149,7 +149,26 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
       expect(props.customProperties).toHaveLength(1)
       expect(props.customProperties[0].name).toBe("Priority")
 
+      const owner = await notesRepository.upsertCustomProperty("web-vault", "note-1", {
+        id: "",
+        name: "Owner",
+        icon: "user",
+        propertyType: "text",
+        value: "Paul",
+        settings: "{}",
+      })
+      await notesRepository.reorderCustomProperties("web-vault", "note-1", [owner.id, prop.id])
+      await expect(notesRepository.getNoteProperties("web-vault", "note-1")).resolves.toMatchObject(
+        {
+          customProperties: [{ id: owner.id }, { id: prop.id }],
+        },
+      )
+      await expect(
+        notesRepository.reorderCustomProperties("web-vault", "note-1", [prop.id]),
+      ).rejects.toThrow("every property")
+
       await notesRepository.deleteCustomProperty("web-vault", "note-1", prop.id)
+      await notesRepository.deleteCustomProperty("web-vault", "note-1", owner.id)
       const afterDel = await notesRepository.getNoteProperties("web-vault", "note-1")
       expect(afterDel.customProperties).toHaveLength(0)
     })

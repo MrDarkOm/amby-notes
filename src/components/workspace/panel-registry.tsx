@@ -1,5 +1,10 @@
 import * as React from "react"
-import type { CustomProperty, NoteProperties, TreeItem } from "@/lib/storage"
+import type {
+  CustomProperty,
+  DatabasePropertySummary,
+  NoteProperties,
+  TreeItem,
+} from "@/lib/storage"
 import type { SettingsNavigationTarget } from "./settings-navigation"
 
 export type Side = "left" | "right"
@@ -26,6 +31,19 @@ export interface FolderProperties {
   noteCount: number
   folderCount: number
   nestedNotes: Array<{ id: string; name: string; icon?: string }>
+}
+
+export interface DatabasePanelProperties {
+  kind: "database"
+  id: string
+  title: string
+  icon?: string | null
+  propertyCount: number
+  manifestRevision: string
+  properties: DatabasePropertySummary[]
+  viewCount: number
+  rowCount?: number
+  locked?: boolean
 }
 
 export interface LinkGraphNode {
@@ -76,7 +94,7 @@ export interface PanelRenderProps {
 
   // Layer attachment from tree
   onAttachLayer?: (id: string, layer: "canvas" | "database" | "sketch") => void
-  /** Enabled when the released durable database creator is available. */
+  /** Enabled when the durable beta database creator is available. */
   canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, { canvas: boolean; database: boolean; sketch: boolean }>
   databaseRuntimeEnabled?: boolean
@@ -84,12 +102,14 @@ export interface PanelRenderProps {
 
   // Right side
   properties?: DocumentProperties | FolderProperties | null
+  databaseProperties?: DatabasePanelProperties | null
   linkGraph?: LinkGraph
   currentDocId?: string | null
   currentDocPath?: string | null
   onSelectLink?: (id: string) => void
   onUpsertCustomProperty?: (property: CustomProperty) => Promise<CustomProperty>
   onDeleteCustomProperty?: (propertyId: string) => Promise<void>
+  onReorderCustomProperties?: (propertyIds: string[]) => Promise<void>
   onHistoryRestored?: () => Promise<void>
   workspaceSwitcher?: React.ReactNode
 }

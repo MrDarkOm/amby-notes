@@ -3,7 +3,9 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { FileText, Folder, FolderPlus, LayoutGrid, Plus, Search } from "lucide-react"
+import { motion } from "motion/react"
 import { cn } from "@/lib/utils"
+import { motionTransitions } from "@/lib/motion-config"
 import { IconValue } from "./icon-value"
 import type { TreeItem } from "./sidebar-tree"
 import { countFolderContents } from "./folder-view-utils"
@@ -57,9 +59,12 @@ export function FolderView({
         <header className="mb-8 flex flex-wrap items-start justify-between gap-5">
           <div className="min-w-0">
             <div ref={iconTriggerRef} className="relative mb-3 w-fit">
-              <button
+              <motion.button
                 type="button"
-                className="flex size-12 items-center justify-center rounded-2xl bg-accent text-foreground transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex size-12 items-center justify-center rounded-2xl bg-accent text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.96 }}
+                transition={motionTransitions.default}
                 title={t("docEditor.changeIcon")}
                 aria-label={t("docEditor.changeIcon")}
                 onClick={() => setIconPickerOpen((open) => !open)}
@@ -69,7 +74,7 @@ export function FolderView({
                 ) : (
                   <Folder className="size-7 text-amber-500" strokeWidth={1.8} />
                 )}
-              </button>
+              </motion.button>
               {iconPickerOpen && (
                 <div className="absolute left-0 top-full z-50 mt-1">
                   <EmojiPickerPanel
@@ -98,7 +103,7 @@ export function FolderView({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground transition-colors hover:bg-accent"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:bg-accent"
               onClick={() => onNewFolder(folder.id)}
             >
               <FolderPlus className="size-4" />
@@ -106,7 +111,7 @@ export function FolderView({
             </button>
             <button
               type="button"
-              className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-sm text-primary-foreground hover:opacity-90"
               onClick={() => onNewNote(folder.id)}
             >
               <Plus className="size-4" />
@@ -121,7 +126,7 @@ export function FolderView({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("folderView.search")}
-            className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground outline-none transition-shadow placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/40"
+            className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/40"
           />
         </div>
 
@@ -130,11 +135,14 @@ export function FolderView({
             {visibleItems.map((item) => {
               const nested = item.type === "folder" ? countFolderContents(item) : null
               return (
-                <button
+                <motion.button
                   key={item.id}
                   type="button"
                   onClick={() => onOpenItem(item.id)}
-                  className="group flex min-h-24 items-start gap-3 rounded-xl border border-border bg-card p-4 text-left transition-[border-color,background-color,transform] hover:-translate-y-0.5 hover:border-ring/40 hover:bg-accent/50"
+                  className="group flex min-h-24 items-start gap-3 rounded-xl border border-border bg-card p-4 text-left hover:border-ring/40 hover:bg-accent/50"
+                  whileHover={{ y: -2 }}
+                  whileTap={{ scale: 0.99 }}
+                  transition={motionTransitions.default}
                 >
                   <span
                     className={cn(
@@ -159,7 +167,7 @@ export function FolderView({
                           : t("folderView.note")}
                     </span>
                   </span>
-                </button>
+                </motion.button>
               )
             })}
           </div>

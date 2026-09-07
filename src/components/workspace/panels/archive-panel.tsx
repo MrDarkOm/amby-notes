@@ -4,6 +4,7 @@ import * as React from "react"
 import { Archive, Loader2, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
+import { MotionSpinner } from "@/lib/motion"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -55,7 +56,9 @@ export function ArchivePanel(_props: PanelRenderProps) {
       <div className="min-h-0 flex-1 overflow-y-auto px-4">
         {loading ? (
           <p className="flex justify-center py-10 text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" />
+            <MotionSpinner>
+              <Loader2 className="size-4" />
+            </MotionSpinner>
           </p>
         ) : entries.length === 0 ? (
           <p className="py-10 text-center text-xs text-muted-foreground">

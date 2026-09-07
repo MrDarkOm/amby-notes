@@ -2,6 +2,7 @@ import * as React from "react"
 import type { TFunction } from "i18next"
 import {
   deleteCustomProperty,
+  reorderCustomProperties,
   type CustomProperty,
   type TreeItem,
   upsertCustomProperty,
@@ -111,5 +112,30 @@ export function usePropertyActions({
     [currentDoc, vault],
   )
 
-  return { currentProperties, handleUpsertCustomProperty, handleDeleteCustomProperty }
+  const handleReorderCustomProperties = React.useCallback(
+    async (propertyIds: string[]) => {
+      if (!vault || !currentDoc?.noteProperties) return
+      await reorderCustomProperties(vault, currentDoc.id, propertyIds)
+      const byId = new Map(
+        currentDoc.noteProperties.customProperties.map((property) => [property.id, property]),
+      )
+      useDocStore.getState().patchDoc(currentDoc.id, {
+        noteProperties: {
+          ...currentDoc.noteProperties,
+          customProperties: propertyIds.flatMap((id) => {
+            const property = byId.get(id)
+            return property ? [property] : []
+          }),
+        },
+      })
+    },
+    [currentDoc, vault],
+  )
+
+  return {
+    currentProperties,
+    handleUpsertCustomProperty,
+    handleDeleteCustomProperty,
+    handleReorderCustomProperties,
+  }
 }

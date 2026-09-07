@@ -3,7 +3,9 @@
 import * as React from "react"
 import { ChevronRight, FileText, Hash, Loader2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { cn } from "@/lib/utils"
+import { motion } from "motion/react"
+import { MotionSpinner } from "@/lib/motion"
+import { motionTransitions } from "@/lib/motion-config"
 import type { TreeItem } from "./sidebar-tree"
 import { extractObsidianTags } from "./markdown-tags"
 import { isTauri, listTags } from "@/lib/storage"
@@ -114,7 +116,9 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
   if (loading) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <MotionSpinner>
+          <Loader2 className="size-5 text-muted-foreground" />
+        </MotionSpinner>
         <p className="text-[12px] text-muted-foreground">{t("tagsPanel.scanning")}</p>
       </div>
     )
@@ -150,16 +154,18 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
             <div key={tag}>
               <button
                 onClick={() => toggleTag(tag)}
-                className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left transition-colors hover:bg-accent"
+                className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"
                 style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
                 title={`#${tag}`}
               >
-                <ChevronRight
-                  className={cn(
-                    "size-3 shrink-0 text-muted-foreground transition-transform",
-                    isOpen && "rotate-90",
-                  )}
-                />
+                <motion.span
+                  className="flex shrink-0 text-muted-foreground"
+                  initial={false}
+                  animate={{ rotate: isOpen ? 90 : 0 }}
+                  transition={motionTransitions.default}
+                >
+                  <ChevronRight className="size-3" />
+                </motion.span>
                 <Hash className="size-3.5 shrink-0 text-primary" />
                 <span className="flex-1 truncate text-[13px] text-foreground">{label}</span>
                 <span className="shrink-0 text-[11px] text-muted-foreground">{files.length}</span>
@@ -170,7 +176,7 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
                     <button
                       key={item.id}
                       onClick={() => onSelect(item.id)}
-                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left transition-colors hover:bg-accent"
+                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-accent"
                     >
                       <FileText className="size-3.5 shrink-0 text-muted-foreground" />
                       <div className="min-w-0">

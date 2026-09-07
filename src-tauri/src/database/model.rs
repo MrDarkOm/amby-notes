@@ -27,6 +27,32 @@ pub struct DatabaseViewSummary {
     pub group_field: Option<DatabaseFieldRef>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseTemplateSummary {
+    pub template_id: String,
+    pub name: String,
+    pub revision: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseOptionSummary {
+    pub option_id: String,
+    pub name: String,
+    pub color: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabasePropertySummary {
+    pub property_id: String,
+    pub name: String,
+    pub property_type: String,
+    pub config_json: String,
+    pub options: Vec<DatabaseOptionSummary>,
+}
+
 /// A summary deliberately contains no filesystem path. Resource resolution
 /// stays backend-owned and only safe view metadata crosses the IPC boundary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
@@ -34,7 +60,13 @@ pub struct DatabaseViewSummary {
 pub struct DatabaseSummary {
     pub database_id: String,
     pub title: String,
+    pub icon: Option<String>,
+    pub attached_note_id: Option<String>,
+    pub manifest_revision: String,
+    pub locked: bool,
+    pub properties: Vec<DatabasePropertySummary>,
     pub views: Vec<DatabaseViewSummary>,
+    pub templates: Vec<DatabaseTemplateSummary>,
     pub diagnostics: Vec<DatabaseDiagnostic>,
 }
 
@@ -115,6 +147,19 @@ pub struct DatabaseRow {
     pub category_path: Vec<String>,
     pub values_json: String,
     pub row_revision: String,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseNoteContext {
+    pub vault_generation: u64,
+    pub database_id: String,
+    pub database_title: String,
+    pub database_icon: Option<String>,
+    pub manifest_revision: String,
+    pub locked: bool,
+    pub properties: Vec<DatabasePropertySummary>,
+    pub row: DatabaseRow,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]

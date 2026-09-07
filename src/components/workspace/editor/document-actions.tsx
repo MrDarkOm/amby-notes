@@ -18,6 +18,7 @@ import {
   GitMerge,
   LayoutGrid,
   Link as LinkIcon,
+  Maximize2,
   MoreVertical,
   PanelBottom,
   PanelTop,
@@ -50,6 +51,7 @@ import {
 import type { TreeItem } from "../sidebar-tree"
 import { relativeToVault } from "./document-breadcrumbs-utils"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
+import type { ContentWidth } from "../app-config"
 
 export type LayerKind = "canvas" | "database" | "sketch"
 
@@ -78,7 +80,7 @@ export function LayerButton({
           type="button"
           title={title}
           onClick={onActivate}
-          className={`flex size-7 items-center justify-center rounded-full transition-colors ${
+          className={`flex size-7 items-center justify-center rounded-full ${
             active
               ? "bg-accent text-foreground"
               : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -300,7 +302,7 @@ export function FilePickerModal({
                     role="option"
                     aria-selected={activeIndex === index}
                     className={cn(
-                      "flex w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors",
+                      "flex w-full items-center rounded-md px-3 py-2 text-left text-sm",
                       activeIndex === index
                         ? "bg-accent text-accent-foreground"
                         : "text-foreground hover:bg-accent/70",
@@ -402,6 +404,8 @@ export function DocumentActionsDropdown({
   isLocked,
   viewMode,
   onViewModeChange,
+  contentWidth,
+  onContentWidthChange,
   nestedNotes,
   nestedNotesPlacement,
   onNestedNotesPlacementChange,
@@ -425,6 +429,8 @@ export function DocumentActionsDropdown({
   isLocked: boolean
   viewMode: DocumentViewMode
   onViewModeChange: (mode: DocumentViewMode) => void
+  contentWidth: ContentWidth
+  onContentWidthChange: (width: ContentWidth) => void
   nestedNotes: TreeItem[]
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
@@ -475,6 +481,26 @@ export function DocumentActionsDropdown({
             {viewMode === mode && <span className="text-primary">✓</span>}
           </DropdownMenuItem>
         ))}
+
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+            <Maximize2 className="size-3.5 text-muted-foreground" />
+            {t("settings.editor.contentWidth")}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-44 border-border bg-popover text-foreground">
+            {(["normal", "wide", "full"] as const).map((width) => (
+              <DropdownMenuItem
+                key={width}
+                disabled={!hasDocument}
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={() => onContentWidthChange(width)}
+              >
+                <span className="flex-1">{t(`settings.editor.${width}`)}</span>
+                {contentWidth === width && <span className="text-primary">✓</span>}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
 
         <DropdownMenuSeparator className="bg-accent" />
 

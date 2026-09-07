@@ -40,6 +40,20 @@ function normalizeTreePath(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "")
 }
 
+function pathName(path: string): string {
+  return path.split("/").pop() ?? ""
+}
+
+function pathParent(path: string): string {
+  const index = path.lastIndexOf("/")
+  return index === -1 ? "" : path.slice(0, index)
+}
+
+function isBundleMainPath(path: string): boolean {
+  const name = pathName(path)
+  return name.endsWith(".md") && pathName(pathParent(path)) === name.slice(0, -3)
+}
+
 /** Reject self-drops and folder drops into their own descendant paths. */
 export function isValidTreeDropTarget(
   sourceId: string,
@@ -50,7 +64,18 @@ export function isValidTreeDropTarget(
   if (!sourcePath || !targetPath || sourceId === targetId) return false
   const source = normalizeTreePath(sourcePath)
   const target = normalizeTreePath(targetPath)
-  return target !== source && !target.startsWith(`${source}/`)
+  if (target === source) return false
+
+  // A bundle main note visually represents its containing directory. A child
+  // (or the bundle itself) cannot be dropped onto that main note because the
+  // filesystem destination would be the same container.
+  const sourceRoot = isBundleMainPath(source) ? pathParent(source) : source
+  const targetIsBundleMain = isBundleMainPath(target)
+  const targetRoot = targetIsBundleMain ? pathParent(target) : target
+  return (
+    !target.startsWith(`${sourceRoot}/`) &&
+    !(targetIsBundleMain && (sourceRoot === targetRoot || sourceRoot.startsWith(`${targetRoot}/`)))
+  )
 }
 
 export interface SidebarTreeProps {

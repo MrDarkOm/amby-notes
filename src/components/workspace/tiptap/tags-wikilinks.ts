@@ -1,7 +1,9 @@
 import { Extension } from "@tiptap/core"
 import { Plugin, PluginKey } from "@tiptap/pm/state"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
+import { animate } from "motion/react"
 
+import { motionTransition, motionTransitions } from "@/lib/motion-config"
 import { INLINE_TOKEN_RE, getWikiLinkParts } from "./constants"
 
 export interface TagsWikilinksCallbacks {
@@ -53,6 +55,31 @@ function createWikiLinkButton(
   button.setAttribute("contenteditable", "false")
   button.setAttribute("aria-label", `Open note ${resolvedTarget}`)
   button.draggable = false
+
+  button.addEventListener("pointerenter", () => {
+    animate(
+      button,
+      {
+        y: -1,
+        backgroundColor: "color-mix(in srgb, var(--wikilink-bg) 65%, var(--wikilink-fg))",
+        borderColor: "var(--wikilink-fg)",
+        color: "var(--link-hover-color)",
+      },
+      motionTransition(motionTransitions.default),
+    )
+  })
+  button.addEventListener("pointerleave", () => {
+    animate(
+      button,
+      {
+        y: 0,
+        backgroundColor: "var(--wikilink-bg)",
+        borderColor: "var(--wikilink-underline)",
+        color: "var(--wikilink-fg)",
+      },
+      motionTransition(motionTransitions.default),
+    )
+  })
 
   button.addEventListener("mousedown", (event) => {
     event.preventDefault()

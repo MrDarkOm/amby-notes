@@ -154,6 +154,18 @@ export class NotesRepository {
     return this.port().deleteCustomProperty(vaultPath, noteId, propertyId)
   }
 
+  async reorderCustomProperties(
+    vaultPath: string,
+    noteId: string,
+    propertyIds: string[],
+  ): Promise<void> {
+    return this.port().reorderCustomProperties(vaultPath, noteId, propertyIds)
+  }
+
+  async backupCustomProperties(vaultPath: string, noteId: string): Promise<string> {
+    return this.port().backupCustomProperties(vaultPath, noteId)
+  }
+
   async getLinkGraph(vaultPath: string): Promise<LinkGraph> {
     return this.port().getLinkGraph(vaultPath)
   }

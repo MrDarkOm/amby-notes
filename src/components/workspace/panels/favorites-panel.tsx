@@ -2,8 +2,10 @@
 
 import { Bookmark, BookmarkCheck, FileText } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { motion } from "motion/react"
 
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { motionTransitions } from "@/lib/motion-config"
 import type { TreeItem } from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
 
@@ -43,24 +45,28 @@ export function FavoritesPanel({
     <ScrollArea className="flex-1">
       <div className="flex flex-col gap-px p-1">
         {favItems.map((item) => (
-          <div
+          <motion.div
             key={item.id}
             className="group flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent cursor-pointer"
+            initial="rest"
+            whileHover="hover"
             onClick={() => onSelect(item.id)}
           >
             <FileText className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="flex-1 truncate text-[13px] text-foreground">{item.name}</span>
-            <button
+            <motion.button
               onClick={(e) => {
                 e.stopPropagation()
                 onToggleFavorite?.(item.id)
               }}
-              className="opacity-0 group-hover:opacity-100 transition-opacity"
+              variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
+              whileFocus={{ opacity: 1 }}
+              transition={motionTransitions.fast}
               title={t("favoritesPanel.removeBookmark")}
             >
               <BookmarkCheck className="size-3.5 text-amber-400" />
-            </button>
-          </div>
+            </motion.button>
+          </motion.div>
         ))}
       </div>
     </ScrollArea>

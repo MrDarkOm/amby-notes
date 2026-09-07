@@ -42,7 +42,7 @@ export function NewItemModal({
             }}
             title={t("newItem.note")}
             aria-label={t("newItem.note")}
-            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center transition-colors hover:border-border hover:bg-accent"
+            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center hover:border-border hover:bg-accent"
           >
             <FileText className="size-5 text-foreground" />
           </button>
@@ -54,7 +54,7 @@ export function NewItemModal({
             }}
             title={t("newItem.folder")}
             aria-label={t("newItem.folder")}
-            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center transition-colors hover:border-border hover:bg-accent"
+            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center hover:border-border hover:bg-accent"
           >
             <FolderPlus className="size-5 text-foreground" />
           </button>
@@ -66,7 +66,7 @@ export function NewItemModal({
             }}
             title={t("newItem.canvas")}
             aria-label={t("newItem.canvas")}
-            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center transition-colors hover:border-border hover:bg-accent"
+            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center hover:border-border hover:bg-accent"
           >
             <LayoutGrid className="size-5 text-foreground" />
           </button>
@@ -80,7 +80,7 @@ export function NewItemModal({
             }}
             title={t("newItem.database")}
             aria-label={t("newItem.database")}
-            className={`flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors ${canCreateDatabase ? "hover:border-border hover:bg-accent" : "cursor-not-allowed opacity-50"}`}
+            className={`flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-muted-foreground ${canCreateDatabase ? "hover:border-border hover:bg-accent" : "cursor-not-allowed opacity-50"}`}
           >
             <Database className="size-5" />
           </button>

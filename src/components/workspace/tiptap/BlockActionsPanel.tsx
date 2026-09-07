@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { createPortal } from "react-dom"
+import { motion } from "motion/react"
 import type { Editor } from "@tiptap/react"
 import { Fragment, type Node as PMNode } from "@tiptap/pm/model"
 import {
@@ -28,6 +29,33 @@ import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { importAsset, pickAssetFile } from "@/lib/storage"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
 import { BLOCK_TEXT_COLORS as TEXT_COLORS, CALLOUT_SWATCHES } from "@/lib/themes"
+import { motionTransitions } from "@/lib/motion-config"
+
+const MotionRowButton = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentProps<typeof motion.button>
+>(function MotionRowButton(props, ref) {
+  return (
+    <motion.button
+      ref={ref}
+      whileHover={{ x: 2 }}
+      whileTap={{ scale: 0.99 }}
+      transition={motionTransitions.fast}
+      {...props}
+    />
+  )
+})
+
+function MotionSwatchButton(props: React.ComponentProps<typeof motion.button>) {
+  return (
+    <motion.button
+      whileHover={{ scale: 1.1, opacity: 0.85 }}
+      whileTap={{ scale: 0.95 }}
+      transition={motionTransitions.fast}
+      {...props}
+    />
+  )
+}
 
 interface Props {
   editor: Editor
@@ -226,9 +254,12 @@ export function BlockActionsPanel({
     isListItem
 
   return (
-    <div
+    <motion.div
       ref={panelRef}
       className="amby-block-panel amby-block-panel--actions"
+      initial={{ opacity: 0, scale: 0.97, y: -4 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={motionTransitions.enter}
       style={placementStyle}
       onMouseDown={(e) => e.preventDefault()}
     >
@@ -245,7 +276,7 @@ export function BlockActionsPanel({
 
       <div className="amby-block-panel-body">
         {turnIntoVisible && (
-          <button
+          <MotionRowButton
             ref={turnIntoBtnRef}
             type="button"
             className="amby-block-row"
@@ -269,7 +300,7 @@ export function BlockActionsPanel({
             <ChevronRight className="amby-block-row-icon" />
             <span className="amby-block-row-label">{t("blockPanel.turnInto")}</span>
             <span className="amby-block-row-hint">▸</span>
-          </button>
+          </MotionRowButton>
         )}
         {(hasContext || splitVisible) && (
           <div className="amby-block-context-zone">
@@ -297,7 +328,7 @@ export function BlockActionsPanel({
               </>
             )}
             {splitVisible && (
-              <button
+              <MotionRowButton
                 type="button"
                 className="amby-block-row"
                 onClick={() => {
@@ -306,7 +337,7 @@ export function BlockActionsPanel({
               >
                 <Rows3 className="amby-block-row-icon" />
                 <span className="amby-block-row-label">{t("blockPanel.splitBlocks")}</span>
-              </button>
+              </MotionRowButton>
             )}
           </div>
         )}
@@ -321,38 +352,42 @@ export function BlockActionsPanel({
 
       <div className="amby-block-panel-footer">
         {matches(t("blockPanel.copyLink")) && (
-          <button type="button" className="amby-block-row" onClick={() => void copyBlockLink()}>
+          <MotionRowButton
+            type="button"
+            className="amby-block-row"
+            onClick={() => void copyBlockLink()}
+          >
             <LinkIcon className="amby-block-row-icon" />
             <span className="amby-block-row-label">{t("blockPanel.copyLink")}</span>
             <span className="amby-block-row-hint">⌘L</span>
-          </button>
+          </MotionRowButton>
         )}
         {matches(t("blockPanel.duplicate")) && (
-          <button type="button" className="amby-block-row" onClick={onDuplicate}>
+          <MotionRowButton type="button" className="amby-block-row" onClick={onDuplicate}>
             <Copy className="amby-block-row-icon" />
             <span className="amby-block-row-label">{t("blockPanel.duplicate")}</span>
             <span className="amby-block-row-hint">⌘D</span>
-          </button>
+          </MotionRowButton>
         )}
         {insertVisible && (
           <>
-            <button type="button" className="amby-block-row" onClick={onInsertAbove}>
+            <MotionRowButton type="button" className="amby-block-row" onClick={onInsertAbove}>
               <ArrowUp className="amby-block-row-icon" />
               <span className="amby-block-row-label">{t("blockPanel.insertAbove")}</span>
-            </button>
-            <button type="button" className="amby-block-row" onClick={onInsertBelow}>
+            </MotionRowButton>
+            <MotionRowButton type="button" className="amby-block-row" onClick={onInsertBelow}>
               <ArrowDown className="amby-block-row-icon" />
               <span className="amby-block-row-label">{t("blockPanel.insertBelow")}</span>
-            </button>
+            </MotionRowButton>
           </>
         )}
         {matches(t("blockPanel.delete")) && (
           <div className="amby-block-panel-danger-zone">
-            <button type="button" className="amby-block-row is-danger" onClick={onDelete}>
+            <MotionRowButton type="button" className="amby-block-row is-danger" onClick={onDelete}>
               <Trash2 className="amby-block-row-icon" />
               <span className="amby-block-row-label">{t("blockPanel.delete")}</span>
               <span className="amby-block-row-hint">⌫</span>
-            </button>
+            </MotionRowButton>
           </div>
         )}
       </div>
@@ -363,7 +398,7 @@ export function BlockActionsPanel({
           onChoose={chooseTurnInto}
         />
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -389,7 +424,7 @@ function TurnIntoMenu({
       onMouseDown={(e) => e.preventDefault()}
     >
       {items.map((item) => (
-        <button
+        <MotionRowButton
           key={item.id}
           type="button"
           className="amby-block-row"
@@ -397,7 +432,7 @@ function TurnIntoMenu({
         >
           <item.icon className="amby-block-row-icon" />
           <span className="amby-block-row-label">{t(`blockItems.${item.id}.title`)}</span>
-        </button>
+        </MotionRowButton>
       ))}
     </div>,
     document.body,
@@ -467,7 +502,7 @@ function CalloutContext({
           <div className="amby-block-panel-section">{t("blockPanel.bgCallout")}</div>
           <div className="amby-ctx-swatches">
             {CALLOUT_SWATCHES.map((sw) => (
-              <button
+              <MotionSwatchButton
                 key={sw.id}
                 type="button"
                 title={t(`colors.${sw.id}`)}
@@ -478,7 +513,7 @@ function CalloutContext({
                 onClick={() => setBg(sw.id)}
               >
                 {sw.id === "none" && <Droplet className="size-3" />}
-              </button>
+              </MotionSwatchButton>
             ))}
           </div>
         </>
@@ -488,7 +523,7 @@ function CalloutContext({
           <div className="amby-block-panel-section">{t("blockPanel.textColor")}</div>
           <div className="amby-ctx-swatches">
             {TEXT_COLORS.map((c) => (
-              <button
+              <MotionSwatchButton
                 key={c.id}
                 type="button"
                 title={c.id}
@@ -499,13 +534,13 @@ function CalloutContext({
                 onClick={() => setTextColor(c.color)}
               >
                 {c.color == null && <Droplet className="size-3" />}
-              </button>
+              </MotionSwatchButton>
             ))}
           </div>
         </>
       )}
       {showEmoji && (
-        <button
+        <MotionRowButton
           ref={emojiButtonRef}
           type="button"
           className="amby-block-row"
@@ -519,7 +554,7 @@ function CalloutContext({
             {String(node?.attrs.emoji ?? "💡")}
           </span>
           <span className="amby-block-row-label">{t("callout.changeEmoji")}</span>
-        </button>
+        </MotionRowButton>
       )}
       {emojiOpen &&
         emojiAnchor &&

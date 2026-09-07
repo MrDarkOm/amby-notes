@@ -3,7 +3,9 @@
 import * as React from "react"
 import { SmilePlus } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { motion } from "motion/react"
 
+import { motionTransitions } from "@/lib/motion-config"
 import { IconValue } from "../icon-value"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "../tiptap/floating-menu-events"
@@ -36,12 +38,7 @@ export function DocumentTitle({
   }, [title])
 
   React.useEffect(() => {
-    if (editingTitle) {
-      setTimeout(() => {
-        titleInputRef.current?.select()
-        titleInputRef.current?.focus()
-      }, 0)
-    }
+    if (editingTitle) titleInputRef.current?.focus()
   }, [editingTitle])
 
   function commitTitleRename() {
@@ -69,9 +66,12 @@ export function DocumentTitle({
         className={hasPageEmoji ? "relative shrink-0" : "absolute -left-10 top-0"}
       >
         {hasPageEmoji ? (
-          <button
+          <motion.button
             type="button"
-            className="text-3xl leading-none transition-transform hover:scale-110 focus:outline-none"
+            className="text-3xl leading-none focus:outline-none"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.96 }}
+            transition={motionTransitions.default}
             title={t("docEditor.changeIcon")}
             onClick={() => {
               if (emojiPickerOpen) {
@@ -84,11 +84,14 @@ export function DocumentTitle({
             }}
           >
             <IconValue value={fileIcon} className="size-8 rounded-md" />
-          </button>
+          </motion.button>
         ) : (
-          <button
+          <motion.button
             type="button"
-            className="amby-page-emoji-add flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-all hover:bg-accent hover:text-foreground focus:outline-none"
+            className="amby-page-emoji-add flex size-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus:outline-none"
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.96 }}
+            transition={motionTransitions.default}
             title={t("docEditor.changeIcon")}
             aria-label={t("docEditor.changeIcon")}
             onClick={() => {
@@ -102,7 +105,7 @@ export function DocumentTitle({
             }}
           >
             <SmilePlus className="size-5" />
-          </button>
+          </motion.button>
         )}
         {emojiPickerOpen && (
           <div className="absolute left-0 top-full z-50 mt-1">
@@ -122,26 +125,19 @@ export function DocumentTitle({
           </div>
         )}
       </div>
-      {editingTitle ? (
-        <input
-          ref={titleInputRef}
-          value={titleValue}
-          onChange={(e) => setTitleValue(e.target.value)}
-          onBlur={commitTitleRename}
-          onKeyDown={handleTitleKeyDown}
-          className="h-8 flex-1 border-0 bg-transparent p-0 text-2xl font-semibold leading-none tracking-tight text-foreground outline-none sm:h-10 sm:text-3xl"
-        />
-      ) : (
-        <h1
-          className="cursor-text text-2xl font-semibold leading-none tracking-tight text-foreground hover:text-primary sm:text-3xl"
-          onClick={() => {
-            setTitleValue(title)
-            onEditingTitleChange(true)
-          }}
-        >
-          {title}
-        </h1>
-      )}
+      <input
+        ref={titleInputRef}
+        value={titleValue}
+        readOnly={!editingTitle}
+        aria-label={title}
+        onFocus={() => {
+          if (!editingTitle) onEditingTitleChange(true)
+        }}
+        onChange={(e) => setTitleValue(e.target.value)}
+        onBlur={commitTitleRename}
+        onKeyDown={handleTitleKeyDown}
+        className="h-8 min-w-0 flex-1 cursor-text border-0 bg-transparent p-0 text-2xl font-semibold leading-none tracking-tight text-foreground outline-none sm:h-10 sm:text-3xl"
+      />
     </div>
   )
 }

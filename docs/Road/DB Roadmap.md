@@ -1,6 +1,6 @@
 # DB Roadmap
 
-Статус: DB-00—DB-21 реализованы в текущем worktree; модуль баз данных переведён в `ready`
+Статус: DB-00—DB-09 реализованы; DB-10—DB-20 имеют рабочие вертикальные срезы, но не весь заявленный scope; после runtime/UI-аудита модуль возвращён в `beta`, DB-21 не закрыт без полного native/platform evidence
 Версия документа: 1
 Дата: 2026-09-04
 
@@ -564,7 +564,8 @@ Read-only. Это Gate B.
 
 ## 14. DB-10 — Создание базы, schema и view mutations
 
-Статус: реализовано в текущем worktree.
+Статус: частично. Создание standalone/attached базы и базового property работает;
+полные CRUD/reorder для schema, options, views и templates ещё не реализованы.
 
 ### Цель
 
@@ -615,7 +616,9 @@ flag, еще без редактирования record values.
 
 ## 15. DB-11 — Record values, simple cells и edit queue
 
-Статус: реализовано в текущем worktree.
+Статус: частично. Базовые typed cells, per-row serialization, CAS и durable
+value-batch recovery работают; clipboard range, persistent drafts и полный undo
+ещё не реализованы.
 
 ### Цель
 
@@ -663,7 +666,8 @@ durable CAS и optimistic UI.
 
 ## 16. DB-12 — Rows, Title, membership и sub-items
 
-Статус: реализовано в текущем worktree.
+Статус: частично. Blank row создаётся как Markdown note с record shard;
+rename/move/nest/lift/delete и property mapping между базами ещё не реализованы.
 
 ### Цель
 
@@ -709,7 +713,8 @@ durable CAS и optimistic UI.
 
 ## 17. DB-13 — Side peek и два раздела Inspector
 
-Статус: реализовано в текущем worktree.
+Статус: частично. Side Peek использует общий editor/autosave и writable lease;
+resize, inspector targeting, focus restore и origin-context navigation не завершены.
 
 ### Цель
 
@@ -756,7 +761,8 @@ durable CAS и optimistic UI.
 
 ## 18. DB-14 — List и Gallery
 
-Статус: реализовано в текущем worktree.
+Статус: частично. Виртуализированные List/Gallery и pagination существуют;
+configured secondary fields, inline edit и полный preview fallback не завершены.
 
 ### Цель
 
@@ -798,7 +804,8 @@ durable CAS и optimistic UI.
 
 ## 19. DB-15 — Board и атомарный drag
 
-Статус: реализовано в текущем worktree.
+Статус: частично. Virtual lanes, CAS drag, keyboard move и vertical pagination
+работают; global lane counts и manual order ещё не реализованы.
 
 ### Цель
 
@@ -841,7 +848,8 @@ durable CAS и optimistic UI.
 
 ## 20. DB-16 — Relations и Files & media
 
-Статус: реализовано в текущем worktree.
+Статус: частично. Durable format/query и row-scoped asset import существуют;
+relation/files editors и полный lifecycle UI ещё не реализованы.
 
 ### Цель
 
@@ -886,7 +894,8 @@ Relation values остаются в record shards; assets — в row bundle.
 
 ## 21. DB-17 — Templates, history и Undo
 
-Статус: реализовано в текущем worktree.
+Статус: частично. Default template применяется при создании row, writes получают
+history snapshots; template CRUD/picker, grouped history и safe inverse Undo не завершены.
 
 ### Цель
 
@@ -931,7 +940,8 @@ Relation values остаются в record shards; assets — в row bundle.
 
 ## 22. DB-18 — Linked views и explicit legacy migration
 
-Статус: реализовано в текущем worktree.
+Статус: частично. Portable reference парсится и рендерится в изолированном host;
+drag insertion, editable overrides и explicit legacy migration не реализованы.
 
 ### Цель
 
@@ -979,7 +989,8 @@ Reference живет в Markdown. Legacy conversion — только explicit jo
 
 ## 23. DB-19 — Batch, clipboard и CSV
 
-Статус: реализовано в текущем worktree.
+Статус: частично. Pure TSV/CSV planners и journaled value batch существуют;
+selection UI, paste orchestration и CSV import/export commands/dialogs не реализованы.
 
 ### Цель
 
@@ -1025,9 +1036,9 @@ Batch меняет existing durable resources через один recovery journ
 
 ## 24. DB-20 — YAML two-way sync и field conflicts
 
-Статус: реализовано в текущем worktree для supported two-way bindings: backend
-sync с CAS/history/rollback, conflict projection/IPC, inspector UI и
-разрешение конфликта выбором shard/YAML либо manual PropertyValue JSON.
+Статус: частично. Backend sync с CAS/history/rollback, conflict projection/IPC и
+разрешение конфликта из Side Peek работают; создание/редактирование bindings и
+полный Inspector UI ещё не реализованы.
 
 ### Цель
 
@@ -1073,10 +1084,10 @@ preflight, snapshot и revision check.
 
 ## 25. DB-21 — Hardening, performance и release gate
 
-Статус: реализовано в текущем worktree. Backend hardening, release checks,
-baseline для 1 000/5 000/10 000 rows, audit, release build и перевод module
-status в `ready` завершены; platform-specific manual evidence остаётся отдельной
-операционной проверкой для Windows/Linux и неподготовленных файловых систем.
+Статус: не завершено. Аудит 2026-09-04 обнаружил функциональные пробелы между
+контрактом и UI, а native storage runner в этой macOS-сессии не вернул
+структурированный PASS. Модуль доступен как явный opt-in `beta`, но не входит в
+новый Standard preset до закрытия всех platform gates.
 
 ### Цель
 
@@ -1101,27 +1112,37 @@ status в `ready` завершены; platform-specific manual evidence оста
 - Снять experimental gate, поставить module status `ready`.
 - Сохранить explicit enabled choice существующих layouts.
 
-### Фактический результат
+### Фактический результат после аудита
 
-- `databases` имеет `status: ready` и доступен без `experimental.databasesV1`;
-  старое поле не удаляется, поэтому чтение и запись существующих settings остаются
-  совместимыми.
-- Existing `layout.activeModules` не мигрируется и не перезаписывается. Новые
-  Standard presets включают только ready-модули, а пользовательский выбор в уже
-  сохранённом layout сохраняется.
-- Backend 1 000/5 000/10 000-row smoke пройден на macOS arm64 и Windows x64;
-  отдельные timings сохранены в [performance baseline](../performance-baseline.md).
-- `npm run verify`, `npm run audit` и `npm run tauri build -- --bundles app,dmg`
-  пройдены на macOS arm64; app strict-signature и DMG integrity проверены.
-- Corruption/CAS/rollback/recovery, rebuildable SQLite, узкие capabilities и
-  portability contracts покрыты исходными тестами и документами. Native storage
-  runner в этой macOS-сессии не выдал structured report до остановки процесса;
-  это не отмечается как PASS и не меняет production-код.
-- Post-release UI gap closure завершён: standalone и attached database creation
-  подключены к новым entry points, legacy `Metadata.md` writer не используется,
-  а Files/tree/editor menus показывают единый набор Canvas, Excalidraw и Database.
-- Для открытой заметки, удалённой внешним редактором, добавлены persistent banner
-  и безопасное восстановление локальной версии с сохранением исходного frontmatter.
+- `databases` имеет `status: beta`, доступен вручную без зависимости от legacy
+  `experimental.databasesV1` и не включается автоматически в новые Standard presets.
+- Исправлено обычное открытие базы: оно заменяет активную вкладку; отдельная
+  вкладка создаётся только явной командой «Открыть копию».
+- Existing attached database переключается внутри слоя заметки без повторного
+  создания `ambd.json`; слой рендерит общий DatabaseWorkspace.
+- Table читает реальные properties/options, создаёт строки и базовые поля,
+  редактирует поддерживаемые typed values через CAS batch и обновляет projection.
+- Side Peek загружает общий Markdown editor с единым writable lease; external
+  database events обновляют runtime, catalog и mounted hosts.
+- Value batch получил durable `.ambd/recovery` journal, raw-revision backups,
+  идемпотентный completed result и rollback, который не перезаписывает более
+  позднее внешнее изменение; повторное использование `operationId` с другим
+  payload отклоняется и до, и после перезапуска.
+- `locked` снова соответствует format contract: schema mutation заблокирована,
+  но редактирование values и YAML sync разрешены.
+- Source write больше не маскируется под неуспешный create/commit, если уже после
+  него не удалось перестроить derived projection: IPC возвращает durable result
+  с предупреждением и допускает безопасный повтор rebuild.
+- Row creation публикует новую Markdown-заметку в основной note index до rebuild,
+  поэтому подавленное собственное watcher-событие больше не оставляет `db_members`
+  пустым. Создатель view пишет contract-совместимые `openMode`, `density` и Title
+  field; ранее созданные DB-10 aliases читаются совместимо без изменения файлов.
+- Headless gate: TypeScript, ESLint, 463 Vitest, Prettier, Knip, Rustfmt, strict
+  Clippy и 257 Rust tests проходят; 1 large-vault smoke остаётся explicit ignored.
+  Generated bindings повторно воспроизводятся
+  byte-for-byte; `git diff` остаётся ожидаемым до фиксации нового IPC в commit.
+- Native storage runner без structured report не считается PASS. Windows/Linux
+  release evidence и полный native UI сценарий остаются обязательными для DB-21.
 
 ### Acceptance
 

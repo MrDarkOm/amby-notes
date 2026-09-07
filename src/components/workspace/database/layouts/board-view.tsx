@@ -101,6 +101,9 @@ export function BoardView({
             onDrop={(event) => handleDrop(event, lane.key)}
             onMoveRow={moveRow}
             onRowSelect={onRowSelect}
+            loading={loading}
+            hasNextPage={hasNextPage}
+            onLoadNextPage={onLoadNextPage}
           />
         ))}
       </div>
@@ -132,6 +135,9 @@ interface BoardLaneProps {
   onDrop: (event: React.DragEvent) => void
   onMoveRow: (row: DatabaseRow, laneKey: string) => Promise<void>
   onRowSelect?: (row: DatabaseRow) => void
+  loading: boolean
+  hasNextPage: boolean
+  onLoadNextPage?: () => void
 }
 
 function BoardLane({
@@ -145,6 +151,9 @@ function BoardLane({
   onDrop,
   onMoveRow,
   onRowSelect,
+  loading,
+  hasNextPage,
+  onLoadNextPage,
 }: BoardLaneProps) {
   const { t } = useTranslation()
   const parentRef = React.useRef<HTMLDivElement>(null)
@@ -163,7 +172,20 @@ function BoardLane({
       onDrop={onDrop}
     >
       <header className="border-b border-border/70 px-3 py-2 text-xs font-semibold">{label}</header>
-      <div ref={parentRef} className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div
+        ref={parentRef}
+        className="min-h-0 flex-1 overflow-y-auto p-2"
+        onScroll={(event) => {
+          const element = event.currentTarget
+          if (
+            hasNextPage &&
+            !loading &&
+            element.scrollTop + element.clientHeight >= element.scrollHeight - 240
+          ) {
+            onLoadNextPage?.()
+          }
+        }}
+      >
         <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const row = rows[virtualRow.index]
@@ -180,7 +202,7 @@ function BoardLane({
                   type="button"
                   draggable={!isPending}
                   aria-busy={isPending}
-                  className="w-full rounded-lg border border-border/70 bg-card px-3 py-3 text-left text-xs shadow-sm transition-colors hover:bg-accent/40 disabled:opacity-60"
+                  className="w-full rounded-lg border border-border/70 bg-card px-3 py-3 text-left text-xs shadow-sm hover:bg-accent/40 disabled:opacity-60"
                   disabled={isPending}
                   onDragStart={() => onDragStart(row)}
                   onClick={() => onRowSelect?.(row)}

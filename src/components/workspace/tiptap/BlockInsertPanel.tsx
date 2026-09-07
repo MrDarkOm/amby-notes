@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import type { Editor, Range } from "@tiptap/core"
+import { motion } from "motion/react"
 
 import {
   getPlusItems,
@@ -14,6 +15,7 @@ import { SLASH_MENU_KEY_EVENT, type SlashMenuKey } from "./slash-menu"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { isTauri } from "@/lib/storage"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
+import { motionTransitions } from "@/lib/motion-config"
 
 type Mode = "list" | "url" | "emoji"
 
@@ -205,9 +207,12 @@ export function BlockInsertPanel({
   }
 
   return (
-    <div
+    <motion.div
       ref={panelRef}
       className="amby-block-panel amby-block-panel--insert"
+      initial={{ opacity: 0, scale: 0.97, y: -4 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={motionTransitions.enter}
       data-mode={mode}
       style={placementStyle}
       onMouseDown={(e) => e.preventDefault()}
@@ -233,7 +238,7 @@ export function BlockInsertPanel({
               filtered.map((item, idx) => {
                 const disabled = itemDisabled(item)
                 return (
-                  <button
+                  <motion.button
                     key={item.id}
                     type="button"
                     disabled={disabled}
@@ -243,12 +248,15 @@ export function BlockInsertPanel({
                       (disabled ? " is-disabled" : "")
                     }
                     onMouseEnter={() => setActive(idx)}
+                    whileHover={disabled ? undefined : { x: 2 }}
+                    whileTap={disabled ? undefined : { scale: 0.99 }}
+                    transition={motionTransitions.fast}
                     onClick={() => choose(item)}
                   >
                     <item.icon className="amby-block-row-icon" />
                     <span className="amby-block-row-label">{t(`blockItems.${item.id}.title`)}</span>
                     <span className="amby-block-row-hint">{t(`blockItems.${item.id}.hint`)}</span>
-                  </button>
+                  </motion.button>
                 )
               })
             )}
@@ -295,6 +303,6 @@ export function BlockInsertPanel({
           />
         </div>
       )}
-    </div>
+    </motion.div>
   )
 }

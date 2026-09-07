@@ -27,11 +27,11 @@ describe("preset activity zones", () => {
     }
   })
 
-  it("keeps the released database module available without the legacy gate", () => {
+  it("keeps the beta database module available without enabling it in new presets", () => {
     expect(isModuleAvailable("databases")).toBe(true)
     expect(availableModuleIds()).toContain("databases")
     expect(availableModuleIds({ databasesV1: true })).toContain("databases")
-    expect(STANDARD_PRESET.activeModules).toContain("databases")
+    expect(STANDARD_PRESET.activeModules).not.toContain("databases")
   })
 
   it("does not expose unimplemented notification or help actions", () => {

@@ -30,6 +30,7 @@ export interface DatabaseStoreState {
   databases: DatabaseSummary[]
   diagnostics: DatabaseDiagnostic[]
   error: string | null
+  invalidationSeq: number
   hosts: Record<string, DatabaseHostSession>
   reset: (vaultGeneration: number | null) => void
   setRuntime: (runtime: DatabaseModuleState | null) => void
@@ -37,6 +38,7 @@ export interface DatabaseStoreState {
   setCatalog: (databases: DatabaseSummary[], diagnostics?: DatabaseDiagnostic[]) => void
   setCatalogError: (error: string) => void
   setCatalogDisabled: () => void
+  invalidateHosts: () => void
   setHost: (session: DatabaseHostSession) => void
 }
 
@@ -44,17 +46,19 @@ export function databaseHostKey(
   kind: DatabaseHostKind,
   databaseId: string,
   viewId: string | null = null,
+  hostId: string | null = null,
 ): string {
-  return `${kind}:${databaseId}:${viewId ?? "default"}`
+  return `${kind}:${hostId ?? "default"}:${databaseId}:${viewId ?? "default"}`
 }
 
 export function emptyDatabaseHost(
   kind: DatabaseHostKind,
   databaseId: string,
   viewId: string | null = null,
+  hostId: string | null = null,
 ): DatabaseHostSession {
   return {
-    key: databaseHostKey(kind, databaseId, viewId),
+    key: databaseHostKey(kind, databaseId, viewId, hostId),
     kind,
     databaseId,
     viewId,
@@ -74,6 +78,7 @@ export const useDatabaseStore = create<DatabaseStoreState>((set) => ({
   databases: [],
   diagnostics: [],
   error: null,
+  invalidationSeq: 0,
   hosts: {},
   reset: (vaultGeneration) =>
     set({
@@ -83,6 +88,7 @@ export const useDatabaseStore = create<DatabaseStoreState>((set) => ({
       databases: [],
       diagnostics: [],
       error: null,
+      invalidationSeq: 0,
       hosts: {},
     }),
   setRuntime: (runtime) => set({ runtime }),
@@ -92,6 +98,7 @@ export const useDatabaseStore = create<DatabaseStoreState>((set) => ({
   setCatalogError: (error) => set({ catalogStatus: "error", error }),
   setCatalogDisabled: () =>
     set({ catalogStatus: "disabled", databases: [], diagnostics: [], error: null }),
+  invalidateHosts: () => set((state) => ({ invalidationSeq: state.invalidationSeq + 1 })),
   setHost: (session) => set((state) => ({ hosts: { ...state.hosts, [session.key]: session } })),
 }))
 

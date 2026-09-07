@@ -39,6 +39,8 @@ import type { TreeItem } from "../sidebar-tree"
 import { stripMdExt } from "./document-breadcrumbs-utils"
 import { DocumentTitle } from "./document-title"
 import { LAYER_OPTIONS, type DocumentViewMode, type EditorLayer } from "./use-document-view-mode"
+import { EDITOR_CONTENT_WIDTH } from "@/lib/themes"
+import type { ContentWidth } from "../app-config"
 
 export interface DocumentBodyProps {
   docId: string
@@ -50,6 +52,7 @@ export interface DocumentBodyProps {
   activeLayer: EditorLayer
   viewMode: DocumentViewMode
   onViewModeChange: (mode: DocumentViewMode) => void
+  contentWidth: ContentWidth
   isLocked: boolean
   fileIcon?: string
   onFileIconChange?: (icon: string) => void
@@ -69,6 +72,7 @@ export interface DocumentBodyProps {
   canvasValue?: string
   onCanvasChange?: (json: string) => void
   onOpenCanvasNote?: (file: string) => void
+  databaseBody?: React.ReactNode
   editorSelection: MarkdownSelection | null
   onEditorSelectionChange: (selection: MarkdownSelection) => void
   editorRef: React.RefObject<EditorHandle>
@@ -86,6 +90,7 @@ export function DocumentBody({
   activeLayer,
   viewMode,
   onViewModeChange,
+  contentWidth,
   isLocked,
   fileIcon,
   onFileIconChange,
@@ -105,6 +110,7 @@ export function DocumentBody({
   canvasValue,
   onCanvasChange,
   onOpenCanvasNote,
+  databaseBody,
   editorSelection,
   onEditorSelectionChange,
   editorRef,
@@ -140,6 +146,10 @@ export function DocumentBody({
     )
   }
 
+  if (activeLayer === "database" && databaseBody) {
+    return <div className="mr-2 flex min-h-0 flex-1 overflow-hidden">{databaseBody}</div>
+  }
+
   const activeLayerMeta =
     LAYER_OPTIONS.find((option) => option.id === activeLayer) ?? LAYER_OPTIONS[0]
   const ActiveLayerIcon = activeLayerMeta.icon
@@ -148,7 +158,7 @@ export function DocumentBody({
     nestedNotes.length > 0 && nestedNotesPlacement !== "hidden" ? (
       <div
         className={
-          nestedNotesPlacement === "bottom" ? "mt-8 border-t border-border pt-4" : "mb-5 -mt-1"
+          nestedNotesPlacement === "bottom" ? "mt-8 border-t border-border pt-4" : "mb-2 -mt-1"
         }
       >
         <div className="flex flex-wrap gap-2">
@@ -160,7 +170,7 @@ export function DocumentBody({
                 <ContextMenuTrigger asChild>
                   <button
                     type="button"
-                    className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-accent/45 px-3 py-2 text-sm text-foreground shadow-sm transition-colors hover:border-primary/40 hover:bg-accent"
+                    className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-accent/45 px-3 py-2 text-sm text-foreground shadow-sm hover:border-primary/40 hover:bg-accent"
                     onClick={() => onOpenItem?.(note.id)}
                   >
                     <span className="flex size-5 items-center justify-center" aria-hidden="true">
@@ -208,7 +218,7 @@ export function DocumentBody({
       <div className="amby-editor-scroll mr-2 min-h-0 flex-1 overscroll-none overflow-y-auto">
         <div
           className="mx-auto px-4 pb-8 pt-5 sm:px-8 sm:pt-6 lg:px-10"
-          style={{ maxWidth: "var(--content-max-width, 48rem)" }}
+          style={{ maxWidth: EDITOR_CONTENT_WIDTH[contentWidth] }}
         >
           <DocumentTitle
             title={docTitle}
@@ -222,7 +232,7 @@ export function DocumentBody({
           {nestedNotesPlacement === "top" && nestedNotesBar ? (
             nestedNotesBar
           ) : (
-            <div className="mb-5" />
+            <div className="mb-2" />
           )}
 
           {activeLayer !== "editor" ? (
@@ -289,7 +299,7 @@ export function DocumentBody({
                 title={t("docEditor.viewMode")}
                 aria-label={t("docEditor.viewMode")}
                 disabled={activeLayer !== "editor" || isLocked}
-                className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+                className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
                 onMouseDown={(e) => e.preventDefault()}
               >
                 {viewMode === "source" ? (
@@ -327,7 +337,7 @@ export function DocumentBody({
           <div className="mx-1 h-3 w-px bg-accent" />
           <button
             title={t("docEditor.undo")}
-            className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
             onMouseDown={(e) => {
               e.preventDefault()
               editorRef.current?.undo()
@@ -337,7 +347,7 @@ export function DocumentBody({
           </button>
           <button
             title={t("docEditor.redo")}
-            className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
             onMouseDown={(e) => {
               e.preventDefault()
               editorRef.current?.redo()

@@ -1,5 +1,7 @@
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
+import { motion } from "motion/react"
 
+import { motionTransitions } from "@/lib/motion-config"
 import { resolveAssetSrc } from "./asset-resolver"
 
 export function AmbyImageView({ node, selected, editor }: NodeViewProps) {
@@ -15,11 +17,18 @@ export function AmbyImageView({ node, selected, editor }: NodeViewProps) {
       className={`amby-image-wrap${alignClass}${selected ? " is-selected" : ""}`}
       data-asset-src={src}
     >
-      <img
+      <motion.img
         src={resolved}
         alt={alt}
         title={title}
         draggable={false}
+        animate={{
+          borderColor: selected
+            ? "var(--image-selected-border)"
+            : "var(--image-border, var(--border))",
+          boxShadow: selected ? "var(--image-selected-shadow)" : "var(--image-shadow)",
+        }}
+        transition={motionTransitions.default}
         onError={(event) => {
           event.currentTarget.classList.add("is-broken")
         }}

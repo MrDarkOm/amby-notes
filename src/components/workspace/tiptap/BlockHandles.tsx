@@ -5,7 +5,9 @@ import { createPortal } from "react-dom"
 import type { Editor } from "@tiptap/react"
 import type { Node as PMNode, ResolvedPos } from "@tiptap/pm/model"
 import { GripVertical } from "lucide-react"
+import { animate } from "motion/react"
 
+import { motionTransition, motionTransitions } from "@/lib/motion-config"
 import { BlockActionsPanel } from "./BlockActionsPanel"
 import { BlockInsertPanel } from "./BlockInsertPanel"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
@@ -733,6 +735,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
             document.body.appendChild(ghost)
             ghostRef.current = ghost
             srcDom.classList.add("amby-block-drag-source")
+            animate(srcDom, { opacity: 0.35 }, motionTransition(motionTransitions.fast))
           }
         }
         updateIndicator(ev.clientX, ev.clientY)
@@ -745,9 +748,15 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           ghostRef.current.remove()
           ghostRef.current = null
         }
-        document
-          .querySelectorAll(".amby-block-drag-source")
-          .forEach((el) => el.classList.remove("amby-block-drag-source"))
+        document.querySelectorAll<HTMLElement>(".amby-block-drag-source").forEach((element) => {
+          element.classList.remove("amby-block-drag-source")
+          const controls = animate(
+            element,
+            { opacity: 1 },
+            motionTransition(motionTransitions.fast),
+          )
+          void controls.then(() => element.style.removeProperty("opacity"))
+        })
       }
 
       function onUp(ev: PointerEvent) {

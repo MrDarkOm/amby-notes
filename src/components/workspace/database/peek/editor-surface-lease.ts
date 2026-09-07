@@ -25,3 +25,6 @@ export class EditorSurfaceLeaseManager {
     return this.leases.get(noteId)?.owner ?? null
   }
 }
+
+/** Shared by every mounted editor surface in the workspace window. */
+export const editorSurfaceLeases = new EditorSurfaceLeaseManager()

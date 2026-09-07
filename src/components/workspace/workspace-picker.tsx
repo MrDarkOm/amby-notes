@@ -3,7 +3,9 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { Check, FolderOpen, FolderTree, MoreHorizontal, PenLine, Plus, Unlink } from "lucide-react"
+import { motion } from "motion/react"
 import { cn } from "@/lib/utils"
+import { motionTransitions } from "@/lib/motion-config"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   DropdownMenu,
@@ -80,8 +82,10 @@ export function WorkspacePicker({
             </p>
           )}
           {vaults.map((vault) => (
-            <div
+            <motion.div
               key={vault.id}
+              initial="rest"
+              whileHover="hover"
               className={cn(
                 "group flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent",
                 vault.path === currentPath && "bg-accent/60",
@@ -125,13 +129,16 @@ export function WorkspacePicker({
               {/* Three-dot menu */}
               <DropdownMenu modal={false}>
                 <DropdownMenuTrigger asChild>
-                  <button
+                  <motion.button
                     title={t("vaultPicker.actions")}
                     onClick={(e) => e.stopPropagation()}
-                    className="flex size-5 shrink-0 items-center justify-center rounded opacity-0 outline-none transition-opacity group-hover:opacity-100 hover:bg-accent focus-visible:opacity-100"
+                    className="flex size-5 shrink-0 items-center justify-center rounded outline-none hover:bg-accent"
+                    variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
+                    whileFocus={{ opacity: 1 }}
+                    transition={motionTransitions.fast}
                   >
                     <MoreHorizontal className="size-3.5 text-muted-foreground" />
-                  </button>
+                  </motion.button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                   className="w-48 border-border bg-popover text-foreground"
@@ -173,7 +180,7 @@ export function WorkspacePicker({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            </div>
+            </motion.div>
           ))}
         </div>
 
@@ -183,7 +190,7 @@ export function WorkspacePicker({
               onAdd()
               setOpen(false)
             }}
-            className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-[13px] text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground"
+            className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-[13px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground"
           >
             <Plus className="size-3.5" />
             {t("vaultPicker.openOrCreate")}

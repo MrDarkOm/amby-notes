@@ -18,6 +18,10 @@ Those directories, along with `.amby/`, are excluded from the note index.
 - `blocks/<note-id>.json` — per-note UI block sidecars.
 - `properties.json` — versioned custom-property metadata keyed by stable note ID;
   SQLite mirrors it for queries, while this sidecar makes the data rebuildable.
+- `property-backups/<note-id>/<operation-id>.json` — immutable versioned backups
+  created when standalone note properties are removed while the note enters a
+  database. Each file records the destination note ID, creation time, complete
+  property values, and a completed outcome marker so recovery remains possible.
 - `recovery/` — versioned crash-recovery journal for editor and canvas drafts
   that have not reached the filesystem yet, keyed by stable note ID or canvas path.
 - future versioned, documented metadata files.

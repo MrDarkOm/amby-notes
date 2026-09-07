@@ -302,9 +302,6 @@ fn sync_note_with_resolution(
     }
     let manifest_bytes = fs::read(&database.manifest_path).map_err(|error| error.to_string())?;
     let manifest = parse_manifest(&manifest_bytes).map_err(|error| error.to_string())?;
-    if manifest.value.locked {
-        return Err("Database is locked".to_owned());
-    }
     if !super::validation::validate_manifest(&manifest.value)
         .errors
         .is_empty()
@@ -812,8 +809,17 @@ mod tests {
     }
 
     #[test]
-    fn imports_yaml_change_and_updates_record_base() {
+    fn imports_yaml_change_in_locked_database_and_updates_record_base() {
         let (vault, database_id, revision) = sync_fixture("1", "1", "2");
+        let manifest_path = vault.join("Database/ambd.json");
+        let mut manifest: Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["locked"] = Value::Bool(true);
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
         let note_id = "01J00000000000000000000001";
         let result = sync_note(
             &vault,

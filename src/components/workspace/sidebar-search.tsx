@@ -192,7 +192,7 @@ export function SidebarSearch({ items, onSelect, searchNotes }: SidebarSearchPro
                 onClick={() => onSelect(result.item.id)}
                 onMouseEnter={() => setSelectedIndex(i)}
                 className={cn(
-                  "flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left transition-colors",
+                  "flex w-full flex-col items-start gap-0.5 rounded px-2 py-1.5 text-left",
                   i === selectedIndex ? "bg-accent" : "hover:bg-accent/60",
                 )}
               >

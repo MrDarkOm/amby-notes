@@ -51,6 +51,29 @@ export function useSidebarLayout({
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
   const wasCompactLayout = React.useRef(false)
 
+  // Resize drags update these variables directly so the large workspace tree
+  // does not re-render for every pointer event. React state is committed only
+  // when the gesture ends, which keeps persistence and the rest of the layout
+  // in sync without making the drag itself compete with the editor.
+  const setPanelWidthVariable = React.useCallback((side: "left" | "right", width: number) => {
+    if (typeof document === "undefined") return
+    document.documentElement.style.setProperty(`--amby-${side}-panel-width`, `${width}px`)
+  }, [])
+
+  React.useLayoutEffect(() => {
+    setPanelWidthVariable("left", leftWidth)
+    setPanelWidthVariable("right", rightWidth)
+  }, [leftWidth, rightWidth, setPanelWidthVariable])
+
+  React.useEffect(
+    () => () => {
+      if (typeof document === "undefined") return
+      document.documentElement.style.removeProperty("--amby-left-panel-width")
+      document.documentElement.style.removeProperty("--amby-right-panel-width")
+    },
+    [],
+  )
+
   React.useEffect(() => {
     function updateLayoutMode() {
       const compact = window.innerWidth < COMPACT_LAYOUT_MAX_WIDTH
@@ -80,8 +103,8 @@ export function useSidebarLayout({
         return side === "left" ? x < 48 + 20 : x > window.innerWidth - 48 - 20
       }
 
-      // Coalesce mousemove updates to one setState per animation frame so dragging
-      // doesn't trigger a React re-render on every pixel.
+      // Coalesce mousemove updates to one style write per animation frame so the
+      // drag remains in sync with the browser's paint loop.
       let frame = 0
       let pendingW = startW
 
@@ -91,7 +114,7 @@ export function useSidebarLayout({
         if (frame) return
         frame = requestAnimationFrame(() => {
           frame = 0
-          setW(pendingW)
+          setPanelWidthVariable(side, pendingW)
         })
       }
 
@@ -101,10 +124,12 @@ export function useSidebarLayout({
           frame = 0
         }
         if (nearEdge(ev.clientX)) {
+          setPanelWidthVariable(side, 208)
           setW(208)
           if (side === "left") setIsLeftSidebarOpen(false)
           else setIsRightSidebarOpen(false)
         } else {
+          setPanelWidthVariable(side, pendingW)
           setW(pendingW)
         }
         window.removeEventListener("mousemove", onMove)

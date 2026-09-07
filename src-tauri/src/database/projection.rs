@@ -780,12 +780,24 @@ fn insert_value_children(
         PropertyValue::Relation {
             target_note_ids, ..
         } => {
+            let target_database_id =
+                input
+                    .manifest
+                    .value
+                    .properties
+                    .iter()
+                    .find_map(|property| match property {
+                        PropertyDefinition::Relation(fields) if fields.id == property_id => {
+                            Some(fields.config.target_database_id.as_str())
+                        }
+                        _ => None,
+                    });
             for (position, target_note_id) in target_note_ids.iter().enumerate() {
                 let target_state = match note_by_id.get(target_note_id.as_str()) {
                     Some(_note)
                         if owner_by_note_id
                             .get(target_note_id)
-                            .is_some_and(|owner| owner == &input.manifest.value.database_id) =>
+                            .is_some_and(|owner| Some(owner.as_str()) == target_database_id) =>
                     {
                         "resolved"
                     }
@@ -910,6 +922,8 @@ pub(crate) fn decimal_sort_key(value: &str) -> Option<Vec<u8>> {
     if negative {
         key.extend(sortable_position.map(|byte| !byte));
         key.extend(digits.bytes().map(|byte| !byte));
+        // Reverse prefix ordering too: -1.23 must precede -1.2.
+        key.push(0xff);
     } else {
         key.extend(sortable_position);
         key.extend(digits.bytes());
@@ -1133,6 +1147,128 @@ mod tests {
             "templateOrder": [],
             "defaultTemplateId": null
         })
+    }
+
+    #[test]
+    fn exact_decimal_keys_order_negative_prefixes_and_normalize_equal_values() {
+        let ordered = [
+            "-90071992547409931234567890.125",
+            "-90071992547409931234567890.12",
+            "-100",
+            "-10.01",
+            "-10",
+            "-1.23",
+            "-1.2",
+            "-1.001",
+            "-1",
+            "-0.001",
+            "0",
+            "0.001",
+            "1",
+            "1.001",
+            "1.2",
+            "1.23",
+            "10",
+            "90071992547409931234567890.12",
+            "90071992547409931234567890.125",
+        ];
+        for pair in ordered.windows(2) {
+            assert!(
+                decimal_sort_key(pair[0]).unwrap() < decimal_sort_key(pair[1]).unwrap(),
+                "{} must precede {}",
+                pair[0],
+                pair[1]
+            );
+        }
+        for (left, right) in [
+            ("-1.200", "-1.2"),
+            ("-0", "0"),
+            ("1.2e3", "1200"),
+            ("+001.00", "1"),
+        ] {
+            assert_eq!(decimal_sort_key(left), decimal_sort_key(right));
+        }
+    }
+
+    #[test]
+    fn relations_resolve_against_the_declared_target_and_rebuild_without_source_changes() {
+        let vault = temp_vault("relation-target");
+        let source_id = "01J00000000000000000000000";
+        let target_id = "01J00000000000000000000010";
+        let row_id = "01J00000000000000000000001";
+        let target_note_id = "01J00000000000000000000011";
+        let missing_id = "01J00000000000000000000012";
+        let property_id = "01J00000000000000000000004";
+        let mut sources = Vec::new();
+        for (name, database_id, note_id) in [
+            ("Source", source_id, row_id),
+            ("Target", target_id, target_note_id),
+        ] {
+            let container = vault.join(name);
+            fs::create_dir_all(container.join(".ambd/records")).unwrap();
+            let mut definition = manifest(database_id, None);
+            definition["name"] = json!(name);
+            definition["properties"] = if database_id == source_id {
+                json!([{
+                    "id": property_id, "name": "Related", "type": "relation",
+                    "pageVisibility": "alwaysShow", "yamlBinding": null,
+                    "config": {"targetDatabaseId": target_id, "maxItems": null, "inversePropertyId": null}
+                }])
+            } else {
+                json!([])
+            };
+            sources.push((
+                container.join("ambd.json"),
+                serde_json::to_vec_pretty(&definition).unwrap(),
+            ));
+            sources.push((
+                container.join("Row.md"),
+                format!("---\namby-id: {note_id}\n---\n# Row\n").into_bytes(),
+            ));
+        }
+        sources.push((vault.join(format!("Source/.ambd/records/{row_id}.json")),
+            serde_json::to_vec_pretty(&json!({
+                "format": "amby-database-record", "formatVersion": 1,
+                "databaseId": source_id, "noteId": row_id,
+                "values": {property_id: {"type":"relation", "targetNoteIds":[target_note_id, row_id, missing_id]}}
+            })).unwrap()));
+        for (path, bytes) in &sources {
+            fs::write(path, bytes).unwrap();
+        }
+
+        // Two independent, empty indexes must reconstruct the same links.
+        for _ in 0..2 {
+            let conn = Connection::open_in_memory().unwrap();
+            init_schema(&conn).unwrap();
+            sync_vault(&conn, &vault).unwrap();
+            let report = rebuild_database_projection(&conn, &vault).unwrap();
+            assert_eq!(report.state, HEALTHY);
+            let mut statement = conn
+                .prepare(
+                    "SELECT target_note_id, target_state FROM db_relation_edges ORDER BY position",
+                )
+                .unwrap();
+            let edges = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            assert_eq!(
+                edges,
+                [
+                    (target_note_id, "resolved"),
+                    (row_id, "outsideDatabase"),
+                    (missing_id, "missing")
+                ]
+                .map(|(id, state)| (id.to_owned(), state.to_owned()))
+            );
+            for (path, bytes) in &sources {
+                assert_eq!(fs::read(path).unwrap(), *bytes);
+            }
+        }
+        fs::remove_dir_all(vault).unwrap();
     }
 
     #[test]

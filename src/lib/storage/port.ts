@@ -92,6 +92,8 @@ export interface StoragePort extends DatabasePort {
     property: CustomProperty,
   ): Promise<CustomProperty>
   deleteCustomProperty(vaultPath: string, noteId: string, propertyId: string): Promise<void>
+  reorderCustomProperties(vaultPath: string, noteId: string, propertyIds: string[]): Promise<void>
+  backupCustomProperties(vaultPath: string, noteId: string): Promise<string>
   getLinkGraph(vaultPath: string): Promise<LinkGraph>
   listTags(vaultPath: string): Promise<VaultTagEntry[]>
   searchNotes(query: string): Promise<SearchResult[]>

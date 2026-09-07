@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { motion } from "motion/react"
 import {
   Bookmark,
   BookmarkCheck,
@@ -18,6 +19,7 @@ import {
 
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
 import { cn } from "@/lib/utils"
+import { motionTransitions } from "@/lib/motion-config"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/storage"
 import { WorkspacePicker, type VaultRecord } from "./workspace-picker"
@@ -181,7 +183,7 @@ const MACOS_SIDEBAR_TOGGLE_WIDTH = 44
 // Shared style for header toolbar icon buttons (sidebar toggles, dropdown,
 // plus) — keeps a uniform 32×32 hit area, rounding and hover highlight.
 const HEADER_ICON_BTN =
-  "flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+  "flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
 
 function handleDragStart(e: React.MouseEvent) {
   if (e.button !== 0) return
@@ -240,18 +242,16 @@ export function HeaderTabs({
   // The left header dock ends on the same divider as the left body panel.
   // On macOS the 80px traffic-light region already consumes 36px more than the
   // 44px activity rail, so subtract that difference from the panel header.
-  const leftPanelHeaderWidth = Math.max(
-    0,
-    isMac ? leftTreeWidth - (80 - ACTIVITY_BAR_WIDTH) : leftTreeWidth,
-  )
   const rightDockWidth = isRightDockVisible ? (isRightDockPinned ? ACTIVITY_BAR_WIDTH : 4) : 0
   // When the right panel is hidden, edge controls still occupy the end of the
   // header: the system window controls on Windows/Linux or the right-sidebar
   // toggle on macOS. Keep the view controls to their left.
-  const rightHeaderInset = Math.max(
-    (isRightSidebarOpen ? rightPanelWidth : 0) + rightDockWidth,
-    isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH,
-  )
+  const leftPanelHeaderCssWidth = isMac
+    ? `max(0px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) - ${80 - ACTIVITY_BAR_WIDTH}px))`
+    : `var(--amby-left-panel-width, ${leftTreeWidth}px)`
+  const rightHeaderInsetCss = isRightSidebarOpen
+    ? `max(${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}px))`
+    : `${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px`
   const [isMaximized, setIsMaximized] = React.useState(false)
   const lastClickTimeRef = React.useRef(0)
 
@@ -382,7 +382,7 @@ export function HeaderTabs({
   const viewControls = (
     <div
       className="absolute top-1.5 z-10 flex items-center gap-1"
-      style={{ right: rightHeaderInset }}
+      style={{ right: rightHeaderInsetCss }}
     >
       {onToggleSplit && (
         <button
@@ -442,7 +442,7 @@ export function HeaderTabs({
       {isLeftSidebarOpen && (
         <div
           className="flex shrink-0 items-center"
-          style={{ width: leftPanelHeaderWidth }}
+          style={{ width: leftPanelHeaderCssWidth }}
           onMouseDown={handleDragStart}
         >
           <div className="flex min-w-0 flex-1 items-center px-3">
@@ -459,7 +459,7 @@ export function HeaderTabs({
               >
                 <button
                   title={t("vaultPicker.vaults")}
-                  className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-left outline-none transition-colors hover:bg-accent"
+                  className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-left outline-none hover:bg-accent"
                   onMouseDown={(e) => e.stopPropagation()}
                 >
                   <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
@@ -489,8 +489,12 @@ export function HeaderTabs({
       >
         <div className="flex h-full min-w-0 items-center gap-1 overflow-hidden">
           {tabs.map((tab) => (
-            <div
+            <motion.div
               key={tab.key}
+              initial={false}
+              animate={activeTabKey === tab.key ? "selected" : "rest"}
+              whileHover="hover"
+              transition={motionTransitions.reorder}
               onClick={() => onTabChange(tab.key)}
               onMouseDown={(e) => {
                 if (e.button === 1) {
@@ -499,7 +503,7 @@ export function HeaderTabs({
                 }
               }}
               className={cn(
-                "group relative flex h-8 min-w-0 max-w-52 cursor-pointer items-center gap-2 self-center rounded-lg border border-border/80 px-3 text-sm transition-colors",
+                "group relative flex h-8 min-w-0 max-w-52 cursor-pointer items-center gap-2 self-center rounded-lg border border-border/80 px-3 text-sm",
                 activeTabKey === tab.key
                   ? "bg-[var(--note-surface)] text-foreground shadow-sm"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -514,19 +518,20 @@ export function HeaderTabs({
                 </span>
               )}
               <span className="min-w-0 flex-1 truncate">{tab.title}</span>
-              <button
+              <motion.button
                 onClick={(e) => {
                   e.stopPropagation()
                   onTabClose(tab.key)
                 }}
                 className={cn(
-                  "flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",
-                  activeTabKey === tab.key ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                  "flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground",
                 )}
+                variants={{ rest: { opacity: 0 }, hover: { opacity: 1 }, selected: { opacity: 1 } }}
+                transition={motionTransitions.fast}
               >
                 <X className="size-3.5" />
-              </button>
-            </div>
+              </motion.button>
+            </motion.div>
           ))}
         </div>
 
@@ -553,7 +558,7 @@ export function HeaderTabs({
       <div
         style={{
           width: isRightSidebarOpen
-            ? rightPanelWidth + (isMac ? 0 : rightDockWidth)
+            ? `calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}px)`
             : isMac
               ? 0
               : rightDockWidth,
@@ -579,7 +584,7 @@ export function HeaderTabs({
         <div className="absolute right-0 top-0 flex h-11 items-center border-b border-border bg-background">
           <button
             onClick={() => isTauri() && getCurrentWindow().minimize()}
-            className="flex h-11 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="flex h-11 w-12 items-center justify-center text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           >
             <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
               <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
@@ -587,7 +592,7 @@ export function HeaderTabs({
           </button>
           <button
             onClick={() => isTauri() && getCurrentWindow().toggleMaximize()}
-            className="flex h-11 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="flex h-11 w-12 items-center justify-center text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           >
             {isMaximized ? (
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
@@ -602,7 +607,7 @@ export function HeaderTabs({
           </button>
           <button
             onClick={() => isTauri() && getCurrentWindow().close()}
-            className="flex h-11 w-12 items-center justify-center text-muted-foreground transition-colors hover:bg-red-600 hover:text-white"
+            className="flex h-11 w-12 items-center justify-center text-muted-foreground hover:bg-red-600 hover:text-white"
           >
             <X className="size-4" />
           </button>

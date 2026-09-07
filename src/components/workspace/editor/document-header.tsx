@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
+import { motion } from "motion/react"
 import {
   ChevronDown,
   ChevronLeft,
@@ -18,7 +19,9 @@ import type { TreeItem } from "../sidebar-tree"
 import { DocumentBreadcrumbs } from "./document-breadcrumbs"
 import { DocumentActionsDropdown, LayerButton, type LayerKind } from "./document-actions"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
+import type { ContentWidth } from "../app-config"
 import { handleDragStart } from "./document-header-utils"
+import { motionTransitions } from "@/lib/motion-config"
 
 export interface DocumentHeaderProps {
   hasDocument: boolean
@@ -53,6 +56,8 @@ export interface DocumentHeaderProps {
   onOpenInNewTab?: () => void
   viewMode: DocumentViewMode
   onViewModeChange: (mode: DocumentViewMode) => void
+  contentWidth: ContentWidth
+  onContentWidthChange: (width: ContentWidth) => void
   nestedNotes: TreeItem[]
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
@@ -100,6 +105,8 @@ export function DocumentHeader({
   onOpenInNewTab,
   viewMode,
   onViewModeChange,
+  contentWidth,
+  onContentWidthChange,
   nestedNotes,
   nestedNotesPlacement,
   onNestedNotesPlacementChange,
@@ -144,7 +151,9 @@ export function DocumentHeader({
         <Button
           variant="ghost"
           size="icon"
-          className={`size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30 transition-opacity ${!isFocusMode && pathHovered ? "pointer-events-none opacity-0" : ""}`}
+          className={`size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30 ${!isFocusMode && pathHovered ? "pointer-events-none" : ""}`}
+          animate={{ opacity: !isFocusMode && pathHovered ? 0 : 1 }}
+          transition={motionTransitions.default}
           onClick={onBack}
           disabled={!canGoBack}
         >
@@ -153,7 +162,9 @@ export function DocumentHeader({
         <Button
           variant="ghost"
           size="icon"
-          className={`size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30 transition-opacity ${!isFocusMode && pathHovered ? "pointer-events-none opacity-0" : ""}`}
+          className={`size-7 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-30 ${!isFocusMode && pathHovered ? "pointer-events-none" : ""}`}
+          animate={{ opacity: !isFocusMode && pathHovered ? 0 : 1 }}
+          transition={motionTransitions.default}
           onClick={onForward}
           disabled={!canGoForward}
         >
@@ -167,9 +178,13 @@ export function DocumentHeader({
       </div>
 
       {/* Center: current tab menu in focus mode; breadcrumb otherwise. */}
-      <div
+      <motion.div
         data-path-expanded={pathHovered || undefined}
-        className={`flex min-w-0 flex-1 items-center justify-center gap-1 px-2 text-xs transition-[inset,padding,transform,box-shadow,border-radius,min-height] duration-300 ease-out [&[data-path-expanded=true]_[data-breadcrumb-segment]]:max-w-none ${pathHovered ? "absolute inset-x-4 top-2 z-20 min-h-10 translate-y-0 scale-[1.01] justify-start overflow-visible rounded-lg bg-white px-5 text-sm text-slate-900 shadow-lg ring-1 ring-slate-200" : "overflow-hidden scale-100"}`}
+        className={`flex min-w-0 flex-1 items-center justify-center gap-1 px-2 text-xs [&[data-path-expanded=true]_[data-breadcrumb-segment]]:max-w-none ${pathHovered ? "absolute inset-x-4 top-2 z-20 min-h-10 justify-start overflow-visible rounded-lg bg-white px-5 text-sm text-slate-900 shadow-lg ring-1 ring-slate-200" : "overflow-hidden"}`}
+        layout
+        initial={false}
+        animate={{ scale: pathHovered ? 1.01 : 1 }}
+        transition={motionTransitions.slow}
         onMouseLeave={() => pathHovered && setPathHovered(false)}
       >
         {isFocusMode ? (
@@ -177,7 +192,7 @@ export function DocumentHeader({
             trigger={
               <button
                 type="button"
-                className="flex max-w-[320px] items-center gap-1 rounded-md px-2 py-1 font-medium text-foreground transition-colors hover:bg-accent"
+                className="flex max-w-[320px] items-center gap-1 rounded-md px-2 py-1 font-medium text-foreground hover:bg-accent"
                 title={t("tabs.tabMenu")}
               >
                 <span className="truncate">{docTitle ?? ""}</span>
@@ -196,11 +211,14 @@ export function DocumentHeader({
         ) : (
           breadcrumbElement
         )}
-      </div>
+      </motion.div>
 
       {/* Right: layer + focus + more */}
-      <div
-        className={`flex items-center gap-0.5 transition-opacity ${isFocusMode ? "justify-self-end" : ""} ${!isFocusMode && pathHovered ? "pointer-events-none opacity-0" : ""}`}
+      <motion.div
+        className={`flex items-center gap-0.5 ${isFocusMode ? "justify-self-end" : ""} ${!isFocusMode && pathHovered ? "pointer-events-none" : ""}`}
+        initial={false}
+        animate={{ opacity: !isFocusMode && pathHovered ? 0 : 1 }}
+        transition={motionTransitions.default}
       >
         {hasDocument && (
           <div className="mr-1 flex items-center gap-1 rounded-full bg-background/70 p-0.5 shadow-sm">
@@ -208,7 +226,7 @@ export function DocumentHeader({
               type="button"
               title={t("docEditor.markdownEditor")}
               onClick={() => onLayerChange?.("editor")}
-              className={`flex size-7 items-center justify-center rounded-full transition-colors ${
+              className={`flex size-7 items-center justify-center rounded-full ${
                 activeLayer === "editor"
                   ? "bg-accent text-foreground"
                   : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -268,6 +286,8 @@ export function DocumentHeader({
           isLocked={isLocked}
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
+          contentWidth={contentWidth}
+          onContentWidthChange={onContentWidthChange}
           nestedNotes={nestedNotes}
           nestedNotesPlacement={nestedNotesPlacement}
           onNestedNotesPlacementChange={onNestedNotesPlacementChange}
@@ -284,7 +304,7 @@ export function DocumentHeader({
           onRequestRename={onRequestRename}
           onDeleteFile={onDeleteFile}
         />
-      </div>
+      </motion.div>
     </div>
   )
 }

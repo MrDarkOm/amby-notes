@@ -3,8 +3,17 @@
 import * as React from "react"
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu"
 import { CheckIcon, ChevronRightIcon, CircleIcon } from "lucide-react"
+import { motion } from "motion/react"
 
 import { cn } from "@/lib/utils"
+import {
+  floatingSurfaceAnimate,
+  floatingSurfaceInitial,
+  motionTransitions,
+} from "@/lib/motion-config"
+
+const MotionContextMenuContent = motion.create(ContextMenuPrimitive.Content)
+const MotionContextMenuSubContent = motion.create(ContextMenuPrimitive.SubContent)
 
 function ContextMenu({ ...props }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
   return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
@@ -63,13 +72,16 @@ function ContextMenuSubContent({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.SubContent>) {
   return (
-    <ContextMenuPrimitive.SubContent
+    <MotionContextMenuSubContent
       data-slot="context-menu-sub-content"
       className={cn(
-        "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-hidden rounded-md border p-1 shadow-lg",
+        "z-50 min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg",
         className,
       )}
-      {...props}
+      initial={floatingSurfaceInitial}
+      animate={floatingSurfaceAnimate}
+      transition={motionTransitions.enter}
+      {...(props as React.ComponentProps<typeof MotionContextMenuSubContent>)}
     />
   )
 }
@@ -80,13 +92,16 @@ function ContextMenuContent({
 }: React.ComponentProps<typeof ContextMenuPrimitive.Content>) {
   return (
     <ContextMenuPrimitive.Portal>
-      <ContextMenuPrimitive.Content
+      <MotionContextMenuContent
         data-slot="context-menu-content"
         className={cn(
-          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 max-h-(--radix-context-menu-content-available-height) min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border p-1 shadow-md",
+          "z-50 max-h-(--radix-context-menu-content-available-height) min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
           className,
         )}
-        {...props}
+        initial={floatingSurfaceInitial}
+        animate={floatingSurfaceAnimate}
+        transition={motionTransitions.enter}
+        {...(props as React.ComponentProps<typeof MotionContextMenuContent>)}
       />
     </ContextMenuPrimitive.Portal>
   )

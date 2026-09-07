@@ -13,11 +13,23 @@ use crate::frontmatter::{self, AtomicCreateError};
 use crate::watcher::{self, WatcherState};
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum DatabaseRowTemplate {
+    Empty,
+    Default,
+    Template {
+        #[serde(rename = "templateId")]
+        template_id: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDatabaseRowRequest {
     pub expected_generation: u64,
     pub database_id: String,
     pub title: String,
+    pub template: DatabaseRowTemplate,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
@@ -29,6 +41,7 @@ pub struct CreatedDatabaseRow {
     pub note_path: String,
     pub record_path: String,
     pub record_revision: String,
+    pub warnings: Vec<String>,
 }
 
 pub fn create_database_row(
@@ -70,7 +83,13 @@ pub fn create_database_row(
     if note_path.exists() || record_path.exists() {
         return Err("A row with this title or ID already exists".to_owned());
     }
-    let (template_body, template_values) = load_default_template(&database, &request.database_id);
+    let (template_body, template_values) = match &request.template {
+        DatabaseRowTemplate::Empty => (String::new(), json!({})),
+        DatabaseRowTemplate::Default => load_default_template(&database, &request.database_id),
+        DatabaseRowTemplate::Template { template_id } => {
+            load_template(&database, &request.database_id, template_id)
+        }
+    };
     let note_bytes = format!("---\namby-id: {note_id}\n---\n{template_body}").into_bytes();
     let record_bytes = json_bytes(&json!({
         "format": "amby-database-record",
@@ -107,7 +126,22 @@ pub fn create_database_row(
         note_path: note_path.to_string_lossy().to_string(),
         record_path: record_path.to_string_lossy().to_string(),
         record_revision: raw_revision(&record_bytes),
+        warnings: Vec::new(),
     })
+}
+
+/// Publish a newly created Markdown row into the primary note index before the
+/// database projection is rebuilt. The watcher suppresses the app's own file
+/// event, so waiting for a later refresh would otherwise leave `db_members`
+/// empty even though the note already exists on disk.
+pub fn index_created_database_row(
+    connection: &rusqlite::Connection,
+    vault: &Path,
+    created: &CreatedDatabaseRow,
+) -> Result<(), String> {
+    let note_path = Path::new(&created.note_path);
+    let source = fs::read_to_string(note_path).map_err(|error| error.to_string())?;
+    crate::vault_index::index_update_note(connection, vault, note_path, &source)
 }
 
 fn load_default_template(
@@ -123,6 +157,37 @@ fn load_default_template(
     let Some(template_id) = manifest.value.default_template_id else {
         return (String::new(), json!({}));
     };
+    load_template_file(database, database_id, &template_id)
+}
+
+fn load_template(
+    database: &super::discovery::DiscoveredDatabase,
+    database_id: &str,
+    template_id: &str,
+) -> (String, serde_json::Value) {
+    let Ok(manifest_bytes) = fs::read(&database.manifest_path) else {
+        return (String::new(), json!({}));
+    };
+    let Ok(manifest) = parse_manifest(&manifest_bytes) else {
+        return (String::new(), json!({}));
+    };
+    if manifest.value.database_id != database_id
+        || !manifest
+            .value
+            .template_order
+            .iter()
+            .any(|id| id == template_id)
+    {
+        return (String::new(), json!({}));
+    }
+    load_template_file(database, database_id, template_id)
+}
+
+fn load_template_file(
+    database: &super::discovery::DiscoveredDatabase,
+    database_id: &str,
+    template_id: &str,
+) -> (String, serde_json::Value) {
     let path = database
         .container_path
         .join(".ambd/templates")
@@ -172,14 +237,9 @@ mod tests {
     use super::*;
     use crate::database::mutations::{create_database, CreateDatabaseRequest, DatabaseCreateMode};
     use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_vault() -> PathBuf {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("amby-db-row-{stamp}"));
+        let path = std::env::temp_dir().join(format!("amby-db-row-{}", ulid::Ulid::generate()));
         fs::create_dir_all(&path).unwrap();
         path
     }
@@ -206,6 +266,7 @@ mod tests {
                 expected_generation: 1,
                 database_id: database.database_id,
                 title: "First project".to_owned(),
+                template: DatabaseRowTemplate::Default,
             },
         )
         .unwrap();
@@ -267,6 +328,7 @@ mod tests {
                 expected_generation: 1,
                 database_id: database.database_id,
                 title: "Templated".to_owned(),
+                template: DatabaseRowTemplate::Default,
             },
         )
         .unwrap();
@@ -275,6 +337,84 @@ mod tests {
         let record: serde_json::Value =
             serde_json::from_slice(&fs::read(row.record_path).unwrap()).unwrap();
         assert_eq!(record["values"][property_id]["value"], "todo");
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn creates_an_empty_row_without_template_body_or_values() {
+        let vault = temp_vault();
+        let database = create_database(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Empty pages".to_owned(),
+            },
+        )
+        .unwrap();
+        let row = create_database_row(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRowRequest {
+                expected_generation: 1,
+                database_id: database.database_id,
+                title: "Blank".to_owned(),
+                template: DatabaseRowTemplate::Empty,
+            },
+        )
+        .unwrap();
+        let note = String::from_utf8(fs::read(row.note_path).unwrap()).unwrap();
+        assert_eq!(note, format!("---\namby-id: {}\n---\n", row.note_id));
+        let record: serde_json::Value =
+            serde_json::from_slice(&fs::read(row.record_path).unwrap()).unwrap();
+        assert_eq!(record["values"], json!({}));
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn indexes_an_attached_row_before_rebuilding_database_membership() {
+        let vault = temp_vault().canonicalize().unwrap();
+        let note_path = vault.join("People.md");
+        fs::write(&note_path, "People\n").unwrap();
+        let connection = crate::index::open_connection(&vault).unwrap();
+        crate::index::sync_vault(&connection, &vault).unwrap();
+        let database = create_database(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Attached,
+                parent_path: None,
+                note_path: Some(note_path.to_string_lossy().to_string()),
+                name: "People".to_owned(),
+            },
+        )
+        .unwrap();
+        let row = create_database_row(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRowRequest {
+                expected_generation: 1,
+                database_id: database.database_id.clone(),
+                title: "Alice".to_owned(),
+                template: DatabaseRowTemplate::Default,
+            },
+        )
+        .unwrap();
+
+        index_created_database_row(&connection, &vault, &row).unwrap();
+        crate::database::projection::rebuild_database_projection(&connection, &vault).unwrap();
+        let members: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM db_members WHERE database_id = ?1",
+                [database.database_id],
+                |result| result.get(0),
+            )
+            .unwrap();
+        assert_eq!(members, 1);
         let _ = fs::remove_dir_all(vault);
     }
 }

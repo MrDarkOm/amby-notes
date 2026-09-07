@@ -12,8 +12,10 @@ import {
   Upload,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { motion } from "motion/react"
 
 import { cn } from "@/lib/utils"
+import { motionTransitions } from "@/lib/motion-config"
 import {
   ContextMenu,
   ContextMenuCheckboxItem,
@@ -202,7 +204,7 @@ export function ActivityBar({
     const settingsTarget = settingsTargetForActivityButton(def.id)
     const settingsLabelKey = settingsLabelKeyForActivityButton(def.id)
     const element = (
-      <button
+      <motion.button
         type="button"
         draggable={false}
         title={label}
@@ -228,14 +230,17 @@ export function ActivityBar({
           if (def.id !== "presets") onActivate(def.id)
         }}
         className={cn(
-          "amby-activity-button flex size-8 items-center justify-center rounded-md text-muted-foreground transition-[background-color,box-shadow,color] duration-150",
+          "amby-activity-button flex size-8 items-center justify-center rounded-md text-muted-foreground",
           isActive
             ? "text-muted-foreground"
             : "hover:bg-[var(--note-surface)] hover:text-muted-foreground hover:shadow-sm",
         )}
+        whileHover={isActive ? undefined : { scale: 1.04 }}
+        whileTap={{ scale: 0.96 }}
+        transition={motionTransitions.default}
       >
         <Icon className="size-4" />
-      </button>
+      </motion.button>
     )
 
     return (
@@ -281,28 +286,23 @@ export function ActivityBar({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div
-          className={cn(
-            "relative shrink-0 transition-[width] duration-200",
-            pinned || isAutoHideHover ? "w-12" : "w-1",
-          )}
+        <motion.div
+          className="relative shrink-0"
+          initial={false}
+          animate={{ width: pinned || isAutoHideHover ? 48 : 4 }}
+          transition={motionTransitions.panel}
           onMouseEnter={() => setIsAutoHideHover(true)}
           onMouseLeave={() => setIsAutoHideHover(false)}
         >
-          <div
+          <motion.div
             data-activity-bar={side}
             className={cn(
-              "absolute inset-y-0 flex w-12 flex-col bg-background transition-transform duration-200 ease-out",
+              "absolute inset-y-0 flex w-12 flex-col bg-background",
               side === "left" ? "left-0" : "right-0",
-              !pinned &&
-                (side === "left"
-                  ? isAutoHideHover
-                    ? "translate-x-0"
-                    : "-translate-x-11"
-                  : isAutoHideHover
-                    ? "translate-x-0"
-                    : "translate-x-11"),
             )}
+            initial={false}
+            animate={{ x: pinned || isAutoHideHover ? 0 : side === "left" ? -44 : 44 }}
+            transition={motionTransitions.panel}
           >
             <div
               data-activity-zone="view"
@@ -319,8 +319,8 @@ export function ActivityBar({
             >
               {actionButtons.map((button) => renderButton(button, "action"))}
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
         <ContextMenuCheckboxItem checked={pinned} onCheckedChange={onPinnedChange}>

@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from "react"
+import { AnimatePresence, motion } from "motion/react"
 import { useSettingsStore } from "@/components/workspace/use-settings-store"
+import { motionTransitions } from "@/lib/motion-config"
 
 interface TooltipState {
   content: string
@@ -163,23 +165,35 @@ export function TooltipProvider() {
     }
   }, [])
 
-  if (!tooltip) return null
-
   return (
-    <div
-      role="tooltip"
-      className={`pointer-events-none fixed z-[100] whitespace-nowrap rounded-lg border border-border bg-popover px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xl ${tooltip.side === "right" ? "amby-tooltip-from-right" : "amby-tooltip-from-left"}`}
-      style={{
-        left: tooltip.left,
-        top: tooltip.top,
-      }}
-    >
-      <span
-        className={`absolute top-1/2 size-2 -translate-y-1/2 rotate-45 border-border bg-popover ${
-          tooltip.side === "right" ? "-left-1 border-b border-l" : "-right-1 border-r border-t"
-        }`}
-      />
-      {tooltip.content}
-    </div>
+    <AnimatePresence>
+      {tooltip && (
+        <motion.div
+          key={`${tooltip.content}:${tooltip.left}:${tooltip.top}`}
+          role="tooltip"
+          className="pointer-events-none fixed z-[100] whitespace-nowrap rounded-lg border border-border bg-popover px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xl"
+          initial={{
+            opacity: 0,
+            x: tooltip.side === "right" ? -6 : "calc(-100% + 6px)",
+            y: "-50%",
+          }}
+          animate={{ opacity: 1, x: tooltip.side === "right" ? 0 : "-100%", y: "-50%" }}
+          exit={{
+            opacity: 0,
+            x: tooltip.side === "right" ? -4 : "calc(-100% + 4px)",
+            y: "-50%",
+          }}
+          transition={motionTransitions.enter}
+          style={{ left: tooltip.left, top: tooltip.top }}
+        >
+          <span
+            className={`absolute top-1/2 size-2 -translate-y-1/2 rotate-45 border-border bg-popover ${
+              tooltip.side === "right" ? "-left-1 border-b border-l" : "-right-1 border-r border-t"
+            }`}
+          />
+          {tooltip.content}
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 }

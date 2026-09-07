@@ -4,6 +4,9 @@ import { ThemeProvider } from "./components/theme-provider"
 import { TooltipProvider } from "./components/ui/tooltip-provider"
 import { useApplyPreferences } from "./components/workspace/use-settings-store"
 import { StandaloneSettingsWindow } from "./components/workspace/settings-dialog"
+import { MotionConfig } from "motion/react"
+import { MotionPulse } from "./lib/motion"
+import { motionTransitions } from "./lib/motion-config"
 
 const isSettingsWindow = new URLSearchParams(window.location.search).get("ambyView") === "settings"
 
@@ -16,7 +19,7 @@ function PreferencesGate() {
         className="flex h-screen items-center justify-center bg-background text-muted-foreground"
         style={{ background: "hsl(var(--background, 220 20% 97%))" }}
       >
-        <div className="size-5 animate-pulse rounded-full bg-muted" />
+        <MotionPulse className="size-5 rounded-full bg-muted" />
       </main>
     )
   }
@@ -32,8 +35,10 @@ function PreferencesGate() {
 export default function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={true}>
-      <PreferencesGate />
-      <TooltipProvider />
+      <MotionConfig reducedMotion="user" transition={motionTransitions.default}>
+        <PreferencesGate />
+        <TooltipProvider />
+      </MotionConfig>
     </ThemeProvider>
   )
 }

@@ -3,6 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronDown, FolderOpen } from "lucide-react"
+import { motion } from "motion/react"
 import { ActivityBar } from "./activity-bar"
 import { PanelHost } from "./panel-host"
 import { ResizeHandle } from "./resize-handle"
@@ -27,6 +28,7 @@ import { useDocStore } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useVaultStore } from "./use-vault-store"
 import type { DocumentViewMode } from "./document-editor"
+import type { ContentWidth } from "./app-config"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
 import { SearchModal } from "./search-modal"
@@ -47,7 +49,7 @@ import { WorkspacePicker } from "./workspace-picker"
 import { FolderView } from "./folder-view"
 import { DatabaseWorkspace } from "./database/database-workspace"
 import { useDatabaseController } from "./database/use-database-controller"
-import { createDatabaseTab } from "./database/tab-target"
+import { useDatabaseStore } from "./database/database-store"
 import { discardRecoveryDraft, remapRecoveryDraft } from "@/lib/recovery-drafts"
 import {
   isTauri,
@@ -69,14 +71,21 @@ import { DATABASE_LAYER_CREATION_AVAILABLE } from "./modules"
 
 import { EmptyStateHeader, workspaceRelativePath } from "./vault/use-vault-session"
 import { useNoteWindows } from "./windows/use-note-windows"
+import { MotionSpinner } from "@/lib/motion"
+import { motionTransitions } from "@/lib/motion-config"
 
 const GRAPH_TAB_FILE_ID = "__graph__"
+const databaseContentWidthKey = (databaseId: string) => `database:${databaseId}`
+const EMPTY_CONTENT_WIDTHS: Record<string, ContentWidth> = {}
+const EMPTY_DATABASE_TITLE_LABELS: Record<string, string> = {}
 
 /** Spinner shown while a lazy chunk (Canvas / Graph) is being fetched. */
 function LazyEditorFallback() {
   return (
     <div className="flex h-full flex-1 items-center justify-center">
-      <div className="size-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
+      <MotionSpinner>
+        <span className="size-5 rounded-full border-2 border-muted-foreground border-t-transparent" />
+      </MotionSpinner>
     </div>
   )
 }
@@ -115,7 +124,12 @@ export function WorkspaceOrchestration() {
   const favorites = useViewStateStore((s) => s.favorites)
   const viewModes = useViewStateStore((s) => s.viewModes)
   const nestedNotesPlacements = useViewStateStore((s) => s.nestedNotesPlacements)
+  const contentWidths = useViewStateStore((s) => s.contentWidths ?? EMPTY_CONTENT_WIDTHS)
+  const databaseTitleLabels = useViewStateStore(
+    (s) => s.databaseTitleLabels ?? EMPTY_DATABASE_TITLE_LABELS,
+  )
   const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
+  const iconOverrides = useViewStateStore((s) => s.iconOverrides)
   const activeLayers = useViewStateStore((s) => s.activeLayers)
   const linkedLayersByDoc = useViewStateStore((s) => s.linkedLayersByDoc)
   // Stable store actions (never change reference).
@@ -123,6 +137,8 @@ export function WorkspaceOrchestration() {
     toggleFavorite,
     setIcon: setIconInStore,
     setViewMode,
+    setContentWidth,
+    setDatabaseTitleLabel,
     setNestedNotesPlacement,
     toggleLock,
     applyMutation: applyViewMutation,
@@ -138,6 +154,7 @@ export function WorkspaceOrchestration() {
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [settingsTarget, setSettingsTarget] = React.useState<SettingsNavigationTarget | null>(null)
   const defaultViewMode = useSettingsStore((s) => s.prefs.editor.defaultViewMode)
+  const defaultContentWidth = useSettingsStore((s) => s.prefs.editor.contentWidth)
   const dockPrefs = useSettingsStore((s) => s.prefs.docks)
   const shortcuts = useSettingsStore((s) => s.prefs.shortcuts)
   const experimental = useSettingsStore((s) => s.experimental)
@@ -177,6 +194,7 @@ export function WorkspaceOrchestration() {
     exportPreset,
   } = usePresets(vault, experimental)
   const databasesEnabled = activeModules.includes("databases")
+  const databases = useDatabaseStore((state) => state.databases)
   const { refreshCatalog: refreshDatabaseCatalog } = useDatabaseController({
     enabled: databasesEnabled,
     vaultGeneration: backendGeneration,
@@ -254,7 +272,7 @@ export function WorkspaceOrchestration() {
         useTabsStore.getState().openItem(target, true)
         return
       }
-      useTabsStore.getState().openOrActivateSingletonTab(createDatabaseTab(target))
+      useTabsStore.getState().openItem(target)
     },
     [],
   )
@@ -354,11 +372,19 @@ export function WorkspaceOrchestration() {
   // Current file icon (from iconOverrides or tree)
   const activeFileId = activeTab?.fileId ?? null
   const activeTreeItem = activeFileId ? findTreeItem(displayTreeItems, activeFileId) : null
-  const currentFileIcon = activeTreeItem?.icon
+  const currentFileIcon =
+    activeTreeItem?.icon ?? (activeFileId ? iconOverrides[activeFileId] : undefined)
 
   const handleSetIcon = React.useCallback(
     (id: string, icon: string) => setIconInStore(id, icon),
     [setIconInStore],
+  )
+
+  const handleRenameDatabaseTab = React.useCallback(
+    (tabKey: string, title: string) => {
+      setTabs((previous) => previous.map((tab) => (tab.key === tabKey ? { ...tab, title } : tab)))
+    },
+    [setTabs],
   )
 
   function applyMutationResult(result: FsMutationResult) {
@@ -488,8 +514,10 @@ export function WorkspaceOrchestration() {
     handleMoveItem,
     handleMergeFile,
     handleContentChange,
+    loadDoc,
     releaseUnusedDocumentBuffers,
     deleteConfirmationDialog,
+    propertyMigrationDialog,
   } = useFileActions({
     vault,
     treeItems,
@@ -503,6 +531,14 @@ export function WorkspaceOrchestration() {
     backendGeneration,
     windowLabel,
   })
+
+  const handleRenameDatabaseRow = React.useCallback(
+    async (rowId: string, name: string) => {
+      await handleRenameFile(rowId, name)
+      await refreshDatabaseCatalog()
+    },
+    [handleRenameFile, refreshDatabaseCatalog],
+  )
 
   const { handleOpenInNewWindow } = useNoteWindows(treeItems)
 
@@ -652,8 +688,26 @@ export function WorkspaceOrchestration() {
     [handleSelect, treeItems],
   )
 
-  const { currentProperties, handleUpsertCustomProperty, handleDeleteCustomProperty } =
-    usePropertyActions({ activeTab, currentDoc, displayTreeItems, linkGraph, t, vault })
+  const {
+    currentProperties,
+    handleUpsertCustomProperty,
+    handleDeleteCustomProperty,
+    handleReorderCustomProperties,
+  } = usePropertyActions({ activeTab, currentDoc, displayTreeItems, linkGraph, t, vault })
+
+  const selectedDatabase = React.useMemo(() => {
+    if (activeTab?.kind === "database") {
+      return databases.find((database) => database.databaseId === activeTab.fileId) ?? null
+    }
+    if (
+      activeTab?.kind === "document" &&
+      currentDoc &&
+      activeLayers[currentDoc.id] === "database"
+    ) {
+      return databases.find((database) => database.attachedNoteId === currentDoc.id) ?? null
+    }
+    return null
+  }, [activeLayers, activeTab, currentDoc, databases])
 
   const headerTabs: HeaderTab[] = tabs.map((tab) => {
     const item = findTreeItem(displayTreeItems, tab.fileId)
@@ -698,12 +752,29 @@ export function WorkspaceOrchestration() {
       databaseRuntimeEnabled: databasesEnabled,
       onOpenDatabase: openDatabaseTab,
       properties: currentProperties,
+      databaseProperties: selectedDatabase
+        ? {
+            kind: "database" as const,
+            id: selectedDatabase.databaseId,
+            title:
+              activeTab?.kind === "database" && activeTab.fileId === selectedDatabase.databaseId
+                ? activeTab.title
+                : selectedDatabase.title,
+            icon: currentFileIcon ?? selectedDatabase.icon ?? null,
+            propertyCount: selectedDatabase.properties.length,
+            manifestRevision: selectedDatabase.manifestRevision,
+            properties: selectedDatabase.properties,
+            viewCount: selectedDatabase.views.length,
+            locked: selectedDatabase.locked,
+          }
+        : null,
       linkGraph,
       currentDocId: currentDoc?.id ?? null,
       currentDocPath: currentDoc?.path ?? null,
       onSelectLink: handleSelect,
       onUpsertCustomProperty: handleUpsertCustomProperty,
       onDeleteCustomProperty: handleDeleteCustomProperty,
+      onReorderCustomProperties: handleReorderCustomProperties,
       onHistoryRestored: handleHistoryRestored,
       workspaceSwitcher: (
         <WorkspacePicker
@@ -716,7 +787,7 @@ export function WorkspaceOrchestration() {
           onMove={handleMoveVault}
           onOpenInExplorer={openInExplorer}
         >
-          <button className="flex w-full items-center gap-2 rounded-lg border border-border bg-background/70 px-3 py-2.5 text-left outline-none transition-colors hover:bg-accent">
+          <button className="flex w-full items-center gap-2 rounded-lg border border-border bg-background/70 px-3 py-2.5 text-left outline-none hover:bg-accent">
             <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 leading-tight">
               <span className="block whitespace-nowrap text-[8px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
@@ -755,10 +826,16 @@ export function WorkspaceOrchestration() {
       handleAttachLayerToFile,
       linkedLayersByDoc,
       currentProperties,
+      selectedDatabase,
+      currentFileIcon,
+      activeTab?.kind,
+      activeTab?.fileId,
+      activeTab?.title,
       databasesEnabled,
       openDatabaseTab,
       handleUpsertCustomProperty,
       handleDeleteCustomProperty,
+      handleReorderCustomProperties,
       linkGraph,
       currentDoc?.id,
       currentDoc?.path,
@@ -786,6 +863,17 @@ export function WorkspaceOrchestration() {
     const isPrimary = !!tab && tab.key === activeTabKey
     const treeItem = doc ? findTreeItem(displayTreeItems, doc.id) : null
     const nestedNotes = (treeItem?.children ?? []).filter((item) => item.type === "file")
+    const attachedDatabase = doc
+      ? databases.find((database) => database.attachedNoteId === doc.id)
+      : undefined
+    const pageLayer = isPrimary && doc ? (activeLayers[doc.id] ?? "editor") : "editor"
+    const contentWidthKey =
+      pageLayer === "database" && attachedDatabase
+        ? databaseContentWidthKey(attachedDatabase.databaseId)
+        : tab?.fileId
+    const pageContentWidth = contentWidthKey
+      ? (contentWidths[contentWidthKey] ?? defaultContentWidth)
+      : defaultContentWidth
     return {
       document: doc,
       onContentChange: (content: string, sourceDocumentId: string) => {
@@ -829,7 +917,7 @@ export function WorkspaceOrchestration() {
           return null
         }
       },
-      activeLayer: isPrimary && doc ? (activeLayers[doc.id] ?? "editor") : "editor",
+      activeLayer: pageLayer,
       onLayerChange: isPrimary ? handleLayerChange : async (_layer: EditorLayer) => {},
       onRestoreDeleted: doc ? () => handleRestoreDeleted(doc.id) : undefined,
       viewMode: doc ? (viewModes[doc.id] ?? defaultViewMode) : defaultViewMode,
@@ -838,6 +926,10 @@ export function WorkspaceOrchestration() {
         : (mode: DocumentViewMode) => {
             if (doc) setViewMode(doc.id, mode)
           },
+      contentWidth: pageContentWidth,
+      onContentWidthChange: contentWidthKey
+        ? (width: ContentWidth) => setContentWidth(contentWidthKey, width)
+        : undefined,
       linkedLayers: isPrimary && doc ? (linkedLayersByDoc[doc.id] ?? NO_LAYERS) : NO_LAYERS,
       databasesEnabled,
       canCreateDatabaseLayer: DATABASE_LAYER_CREATION_AVAILABLE && databasesEnabled,
@@ -873,6 +965,43 @@ export function WorkspaceOrchestration() {
           }
         : (_json: string) => {},
       onOpenCanvasNote: handleOpenCanvasNote,
+      databaseBody:
+        isPrimary && doc && attachedDatabase ? (
+          <DatabaseWorkspace
+            databaseId={attachedDatabase.databaseId}
+            title={attachedDatabase.title}
+            icon={treeItem?.icon ?? attachedDatabase.icon}
+            hostKind="layer"
+            hostId={doc.id}
+            contentWidth={
+              contentWidths[databaseContentWidthKey(attachedDatabase.databaseId)] ??
+              defaultContentWidth
+            }
+            onContentWidthChange={(width: ContentWidth) =>
+              setContentWidth(databaseContentWidthKey(attachedDatabase.databaseId), width)
+            }
+            titleColumnName={
+              databaseTitleLabels[databaseContentWidthKey(attachedDatabase.databaseId)]
+            }
+            onTitleColumnNameChange={(name) =>
+              setDatabaseTitleLabel(databaseContentWidthKey(attachedDatabase.databaseId), name)
+            }
+            onIconChange={(next) => handleSetIcon(doc.id, next)}
+            onOpenInNewTab={() =>
+              openDatabaseTab(attachedDatabase.databaseId, attachedDatabase.title, true)
+            }
+            onOpenRowFullPage={(row) => handleSelect(row.noteId)}
+            onRenameRow={handleRenameDatabaseRow}
+            onLoadRowDocument={(row) => loadDoc(row.noteId, row.title)}
+            onRowContentChange={handleContentChange}
+            vault={vault ?? undefined}
+            onCatalogChanged={refreshDatabaseCatalog}
+            onRowCreated={async (row) => {
+              await refreshTree()
+              await loadDoc(row.noteId, row.title)
+            }}
+          />
+        ) : undefined,
     }
   }
 
@@ -904,7 +1033,7 @@ export function WorkspaceOrchestration() {
               <p className="text-muted-foreground">{t("workspace.noVault")}</p>
               <button
                 onClick={handleOpenVault}
-                className="flex items-center gap-2 rounded-lg border border-border bg-card px-5 py-2.5 text-sm text-foreground transition-colors hover:bg-accent"
+                className="flex items-center gap-2 rounded-lg border border-border bg-card px-5 py-2.5 text-sm text-foreground hover:bg-accent"
               >
                 <FolderOpen className="size-4" />
                 {t("workspace.openVault")}
@@ -934,9 +1063,34 @@ export function WorkspaceOrchestration() {
       >
         {activeTab?.kind === "database" ? (
           <DatabaseWorkspace
+            key={`database:${activeTab.key}:${activeTab.fileId}`}
             databaseId={activeTab.fileId}
             title={activeTab.title}
+            icon={currentFileIcon}
+            hostId={activeTab.key}
+            contentWidth={
+              contentWidths[databaseContentWidthKey(activeTab.fileId)] ?? defaultContentWidth
+            }
+            onContentWidthChange={(width) =>
+              setContentWidth(databaseContentWidthKey(activeTab.fileId), width)
+            }
+            onRenameTitle={(name) => handleRenameDatabaseTab(activeTab.key, name)}
+            onIconChange={(next) => handleSetIcon(activeTab.fileId, next)}
+            titleColumnName={databaseTitleLabels[databaseContentWidthKey(activeTab.fileId)]}
+            onTitleColumnNameChange={(name) =>
+              setDatabaseTitleLabel(databaseContentWidthKey(activeTab.fileId), name)
+            }
             onOpenInNewTab={() => openDatabaseTab(activeTab.fileId, activeTab.title, true)}
+            onOpenRowFullPage={(row) => handleSelect(row.noteId)}
+            onRenameRow={handleRenameDatabaseRow}
+            onLoadRowDocument={(row) => loadDoc(row.noteId, row.title)}
+            onRowContentChange={handleContentChange}
+            vault={vault ?? undefined}
+            onCatalogChanged={refreshDatabaseCatalog}
+            onRowCreated={async (row) => {
+              await refreshTree()
+              await loadDoc(row.noteId, row.title)
+            }}
           />
         ) : activeTab?.kind === "graph" ? (
           <React.Suspense fallback={<LazyEditorFallback />}>
@@ -1009,8 +1163,11 @@ export function WorkspaceOrchestration() {
         )}
 
         {/* Left sidebar overlay. */}
-        <div
-          className={`fixed inset-y-0 left-0 z-40 flex flex-col transition-transform duration-200 ease-out shadow-2xl ${focusShowLeft ? "translate-x-0" : "-translate-x-full"}`}
+        <motion.div
+          className="fixed inset-y-0 left-0 z-40 flex flex-col shadow-2xl"
+          initial={false}
+          animate={{ x: focusShowLeft ? 0 : "-100%" }}
+          transition={motionTransitions.panel}
           onMouseLeave={() => setFocusShowLeft(false)}
         >
           <div className="flex min-h-0 flex-1">
@@ -1028,18 +1185,24 @@ export function WorkspaceOrchestration() {
                 {...activityDockProps("left")}
               />
             )}
-            <div style={{ width: leftWidth }} className="min-h-0 shrink-0">
+            <div
+              style={{ width: "var(--amby-left-panel-width, 208px)" }}
+              className="min-h-0 shrink-0"
+            >
               <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} flush />
             </div>
           </div>
-        </div>
+        </motion.div>
 
         {/* Right sidebar overlay */}
-        <div
-          className={`fixed inset-y-0 right-0 z-40 flex transition-transform duration-200 ease-out shadow-2xl ${focusShowRight ? "translate-x-0" : "translate-x-full"}`}
+        <motion.div
+          className="fixed inset-y-0 right-0 z-40 flex shadow-2xl"
+          initial={false}
+          animate={{ x: focusShowRight ? 0 : "100%" }}
+          transition={motionTransitions.panel}
           onMouseLeave={() => setFocusShowRight(false)}
         >
-          <div style={{ width: rightWidth }} className="shrink-0">
+          <div style={{ width: "var(--amby-right-panel-width, 256px)" }} className="shrink-0">
             <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} flush />
           </div>
           {isDockVisible("right") && (
@@ -1056,7 +1219,7 @@ export function WorkspaceOrchestration() {
               {...activityDockProps("right")}
             />
           )}
-        </div>
+        </motion.div>
 
         <QuickOpenModal
           open={quickOpenMode !== null}
@@ -1089,6 +1252,7 @@ export function WorkspaceOrchestration() {
         />
         {dockNoticeToast}
         {deleteConfirmationDialog}
+        {propertyMigrationDialog}
       </div>
     )
   }
@@ -1133,6 +1297,7 @@ export function WorkspaceOrchestration() {
         showWorkspacePicker={false}
       />
       {deleteConfirmationDialog}
+      {propertyMigrationDialog}
 
       <div className="flex flex-1 overflow-hidden">
         {isDockVisible("left") && (
@@ -1153,7 +1318,7 @@ export function WorkspaceOrchestration() {
         {isLeftSidebarOpen && (
           <>
             <div
-              style={{ width: leftWidth }}
+              style={{ width: "var(--amby-left-panel-width, 208px)" }}
               className={
                 isCompactLayout
                   ? "fixed inset-y-11 left-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
@@ -1169,9 +1334,34 @@ export function WorkspaceOrchestration() {
         <main className="flex flex-1 gap-0 overflow-hidden">
           {activeTab?.kind === "database" ? (
             <DatabaseWorkspace
+              key={`database:${activeTab.key}:${activeTab.fileId}`}
               databaseId={activeTab.fileId}
               title={activeTab.title}
+              icon={currentFileIcon}
+              hostId={activeTab.key}
+              contentWidth={
+                contentWidths[databaseContentWidthKey(activeTab.fileId)] ?? defaultContentWidth
+              }
+              onContentWidthChange={(width) =>
+                setContentWidth(databaseContentWidthKey(activeTab.fileId), width)
+              }
+              onRenameTitle={(name) => handleRenameDatabaseTab(activeTab.key, name)}
+              onIconChange={(next) => handleSetIcon(activeTab.fileId, next)}
+              titleColumnName={databaseTitleLabels[databaseContentWidthKey(activeTab.fileId)]}
+              onTitleColumnNameChange={(name) =>
+                setDatabaseTitleLabel(databaseContentWidthKey(activeTab.fileId), name)
+              }
               onOpenInNewTab={() => openDatabaseTab(activeTab.fileId, activeTab.title, true)}
+              onOpenRowFullPage={(row) => handleSelect(row.noteId)}
+              onRenameRow={handleRenameDatabaseRow}
+              onLoadRowDocument={(row) => loadDoc(row.noteId, row.title)}
+              onRowContentChange={handleContentChange}
+              vault={vault ?? undefined}
+              onCatalogChanged={refreshDatabaseCatalog}
+              onRowCreated={async (row) => {
+                await refreshTree()
+                await loadDoc(row.noteId, row.title)
+              }}
             />
           ) : activeTab?.kind === "graph" ? (
             <React.Suspense fallback={<LazyEditorFallback />}>
@@ -1234,7 +1424,7 @@ export function WorkspaceOrchestration() {
         {isRightSidebarOpen && (
           <>
             <div
-              style={{ width: rightWidth }}
+              style={{ width: "var(--amby-right-panel-width, 256px)" }}
               className={
                 isCompactLayout
                   ? "fixed inset-y-11 right-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"

@@ -4,7 +4,9 @@ import * as React from "react"
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/react"
 import type { NodeViewProps } from "@tiptap/react"
 import { useTranslation } from "react-i18next"
+import { motion } from "motion/react"
 
+import { motionTransitions } from "@/lib/motion-config"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
 
@@ -51,9 +53,12 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
       <div className="amby-callout-inner">
         {/* ── Emoji slot ─────────────────────────────────────────────── */}
         <div ref={emojiSlotRef} className="amby-callout-emoji-slot" contentEditable={false}>
-          <button
+          <motion.button
             type="button"
             className="amby-callout-emoji-btn"
+            whileHover={editor.isEditable ? { scale: 1.15 } : undefined}
+            whileTap={editor.isEditable ? { scale: 0.96 } : undefined}
+            transition={motionTransitions.default}
             onClick={() => {
               if (!editor.isEditable) return
               // A second click is an explicit close. Opening broadcasts first
@@ -70,7 +75,7 @@ export function CalloutView({ node, updateAttributes, editor }: NodeViewProps) {
             aria-label={t("callout.emoji")}
           >
             {emoji}
-          </button>
+          </motion.button>
 
           {pickerOpen && (
             <div className="amby-callout-picker-anchor" contentEditable={false}>

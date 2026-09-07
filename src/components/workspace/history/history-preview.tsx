@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
+import { MotionSpinner } from "@/lib/motion"
 import type { TreeItem } from "@/lib/storage"
 import { Input } from "@/components/ui/input"
 import { IconValue } from "../icon-value"
@@ -179,7 +180,9 @@ export function HistoryPreview({
             role="status"
             className="flex flex-1 items-center justify-center gap-2 text-sm text-muted-foreground"
           >
-            <Loader2 className="size-4 animate-spin" />
+            <MotionSpinner>
+              <Loader2 className="size-4" />
+            </MotionSpinner>
             {t("historyPanel.loadingVersion")}
           </div>
         ) : diff && history.preview ? (
@@ -214,7 +217,7 @@ export function HistoryPreview({
                       disabled={history.busy}
                       onClick={() => void history.select(snapshot)}
                       className={cn(
-                        "w-full rounded-md px-2 py-2 text-left text-xs transition-colors hover:bg-muted",
+                        "w-full rounded-md px-2 py-2 text-left text-xs hover:bg-muted",
                         snapshot.id === entry?.id && "bg-muted/80 font-medium shadow-none",
                       )}
                     >
@@ -302,7 +305,13 @@ export function HistoryPreview({
             disabled={history.busy || !history.preview || history.previewLoading}
             onClick={() => entry && void history.restore(entry)}
           >
-            {history.busy ? <Loader2 className="animate-spin" /> : <RotateCcw />}
+            {history.busy ? (
+              <MotionSpinner>
+                <Loader2 />
+              </MotionSpinner>
+            ) : (
+              <RotateCcw />
+            )}
             {t(history.busy ? "historyPanel.restoring" : "historyPanel.restoreVersion")}
           </Button>
         </div>

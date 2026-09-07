@@ -73,7 +73,7 @@ export function ModelsManager({
         <button
           type="button"
           onClick={addModel}
-          className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-2 text-[12px] text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+          className="flex items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-2 py-2 text-[12px] text-muted-foreground hover:border-border hover:text-foreground"
         >
           <Plus className="size-3.5" />
           {t("models.add")}

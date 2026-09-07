@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::bundle::*;
+use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::frontmatter;
 use crate::model::*;
 use crate::paths;
@@ -311,6 +312,7 @@ mod layer_tests {
 #[specta::specta]
 pub fn move_item(
     db: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher_state: tauri::State<'_, WatcherState>,
     source_path: String,
     target_path: String,
@@ -364,6 +366,26 @@ pub fn move_item(
         outcome
             .warnings
             .push(OperationWarning::IndexRebuildRequired);
+    }
+    if runtime.state(Some(conn.generation)).enabled {
+        match crate::database::projection::rebuild_database_projection(&conn.connection, &conn.root)
+        {
+            Ok(report) => {
+                runtime.set_projection(
+                    conn.generation,
+                    Some(crate::database::model::ProjectionVersion {
+                        epoch: report.epoch,
+                        seq: report.seq,
+                    }),
+                );
+            }
+            Err(error) => {
+                tracing::warn!(event = "database_projection_rebuild_failed", %error);
+                outcome
+                    .warnings
+                    .push(OperationWarning::IndexRebuildRequired);
+            }
+        }
     }
     Ok(outcome)
 }

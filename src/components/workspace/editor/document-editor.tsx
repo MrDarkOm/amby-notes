@@ -17,6 +17,8 @@ import { DocumentBody } from "./document-body"
 import { noteEditingPolicy } from "./note-editing-policy"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
 import { Button } from "@/components/ui/button"
+import { editorSurfaceLeases, type EditorSurface } from "../database/peek/editor-surface-lease"
+import type { ContentWidth } from "../app-config"
 
 export interface Document {
   id: string
@@ -61,6 +63,8 @@ export interface DocumentEditorProps {
   canCreateDatabaseLayer?: boolean
   viewMode?: DocumentViewMode
   onViewModeChange?: (mode: DocumentViewMode) => void
+  contentWidth?: ContentWidth
+  onContentWidthChange?: (width: ContentWidth) => void
   onFileIconChange?: (emoji: string) => void
   linkedLayers?: { canvas: boolean; sketch: boolean; database: boolean }
   isLocked?: boolean
@@ -84,6 +88,8 @@ export interface DocumentEditorProps {
   canvasValue?: string
   onCanvasChange?: (json: string) => void
   onOpenCanvasNote?: (file: string) => void
+  databaseBody?: React.ReactNode
+  editorSurfaceOwner?: EditorSurface
 }
 
 export function DocumentEditor({
@@ -118,6 +124,8 @@ export function DocumentEditor({
   canCreateDatabaseLayer = false,
   viewMode = "live",
   onViewModeChange,
+  contentWidth = "normal",
+  onContentWidthChange,
   onFileIconChange,
   linkedLayers,
   isLocked = false,
@@ -140,6 +148,8 @@ export function DocumentEditor({
   canvasValue,
   onCanvasChange,
   onOpenCanvasNote,
+  databaseBody,
+  editorSurfaceOwner = "document",
 }: DocumentEditorProps) {
   const [content, setContent] = React.useState(document?.content ?? "")
   const [editingTitle, setEditingTitle] = React.useState(false)
@@ -155,6 +165,19 @@ export function DocumentEditor({
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
   const { t } = useTranslation()
   const editingPolicy = noteEditingPolicy(document?.noteProperties)
+  const documentId = document?.id
+  const leaseToken = React.useId()
+  const [hasEditorLease, setHasEditorLease] = React.useState(!documentId)
+  React.useLayoutEffect(() => {
+    if (!documentId) {
+      setHasEditorLease(true)
+      return
+    }
+    const acquired = editorSurfaceLeases.acquire(documentId, editorSurfaceOwner, leaseToken)
+    setHasEditorLease(acquired)
+    return () => editorSurfaceLeases.release(documentId, leaseToken)
+  }, [documentId, editorSurfaceOwner, leaseToken])
+  const effectiveLocked = isLocked || editingPolicy.readOnly || !hasEditorLease
   const effectiveViewMode = editingPolicy.sourceOnly ? "source" : viewMode
 
   const flatTreeItems = React.useMemo(() => flattenTree(treeItems ?? []), [treeItems])
@@ -232,7 +255,7 @@ export function DocumentEditor({
   }
 
   const handleContentChange = (v: string) => {
-    if (!document || editingPolicy.readOnly) return
+    if (!document || effectiveLocked) return
     setContent(v)
     onContentChange?.(v, document.id)
   }
@@ -278,12 +301,14 @@ export function DocumentEditor({
       canCreateDatabaseLayer={canCreateDatabaseLayer}
       onUnlinkLayer={onUnlinkLayer}
       onDeleteLayer={onDeleteLayer}
-      isLocked={isLocked || editingPolicy.readOnly}
+      isLocked={effectiveLocked}
       isFavorite={isFavorite}
       onToggleFavorite={onToggleFavorite}
       onOpenInNewTab={onOpenInNewTab}
       viewMode={effectiveViewMode}
       onViewModeChange={handleEditorViewModeChange}
+      contentWidth={contentWidth}
+      onContentWidthChange={(width) => onContentWidthChange?.(width)}
       nestedNotes={nestedNotes}
       nestedNotesPlacement={nestedNotesPlacement}
       onNestedNotesPlacementChange={onNestedNotesPlacementChange}
@@ -345,14 +370,14 @@ export function DocumentEditor({
           <div className="flex gap-3">
             <button
               onClick={onNewFile}
-              className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-foreground transition-colors hover:bg-accent hover:border-border"
+              className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-foreground hover:bg-accent hover:border-border"
             >
               <FilePlus className="size-4 text-muted-foreground" />
               {t("docEditor.createNote")}
             </button>
             <button
               onClick={onOpenVault}
-              className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
+              className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm text-muted-foreground hover:bg-card hover:text-foreground"
             >
               <FolderOpen className="size-4" />
               {t("docEditor.openVault")}
@@ -383,7 +408,8 @@ export function DocumentEditor({
           activeLayer={activeLayer}
           viewMode={effectiveViewMode}
           onViewModeChange={handleEditorViewModeChange}
-          isLocked={isLocked || editingPolicy.readOnly}
+          contentWidth={contentWidth}
+          isLocked={effectiveLocked}
           fileIcon={fileIcon}
           onFileIconChange={onFileIconChange}
           editingTitle={editingTitle}
@@ -402,6 +428,7 @@ export function DocumentEditor({
           canvasValue={canvasValue}
           onCanvasChange={onCanvasChange}
           onOpenCanvasNote={onOpenCanvasNote}
+          databaseBody={databaseBody}
           editorSelection={editorSelection}
           onEditorSelectionChange={handleEditorSelectionChange}
           editorRef={editorRef}
@@ -435,7 +462,8 @@ export function DocumentEditor({
           activeLayer={activeLayer}
           viewMode={effectiveViewMode}
           onViewModeChange={handleEditorViewModeChange}
-          isLocked={isLocked || editingPolicy.readOnly}
+          contentWidth={contentWidth}
+          isLocked={effectiveLocked}
           fileIcon={fileIcon}
           onFileIconChange={onFileIconChange}
           editingTitle={editingTitle}
@@ -454,6 +482,7 @@ export function DocumentEditor({
           canvasValue={canvasValue}
           onCanvasChange={onCanvasChange}
           onOpenCanvasNote={onOpenCanvasNote}
+          databaseBody={databaseBody}
           editorSelection={editorSelection}
           onEditorSelectionChange={handleEditorSelectionChange}
           editorRef={editorRef}

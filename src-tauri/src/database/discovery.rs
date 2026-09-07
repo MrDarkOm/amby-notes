@@ -66,6 +66,7 @@ pub struct DiscoveryDiagnostic {
 pub struct DiscoveredDatabase {
     pub database_id: String,
     pub name: String,
+    pub icon: Option<String>,
     pub container_path: PathBuf,
     pub manifest_path: PathBuf,
     pub relative_container_path: String,
@@ -856,6 +857,7 @@ fn discovered_database(vault: &Path, boundary: &ContainerBoundary) -> Option<Dis
     Some(DiscoveredDatabase {
         database_id: parsed.value.database_id.clone(),
         name: parsed.value.name.clone(),
+        icon: parsed.value.icon.clone(),
         container_path: boundary.root.clone(),
         manifest_path: boundary.manifest_path.clone(),
         relative_container_path: relative_path(vault, &boundary.root),

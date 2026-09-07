@@ -1,6 +1,9 @@
 "use client"
 
 import * as React from "react"
+import { animate, type AnimationPlaybackControls } from "motion/react"
+
+import { motionTransition, motionTransitions } from "@/lib/motion-config"
 
 export interface DnDState {
   draggingId: string | null
@@ -44,8 +47,8 @@ export function useActivityDnD({ onDrop, zoneForButton }: UseActivityDnDOptions)
       const originalWrapperDisplay = sourceWrapper?.style.display ?? ""
       const originalBodyUserSelect = document.body.style.userSelect
       const originalBodyCursor = document.body.style.cursor
-      const originalButtonStyles = new Map<HTMLElement, { transform: string; transition: string }>()
-      const animationFrames = new Map<HTMLElement, number>()
+      const originalButtonStyles = new Map<HTMLElement, { transform: string }>()
+      const neighbourAnimations = new Map<HTMLElement, AnimationPlaybackControls>()
       let pointerFrame = 0
       let pendingPointer: { x: number; y: number } | null = null
 
@@ -63,7 +66,6 @@ export function useActivityDnD({ onDrop, zoneForButton }: UseActivityDnDOptions)
         for (const item of activityItems()) {
           originalButtonStyles.set(item, {
             transform: item.style.transform,
-            transition: item.style.transition,
           })
         }
       }
@@ -138,12 +140,10 @@ export function useActivityDnD({ onDrop, zoneForButton }: UseActivityDnDOptions)
       function animateNeighbourShift(before: Map<HTMLElement, DOMRect>) {
         const items = activityItems()
         for (const item of items) {
-          const pendingFrame = animationFrames.get(item)
-          if (pendingFrame !== undefined) cancelAnimationFrame(pendingFrame)
-          animationFrames.delete(item)
+          neighbourAnimations.get(item)?.stop()
+          neighbourAnimations.delete(item)
           const original = originalButtonStyles.get(item)
           if (!original) continue
-          item.style.transition = "none"
           item.style.transform = original.transform
         }
 
@@ -158,15 +158,22 @@ export function useActivityDnD({ onDrop, zoneForButton }: UseActivityDnDOptions)
           const dx = oldRect.left - newRect.left
           const dy = oldRect.top - newRect.top
           if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue
-          item.style.transform = `translate(${dx}px, ${dy}px)`
-          const frame = requestAnimationFrame(() => {
-            if (animationFrames.get(item) !== frame) return
-            animationFrames.delete(item)
-            if (dragEnded) return
-            item.style.transition = "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)"
-            item.style.transform = original.transform
+          const controls = animate(
+            item,
+            {
+              transform: [
+                `translate(${dx}px, ${dy}px)`,
+                original.transform.length ? original.transform : "none",
+              ],
+            },
+            motionTransition(motionTransitions.enter),
+          )
+          neighbourAnimations.set(item, controls)
+          void controls.then(() => {
+            if (neighbourAnimations.get(item) !== controls) return
+            neighbourAnimations.delete(item)
+            if (!dragEnded) item.style.transform = original.transform
           })
-          animationFrames.set(item, frame)
         }
       }
 
@@ -326,8 +333,8 @@ export function useActivityDnD({ onDrop, zoneForButton }: UseActivityDnDOptions)
         if (pointerFrame) cancelAnimationFrame(pointerFrame)
         pointerFrame = 0
         pendingPointer = null
-        for (const frame of animationFrames.values()) cancelAnimationFrame(frame)
-        animationFrames.clear()
+        for (const controls of neighbourAnimations.values()) controls.stop()
+        neighbourAnimations.clear()
         const ghost = ghostRef.current
         if (ghost) {
           ghost.remove()
@@ -344,7 +351,6 @@ export function useActivityDnD({ onDrop, zoneForButton }: UseActivityDnDOptions)
         document.body.style.cursor = originalBodyCursor
         for (const [item, original] of originalButtonStyles) {
           item.style.transform = original.transform
-          item.style.transition = original.transition
         }
         originalButtonStyles.clear()
         fromEl.removeAttribute("data-dragging")

@@ -36,7 +36,7 @@ export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRende
         onClick={() =>
           clickableNode && !clickableNode.unresolved && onSelectLink?.(clickableNode.id)
         }
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent"
       >
         <LinkIcon
           className={cn(

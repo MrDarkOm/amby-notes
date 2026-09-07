@@ -238,7 +238,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
                   type="button"
                   onClick={stop}
                   title={t("ai.stop")}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-md bg-red-600/80 text-white transition-colors hover:bg-red-600"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-md bg-red-600/80 text-white hover:bg-red-600"
                 >
                   <Square className="size-3.5 fill-current" />
                 </button>
@@ -248,7 +248,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
                   onClick={() => void send()}
                   disabled={!input.trim()}
                   title={t("ai.send")}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+                  className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
                 >
                   <Send className="size-4" />
                 </button>

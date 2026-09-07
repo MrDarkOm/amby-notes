@@ -422,11 +422,43 @@ describe("applySessionRemap", () => {
     expect(result.icons).toEqual({})
     expect(result.favorites).toEqual([])
     expect(result.viewModes).toEqual({})
+    expect(result.contentWidths).toEqual({})
+    expect(result.databaseTitleLabels).toEqual({})
     expect(result.nestedNotesPlacements).toEqual({})
     expect(result.lockedFileIds).toEqual([])
     expect(result.tabs).toEqual([])
     expect(result.activeFileId).toBe("")
     expect(result.closedTreeIds).toEqual([])
+  })
+
+  it("remaps note content widths and preserves database page keys", () => {
+    const result = applySessionRemap(
+      session({
+        contentWidths: {
+          "/vault/Note.md": "wide",
+          "database:db-1": "full",
+          gone: "normal",
+        },
+      }),
+      { "/vault/Note.md": "note-1" },
+      new Set(["note-1"]),
+      true,
+    )
+    expect(result.contentWidths).toEqual({
+      "note-1": "wide",
+      "database:db-1": "full",
+      gone: "normal",
+    })
+  })
+
+  it("preserves custom database title labels", () => {
+    const result = applySessionRemap(
+      session({ databaseTitleLabels: { "database:db-1": "Страницы" } }),
+      {},
+      new Set(),
+      true,
+    )
+    expect(result.databaseTitleLabels).toEqual({ "database:db-1": "Страницы" })
   })
 
   it("restores collapsed branches independently of tabs, remapping IDs and dropping missing items", () => {

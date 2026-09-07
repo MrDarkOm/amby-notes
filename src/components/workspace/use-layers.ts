@@ -12,6 +12,7 @@ import {
   deleteLayer,
   noteLayers,
 } from "@/lib/storage"
+import { useDatabaseStore } from "./database/database-store"
 
 interface UseLayersParams {
   vault: string | null
@@ -88,13 +89,11 @@ export function useLayers({
       await refreshDatabaseCatalog?.()
       await refreshLinkedLayers(noteId, nextNotePath)
       setActiveLayer(noteId, "database")
-      onOpenDatabase?.(created.databaseId, created.title)
     },
     [
       applyDatabasePathChange,
       backendGeneration,
       databasesEnabled,
-      onOpenDatabase,
       refreshDatabaseCatalog,
       refreshLinkedLayers,
       refreshTree,
@@ -108,6 +107,21 @@ export function useLayers({
     if (!doc) return
     if (layer === "database") {
       try {
+        const findAttached = () =>
+          useDatabaseStore
+            .getState()
+            .databases.find((database) => database.attachedNoteId === doc.id)
+        if (findAttached()) {
+          setActiveLayer(doc.id, "database")
+          return
+        }
+        if (linkedLayersByDoc[doc.id]?.database) {
+          await refreshDatabaseCatalog?.()
+          if (findAttached()) {
+            setActiveLayer(doc.id, "database")
+            return
+          }
+        }
         await createAttachedDatabase(doc.id, doc.path, doc.title)
       } catch (err) {
         console.error("Failed to create database layer:", err)

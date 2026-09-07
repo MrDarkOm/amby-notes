@@ -46,6 +46,17 @@ import type {
 import type {
   CreateDatabaseRequest,
   CreatedDatabase,
+  CreateDatabasePropertyRequest,
+  DeleteDatabasePropertyRequest,
+  DeletedDatabaseProperty,
+  RenameDatabasePropertyRequest,
+  RenamedDatabaseProperty,
+  CreatedDatabaseProperty,
+  DatabaseNoteContext,
+  ReorderDatabasePropertiesRequest,
+  ReorderedDatabaseProperties,
+  RenameDatabaseRequest,
+  RenamedDatabase,
   DatabaseModuleState,
   DatabaseQueryRequest,
   DatabaseQueryResult,
@@ -281,6 +292,50 @@ export class WebAdapterCore implements StoragePort {
 
   async createDatabase(_request: CreateDatabaseRequest): Promise<CreatedDatabase> {
     throw new DatabaseOperationError("failed", "Database creation requires the desktop runtime")
+  }
+
+  async createDatabaseProperty(
+    _request: CreateDatabasePropertyRequest,
+  ): Promise<CreatedDatabaseProperty> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database property creation requires the desktop runtime",
+    )
+  }
+
+  async deleteDatabaseProperty(
+    _request: DeleteDatabasePropertyRequest,
+  ): Promise<DeletedDatabaseProperty> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database property deletion requires the desktop runtime",
+    )
+  }
+
+  async renameDatabaseProperty(
+    _request: RenameDatabasePropertyRequest,
+  ): Promise<RenamedDatabaseProperty> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database property rename requires the desktop runtime",
+    )
+  }
+
+  async getDatabaseNoteContext(_noteId: string): Promise<DatabaseNoteContext | null> {
+    return null
+  }
+
+  async reorderDatabaseProperties(
+    _request: ReorderDatabasePropertiesRequest,
+  ): Promise<ReorderedDatabaseProperties> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database property reordering requires the desktop runtime",
+    )
+  }
+
+  async renameDatabase(_request: RenameDatabaseRequest): Promise<RenamedDatabase> {
+    throw new DatabaseOperationError("failed", "Database rename requires the desktop runtime")
   }
 
   async applyDatabaseValueBatch(
@@ -853,6 +908,32 @@ export class WebAdapterCore implements StoragePort {
       (property) => property.id !== propertyId,
     )
     webSet(`amby:custom-properties:${noteId}`, JSON.stringify(current))
+  }
+
+  async reorderCustomProperties(
+    _vaultPath: string,
+    noteId: string,
+    propertyIds: string[],
+  ): Promise<void> {
+    const current = (await this.getNoteProperties("", noteId)).customProperties
+    if (current.length !== propertyIds.length) {
+      throw new Error("Property order must include every property exactly once")
+    }
+    const byId = new Map(current.map((property) => [property.id, property]))
+    const reordered = propertyIds.map((id) => byId.get(id)).filter(Boolean) as CustomProperty[]
+    if (reordered.length !== current.length || new Set(propertyIds).size !== propertyIds.length) {
+      throw new Error("Property order contains an unknown or duplicate ID")
+    }
+    webSet(`amby:custom-properties:${noteId}`, JSON.stringify(reordered))
+  }
+
+  async backupCustomProperties(_vaultPath: string, noteId: string): Promise<string> {
+    const properties = (await this.getNoteProperties("", noteId)).customProperties
+    if (!properties.length) throw new Error("Note has no custom properties to back up")
+    const backupKey = `amby:property-backup:${noteId}:${Date.now()}`
+    webSet(backupKey, JSON.stringify(properties))
+    webRemove(`amby:custom-properties:${noteId}`)
+    return backupKey
   }
 
   async getLinkGraph(_vaultPath: string): Promise<LinkGraph> {

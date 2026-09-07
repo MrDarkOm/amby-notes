@@ -26,7 +26,7 @@ const SIDES: Array<{ side: "top" | "right" | "bottom" | "left"; pos: Position }>
 
 export function SideHandles({ visible }: { visible: boolean }) {
   const base = cn(
-    "!size-3 !border-2 !border-muted-foreground !bg-accent transition-opacity",
+    "!size-3 !border-2 !border-muted-foreground !bg-accent",
     visible ? "!opacity-100" : "!opacity-0",
   )
   return (

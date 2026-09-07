@@ -298,7 +298,7 @@ export function EmojiPickerPanel({
             key={value}
             type="button"
             className={cn(
-              "relative px-3 text-xs text-muted-foreground transition-colors hover:text-foreground",
+              "relative px-3 text-xs text-muted-foreground hover:text-foreground",
               tab === value &&
                 "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-primary",
             )}
@@ -312,7 +312,7 @@ export function EmojiPickerPanel({
             type="button"
             title={t("emojiPicker.removeIcon")}
             aria-label={t("emojiPicker.removeIcon")}
-            className="ml-auto flex size-8 self-center items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/10"
+            className="ml-auto flex size-8 self-center items-center justify-center rounded-md text-destructive hover:bg-destructive/10"
             onClick={onClear}
           >
             <Trash2 className="size-4" />
@@ -503,7 +503,7 @@ export function EmojiPickerPanel({
             <button
               type="button"
               className={cn(
-                "flex h-32 w-full shrink-0 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-accent/20 text-muted-foreground transition-colors hover:border-primary/50 hover:bg-accent/40",
+                "flex h-32 w-full shrink-0 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border bg-accent/20 text-muted-foreground hover:border-primary/50 hover:bg-accent/40",
                 dragging && "border-primary bg-accent/60",
               )}
               onClick={() => inputRef.current?.click()}

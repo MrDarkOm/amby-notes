@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { motion } from "motion/react"
 import {
   Archive,
   AppWindow,
@@ -23,6 +24,7 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { motionTransitions } from "@/lib/motion-config"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import {
   ContextMenu,
@@ -76,7 +78,8 @@ export const TreeNode = React.memo(
     const hasChildren = (item.children && item.children.length > 0) || item.type === "folder"
     const isSelected = selectedIds.has(item.id)
     const isDragSource = ptrDragSourceId === item.id
-    const isDragTarget = ptrDragTargetId === item.id && item.type === "folder"
+    const canReceiveDrop = item.type === "folder" || item.type === "file"
+    const isDragTarget = ptrDragTargetId === item.id && canReceiveDrop
     // Indent: file leaves get an extra 15px offset (no chevron column)
     const paddingLeft = 6 + level * 12
 
@@ -340,7 +343,7 @@ export const TreeNode = React.memo(
     )
 
     const buttonCls = cn(
-      "amby-tree-row flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[13px] transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+      "amby-tree-row flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[13px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
       isSelected && "bg-accent",
       isDragSource && "opacity-40",
     )
@@ -351,8 +354,8 @@ export const TreeNode = React.memo(
       return (
         <>
           <div
-            data-drag-target={item.type === "folder" ? item.id : undefined}
-            data-drag-target-path={item.type === "folder" ? item.path : undefined}
+            data-drag-target={canReceiveDrop ? item.id : undefined}
+            data-drag-target-path={canReceiveDrop ? item.path : undefined}
             className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
           >
             <ContextMenu>
@@ -368,9 +371,14 @@ export const TreeNode = React.memo(
                     }}
                     title={isOpen ? t("tree.collapse") : t("tree.expand")}
                   >
-                    <ChevronRight
-                      className={cn("size-3 transition-transform", isOpen && "rotate-90")}
-                    />
+                    <motion.span
+                      className="flex"
+                      initial={false}
+                      animate={{ rotate: isOpen ? 90 : 0 }}
+                      transition={motionTransitions.default}
+                    >
+                      <ChevronRight className="size-3" />
+                    </motion.span>
                   </button>
                   <button
                     type="button"
@@ -407,8 +415,8 @@ export const TreeNode = React.memo(
         <ContextMenu>
           <ContextMenuTrigger asChild>
             <div
-              data-drag-target={item.type === "folder" ? item.id : undefined}
-              data-drag-target-path={item.type === "folder" ? item.path : undefined}
+              data-drag-target={canReceiveDrop ? item.id : undefined}
+              data-drag-target-path={canReceiveDrop ? item.path : undefined}
               className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
             >
               <button

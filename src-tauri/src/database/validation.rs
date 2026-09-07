@@ -284,15 +284,20 @@ pub fn validate_view(
             "unknown layout is retained read-only",
         );
     }
-    if !matches!(
-        view.open_mode.as_str(),
-        "sidePeek" | "centerPeek" | "fullPage"
-    ) {
-        report.error(
+    match view.open_mode.as_str() {
+        "sidePeek" | "centerPeek" | "fullPage" => {}
+        // DB-10 briefly generated this alias. Keep those app-owned files
+        // readable without rewriting user data; new creators use `sidePeek`.
+        "inline" => report.warning(
+            ValidationCode::InvalidConfiguration,
+            "openMode",
+            "legacy generated open mode is treated as sidePeek",
+        ),
+        _ => report.error(
             ValidationCode::InvalidConfiguration,
             "openMode",
             "unknown open mode",
-        );
+        ),
     }
     if !matches!(view.subitems_mode.as_str(), "nested" | "flat") {
         report.error(
@@ -302,12 +307,20 @@ pub fn validate_view(
         );
     }
     if let Some(density) = &view.density {
-        if !matches!(density.as_str(), "compact" | "default" | "tall") {
-            report.error(
+        match density.as_str() {
+            "compact" | "default" | "tall" => {}
+            // Same compatibility rule as `inline`: accept, preserve, and stop
+            // generating the historical alias.
+            "comfortable" => report.warning(
+                ValidationCode::InvalidConfiguration,
+                "density",
+                "legacy generated density is treated as default",
+            ),
+            _ => report.error(
                 ValidationCode::InvalidConfiguration,
                 "density",
                 "unknown density",
-            );
+            ),
         }
     }
     if view.fields.is_empty() {
@@ -1211,7 +1224,13 @@ fn validate_view_fields(
     manifest: Option<&DatabaseManifest>,
 ) {
     let first = &fields[0].field;
-    if !matches!(first, FieldRef::System { field, .. } if field == "title") {
+    let legacy_flat_title = matches!(first, FieldRef::Opaque(serde_json::Value::String(field)) if field == "title")
+        && fields[0]
+            .extra
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            == Some("system");
+    if !matches!(first, FieldRef::System { field, .. } if field == "title") && !legacy_flat_title {
         report.error(
             ValidationCode::InvalidConfiguration,
             "fields[0]",
@@ -1598,5 +1617,20 @@ mod tests {
             .warnings
             .iter()
             .any(|issue| issue.code == ValidationCode::UnknownDiscriminant));
+    }
+
+    #[test]
+    fn accepts_legacy_view_defaults_generated_by_db_10() {
+        let raw = serde_json::json!({
+          "format":"amby-database-view","formatVersion":1,
+          "databaseId":"01J00000000000000000000000","viewId":"01J00000000000000000000002","name":"Table",
+          "layout":"table","openMode":"inline","subitemsMode":"nested","density":"comfortable",
+          "fields":[{"kind":"system","field":"title","visible":true,"width":null,"frozen":true}],
+          "filter":null,"sorts":[],"group":null,"manualOrder":[],"aggregates":[],"layoutConfig":{}
+        });
+        let view: DatabaseViewFile = serde_json::from_value(raw).unwrap();
+        let report = validate_view(&view, None);
+        assert!(report.errors.is_empty());
+        assert_eq!(report.warnings.len(), 3);
     }
 }

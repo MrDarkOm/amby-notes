@@ -132,7 +132,9 @@ fn mime_type_for(name: &str) -> String {
 mod tests {
     use super::*;
     use crate::database::mutations::{create_database, CreateDatabaseRequest, DatabaseCreateMode};
-    use crate::database::rows::{create_database_row, CreateDatabaseRowRequest};
+    use crate::database::rows::{
+        create_database_row, CreateDatabaseRowRequest, DatabaseRowTemplate,
+    };
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -162,6 +164,7 @@ mod tests {
                 expected_generation: 1,
                 database_id: database.database_id.clone(),
                 title: "Row".to_owned(),
+                template: DatabaseRowTemplate::Default,
             },
         )
         .unwrap();

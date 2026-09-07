@@ -321,6 +321,13 @@ export async function bindTauriFileDrop(
     insertImportedAssets(view, pos, imported, signal)
   })
   return () => {
-    void unlisten()
+    // HMR can dispose a webview listener after Tauri has already removed it.
+    // Treat that cleanup race as harmless instead of surfacing an unhandled
+    // rejection to the editor window.
+    try {
+      unlisten()
+    } catch {
+      // Listener was already disposed by the webview.
+    }
   }
 }

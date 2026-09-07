@@ -258,6 +258,22 @@ async deleteCustomProperty(noteId: string, propertyId: string) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
+async reorderCustomProperties(noteId: string, propertyIds: string[]) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reorder_custom_properties", { noteId, propertyIds }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async backupCustomProperties(noteId: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("backup_custom_properties", { noteId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async listTags() : Promise<Result<TagEntry[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_tags") };
@@ -471,6 +487,46 @@ async createDatabase(request: CreateDatabaseRequest) : Promise<Result<CreatedDat
     else return { status: "error", error: e  as any };
 }
 },
+async createDatabaseProperty(request: CreateDatabasePropertyRequest) : Promise<Result<CreatedDatabaseProperty, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_database_property", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteDatabaseProperty(request: DeleteDatabasePropertyRequest) : Promise<Result<DeletedDatabaseProperty, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_database_property", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async reorderDatabaseProperties(request: ReorderDatabasePropertiesRequest) : Promise<Result<ReorderedDatabaseProperties, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reorder_database_properties", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async renameDatabase(request: RenameDatabaseRequest) : Promise<Result<RenamedDatabase, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rename_database", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async renameDatabaseProperty(request: RenameDatabasePropertyRequest) : Promise<Result<RenamedDatabaseProperty, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rename_database_property", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async applyDatabaseValueBatch(request: DatabaseValueBatchRequest) : Promise<Result<DatabaseValueBatchResult, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("apply_database_value_batch", { request }) };
@@ -514,6 +570,14 @@ async resolveDatabaseYamlConflict(request: DatabaseYamlResolveRequest) : Promise
 async listDatabases() : Promise<Result<DatabaseSummary[], DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_databases") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getDatabaseNoteContext(noteId: string) : Promise<Result<DatabaseNoteContext | null, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_database_note_context", { noteId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -691,10 +755,12 @@ export type AiMessage = {
  * "user" | "assistant"
  */
 role: string; content: string }
+export type CreateDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; propertyType: string; beforePropertyId: string | null; options?: string[] }
 export type CreateDatabaseRequest = { expectedGeneration: number; mode: DatabaseCreateMode; parentPath: string | null; notePath: string | null; name: string }
-export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; title: string }
-export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string; notePath: string | null }
-export type CreatedDatabaseRow = { databaseId: string; noteId: string; title: string; notePath: string; recordPath: string; recordRevision: string }
+export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; title: string; template: DatabaseRowTemplate }
+export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string; notePath: string | null; warnings: string[] }
+export type CreatedDatabaseProperty = { databaseId: string; propertyId: string; name: string; propertyType: string; manifestRevision: string; warnings: string[] }
+export type CreatedDatabaseRow = { databaseId: string; noteId: string; title: string; notePath: string; recordPath: string; recordRevision: string; warnings: string[] }
 export type CredentialInfo = { exists: boolean; masked: string | null }
 export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }
 export type DatabaseCreateMode = "standalone" | "attached"
@@ -703,19 +769,24 @@ export type DatabaseError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" 
 export type DatabaseFieldRef = { kind: "system"; field: string } | { kind: "property"; property_id: string }
 export type DatabaseFilterNode = { kind: "group"; operator: string; children: DatabaseFilterNode[] } | { kind: "condition"; field: DatabaseFieldRef; operator: string; value: string | null }
 export type DatabaseModuleState = { enabled: boolean; vaultGeneration: number | null; projection: ProjectionVersion | null }
+export type DatabaseNoteContext = { vaultGeneration: number; databaseId: string; databaseTitle: string; databaseIcon: string | null; manifestRevision: string; locked: boolean; properties: DatabasePropertySummary[]; row: DatabaseRow }
 export type DatabaseNoteRevision = { noteId: string; revision: string }
+export type DatabaseOptionSummary = { optionId: string; name: string; color: string }
 export type DatabasePageRequest = { limit: number; cursor: string | null }
+export type DatabasePropertySummary = { propertyId: string; name: string; propertyType: string; configJson: string; options: DatabaseOptionSummary[] }
 export type DatabaseQueryRequest = { expectedGeneration: number; databaseId: string; source: DatabaseQuerySource; page: DatabasePageRequest }
 export type DatabaseQueryResult = { database: DatabaseSummary; projection: ProjectionVersion; rows: DatabaseRow[]; nextCursor: string | null; diagnostics: DatabaseDiagnostic[] }
 export type DatabaseQuerySource = { kind: "savedView"; view_id: string; expected_revision: string | null } | { kind: "inline"; spec: DatabaseQuerySpec }
 export type DatabaseQuerySpec = { filter: DatabaseFilterNode | null; sorts: DatabaseSortSpec[] }
 export type DatabaseRow = { noteId: string; title: string; relativePath: string; parentNoteId: string | null; depth: number; categoryPath: string[]; valuesJson: string; rowRevision: string }
+export type DatabaseRowTemplate = { kind: "empty" } | { kind: "default" } | { kind: "template"; templateId: string }
 export type DatabaseSortSpec = { field: DatabaseFieldRef; direction: string; nulls: string }
 /**
  * A summary deliberately contains no filesystem path. Resource resolution
  * stays backend-owned and only safe view metadata crosses the IPC boundary.
  */
-export type DatabaseSummary = { databaseId: string; title: string; views: DatabaseViewSummary[]; diagnostics: DatabaseDiagnostic[] }
+export type DatabaseSummary = { databaseId: string; title: string; icon: string | null; attachedNoteId: string | null; manifestRevision: string; locked: boolean; properties: DatabasePropertySummary[]; views: DatabaseViewSummary[]; templates: DatabaseTemplateSummary[]; diagnostics: DatabaseDiagnostic[] }
+export type DatabaseTemplateSummary = { templateId: string; name: string; revision: string }
 export type DatabaseValueBatchRequest = { expectedGeneration: number; databaseId: string; operationId: string; cells: DatabaseValueMutation[] }
 export type DatabaseValueBatchResult = { operationId: string; databaseId: string; revisions: DatabaseNoteRevision[]; warnings: string[] }
 export type DatabaseValueMutation = { noteId: string; propertyId: string; valueJson: string | null; expectedRevision: string }
@@ -725,6 +796,8 @@ export type DatabaseYamlResolution = "shard" | "yaml" | "manual"
 export type DatabaseYamlResolveRequest = { expectedGeneration: number; databaseId: string; noteId: string; propertyId: string; expectedNoteRevision: string; expectedRecordRevision: string; resolution: DatabaseYamlResolution; manualValueJson: string | null }
 export type DatabaseYamlSyncRequest = { expectedGeneration: number; databaseId: string; noteId: string; expectedRecordRevision: string }
 export type DatabaseYamlSyncResult = { databaseId: string; noteId: string; noteRevision: string; recordRevision: string; changed: boolean; conflicts: DatabaseYamlConflict[]; warnings: string[] }
+export type DeleteDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string }
+export type DeletedDatabaseProperty = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 /**
  * Read-only view of a single YAML frontmatter entry. The original YAML stays
@@ -781,6 +854,12 @@ export type PathChange = { oldPath: string; newPath: string }
 export type ProjectionVersion = { epoch: string; seq: number }
 export type RecoveryEntry = { version: number; vaultGeneration: number; documentKind: string; id: string; pathHint: string; savedAtMs: number; content: string; contentHash: string }
 export type RefactorPreview = { notes: number; replacements: number }
+export type RenameDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; name: string }
+export type RenameDatabaseRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string }
+export type RenamedDatabase = { databaseId: string; title: string; manifestRevision: string; warnings: string[] }
+export type RenamedDatabaseProperty = { databaseId: string; propertyId: string; name: string; manifestRevision: string; warnings: string[] }
+export type ReorderDatabasePropertiesRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; propertyIds: string[] }
+export type ReorderedDatabaseProperties = { databaseId: string; propertyIds: string[]; manifestRevision: string; warnings: string[] }
 export type RestoreDeletedNoteRequest = { expectedGeneration: number; noteId: string; path: string; content: string; sourceTemplate: string; originWindow: string }
 export type SearchResult = { note: IndexedNote; matchType: string; snippet: string | null; score: number }
 export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }

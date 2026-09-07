@@ -1,6 +1,9 @@
 import { AlertTriangle, Database, ExternalLink, Loader2, RefreshCw } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { motion } from "motion/react"
 import { Button } from "@/components/ui/button"
+import { MotionSpinner } from "@/lib/motion"
+import { motionTransitions } from "@/lib/motion-config"
 import type { PanelRenderProps } from "../panel-registry"
 import { useDatabaseStore } from "../database/database-store"
 
@@ -30,7 +33,9 @@ export function DatabasesPanel({ databaseRuntimeEnabled, onOpenDatabase }: Panel
         </div>
       ) : status === "loading" ? (
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
+          <MotionSpinner>
+            <Loader2 className="size-4" />
+          </MotionSpinner>
         </div>
       ) : status === "error" ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center">
@@ -54,9 +59,11 @@ export function DatabasesPanel({ databaseRuntimeEnabled, onOpenDatabase }: Panel
           )}
           <div className="space-y-1">
             {databases.map((database) => (
-              <div
+              <motion.div
                 key={database.databaseId}
                 className="group flex items-center gap-2 rounded-md border border-transparent px-2 py-2 hover:border-border hover:bg-accent/40"
+                initial="rest"
+                whileHover="hover"
               >
                 <Database className="size-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
@@ -71,14 +78,16 @@ export function DatabasesPanel({ databaseRuntimeEnabled, onOpenDatabase }: Panel
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  className="opacity-0 transition-opacity group-hover:opacity-100"
+                  variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
+                  whileFocus={{ opacity: 1 }}
+                  transition={motionTransitions.fast}
                   title={t("databasePanel.open")}
                   aria-label={t("databasePanel.open")}
                   onClick={() => onOpenDatabase?.(database.databaseId, database.title)}
                 >
                   <ExternalLink className="size-3.5" />
                 </Button>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>

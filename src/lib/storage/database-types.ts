@@ -21,8 +21,28 @@ export interface DatabaseChangedPayload {
 export interface DatabaseSummary {
   databaseId: string
   title: string
+  icon: string | null
+  attachedNoteId: string | null
+  manifestRevision: string
+  locked: boolean
+  properties: DatabasePropertySummary[]
   views: DatabaseViewSummary[]
+  templates: DatabaseTemplateSummary[]
   diagnostics: DatabaseDiagnostic[]
+}
+
+export interface DatabasePropertySummary {
+  propertyId: string
+  name: string
+  propertyType: string
+  configJson: string
+  options: DatabaseOptionSummary[]
+}
+
+export interface DatabaseOptionSummary {
+  optionId: string
+  name: string
+  color: string
 }
 
 export interface DatabaseViewSummary {
@@ -32,6 +52,15 @@ export interface DatabaseViewSummary {
   revision: string
   groupField: DatabaseFieldRef | null
 }
+
+export interface DatabaseTemplateSummary {
+  templateId: string
+  name: string
+  revision: string
+}
+
+export type DatabaseRowTemplate =
+  { kind: "empty" } | { kind: "default" } | { kind: "template"; templateId: string }
 
 export type DatabaseCreateMode = "standalone" | "attached"
 
@@ -52,6 +81,70 @@ export interface CreatedDatabase {
   manifestPath: string
   viewPath: string
   notePath: string | null
+  warnings: string[]
+}
+
+export interface CreateDatabasePropertyRequest {
+  expectedGeneration: number
+  databaseId: string
+  expectedManifestRevision: string
+  name: string
+  propertyType: string
+  beforePropertyId?: string
+  options?: string[]
+}
+
+export interface RenameDatabaseRequest {
+  expectedGeneration: number
+  databaseId: string
+  expectedManifestRevision: string
+  name: string
+}
+
+export interface RenamedDatabase {
+  databaseId: string
+  title: string
+  manifestRevision: string
+  warnings: string[]
+}
+
+export interface CreatedDatabaseProperty {
+  databaseId: string
+  propertyId: string
+  name: string
+  propertyType: string
+  manifestRevision: string
+  warnings: string[]
+}
+
+export interface RenameDatabasePropertyRequest {
+  expectedGeneration: number
+  databaseId: string
+  propertyId: string
+  expectedManifestRevision: string
+  name: string
+}
+
+export interface RenamedDatabaseProperty {
+  databaseId: string
+  propertyId: string
+  name: string
+  manifestRevision: string
+  warnings: string[]
+}
+
+export interface DeleteDatabasePropertyRequest {
+  expectedGeneration: number
+  databaseId: string
+  propertyId: string
+  expectedManifestRevision: string
+}
+
+export interface DeletedDatabaseProperty {
+  databaseId: string
+  propertyId: string
+  manifestRevision: string
+  warnings: string[]
 }
 
 export interface DatabaseValueMutation {
@@ -84,6 +177,7 @@ export interface CreateDatabaseRowRequest {
   expectedGeneration: number
   databaseId: string
   title: string
+  template: DatabaseRowTemplate
 }
 
 export interface CreatedDatabaseRow {
@@ -93,6 +187,7 @@ export interface CreatedDatabaseRow {
   notePath: string
   recordPath: string
   recordRevision: string
+  warnings: string[]
 }
 
 export interface ImportDatabaseAssetRequest {
@@ -190,6 +285,31 @@ export interface DatabaseRow {
   categoryPath: string[]
   valuesJson: string
   rowRevision: string
+}
+
+export interface DatabaseNoteContext {
+  vaultGeneration: number
+  databaseId: string
+  databaseTitle: string
+  databaseIcon: string | null
+  manifestRevision: string
+  locked: boolean
+  properties: DatabasePropertySummary[]
+  row: DatabaseRow
+}
+
+export interface ReorderDatabasePropertiesRequest {
+  expectedGeneration: number
+  databaseId: string
+  expectedManifestRevision: string
+  propertyIds: string[]
+}
+
+export interface ReorderedDatabaseProperties {
+  databaseId: string
+  propertyIds: string[]
+  manifestRevision: string
+  warnings: string[]
 }
 
 export interface DatabaseDiagnostic {
