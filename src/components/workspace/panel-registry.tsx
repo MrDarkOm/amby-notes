@@ -26,6 +26,8 @@ export interface AttachmentItem {
   name: string
   icon?: string
   kind?: "note" | "image"
+  /** Absolute or web-local path used to resolve an image preview URL. */
+  path?: string
 }
 
 export interface DocumentProperties {

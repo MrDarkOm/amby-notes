@@ -642,6 +642,10 @@ const ru = {
     empty: "Вложений нет",
     emptyImages: "Изображений нет",
     noResults: "Вложения не найдены",
+    preview: "Просмотр изображения",
+    previewUnavailable: "Не удалось загрузить изображение",
+    previous: "Предыдущее изображение",
+    next: "Следующее изображение",
   },
   folderView: {
     summary: "Заметок: {{notes}} · папок: {{folders}}",
@@ -1835,6 +1839,10 @@ const en: typeof ru = {
     empty: "No attachments",
     emptyImages: "No images",
     noResults: "No attachments found",
+    preview: "Image preview",
+    previewUnavailable: "Unable to load image",
+    previous: "Previous image",
+    next: "Next image",
   },
   folderView: {
     summary: "Notes: {{notes}} · folders: {{folders}}",

@@ -83,6 +83,8 @@ export function usePropertyActions({
 
   const attachmentImages = React.useMemo<AttachmentItem[]>(() => {
     if (!currentDoc) return []
+    const notePath = currentDoc.path.replace(/\\/g, "/")
+    const noteDir = notePath.slice(0, notePath.lastIndexOf("/"))
     const refs: string[] = []
     const markdownImage = /!\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))/gu
     const htmlImage = /<img\b[^>]*\bsrc=["']([^"']+)["']/giu
@@ -97,12 +99,18 @@ export function usePropertyActions({
       const key = normalized.toLocaleLowerCase()
       if (seen.has(key)) return []
       seen.add(key)
+      const path = /^(?:\/[\s\S]*|[A-Za-z]:\/)/u.test(normalized)
+        ? normalized
+        : noteDir
+          ? `${noteDir}/${normalized}`
+          : normalized
       return [
         {
           id: `image:${currentDoc.id}:${normalized}`,
           name,
           icon: "🖼️",
           kind: "image" as const,
+          path,
         },
       ]
     })
