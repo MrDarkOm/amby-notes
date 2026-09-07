@@ -109,7 +109,7 @@ export function AttachmentsPanel({
         aria-label={imagesOnly ? attachment.name : undefined}
         title={imagesOnly ? attachment.name : undefined}
         className={cn(
-          "flex w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/40 px-2.5 py-2 text-left text-xs text-foreground hover:bg-accent",
+          "flex w-full min-w-0 items-start gap-2 rounded-md border border-border bg-background/40 px-2.5 py-2 text-left text-xs text-foreground hover:bg-accent",
           imagesOnly && "justify-center",
         )}
         onClick={() => {
@@ -140,10 +140,14 @@ export function AttachmentsPanel({
                 : undefined
             }
             fallback="📄"
-            className="size-4 shrink-0"
+            className="mt-0.5 size-4 shrink-0"
           />
         )}
-        {!imagesOnly && <span className="min-w-0 truncate">{attachment.name}</span>}
+        {!imagesOnly && (
+          <span className="min-w-0 flex-1 whitespace-normal break-words leading-4 [overflow-wrap:anywhere]">
+            {attachment.name}
+          </span>
+        )}
       </button>
     ))
   }
@@ -223,7 +227,7 @@ export function AttachmentsPanel({
         }}
       >
         <DialogContent className="flex h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-5xl flex-col gap-3 border-border bg-background/95 p-3 shadow-2xl backdrop-blur">
-          <DialogTitle className="min-w-0 truncate px-1 pr-10 text-sm font-medium">
+          <DialogTitle className="min-w-0 whitespace-normal break-words px-1 pr-10 text-sm font-medium leading-5 [overflow-wrap:anywhere]">
             {previewImage?.name ?? t("attachmentsPanel.preview")}
           </DialogTitle>
           <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-md bg-muted/30 p-2">

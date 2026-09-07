@@ -168,10 +168,14 @@ function HistoryContents({
             </p>
           ) : (
             history.trash.map((entry) => (
-              <div key={entry.id} className="flex items-center gap-2 border-b py-3">
+              <div key={entry.id} className="flex items-start gap-2 border-b py-3">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium">{entry.name}</p>
-                  <p className="truncate text-[10px] text-muted-foreground">{entry.originalPath}</p>
+                  <p className="whitespace-normal break-words text-xs font-medium leading-4 [overflow-wrap:anywhere]">
+                    {entry.name}
+                  </p>
+                  <p className="whitespace-normal break-words text-[10px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
+                    {entry.originalPath}
+                  </p>
                 </div>
                 <Button
                   variant="ghost"
@@ -246,7 +250,7 @@ function HistoryContents({
                           {formatHistorySize(entry.sizeBytes, locale)}
                         </span>
                       </p>
-                      <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                      <p className="mt-1 whitespace-normal break-words text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
                         {t(historyReasonKey(entry.reason))}
                       </p>
                     </div>

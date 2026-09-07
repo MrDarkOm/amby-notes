@@ -84,6 +84,14 @@ interface HoverTarget {
   afterPos?: number
 }
 
+interface DragRowTarget {
+  pos: number
+  depth: number
+  node: PMNode
+  element: HTMLElement
+  rect: DOMRect
+}
+
 const HANDLE_WIDTH = 22
 const BUTTON_H = 22
 const GUTTER_GAP = 12
@@ -561,6 +569,13 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         return true
       })
     }
+    // Asset NodeViews can change a paragraph's geometry without a ProseMirror
+    // transaction (for example when an image finishes loading). Re-anchor the
+    // handle on that native event as well as on editor transactions.
+    const onMediaLoad = () => {
+      if (editor.isDestroyed) return
+      window.requestAnimationFrame(onChange)
+    }
     // macOS Ctrl+click is dispatched as a primary-button mousedown before the
     // later contextmenu event. Prevent that first event from moving the
     // ProseMirror selection and opening the text bubble toolbar.
@@ -573,6 +588,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     editorDom.addEventListener("mouseenter", onEditorEnter)
     editorDom.addEventListener("mouseleave", onEditorLeave)
     editorDom.addEventListener("contextmenu", onEditorContextMenu)
+    editorDom.addEventListener("load", onMediaLoad, true)
     document.addEventListener("mousemove", onDocumentMouseMove)
 
     const closeBlockMenus = () => {
@@ -605,6 +621,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       editorDom.removeEventListener("mouseenter", onEditorEnter)
       editorDom.removeEventListener("mouseleave", onEditorLeave)
       editorDom.removeEventListener("contextmenu", onEditorContextMenu)
+      editorDom.removeEventListener("load", onMediaLoad, true)
       document.removeEventListener("mousemove", onDocumentMouseMove)
       window.removeEventListener(CLOSE_BLOCK_MENUS_EVENT, closeBlockMenus)
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current)
@@ -627,10 +644,11 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       pinnedTargetRef.current = null
       setInsertPanel((p) => (p.open ? { open: false, anchorPos: -1 } : p))
       setActionsOpen(false)
+      applyVisibility()
     }
     document.addEventListener("mousedown", onDown)
     return () => document.removeEventListener("mousedown", onDown)
-  }, [insertPanel.open, actionsOpen])
+  }, [insertPanel.open, actionsOpen, applyVisibility])
 
   // ── Pointer-based drag ────────────────────────────────────────────────────
   const startDrag = React.useCallback(
@@ -655,8 +673,12 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       const AUTOSCROLL_ZONE = 60
       const AUTOSCROLL_MAX_SPEED = 18
       let scrollRaf: number | null = null
+      let dragRaf: number | null = null
       let lastX = e.clientX
       let lastY = e.clientY
+      const dragOriginX = e.clientX
+      let dragRows: DragRowTarget[] = []
+      let dragRowsScrollTop = scrollContainer.scrollTop
 
       function tickScroll() {
         scrollRaf = null
@@ -688,14 +710,97 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       }
 
       function positionGhost(x: number, y: number) {
-        const g = ghostRef.current
-        if (!g) return
-        const ox = Number(g.dataset.offsetX || 0)
-        const oy = Number(g.dataset.offsetY || 0)
-        g.style.transform = `translate(${x - ox}px, ${y - oy}px)`
+        const wrapper = ghostRef.current
+        if (!wrapper) return
+        const ox = Number(wrapper.dataset.offsetX || 0)
+        const oy = Number(wrapper.dataset.offsetY || 0)
+        wrapper.style.transform = `translate3d(${x - ox}px, ${y - oy}px, 0)`
       }
 
       let indicatorEl: HTMLElement | null = null
+
+      function collectDragRows() {
+        const { doc } = view.state
+        const seen = new Set<number>()
+        const rows: DragRowTarget[] = []
+
+        doc.descendants((node, pos) => {
+          if (!DRAGGABLE_TYPES.has(node.type.name)) return true
+
+          // Resolve the same logical row that owns the Grab. In particular,
+          // paragraphs inside callouts and list items resolve to their visual
+          // container instead of becoming overlapping drop targets.
+          const probe = Math.min(pos + 1, doc.content.size)
+          let target = findDraggableAncestor(doc.resolve(probe))
+          if (!target || target.pos > pos || target.pos + target.node.nodeSize <= pos) {
+            target = { pos, depth: doc.resolve(pos).depth + 1, node }
+          }
+          if (!target || seen.has(target.pos)) return true
+          const element = view.nodeDOM(target.pos)
+          if (!(element instanceof HTMLElement) || !element.isConnected) return true
+          const rect = element.getBoundingClientRect()
+          if (rect.width <= 0 || rect.height <= 0) return true
+
+          seen.add(target.pos)
+          rows.push({
+            pos: target.pos,
+            depth: target.depth,
+            node: target.node,
+            element,
+            rect,
+          })
+
+          // Keep walking: duplicate children collapse through `seen`, while a
+          // genuinely nested list item still needs its own reorder row.
+          return true
+        })
+
+        dragRows = rows
+        dragRowsScrollTop = scrollContainer.scrollTop
+      }
+
+      function currentRowRect(row: DragRowTarget): DOMRect {
+        const scrollDelta = dragRowsScrollTop - scrollContainer.scrollTop
+        return new DOMRect(
+          row.rect.left,
+          row.rect.top + scrollDelta,
+          row.rect.width,
+          row.rect.height,
+        )
+      }
+
+      function findClosestDragRow(clientX: number, clientY: number) {
+        const viewport = scrollContainer.getBoundingClientRect()
+        if (clientY < viewport.top - 16 || clientY > viewport.bottom + 16) return null
+
+        let closest: { row: DragRowTarget; rect: DOMRect } | null = null
+        let closestScore = Number.POSITIVE_INFINITY
+        for (const row of dragRows) {
+          if (!row.element.isConnected) continue
+          const rect = currentRowRect(row)
+          const yDistance =
+            clientY < rect.top
+              ? rect.top - clientY
+              : clientY > rect.bottom
+                ? clientY - rect.bottom
+                : 0
+          const xDistance =
+            clientX < rect.left
+              ? rect.left - clientX
+              : clientX > rect.right
+                ? clientX - rect.right
+                : 0
+          // Vertical order is authoritative, matching Motion's y-axis
+          // Reorder.Group used by properties. Horizontal distance only chooses
+          // between columns that share the same vertical band.
+          const score = yDistance * 10_000 + xDistance * 10 - row.depth
+          if (score < closestScore) {
+            closestScore = score
+            closest = { row, rect }
+          }
+        }
+        return closest
+      }
 
       function showIndicatorAt(rect: DOMRect, top: number, crossColumn = false) {
         if (!indicatorEl) {
@@ -738,27 +843,19 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         before: boolean
         side: ColumnDropSide | null
       } | null {
-        const pos = view.posAtCoords({ left: clientX, top: clientY })
-        if (!pos) {
+        const closest = findClosestDragRow(clientX, clientY)
+        if (!closest) {
           hideIndicator()
           return null
         }
         const { doc } = view.state
-        const safe = Math.min(pos.pos, doc.content.size - 1)
-        if (safe < 0) {
+        const targetPos = closest.row.pos
+        const targetNode = doc.nodeAt(targetPos)
+        if (!targetNode) {
           hideIndicator()
           return null
         }
-        const $pos = doc.resolve(safe)
-        const target = findDraggableAncestor($pos)
-        if (!target) return null
-        const targetPos = target.pos
-        const targetDom = view.nodeDOM(targetPos)
-        if (!(targetDom instanceof HTMLElement)) {
-          hideIndicator()
-          return null
-        }
-        const rect = targetDom.getBoundingClientRect()
+        const rect = closest.rect
         const $source =
           sourcePos >= 0 && sourcePos <= doc.content.size ? doc.resolve(sourcePos) : null
         const sourceIsTopLevel = $source?.depth === 0
@@ -771,15 +868,20 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         // column and has no cross-column move ambiguity.
         const edgeRatio = sourceIsTopLevel ? 0.34 : sourceIsSoleColumnBlock ? 0.18 : 0
         const horizontalEdge = rect.width * edgeRatio
-        const outsideSlop = sourceIsTopLevel ? 28 : 8
+        // A plain vertical drag begins in the gutter, so the pointer must move
+        // horizontally before edge zones can mean “create/reorder columns”.
+        // This keeps the default gesture axis-locked like property reordering.
+        const hasHorizontalIntent = Math.abs(clientX - dragOriginX) >= 24
         const side: ColumnDropSide | null =
+          hasHorizontalIntent &&
           edgeRatio > 0 &&
-          clientX >= rect.left - outsideSlop &&
+          clientX >= rect.left &&
           clientX <= rect.left + horizontalEdge
             ? "left"
-            : edgeRatio > 0 &&
+            : hasHorizontalIntent &&
+                edgeRatio > 0 &&
                 clientX >= rect.right - horizontalEdge &&
-                clientX <= rect.right + outsideSlop
+                clientX <= rect.right
               ? "right"
               : null
         const canCreateColumns =
@@ -792,7 +894,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         }
         const before = clientY < rect.top + rect.height / 2
         const $target = doc.resolve(targetPos)
-        const parentDepth = target.depth - 1
+        const parentDepth = closest.row.depth - 1
         const parent = $target.node(parentDepth)
         const index = $target.index(parentDepth)
         let lineTop = before ? rect.top : rect.bottom
@@ -805,7 +907,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
             lineTop = (previousRect.bottom + rect.top) / 2
           }
         } else if (!before && index + 1 < parent.childCount) {
-          const nextDom = view.nodeDOM(targetPos + target.node.nodeSize)
+          const nextDom = view.nodeDOM(targetPos + targetNode.nodeSize)
           if (nextDom instanceof HTMLElement) {
             const nextRect = nextDom.getBoundingClientRect()
             lineTop = (rect.bottom + nextRect.top) / 2
@@ -833,35 +935,95 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           if (srcDom instanceof HTMLElement) {
             const rect = srcDom.getBoundingClientRect()
             const ghost = srcDom.cloneNode(true) as HTMLElement
+            const ghostWrapper = document.createElement("div")
+            ghostWrapper.className = "amby-block-drag-ghost-wrapper"
             ghost.classList.add("amby-block-drag-ghost")
             ghost.style.width = `${rect.width}px`
             ghost.style.maxWidth = `${rect.width}px`
-            ghost.dataset.offsetX = String(d.startX - rect.left)
-            ghost.dataset.offsetY = String(d.startY - rect.top)
-            document.body.appendChild(ghost)
-            ghostRef.current = ghost
+            ghostWrapper.dataset.offsetX = String(d.startX - rect.left)
+            ghostWrapper.dataset.offsetY = String(d.startY - rect.top)
+            ghostWrapper.style.transform = `translate3d(${rect.left}px, ${rect.top}px, 0)`
+            ghostWrapper.appendChild(ghost)
+            document.body.appendChild(ghostWrapper)
+            ghostRef.current = ghostWrapper
+            collectDragRows()
+            positionGhost(ev.clientX, ev.clientY)
             srcDom.classList.add("amby-block-drag-source")
-            animate(srcDom, { opacity: 0.35 }, motionTransition(motionTransitions.fast))
+            // Motion is decorative here: a browser animation failure must
+            // never abort the functional pointermove/drop pipeline.
+            try {
+              animate(
+                ghost,
+                { opacity: [0, 0.92], scale: [0.975, 1.015], y: [3, 0] },
+                motionTransition(motionTransitions.reorder),
+              )
+            } catch {
+              ghost.style.opacity = "0.92"
+            }
+            if (handlesRef.current) {
+              try {
+                animate(
+                  handlesRef.current,
+                  { opacity: 0.35 },
+                  motionTransition(motionTransitions.fast),
+                )
+              } catch {
+                handlesRef.current.style.opacity = "0.35"
+              }
+            }
           }
         }
-        updateIndicator(ev.clientX, ev.clientY)
-        positionGhost(ev.clientX, ev.clientY)
-        maybeStartScroll()
+        // Geometry reads and visual writes are capped at one pass per paint.
+        // This keeps the ghost attached to the pointer even across large notes.
+        if (dragRaf == null) {
+          dragRaf = requestAnimationFrame(() => {
+            dragRaf = null
+            updateIndicator(lastX, lastY)
+            positionGhost(lastX, lastY)
+            maybeStartScroll()
+          })
+        }
       }
 
       function cleanupGhost() {
-        if (ghostRef.current) {
-          ghostRef.current.remove()
-          ghostRef.current = null
+        const ghostWrapper = ghostRef.current
+        ghostRef.current = null
+        if (ghostWrapper) {
+          const ghost = ghostWrapper.firstElementChild
+          if (ghost instanceof HTMLElement) {
+            try {
+              animate(
+                ghost,
+                { opacity: 0, scale: 0.985, y: 2 },
+                motionTransition(motionTransitions.fast),
+              )
+              window.setTimeout(() => ghostWrapper.remove(), 140)
+            } catch {
+              ghostWrapper.remove()
+            }
+          } else {
+            ghostWrapper.remove()
+          }
+        }
+        if (handlesRef.current) {
+          try {
+            animate(handlesRef.current, { opacity: 1 }, motionTransition(motionTransitions.fast))
+          } catch {
+            handlesRef.current.style.opacity = "1"
+          }
         }
         document.querySelectorAll<HTMLElement>(".amby-block-drag-source").forEach((element) => {
           element.classList.remove("amby-block-drag-source")
-          const controls = animate(
-            element,
-            { opacity: 1 },
-            motionTransition(motionTransitions.fast),
-          )
-          void controls.then(() => element.style.removeProperty("opacity"))
+          try {
+            const controls = animate(
+              element,
+              { opacity: 1 },
+              motionTransition(motionTransitions.fast),
+            )
+            void controls.then(() => element.style.removeProperty("opacity"))
+          } catch {
+            element.style.removeProperty("opacity")
+          }
         })
       }
 
@@ -872,6 +1034,10 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         document.body.style.cursor = ""
         editorDom.style.userSelect = ""
         stopScroll()
+        if (dragRaf != null) {
+          cancelAnimationFrame(dragRaf)
+          dragRaf = null
+        }
         cleanupGhost()
 
         const d = dragRef.current

@@ -45,9 +45,10 @@ export function useDatabaseQuery({
     async (cursor: string | null, append: boolean) => {
       if (!enabled || vaultGeneration === null) return
       const serial = ++requestSerial.current
+      const currentInvalidationSeq = useDatabaseStore.getState().invalidationSeq
       const current =
         useDatabaseStore.getState().hosts[key] ??
-        emptyDatabaseHost(hostKind, databaseId, viewId, hostId)
+        emptyDatabaseHost(hostKind, databaseId, viewId, hostId, currentInvalidationSeq)
       setHost({ ...current, status: "loading", error: null })
       try {
         const result = await queryDatabase({
@@ -76,6 +77,7 @@ export function useDatabaseQuery({
         setHost({
           ...latest,
           status: "ready",
+          loadedInvalidationSeq: state.invalidationSeq,
           rows,
           projection: result.projection,
           diagnostics: result.diagnostics,
@@ -98,7 +100,19 @@ export function useDatabaseQuery({
   React.useEffect(() => {
     requestSerial.current += 1
     if (!enabled || vaultGeneration === null || !runtime?.enabled) return
-    setHost(emptyDatabaseHost(hostKind, databaseId, viewId, hostId))
+
+    // Host sessions live in the database store rather than in this component.
+    // Reuse a ready/loading session when a tab or panel remounts; otherwise a
+    // simple tab switch needlessly clears the rows and starts the query again.
+    const cachedHost = useDatabaseStore.getState().hosts[key]
+    if (
+      cachedHost?.loadedInvalidationSeq === invalidationSeq &&
+      (cachedHost.status === "loading" || cachedHost.status === "ready")
+    ) {
+      return
+    }
+
+    setHost(emptyDatabaseHost(hostKind, databaseId, viewId, hostId, invalidationSeq))
     void loadPage(null, false)
     return () => {
       requestSerial.current += 1
@@ -109,6 +123,7 @@ export function useDatabaseQuery({
     hostId,
     hostKind,
     invalidationSeq,
+    key,
     loadPage,
     runtime?.enabled,
     setHost,

@@ -16,6 +16,8 @@ export interface DatabaseHostSession {
   databaseId: string
   viewId: string | null
   status: "idle" | "loading" | "ready" | "error"
+  /** Invalidation generation represented by the rows in this session. */
+  loadedInvalidationSeq: number
   rows: DatabaseRow[]
   projection: ProjectionVersion | null
   diagnostics: DatabaseDiagnostic[]
@@ -56,6 +58,7 @@ export function emptyDatabaseHost(
   databaseId: string,
   viewId: string | null = null,
   hostId: string | null = null,
+  loadedInvalidationSeq = 0,
 ): DatabaseHostSession {
   return {
     key: databaseHostKey(kind, databaseId, viewId, hostId),
@@ -63,6 +66,7 @@ export function emptyDatabaseHost(
     databaseId,
     viewId,
     status: "idle",
+    loadedInvalidationSeq,
     rows: [],
     projection: null,
     diagnostics: [],

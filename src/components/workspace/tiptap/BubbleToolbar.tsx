@@ -107,7 +107,7 @@ function ToolbarButton({
 
 const HEADINGS: Array<{
   label: string
-  level: 1 | 2 | 3 | 4 | 5 | null
+  level: 1 | 2 | 3 | 4 | 5 | 6 | null
   Icon?: React.ElementType
 }> = [
   { label: "P", level: null, Icon: Pilcrow },
@@ -116,6 +116,7 @@ const HEADINGS: Array<{
   { label: "H3", level: 3 },
   { label: "H4", level: 4 },
   { label: "H5", level: 5 },
+  { label: "H6", level: 6 },
 ]
 
 export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
@@ -180,7 +181,7 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
     setLinkLabel("")
   }
 
-  function setHeading(level: 1 | 2 | 3 | 4 | 5 | null) {
+  function setHeading(level: 1 | 2 | 3 | 4 | 5 | 6 | null) {
     if (level === null) editor.chain().focus().setParagraph().run()
     else editor.chain().focus().setHeading({ level }).run()
     closePanel()

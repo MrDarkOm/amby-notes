@@ -8,7 +8,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import type { DockPreferences } from "./app-config"
 
 const COMPACT_LAYOUT_MAX_WIDTH = 960
-const MIN_PANEL_WIDTH = 300
+const MIN_PANEL_WIDTH = 250
 const DEFAULT_PANEL_WIDTH = 300
 
 interface UseSidebarLayoutParams {
@@ -41,11 +41,10 @@ export function useSidebarLayout({
 }: UseSidebarLayoutParams) {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
-  // Both side panels share one width so their content edges stay aligned even
-  // after resizing either divider.
-  const [panelWidth, setPanelWidth] = React.useState(DEFAULT_PANEL_WIDTH)
-  const leftWidth = panelWidth
-  const rightWidth = panelWidth
+  // The panels have the same minimum/default width, but their current widths
+  // and resize gestures are intentionally independent.
+  const [leftWidth, setLeftWidth] = React.useState(DEFAULT_PANEL_WIDTH)
+  const [rightWidth, setRightWidth] = React.useState(DEFAULT_PANEL_WIDTH)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
@@ -65,17 +64,13 @@ export function useSidebarLayout({
     document.documentElement.style.setProperty(`--amby-${side}-panel-width`, `${width}px`)
   }, [])
 
-  const setPanelWidths = React.useCallback(
-    (width: number) => {
-      setPanelWidthVariable("left", width)
-      setPanelWidthVariable("right", width)
-    },
-    [setPanelWidthVariable],
-  )
+  React.useLayoutEffect(() => {
+    setPanelWidthVariable("left", leftWidth)
+  }, [leftWidth, setPanelWidthVariable])
 
   React.useLayoutEffect(() => {
-    setPanelWidths(panelWidth)
-  }, [panelWidth, setPanelWidths])
+    setPanelWidthVariable("right", rightWidth)
+  }, [rightWidth, setPanelWidthVariable])
 
   React.useEffect(
     () => () => {
@@ -106,7 +101,8 @@ export function useSidebarLayout({
     return (e: React.MouseEvent) => {
       e.preventDefault()
       const startX = e.clientX
-      const startW = panelWidth
+      const startW = side === "left" ? leftWidth : rightWidth
+      const setWidth = side === "left" ? setLeftWidth : setRightWidth
       const sign = side === "left" ? 1 : -1
 
       function nearEdge(x: number) {
@@ -125,7 +121,7 @@ export function useSidebarLayout({
         if (frame) return
         frame = requestAnimationFrame(() => {
           frame = 0
-          setPanelWidths(pendingW)
+          setPanelWidthVariable(side, pendingW)
         })
       }
 
@@ -135,13 +131,13 @@ export function useSidebarLayout({
           frame = 0
         }
         if (nearEdge(ev.clientX)) {
-          setPanelWidths(DEFAULT_PANEL_WIDTH)
-          setPanelWidth(DEFAULT_PANEL_WIDTH)
+          setPanelWidthVariable(side, DEFAULT_PANEL_WIDTH)
+          setWidth(DEFAULT_PANEL_WIDTH)
           if (side === "left") setIsLeftSidebarOpen(false)
           else setIsRightSidebarOpen(false)
         } else {
-          setPanelWidths(pendingW)
-          setPanelWidth(pendingW)
+          setPanelWidthVariable(side, pendingW)
+          setWidth(pendingW)
         }
         window.removeEventListener("mousemove", onMove)
         window.removeEventListener("mouseup", onUp)
@@ -152,7 +148,7 @@ export function useSidebarLayout({
     }
   }
 
-  async function handleEnterFocusMode() {
+  const handleEnterFocusMode = React.useCallback(async () => {
     preFocusSidebars.current = { left: isLeftSidebarOpen, right: isRightSidebarOpen }
     setIsLeftSidebarOpen(false)
     setIsRightSidebarOpen(false)
@@ -162,9 +158,9 @@ export function useSidebarLayout({
       await getCurrentWindow()
         .setFullscreen(true)
         .catch(() => {})
-  }
+  }, [isLeftSidebarOpen, isRightSidebarOpen])
 
-  async function handleExitFocusMode() {
+  const handleExitFocusMode = React.useCallback(async () => {
     setIsFocusMode(false)
     setFocusShowLeft(false)
     setFocusShowRight(false)
@@ -178,7 +174,7 @@ export function useSidebarLayout({
       await getCurrentWindow()
         .setFullscreen(false)
         .catch(() => {})
-  }
+  }, [])
 
   // Move a button to the opposite side (appended to that side's end).
   function moveButtonToSide(defId: string, targetSide: Side) {

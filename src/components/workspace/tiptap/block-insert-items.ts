@@ -8,6 +8,7 @@ import {
   Heading3,
   Heading4,
   Heading5,
+  Heading6,
   Image as ImageIcon,
   ClipboardPaste,
   Link as LinkIcon,
@@ -186,6 +187,15 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     shortcut: "#####",
     insertAfter: (e, pos) => insertAfterBlock(e, pos, { type: "heading", attrs: { level: 5 } }),
     inline: (e) => e.chain().focus().setHeading({ level: 5 }).run(),
+  },
+  {
+    id: "h6",
+    icon: Heading6,
+    category: "text",
+    availableIn: COMMON,
+    shortcut: "######",
+    insertAfter: (e, pos) => insertAfterBlock(e, pos, { type: "heading", attrs: { level: 6 } }),
+    inline: (e) => e.chain().focus().setHeading({ level: 6 }).run(),
   },
   {
     id: "bullet",

@@ -219,7 +219,8 @@ export function SourceEditor({
       view.destroy()
       viewRef.current = null
     }
-    // Created once per mount; document/lock switches remount via the React `key`.
+    // Created once per mounted tab; document switches update the buffer below,
+    // while lock changes remount this component through the React `key`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

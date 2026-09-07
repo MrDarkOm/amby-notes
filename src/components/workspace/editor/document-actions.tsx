@@ -504,7 +504,6 @@ export function DocumentActionsDropdown({
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
-
         <DropdownMenuSeparator className="bg-accent" />
 
         {nestedNotes.length > 0 && (

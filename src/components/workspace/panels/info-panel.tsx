@@ -239,7 +239,7 @@ function DatabasePropertyRow({
         dragging && "z-10 rounded-md bg-background/95 shadow-sm",
       )}
     >
-      <div className="group/property flex h-8 min-w-0 items-center gap-1 rounded-md px-1 hover:bg-accent/60 focus-within:bg-accent/60">
+      <div className="group/property flex min-h-8 min-w-0 items-start gap-1 rounded-md px-1 py-0.5 hover:bg-accent/60 focus-within:bg-accent/60">
         <PropertyDragIcon
           icon={
             <IconValue
@@ -332,11 +332,11 @@ function DatabaseSchemaRow({
       role="listitem"
       data-sortable-property-id={property.propertyId}
       className={cn(
-        "relative grid min-h-8 grid-cols-[minmax(7rem,42%)_minmax(0,1fr)] items-center gap-1",
+        "relative grid min-h-8 grid-cols-[minmax(7rem,42%)_minmax(0,1fr)] items-start gap-1",
         dragging && "z-10 rounded-md bg-background/95 shadow-sm",
       )}
     >
-      <div className="group/property flex h-8 min-w-0 items-center gap-1 rounded-md px-1 hover:bg-accent/60 focus-within:bg-accent/60">
+      <div className="group/property flex min-h-8 min-w-0 items-start gap-1 rounded-md px-1 py-0.5 hover:bg-accent/60 focus-within:bg-accent/60">
         <PropertyDragIcon
           icon={
             <IconValue
@@ -364,7 +364,7 @@ function DatabaseSchemaRow({
             <button
               type="button"
               disabled={disabled}
-              className="h-7 min-w-0 flex-1 truncate rounded px-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default"
+              className="min-h-7 min-w-0 flex-1 rounded px-1 py-1 text-left text-xs leading-4 whitespace-normal break-words text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default"
               title={property.name}
             >
               {property.name}
@@ -372,7 +372,7 @@ function DatabaseSchemaRow({
           }
         />
       </div>
-      <span className="truncate px-1 text-[11px] text-muted-foreground">
+      <span className="min-w-0 break-words px-1 py-1 text-[11px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
         {t(`databaseWorkspace.propertyTypes.${property.propertyType}`, {
           defaultValue: property.propertyType,
         })}
@@ -488,7 +488,7 @@ function PropertyRow({
         dragging && "z-10 rounded-md bg-background/95 shadow-sm",
       )}
     >
-      <div className="group/property flex h-8 min-w-0 items-center gap-1 rounded-md px-1 hover:bg-accent/60 focus-within:bg-accent/60">
+      <div className="group/property flex min-h-8 min-w-0 items-start gap-1 rounded-md px-1 py-0.5 hover:bg-accent/60 focus-within:bg-accent/60">
         <PropertyDragIcon
           icon={
             <IconValue
@@ -1051,6 +1051,11 @@ export function InfoPanel({
     }
   }
 
+  function openPropertyEditor() {
+    setEditingProperty(null)
+    setPropertyEditorOpen(true)
+  }
+
   if (properties.kind === "folder") {
     return (
       <div className="flex h-full min-h-0 flex-col">
@@ -1114,10 +1119,7 @@ export function InfoPanel({
                 className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                 title={t("infoPanel.addProperty")}
                 disabled={Boolean(properties.frontmatter.parseError)}
-                onClick={() => {
-                  setEditingProperty(null)
-                  setPropertyEditorOpen(true)
-                }}
+                onClick={openPropertyEditor}
               >
                 <Plus className="size-3.5" />
               </button>
@@ -1243,6 +1245,18 @@ export function InfoPanel({
               </div>
             )}
           </section>
+          {!noteDatabaseContext && (
+            <button
+              type="button"
+              className="flex items-center gap-2 px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              title={t("infoPanel.addProperty")}
+              disabled={Boolean(properties.frontmatter.parseError)}
+              onClick={openPropertyEditor}
+            >
+              <Plus className="size-3.5" />
+              {t("infoPanel.addProperty")}
+            </button>
+          )}
           <section className="overflow-hidden rounded-lg border border-border bg-background/30">
             <button
               type="button"

@@ -165,7 +165,7 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
                 <div key={tag}>
                   <button
                     onClick={() => toggleTag(tag)}
-                    className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"
+                    className="flex w-full items-start gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"
                     style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
                     title={`#${tag}`}
                   >
@@ -178,8 +178,10 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
                       <ChevronRight className="size-3" />
                     </motion.span>
                     <Hash className="size-3.5 shrink-0 text-primary" />
-                    <span className="flex-1 truncate text-[13px] text-foreground">{label}</span>
-                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                    <span className="min-w-0 flex-1 whitespace-normal break-words text-[13px] leading-4 text-foreground [overflow-wrap:anywhere]">
+                      {label}
+                    </span>
+                    <span className="mt-0.5 shrink-0 text-[11px] text-muted-foreground">
                       {files.length}
                     </span>
                   </button>
@@ -189,13 +191,17 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
                         <button
                           key={item.id}
                           onClick={() => onSelect(item.id)}
-                          className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-accent"
+                          className="flex w-full items-start gap-1.5 rounded px-2 py-1 text-left hover:bg-accent"
                         >
-                          <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+                          <FileText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
                           <div className="min-w-0">
-                            <p className="truncate text-[12px] text-foreground">{item.name}</p>
+                            <p className="whitespace-normal break-words text-[12px] leading-4 text-foreground [overflow-wrap:anywhere]">
+                              {item.name}
+                            </p>
                             {path && (
-                              <p className="truncate text-[10px] text-muted-foreground">{path}</p>
+                              <p className="whitespace-normal break-words text-[10px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
+                                {path}
+                              </p>
                             )}
                           </div>
                         </button>

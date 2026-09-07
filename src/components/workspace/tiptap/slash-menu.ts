@@ -1,5 +1,5 @@
 import { Extension, type Editor, type Range } from "@tiptap/core"
-import Suggestion from "@tiptap/suggestion"
+import Suggestion, { exitSuggestion, SuggestionPluginKey } from "@tiptap/suggestion"
 
 export interface SlashTriggerState {
   open: boolean
@@ -82,7 +82,7 @@ export const SlashMenu = Extension.create({
             },
             onKeyDown: ({ event }) => {
               if (event.key === "Escape") {
-                closeSlashMenu(editor)
+                dismissSlashMenu(editor)
                 return true
               }
               // The React panel normally owns focus. If ProseMirror briefly
@@ -110,6 +110,22 @@ export function closeSlashMenu(editor: Editor) {
   s.rect = null
   s.version++
   notify()
+}
+
+/**
+ * Close the React surface and dismiss the Suggestion plugin itself. Keeping
+ * the plugin dismissed is important: otherwise the next transaction near the
+ * same slash immediately opens the menu again and captures Backspace/text.
+ */
+export function dismissSlashMenu(editor: Editor) {
+  if (editor.isDestroyed) return
+  const state = getSlashStorage(editor)
+  const suggestionState = SuggestionPluginKey.getState(editor.state) as
+    { active?: boolean } | undefined
+  if (suggestionState?.active) exitSuggestion(editor.view)
+  // exitSuggestion normally invokes onExit synchronously. Keep this fallback
+  // for a closed/inactive plugin so the React surface never remains mounted.
+  if (state?.open) closeSlashMenu(editor)
 }
 
 export function readSlashStorage(editor: Editor): SlashTriggerState | null {

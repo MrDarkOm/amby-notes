@@ -26,7 +26,7 @@ export const schemaExtensions: Extensions = [
     underline: false,
     // Clicks must not navigate away inside the Tauri webview.
     link: { openOnClick: false, autolink: true },
-    heading: { levels: [1, 2, 3, 4, 5] },
+    heading: { levels: [1, 2, 3, 4, 5, 6] },
   }),
   MarkdownTable.configure({ resizable: true }),
   TableRow,

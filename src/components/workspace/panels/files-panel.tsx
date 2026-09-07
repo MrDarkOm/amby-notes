@@ -230,7 +230,7 @@ export function FilesPanel(props: PanelRenderProps) {
                       <DropdownMenuSeparator className="bg-accent" />
                     )}
                     <DropdownMenuItem
-                      className="relative flex items-center gap-2 pr-9 text-[13px] whitespace-nowrap focus:bg-accent focus:text-white"
+                      className="relative flex items-start gap-2 pr-9 text-[13px] whitespace-normal break-words focus:bg-accent focus:text-white"
                       onSelect={() => {
                         setSortKey(key)
                         setSortDirection(direction)

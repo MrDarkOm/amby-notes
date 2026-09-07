@@ -81,14 +81,16 @@ export function DatabasesPanel({ databaseRuntimeEnabled, onOpenDatabase }: Panel
             {visibleDatabases.map((database) => (
               <motion.div
                 key={database.databaseId}
-                className="group flex items-center gap-2 rounded-md border border-transparent px-2 py-2 hover:border-border hover:bg-accent/40"
+                className="group flex items-start gap-2 rounded-md border border-transparent px-2 py-2 hover:border-border hover:bg-accent/40"
                 initial="rest"
                 whileHover="hover"
               >
-                <Database className="size-4 shrink-0 text-muted-foreground" />
+                <Database className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
-                  <span className="block truncate text-xs">{database.title}</span>
-                  <span className="block truncate text-[10px] text-muted-foreground">
+                  <span className="block whitespace-normal break-words text-xs leading-4 [overflow-wrap:anywhere]">
+                    {database.title}
+                  </span>
+                  <span className="block whitespace-normal break-words text-[10px] leading-4 text-muted-foreground [overflow-wrap:anywhere]">
                     {t("databasePanel.views", { count: database.views.length })}
                     {database.diagnostics.length > 0
                       ? ` · ${t("databasePanel.diagnostics", { count: database.diagnostics.length })}`

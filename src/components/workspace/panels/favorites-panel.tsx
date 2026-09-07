@@ -65,13 +65,15 @@ export function FavoritesPanel({
             {visibleItems.map((item) => (
               <motion.div
                 key={item.id}
-                className="group flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-accent"
+                className="group flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 hover:bg-accent"
                 initial="rest"
                 whileHover="hover"
                 onClick={() => onSelect(item.id)}
               >
-                <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                <span className="flex-1 truncate text-[13px] text-foreground">{item.name}</span>
+                <FileText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 whitespace-normal break-words text-[13px] leading-4 text-foreground [overflow-wrap:anywhere]">
+                  {item.name}
+                </span>
                 <motion.button
                   onClick={(e) => {
                     e.stopPropagation()
@@ -82,7 +84,7 @@ export function FavoritesPanel({
                   transition={motionTransitions.fast}
                   title={t("favoritesPanel.removeBookmark")}
                 >
-                  <BookmarkCheck className="size-3.5 text-amber-400" />
+                  <BookmarkCheck className="mt-0.5 size-3.5 text-amber-400" />
                 </motion.button>
               </motion.div>
             ))}

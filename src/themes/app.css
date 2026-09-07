@@ -565,12 +565,19 @@
   margin: 1rem 0 0.4rem;
 }
 
-.md-body h5,
-.md-body h6 {
+.md-body h5 {
   font-size: 1rem;
   font-weight: 600;
   color: var(--editor-heading-muted);
   margin: 0.8rem 0 0.3rem;
+}
+
+.md-body h6 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--editor-heading-muted) 86%, var(--editor-fg));
+  letter-spacing: 0.025em;
+  margin: 0.7rem 0 0.25rem;
 }
 
 .md-body p {
@@ -804,11 +811,17 @@
   color: var(--editor-heading-h4);
 }
 
-.amby-tiptap .ProseMirror h5,
-.amby-tiptap .ProseMirror h6 {
+.amby-tiptap .ProseMirror h5 {
   font-size: 1rem;
   margin: 0.8rem 0 0.3rem;
   color: var(--editor-heading-muted);
+}
+
+.amby-tiptap .ProseMirror h6 {
+  font-size: 0.9rem;
+  margin: 0.7rem 0 0.25rem;
+  color: color-mix(in srgb, var(--editor-heading-muted) 86%, var(--editor-fg));
+  letter-spacing: 0.025em;
 }
 
 .amby-tiptap .ProseMirror strong {
@@ -1387,19 +1400,30 @@ body.amby-resizing-columns * {
   pointer-events: none;
 }
 
-/* Drag ghost — semi-transparent clone of source block, follows pointer. */
-.amby-block-drag-ghost {
+/* Drag ghost — translation stays on the wrapper while Motion animates the
+   cloned card itself. Keeping those transforms separate prevents pointer
+   updates from interrupting the lift/drop spring. */
+.amby-block-drag-ghost-wrapper {
   position: fixed;
   top: 0;
   left: 0;
   z-index: 9999;
-  opacity: 0.7;
   pointer-events: none;
-  background: var(--editor-bg);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-  border-radius: 6px;
-  padding: 4px 8px;
   will-change: transform;
+}
+
+.amby-block-drag-ghost {
+  position: relative;
+  opacity: 0.92;
+  background: var(--editor-bg);
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  box-shadow:
+    0 14px 36px rgba(15, 23, 42, 0.18),
+    0 3px 10px rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  padding: 5px 9px;
+  transform-origin: 24px 50%;
+  will-change: transform, opacity;
 }
 
 /* Dim source block while drag is active. */
@@ -2240,8 +2264,7 @@ em-emoji-picker {
   box-shadow: var(--menu-shadow);
 }
 
-/* The slash command input stays visually anchored in both themes. Its dark
-   field makes the typing destination unmistakable even on a light canvas. */
+/* Keep the slash search field readable in both themes. */
 .amby-block-panel--insert .amby-block-panel-search {
   background: var(--slash-search-bg);
   border-color: var(--slash-search-border);
@@ -2481,10 +2504,10 @@ html.dark .amby-activity-button[data-active="true"]:hover {
   --scrollbar-thumb: #c7cdd6;
   --scrollbar-thumb-hover: #aeb6c2;
   --source-editor-bg: var(--note-surface);
-  --slash-search-bg: #252a33;
-  --slash-search-border: #3c4554;
-  --slash-search-fg: #f7f8fa;
-  --slash-search-placeholder: #b7bfcb;
+  --slash-search-bg: #f8f9fb;
+  --slash-search-border: #d5dae2;
+  --slash-search-fg: #252a33;
+  --slash-search-placeholder: #87909e;
 }
 
 .dark {

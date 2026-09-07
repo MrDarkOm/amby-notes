@@ -91,6 +91,9 @@ export interface DocumentEditorProps {
   onOpenCanvasNote?: (file: string) => void
   databaseBody?: React.ReactNode
   editorSurfaceOwner?: EditorSurface
+  scrollPositionKey?: string
+  scrollPosition?: number
+  onScrollPositionChange?: (position: number) => void
 }
 
 export function DocumentEditor({
@@ -151,6 +154,9 @@ export function DocumentEditor({
   onOpenCanvasNote,
   databaseBody,
   editorSurfaceOwner = "document",
+  scrollPositionKey,
+  scrollPosition,
+  onScrollPositionChange,
 }: DocumentEditorProps) {
   const [content, setContent] = React.useState(document?.content ?? "")
   const [editingTitle, setEditingTitle] = React.useState(false)
@@ -187,18 +193,21 @@ export function DocumentEditor({
   const effectiveViewMode = editingPolicy.sourceOnly ? "source" : viewMode
 
   const flatTreeItems = React.useMemo(() => flattenTree(treeItems ?? []), [treeItems])
-  const moveFolders = flatTreeItems.filter((item) => item.type === "folder")
-  const mergeFiles = flatTreeItems.filter(
-    (item) => item.type === "file" && item.id !== document?.id,
-  )
   const pickerQuery = filePickerQuery.trim().toLocaleLowerCase()
-  const pickerItems = (filePickerMode === "move" ? moveFolders : mergeFiles).filter((item) => {
-    if (!pickerQuery) return true
-    const relativePath = vault ? relativeToVault(item.path, vault) : item.path
-    return [item.name, relativePath].some((value) =>
-      value.toLocaleLowerCase().includes(pickerQuery),
+  const pickerItems = React.useMemo(() => {
+    const candidates = flatTreeItems.filter((item) =>
+      filePickerMode === "move"
+        ? item.type === "folder"
+        : item.type === "file" && item.id !== document?.id,
     )
-  })
+    return candidates.filter((item) => {
+      if (!pickerQuery) return true
+      const relativePath = vault ? relativeToVault(item.path, vault) : item.path
+      return [item.name, relativePath].some((value) =>
+        value.toLocaleLowerCase().includes(pickerQuery),
+      )
+    })
+  }, [document?.id, filePickerMode, flatTreeItems, pickerQuery, vault])
 
   const copyPath = React.useCallback(
     async (kind: "app" | "vault" | "absolute") => {
@@ -468,6 +477,9 @@ export function DocumentEditor({
           editorSelection={editorSelection}
           onEditorSelectionChange={handleEditorSelectionChange}
           editorRef={editorRef}
+          scrollPositionKey={scrollPositionKey}
+          scrollPosition={scrollPosition}
+          onScrollPositionChange={onScrollPositionChange}
           viewModeMenuOpen={viewModeMenuOpen}
           onViewModeMenuOpenChange={(open) => setExclusiveMenu("view", open)}
         />
@@ -524,6 +536,9 @@ export function DocumentEditor({
           editorSelection={editorSelection}
           onEditorSelectionChange={handleEditorSelectionChange}
           editorRef={editorRef}
+          scrollPositionKey={scrollPositionKey}
+          scrollPosition={scrollPosition}
+          onScrollPositionChange={onScrollPositionChange}
           viewModeMenuOpen={viewModeMenuOpen}
           onViewModeMenuOpenChange={(open) => setExclusiveMenu("view", open)}
         />

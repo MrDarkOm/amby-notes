@@ -600,12 +600,13 @@ function HeadingContext({
     !matches("h2") &&
     !matches("h3") &&
     !matches("h4") &&
-    !matches("h5")
+    !matches("h5") &&
+    !matches("h6")
   ) {
     return null
   }
 
-  function setLevel(level: 1 | 2 | 3 | 4 | 5) {
+  function setLevel(level: 1 | 2 | 3 | 4 | 5 | 6) {
     editor
       .chain()
       .focus()
@@ -618,7 +619,7 @@ function HeadingContext({
     <>
       <div className="amby-block-panel-section">{t("blockPanel.headingLevel")}</div>
       <div className="amby-ctx-heading-grid">
-        {([1, 2, 3, 4, 5] as const).map((level) => (
+        {([1, 2, 3, 4, 5, 6] as const).map((level) => (
           <button
             key={level}
             type="button"

@@ -30,7 +30,7 @@ import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-me
 import { registerEditorSerialization } from "./editor-serialization-lifecycle"
 import {
   SLASH_TRIGGER_EVENT,
-  closeSlashMenu,
+  dismissSlashMenu,
   readSlashStorage,
   type SlashTriggerState,
 } from "./slash-menu"
@@ -150,6 +150,12 @@ export function TiptapEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   )
+  // Parsing Markdown is proportional to the whole note size. The component is
+  // kept mounted per document, so only parse its initial value once; external
+  // content replacements are handled by the guarded effect below. Passing
+  // markdownToDoc(value) inline to useEditor made every parent render parse a
+  // large note again, including a simple tab activation.
+  const [initialContent] = React.useState(() => markdownToDoc(value))
 
   const closeMenu = React.useCallback(() => {
     setMenu((prev) => (prev.open ? { ...prev, open: false } : prev))
@@ -158,7 +164,12 @@ export function TiptapEditor({
   const editor = useEditor({
     editable,
     extensions,
-    content: markdownToDoc(value),
+    content: initialContent,
+    onCreate: ({ editor }) => {
+      // Make the asset context available before image NodeViews paint. The
+      // effect below still handles vault/note changes for a mounted editor.
+      setAssetContext(editor, { vaultPath: vaultPath ?? "", notePath: notePath ?? "" })
+    },
     editorProps: {
       attributes: { class: "amby-tiptap-prose" },
     },
@@ -183,7 +194,7 @@ export function TiptapEditor({
       }
       window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
       setWikiLinkContext(null)
-      closeSlashMenu(editor)
+      dismissSlashMenu(editor)
       const start = editor.view.coordsAtPos(from)
       const end = editor.view.coordsAtPos(to)
       const left = clamp(
@@ -218,7 +229,7 @@ export function TiptapEditor({
       const detail = (event as CustomEvent<WikiLinkContextDetail>).detail
       if (!detail) return
       window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
-      if (editor) closeSlashMenu(editor)
+      if (editor) dismissSlashMenu(editor)
       closeMenu()
       setWikiLinkContext(detail)
     }
@@ -226,8 +237,8 @@ export function TiptapEditor({
     return () => window.removeEventListener(WIKILINK_CONTEXT_EVENT, onContextMenu)
   }, [closeMenu, editor])
 
-  // Sync external `value` changes (e.g. switching tabs reuses the instance only
-  // within a document; here it guards against parent-driven content resets).
+  // Sync external `value` changes when a mounted tab changes its document
+  // (history navigation) or a parent-driven content reset arrives.
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return
     if (value === valueRef.current) return
@@ -353,13 +364,29 @@ export function TiptapEditor({
     return () => window.removeEventListener(SLASH_TRIGGER_EVENT, read)
   }, [closeMenu, editor])
 
+  // The Suggestion plugin can keep its range active after a pointer click
+  // moves focus away from the editor. Close both the React panel and the
+  // plugin at the same boundary so the next key cannot reopen the old slash
+  // command.
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed || !editable || !slashState?.open) return
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      if (target.closest(".amby-block-panel--insert")) return
+      dismissSlashMenu(editor)
+    }
+    document.addEventListener("pointerdown", onPointerDown, true)
+    return () => document.removeEventListener("pointerdown", onPointerDown, true)
+  }, [editable, editor, slashState?.open])
+
   React.useEffect(() => {
     const closeEditorMenus = () => {
       suppressSelectionMenuRef.current = true
       closeMenu()
       setWikiLinkContext(null)
       setInlineUnlink(null)
-      if (editor && !editor.isDestroyed) closeSlashMenu(editor)
+      if (editor && !editor.isDestroyed) dismissSlashMenu(editor)
     }
     window.addEventListener(CLOSE_EDITOR_MENUS_EVENT, closeEditorMenus)
     return () => window.removeEventListener(CLOSE_EDITOR_MENUS_EVENT, closeEditorMenus)
@@ -502,7 +529,7 @@ export function TiptapEditor({
           source="slash"
           range={slashState.range}
           anchorRect={slashAnchor}
-          onClose={() => closeSlashMenu(editor)}
+          onClose={() => dismissSlashMenu(editor)}
         />
       )}
     </div>

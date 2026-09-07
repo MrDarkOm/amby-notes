@@ -76,6 +76,9 @@ export interface DocumentBodyProps {
   editorSelection: MarkdownSelection | null
   onEditorSelectionChange: (selection: MarkdownSelection) => void
   editorRef: React.RefObject<EditorHandle>
+  scrollPositionKey?: string
+  scrollPosition?: number
+  onScrollPositionChange?: (position: number) => void
   viewModeMenuOpen: boolean
   onViewModeMenuOpenChange: (open: boolean) => void
 }
@@ -114,10 +117,35 @@ export function DocumentBody({
   editorSelection,
   onEditorSelectionChange,
   editorRef,
+  scrollPositionKey,
+  scrollPosition,
+  onScrollPositionChange,
   viewModeMenuOpen,
   onViewModeMenuOpenChange,
 }: DocumentBodyProps) {
   const { t } = useTranslation()
+  const scrollRef = React.useRef<HTMLDivElement>(null)
+  const lastScrollTopRef = React.useRef(scrollPosition ?? 0)
+  const onScrollPositionChangeRef = React.useRef(onScrollPositionChange)
+
+  React.useEffect(() => {
+    onScrollPositionChangeRef.current = onScrollPositionChange
+  }, [onScrollPositionChange])
+
+  React.useEffect(() => {
+    if (scrollPosition !== undefined) lastScrollTopRef.current = Math.max(0, scrollPosition)
+  }, [scrollPosition])
+
+  React.useLayoutEffect(() => {
+    const element = scrollRef.current
+    if (!element) return
+    const top = Math.max(0, scrollPosition ?? lastScrollTopRef.current)
+    element.scrollTop = top
+    const frame = requestAnimationFrame(() => {
+      element.scrollTop = top
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [scrollPositionKey, activeLayer, scrollPosition])
 
   const deferredContent = React.useDeferredValue(content)
   const liveWordCount = React.useMemo(
@@ -215,7 +243,18 @@ export function DocumentBody({
 
   return (
     <>
-      <div className="amby-editor-scroll mr-2 min-h-0 flex-1 overscroll-none overflow-y-auto">
+      <div
+        ref={scrollRef}
+        className="amby-editor-scroll mr-2 min-h-0 flex-1 overscroll-none overflow-y-auto"
+        onScroll={(event) => {
+          // A display:none transition can emit a synthetic scroll event with
+          // scrollTop=0. Never let that overwrite the user's saved position.
+          if (event.currentTarget.clientHeight === 0 || event.currentTarget.offsetParent === null)
+            return
+          lastScrollTopRef.current = event.currentTarget.scrollTop
+          onScrollPositionChangeRef.current?.(lastScrollTopRef.current)
+        }}
+      >
         <div
           className="mx-auto px-4 pb-8 pt-5 sm:px-8 sm:pt-6 lg:px-10"
           style={{ maxWidth: EDITOR_CONTENT_WIDTH[contentWidth] }}

@@ -10,7 +10,6 @@ import {
 import { countFolderContents } from "../folder-view-utils"
 import type { Tab } from "../use-tabs-store"
 import { useDocStore } from "../use-doc-store"
-import { findTreeItem } from "../workspace-tree-utils"
 import { workspaceRelativePath } from "../vault/use-vault-session"
 import type { AttachmentItem } from "../panel-registry"
 
@@ -19,24 +18,34 @@ type OpenDocument = ReturnType<typeof useDocStore.getState>["openDocs"][string]
 type UsePropertyActionsParams = {
   activeTab: Tab | null
   currentDoc: OpenDocument | null
-  displayTreeItems: TreeItem[]
+  treeItemById: ReadonlyMap<string, TreeItem>
   linkGraph: { edges: Array<{ target: string }> }
   t: TFunction
   vault: string | null
+  includeAttachmentImages?: boolean
 }
 
 /** Derives Info-panel metadata and applies durable custom-property mutations. */
 export function usePropertyActions({
   activeTab,
   currentDoc,
-  displayTreeItems,
+  treeItemById,
   linkGraph,
   t,
   vault,
+  includeAttachmentImages = true,
 }: UsePropertyActionsParams) {
+  const backlinkCounts = React.useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const edge of linkGraph.edges) {
+      counts.set(edge.target, (counts.get(edge.target) ?? 0) + 1)
+    }
+    return counts
+  }, [linkGraph])
+
   const currentProperties = React.useMemo(() => {
     if (activeTab?.kind === "folder") {
-      const folder = findTreeItem(displayTreeItems, activeTab.fileId)
+      const folder = treeItemById.get(activeTab.fileId)
       if (!folder || folder.type !== "folder") return null
       const counts = countFolderContents(folder)
       return {
@@ -52,7 +61,7 @@ export function usePropertyActions({
     return {
       kind: "document" as const,
       type: "Markdown",
-      backlinks: linkGraph.edges.filter((edge) => edge.target === currentDoc.id).length,
+      backlinks: backlinkCounts.get(currentDoc.id) ?? 0,
       created: currentDoc.created,
       modified: currentDoc.modified,
       id: currentDoc.id,
@@ -62,14 +71,14 @@ export function usePropertyActions({
         customProperties: [],
       },
     }
-  }, [activeTab?.fileId, activeTab?.kind, currentDoc, displayTreeItems, linkGraph, t, vault])
+  }, [activeTab?.fileId, activeTab?.kind, backlinkCounts, currentDoc, t, treeItemById, vault])
 
   const attachments = React.useMemo<AttachmentItem[]>(() => {
     const source =
       activeTab?.kind === "folder"
-        ? findTreeItem(displayTreeItems, activeTab.fileId)
+        ? treeItemById.get(activeTab.fileId)
         : currentDoc
-          ? findTreeItem(displayTreeItems, currentDoc.id)
+          ? treeItemById.get(currentDoc.id)
           : null
     return (source?.children ?? [])
       .filter((item) => item.type === "file")
@@ -79,10 +88,10 @@ export function usePropertyActions({
         icon: item.icon,
         kind: "note" as const,
       }))
-  }, [activeTab?.fileId, activeTab?.kind, currentDoc, displayTreeItems])
+  }, [activeTab?.fileId, activeTab?.kind, currentDoc, treeItemById])
 
   const attachmentImages = React.useMemo<AttachmentItem[]>(() => {
-    if (!currentDoc) return []
+    if (!includeAttachmentImages || !currentDoc) return []
     const notePath = currentDoc.path.replace(/\\/g, "/")
     const noteDir = notePath.slice(0, notePath.lastIndexOf("/"))
     const refs: string[] = []
@@ -115,7 +124,7 @@ export function usePropertyActions({
       ]
     })
     return items
-  }, [currentDoc])
+  }, [currentDoc, includeAttachmentImages])
 
   const handleUpsertCustomProperty = React.useCallback(
     async (property: CustomProperty) => {

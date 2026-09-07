@@ -21,13 +21,14 @@ const CanvasEditor = React.lazy(() =>
 const DocumentEditor = React.lazy(() =>
   import("./document-editor").then((m) => ({ default: m.DocumentEditor })),
 )
+const MemoizedDocumentEditor = React.memo(DocumentEditor)
 import type { ActionContext, PanelRenderProps } from "./panel-registry"
 import { buttonsForSide } from "./panel-definitions"
 import { usePresets } from "./use-presets"
 import { useDocStore } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useVaultStore } from "./use-vault-store"
-import type { DocumentViewMode } from "./document-editor"
+import type { DocumentEditorProps, DocumentViewMode } from "./document-editor"
 import type { ContentWidth } from "./app-config"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
@@ -44,9 +45,10 @@ import { useSidebarLayout } from "./use-sidebar-layout"
 import { useLayers } from "./use-layers"
 import { useTabActions } from "./use-tab-actions"
 import { canRenderSplit } from "./document-buffer-lifecycle"
-import { wsPathStem, canvasLayerPath, findTreeItem, newTabKey } from "./workspace-tree-utils"
+import { wsPathStem, canvasLayerPath, newTabKey } from "./workspace-tree-utils"
 import { WorkspacePicker } from "./workspace-picker"
 import { FolderView } from "./folder-view"
+import type { TreeItem } from "./sidebar-tree"
 import { DatabaseWorkspace } from "./database/database-workspace"
 import { useDatabaseController } from "./database/use-database-controller"
 import { useDatabaseStore } from "./database/database-store"
@@ -78,6 +80,8 @@ const GRAPH_TAB_FILE_ID = "__graph__"
 const databaseContentWidthKey = (databaseId: string) => `database:${databaseId}`
 const EMPTY_CONTENT_WIDTHS: Record<string, ContentWidth> = {}
 const EMPTY_DATABASE_TITLE_LABELS: Record<string, string> = {}
+const EMPTY_LAYERS = { canvas: false, sketch: false, database: false }
+const NOOP = () => {}
 
 /** Spinner shown while a lazy chunk (Canvas / Graph) is being fetched. */
 function LazyEditorFallback() {
@@ -89,6 +93,138 @@ function LazyEditorFallback() {
     </div>
   )
 }
+
+interface CachedDocumentEditorProps {
+  editorProps: DocumentEditorProps
+  visible: boolean
+  isFocusMode: boolean
+  hideNavigation: boolean
+  focusTabs: HeaderTab[]
+  activeTabKey?: string
+  onFocusTabChange?: (key: string) => void
+  focusFavorites?: Set<string>
+  onFocusToggleFavorite?: (id: string) => void
+  onFocusCloseAllTabs?: () => void
+  onToggleFocusMode: () => void
+}
+
+interface CachedTabContentProps {
+  content: React.ReactElement
+  visible: boolean
+  signature: readonly unknown[]
+}
+
+/** Keep a heavy non-document tab mounted and reuse its last visible render. */
+const CachedTabContent = React.memo(
+  function CachedTabContent({ content }: CachedTabContentProps) {
+    return content
+  },
+  (previous, next) => {
+    if (!next.visible) return true
+    if (!previous.visible) return false
+    return (
+      previous.signature.length === next.signature.length &&
+      previous.signature.every((value, index) => value === next.signature[index])
+    )
+  },
+)
+
+/**
+ * Hidden tabs keep their editor state, but should not rerender when unrelated
+ * workspace state changes. They receive fresh props as soon as they become
+ * visible again.
+ */
+const CachedDocumentEditor = React.memo(
+  function CachedDocumentEditor({
+    editorProps,
+    visible,
+    isFocusMode,
+    hideNavigation,
+    focusTabs,
+    activeTabKey,
+    onFocusTabChange,
+    focusFavorites,
+    onFocusToggleFavorite,
+    onFocusCloseAllTabs,
+    onToggleFocusMode,
+  }: CachedDocumentEditorProps) {
+    const editorRootRef = React.useRef<HTMLDivElement>(null)
+    const controlsRef = React.useRef({
+      isFocusMode,
+      hideNavigation,
+      focusTabs,
+      activeTabKey,
+      onFocusTabChange,
+      focusFavorites,
+      onFocusToggleFavorite,
+      onFocusCloseAllTabs,
+      onToggleFocusMode,
+    })
+    // A pane that is being hidden keeps the last visible editor controls. The
+    // wrapper still updates its visibility and scroll restoration, while the
+    // expensive editor subtree can bail out through React.memo.
+    if (visible) {
+      controlsRef.current = {
+        isFocusMode,
+        hideNavigation,
+        focusTabs,
+        activeTabKey,
+        onFocusTabChange,
+        focusFavorites,
+        onFocusToggleFavorite,
+        onFocusCloseAllTabs,
+        onToggleFocusMode,
+      }
+    }
+    const controls = controlsRef.current
+
+    React.useLayoutEffect(() => {
+      if (!visible) return
+      const top = Math.max(0, editorProps.scrollPosition ?? 0)
+      const restore = () => {
+        const element = editorRootRef.current?.querySelector<HTMLElement>(".amby-editor-scroll")
+        if (element) element.scrollTop = top
+      }
+      restore()
+      const frame = requestAnimationFrame(restore)
+      return () => cancelAnimationFrame(frame)
+    }, [editorProps.scrollPosition, editorProps.scrollPositionKey, visible])
+
+    return (
+      <div ref={editorRootRef} className="flex min-h-0 min-w-0 flex-1">
+        <MemoizedDocumentEditor
+          {...editorProps}
+          isFocusMode={controls.isFocusMode}
+          isLocked={editorProps.isLocked}
+          hideNavigation={controls.hideNavigation}
+          focusTabs={controls.focusTabs}
+          activeTabKey={controls.activeTabKey}
+          onFocusTabChange={controls.onFocusTabChange}
+          focusFavorites={controls.focusFavorites}
+          onFocusToggleFavorite={controls.onFocusToggleFavorite}
+          onFocusCloseAllTabs={controls.onFocusCloseAllTabs}
+          onToggleFocusMode={controls.onToggleFocusMode}
+        />
+      </div>
+    )
+  },
+  (previous, next) => {
+    if (!next.visible) return true
+    if (!previous.visible) return false
+    return (
+      previous.editorProps === next.editorProps &&
+      previous.isFocusMode === next.isFocusMode &&
+      previous.hideNavigation === next.hideNavigation &&
+      previous.focusTabs === next.focusTabs &&
+      previous.activeTabKey === next.activeTabKey &&
+      previous.focusFavorites === next.focusFavorites &&
+      previous.onFocusTabChange === next.onFocusTabChange &&
+      previous.onFocusToggleFavorite === next.onFocusToggleFavorite &&
+      previous.onFocusCloseAllTabs === next.onFocusCloseAllTabs &&
+      previous.onToggleFocusMode === next.onToggleFocusMode
+    )
+  },
+)
 
 export function WorkspaceOrchestration() {
   const { t } = useTranslation()
@@ -118,6 +254,9 @@ export function WorkspaceOrchestration() {
   // Stable setters (value-or-updater, like setState); see use-tabs-store.
   const { setTabs, setActiveTabKey } = useTabsStore.getState()
   const unsavedFileIds = useDocStore((s) => s.unsavedFileIds)
+  // Keep editor scroll offsets outside the keyed editor components so a tab can
+  // be temporarily hidden or remounted without losing the user's position.
+  const scrollPositionsRef = React.useRef<Record<string, number>>({})
 
   // Per-document view state (favorites, viewModes, lockedFileIds, iconOverrides,
   // activeLayers, linkedLayersByDoc) lives in useViewStateStore.
@@ -369,9 +508,24 @@ export function WorkspaceOrchestration() {
 
   const vaultName = vault?.replace(/\\/g, "/").split("/").pop() ?? undefined
 
+  // Header tabs and cached editors both look up tree metadata on every
+  // workspace render. Index the recursive tree once so switching tabs is not
+  // multiplied by the number of open tabs and tree nodes.
+  const treeItemById = React.useMemo(() => {
+    const result = new Map<string, TreeItem>()
+    const visit = (items: TreeItem[]) => {
+      for (const item of items) {
+        result.set(item.id, item)
+        if (item.children) visit(item.children)
+      }
+    }
+    visit(displayTreeItems)
+    return result
+  }, [displayTreeItems])
+
   // Current file icon (from iconOverrides or tree)
   const activeFileId = activeTab?.fileId ?? null
-  const activeTreeItem = activeFileId ? findTreeItem(displayTreeItems, activeFileId) : null
+  const activeTreeItem = activeFileId ? (treeItemById.get(activeFileId) ?? null) : null
   const currentFileIcon =
     activeTreeItem?.icon ?? (activeFileId ? iconOverrides[activeFileId] : undefined)
 
@@ -542,6 +696,10 @@ export function WorkspaceOrchestration() {
 
   const { handleOpenInNewWindow } = useNoteWindows(treeItems)
 
+  const handleTabUsageChanged = React.useCallback(() => {
+    void releaseUnusedDocumentBuffers()
+  }, [releaseUnusedDocumentBuffers])
+
   const { handleBack, handleForward, handleTabChange, handleTabClose, handleCloseAllTabs } =
     useTabActions({
       activeTab,
@@ -552,10 +710,21 @@ export function WorkspaceOrchestration() {
       canGoBack,
       canGoForward,
       navigateToFile,
-      onTabUsageChanged: () => {
-        void releaseUnusedDocumentBuffers()
-      },
+      onTabUsageChanged: handleTabUsageChanged,
     })
+
+  // useTabActions is also a plain helper used directly by unit tests. Stable
+  // delegates here keep its navigation callbacks from invalidating cached
+  // editors on unrelated workspace renders.
+  const handleTabChangeRef = React.useRef(handleTabChange)
+  const handleCloseAllTabsRef = React.useRef(handleCloseAllTabs)
+  handleTabChangeRef.current = handleTabChange
+  handleCloseAllTabsRef.current = handleCloseAllTabs
+  const stableHandleTabChange = React.useCallback(
+    (key: string) => handleTabChangeRef.current(key),
+    [],
+  )
+  const stableHandleCloseAllTabs = React.useCallback(() => handleCloseAllTabsRef.current(), [])
 
   // Workspace-wide shortcuts deliberately leave plain typing alone. Native editing
   // shortcuts still belong to the focused editor; these only invoke app navigation.
@@ -695,7 +864,16 @@ export function WorkspaceOrchestration() {
     handleUpsertCustomProperty,
     handleDeleteCustomProperty,
     handleReorderCustomProperties,
-  } = usePropertyActions({ activeTab, currentDoc, displayTreeItems, linkGraph, t, vault })
+  } = usePropertyActions({
+    activeTab,
+    currentDoc,
+    treeItemById,
+    linkGraph,
+    t,
+    vault,
+    includeAttachmentImages:
+      activeBySide.left === "attachments" || activeBySide.right === "attachments",
+  })
 
   const selectedDatabase = React.useMemo(() => {
     if (activeTab?.kind === "database") {
@@ -711,15 +889,19 @@ export function WorkspaceOrchestration() {
     return null
   }, [activeLayers, activeTab, currentDoc, databases])
 
-  const headerTabs: HeaderTab[] = tabs.map((tab) => {
-    const item = findTreeItem(displayTreeItems, tab.fileId)
-    return {
-      key: tab.key,
-      fileId: tab.fileId,
-      title: tab.title,
-      icon: tab.kind === "folder" ? (item?.icon ?? "📁") : item?.icon,
-    }
-  })
+  const headerTabs: HeaderTab[] = React.useMemo(
+    () =>
+      tabs.map((tab) => {
+        const item = treeItemById.get(tab.fileId)
+        return {
+          key: tab.key,
+          fileId: tab.fileId,
+          title: tab.title,
+          icon: tab.kind === "folder" ? (item?.icon ?? "📁") : item?.icon,
+        }
+      }),
+    [tabs, treeItemById],
+  )
 
   // panelRenderProps is memoised so that sidebar panels don't re-render when only
   // the editor content changes (openDocs/currentDoc). The deps list covers every value
@@ -859,20 +1041,22 @@ export function WorkspaceOrchestration() {
   const leftButtons = buttonsForSide(activityButtons, "left")
   const rightButtons = buttonsForSide(activityButtons, "right")
 
-  const NO_LAYERS = { canvas: false, sketch: false, database: false }
-
   // Build editor props for a given tab. The primary pane (active tab) keeps full
   // functionality; a secondary (split) pane gets editing + view-mode + autosave,
   // with layer/canvas/history scoped to the primary to keep the split coherent.
-  function paneEditorProps(tab: Tab | null) {
+  function paneEditorProps(tab: Tab | null, preserveLayer = false) {
     const doc = tab ? (openDocs[tab.fileId] ?? null) : null
     const isPrimary = !!tab && tab.key === activeTabKey
-    const treeItem = doc ? findTreeItem(displayTreeItems, doc.id) : null
+    const treeItem = doc ? (treeItemById.get(doc.id) ?? null) : null
     const nestedNotes = (treeItem?.children ?? []).filter((item) => item.type === "file")
     const attachedDatabase = doc
       ? databases.find((database) => database.attachedNoteId === doc.id)
       : undefined
-    const pageLayer = isPrimary && doc ? (activeLayers[doc.id] ?? "editor") : "editor"
+    // Keep a hidden database note's layer mounted while its tab is cached. This
+    // avoids tearing down and rebuilding the database workspace on every tab
+    // switch, while the visible secondary split remains editor-only.
+    const canRenderLayer = isPrimary || preserveLayer
+    const pageLayer = canRenderLayer && doc ? (activeLayers[doc.id] ?? "editor") : "editor"
     const contentWidthKey =
       pageLayer === "database" && attachedDatabase
         ? databaseContentWidthKey(attachedDatabase.databaseId)
@@ -880,6 +1064,7 @@ export function WorkspaceOrchestration() {
     const pageContentWidth = contentWidthKey
       ? (contentWidths[contentWidthKey] ?? defaultContentWidth)
       : defaultContentWidth
+    const scrollPositionKey = doc ? `${vault ?? "browser"}:${doc.id}` : undefined
     return {
       document: doc,
       onContentChange: (content: string, sourceDocumentId: string) => {
@@ -895,11 +1080,7 @@ export function WorkspaceOrchestration() {
         if (tab) handleRenameFile(tab.fileId, name)
       },
       vault: vault ?? undefined,
-      fileIcon: isPrimary
-        ? currentFileIcon
-        : doc
-          ? findTreeItem(displayTreeItems, doc.id)?.icon
-          : undefined,
+      fileIcon: isPrimary ? currentFileIcon : doc ? treeItemById.get(doc.id)?.icon : undefined,
       onFileIconChange:
         isPrimary && doc ? (emoji: string) => handleSetIcon(doc.id, emoji) : undefined,
       onNewFile: () => handleNewFileIn(null),
@@ -936,7 +1117,7 @@ export function WorkspaceOrchestration() {
       onContentWidthChange: contentWidthKey
         ? (width: ContentWidth) => setContentWidth(contentWidthKey, width)
         : undefined,
-      linkedLayers: isPrimary && doc ? (linkedLayersByDoc[doc.id] ?? NO_LAYERS) : NO_LAYERS,
+      linkedLayers: isPrimary && doc ? (linkedLayersByDoc[doc.id] ?? EMPTY_LAYERS) : EMPTY_LAYERS,
       databasesEnabled,
       canCreateDatabaseLayer: DATABASE_LAYER_CREATION_AVAILABLE && databasesEnabled,
       isLocked: doc ? lockedFileIds.has(doc.id) : false,
@@ -971,8 +1152,15 @@ export function WorkspaceOrchestration() {
           }
         : (_json: string) => {},
       onOpenCanvasNote: handleOpenCanvasNote,
+      scrollPositionKey,
+      scrollPosition: scrollPositionKey ? scrollPositionsRef.current[scrollPositionKey] : undefined,
+      onScrollPositionChange: scrollPositionKey
+        ? (position: number) => {
+            scrollPositionsRef.current[scrollPositionKey] = position
+          }
+        : undefined,
       databaseBody:
-        isPrimary && doc && attachedDatabase ? (
+        canRenderLayer && doc && attachedDatabase ? (
           <DatabaseWorkspace
             databaseId={attachedDatabase.databaseId}
             title={attachedDatabase.title}
@@ -1011,14 +1199,216 @@ export function WorkspaceOrchestration() {
     }
   }
 
-  const editorProps = paneEditorProps(activeTab)
   const activeFolder =
-    activeTab?.kind === "folder" ? findTreeItem(displayTreeItems, activeTab.fileId) : null
+    activeTab?.kind === "folder" ? (treeItemById.get(activeTab.fileId) ?? null) : null
   const secondaryTab = secondaryTabKey
     ? (tabs.find((t) => t.key === secondaryTabKey && t.kind === "document") ?? null)
     : null
-  const secondaryProps = secondaryTab ? paneEditorProps(secondaryTab) : null
-  const showSplit = !!secondaryProps && canRenderSplit(activeTab, secondaryTab)
+  const showSplit = canRenderSplit(activeTab, secondaryTab)
+  const documentTabs = React.useMemo(() => {
+    const openDocumentTabs = tabs.filter((tab) => tab.kind === "document")
+    const representativeByFileId = new Map<string, Tab>()
+    for (const tab of openDocumentTabs) {
+      const current = representativeByFileId.get(tab.fileId)
+      if (!current || tab.key === activeTabKey || (showSplit && tab.key === secondaryTabKey)) {
+        representativeByFileId.set(tab.fileId, tab)
+      }
+    }
+    // Preserve the header tab order. Moving the active editor wrapper to the
+    // front on every selection also moves its (potentially huge) DOM subtree,
+    // which forces style/layout work before the newly selected tab can paint.
+    return openDocumentTabs.filter((tab) => representativeByFileId.get(tab.fileId) === tab)
+  }, [activeTabKey, secondaryTabKey, showSplit, tabs])
+  const databaseTabs = React.useMemo(() => tabs.filter((tab) => tab.kind === "database"), [tabs])
+
+  interface EditorPropsCacheEntry {
+    props: DocumentEditorProps
+    signature: readonly unknown[]
+    wasVisible: boolean
+  }
+  const editorPropsCacheRef = React.useRef(new Map<string, EditorPropsCacheEntry>())
+  React.useEffect(() => {
+    const openKeys = new Set(documentTabs.map((tab) => tab.key))
+    for (const key of editorPropsCacheRef.current.keys()) {
+      if (!openKeys.has(key)) editorPropsCacheRef.current.delete(key)
+    }
+  }, [documentTabs])
+
+  function renderDocumentEditors(isFocusMode: boolean) {
+    if (documentTabs.length === 0) {
+      return (
+        <React.Suspense fallback={<LazyEditorFallback />}>
+          <DocumentEditor
+            {...paneEditorProps(null)}
+            isFocusMode={isFocusMode}
+            onToggleFocusMode={isFocusMode ? handleExitFocusMode : handleEnterFocusMode}
+          />
+        </React.Suspense>
+      )
+    }
+
+    // Keep every open document editor mounted and only toggle the visible pane.
+    // Tiptap/CodeMirror then retain their parsed state and scroll offset when a
+    // user returns to a tab instead of rebuilding a large document from Markdown.
+    return (
+      <div className="relative flex min-h-0 flex-1">
+        {documentTabs.map((tab) => {
+          const visible = tab.key === activeTabKey || (showSplit && tab.key === secondaryTabKey)
+          const primary = tab.key === activeTabKey
+          const doc = openDocs[tab.fileId] ?? null
+          const treeItem = doc ? (treeItemById.get(doc.id) ?? null) : null
+          const attachedDatabase = doc
+            ? databases.find((database) => database.attachedNoteId === doc.id)
+            : undefined
+          const pageLayer = doc ? (activeLayers[doc.id] ?? "editor") : "editor"
+          const widthKey =
+            pageLayer === "database" && attachedDatabase
+              ? databaseContentWidthKey(attachedDatabase.databaseId)
+              : tab.fileId
+          const signature = [
+            tab,
+            doc,
+            displayTreeItems,
+            treeItem,
+            attachedDatabase,
+            pageLayer,
+            doc ? linkedLayersByDoc[doc.id] : undefined,
+            doc ? viewModes[doc.id] : undefined,
+            contentWidths[widthKey],
+            attachedDatabase
+              ? databaseTitleLabels[databaseContentWidthKey(attachedDatabase.databaseId)]
+              : undefined,
+            doc ? (treeItem?.icon ?? iconOverrides[doc.id]) : undefined,
+            doc ? lockedFileIds.has(doc.id) : false,
+            doc ? favorites.has(doc.id) : false,
+            doc ? nestedNotesPlacements[doc.id] : undefined,
+            doc ? openCanvases[canvasLayerPath(doc.path)] : undefined,
+            vault,
+            databasesEnabled,
+            defaultViewMode,
+            defaultContentWidth,
+          ] as const
+          const cached = editorPropsCacheRef.current.get(tab.key)
+          const sameSignature =
+            cached?.signature.length === signature.length &&
+            cached.signature.every((value, index) => value === signature[index])
+          const shouldRefresh = !cached || (visible && (!cached.wasVisible || !sameSignature))
+          const props = shouldRefresh ? paneEditorProps(tab, !visible) : cached.props
+          if (shouldRefresh) {
+            editorPropsCacheRef.current.set(tab.key, {
+              props,
+              signature,
+              wasVisible: visible || cached?.wasVisible === true,
+            })
+          }
+          return (
+            <div
+              key={tab.key}
+              aria-hidden={!visible}
+              className={
+                visible
+                  ? "flex min-w-0 flex-1"
+                  : "invisible pointer-events-none absolute inset-0 flex min-h-0 min-w-0 overflow-hidden"
+              }
+            >
+              <React.Suspense fallback={<LazyEditorFallback />}>
+                <CachedDocumentEditor
+                  editorProps={props}
+                  visible={visible}
+                  isFocusMode={isFocusMode}
+                  hideNavigation={!primary}
+                  focusTabs={primary && visible ? headerTabs : []}
+                  activeTabKey={primary && visible ? activeTabKey : undefined}
+                  onFocusTabChange={primary && visible ? stableHandleTabChange : undefined}
+                  focusFavorites={primary && visible ? favorites : undefined}
+                  onFocusToggleFavorite={primary && visible ? handleToggleFavorite : undefined}
+                  onFocusCloseAllTabs={primary && visible ? stableHandleCloseAllTabs : undefined}
+                  onToggleFocusMode={
+                    primary && visible
+                      ? isFocusMode
+                        ? handleExitFocusMode
+                        : handleEnterFocusMode
+                      : NOOP
+                  }
+                />
+              </React.Suspense>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  function renderCachedTabSurfaces(isFocusMode: boolean) {
+    const documentSurfaceVisible = activeTab?.kind !== "database"
+    return (
+      <div className="relative flex min-h-0 min-w-0 flex-1">
+        <div
+          aria-hidden={!documentSurfaceVisible}
+          className={
+            documentSurfaceVisible
+              ? "flex min-h-0 min-w-0 flex-1"
+              : "invisible pointer-events-none absolute inset-0 flex min-h-0 min-w-0 overflow-hidden"
+          }
+        >
+          {renderDocumentEditors(isFocusMode)}
+        </div>
+        {databaseTabs.map((tab) => {
+          const visible = activeTab?.kind === "database" && activeTab.key === tab.key
+          const icon = treeItemById.get(tab.fileId)?.icon ?? iconOverrides[tab.fileId]
+          const contentWidth =
+            contentWidths[databaseContentWidthKey(tab.fileId)] ?? defaultContentWidth
+          const titleColumnName = databaseTitleLabels[databaseContentWidthKey(tab.fileId)]
+          const content = (
+            <DatabaseWorkspace
+              databaseId={tab.fileId}
+              title={tab.title}
+              icon={icon}
+              hostId={tab.key}
+              contentWidth={contentWidth}
+              onContentWidthChange={(width) =>
+                setContentWidth(databaseContentWidthKey(tab.fileId), width)
+              }
+              onRenameTitle={(name) => handleRenameDatabaseTab(tab.key, name)}
+              onIconChange={(next) => handleSetIcon(tab.fileId, next)}
+              titleColumnName={titleColumnName}
+              onTitleColumnNameChange={(name) =>
+                setDatabaseTitleLabel(databaseContentWidthKey(tab.fileId), name)
+              }
+              onOpenInNewTab={() => openDatabaseTab(tab.fileId, tab.title, true)}
+              onOpenRowFullPage={(row) => handleSelect(row.noteId)}
+              onRenameRow={handleRenameDatabaseRow}
+              onLoadRowDocument={(row) => loadDoc(row.noteId, row.title)}
+              onRowContentChange={handleContentChange}
+              vault={vault ?? undefined}
+              onCatalogChanged={refreshDatabaseCatalog}
+              onRowCreated={async (row) => {
+                await refreshTree()
+                await loadDoc(row.noteId, row.title)
+              }}
+            />
+          )
+          return (
+            <div
+              key={tab.key}
+              aria-hidden={!visible}
+              className={
+                visible
+                  ? "flex min-h-0 min-w-0 flex-1"
+                  : "invisible pointer-events-none absolute inset-0 flex min-h-0 min-w-0 overflow-hidden"
+              }
+            >
+              <CachedTabContent
+                content={content}
+                visible={visible}
+                signature={[tab, icon, contentWidth, titleColumnName, vault]}
+              />
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
 
   if (!vault && isTauri()) {
     return (
@@ -1067,38 +1457,7 @@ export function WorkspaceOrchestration() {
           if (e.clientX > w - 20) setFocusShowRight(true)
         }}
       >
-        {activeTab?.kind === "database" ? (
-          <DatabaseWorkspace
-            key={`database:${activeTab.key}:${activeTab.fileId}`}
-            databaseId={activeTab.fileId}
-            title={activeTab.title}
-            icon={currentFileIcon}
-            hostId={activeTab.key}
-            contentWidth={
-              contentWidths[databaseContentWidthKey(activeTab.fileId)] ?? defaultContentWidth
-            }
-            onContentWidthChange={(width) =>
-              setContentWidth(databaseContentWidthKey(activeTab.fileId), width)
-            }
-            onRenameTitle={(name) => handleRenameDatabaseTab(activeTab.key, name)}
-            onIconChange={(next) => handleSetIcon(activeTab.fileId, next)}
-            titleColumnName={databaseTitleLabels[databaseContentWidthKey(activeTab.fileId)]}
-            onTitleColumnNameChange={(name) =>
-              setDatabaseTitleLabel(databaseContentWidthKey(activeTab.fileId), name)
-            }
-            onOpenInNewTab={() => openDatabaseTab(activeTab.fileId, activeTab.title, true)}
-            onOpenRowFullPage={(row) => handleSelect(row.noteId)}
-            onRenameRow={handleRenameDatabaseRow}
-            onLoadRowDocument={(row) => loadDoc(row.noteId, row.title)}
-            onRowContentChange={handleContentChange}
-            vault={vault ?? undefined}
-            onCatalogChanged={refreshDatabaseCatalog}
-            onRowCreated={async (row) => {
-              await refreshTree()
-              await loadDoc(row.noteId, row.title)
-            }}
-          />
-        ) : activeTab?.kind === "graph" ? (
+        {activeTab?.kind === "graph" ? (
           <React.Suspense fallback={<LazyEditorFallback />}>
             <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
           </React.Suspense>
@@ -1121,51 +1480,8 @@ export function WorkspaceOrchestration() {
             onNewFolder={handleNewFolderIn}
             onIconChange={(icon) => handleSetIcon(activeFolder.id, icon)}
           />
-        ) : showSplit ? (
-          <div className="flex min-h-0 flex-1">
-            <div className="flex min-w-0 flex-1">
-              <React.Suspense fallback={<LazyEditorFallback />}>
-                <DocumentEditor
-                  key={`focus-pane-primary:${activeTab?.fileId ?? "empty"}`}
-                  {...editorProps}
-                  isFocusMode={true}
-                  onToggleFocusMode={handleExitFocusMode}
-                  focusTabs={headerTabs}
-                  activeTabKey={activeTabKey}
-                  onFocusTabChange={handleTabChange}
-                  focusFavorites={favorites}
-                  onFocusToggleFavorite={handleToggleFavorite}
-                  onFocusCloseAllTabs={handleCloseAllTabs}
-                />
-              </React.Suspense>
-            </div>
-            <div className="flex min-w-0 flex-1">
-              <React.Suspense fallback={<LazyEditorFallback />}>
-                <DocumentEditor
-                  key={`focus-pane-secondary:${secondaryTab?.fileId ?? "empty"}`}
-                  {...secondaryProps!}
-                  isFocusMode={true}
-                  hideNavigation={true}
-                  onToggleFocusMode={handleExitFocusMode}
-                />
-              </React.Suspense>
-            </div>
-          </div>
         ) : (
-          <React.Suspense fallback={<LazyEditorFallback />}>
-            <DocumentEditor
-              key={`focus:${activeTab?.fileId ?? "empty"}`}
-              {...editorProps}
-              isFocusMode={true}
-              onToggleFocusMode={handleExitFocusMode}
-              focusTabs={headerTabs}
-              activeTabKey={activeTabKey}
-              onFocusTabChange={handleTabChange}
-              focusFavorites={favorites}
-              onFocusToggleFavorite={handleToggleFavorite}
-              onFocusCloseAllTabs={handleCloseAllTabs}
-            />
-          </React.Suspense>
+          renderCachedTabSurfaces(true)
         )}
 
         {/* Left sidebar overlay. */}
@@ -1338,38 +1654,7 @@ export function WorkspaceOrchestration() {
         )}
 
         <main className="flex flex-1 gap-0 overflow-hidden">
-          {activeTab?.kind === "database" ? (
-            <DatabaseWorkspace
-              key={`database:${activeTab.key}:${activeTab.fileId}`}
-              databaseId={activeTab.fileId}
-              title={activeTab.title}
-              icon={currentFileIcon}
-              hostId={activeTab.key}
-              contentWidth={
-                contentWidths[databaseContentWidthKey(activeTab.fileId)] ?? defaultContentWidth
-              }
-              onContentWidthChange={(width) =>
-                setContentWidth(databaseContentWidthKey(activeTab.fileId), width)
-              }
-              onRenameTitle={(name) => handleRenameDatabaseTab(activeTab.key, name)}
-              onIconChange={(next) => handleSetIcon(activeTab.fileId, next)}
-              titleColumnName={databaseTitleLabels[databaseContentWidthKey(activeTab.fileId)]}
-              onTitleColumnNameChange={(name) =>
-                setDatabaseTitleLabel(databaseContentWidthKey(activeTab.fileId), name)
-              }
-              onOpenInNewTab={() => openDatabaseTab(activeTab.fileId, activeTab.title, true)}
-              onOpenRowFullPage={(row) => handleSelect(row.noteId)}
-              onRenameRow={handleRenameDatabaseRow}
-              onLoadRowDocument={(row) => loadDoc(row.noteId, row.title)}
-              onRowContentChange={handleContentChange}
-              vault={vault ?? undefined}
-              onCatalogChanged={refreshDatabaseCatalog}
-              onRowCreated={async (row) => {
-                await refreshTree()
-                await loadDoc(row.noteId, row.title)
-              }}
-            />
-          ) : activeTab?.kind === "graph" ? (
+          {activeTab?.kind === "graph" ? (
             <React.Suspense fallback={<LazyEditorFallback />}>
               <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
             </React.Suspense>
@@ -1392,38 +1677,8 @@ export function WorkspaceOrchestration() {
               onNewFolder={handleNewFolderIn}
               onIconChange={(icon) => handleSetIcon(activeFolder.id, icon)}
             />
-          ) : showSplit ? (
-            <>
-              <div className="flex min-w-0 flex-1">
-                <React.Suspense fallback={<LazyEditorFallback />}>
-                  <DocumentEditor
-                    key={`pane-primary:${activeTab?.fileId ?? "empty"}`}
-                    {...editorProps}
-                    isFocusMode={false}
-                    onToggleFocusMode={handleEnterFocusMode}
-                  />
-                </React.Suspense>
-              </div>
-              <div className="flex min-w-0 flex-1">
-                <React.Suspense fallback={<LazyEditorFallback />}>
-                  <DocumentEditor
-                    key={`pane-secondary:${secondaryTab?.fileId ?? "empty"}`}
-                    {...secondaryProps!}
-                    isFocusMode={false}
-                    onToggleFocusMode={() => {}}
-                  />
-                </React.Suspense>
-              </div>
-            </>
           ) : (
-            <React.Suspense fallback={<LazyEditorFallback />}>
-              <DocumentEditor
-                key={`document:${activeTab?.fileId ?? "empty"}`}
-                {...editorProps}
-                isFocusMode={false}
-                onToggleFocusMode={handleEnterFocusMode}
-              />
-            </React.Suspense>
+            renderCachedTabSurfaces(false)
           )}
         </main>
 
