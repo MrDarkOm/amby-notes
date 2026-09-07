@@ -85,16 +85,22 @@ export function AttachmentsPanel({
         />
       )}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1 gap-0">
-        <TabsList className="mx-4 mb-3 grid h-8 w-auto grid-cols-2">
-          <TabsTrigger value="notes" className="text-xs">
+        <TabsList className="mx-4 mb-3 h-8 w-fit">
+          <TabsTrigger
+            value="notes"
+            title={t("attachmentsPanel.notes")}
+            aria-label={t("attachmentsPanel.notes")}
+            className="size-8 flex-none p-0"
+          >
             <FileText className="size-3.5" />
-            {t("attachmentsPanel.notes")}
-            <span className="ml-0.5 text-[10px] text-muted-foreground">{notes.length}</span>
           </TabsTrigger>
-          <TabsTrigger value="images" className="text-xs">
+          <TabsTrigger
+            value="images"
+            title={t("attachmentsPanel.images")}
+            aria-label={t("attachmentsPanel.images")}
+            className="size-8 flex-none p-0"
+          >
             <ImageIcon className="size-3.5" />
-            {t("attachmentsPanel.images")}
-            <span className="ml-0.5 text-[10px] text-muted-foreground">{images.length}</span>
           </TabsTrigger>
         </TabsList>
         <TabsContent value="notes" className="min-h-0">

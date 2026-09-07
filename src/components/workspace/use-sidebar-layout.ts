@@ -8,9 +8,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import type { DockPreferences } from "./app-config"
 
 const COMPACT_LAYOUT_MAX_WIDTH = 960
-const MIN_PANEL_WIDTH = 240
-const DEFAULT_LEFT_PANEL_WIDTH = 240
-const DEFAULT_RIGHT_PANEL_WIDTH = 280
+const MIN_PANEL_WIDTH = 300
+const DEFAULT_LEFT_PANEL_WIDTH = 300
+const DEFAULT_RIGHT_PANEL_WIDTH = 300
 
 interface UseSidebarLayoutParams {
   activityButtons: ActivityButton[]

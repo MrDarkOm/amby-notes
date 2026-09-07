@@ -15,7 +15,7 @@ interface PanelHeaderProps {
 /** Shared panel chrome: a text-only section title with optional controls. */
 export function PanelHeader({ title, leading, actions, hideTitle = false }: PanelHeaderProps) {
   return (
-    <header className="flex shrink-0 items-center justify-between gap-2 px-4 pb-3 pt-4">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 px-4 py-4">
       {!hideTitle ? (
         <div className="flex min-w-0 items-center gap-2">
           {leading}

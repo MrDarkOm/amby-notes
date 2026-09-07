@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Link as LinkIcon } from "lucide-react"
+import { ArrowDownLeft, ArrowUpRight, Link as LinkIcon, Link2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
@@ -97,18 +97,30 @@ export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRende
       <PanelHeader title={t("panels.links")} />
       <PanelSearch value={query} onChange={setQuery} placeholder={t("linksPanel.search")} />
       <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1 gap-0">
-        <TabsList className="mx-4 mb-3 grid h-8 w-auto grid-cols-3">
-          <TabsTrigger value="outgoing" className="text-xs">
-            {t("linksPanel.outgoing")}
-            <span className="ml-0.5 text-[10px] text-muted-foreground">{outgoing.length}</span>
+        <TabsList className="mx-4 mb-3 h-8 w-fit">
+          <TabsTrigger
+            value="outgoing"
+            title={t("linksPanel.outgoing")}
+            aria-label={t("linksPanel.outgoing")}
+            className="size-8 flex-none p-0"
+          >
+            <ArrowUpRight className="size-3.5" />
           </TabsTrigger>
-          <TabsTrigger value="incoming" className="text-xs">
-            {t("linksPanel.backlinks")}
-            <span className="ml-0.5 text-[10px] text-muted-foreground">{backlinks.length}</span>
+          <TabsTrigger
+            value="incoming"
+            title={t("linksPanel.backlinks")}
+            aria-label={t("linksPanel.backlinks")}
+            className="size-8 flex-none p-0"
+          >
+            <ArrowDownLeft className="size-3.5" />
           </TabsTrigger>
-          <TabsTrigger value="all" className="text-xs">
-            {t("linksPanel.all")}
-            <span className="ml-0.5 text-[10px] text-muted-foreground">{edges.length}</span>
+          <TabsTrigger
+            value="all"
+            title={t("linksPanel.all")}
+            aria-label={t("linksPanel.all")}
+            className="size-8 flex-none p-0"
+          >
+            <Link2 className="size-3.5" />
           </TabsTrigger>
         </TabsList>
         <TabsContent value="outgoing" className="min-h-0">
