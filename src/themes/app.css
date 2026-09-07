@@ -2,6 +2,105 @@
 @tailwind components;
 @tailwind utilities;
 
+.amby-pdf-export-root {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  width: 794px;
+  --amby-pdf-scale: 1;
+  padding: 64px 72px;
+  color-scheme: light;
+  color: #1a1a1a;
+  background: #ffffff;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+  --border: 240 5.9% 90%;
+  --note-surface: #ffffff;
+  --editor-bg: #ffffff;
+  --editor-fg: #1a1a1a;
+  --editor-heading: #111111;
+  --editor-heading-h2: #1f1f23;
+  --editor-heading-h3: #2e2e35;
+  --editor-heading-h4: #3f3f46;
+  --editor-heading-muted: #52525b;
+  --editor-strong: #111111;
+  --editor-em: #52525b;
+  --editor-del: #71717a;
+  --code-bg: #f4f4f5;
+  --code-fg: #6d28d9;
+  --code-border: #e4e4e7;
+  --pre-bg: #fafafa;
+  --pre-border: #e4e4e7;
+  --pre-fg: #18181b;
+  --blockquote-fg: #374151;
+  --rule-color: #d4d4d8;
+  --table-header-bg: #f4f4f5;
+  --table-header-fg: #1f1f23;
+  --table-border: #d4d4d8;
+  --table-cell-border: #e4e4e7;
+  --table-row-even: #fafafa;
+}
+
+.amby-pdf-export-title {
+  margin: 0 0 1.5rem;
+  color: #111111;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+@media print {
+  @page {
+    margin: 18mm;
+  }
+
+  body.amby-exporting-pdf > :not(.amby-pdf-export-root--active) {
+    display: none !important;
+  }
+
+  html,
+  body {
+    overflow: visible !important;
+    color: #1a1a1a !important;
+    background: #ffffff !important;
+  }
+
+  .amby-pdf-export-root {
+    position: static;
+    display: block;
+    width: auto;
+    padding: 0;
+    zoom: var(--amby-pdf-scale);
+  }
+
+  .amby-pdf-export-root .amby-tiptap {
+    min-height: 0;
+    padding-bottom: 0;
+  }
+
+  .amby-pdf-export-root pre,
+  .amby-pdf-export-root blockquote,
+  .amby-pdf-export-root table,
+  .amby-pdf-export-root img,
+  .amby-pdf-export-root .amby-callout {
+    break-inside: avoid;
+  }
+
+  .amby-pdf-export-root h1,
+  .amby-pdf-export-root h2,
+  .amby-pdf-export-root h3,
+  .amby-pdf-export-root h4,
+  .amby-pdf-export-root h5,
+  .amby-pdf-export-root h6 {
+    break-after: avoid;
+  }
+}
+
 .database-property-drop-before {
   box-shadow: inset 0 2px 0 hsl(var(--primary));
 }

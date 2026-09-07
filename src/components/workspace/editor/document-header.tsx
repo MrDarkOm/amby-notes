@@ -65,6 +65,7 @@ export interface DocumentHeaderProps {
   onRequestMove: () => void
   onRequestMerge: () => void
   onCopyPath: (kind: "app" | "vault" | "absolute") => void
+  onExportPdf: () => void
   onShowInExplorer?: () => void
   onRequestRename: () => void
   onDeleteFile?: () => void
@@ -114,6 +115,7 @@ export function DocumentHeader({
   onRequestMove,
   onRequestMerge,
   onCopyPath,
+  onExportPdf,
   onShowInExplorer,
   onRequestRename,
   onDeleteFile,
@@ -300,6 +302,7 @@ export function DocumentHeader({
           onRequestMove={onRequestMove}
           onRequestMerge={onRequestMerge}
           onCopyPath={onCopyPath}
+          onExportPdf={onExportPdf}
           onShowInExplorer={onShowInExplorer}
           onRequestRename={onRequestRename}
           onDeleteFile={onDeleteFile}

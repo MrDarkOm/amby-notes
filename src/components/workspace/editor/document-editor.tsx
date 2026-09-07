@@ -14,6 +14,7 @@ import { flattenTree, relativeToVault } from "./document-breadcrumbs-utils"
 import { FilePickerModal, LayerConfirmDialog, type LayerKind } from "./document-actions"
 import { DocumentHeader } from "./document-header"
 import { DocumentBody } from "./document-body"
+import { NotePdfExport, NotePdfExportDialog, type PdfExportOptions } from "./note-pdf-export"
 import { noteEditingPolicy } from "./note-editing-policy"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
 import { Button } from "@/components/ui/button"
@@ -161,6 +162,11 @@ export function DocumentEditor({
   const [editorSelection, setEditorSelection] = React.useState<MarkdownSelection | null>(null)
   const [restoringDeleted, setRestoringDeleted] = React.useState(false)
   const [restoreError, setRestoreError] = React.useState(false)
+  const [pdfExportDialogOpen, setPdfExportDialogOpen] = React.useState(false)
+  const [pdfExportRequest, setPdfExportRequest] = React.useState<{
+    id: number
+    options: PdfExportOptions
+  } | null>(null)
   const editorSelectionRef = React.useRef<MarkdownSelection | null>(null)
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
   const { t } = useTranslation()
@@ -264,6 +270,13 @@ export function DocumentEditor({
     editorSelectionRef.current = next
   }, [])
 
+  const requestPdfExport = React.useCallback(() => setPdfExportDialogOpen(true), [])
+  const startPdfExport = React.useCallback((options: PdfExportOptions) => {
+    setPdfExportDialogOpen(false)
+    setPdfExportRequest((current) => ({ id: (current?.id ?? 0) + 1, options }))
+  }, [])
+  const finishPdfExport = React.useCallback(() => setPdfExportRequest(null), [])
+
   const handleEditorViewModeChange = React.useCallback(
     (mode: DocumentViewMode) => {
       if (editingPolicy.sourceOnly && mode !== "source") return
@@ -322,6 +335,7 @@ export function DocumentEditor({
         setFilePickerMode("merge")
       }}
       onCopyPath={copyPath}
+      onExportPdf={requestPdfExport}
       onShowInExplorer={onShowInExplorer}
       onRequestRename={() => setEditingTitle(true)}
       onDeleteFile={onDeleteFile}
@@ -357,6 +371,28 @@ export function DocumentEditor({
       </Button>
     </div>
   ) : null
+
+  const pdfExportDialog = document ? (
+    <NotePdfExportDialog
+      open={pdfExportDialogOpen}
+      title={document.title}
+      onOpenChange={setPdfExportDialogOpen}
+      onExport={startPdfExport}
+    />
+  ) : null
+
+  const pdfExport =
+    pdfExportRequest !== null && document ? (
+      <NotePdfExport
+        key={pdfExportRequest.id}
+        title={document.title}
+        content={content}
+        vaultPath={vault}
+        notePath={document.path}
+        options={pdfExportRequest.options}
+        onFinished={finishPdfExport}
+      />
+    ) : null
 
   if (!document) {
     return (
@@ -435,6 +471,8 @@ export function DocumentEditor({
           viewModeMenuOpen={viewModeMenuOpen}
           onViewModeMenuOpenChange={(open) => setExclusiveMenu("view", open)}
         />
+        {pdfExportDialog}
+        {pdfExport}
       </div>
     )
   }
@@ -514,6 +552,8 @@ export function DocumentEditor({
         onCreateFolder={onCreateFolder}
         onMergeFile={onMergeFile}
       />
+      {pdfExportDialog}
+      {pdfExport}
     </div>
   )
 }

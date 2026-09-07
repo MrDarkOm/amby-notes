@@ -138,8 +138,21 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   const widgetEnterRef = React.useRef<(() => void) | null>(null)
   const widgetLeaveRef = React.useRef<(() => void) | null>(null)
 
+  const isEditorSurfaceHidden = React.useCallback(() => {
+    if (editor.isDestroyed) return true
+    const editorDom = editor.view.dom as HTMLElement
+    return !editorDom.isConnected || editorDom.closest('[aria-hidden="true"]') !== null
+  }, [editor])
+
   const applyVisibility = React.useCallback(() => {
     if (editor.isDestroyed) return
+    // Block controls live in a body portal, outside the cached tab wrapper.
+    // Guard every path that can reveal them: hidden editors keep document-level
+    // listeners alive and otherwise react to the same pointer as the active tab.
+    if (isEditorSurfaceHidden()) {
+      setHandle((current) => (current.visible ? { ...current, visible: false } : current))
+      return
+    }
     if (!editor.isEditable) {
       setHandle((h) => (h.visible ? { ...h, visible: false } : h))
       return
@@ -171,12 +184,30 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     if (target.mode === "insert") {
       const beforeDom = view.nodeDOM(target.beforePos ?? -1)
       const afterDom = view.nodeDOM(target.afterPos ?? -1)
-      if (!(beforeDom instanceof HTMLElement) || !(afterDom instanceof HTMLElement)) {
+      if (
+        !(beforeDom instanceof HTMLElement) ||
+        !(afterDom instanceof HTMLElement) ||
+        !beforeDom.isConnected ||
+        !afterDom.isConnected ||
+        !view.dom.contains(beforeDom) ||
+        !view.dom.contains(afterDom)
+      ) {
         setHandle((h) => (h.visible ? { ...h, visible: false } : h))
         return
       }
       const beforeRect = beforeDom.getBoundingClientRect()
       const afterRect = afterDom.getBoundingClientRect()
+      if (
+        beforeRect.width <= 0 ||
+        beforeRect.height <= 0 ||
+        afterRect.width <= 0 ||
+        afterRect.height <= 0 ||
+        !Number.isFinite(beforeRect.top) ||
+        !Number.isFinite(afterRect.top)
+      ) {
+        setHandle((h) => (h.visible ? { ...h, visible: false } : h))
+        return
+      }
       left = Math.max(0, Math.min(beforeRect.left, afterRect.left) - HANDLE_WIDTH - GUTTER_GAP)
       top = (beforeRect.bottom + afterRect.top) / 2 - BUTTON_H / 2
     } else {
@@ -188,11 +219,30 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       }
       const node = state.doc.nodeAt(target.nodePos)
       const nodeDom = view.nodeDOM(target.nodePos)
-      if (!node || !(nodeDom instanceof HTMLElement)) {
+      if (
+        !node ||
+        node.type.name !== target.nodeType ||
+        !(nodeDom instanceof HTMLElement) ||
+        !nodeDom.isConnected ||
+        !view.dom.contains(nodeDom)
+      ) {
+        hoverTargetRef.current = null
+        pinnedTargetRef.current = null
         setHandle((h) => (h.visible ? { ...h, visible: false } : h))
         return
       }
       const rect = nodeDom.getBoundingClientRect()
+      if (
+        rect.width <= 0 ||
+        rect.height <= 0 ||
+        !Number.isFinite(rect.top) ||
+        !Number.isFinite(rect.left)
+      ) {
+        hoverTargetRef.current = null
+        pinnedTargetRef.current = null
+        setHandle((h) => (h.visible ? { ...h, visible: false } : h))
+        return
+      }
       // Nested column blocks own a local gutter. Anchoring every handle to the
       // document's far-left edge made the second/third columns nearly
       // impossible to drag.
@@ -238,20 +288,63 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         insertPos,
       }
     })
-  }, [editor])
+  }, [editor, isEditorSurfaceHidden])
 
   React.useEffect(() => {
     if (editor.isDestroyed) return
     const view = editor.view
     const editorDom = view.dom as HTMLElement
 
-    applyVisibility()
-    const onChange = () => applyVisibility()
+    const onChange = () => {
+      // Cached tabs remain laid out off-screen for instant switching. They do
+      // not need geometry reads while another editor is visible. The handle is
+      // rendered through a body portal, though, so simply skipping the read
+      // would leave a stale Grab floating above the newly active tab.
+      if (isEditorSurfaceHidden()) {
+        hoverTargetRef.current = null
+        pinnedTargetRef.current = null
+        mouseInsideEditorRef.current = false
+        mouseInsideWidgetRef.current = false
+        setInsertPanel((panel) => (panel.open ? { open: false, anchorPos: -1 } : panel))
+        setActionsOpen(false)
+        setHandle((current) => (current.visible ? { ...current, visible: false } : current))
+        return
+      }
+      applyVisibility()
+    }
+    onChange()
     editor.on("selectionUpdate", onChange)
     editor.on("transaction", onChange)
     editor.on("focus", onChange)
     window.addEventListener("resize", onChange)
     window.addEventListener("scroll", onChange, true)
+
+    // A sidebar resize changes the editor viewport without resizing `window`.
+    // Observe both the scrolling viewport and ProseMirror itself so a visible
+    // Grab follows the reflowed block in the same layout cycle. This also
+    // covers content-width changes and sidebar open/close transitions.
+    const geometryContainer = editorDom.closest<HTMLElement>(".amby-editor-scroll")
+    const geometryObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(onChange)
+    geometryObserver?.observe(editorDom)
+    if (geometryContainer && geometryContainer !== editorDom) {
+      geometryObserver?.observe(geometryContainer)
+    }
+
+    // Tab visibility is expressed by an aria-hidden attribute on the cached
+    // tab wrapper. Observe that attribute so returning to a tab immediately
+    // recalculates its handle instead of waiting for a selection or resize.
+    const visibilityHost = editorDom.closest<HTMLElement>("[aria-hidden]")
+    const visibilityObserver =
+      typeof MutationObserver === "undefined" || !visibilityHost
+        ? null
+        : new MutationObserver(onChange)
+    if (visibilityObserver && visibilityHost) {
+      visibilityObserver.observe(visibilityHost, {
+        attributes: true,
+        attributeFilter: ["aria-hidden"],
+      })
+    }
 
     const cancelHide = () => {
       if (hideTimerRef.current != null) {
@@ -344,6 +437,10 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
     const recomputeFromHover = (x: number, y: number) => {
       if (editor.isDestroyed) return
+      if (isEditorSurfaceHidden()) {
+        applyVisibility()
+        return
+      }
       const columnTarget = targetFromColumnRect(x, y)
       if (columnTarget) {
         setHoverTarget(columnTarget)
@@ -396,6 +493,13 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     // its left. Listen at document level as well so entering that outer gutter
     // can reveal the controls before the pointer crosses the block edge.
     const onDocumentMouseMove = (e: MouseEvent) => {
+      if (isEditorSurfaceHidden()) {
+        mouseInsideEditorRef.current = false
+        hoverTargetRef.current = null
+        pinnedTargetRef.current = null
+        if (handlesRef.current) applyVisibility()
+        return
+      }
       if (pinnedTargetRef.current) return
       const rect = editorDom.getBoundingClientRect()
       const paddingLeft = parseFloat(window.getComputedStyle(editorDom).paddingLeft) || 12
@@ -494,6 +598,8 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       editor.off("transaction", onChange)
       editor.off("focus", onChange)
       window.removeEventListener("resize", onChange)
+      geometryObserver?.disconnect()
+      visibilityObserver?.disconnect()
       editorDom.removeEventListener("mousedown", onEditorMouseDownCapture, true)
       editorDom.removeEventListener("mousemove", onMouseMove)
       editorDom.removeEventListener("mouseenter", onEditorEnter)
@@ -507,7 +613,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       widgetLeaveRef.current = null
       window.removeEventListener("scroll", onChange, true)
     }
-  }, [editor, applyVisibility])
+  }, [editor, applyVisibility, isEditorSurfaceHidden])
 
   // Close menus when clicking outside.
   React.useEffect(() => {
@@ -897,6 +1003,10 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
     setActionsOpen(false)
     setInsertPanel({ open: true, anchorPos: insertPos })
+    // The insertion transaction runs synchronously and can briefly invalidate
+    // the old target before the new empty paragraph is pinned. Re-anchor now
+    // that the inserted node and its panel target are known.
+    applyVisibility()
   }
 
   function insertAboveBlock() {
@@ -953,6 +1063,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
             pinnedTargetRef.current = null
             setActionsOpen(false)
             setInsertPanel({ open: false, anchorPos: -1 })
+            applyVisibility()
             return
           }
           startDrag(event)
@@ -987,6 +1098,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           onClose={() => {
             pinnedTargetRef.current = null
             setInsertPanel({ open: false, anchorPos: -1 })
+            applyVisibility()
           }}
         />
       )}
@@ -1004,11 +1116,13 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
             duplicateBlock()
             pinnedTargetRef.current = null
             setActionsOpen(false)
+            applyVisibility()
           }}
           onDelete={() => {
             deleteBlock()
             pinnedTargetRef.current = null
             setActionsOpen(false)
+            applyVisibility()
           }}
           onInsertAbove={insertAboveBlock}
           onInsertBelow={insertBelowBlock}
@@ -1016,6 +1130,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           onClose={() => {
             pinnedTargetRef.current = null
             setActionsOpen(false)
+            applyVisibility()
           }}
         />
       )}

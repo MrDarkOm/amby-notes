@@ -11,6 +11,7 @@ import {
   Database,
   Eye,
   EyeOff,
+  FileDown,
   Files,
   FileText,
   FolderInput,
@@ -418,6 +419,7 @@ export function DocumentActionsDropdown({
   onRequestMove,
   onRequestMerge,
   onCopyPath,
+  onExportPdf,
   onShowInExplorer,
   onRequestRename,
   onDeleteFile,
@@ -443,6 +445,7 @@ export function DocumentActionsDropdown({
   onRequestMove: () => void
   onRequestMerge: () => void
   onCopyPath: (kind: "app" | "vault" | "absolute") => void
+  onExportPdf: () => void
   onShowInExplorer?: () => void
   onRequestRename: () => void
   onDeleteFile?: () => void
@@ -624,6 +627,14 @@ export function DocumentActionsDropdown({
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <DropdownMenuItem
+          disabled={!hasDocument}
+          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+          onSelect={onExportPdf}
+        >
+          <FileDown className="size-3.5 text-muted-foreground" />
+          {t("docEditor.exportPdf")}
+        </DropdownMenuItem>
 
         <DropdownMenuSeparator className="bg-accent" />
 
