@@ -12,6 +12,7 @@ import type { Tab } from "../use-tabs-store"
 import { useDocStore } from "../use-doc-store"
 import { findTreeItem } from "../workspace-tree-utils"
 import { workspaceRelativePath } from "../vault/use-vault-session"
+import type { AttachmentItem } from "../panel-registry"
 
 type OpenDocument = ReturnType<typeof useDocStore.getState>["openDocs"][string]
 
@@ -45,20 +46,9 @@ export function usePropertyActions({
         path: workspaceRelativePath(folder.path, vault ?? ""),
         noteCount: counts.notes,
         folderCount: counts.folders,
-        nestedNotes: (folder.children ?? [])
-          .filter((item) => item.type === "file")
-          .map((item) => ({
-            id: item.id,
-            name: item.name.replace(/\.md$/iu, ""),
-            icon: item.icon,
-          })),
       }
     }
     if (!currentDoc) return null
-    const treeItem = findTreeItem(displayTreeItems, currentDoc.id)
-    const nestedNotes = (treeItem?.children ?? [])
-      .filter((item) => item.type === "file")
-      .map((item) => ({ id: item.id, name: item.name.replace(/\.md$/iu, ""), icon: item.icon }))
     return {
       kind: "document" as const,
       type: "Markdown",
@@ -71,9 +61,53 @@ export function usePropertyActions({
         properties: [],
         customProperties: [],
       },
-      nestedNotes,
     }
   }, [activeTab?.fileId, activeTab?.kind, currentDoc, displayTreeItems, linkGraph, t, vault])
+
+  const attachments = React.useMemo<AttachmentItem[]>(() => {
+    const source =
+      activeTab?.kind === "folder"
+        ? findTreeItem(displayTreeItems, activeTab.fileId)
+        : currentDoc
+          ? findTreeItem(displayTreeItems, currentDoc.id)
+          : null
+    return (source?.children ?? [])
+      .filter((item) => item.type === "file")
+      .map((item) => ({
+        id: item.id,
+        name: item.name.replace(/\.md$/iu, ""),
+        icon: item.icon,
+        kind: "note" as const,
+      }))
+  }, [activeTab?.fileId, activeTab?.kind, currentDoc, displayTreeItems])
+
+  const attachmentImages = React.useMemo<AttachmentItem[]>(() => {
+    if (!currentDoc) return []
+    const refs: string[] = []
+    const markdownImage = /!\[[^\]]*\]\((?:<([^>]+)>|([^\s)]+))/gu
+    const htmlImage = /<img\b[^>]*\bsrc=["']([^"']+)["']/giu
+    for (const match of currentDoc.content.matchAll(markdownImage)) refs.push(match[1] ?? match[2])
+    for (const match of currentDoc.content.matchAll(htmlImage)) refs.push(match[1])
+    const seen = new Set<string>()
+    const items = refs.flatMap((ref) => {
+      const cleanRef = ref.trim().replace(/[?#].*$/u, "")
+      if (!cleanRef || /^(?:data:|https?:|mailto:)/iu.test(cleanRef)) return []
+      const normalized = cleanRef.replace(/\\/g, "/")
+      const name = normalized.split("/").pop() || normalized
+      const key = normalized.toLocaleLowerCase()
+      if (seen.has(key)) return []
+      seen.add(key)
+      return [
+        {
+          id: `image:${currentDoc.id}:${normalized}`,
+          name,
+          icon: "🖼️",
+          kind: "image" as const,
+        },
+      ]
+    })
+    return items
+  }, [currentDoc])
 
   const handleUpsertCustomProperty = React.useCallback(
     async (property: CustomProperty) => {
@@ -134,6 +168,8 @@ export function usePropertyActions({
 
   return {
     currentProperties,
+    attachments,
+    attachmentImages,
     handleUpsertCustomProperty,
     handleDeleteCustomProperty,
     handleReorderCustomProperties,

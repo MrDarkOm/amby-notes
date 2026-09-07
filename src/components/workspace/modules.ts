@@ -1,7 +1,14 @@
 import type { PanelId } from "./panel-registry"
 
 /** Core workspace tools are always present and therefore are not modules. */
-export const BASE_DEF_IDS = new Set(["files", "search", "archive", "info", "refresh"])
+export const BASE_DEF_IDS = new Set([
+  "files",
+  "search",
+  "archive",
+  "info",
+  "attachments",
+  "refresh",
+])
 
 /**
  * A capability a module declares it needs. Today these are advisory and

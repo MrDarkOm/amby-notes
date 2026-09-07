@@ -45,6 +45,7 @@ import { SidebarTree } from "../sidebar-tree"
 import { useViewStateStore } from "../use-view-state-store"
 import { NewItemModal } from "../new-item-modal"
 import type { PanelRenderProps } from "../panel-registry"
+import { PanelHeader, PanelSearch } from "./panel-header"
 
 type TreeSortKey = "name" | "created" | "modified"
 type TreeSortDirection = "asc" | "desc"
@@ -89,6 +90,17 @@ function sortTreeItems(
     })
 }
 
+function filterTreeItems(items: TreeItem[], query: string): TreeItem[] {
+  const normalized = query.trim().toLocaleLowerCase()
+  if (!normalized) return items
+  return items.flatMap((item) => {
+    const children = item.children ? filterTreeItems(item.children, normalized) : []
+    const matches = item.name.toLocaleLowerCase().includes(normalized)
+    if (!matches && children.length === 0) return []
+    return [{ ...item, children: item.children ? children : item.children }]
+  })
+}
+
 export function FilesPanel(props: PanelRenderProps) {
   const { t } = useTranslation()
   const {
@@ -128,6 +140,7 @@ export function FilesPanel(props: PanelRenderProps) {
   const [findActiveKey, setFindActiveKey] = React.useState(0)
   const [sortKey, setSortKey] = React.useState<TreeSortKey>("name")
   const [sortDirection, setSortDirection] = React.useState<TreeSortDirection>("asc")
+  const [query, setQuery] = React.useState("")
   React.useEffect(() => {
     localStorage.setItem(
       "amby:tree-sort",
@@ -137,6 +150,10 @@ export function FilesPanel(props: PanelRenderProps) {
   const sortedTreeItems = React.useMemo(
     () => sortTreeItems(treeItems, sortKey, sortDirection),
     [treeItems, sortKey, sortDirection],
+  )
+  const visibleTreeItems = React.useMemo(
+    () => filterTreeItems(sortedTreeItems, query),
+    [query, sortedTreeItems],
   )
 
   function handleNewButtonClick() {
@@ -178,90 +195,100 @@ export function FilesPanel(props: PanelRenderProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Toolbar */}
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-            title={t("filesPanel.create")}
-            onClick={handleNewButtonClick}
-          >
-            <FilePlus className="size-3.5" />
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-                title={t("filesPanel.sortOrder")}
-              >
-                <ArrowDownUp className="size-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="start"
-              className="w-80 border-border bg-popover text-foreground"
+      <PanelHeader
+        hideTitle
+        title={t("panels.files")}
+        actions={
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+              title={t("filesPanel.create")}
+              onClick={handleNewButtonClick}
             >
-              {TREE_SORT_OPTIONS.map(({ key, direction, labelKey, icon: Icon }, index) => (
-                <React.Fragment key={`${key}:${direction}`}>
-                  {index > 0 && index % 2 === 0 && <DropdownMenuSeparator className="bg-accent" />}
-                  <DropdownMenuItem
-                    className="relative flex items-center gap-2 pr-9 text-[13px] whitespace-nowrap focus:bg-accent focus:text-white"
-                    onSelect={() => {
-                      setSortKey(key)
-                      setSortDirection(direction)
-                    }}
-                  >
-                    <Icon className="size-3.5 text-muted-foreground" />
-                    <span className="flex-1">{t(labelKey)}</span>
-                    {sortKey === key && sortDirection === direction && (
-                      <Check className="absolute right-2 size-3.5 text-primary" />
+              <FilePlus className="size-3.5" />
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+                  title={t("filesPanel.sortOrder")}
+                >
+                  <ArrowDownUp className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="w-80 border-border bg-popover text-foreground"
+              >
+                {TREE_SORT_OPTIONS.map(({ key, direction, labelKey, icon: Icon }, index) => (
+                  <React.Fragment key={`${key}:${direction}`}>
+                    {index > 0 && index % 2 === 0 && (
+                      <DropdownMenuSeparator className="bg-accent" />
                     )}
-                  </DropdownMenuItem>
-                </React.Fragment>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-            title={t("filesPanel.findActive")}
-            onClick={handleFindActive}
-          >
-            <LocateFixed className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-            title={allOpen ? t("filesPanel.collapseAll") : t("filesPanel.expandAll")}
-            onClick={handleToggleFolders}
-          >
-            {allOpen ? (
-              <ChevronsDownUp className="size-3.5" />
-            ) : (
-              <ChevronsUpDown className="size-3.5" />
-            )}
-          </Button>
-        </div>
-      </div>
-
+                    <DropdownMenuItem
+                      className="relative flex items-center gap-2 pr-9 text-[13px] whitespace-nowrap focus:bg-accent focus:text-white"
+                      onSelect={() => {
+                        setSortKey(key)
+                        setSortDirection(direction)
+                      }}
+                    >
+                      <Icon className="size-3.5 text-muted-foreground" />
+                      <span className="flex-1">{t(labelKey)}</span>
+                      {sortKey === key && sortDirection === direction && (
+                        <Check className="absolute right-2 size-3.5 text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                  </React.Fragment>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+              title={t("filesPanel.findActive")}
+              onClick={handleFindActive}
+            >
+              <LocateFixed className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
+              title={allOpen ? t("filesPanel.collapseAll") : t("filesPanel.expandAll")}
+              onClick={handleToggleFolders}
+            >
+              {allOpen ? (
+                <ChevronsDownUp className="size-3.5" />
+              ) : (
+                <ChevronsUpDown className="size-3.5" />
+              )}
+            </Button>
+          </div>
+        }
+      />
+      <PanelSearch
+        value={query}
+        onChange={setQuery}
+        ariaLabel={t("filesPanel.search")}
+        placeholder={t("filesPanel.search")}
+      />
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div className="flex flex-1 min-h-0 flex-col">
             {/* SidebarTree owns its own scroll container for virtualizer access */}
             <div className="flex-1 min-h-0">
-              {sortedTreeItems.length === 0 ? (
+              {visibleTreeItems.length === 0 ? (
                 <p className="px-4 py-3 text-[12px] text-muted-foreground">
-                  {t("filesPanel.empty")}
+                  {query.trim() ? t("filesPanel.noResults") : t("filesPanel.empty")}
                 </p>
               ) : (
                 <SidebarTree
-                  items={sortedTreeItems}
+                  items={visibleTreeItems}
                   selectedId={selectedId}
                   onSelect={onSelect}
                   onRename={onRename}

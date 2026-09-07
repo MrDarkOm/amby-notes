@@ -12,9 +12,6 @@ import {
   motionTransitions,
 } from "@/lib/motion-config"
 
-const MotionDropdownContent = motion.create(DropdownMenuPrimitive.Content)
-const MotionDropdownSubContent = motion.create(DropdownMenuPrimitive.SubContent)
-
 function DropdownMenu({ ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root>) {
   return <DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
@@ -34,22 +31,28 @@ function DropdownMenuTrigger({
 function DropdownMenuContent({
   className,
   sideOffset = 4,
+  children,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
   return (
     <DropdownMenuPrimitive.Portal>
-      <MotionDropdownContent
+      <DropdownMenuPrimitive.Content
         data-slot="dropdown-menu-content"
         sideOffset={sideOffset}
         className={cn(
           "z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
           className,
         )}
-        initial={floatingSurfaceInitial}
-        animate={floatingSurfaceAnimate}
-        transition={motionTransitions.enter}
-        {...(props as React.ComponentProps<typeof MotionDropdownContent>)}
-      />
+        {...props}
+      >
+        <motion.div
+          initial={floatingSurfaceInitial}
+          animate={floatingSurfaceAnimate}
+          transition={motionTransitions.enter}
+        >
+          {children}
+        </motion.div>
+      </DropdownMenuPrimitive.Content>
     </DropdownMenuPrimitive.Portal>
   )
 }
@@ -207,20 +210,26 @@ function DropdownMenuSubTrigger({
 
 function DropdownMenuSubContent({
   className,
+  children,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
   return (
-    <MotionDropdownSubContent
+    <DropdownMenuPrimitive.SubContent
       data-slot="dropdown-menu-sub-content"
       className={cn(
         "z-50 min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg",
         className,
       )}
-      initial={floatingSurfaceInitial}
-      animate={floatingSurfaceAnimate}
-      transition={motionTransitions.enter}
-      {...(props as React.ComponentProps<typeof MotionDropdownSubContent>)}
-    />
+      {...props}
+    >
+      <motion.div
+        initial={floatingSurfaceInitial}
+        animate={floatingSurfaceAnimate}
+        transition={motionTransitions.enter}
+      >
+        {children}
+      </motion.div>
+    </DropdownMenuPrimitive.SubContent>
   )
 }
 

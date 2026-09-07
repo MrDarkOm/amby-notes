@@ -1,26 +1,16 @@
 "use client"
 
 import * as React from "react"
-import {
-  ChevronRight,
-  Clock3,
-  History,
-  Loader2,
-  RefreshCw,
-  RotateCcw,
-  Search,
-  Trash2,
-} from "lucide-react"
+import { ChevronRight, Clock3, History, Loader2, RefreshCw, RotateCcw, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import {} from "@/components/ui/dropdown-menu"
 import { MotionSpinner } from "@/lib/motion"
 import type { PanelRenderProps } from "../panel-registry"
 import { formatHistorySize, groupHistoryByDay, historyReasonKey } from "../history/history-model"
 import { HistoryPreview } from "../history/history-preview"
 import { useHistory } from "../history/use-history"
 import { findTreeItem } from "../workspace-tree-utils"
+import { PanelHeader, PanelSearch } from "./panel-header"
 
 const PAGE_SIZE = 40
 
@@ -81,77 +71,71 @@ function HistoryContents({
   }
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex shrink-0 items-center justify-between gap-2 px-4 pb-3 pt-4">
-        <h2 className="flex min-w-0 items-center gap-2 text-sm font-semibold">
-          {showTrash ? t("historyPanel.trash") : t("panels.history")}
-        </h2>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <Button
-            variant={showTrash ? "secondary" : "ghost"}
-            size="icon-sm"
-            title={t("historyPanel.trash")}
-            aria-label={t("historyPanel.trash")}
-            onClick={() => setShowTrash((value) => !value)}
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-          {!showTrash && history.snapshots.length > 0 && (
+      <PanelHeader
+        title={showTrash ? t("historyPanel.trash") : t("panels.history")}
+        actions={
+          <>
+            <Button
+              variant={showTrash ? "secondary" : "ghost"}
+              size="icon-sm"
+              title={t("historyPanel.trash")}
+              aria-label={t("historyPanel.trash")}
+              onClick={() => setShowTrash((value) => !value)}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+            {!showTrash && history.snapshots.length > 0 && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title={t("historyPanel.openFullHistory")}
+                aria-label={t("historyPanel.openFullHistory")}
+                disabled={history.loading || history.busy}
+                onClick={history.openLatest}
+              >
+                <Clock3 className="size-3.5" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon-sm"
-              title={t("historyPanel.openFullHistory")}
-              aria-label={t("historyPanel.openFullHistory")}
               disabled={history.loading || history.busy}
-              onClick={history.openLatest}
+              title={t("historyPanel.refresh")}
+              aria-label={t("historyPanel.refresh")}
+              onClick={() => void history.refresh()}
             >
-              <Clock3 className="size-3.5" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            disabled={history.loading || history.busy}
-            title={t("historyPanel.refresh")}
-            aria-label={t("historyPanel.refresh")}
-            onClick={() => void history.refresh()}
-          >
-            {history.loading ? (
-              <MotionSpinner>
+              {history.loading ? (
+                <MotionSpinner>
+                  <RefreshCw className="size-3.5" />
+                </MotionSpinner>
+              ) : (
                 <RefreshCw className="size-3.5" />
-              </MotionSpinner>
-            ) : (
-              <RefreshCw className="size-3.5" />
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-            disabled={history.loading || !history.stats.snapshotCount || history.busy}
-            title={t("historyPanel.deleteHistory")}
-            aria-label={t("historyPanel.deleteHistory")}
-            onClick={() => void history.cleanup()}
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-        </div>
-      </header>
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+              disabled={history.loading || !history.stats.snapshotCount || history.busy}
+              title={t("historyPanel.deleteHistory")}
+              aria-label={t("historyPanel.deleteHistory")}
+              onClick={() => void history.cleanup()}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </>
+        }
+      />
       {!showTrash && (
-        <div className="space-y-3 border-b px-4 pb-3">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value)
-                setLimit(PAGE_SIZE)
-              }}
-              aria-label={t("historyPanel.searchVersions")}
-              placeholder={t("historyPanel.searchVersions")}
-              className="h-8 min-w-0 bg-transparent pl-8 text-xs"
-            />
-          </div>
-        </div>
+        <PanelSearch
+          value={query}
+          onChange={(value) => {
+            setQuery(value)
+            setLimit(PAGE_SIZE)
+          }}
+          ariaLabel={t("historyPanel.searchVersions")}
+          placeholder={t("historyPanel.searchVersions")}
+        />
       )}
       {history.error && !history.selected && (
         <p role="alert" className="shrink-0 border-b px-4 py-3 text-xs text-destructive">
@@ -164,7 +148,7 @@ function HistoryContents({
         </p>
       )}
       <div
-        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-3"
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 pb-4"
         aria-busy={history.loading}
       >
         {showTrash ? (

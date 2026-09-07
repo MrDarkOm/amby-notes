@@ -7,7 +7,6 @@ import {
   CheckSquare,
   ChevronDown,
   Copy,
-  Database,
   Folder,
   GripVertical,
   Hash,
@@ -46,6 +45,7 @@ import { movePropertyId } from "../database/property-order"
 import { PropertyHeaderMenu } from "../database/table-view"
 import { databasePropertyIconKey } from "../database/property-icon"
 import { useViewStateStore } from "../use-view-state-store"
+import { PanelHeader } from "./panel-header"
 
 function databasePropertyIcon(property: DatabasePropertySummary) {
   return property.propertyType === "number"
@@ -533,7 +533,6 @@ function PropertyRow({
 export function InfoPanel({
   properties,
   databaseProperties,
-  onSelectLink,
   onUpsertCustomProperty,
   onDeleteCustomProperty,
   onReorderCustomProperties,
@@ -843,32 +842,16 @@ export function InfoPanel({
   if (databaseProperties) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="border-b border-border px-3 py-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex min-w-0 items-start gap-2">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-foreground">
-                <IconValue
-                  value={databaseProperties.icon ?? undefined}
-                  fallback={<Database className="size-4" />}
-                  className="size-4"
-                />
-              </span>
-              <div className="min-w-0">
-                <h2 className="truncate text-sm font-medium text-foreground">
-                  {databaseProperties.title}
-                </h2>
-                <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
-                  {t("infoPanel.databaseDescription")}
-                </p>
-              </div>
-            </div>
+        <PanelHeader
+          title={t("panels.info")}
+          actions={
             <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
               {databaseProperties.properties.length}
             </span>
-          </div>
-        </div>
+          }
+        />
         <ScrollArea className="flex-1">
-          <div className="space-y-5 px-3 py-3">
+          <div className="space-y-5 px-4 pb-4">
             <section>
               {databaseProperties.properties.length > 0 ? (
                 <Reorder.Group
@@ -991,7 +974,6 @@ export function InfoPanel({
       </div>
     )
   }
-  const nestedNotes = properties.nestedNotes ?? []
   const warningKey =
     properties.kind === "folder" ? null : noteEditingPolicy(properties.frontmatter).warningKey
   async function copyId(id: string) {
@@ -1007,51 +989,16 @@ export function InfoPanel({
   if (properties.kind === "folder") {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="border-b border-border px-3 py-3">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <h2 className="text-sm font-medium text-foreground">
-                {t("infoPanel.folderProperties")}
-              </h2>
-              <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
-                {t("infoPanel.folderDescription")}
-              </p>
-            </div>
+        <PanelHeader
+          title={t("panels.info")}
+          actions={
             <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
               {properties.noteCount}
             </span>
-          </div>
-        </div>
+          }
+        />
         <ScrollArea className="flex-1">
-          <div className="space-y-5 px-3 py-3">
-            {nestedNotes.length > 0 && (
-              <section>
-                <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t("infoPanel.nestedNotes")}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {nestedNotes.map((note) => (
-                    <button
-                      key={note.id}
-                      type="button"
-                      className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background/40 px-2 py-1.5 text-xs text-foreground hover:bg-accent"
-                      onClick={() => onSelectLink?.(note.id)}
-                    >
-                      <IconValue
-                        value={
-                          note.icon && !["file", "supernote"].includes(note.icon)
-                            ? note.icon
-                            : undefined
-                        }
-                        fallback="📄"
-                        className="size-4"
-                      />
-                      <span className="truncate">{note.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            )}
+          <div className="space-y-5 px-4 pb-4">
             <section className="overflow-hidden rounded-lg border border-border bg-background/30">
               <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
                 <Folder className="size-4 text-muted-foreground" />
@@ -1089,15 +1036,10 @@ export function InfoPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-border px-3 py-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-medium text-foreground">{t("infoPanel.properties")}</h2>
-            <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
-              {t("infoPanel.description")}
-            </p>
-          </div>
-          <div className="flex items-center gap-1">
+      <PanelHeader
+        title={t("infoPanel.properties")}
+        actions={
+          <>
             {!noteDatabaseContext && (
               <button
                 type="button"
@@ -1115,11 +1057,11 @@ export function InfoPanel({
             <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
               {customProperties.length + (noteDatabaseContext?.properties.length ?? 0)}
             </span>
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
       <ScrollArea className="flex-1">
-        <div className="space-y-5 px-3 py-3">
+        <div className="space-y-5 px-4 pb-4">
           {warningKey && (
             <p role="status" className="text-xs text-muted-foreground">
               {t(warningKey)}
@@ -1233,41 +1175,6 @@ export function InfoPanel({
               </div>
             )}
           </section>
-          <section>
-            <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-              {t("infoPanel.nestedNotes")}
-            </div>
-            {nestedNotes.length ? (
-              <div className="flex flex-wrap gap-1.5">
-                {nestedNotes.map((note) => (
-                  <button
-                    key={note.id}
-                    type="button"
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background/40 px-2 py-1.5 text-xs text-foreground hover:bg-accent"
-                    onClick={() => onSelectLink?.(note.id)}
-                  >
-                    <span className="flex size-4 items-center justify-center" aria-hidden="true">
-                      <IconValue
-                        value={
-                          note.icon && !["file", "supernote"].includes(note.icon)
-                            ? note.icon
-                            : undefined
-                        }
-                        fallback="📄"
-                        className="size-4"
-                      />
-                    </span>
-                    <span className="truncate">{note.name}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-lg border border-dashed border-border px-3 py-3 text-center text-[11px] text-muted-foreground">
-                {t("infoPanel.noNestedNotes")}
-              </div>
-            )}
-          </section>
-
           <section className="overflow-hidden rounded-lg border border-border bg-background/30">
             <button
               type="button"

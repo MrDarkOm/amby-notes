@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Archive, Loader2, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react"
+import { Loader2, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
@@ -13,12 +13,14 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { confirmAction, listTrash, purgeTrash, restoreTrash, type TrashEntry } from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
+import { PanelHeader, PanelSearch } from "./panel-header"
 
 export function ArchivePanel(_props: PanelRenderProps) {
   const { t } = useTranslation()
   const [entries, setEntries] = React.useState<TrashEntry[]>([])
   const [loading, setLoading] = React.useState(true)
   const [busy, setBusy] = React.useState<string | null>(null)
+  const [query, setQuery] = React.useState("")
   const refresh = React.useCallback(async () => {
     setLoading(true)
     try {
@@ -28,6 +30,10 @@ export function ArchivePanel(_props: PanelRenderProps) {
     }
   }, [])
   React.useEffect(() => void refresh(), [refresh])
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const visibleEntries = entries.filter((entry) =>
+    `${entry.name} ${entry.originalPath}`.toLocaleLowerCase().includes(normalizedQuery),
+  )
   async function restore(entry: TrashEntry) {
     setBusy(entry.id)
     try {
@@ -49,11 +55,16 @@ export function ArchivePanel(_props: PanelRenderProps) {
   }
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex items-center gap-2 border-b px-4 py-4 text-sm font-semibold">
-        <Archive className="size-4 text-muted-foreground" />
-        {t("panels.archive")}
-      </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4">
+      <PanelHeader title={t("panels.archive")} />
+      {entries.length > 0 && (
+        <PanelSearch
+          value={query}
+          onChange={setQuery}
+          ariaLabel={t("historyPanel.searchArchive")}
+          placeholder={t("historyPanel.searchArchive")}
+        />
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
         {loading ? (
           <p className="flex justify-center py-10 text-muted-foreground">
             <MotionSpinner>
@@ -64,8 +75,12 @@ export function ArchivePanel(_props: PanelRenderProps) {
           <p className="py-10 text-center text-xs text-muted-foreground">
             {t("historyPanel.archiveEmpty")}
           </p>
+        ) : visibleEntries.length === 0 ? (
+          <p className="py-10 text-center text-xs text-muted-foreground">
+            {t("historyPanel.noResults")}
+          </p>
         ) : (
-          entries.map((entry) => (
+          visibleEntries.map((entry) => (
             <div key={entry.id} className="flex items-center gap-2 border-b py-3">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-xs font-medium">{entry.name}</p>

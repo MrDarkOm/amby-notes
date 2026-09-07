@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowLeft, FileText, Send, Settings2, Sparkles, Square } from "lucide-react"
+import { ArrowLeft, FileText, Send, Settings2, Square } from "lucide-react"
 
 import i18n from "@/lib/i18n"
 
@@ -20,6 +20,7 @@ import {
 } from "./app-config"
 import { ModelsManager } from "./models-manager"
 import type { PanelRenderProps } from "./panel-registry"
+import { PanelHeader } from "./panels/panel-header"
 
 const MAX_CONTEXT_CHARS = 12000
 
@@ -130,11 +131,10 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
   }, [ai, currentDoc, input, loading, messages, t])
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
-        <div className="flex items-center gap-2 text-[13px] font-medium text-foreground">
-          {showSettings ? (
+    <div className="flex h-full min-h-0 flex-col bg-card">
+      <PanelHeader
+        leading={
+          showSettings ? (
             <button
               type="button"
               title={t("ai.backToChat")}
@@ -143,29 +143,29 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
             >
               <ArrowLeft className="size-4" />
             </button>
-          ) : (
-            <Sparkles className="size-4 text-primary" />
-          )}
-          {showSettings ? t("ai.models") : t("settings.modules.ai")}
-        </div>
-        {!showSettings && (
-          <button
-            type="button"
-            title={t("ai.modelsAndProviders")}
-            onClick={() => setShowSettings(true)}
-            className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <Settings2 className="size-4" />
-          </button>
-        )}
-      </div>
+          ) : undefined
+        }
+        title={showSettings ? t("ai.models") : t("settings.modules.ai")}
+        actions={
+          !showSettings && (
+            <button
+              type="button"
+              title={t("ai.modelsAndProviders")}
+              onClick={() => setShowSettings(true)}
+              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <Settings2 className="size-4" />
+            </button>
+          )
+        }
+      />
 
       {showSettings ? (
         <ModelsManager ai={ai} onChange={updateAi} />
       ) : (
         <>
           {/* Context scope chip */}
-          <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+          <div className="flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-[11px] text-muted-foreground">
             <FileText className="size-3 shrink-0" />
             <span className="truncate">
               {currentDoc ? (

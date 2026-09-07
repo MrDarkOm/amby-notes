@@ -9,6 +9,7 @@ import { motionTransitions } from "@/lib/motion-config"
 import type { TreeItem } from "./sidebar-tree"
 import { extractObsidianTags } from "./markdown-tags"
 import { isTauri, listTags } from "@/lib/storage"
+import { PanelHeader, PanelSearch } from "./panels/panel-header"
 
 interface TagEntry {
   tag: string
@@ -37,6 +38,7 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
   const [tags, setTags] = React.useState<TagEntry[]>([])
   const [loading, setLoading] = React.useState(false)
   const [openTags, setOpenTags] = React.useState<Set<string>>(new Set())
+  const [query, setQuery] = React.useState("")
   React.useEffect(() => {
     if (!readFile) return
     const read = readFile
@@ -112,87 +114,100 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
       return next
     })
   }
-
-  if (loading) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2">
-        <MotionSpinner>
-          <Loader2 className="size-5 text-muted-foreground" />
-        </MotionSpinner>
-        <p className="text-[12px] text-muted-foreground">{t("tagsPanel.scanning")}</p>
-      </div>
-    )
-  }
-
-  if (!readFile) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center">
-        <p className="text-[12px] text-muted-foreground">{t("tagsPanel.noAccess")}</p>
-      </div>
-    )
-  }
-
-  if (tags.length === 0) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center px-4">
-        <Hash className="size-8 text-muted-foreground" />
-        <p className="text-[12px] text-muted-foreground">{t("tagsPanel.empty")}</p>
-        <p className="text-[11px] text-muted-foreground">{t("tagsPanel.emptyHint")}</p>
-      </div>
-    )
-  }
+  const visibleTags = React.useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase()
+    if (!normalized) return tags
+    return tags.filter((entry) => entry.tag.toLocaleLowerCase().includes(normalized))
+  }, [query, tags])
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="flex flex-col gap-px p-1.5">
-        {tags.map(({ tag, files }) => {
-          const isOpen = openTags.has(tag)
-          const parts = tag.split("/")
-          const depth = parts.length - 1
-          const label = parts[parts.length - 1]
-          return (
-            <div key={tag}>
-              <button
-                onClick={() => toggleTag(tag)}
-                className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"
-                style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
-                title={`#${tag}`}
-              >
-                <motion.span
-                  className="flex shrink-0 text-muted-foreground"
-                  initial={false}
-                  animate={{ rotate: isOpen ? 90 : 0 }}
-                  transition={motionTransitions.default}
-                >
-                  <ChevronRight className="size-3" />
-                </motion.span>
-                <Hash className="size-3.5 shrink-0 text-primary" />
-                <span className="flex-1 truncate text-[13px] text-foreground">{label}</span>
-                <span className="shrink-0 text-[11px] text-muted-foreground">{files.length}</span>
-              </button>
-              {isOpen && (
-                <div className="ml-4 flex flex-col gap-px">
-                  {files.map(({ item, path }) => (
-                    <button
-                      key={item.id}
-                      onClick={() => onSelect(item.id)}
-                      className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-accent"
+    <div className="flex h-full min-h-0 flex-col">
+      <PanelHeader title={t("panels.tags")} />
+      {tags.length > 0 && (
+        <PanelSearch
+          value={query}
+          onChange={setQuery}
+          ariaLabel={t("tagsPanel.search")}
+          placeholder={t("tagsPanel.search")}
+        />
+      )}
+      {loading ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2">
+          <MotionSpinner>
+            <Loader2 className="size-5 text-muted-foreground" />
+          </MotionSpinner>
+          <p className="text-[12px] text-muted-foreground">{t("tagsPanel.scanning")}</p>
+        </div>
+      ) : !readFile ? (
+        <div className="flex flex-1 items-center justify-center">
+          <p className="text-[12px] text-muted-foreground">{t("tagsPanel.noAccess")}</p>
+        </div>
+      ) : tags.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
+          <Hash className="size-8 text-muted-foreground" />
+          <p className="text-[12px] text-muted-foreground">{t("tagsPanel.empty")}</p>
+          <p className="text-[11px] text-muted-foreground">{t("tagsPanel.emptyHint")}</p>
+        </div>
+      ) : visibleTags.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 px-4 text-center">
+          <p className="text-[12px] text-muted-foreground">{t("tagsPanel.noResults")}</p>
+          <p className="text-[11px] text-muted-foreground">{t("tagsPanel.noResultsHint")}</p>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          <div className="flex flex-col gap-px px-4 pb-4">
+            {visibleTags.map(({ tag, files }) => {
+              const isOpen = openTags.has(tag)
+              const parts = tag.split("/")
+              const depth = parts.length - 1
+              const label = parts[parts.length - 1]
+              return (
+                <div key={tag}>
+                  <button
+                    onClick={() => toggleTag(tag)}
+                    className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"
+                    style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
+                    title={`#${tag}`}
+                  >
+                    <motion.span
+                      className="flex shrink-0 text-muted-foreground"
+                      initial={false}
+                      animate={{ rotate: isOpen ? 90 : 0 }}
+                      transition={motionTransitions.default}
                     >
-                      <FileText className="size-3.5 shrink-0 text-muted-foreground" />
-                      <div className="min-w-0">
-                        <p className="truncate text-[12px] text-foreground">{item.name}</p>
-                        {path && (
-                          <p className="truncate text-[10px] text-muted-foreground">{path}</p>
-                        )}
-                      </div>
-                    </button>
-                  ))}
+                      <ChevronRight className="size-3" />
+                    </motion.span>
+                    <Hash className="size-3.5 shrink-0 text-primary" />
+                    <span className="flex-1 truncate text-[13px] text-foreground">{label}</span>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {files.length}
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <div className="ml-4 flex flex-col gap-px">
+                      {files.map(({ item, path }) => (
+                        <button
+                          key={item.id}
+                          onClick={() => onSelect(item.id)}
+                          className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left hover:bg-accent"
+                        >
+                          <FileText className="size-3.5 shrink-0 text-muted-foreground" />
+                          <div className="min-w-0">
+                            <p className="truncate text-[12px] text-foreground">{item.name}</p>
+                            {path && (
+                              <p className="truncate text-[10px] text-muted-foreground">{path}</p>
+                            )}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

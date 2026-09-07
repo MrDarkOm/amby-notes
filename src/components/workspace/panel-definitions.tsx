@@ -8,6 +8,7 @@ import {
   LayoutTemplate,
   Link as LinkIcon,
   Network,
+  Paperclip,
   RefreshCw,
   Search,
   Settings,
@@ -21,6 +22,7 @@ import {
   FilesPanel,
   HistoryPanel,
   InfoPanel,
+  AttachmentsPanel,
   LinksPanel,
   TagsPanel,
   type ActionDef,
@@ -75,6 +77,13 @@ export const PANEL_DEFS: PanelDef[] = [
     icon: Info,
     kind: "view",
     render: (props) => <InfoPanel {...props} />,
+  },
+  {
+    id: "attachments",
+    labelKey: "panels.attachments",
+    icon: Paperclip,
+    kind: "view",
+    render: (props) => <AttachmentsPanel {...props} />,
   },
   {
     id: "history",
@@ -161,9 +170,10 @@ export const DEFAULT_BUTTONS: ActivityButton[] = [
   { defId: "search", side: "left", order: 0 },
   { defId: "network", side: "left", order: 2 },
   { defId: "info", side: "right", order: 0 },
-  { defId: "history", side: "right", order: 1 },
-  { defId: "links", side: "right", order: 2 },
-  { defId: "ai", side: "right", order: 3 },
+  { defId: "attachments", side: "right", order: 1 },
+  { defId: "history", side: "right", order: 2 },
+  { defId: "links", side: "right", order: 3 },
+  { defId: "ai", side: "right", order: 4 },
   ...PERSISTENT_ACTION_BUTTONS,
 ]
 

@@ -8,6 +8,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import type { DockPreferences } from "./app-config"
 
 const COMPACT_LAYOUT_MAX_WIDTH = 960
+const MIN_PANEL_WIDTH = 240
+const DEFAULT_LEFT_PANEL_WIDTH = 240
+const DEFAULT_RIGHT_PANEL_WIDTH = 280
 
 interface UseSidebarLayoutParams {
   activityButtons: ActivityButton[]
@@ -39,8 +42,8 @@ export function useSidebarLayout({
 }: UseSidebarLayoutParams) {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
-  const [leftWidth, setLeftWidth] = React.useState(208)
-  const [rightWidth, setRightWidth] = React.useState(256)
+  const [leftWidth, setLeftWidth] = React.useState(DEFAULT_LEFT_PANEL_WIDTH)
+  const [rightWidth, setRightWidth] = React.useState(DEFAULT_RIGHT_PANEL_WIDTH)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
@@ -110,7 +113,7 @@ export function useSidebarLayout({
 
       function onMove(ev: MouseEvent) {
         if (nearEdge(ev.clientX)) return
-        pendingW = Math.max(200, Math.min(520, startW + sign * (ev.clientX - startX)))
+        pendingW = Math.max(MIN_PANEL_WIDTH, Math.min(520, startW + sign * (ev.clientX - startX)))
         if (frame) return
         frame = requestAnimationFrame(() => {
           frame = 0
@@ -124,8 +127,10 @@ export function useSidebarLayout({
           frame = 0
         }
         if (nearEdge(ev.clientX)) {
-          setPanelWidthVariable(side, 208)
-          setW(208)
+          const defaultWidth =
+            side === "left" ? DEFAULT_LEFT_PANEL_WIDTH : DEFAULT_RIGHT_PANEL_WIDTH
+          setPanelWidthVariable(side, defaultWidth)
+          setW(defaultWidth)
           if (side === "left") setIsLeftSidebarOpen(false)
           else setIsRightSidebarOpen(false)
         } else {

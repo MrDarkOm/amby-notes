@@ -690,6 +690,8 @@ export function WorkspaceOrchestration() {
 
   const {
     currentProperties,
+    attachments,
+    attachmentImages,
     handleUpsertCustomProperty,
     handleDeleteCustomProperty,
     handleReorderCustomProperties,
@@ -752,6 +754,8 @@ export function WorkspaceOrchestration() {
       databaseRuntimeEnabled: databasesEnabled,
       onOpenDatabase: openDatabaseTab,
       properties: currentProperties,
+      attachments,
+      attachmentImages,
       databaseProperties: selectedDatabase
         ? {
             kind: "database" as const,
@@ -826,6 +830,8 @@ export function WorkspaceOrchestration() {
       handleAttachLayerToFile,
       linkedLayersByDoc,
       currentProperties,
+      attachments,
+      attachmentImages,
       selectedDatabase,
       currentFileIcon,
       activeTab?.kind,
@@ -1186,7 +1192,7 @@ export function WorkspaceOrchestration() {
               />
             )}
             <div
-              style={{ width: "var(--amby-left-panel-width, 208px)" }}
+              style={{ width: "var(--amby-left-panel-width, 240px)" }}
               className="min-h-0 shrink-0"
             >
               <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} flush />
@@ -1202,7 +1208,7 @@ export function WorkspaceOrchestration() {
           transition={motionTransitions.panel}
           onMouseLeave={() => setFocusShowRight(false)}
         >
-          <div style={{ width: "var(--amby-right-panel-width, 256px)" }} className="shrink-0">
+          <div style={{ width: "var(--amby-right-panel-width, 280px)" }} className="shrink-0">
             <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} flush />
           </div>
           {isDockVisible("right") && (
@@ -1318,7 +1324,7 @@ export function WorkspaceOrchestration() {
         {isLeftSidebarOpen && (
           <>
             <div
-              style={{ width: "var(--amby-left-panel-width, 208px)" }}
+              style={{ width: "var(--amby-left-panel-width, 240px)" }}
               className={
                 isCompactLayout
                   ? "fixed inset-y-11 left-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
@@ -1424,7 +1430,7 @@ export function WorkspaceOrchestration() {
         {isRightSidebarOpen && (
           <>
             <div
-              style={{ width: "var(--amby-right-panel-width, 256px)" }}
+              style={{ width: "var(--amby-right-panel-width, 280px)" }}
               className={
                 isCompactLayout
                   ? "fixed inset-y-11 right-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"

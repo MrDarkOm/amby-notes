@@ -1,13 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { Link as LinkIcon, Search } from "lucide-react"
+import { Link as LinkIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
-import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { LinkGraphEdge, PanelRenderProps } from "../panel-registry"
+import { PanelHeader, PanelSearch } from "./panel-header"
 
 export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRenderProps) {
   const { t } = useTranslation()
@@ -16,14 +17,18 @@ export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRende
   const edges = linkGraph?.edges ?? []
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
   const q = query.trim().toLocaleLowerCase()
+  const [activeTab, setActiveTab] = React.useState("outgoing")
   const outgoing = currentDocId ? edges.filter((e) => e.source === currentDocId) : []
   const backlinks = currentDocId ? edges.filter((e) => e.target === currentDocId) : []
-  const allLinks = edges.filter((edge) => {
+  const matchesQuery = (edge: LinkGraphEdge) => {
     if (!q) return true
     const from = nodeById.get(edge.source)?.label ?? edge.source
     const to = nodeById.get(edge.target)?.label ?? edge.label
     return `${from} ${to} ${edge.label}`.toLocaleLowerCase().includes(q)
-  })
+  }
+  const visibleOutgoing = outgoing.filter(matchesQuery)
+  const visibleBacklinks = backlinks.filter(matchesQuery)
+  const allLinks = edges.filter(matchesQuery)
 
   function LinkRow({ edge, direction }: { edge: LinkGraphEdge; direction: "out" | "in" | "all" }) {
     const source = nodeById.get(edge.source)
@@ -68,57 +73,66 @@ export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRende
   }
 
   function Section({
-    title,
     list,
     direction,
   }: {
-    title: string
     list: LinkGraphEdge[]
     direction: "out" | "in" | "all"
   }) {
-    return (
-      <div className="mb-4">
-        <div className="mb-1.5 flex items-center justify-between px-2">
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-            {title}
-          </p>
-          <span className="text-[10px] text-muted-foreground">{list.length}</span>
-        </div>
-        {list.length ? (
-          list.map((edge, i) => (
-            <LinkRow
-              key={`${edge.source}-${edge.target}-${direction}-${i}`}
-              edge={edge}
-              direction={direction}
-            />
-          ))
-        ) : (
-          <p className="px-2 py-1 text-[11px] text-muted-foreground">{t("graph.noLinks")}</p>
-        )}
-      </div>
+    return list.length ? (
+      list.map((edge, i) => (
+        <LinkRow
+          key={`${edge.source}-${edge.target}-${direction}-${i}`}
+          edge={edge}
+          direction={direction}
+        />
+      ))
+    ) : (
+      <p className="px-2 py-1 text-[11px] text-muted-foreground">{t("graph.noLinks")}</p>
     )
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-border p-2">
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t("linksPanel.search")}
-            className="h-7 border-border bg-card pl-7 text-xs text-foreground placeholder:text-muted-foreground"
-          />
-        </div>
-      </div>
-      <ScrollArea className="flex-1">
-        <div className="px-1 py-2">
-          <Section title={t("linksPanel.outgoing")} list={outgoing} direction="out" />
-          <Section title={t("linksPanel.backlinks")} list={backlinks} direction="in" />
-          <Section title={t("linksPanel.all")} list={allLinks} direction="all" />
-        </div>
-      </ScrollArea>
+      <PanelHeader title={t("panels.links")} />
+      <PanelSearch value={query} onChange={setQuery} placeholder={t("linksPanel.search")} />
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1 gap-0">
+        <TabsList className="mx-4 mb-3 grid h-8 w-auto grid-cols-3">
+          <TabsTrigger value="outgoing" className="text-xs">
+            {t("linksPanel.outgoing")}
+            <span className="ml-0.5 text-[10px] text-muted-foreground">{outgoing.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="incoming" className="text-xs">
+            {t("linksPanel.backlinks")}
+            <span className="ml-0.5 text-[10px] text-muted-foreground">{backlinks.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="all" className="text-xs">
+            {t("linksPanel.all")}
+            <span className="ml-0.5 text-[10px] text-muted-foreground">{edges.length}</span>
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="outgoing" className="min-h-0">
+          <ScrollArea className="h-full">
+            <div className="space-y-1 px-4 pb-4">
+              <Section list={visibleOutgoing} direction="out" />
+            </div>
+          </ScrollArea>
+        </TabsContent>
+        <TabsContent value="incoming" className="min-h-0">
+          <ScrollArea className="h-full">
+            <div className="space-y-1 px-4 pb-4">
+              <Section list={visibleBacklinks} direction="in" />
+            </div>
+          </ScrollArea>
+        </TabsContent>
+        <TabsContent value="all" className="min-h-0">
+          <ScrollArea className="h-full">
+            <div className="space-y-1 px-4 pb-4">
+              <Section list={allLinks} direction="all" />
+            </div>
+          </ScrollArea>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

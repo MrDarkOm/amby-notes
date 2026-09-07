@@ -12,9 +12,6 @@ import {
   motionTransitions,
 } from "@/lib/motion-config"
 
-const MotionContextMenuContent = motion.create(ContextMenuPrimitive.Content)
-const MotionContextMenuSubContent = motion.create(ContextMenuPrimitive.SubContent)
-
 function ContextMenu({ ...props }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
   return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
 }
@@ -69,40 +66,52 @@ function ContextMenuSubTrigger({
 
 function ContextMenuSubContent({
   className,
+  children,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.SubContent>) {
   return (
-    <MotionContextMenuSubContent
+    <ContextMenuPrimitive.SubContent
       data-slot="context-menu-sub-content"
       className={cn(
         "z-50 min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg",
         className,
       )}
-      initial={floatingSurfaceInitial}
-      animate={floatingSurfaceAnimate}
-      transition={motionTransitions.enter}
-      {...(props as React.ComponentProps<typeof MotionContextMenuSubContent>)}
-    />
+      {...props}
+    >
+      <motion.div
+        initial={floatingSurfaceInitial}
+        animate={floatingSurfaceAnimate}
+        transition={motionTransitions.enter}
+      >
+        {children}
+      </motion.div>
+    </ContextMenuPrimitive.SubContent>
   )
 }
 
 function ContextMenuContent({
   className,
+  children,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Content>) {
   return (
     <ContextMenuPrimitive.Portal>
-      <MotionContextMenuContent
+      <ContextMenuPrimitive.Content
         data-slot="context-menu-content"
         className={cn(
           "z-50 max-h-(--radix-context-menu-content-available-height) min-w-[8rem] origin-(--radix-context-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
           className,
         )}
-        initial={floatingSurfaceInitial}
-        animate={floatingSurfaceAnimate}
-        transition={motionTransitions.enter}
-        {...(props as React.ComponentProps<typeof MotionContextMenuContent>)}
-      />
+        {...props}
+      >
+        <motion.div
+          initial={floatingSurfaceInitial}
+          animate={floatingSurfaceAnimate}
+          transition={motionTransitions.enter}
+        >
+          {children}
+        </motion.div>
+      </ContextMenuPrimitive.Content>
     </ContextMenuPrimitive.Portal>
   )
 }

@@ -37,6 +37,7 @@ export const SIMPLE_PRESET: Preset = {
     { defId: "archive", side: "left", order: 1 },
     { defId: "search", side: "left", order: 1 },
     { defId: "info", side: "right", order: 0 },
+    { defId: "attachments", side: "right", order: 1 },
   ],
   activeBySide: { left: "files", right: null },
 }

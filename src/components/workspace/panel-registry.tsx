@@ -10,7 +10,23 @@ import type { SettingsNavigationTarget } from "./settings-navigation"
 export type Side = "left" | "right"
 
 export type PanelId =
-  "files" | "tags" | "favorites" | "databases" | "archive" | "info" | "history" | "links" | "ai"
+  | "files"
+  | "tags"
+  | "favorites"
+  | "databases"
+  | "archive"
+  | "info"
+  | "attachments"
+  | "history"
+  | "links"
+  | "ai"
+
+export interface AttachmentItem {
+  id: string
+  name: string
+  icon?: string
+  kind?: "note" | "image"
+}
 
 export interface DocumentProperties {
   kind?: "document"
@@ -20,7 +36,6 @@ export interface DocumentProperties {
   modified: string
   id: string
   frontmatter: NoteProperties
-  nestedNotes: Array<{ id: string; name: string; icon?: string }>
 }
 
 export interface FolderProperties {
@@ -30,7 +45,6 @@ export interface FolderProperties {
   path: string
   noteCount: number
   folderCount: number
-  nestedNotes: Array<{ id: string; name: string; icon?: string }>
 }
 
 export interface DatabasePanelProperties {
@@ -102,6 +116,8 @@ export interface PanelRenderProps {
 
   // Right side
   properties?: DocumentProperties | FolderProperties | null
+  attachments?: AttachmentItem[]
+  attachmentImages?: AttachmentItem[]
   databaseProperties?: DatabasePanelProperties | null
   linkGraph?: LinkGraph
   currentDocId?: string | null
@@ -155,6 +171,7 @@ export {
   FavoritesPanel,
   ComingSoonPanel,
   InfoPanel,
+  AttachmentsPanel,
   PropertyEditor,
   HistoryPanel,
   LinksPanel,
