@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toAssetUrl } from "@/lib/storage"
+import { cn } from "@/lib/utils"
 import { IconValue } from "../icon-value"
 import type { AttachmentItem, PanelRenderProps } from "../panel-registry"
 import { PanelHeader, PanelSearch } from "./panel-header"
@@ -107,7 +108,10 @@ export function AttachmentsPanel({
         type="button"
         aria-label={imagesOnly ? attachment.name : undefined}
         title={imagesOnly ? attachment.name : undefined}
-        className="flex w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/40 px-2.5 py-2 text-left text-xs text-foreground hover:bg-accent"
+        className={cn(
+          "flex w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/40 px-2.5 py-2 text-left text-xs text-foreground hover:bg-accent",
+          imagesOnly && "justify-center",
+        )}
         onClick={() => {
           if (imagesOnly) setPreviewImage(attachment)
           else onSelectLink?.(attachment.id)
@@ -139,7 +143,7 @@ export function AttachmentsPanel({
             className="size-4 shrink-0"
           />
         )}
-        <span className="min-w-0 truncate">{attachment.name}</span>
+        {!imagesOnly && <span className="min-w-0 truncate">{attachment.name}</span>}
       </button>
     ))
   }
@@ -219,7 +223,7 @@ export function AttachmentsPanel({
         }}
       >
         <DialogContent className="flex h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-5xl flex-col gap-3 border-border bg-background/95 p-3 shadow-2xl backdrop-blur">
-          <DialogTitle className="sr-only">
+          <DialogTitle className="min-w-0 truncate px-1 pr-10 text-sm font-medium">
             {previewImage?.name ?? t("attachmentsPanel.preview")}
           </DialogTitle>
           <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-md bg-muted/30 p-2">
@@ -264,13 +268,7 @@ export function AttachmentsPanel({
               </>
             )}
           </div>
-          <div className="flex shrink-0 items-center justify-between gap-3 px-1">
-            <p
-              className="min-w-0 truncate text-xs text-muted-foreground"
-              title={previewImage?.name}
-            >
-              {previewImage?.name}
-            </p>
+          <div className="flex shrink-0 items-center justify-end gap-3 px-1">
             {visibleImages.length > 1 && previewIndex >= 0 && (
               <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
                 {previewIndex + 1} / {visibleImages.length}

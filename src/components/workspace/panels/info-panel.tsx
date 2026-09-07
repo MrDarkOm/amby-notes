@@ -235,7 +235,7 @@ function DatabasePropertyRow({
       role="listitem"
       data-sortable-property-id={property.propertyId}
       className={cn(
-        "relative grid min-h-8 grid-cols-[minmax(7rem,42%)_minmax(0,1fr)] items-center gap-1",
+        "relative grid min-h-8 grid-cols-[minmax(7rem,42%)_minmax(0,1fr)] items-start gap-1",
         dragging && "z-10 rounded-md bg-background/95 shadow-sm",
       )}
     >
@@ -267,7 +267,7 @@ function DatabasePropertyRow({
             <button
               type="button"
               disabled={disabled}
-              className="h-7 min-w-0 flex-1 truncate rounded px-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default"
+              className="min-h-7 min-w-0 flex-1 rounded px-1 py-1 text-left text-xs leading-4 whitespace-normal break-words text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default"
               title={property.name}
             >
               {property.name}
@@ -275,10 +275,11 @@ function DatabasePropertyRow({
           }
         />
       </div>
-      <div className="h-8 min-w-0">
+      <div className="min-h-8 min-w-0">
         <DatabaseCell
           property={property}
           valuesJson={context.row.valuesJson}
+          wrap
           pending={pending}
           error={error}
           compact
@@ -380,6 +381,58 @@ function DatabaseSchemaRow({
   )
 }
 
+function PropertyValueTextarea({
+  value,
+  initialValue,
+  disabled,
+  onChange,
+  onSave,
+  onReset,
+}: {
+  value: string
+  initialValue: string
+  disabled: boolean
+  onChange: (value: string) => void
+  onSave: (value?: string) => Promise<void>
+  onReset: () => void
+}) {
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+  const resize = React.useCallback(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    textarea.style.height = "0px"
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }, [])
+
+  React.useLayoutEffect(() => {
+    resize()
+  }, [resize, value])
+
+  return (
+    <textarea
+      ref={textareaRef}
+      value={value}
+      disabled={disabled}
+      rows={1}
+      title={initialValue}
+      className="min-h-7 w-full min-w-0 resize-none overflow-hidden rounded-md bg-transparent px-1 py-1 text-xs leading-4 whitespace-pre-wrap break-words text-foreground outline-none focus:bg-accent/40 disabled:opacity-60"
+      placeholder="—"
+      onChange={(event) => {
+        onChange(event.target.value)
+        resize()
+      }}
+      onBlur={() => void onSave()}
+      onKeyDown={(event) => {
+        event.stopPropagation()
+        if (event.key === "Escape") {
+          onReset()
+          event.currentTarget.blur()
+        }
+      }}
+    />
+  )
+}
+
 function PropertyRow({
   property,
   onEdit,
@@ -414,6 +467,7 @@ function PropertyRow({
   }
 
   const checked = value === "true"
+  const multiline = property.propertyType === "text" || property.propertyType === "url"
 
   return (
     <Reorder.Item
@@ -430,7 +484,7 @@ function PropertyRow({
       role="listitem"
       data-sortable-property-id={property.id}
       className={cn(
-        "relative grid min-h-8 grid-cols-[minmax(7rem,42%)_minmax(0,1fr)] items-center gap-1",
+        "relative grid min-h-8 grid-cols-[minmax(7rem,42%)_minmax(0,1fr)] items-start gap-1",
         dragging && "z-10 rounded-md bg-background/95 shadow-sm",
       )}
     >
@@ -455,14 +509,14 @@ function PropertyRow({
         <button
           type="button"
           disabled={disabled}
-          className="h-7 min-w-0 flex-1 truncate rounded px-1 text-left text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default"
+          className="min-h-7 min-w-0 flex-1 rounded px-1 py-1 text-left text-xs leading-4 whitespace-normal break-words text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default"
           title={property.name}
           onClick={onEdit}
         >
           {property.name}
         </button>
       </div>
-      <div className="flex h-8 min-w-0 items-center px-1">
+      <div className="flex min-h-8 min-w-0 items-start px-1 py-0.5">
         {property.propertyType === "checkbox" ? (
           <button
             type="button"
@@ -501,6 +555,15 @@ function PropertyRow({
               </option>
             ))}
           </select>
+        ) : multiline ? (
+          <PropertyValueTextarea
+            value={value}
+            initialValue={property.value}
+            disabled={disabled}
+            onChange={setValue}
+            onSave={saveValue}
+            onReset={() => setValue(property.value)}
+          />
         ) : (
           <input
             type={
@@ -936,9 +999,11 @@ export function InfoPanel({
                     [t("infoPanel.databaseProperties"), String(databaseProperties.propertyCount)],
                     [t("infoPanel.databaseViews"), String(databaseProperties.viewCount)],
                   ].map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <div key={label} className="flex items-start justify-between gap-3 px-3 py-2">
                       <span className="text-muted-foreground">{label}</span>
-                      <span className="truncate text-right text-foreground">{value}</span>
+                      <span className="min-w-0 max-w-[65%] break-words text-right text-foreground">
+                        {value}
+                      </span>
                     </div>
                   ))}
                   <div className="flex items-start gap-2 px-3 py-2">
@@ -1013,9 +1078,12 @@ export function InfoPanel({
                   [t("infoPanel.foldersCount"), String(properties.folderCount)],
                   [t("infoPanel.path"), properties.path || "—"],
                 ].map(([label, value]) => (
-                  <div key={label} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <div key={label} className="flex items-start justify-between gap-3 px-3 py-2">
                     <span className="text-muted-foreground">{label}</span>
-                    <span className="min-w-0 truncate text-right text-foreground" title={value}>
+                    <span
+                      className="min-w-0 max-w-[65%] break-words text-right text-foreground"
+                      title={value}
+                    >
                       {value}
                     </span>
                   </div>
@@ -1201,9 +1269,11 @@ export function InfoPanel({
                   [t("infoPanel.created"), properties.created || "—"],
                   [t("infoPanel.modified"), properties.modified || "—"],
                 ].map(([label, value]) => (
-                  <div key={label} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <div key={label} className="flex items-start justify-between gap-3 px-3 py-2">
                     <span className="text-muted-foreground">{label}</span>
-                    <span className="truncate text-right text-foreground">{value}</span>
+                    <span className="min-w-0 max-w-[65%] break-words text-right text-foreground">
+                      {value}
+                    </span>
                   </div>
                 ))}
                 <div className="flex items-start gap-2 px-3 py-2">

@@ -9,8 +9,7 @@ import type { DockPreferences } from "./app-config"
 
 const COMPACT_LAYOUT_MAX_WIDTH = 960
 const MIN_PANEL_WIDTH = 300
-const DEFAULT_LEFT_PANEL_WIDTH = 300
-const DEFAULT_RIGHT_PANEL_WIDTH = 300
+const DEFAULT_PANEL_WIDTH = 300
 
 interface UseSidebarLayoutParams {
   activityButtons: ActivityButton[]
@@ -42,8 +41,11 @@ export function useSidebarLayout({
 }: UseSidebarLayoutParams) {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
-  const [leftWidth, setLeftWidth] = React.useState(DEFAULT_LEFT_PANEL_WIDTH)
-  const [rightWidth, setRightWidth] = React.useState(DEFAULT_RIGHT_PANEL_WIDTH)
+  // Both side panels share one width so their content edges stay aligned even
+  // after resizing either divider.
+  const [panelWidth, setPanelWidth] = React.useState(DEFAULT_PANEL_WIDTH)
+  const leftWidth = panelWidth
+  const rightWidth = panelWidth
   const [isFocusMode, setIsFocusMode] = React.useState(false)
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
@@ -63,10 +65,17 @@ export function useSidebarLayout({
     document.documentElement.style.setProperty(`--amby-${side}-panel-width`, `${width}px`)
   }, [])
 
+  const setPanelWidths = React.useCallback(
+    (width: number) => {
+      setPanelWidthVariable("left", width)
+      setPanelWidthVariable("right", width)
+    },
+    [setPanelWidthVariable],
+  )
+
   React.useLayoutEffect(() => {
-    setPanelWidthVariable("left", leftWidth)
-    setPanelWidthVariable("right", rightWidth)
-  }, [leftWidth, rightWidth, setPanelWidthVariable])
+    setPanelWidths(panelWidth)
+  }, [panelWidth, setPanelWidths])
 
   React.useEffect(
     () => () => {
@@ -97,8 +106,7 @@ export function useSidebarLayout({
     return (e: React.MouseEvent) => {
       e.preventDefault()
       const startX = e.clientX
-      const startW = side === "left" ? leftWidth : rightWidth
-      const setW = side === "left" ? setLeftWidth : setRightWidth
+      const startW = panelWidth
       const sign = side === "left" ? 1 : -1
 
       function nearEdge(x: number) {
@@ -117,7 +125,7 @@ export function useSidebarLayout({
         if (frame) return
         frame = requestAnimationFrame(() => {
           frame = 0
-          setPanelWidthVariable(side, pendingW)
+          setPanelWidths(pendingW)
         })
       }
 
@@ -127,15 +135,13 @@ export function useSidebarLayout({
           frame = 0
         }
         if (nearEdge(ev.clientX)) {
-          const defaultWidth =
-            side === "left" ? DEFAULT_LEFT_PANEL_WIDTH : DEFAULT_RIGHT_PANEL_WIDTH
-          setPanelWidthVariable(side, defaultWidth)
-          setW(defaultWidth)
+          setPanelWidths(DEFAULT_PANEL_WIDTH)
+          setPanelWidth(DEFAULT_PANEL_WIDTH)
           if (side === "left") setIsLeftSidebarOpen(false)
           else setIsRightSidebarOpen(false)
         } else {
-          setPanelWidthVariable(side, pendingW)
-          setW(pendingW)
+          setPanelWidths(pendingW)
+          setPanelWidth(pendingW)
         }
         window.removeEventListener("mousemove", onMove)
         window.removeEventListener("mouseup", onUp)

@@ -32,8 +32,22 @@ export function DatabaseCell({
   )
   const [draft, setDraft] = React.useState(() => databaseCellText(value, property.propertyType))
   const initial = databaseCellText(value, property.propertyType)
+  const wrappedTextRef = React.useRef<HTMLTextAreaElement>(null)
 
   React.useEffect(() => setDraft(initial), [initial])
+
+  const resizeWrappedText = React.useCallback(() => {
+    const textarea = wrappedTextRef.current
+    if (!textarea) return
+    textarea.style.height = "0px"
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }, [])
+
+  React.useLayoutEffect(() => {
+    if (wrap && compact && (property.propertyType === "text" || property.propertyType === "url")) {
+      resizeWrappedText()
+    }
+  }, [compact, draft, property.propertyType, resizeWrappedText, wrap])
 
   const commitDraft = () => {
     if (draft === initial) return
@@ -125,15 +139,30 @@ export function DatabaseCell({
 
   if (wrap && (property.propertyType === "text" || property.propertyType === "url")) {
     return (
-      <div className="flex h-full min-w-0 items-stretch justify-start overflow-hidden px-1">
+      <div
+        className={cn(
+          "flex min-w-0 items-start justify-start overflow-hidden px-1",
+          compact ? "min-h-8 py-0.5" : "h-full items-stretch",
+        )}
+      >
         <textarea
+          ref={wrappedTextRef}
           value={draft}
           disabled={pending}
           title={error ?? undefined}
-          rows={2}
-          className={`h-full min-w-0 w-full resize-none bg-transparent px-2 py-2 text-left text-sm leading-5 outline-none focus:bg-accent/30 disabled:opacity-60 ${error ? "text-destructive" : ""}`}
+          rows={compact ? 1 : 2}
+          className={cn(
+            "min-w-0 w-full resize-none bg-transparent text-left outline-none focus:bg-accent/30 disabled:opacity-60",
+            compact
+              ? "min-h-7 overflow-hidden rounded-md px-1 py-1 text-xs leading-4 whitespace-pre-wrap break-words"
+              : "h-full px-2 py-2 text-sm leading-5",
+            error && "text-destructive",
+          )}
           onClick={stopRowSelection}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            setDraft(event.target.value)
+            if (compact) resizeWrappedText()
+          }}
           onBlur={commitDraft}
           onKeyDown={(event) => {
             event.stopPropagation()
