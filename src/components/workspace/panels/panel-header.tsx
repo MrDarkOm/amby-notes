@@ -4,6 +4,7 @@ import * as React from "react"
 import { Search } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 
 interface PanelHeaderProps {
   title: React.ReactNode
@@ -15,7 +16,12 @@ interface PanelHeaderProps {
 /** Shared panel chrome: a text-only section title with optional controls. */
 export function PanelHeader({ title, leading, actions, hideTitle = false }: PanelHeaderProps) {
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-2 px-4 py-4">
+    <header
+      className={cn(
+        "flex h-14 shrink-0 items-center gap-2 px-4 py-4",
+        hideTitle ? "justify-start" : "justify-between",
+      )}
+    >
       {!hideTitle ? (
         <div className="flex min-w-0 items-center gap-2">
           {leading}

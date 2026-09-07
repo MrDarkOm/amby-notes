@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ArrowDownLeft, ArrowUpRight, Link as LinkIcon, Link2 } from "lucide-react"
+import { Link as LinkIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
@@ -97,30 +97,30 @@ export function LinksPanel({ linkGraph, currentDocId, onSelectLink }: PanelRende
       <PanelHeader title={t("panels.links")} />
       <PanelSearch value={query} onChange={setQuery} placeholder={t("linksPanel.search")} />
       <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1 gap-0">
-        <TabsList className="mx-4 mb-3 h-8 w-fit">
+        <TabsList className="mx-4 mb-3 grid h-8 w-[calc(100%-2rem)] grid-cols-3">
           <TabsTrigger
             value="outgoing"
             title={t("linksPanel.outgoing")}
             aria-label={t("linksPanel.outgoing")}
-            className="size-8 flex-none p-0"
+            className="min-w-0 px-2 text-[11px] leading-none"
           >
-            <ArrowUpRight className="size-3.5" />
+            <span className="truncate">{t("linksPanel.outgoing")}</span>
           </TabsTrigger>
           <TabsTrigger
             value="incoming"
             title={t("linksPanel.backlinks")}
             aria-label={t("linksPanel.backlinks")}
-            className="size-8 flex-none p-0"
+            className="min-w-0 px-2 text-[11px] leading-none"
           >
-            <ArrowDownLeft className="size-3.5" />
+            <span className="truncate">{t("linksPanel.backlinks")}</span>
           </TabsTrigger>
           <TabsTrigger
             value="all"
             title={t("linksPanel.all")}
             aria-label={t("linksPanel.all")}
-            className="size-8 flex-none p-0"
+            className="min-w-0 px-2 text-[11px] leading-none"
           >
-            <Link2 className="size-3.5" />
+            <span className="truncate">{t("linksPanel.all")}</span>
           </TabsTrigger>
         </TabsList>
         <TabsContent value="outgoing" className="min-h-0">

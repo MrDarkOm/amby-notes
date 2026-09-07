@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { FileText, Image as ImageIcon } from "lucide-react"
+import { Image as ImageIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -85,22 +85,22 @@ export function AttachmentsPanel({
         />
       )}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="min-h-0 flex-1 gap-0">
-        <TabsList className="mx-4 mb-3 h-8 w-fit">
+        <TabsList className="mx-4 mb-3 grid h-8 w-[calc(100%-2rem)] grid-cols-2">
           <TabsTrigger
             value="notes"
             title={t("attachmentsPanel.notes")}
             aria-label={t("attachmentsPanel.notes")}
-            className="size-8 flex-none p-0"
+            className="min-w-0 px-2 text-[11px] leading-none"
           >
-            <FileText className="size-3.5" />
+            <span className="truncate">{t("attachmentsPanel.notes")}</span>
           </TabsTrigger>
           <TabsTrigger
             value="images"
             title={t("attachmentsPanel.images")}
             aria-label={t("attachmentsPanel.images")}
-            className="size-8 flex-none p-0"
+            className="min-w-0 px-2 text-[11px] leading-none"
           >
-            <ImageIcon className="size-3.5" />
+            <span className="truncate">{t("attachmentsPanel.images")}</span>
           </TabsTrigger>
         </TabsList>
         <TabsContent value="notes" className="min-h-0">
