@@ -19,6 +19,7 @@ Amby Notes is a local-first Tauri 2 desktop knowledge workspace with a React 19,
 - `src/themes/` owns application CSS, built-in themes, palettes, portable theme validation, and appearance preferences.
 - `src-tauri/src/` is split by backend responsibility: `lib.rs` registers Tauri commands, while `bundle.rs`, `frontmatter.rs`, `history.rs`, `recycle_bin.rs`, `vault_index.rs`, `property_store.rs`, `paths.rs`, `app_data.rs`, `ai.rs`, and `model.rs` implement domain behavior.
 - `docs/` records executable product contracts, especially `vault-format.md`, `markdown-compatibility.md`, `themes-and-localization.md`, and `engineering.md`.
+- `updates.md` is the public, cumulative change log. Keep release-engineering instructions in `docs/update-system.md`; do not mix operational secrets or internal release steps into the public change log.
 - `public/` stores static web assets. `dist/` and `src-tauri/target/` are generated output and must not be committed.
 
 ## Development and Verification Commands
@@ -36,6 +37,8 @@ Use Node.js 20.19+ or 22.12+ and npm 10+.
 - `npm run tauri build` creates production desktop bundles.
 
 Run `npm run verify` before requesting review. After Rust changes, also run `npm run rust:test`; run strict Clippy for backend-heavy changes. Use targeted manual testing in both `npm run dev` and `npm run tauri dev` when storage, IPC, windowing, filesystem watching, dialogs, or desktop behavior changes.
+
+After every completed implementation batch, run `npm run build` and record the result. Documentation-only changes still require the build so the handoff always describes a verified repository state. When Tauri configuration, plugins, permissions, IPC, packaging, or updater behavior changes, also run an appropriate native build or explain exactly why it could not be run.
 
 ## Generated IPC Bindings
 
@@ -93,3 +96,15 @@ Do not commit vault contents, `.amby/` metadata, secrets, generated bundles, mac
 Use short conventional commit subjects such as `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, and `chore:` with imperative, specific wording. Start feature and fix work from `dev`, promote completed work `dev` → `beta` → `main`, and avoid mixing unrelated cleanup with functional changes.
 
 Pull requests should include a concise summary, risk or data-format impact, verification commands and manual scenarios, linked issues when applicable, and screenshots or recordings for visible UI changes. Call out generated binding updates, permission changes, migrations, compatibility changes, and any check not run.
+
+## Public Change Log and Cumulative Releases
+
+`updates.md` is mandatory release data, not an optional summary. Update it in the same working batch as every code, UI, configuration, documentation, dependency, security, reliability, performance, or developer-workflow change.
+
+- Add new entries under `## Следующая версия` while work accumulates. Do not change the application version during ordinary implementation, fixes, reviews, test retries, or intermediate checkpoints.
+- Write concise, polished Russian release notes that can be shown directly to users. Describe the visible benefit or corrected behavior, group entries under headings such as `Новое`, `Улучшения`, `Исправления`, `Безопасность`, and `Для разработчиков`, and avoid raw commit hashes, temporary debugging details, or claims that were not verified.
+- Keep one entry per meaningful outcome rather than one entry per edited file. Preserve already accumulated entries and revise them when later work changes the final behavior.
+- Treat an explicit user request to **commit and push the accumulated changes** as the signal to finalize the cumulative release. Immediately before that release commit, review the complete diff, curate `updates.md`, and increment the patch version exactly once: for example `0.1.0` → `0.1.1`, then the next cumulative release `0.1.1` → `0.1.2`.
+- Apply the finalized version atomically to `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`. Never increment major or minor versions unless the user explicitly requests it. Never increment again because a check, commit, or push must be retried.
+- Move the accumulated notes into a dated `## <version> — YYYY-MM-DD` section and leave a fresh `## Следующая версия` section at the top for future work. Run `npm run version:check`, `npm run verify`, and `npm run build` before committing. Include native packaging verification when the accumulated changes affect desktop behavior.
+- Commit and push only after all required checks pass, unless the user explicitly accepts a named failure. A branch push does not by itself authorize creating or pushing a Git tag, publishing a GitHub Release, or promoting between `dev`, `beta`, and `main`; obtain an explicit release/tag/promotion instruction for those actions.

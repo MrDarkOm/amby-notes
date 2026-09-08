@@ -17,6 +17,14 @@ describe("Tauri window capabilities", () => {
     expect(settingsWindowCapability.permissions).toContain(
       "core:window:allow-internal-toggle-maximize",
     )
+    expect(defaultCapability.permissions).toContain("updater:default")
+    expect(settingsWindowCapability.permissions).toContain("updater:default")
+    expect(defaultCapability.permissions).toContain("process:allow-restart")
+    expect(settingsWindowCapability.permissions).toContain("process:allow-restart")
+    expect(defaultCapability.permissions).toContain("core:app:allow-version")
+    expect(settingsWindowCapability.permissions).toContain("core:app:allow-version")
+    expect(noteWindowCapability.permissions).not.toContain("updater:default")
+    expect(noteWindowCapability.permissions).not.toContain("process:allow-restart")
 
     for (const capability of [defaultCapability, noteWindowCapability, settingsWindowCapability]) {
       expect(capability.permissions).toContain("core:window:allow-close")

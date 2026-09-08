@@ -1,17 +1,26 @@
+import * as React from "react"
 import { Workspace } from "./components/workspace/workspace"
 import { ExternalConflictDialog } from "./components/workspace/external-conflict-dialog"
 import { ThemeProvider } from "./components/theme-provider"
 import { TooltipProvider } from "./components/ui/tooltip-provider"
-import { useApplyPreferences } from "./components/workspace/use-settings-store"
+import { useApplyPreferences, useSettingsStore } from "./components/workspace/use-settings-store"
 import { StandaloneSettingsWindow } from "./components/workspace/settings-dialog"
 import { MotionConfig } from "motion/react"
 import { MotionPulse } from "./lib/motion"
 import { motionTransitions } from "./lib/motion-config"
+import { runAutomaticAppUpdate } from "./lib/app-updater"
 
 const isSettingsWindow = new URLSearchParams(window.location.search).get("ambyView") === "settings"
 
 function PreferencesGate() {
   const preferencesReady = useApplyPreferences()
+  const autoUpdate = useSettingsStore((state) => state.prefs.updates.autoUpdate)
+
+  React.useEffect(() => {
+    if (!preferencesReady || isSettingsWindow || !autoUpdate) return
+    void runAutomaticAppUpdate()
+  }, [autoUpdate, preferencesReady])
+
   if (!preferencesReady) {
     return (
       <main

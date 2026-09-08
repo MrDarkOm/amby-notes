@@ -24,6 +24,7 @@ import {
   Minus,
   Monitor,
   Keyboard,
+  Loader2,
   Palette,
   PencilLine,
   RotateCcw,
@@ -40,6 +41,14 @@ import {
 
 import { cn } from "@/lib/utils"
 import { motionTransitions } from "@/lib/motion-config"
+import { MotionSpinner } from "@/lib/motion"
+import {
+  checkForAppUpdate,
+  getCurrentAppVersion,
+  isAppUpdaterAvailable,
+  type AvailableAppUpdate,
+  type UpdateInstallProgress,
+} from "@/lib/app-updater"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
@@ -339,6 +348,11 @@ export function SettingsDialog({
       },
       {
         section: "general",
+        label: t("settings.groups.updates"),
+        description: `${t("settings.updates.autoUpdate")} · ${t("settings.updates.check")} · ${t("settings.updates.currentVersion")}`,
+      },
+      {
+        section: "general",
         label: t("settings.groups.workspace"),
         description: `${t("settings.appearance.language")} · ${t("settings.general.confirmFileDelete")}`,
       },
@@ -534,6 +548,9 @@ export function SettingsDialog({
                       }
                     />
                   </Row>
+                </SettingsGroup>
+                <SettingsGroup title={t("settings.groups.updates")} icon={Download}>
+                  <UpdateSettings />
                 </SettingsGroup>
                 <SettingsGroup title={t("settings.groups.data")} icon={FolderOpen}>
                   <DataTab vault={vault} />
@@ -768,6 +785,110 @@ export function SettingsDialog({
         </div>
       </Tabs>
     </SettingsWindowFrame>
+  )
+}
+
+type UpdateUiState =
+  | { phase: "idle" }
+  | { phase: "checking" }
+  | { phase: "current" }
+  | { phase: "available"; version: string }
+  | { phase: "downloading"; percent: number | null }
+  | { phase: "installing" | "restarting" }
+  | { phase: "error" }
+
+function UpdateSettings() {
+  const { t } = useTranslation()
+  const prefs = useSettingsStore((state) => state.prefs)
+  const setPrefs = useSettingsStore((state) => state.setPrefs)
+  const supported = isAppUpdaterAvailable()
+  const [version, setVersion] = React.useState("…")
+  const [update, setUpdate] = React.useState<AvailableAppUpdate | null>(null)
+  const [state, setState] = React.useState<UpdateUiState>({ phase: "idle" })
+
+  React.useEffect(() => {
+    void getCurrentAppVersion().then(setVersion)
+  }, [])
+
+  React.useEffect(() => {
+    return () => {
+      void update?.close().catch(() => {})
+    }
+  }, [update])
+
+  const checkNow = async () => {
+    setState({ phase: "checking" })
+    try {
+      const next = await checkForAppUpdate()
+      setUpdate(next)
+      setState(next ? { phase: "available", version: next.version } : { phase: "current" })
+    } catch {
+      setUpdate(null)
+      setState({ phase: "error" })
+    }
+  }
+
+  const install = async () => {
+    if (!update) return
+    const onProgress = (progress: UpdateInstallProgress) => setState(progress)
+    try {
+      await update.install(onProgress)
+    } catch {
+      setState({ phase: "error" })
+    }
+  }
+
+  const status = !supported
+    ? t("settings.updates.installedOnly")
+    : state.phase === "checking"
+      ? t("settings.updates.checking")
+      : state.phase === "current"
+        ? t("settings.updates.current")
+        : state.phase === "available"
+          ? t("settings.updates.available", { version: state.version })
+          : state.phase === "downloading"
+            ? state.percent === null
+              ? t("settings.updates.downloading")
+              : t("settings.updates.downloadingProgress", { progress: state.percent })
+            : state.phase === "installing"
+              ? t("settings.updates.installing")
+              : state.phase === "restarting"
+                ? t("settings.updates.restarting")
+                : state.phase === "error"
+                  ? t("settings.updates.error")
+                  : t("settings.updates.checkHint")
+  const busy = ["checking", "downloading", "installing", "restarting"].includes(state.phase)
+
+  return (
+    <>
+      <Row label={t("settings.updates.autoUpdate")} hint={t("settings.updates.autoUpdateHint")}>
+        <Switch
+          checked={prefs.updates.autoUpdate}
+          onCheckedChange={(autoUpdate) => setPrefs({ updates: { autoUpdate } })}
+        />
+      </Row>
+      <Row label={t("settings.updates.currentVersion")}>
+        <span className="text-[13px] tabular-nums text-muted-foreground">{version}</span>
+      </Row>
+      <Row label={t("settings.updates.check")} hint={status}>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!supported || busy}
+          onClick={() => void (update ? install() : checkNow())}
+        >
+          {busy && (
+            <MotionSpinner>
+              <Loader2 className="size-3.5" />
+            </MotionSpinner>
+          )}
+          {update
+            ? t("settings.updates.install", { version: update.version })
+            : t("settings.updates.checkAction")}
+        </Button>
+      </Row>
+    </>
   )
 }
 

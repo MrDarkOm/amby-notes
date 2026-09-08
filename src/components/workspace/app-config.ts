@@ -350,6 +350,11 @@ export interface StartupPrefs {
   restoreSession: boolean
 }
 
+export interface UpdatePrefs {
+  /** Check GitHub Releases at launch and offer to install a signed update. */
+  autoUpdate: boolean
+}
+
 export interface DockPreferences {
   leftVisible: boolean
   rightVisible: boolean
@@ -370,6 +375,7 @@ export interface AppPreferences {
   language: Language
   editor: EditorPrefs
   startup: StartupPrefs
+  updates: UpdatePrefs
   docks: DockPreferences
   shortcuts: ShortcutBindings
 }
@@ -385,6 +391,7 @@ export const DEFAULT_PREFS: AppPreferences = {
   language: "ru",
   editor: { defaultViewMode: "live", contentWidth: "normal", autosaveMs: 500 },
   startup: { reopenLastVault: true, restoreSession: true },
+  updates: { autoUpdate: true },
   docks: { leftVisible: true, rightVisible: true, leftPinned: true, rightPinned: true },
   shortcuts: { ...DEFAULT_SHORTCUTS },
 }
@@ -400,6 +407,7 @@ export function normalizeAppPreferences(
   const d = (raw ?? {}) as Partial<AppPreferences>
   const ed = (d.editor ?? {}) as Partial<EditorPrefs>
   const su = (d.startup ?? {}) as Partial<StartupPrefs>
+  const up = (d.updates ?? {}) as Partial<UpdatePrefs>
   const dk = (d.docks ?? {}) as Partial<DockPreferences>
   const storedTheme = d.theme ?? legacyTheme
   const migratedTheme = typeof storedTheme === "string" ? migrateThemeId(storedTheme) : storedTheme
@@ -440,6 +448,9 @@ export function normalizeAppPreferences(
     startup: {
       reopenLastVault: typeof su.reopenLastVault === "boolean" ? su.reopenLastVault : true,
       restoreSession: typeof su.restoreSession === "boolean" ? su.restoreSession : true,
+    },
+    updates: {
+      autoUpdate: typeof up.autoUpdate === "boolean" ? up.autoUpdate : true,
     },
     docks: {
       leftVisible: typeof dk.leftVisible === "boolean" ? dk.leftVisible : true,

@@ -145,6 +145,8 @@ pub fn run() {
 
     let result = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Err(error) = show_and_focus_main_window(app) {
                 tracing::warn!(event = "restore_window_failed", error = %error);

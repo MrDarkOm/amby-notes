@@ -71,6 +71,7 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     expect(settings.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
     expect(settings.panelScope).toBe("global")
     expect(settings.prefs.theme).toBe("dark")
+    expect(settings.prefs.updates.autoUpdate).toBe(true)
     expect(settings.experimental.databasesV1).toBe(false)
 
     const workspaces = await loadWorkspaces()
@@ -158,6 +159,7 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     expect(loaded.schemaVersion).toBe(1)
     expect(loaded.panelScope).toBe("workspace")
     expect(loaded.prefs.accent).toBe("amber")
+    expect(loaded.prefs.updates.autoUpdate).toBe(true)
 
     // Write legacy v0 workspace config without schemaVersion
     store.set(
@@ -171,6 +173,15 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     const loadedWs = await loadWorkspaceConfig()
     expect(loadedWs.schemaVersion).toBe(1)
     expect(loadedWs.theme).toBe("nord")
+  })
+
+  it("preserves an explicit auto-update preference", async () => {
+    store.set(
+      "amby:g:" + SETTINGS_FILE,
+      JSON.stringify({ prefs: { updates: { autoUpdate: false } } }),
+    )
+
+    expect((await loadSettings()).prefs.updates.autoUpdate).toBe(false)
   })
 
   it("preserves the explicit database gate without changing module layout", async () => {

@@ -5,6 +5,7 @@
   "windows": ["settings"],
   "permissions": [
     "core:event:default",
+    "core:app:allow-version",
     "core:path:default",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
@@ -16,6 +17,8 @@
     "core:webview:default",
     "dialog:allow-message",
     "dialog:allow-open",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

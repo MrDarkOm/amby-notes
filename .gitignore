@@ -18,6 +18,9 @@ dist-ssr
 .env
 .env.*
 !.env.example
+# Local Tauri updater signing keys. The public key is embedded in
+# tauri.conf.json; the private key must only live in GitHub Actions secrets.
+.tauri/
 
 # Editor directories and files
 .vscode/*
