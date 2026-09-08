@@ -757,7 +757,9 @@ fn decode_cursor(
         return Err(QueryFailure::new("staleCursor", "cursor is malformed"));
     }
     let mut bytes = Vec::with_capacity(encoded.len() / 2);
-    for pair in encoded.as_bytes().chunks_exact(2) {
+    let (pairs, remainder) = encoded.as_bytes().as_chunks::<2>();
+    debug_assert!(remainder.is_empty());
+    for pair in pairs {
         let text = std::str::from_utf8(pair)
             .map_err(|_| QueryFailure::new("staleCursor", "cursor is not hexadecimal"))?;
         bytes.push(

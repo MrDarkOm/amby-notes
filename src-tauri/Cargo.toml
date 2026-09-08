@@ -34,7 +34,7 @@ serde_json = "1"
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
 tokio = { version = "1", features = ["sync", "macros"] }
 reqwest = { version = "0.13", features = ["json", "rustls", "stream", "webpki-roots"], default-features = false }
-rfd = "0.16"
+rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
 futures-util = "0.3"
 rusqlite = { version = "0.32", features = ["bundled"] }
 ulid = "3"
