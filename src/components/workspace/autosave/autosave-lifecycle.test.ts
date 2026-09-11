@@ -6,6 +6,8 @@ import {
 } from "./autosave-lifecycle"
 import { AutosaveCoordinator, type AutosaveKey } from "./autosave-coordinator"
 import { registerEditorSerialization } from "../tiptap/editor-serialization-lifecycle"
+import { scheduleRecoveryDraft } from "@/lib/recovery-drafts"
+import { commands } from "@/lib/bindings"
 
 describe("autosave lifecycle", () => {
   const unregister: Array<() => void> = []
@@ -87,5 +89,23 @@ describe("autosave lifecycle", () => {
     await expect(flushAutosaveGeneration(9)).resolves.toEqual({ flushed: true, participants: 1 })
 
     expect(save).toHaveBeenCalledWith({ key, version: 1, value: "last transaction" })
+  })
+
+  it("still flushes primary participants when recovery persistence fails", async () => {
+    vi.stubGlobal("window", { __TAURI_INTERNALS__: {} })
+    vi.spyOn(commands, "saveRecovery").mockRejectedValue(new Error("disk full"))
+    scheduleRecoveryDraft("recovery-failure", "latest", "markdown", "/vault/latest.md")
+    const primaryFlush = vi.fn(async () => {})
+    unregister.push(
+      registerAutosaveLifecycle({
+        generation: 12,
+        flush: primaryFlush,
+        cancel: vi.fn(),
+        hasDirtyBuffers: () => false,
+      }),
+    )
+
+    await expect(flushAutosaveGeneration(12)).rejects.toThrow("disk full")
+    expect(primaryFlush).toHaveBeenCalledOnce()
   })
 })

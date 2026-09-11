@@ -5,11 +5,16 @@ import type { ActivityButton } from "./panel-registry"
 import { findButtonDef } from "./panel-definitions"
 import { isTauri } from "@/lib/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import type { DockPreferences } from "./app-config"
+import {
+  DEFAULT_PANEL_WIDTH,
+  PANEL_WIDTH_MAX,
+  PANEL_WIDTH_MIN,
+  type DockPreferences,
+  type WindowPreferences,
+} from "./app-config"
 
 const COMPACT_LAYOUT_MAX_WIDTH = 960
-const MIN_PANEL_WIDTH = 250
-const DEFAULT_PANEL_WIDTH = 300
+const SIDEBAR_HIDE_DELAY_MS = 280
 
 interface UseSidebarLayoutParams {
   activityButtons: ActivityButton[]
@@ -20,6 +25,8 @@ interface UseSidebarLayoutParams {
   actionContext: ActionContext
   dockPrefs: DockPreferences
   onDockPrefsChange: (patch: Partial<DockPreferences>) => void
+  windowPrefs: WindowPreferences
+  onWindowPrefsChange: (patch: Partial<WindowPreferences>) => void
 }
 
 /**
@@ -38,13 +45,17 @@ export function useSidebarLayout({
   actionContext,
   dockPrefs,
   onDockPrefsChange,
+  windowPrefs,
+  onWindowPrefsChange,
 }: UseSidebarLayoutParams) {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
   // The panels have the same minimum/default width, but their current widths
   // and resize gestures are intentionally independent.
-  const [leftWidth, setLeftWidth] = React.useState(DEFAULT_PANEL_WIDTH)
-  const [rightWidth, setRightWidth] = React.useState(DEFAULT_PANEL_WIDTH)
+  const [leftWidth, setLeftWidth] = React.useState(windowPrefs.leftPanelWidth)
+  const [rightWidth, setRightWidth] = React.useState(windowPrefs.rightPanelWidth)
+  const [isLeftSidebarHover, setIsLeftSidebarHover] = React.useState(false)
+  const [isRightSidebarHover, setIsRightSidebarHover] = React.useState(false)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
   const [focusShowLeft, setFocusShowLeft] = React.useState(false)
   const [focusShowRight, setFocusShowRight] = React.useState(false)
@@ -54,11 +65,28 @@ export function useSidebarLayout({
   )
   const preFocusSidebars = React.useRef<{ left: boolean; right: boolean } | null>(null)
   const wasCompactLayout = React.useRef(false)
+  const hideTimersRef = React.useRef<Record<Side, ReturnType<typeof setTimeout> | null>>({
+    left: null,
+    right: null,
+  })
 
-  // Resize drags update these variables directly so the large workspace tree
-  // does not re-render for every pointer event. React state is committed only
-  // when the gesture ends, which keeps persistence and the rest of the layout
-  // in sync without making the drag itself compete with the editor.
+  const clearHideTimer = React.useCallback((side: Side) => {
+    const timer = hideTimersRef.current[side]
+    if (timer) clearTimeout(timer)
+    hideTimersRef.current[side] = null
+  }, [])
+
+  React.useEffect(
+    () => () => {
+      clearHideTimer("left")
+      clearHideTimer("right")
+    },
+    [clearHideTimer],
+  )
+
+  // Resize drags update the CSS variables and the panel width state together.
+  // The frame guard keeps updates aligned with the browser's paint loop while
+  // Motion uses the state value for the panel's animated outer boundary.
   const setPanelWidthVariable = React.useCallback((side: "left" | "right", width: number) => {
     if (typeof document === "undefined") return
     document.documentElement.style.setProperty(`--amby-${side}-panel-width`, `${width}px`)
@@ -117,11 +145,15 @@ export function useSidebarLayout({
 
       function onMove(ev: MouseEvent) {
         if (nearEdge(ev.clientX)) return
-        pendingW = Math.max(MIN_PANEL_WIDTH, Math.min(520, startW + sign * (ev.clientX - startX)))
+        pendingW = Math.max(
+          PANEL_WIDTH_MIN,
+          Math.min(PANEL_WIDTH_MAX, startW + sign * (ev.clientX - startX)),
+        )
         if (frame) return
         frame = requestAnimationFrame(() => {
           frame = 0
           setPanelWidthVariable(side, pendingW)
+          setWidth(pendingW)
         })
       }
 
@@ -133,11 +165,17 @@ export function useSidebarLayout({
         if (nearEdge(ev.clientX)) {
           setPanelWidthVariable(side, DEFAULT_PANEL_WIDTH)
           setWidth(DEFAULT_PANEL_WIDTH)
+          onWindowPrefsChange({
+            [side === "left" ? "leftPanelWidth" : "rightPanelWidth"]: DEFAULT_PANEL_WIDTH,
+          })
           if (side === "left") setIsLeftSidebarOpen(false)
           else setIsRightSidebarOpen(false)
         } else {
           setPanelWidthVariable(side, pendingW)
           setWidth(pendingW)
+          onWindowPrefsChange({
+            [side === "left" ? "leftPanelWidth" : "rightPanelWidth"]: pendingW,
+          })
         }
         window.removeEventListener("mousemove", onMove)
         window.removeEventListener("mouseup", onUp)
@@ -270,6 +308,31 @@ export function useSidebarLayout({
     [],
   )
   const dnd = useActivityDnD({ onDrop: reorderButton, zoneForButton })
+  const setSidebarHover = React.useCallback(
+    (side: Side, hovering: boolean) => {
+      clearHideTimer(side)
+      if (hovering) {
+        if (side === "left") setIsLeftSidebarHover(true)
+        else setIsRightSidebarHover(true)
+        return
+      }
+      hideTimersRef.current[side] = setTimeout(() => {
+        hideTimersRef.current[side] = null
+        if (side === "left") setIsLeftSidebarHover(false)
+        else setIsRightSidebarHover(false)
+      }, SIDEBAR_HIDE_DELAY_MS)
+    },
+    [clearHideTimer],
+  )
+
+  const hideSidebarHoverNow = React.useCallback(
+    (side: Side) => {
+      clearHideTimer(side)
+      if (side === "left") setIsLeftSidebarHover(false)
+      else setIsRightSidebarHover(false)
+    },
+    [clearHideTimer],
+  )
 
   function handleActivate(defId: string) {
     const def = findButtonDef(defId)
@@ -283,13 +346,21 @@ export function useSidebarLayout({
     const side = button.side
     const isOpen = side === "left" ? isLeftSidebarOpen : isRightSidebarOpen
     const setOpen = side === "left" ? setIsLeftSidebarOpen : setIsRightSidebarOpen
+    const isVisible =
+      side === "left"
+        ? isOpen && (dockPrefs.leftPinned || isLeftSidebarHover)
+        : isOpen && (dockPrefs.rightPinned || isRightSidebarHover)
     // Click on already-active view collapses the panel.
-    if (isOpen && activeBySide[side] === def.id) {
+    if (isVisible && activeBySide[side] === def.id) {
       setOpen(false)
+      hideSidebarHoverNow(side)
       return
     }
     setActiveBySide((prev) => ({ ...prev, [side]: def.id }))
     setOpen(true)
+    if (!dockPrefs[side === "left" ? "leftPinned" : "rightPinned"]) {
+      setSidebarHover(side, true)
+    }
   }
 
   function activatePanelAnywhere(panelId: PanelId) {
@@ -297,29 +368,55 @@ export function useSidebarLayout({
     if (!button) return
     if (button.side === "left") setIsLeftSidebarOpen(true)
     else setIsRightSidebarOpen(true)
+    if (!dockPrefs[button.side === "left" ? "leftPinned" : "rightPinned"])
+      setSidebarHover(button.side, true)
     setActiveBySide((prev) => ({ ...prev, [button.side]: panelId }))
   }
-
-  const isDockVisible = React.useCallback(
-    (side: Side) => dockPrefs[side === "left" ? "leftVisible" : "rightVisible"],
-    [dockPrefs],
-  )
 
   const isDockPinned = React.useCallback(
     (side: Side) => dockPrefs[side === "left" ? "leftPinned" : "rightPinned"],
     [dockPrefs],
   )
 
-  const setDockVisible = React.useCallback(
-    (side: Side, visible: boolean) =>
-      onDockPrefsChange({ [side === "left" ? "leftVisible" : "rightVisible"]: visible }),
-    [onDockPrefsChange],
+  const setDockPinned = React.useCallback(
+    (side: Side, pinned: boolean) => {
+      onDockPrefsChange({ [side === "left" ? "leftPinned" : "rightPinned"]: pinned })
+      if (!pinned) {
+        hideSidebarHoverNow(side)
+      }
+    },
+    [hideSidebarHoverNow, onDockPrefsChange],
   )
 
-  const setDockPinned = React.useCallback(
-    (side: Side, pinned: boolean) =>
-      onDockPrefsChange({ [side === "left" ? "leftPinned" : "rightPinned"]: pinned }),
-    [onDockPrefsChange],
+  // An unpinned panel is edge-triggered even after the user explicitly hid it
+  // from the context menu. `isSidebarOpen` remains the manual/header state,
+  // while hover is the source of truth for the temporary overlay visibility.
+  const isLeftSidebarVisible = isDockPinned("left") ? isLeftSidebarOpen : isLeftSidebarHover
+  const isRightSidebarVisible = isDockPinned("right") ? isRightSidebarOpen : isRightSidebarHover
+
+  const toggleSidebar = React.useCallback(
+    (side: Side) => {
+      const open = side === "left" ? isLeftSidebarOpen : isRightSidebarOpen
+      const visible = side === "left" ? isLeftSidebarVisible : isRightSidebarVisible
+      const pinned = isDockPinned(side)
+      const setOpen = side === "left" ? setIsLeftSidebarOpen : setIsRightSidebarOpen
+      if (!open || (!pinned && !visible)) {
+        setOpen(true)
+        if (!pinned) setSidebarHover(side, true)
+        return
+      }
+      setOpen(false)
+      hideSidebarHoverNow(side)
+    },
+    [
+      isDockPinned,
+      isLeftSidebarOpen,
+      isLeftSidebarVisible,
+      isRightSidebarOpen,
+      isRightSidebarVisible,
+      hideSidebarHoverNow,
+      setSidebarHover,
+    ],
   )
 
   return {
@@ -327,6 +424,10 @@ export function useSidebarLayout({
     setIsLeftSidebarOpen,
     isRightSidebarOpen,
     setIsRightSidebarOpen,
+    isLeftSidebarVisible,
+    isRightSidebarVisible,
+    setSidebarHover,
+    toggleSidebar,
     leftWidth,
     rightWidth,
     startResize,
@@ -344,9 +445,7 @@ export function useSidebarLayout({
     dnd,
     handleActivate,
     activatePanelAnywhere,
-    isDockVisible,
     isDockPinned,
-    setDockVisible,
     setDockPinned,
   }
 }

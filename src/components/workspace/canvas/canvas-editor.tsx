@@ -34,17 +34,25 @@ const EDGE_TYPES = {
 export interface CanvasEditorProps {
   value: string
   onChange: (json: string) => void
+  onLocalEdit?: () => void
   vault: string | null
   notePath?: string
   onOpenNote?: (file: string) => void
 }
 
-function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: CanvasEditorProps) {
+function CanvasEditorInner({
+  value,
+  onChange,
+  onLocalEdit,
+  vault,
+  notePath,
+  onOpenNote,
+}: CanvasEditorProps) {
   const wrapRef = React.useRef<HTMLDivElement>(null)
   const rf = useReactFlow()
   const [menu, setMenu] = React.useState<MenuState | null>(null)
 
-  const doc = useCanvasDocument({ value, onChange, wrapRef })
+  const doc = useCanvasDocument({ value, onChange, onLocalEdit, wrapRef })
 
   useCanvasDnd({
     vault,
@@ -85,6 +93,7 @@ function CanvasEditorInner({ value, onChange, vault, notePath, onOpenNote }: Can
           onNodeDragStart={doc.onNodeDragStart}
           onNodeDrag={doc.onNodeDrag}
           onNodeDragStop={doc.onNodeDragStop}
+          onSelectionDragStop={doc.onSelectionDragStop}
           nodeTypes={NODE_TYPES}
           edgeTypes={EDGE_TYPES}
           colorMode="dark"

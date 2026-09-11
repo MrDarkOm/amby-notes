@@ -61,6 +61,7 @@ pub fn load_active_vault(
     context: tauri::State<'_, vault_context::VaultContext>,
     runtime: tauri::State<'_, crate::database::runtime_state::DatabaseRuntimeState>,
 ) -> Result<vault_index::LoadVaultResult, String> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let active = context.conn.lock().unwrap();
     let active = active.as_ref().ok_or("No vault open")?;
     let loaded = active.refresh()?;
@@ -79,7 +80,11 @@ pub fn preflight_vault(vault_path: String) -> Result<vault_index::VaultPreflight
 
 #[tauri::command]
 #[specta::specta]
-pub fn apply_id_migration(vault_path: String) -> Result<vault_index::IdMigrationResult, String> {
+pub fn apply_id_migration(
+    context: tauri::State<'_, vault_context::VaultContext>,
+    vault_path: String,
+) -> Result<vault_index::IdMigrationResult, String> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let canonical = Path::new(&vault_path)
         .canonicalize()
         .map_err(|error| format!("Vault not accessible: {error}"))?;
@@ -103,10 +108,12 @@ pub fn inspect_id_migrations(
 #[tauri::command]
 #[specta::specta]
 pub fn recover_id_migration(
+    context: tauri::State<'_, vault_context::VaultContext>,
     vault_path: String,
     journal_path: String,
     action: vault_index::IdMigrationRecoveryAction,
 ) -> Result<vault_index::IdMigrationRecovery, String> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let canonical = Path::new(&vault_path)
         .canonicalize()
         .map_err(|error| format!("Vault not accessible: {error}"))?;

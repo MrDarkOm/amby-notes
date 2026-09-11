@@ -13,6 +13,7 @@ import {
 
 interface DeleteConfirmationDialogProps {
   name: string
+  count?: number
   isDirtyOrConflicted?: boolean
   onCancel: () => void
   onConfirm: (dontAskAgain: boolean) => void
@@ -24,6 +25,7 @@ interface DeleteConfirmationDialogProps {
 /** A destructive-action confirmation whose opt-out is persisted by the caller. */
 export function DeleteConfirmationDialog({
   name,
+  count = 1,
   isDirtyOrConflicted = false,
   onCancel,
   onConfirm,
@@ -33,6 +35,7 @@ export function DeleteConfirmationDialog({
 }: DeleteConfirmationDialogProps) {
   const t = i18n.t.bind(i18n)
   const [dontAskAgain, setDontAskAgain] = React.useState(false)
+  const isBulk = count > 1
 
   if (isDirtyOrConflicted) {
     return (
@@ -42,8 +45,15 @@ export function DeleteConfirmationDialog({
           className="w-96 border-border bg-popover p-5 text-foreground"
         >
           <DialogHeader>
-            <DialogTitle className="text-base">{t("workspace.deleteDirtyTitle")}</DialogTitle>
-            <DialogDescription>{t("workspace.deleteDirtyConfirm", { name })}</DialogDescription>
+            <DialogTitle className="text-base">
+              {t(isBulk ? "workspace.deleteManyTitle" : "workspace.deleteDirtyTitle")}
+            </DialogTitle>
+            <DialogDescription>
+              {t(isBulk ? "workspace.deleteManyDirtyConfirm" : "workspace.deleteDirtyConfirm", {
+                name,
+                count,
+              })}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-wrap gap-2">
             <button
@@ -81,8 +91,15 @@ export function DeleteConfirmationDialog({
         className="w-80 border-border bg-popover p-5 text-foreground"
       >
         <DialogHeader>
-          <DialogTitle className="text-base">{t("workspace.deleteTitle")}</DialogTitle>
-          <DialogDescription>{t("workspace.deleteConfirm", { name })}</DialogDescription>
+          <DialogTitle className="text-base">
+            {t(isBulk ? "workspace.deleteManyTitle" : "workspace.deleteTitle")}
+          </DialogTitle>
+          <DialogDescription>
+            {t(isBulk ? "workspace.deleteManyConfirm" : "workspace.deleteConfirm", {
+              name,
+              count,
+            })}
+          </DialogDescription>
         </DialogHeader>
         <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
           <input
@@ -109,7 +126,7 @@ export function DeleteConfirmationDialog({
           >
             {t("docEditor.delete")}
           </button>
-          {onArchive && (
+          {onArchive && !isBulk && (
             <button
               type="button"
               className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-accent"

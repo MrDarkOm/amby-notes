@@ -5,7 +5,8 @@ import {
   discardRecoveryDraft,
   readRecoveryDraft,
   remapRecoveryDraft,
-  saveRecoveryDraft,
+  scheduleRecoveryDraft,
+  type RecoveryScope,
 } from "@/lib/recovery-drafts"
 import {
   NoteRevisionConflictError,
@@ -44,6 +45,10 @@ export function useMarkdownAutosave({
   UseFileActionsParams,
   "vault" | "autosaveGeneration" | "backendGeneration" | "windowLabel" | "applyMutationResult"
 >): MarkdownAutosaveActions {
+  const recoveryScope = React.useMemo<RecoveryScope>(
+    () => ({ vault, generation: backendGeneration }),
+    [backendGeneration, vault],
+  )
   const vaultRef = React.useRef(vault)
   vaultRef.current = vault
   const generationRef = React.useRef(autosaveGeneration)
@@ -117,8 +122,8 @@ export function useMarkdownAutosave({
           useDocStore.getState().externalConflicts[snapshot.value.fileId]
         )
           return
-        void discardRecoveryDraft(snapshot.value.fileId)
-        void discardRecoveryDraft(current.path)
+        void discardRecoveryDraft(snapshot.value.fileId, recoveryScope)
+        void discardRecoveryDraft(current.path, recoveryScope)
         useDocStore.getState().markSaved(snapshot.value.fileId)
       },
       onSaveFailure: (snapshot, error) => {
@@ -147,6 +152,7 @@ export function useMarkdownAutosave({
     () =>
       registerAutosaveLifecycle({
         generation: autosaveGeneration,
+        recoveryScope,
         flush: () => autosave.flushAll(),
         cancel: () => autosave.cancelGeneration(autosaveGeneration),
         hasDirtyBuffers: () =>
@@ -154,7 +160,7 @@ export function useMarkdownAutosave({
             .inspectAll()
             .some((state) => state.key.generation === autosaveGeneration && state.dirty),
       }),
-    [autosave, autosaveGeneration],
+    [autosave, autosaveGeneration, recoveryScope],
   )
   const externalConflicts = useDocStore((state) => state.externalConflicts)
   React.useEffect(() => {
@@ -191,14 +197,18 @@ export function useMarkdownAutosave({
         const path = remapFn(doc.path)
         if (path !== doc.path) {
           autosave.remapKey(autosaveKey(id), autosaveKey(id), (payload) => ({ ...payload, path }))
-          void remapRecoveryDraft(id, id, "markdown", path)
-          void remapRecoveryDraft(doc.path, path, "markdown", path)
+          void remapRecoveryDraft(id, id, "markdown", path, recoveryScope)
+          void remapRecoveryDraft(doc.path, path, "markdown", path, recoveryScope)
         }
       }
       applyMutationResult(result)
     },
-    [applyMutationResult, autosave, autosaveKey],
+    [applyMutationResult, autosave, autosaveKey, recoveryScope],
   )
+  const handleContentDirty = React.useCallback((fileId: string) => {
+    const document = useDocStore.getState().openDocs[fileId]
+    if (document?.id === fileId) useDocStore.getState().markUnsaved(fileId)
+  }, [])
   const handleContentChange = React.useCallback(
     (fileId: string, content: string) => {
       const document = useDocStore.getState().openDocs[fileId]
@@ -206,7 +216,8 @@ export function useMarkdownAutosave({
         return logger.error("autosave.rejected_document_mismatch", { fileId })
       useDocStore.getState().patchDoc(fileId, { content })
       useDocStore.getState().markUnsaved(fileId)
-      if (document.path) void saveRecoveryDraft(fileId, content, "markdown", document.path)
+      if (document.path)
+        scheduleRecoveryDraft(fileId, content, "markdown", document.path, recoveryScope)
       const key = autosaveKey(fileId)
       if (useDocStore.getState().externalConflicts[fileId]) return autosave.pause(key)
       autosave.resume(key)
@@ -222,7 +233,7 @@ export function useMarkdownAutosave({
         useSettingsStore.getState().prefs.editor.autosaveMs,
       )
     },
-    [autosave, autosaveKey, backendGeneration],
+    [autosave, autosaveKey, backendGeneration, recoveryScope],
   )
   const releaseUnusedDocumentBuffers = React.useCallback(async () => {
     const hasPendingAutosave = (fileId: string) => {
@@ -246,8 +257,8 @@ export function useMarkdownAutosave({
             const document = snapshot.openDocs[fileId]
             if (!document) return null
             const [byId, byPath] = await Promise.all([
-              readRecoveryDraft(fileId),
-              readRecoveryDraft(document.path),
+              readRecoveryDraft(fileId, recoveryScope),
+              readRecoveryDraft(document.path, recoveryScope),
             ])
             return byId || byPath ? fileId : null
           }),
@@ -262,12 +273,14 @@ export function useMarkdownAutosave({
         hasRecoveryDraft: (fileId) => recoveryIds.has(fileId),
       }),
     )
-  }, [autosave, autosaveKey])
+  }, [autosave, autosaveKey, recoveryScope])
   return {
     autosave,
     autosaveKey,
     handleApplyMutation,
     handleContentChange,
+    handleContentDirty,
+    recoveryScope,
     releaseUnusedDocumentBuffers,
   }
 }

@@ -51,6 +51,7 @@ pub fn set_database_module_enabled(
     enabled: bool,
     expected_generation: u64,
 ) -> Result<DatabaseModuleState, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });
@@ -83,6 +84,7 @@ pub fn rebuild_database_projection(
     context: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
 ) -> Result<DatabaseModuleState, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     let state = runtime.state(Some(actual_generation));
     if !state.enabled {
@@ -113,6 +115,7 @@ pub fn create_database(
     watcher: tauri::State<'_, WatcherState>,
     request: CreateDatabaseRequest,
 ) -> Result<CreatedDatabase, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != request.expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });
@@ -177,6 +180,7 @@ pub fn create_database_property(
     watcher: tauri::State<'_, WatcherState>,
     request: CreateDatabasePropertyRequest,
 ) -> Result<CreatedDatabaseProperty, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != request.expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });
@@ -221,6 +225,7 @@ pub fn delete_database_property(
     watcher: tauri::State<'_, WatcherState>,
     request: DeleteDatabasePropertyRequest,
 ) -> Result<DeletedDatabaseProperty, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != request.expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });
@@ -265,6 +270,7 @@ pub fn reorder_database_properties(
     watcher: tauri::State<'_, WatcherState>,
     request: ReorderDatabasePropertiesRequest,
 ) -> Result<ReorderedDatabaseProperties, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != request.expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });
@@ -309,6 +315,7 @@ pub fn rename_database(
     watcher: tauri::State<'_, WatcherState>,
     request: RenameDatabaseRequest,
 ) -> Result<RenamedDatabase, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != request.expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });
@@ -352,6 +359,7 @@ pub fn rename_database_property(
     watcher: tauri::State<'_, WatcherState>,
     request: RenameDatabasePropertyRequest,
 ) -> Result<RenamedDatabaseProperty, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != request.expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });
@@ -397,6 +405,7 @@ pub fn apply_database_value_batch(
     watcher: tauri::State<'_, WatcherState>,
     request: DatabaseValueBatchRequest,
 ) -> Result<DatabaseValueBatchResult, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != request.expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });
@@ -454,6 +463,7 @@ pub fn create_database_row(
     watcher: tauri::State<'_, WatcherState>,
     request: CreateDatabaseRowRequest,
 ) -> Result<CreatedDatabaseRow, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != request.expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });
@@ -510,6 +520,7 @@ pub fn import_database_asset(
     watcher: tauri::State<'_, WatcherState>,
     request: ImportDatabaseAssetRequest,
 ) -> Result<ImportedDatabaseAsset, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != request.expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });
@@ -535,6 +546,7 @@ pub fn sync_database_yaml(
     watcher: tauri::State<'_, WatcherState>,
     request: DatabaseYamlSyncRequest,
 ) -> Result<DatabaseYamlSyncResult, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != request.expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });
@@ -578,6 +590,7 @@ pub fn resolve_database_yaml_conflict(
     watcher: tauri::State<'_, WatcherState>,
     request: DatabaseYamlResolveRequest,
 ) -> Result<DatabaseYamlSyncResult, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
     if actual_generation != request.expected_generation {
         return Err(DatabaseError::VaultGenerationConflict { actual_generation });

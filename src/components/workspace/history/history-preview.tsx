@@ -20,6 +20,7 @@ import { MotionSpinner } from "@/lib/motion"
 import type { TreeItem } from "@/lib/storage"
 import { Input } from "@/components/ui/input"
 import { IconValue } from "../icon-value"
+import { sortTreeItems, type TreeSortDirection, type TreeSortKey } from "../tree-sort"
 import { diffHistory } from "./history-model"
 import type { useHistory } from "./use-history"
 
@@ -46,8 +47,8 @@ export function HistoryPreview({
   const visibleTree = React.useCallback(
     (items: TreeItem[]): TreeItem[] => {
       const query = browseQuery.trim().toLocaleLowerCase()
-      let sortKey: "name" | "created" | "modified" = "name"
-      let direction: "asc" | "desc" = "asc"
+      let sortKey: TreeSortKey = "name"
+      let direction: TreeSortDirection = "asc"
       try {
         const saved = JSON.parse(localStorage.getItem("amby:tree-sort") ?? "{}") as {
           key?: string
@@ -58,20 +59,7 @@ export function HistoryPreview({
       } catch {
         /* use defaults */
       }
-      const multiplier = direction === "asc" ? 1 : -1
-      const sorted = [...items].sort((a, b) => {
-        const rank = (item: TreeItem) =>
-          item.type === "folder" || (item.type === "file" && Boolean(item.children?.length)) ? 0 : 1
-        const kind = rank(a) - rank(b)
-        if (kind) return kind
-        const result =
-          sortKey === "name"
-            ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-            : (a[sortKey] ?? 0) - (b[sortKey] ?? 0)
-        return (
-          result * multiplier || a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-        )
-      })
+      const sorted = sortTreeItems(items, sortKey, direction)
       if (!query) return sorted
       return sorted.flatMap((item) => {
         const children = item.children ? visibleTree(item.children) : []

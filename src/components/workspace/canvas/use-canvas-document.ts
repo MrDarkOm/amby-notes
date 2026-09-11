@@ -9,6 +9,7 @@ import {
   type Connection,
   type Edge,
   type Node,
+  type NodeChange,
 } from "@xyflow/react"
 
 import {
@@ -23,12 +24,14 @@ import {
   nodeRect,
   rectContains,
   type CanvasFlowNode,
+  type CanvasFile,
   type CanvasEdgeData,
   type FileNodeData,
   type GroupNodeData,
   type TextNodeData,
   type CanvasEdgeEnd,
 } from "@/lib/canvas-format"
+import { registerEditorSerialization } from "../tiptap/editor-serialization-lifecycle"
 
 const clipboard: { nodes: CanvasFlowNode[]; edges: Edge[] } = { nodes: [], edges: [] }
 
@@ -36,37 +39,127 @@ export function useCanvasDocument({
   value,
   onChange,
   wrapRef,
+  onLocalEdit,
 }: {
   value: string
   onChange: (json: string) => void
   wrapRef: React.RefObject<HTMLDivElement | null>
+  onLocalEdit?: () => void
 }) {
-  const [initial] = React.useState(() => toReactFlow(parseCanvas(value)))
-  const [nodes, setNodes, onNodesChange] = useNodesState<CanvasFlowNode>(initial.nodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges)
+  const canvasTemplateRef = React.useRef<CanvasFile | null>(null)
+  if (!canvasTemplateRef.current) canvasTemplateRef.current = parseCanvas(value)
+  const [initial] = React.useState(() => toReactFlow(canvasTemplateRef.current!))
+  const [nodes, setNodes, applyNodesChange] = useNodesState<CanvasFlowNode>(initial.nodes)
+  const [edges, setEdges, applyEdgesChange] = useEdgesState<Edge>(initial.edges)
   const rf = useReactFlow()
-  const mounted = React.useRef(false)
+  const onChangeRef = React.useRef(onChange)
+  const onLocalEditRef = React.useRef(onLocalEdit)
+  onChangeRef.current = onChange
+  onLocalEditRef.current = onLocalEdit
+  const nodesRef = React.useRef(nodes)
+  const edgesRef = React.useRef(edges)
+  nodesRef.current = nodes
+  edgesRef.current = edges
+  const persistTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const persistMaxTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastPublishedRef = React.useRef(value)
   const dragGroup = React.useRef<{
     groupId: string
     start: { x: number; y: number }
     members: Map<string, { x: number; y: number }>
   } | null>(null)
 
-  // ── persistence ──
+  const publishCanvas = React.useCallback(() => {
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+    if (persistMaxTimerRef.current) clearTimeout(persistMaxTimerRef.current)
+    persistTimerRef.current = null
+    persistMaxTimerRef.current = null
+    const flow = fromReactFlow(nodesRef.current, edgesRef.current)
+    const template = canvasTemplateRef.current!
+    const json = serializeCanvas({
+      ...template,
+      nodes: flow.nodes,
+      edges: flow.edges,
+    })
+    if (json === lastPublishedRef.current) return
+    lastPublishedRef.current = json
+    onChangeRef.current(json)
+  }, [])
+
+  const schedulePublish = React.useCallback(
+    (delayMs = 500) => {
+      onLocalEditRef.current?.()
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current)
+      persistTimerRef.current = setTimeout(() => {
+        persistTimerRef.current = null
+        publishCanvas()
+      }, delayMs)
+      if (!persistMaxTimerRef.current) {
+        persistMaxTimerRef.current = setTimeout(
+          () => {
+            persistMaxTimerRef.current = null
+            publishCanvas()
+          },
+          Math.max(500, delayMs),
+        )
+      }
+    },
+    [publishCanvas],
+  )
+
   React.useEffect(() => {
-    if (!mounted.current) {
-      mounted.current = true
-      return
-    }
-    onChange(serializeCanvas(fromReactFlow(nodes, edges)))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, edges])
+    canvasTemplateRef.current = parseCanvas(value)
+    lastPublishedRef.current = value
+  }, [value])
+
+  React.useEffect(() => registerEditorSerialization({ flush: publishCanvas }), [publishCanvas])
+
+  React.useEffect(
+    () => () => {
+      publishCanvas()
+    },
+    [publishCanvas],
+  )
+
+  const onNodesChange = React.useCallback(
+    (changes: NodeChange<CanvasFlowNode>[]) => {
+      applyNodesChange(changes)
+      const meaningful = changes.some((change) => {
+        if (change.type === "select") return false
+        if (change.type === "position") return !change.dragging
+        return true
+      })
+      const activeGesture = changes.some(
+        (change) =>
+          (change.type === "position" && change.dragging === true) ||
+          (change.type === "dimensions" && change.resizing === true),
+      )
+      if (meaningful || activeGesture) {
+        const immediate = changes.some(
+          (change) =>
+            (change.type === "position" && change.dragging === false) ||
+            (change.type === "dimensions" && change.resizing === false),
+        )
+        schedulePublish(immediate ? 0 : 500)
+      }
+    },
+    [applyNodesChange, schedulePublish],
+  )
+
+  const onEdgesChange = React.useCallback(
+    (changes: Parameters<typeof applyEdgesChange>[0]) => {
+      applyEdgesChange(changes)
+      if (changes.some((change) => change.type !== "select")) schedulePublish(0)
+    },
+    [applyEdgesChange, schedulePublish],
+  )
 
   const updateNodeData = React.useCallback(
     (id: string, patch: Record<string, unknown>) => {
       setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)))
+      schedulePublish()
     },
-    [setNodes],
+    [schedulePublish, setNodes],
   )
 
   // ── connect ──
@@ -83,8 +176,9 @@ export function useCanvasDocument({
         data: { toEnd: "arrow", fromEnd: "none" },
       }
       setEdges((eds) => addEdge(edge, eds))
+      schedulePublish(0)
     },
-    [setEdges],
+    [schedulePublish, setEdges],
   )
 
   // ── add nodes ──
@@ -136,8 +230,9 @@ export function useCanvasDocument({
       const p =
         pos ?? rf.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
       setNodes((nds) => [...nds.map((n) => ({ ...n, selected: false })), makeNode(type, p)])
+      schedulePublish(0)
     },
-    [rf, setNodes, makeNode],
+    [rf, schedulePublish, setNodes, makeNode],
   )
 
   // ── duplicate / clipboard ──
@@ -149,7 +244,8 @@ export function useCanvasDocument({
     const dup = duplicateGraph(selNodes, selEdges)
     setNodes((nds) => [...nds.map((n) => ({ ...n, selected: false })), ...dup.nodes])
     setEdges((eds) => [...eds, ...dup.edges])
-  }, [rf, setNodes, setEdges])
+    schedulePublish(0)
+  }, [rf, schedulePublish, setNodes, setEdges])
 
   const copySelection = React.useCallback(() => {
     const selNodes = rf.getNodes().filter((n) => n.selected) as CanvasFlowNode[]
@@ -163,7 +259,8 @@ export function useCanvasDocument({
     const dup = duplicateGraph(clipboard.nodes, clipboard.edges, 48)
     setNodes((nds) => [...nds.map((n) => ({ ...n, selected: false })), ...dup.nodes])
     setEdges((eds) => [...eds, ...dup.edges])
-  }, [setNodes, setEdges])
+    schedulePublish(0)
+  }, [schedulePublish, setNodes, setEdges])
 
   const hasClipboard = clipboard.nodes.length > 0
 
@@ -189,8 +286,9 @@ export function useCanvasDocument({
           }
         }),
       )
+      schedulePublish(0)
     },
-    [setEdges],
+    [schedulePublish, setEdges],
   )
 
   const cycleArrows = React.useCallback(
@@ -210,8 +308,9 @@ export function useCanvasDocument({
           }
         }),
       )
+      schedulePublish(0)
     },
-    [setEdges],
+    [schedulePublish, setEdges],
   )
 
   const bringTo = React.useCallback(
@@ -219,21 +318,26 @@ export function useCanvasDocument({
       const zs = rf.getNodes().map((n) => n.zIndex ?? 0)
       const z = dir === "front" ? Math.max(0, ...zs) + 1 : Math.min(0, ...zs) - 1
       setNodes((nds) => nds.map((n) => (n.id === id ? { ...n, zIndex: z } : n)))
+      schedulePublish(0)
     },
-    [rf, setNodes],
+    [rf, schedulePublish, setNodes],
   )
 
   const removeNode = React.useCallback(
     (id: string) => {
       setNodes((nds) => nds.filter((n) => n.id !== id))
       setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id))
+      schedulePublish(0)
     },
-    [setNodes, setEdges],
+    [schedulePublish, setNodes, setEdges],
   )
 
   const removeEdge = React.useCallback(
-    (id: string) => setEdges((eds) => eds.filter((e) => e.id !== id)),
-    [setEdges],
+    (id: string) => {
+      setEdges((eds) => eds.filter((e) => e.id !== id))
+      schedulePublish(0)
+    },
+    [schedulePublish, setEdges],
   )
 
   const duplicateNode = React.useCallback(
@@ -242,8 +346,9 @@ export function useCanvasDocument({
       if (!node) return
       const dup = duplicateGraph([node], [])
       setNodes((nds) => [...nds.map((n) => ({ ...n, selected: false })), ...dup.nodes])
+      schedulePublish(0)
     },
-    [rf, setNodes],
+    [rf, schedulePublish, setNodes],
   )
 
   // ── group containment on drag ──
@@ -288,7 +393,12 @@ export function useCanvasDocument({
 
   const onNodeDragStop = React.useCallback(() => {
     dragGroup.current = null
-  }, [])
+    schedulePublish(0)
+  }, [schedulePublish])
+
+  const onSelectionDragStop = React.useCallback(() => {
+    schedulePublish(0)
+  }, [schedulePublish])
 
   // ── keyboard: copy/paste/duplicate/nudge ──
   React.useEffect(() => {
@@ -316,6 +426,7 @@ export function useCanvasDocument({
                 n.selected ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n,
               ),
             )
+            schedulePublish(0)
           }
         }
       }
@@ -323,7 +434,7 @@ export function useCanvasDocument({
     const el = wrapRef.current
     el?.addEventListener("keydown", onKey)
     return () => el?.removeEventListener("keydown", onKey)
-  }, [copySelection, pasteClipboard, duplicateSelection, rf, setNodes, wrapRef])
+  }, [copySelection, pasteClipboard, duplicateSelection, rf, schedulePublish, setNodes, wrapRef])
 
   return {
     nodes,
@@ -349,5 +460,6 @@ export function useCanvasDocument({
     onNodeDragStart,
     onNodeDrag,
     onNodeDragStop,
+    onSelectionDragStop,
   }
 }

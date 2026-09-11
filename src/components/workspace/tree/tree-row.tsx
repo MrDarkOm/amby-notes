@@ -6,8 +6,6 @@ import { motion } from "motion/react"
 import {
   Archive,
   AppWindow,
-  Bookmark,
-  BookmarkCheck,
   ChevronRight,
   Copy,
   Database,
@@ -30,6 +28,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuTrigger,
   ContextMenuSub,
@@ -37,7 +36,7 @@ import {
   ContextMenuSubContent,
 } from "@/components/ui/context-menu"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
-import { TreeItemIcon } from "./tree-icons"
+import { TreeItemIcon, TreeItemStatusIcon } from "./tree-icons"
 import type { AttachableLayer, TreeNodeProps } from "./tree-types"
 
 export const TreeNode = React.memo(
@@ -54,6 +53,7 @@ export const TreeNode = React.memo(
     onKeyboardFocus,
     onSelect,
     onDelete,
+    onDeleteMany,
     onNewFile,
     onAttachCanvas,
     onOpenInNewTab,
@@ -61,9 +61,10 @@ export const TreeNode = React.memo(
     onCloneFile,
     onOpenInExplorer,
     onSetIcon,
+    onContextMenuSelect,
     onPtrDragStart,
-    ptrDragSourceId,
-    ptrDragTargetId,
+    isPtrDragSource,
+    isPtrDragTarget,
     favorites,
     onToggleFavorite,
     onAttachLayer,
@@ -77,37 +78,55 @@ export const TreeNode = React.memo(
 
     const hasChildren = (item.children && item.children.length > 0) || item.type === "folder"
     const isSelected = selectedIds.has(item.id)
-    const isDragSource = ptrDragSourceId === item.id
+    const contextSelectionIds = isSelected ? [...selectedIds] : [item.id]
+    const isMultiSelection = contextSelectionIds.length > 1
+    const isDragSource = isPtrDragSource
     const canReceiveDrop = item.type === "folder" || item.type === "file"
-    const isDragTarget = ptrDragTargetId === item.id && canReceiveDrop
-    // Indent: file leaves get an extra 15px offset (no chevron column)
+    const isDragTarget = isPtrDragTarget && canReceiveDrop
+    // Indent: file leaves get the chevron width plus its gap (18px) as an
+    // extra offset so their icons line up with expandable rows.
     const paddingLeft = 6 + level * 12
 
-    // Sync edit value and focus when entering edit mode
+    // Sync edit value and focus when entering edit mode. Deferring focus until
+    // the browser has completed the row update avoids a transient blur from
+    // virtualization/context-menu event handlers.
     React.useEffect(() => {
       if (isEditing) {
         setEditValue(item.name)
-        setTimeout(() => {
-          inputRef.current?.select()
+        const timer = window.setTimeout(() => {
           inputRef.current?.focus()
+          inputRef.current?.select()
         }, 0)
+        return () => window.clearTimeout(timer)
       }
     }, [isEditing, item.name])
 
     function commitRename() {
       const trimmed = editValue.trim()
-      onFinishEdit(trimmed && trimmed !== item.name ? trimmed : null)
+      onFinishEdit(item.id, trimmed && trimmed !== item.name ? trimmed : null)
     }
 
     function handleKeyDown(e: React.KeyboardEvent) {
       if (e.key === "Enter") commitRename()
-      if (e.key === "Escape") onFinishEdit(null)
+      if (e.key === "Escape") onFinishEdit(item.id, null)
       e.stopPropagation()
     }
 
     function handlePointerDown(e: React.PointerEvent) {
       if (e.button !== 0 || isEditing) return
       onPtrDragStart(item.id, item.name, item.path ?? item.id, e.clientX, e.clientY)
+    }
+
+    function handleDoubleClick(e: React.MouseEvent) {
+      if (isEditing) return
+      e.preventDefault()
+      e.stopPropagation()
+      onStartEdit(item.id)
+    }
+
+    function handleContextMenu(e: React.MouseEvent) {
+      e.stopPropagation()
+      if (!isSelected) onContextMenuSelect?.(item.id)
     }
 
     const nameNode = isEditing ? (
@@ -118,10 +137,28 @@ export const TreeNode = React.memo(
         onBlur={commitRename}
         onKeyDown={handleKeyDown}
         onClick={(e) => e.stopPropagation()}
-        className="w-full min-w-0 rounded bg-accent px-1 text-[13px] text-foreground outline-none ring-1 ring-ring"
+        className="w-full min-w-0 rounded bg-accent p-0 text-[13px] leading-4 text-foreground outline-none ring-1 ring-inset ring-ring"
       />
     ) : (
       <span className="truncate">{item.name}</span>
+    )
+
+    const isFavorite = favorites?.has(item.id) ?? false
+    const statusNode = (
+      <TreeItemStatusIcon
+        item={item}
+        isFavorite={isFavorite}
+        onActivate={
+          item.type === "file" && onToggleFavorite ? () => onToggleFavorite(item.id) : undefined
+        }
+        label={
+          item.type === "file"
+            ? isFavorite
+              ? t("tree.removeBookmark")
+              : t("tree.addBookmark")
+            : undefined
+        }
+      />
     )
 
     const defaultIcon = item.type === "folder" ? "folder" : "file"
@@ -136,8 +173,13 @@ export const TreeNode = React.memo(
 
     const ctxItems = (
       <ContextMenuContent className="w-60 border-border bg-popover text-foreground">
+        {isMultiSelection && (
+          <ContextMenuLabel className="text-xs text-muted-foreground">
+            {t("tree.selectedCount", { count: contextSelectionIds.length })}
+          </ContextMenuLabel>
+        )}
         {/* Zone 1: actions affecting the selected file. */}
-        {onOpenInNewTab && (
+        {!isMultiSelection && onOpenInNewTab && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => onOpenInNewTab(item.id)}
@@ -146,7 +188,7 @@ export const TreeNode = React.memo(
             {t("tree.openInNewTab")}
           </ContextMenuItem>
         )}
-        {item.type === "file" && onOpenInNewWindow && (
+        {!isMultiSelection && item.type === "file" && onOpenInNewWindow && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => onOpenInNewWindow(item.id)}
@@ -155,7 +197,7 @@ export const TreeNode = React.memo(
             {t("tree.openInNewWindow")}
           </ContextMenuItem>
         )}
-        {item.type === "file" && onCloneFile && (
+        {!isMultiSelection && item.type === "file" && onCloneFile && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => onCloneFile(item.id)}
@@ -164,7 +206,7 @@ export const TreeNode = React.memo(
             {t("tree.clone")}
           </ContextMenuItem>
         )}
-        {canAttach && (
+        {!isMultiSelection && canAttach && (
           <ContextMenuSub>
             <ContextMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
               <Paperclip className="size-3.5 text-muted-foreground" />
@@ -210,53 +252,62 @@ export const TreeNode = React.memo(
             </ContextMenuSubContent>
           </ContextMenuSub>
         )}
-        {item.type === "file" && onToggleFavorite && (
+        {!isMultiSelection && item.type === "file" && onToggleFavorite && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => onToggleFavorite(item.id)}
           >
             {favorites?.has(item.id) ? (
-              <BookmarkCheck className="size-3.5 text-amber-400" />
+              <Star className="size-3.5 fill-current text-primary" />
             ) : (
-              <Bookmark className="size-3.5 text-muted-foreground" />
+              <Star className="size-3.5 text-muted-foreground" />
             )}
             {favorites?.has(item.id) ? t("tree.removeBookmark") : t("tree.addBookmark")}
           </ContextMenuItem>
         )}
 
-        <ContextMenuSeparator className="bg-accent" />
+        {!isMultiSelection && <ContextMenuSeparator className="bg-accent" />}
 
         {/* Zone 2: visual appearance. */}
-        <ContextMenuSub>
-          <ContextMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
-            <Smile className="size-3.5 text-muted-foreground" />
-            {t("tree.fileAppearance")}
-          </ContextMenuSubTrigger>
-          <ContextMenuSubContent className="min-w-0 rounded-[10px] border-0 bg-transparent p-0 shadow-none">
-            <EmojiPickerPanel
-              onSelect={(emojiData) => onSetIcon?.(item.id, emojiData.native)}
-              onClear={() => onSetIcon?.(item.id, defaultIcon)}
-              clearLabel={t("tree.resetIcon")}
-              onClose={() => {}}
-            />
-          </ContextMenuSubContent>
-        </ContextMenuSub>
+        {!isMultiSelection && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+              <Smile className="size-3.5 text-muted-foreground" />
+              {t("tree.fileAppearance")}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="min-w-0 rounded-[10px] border-0 bg-transparent p-0 shadow-none">
+              <EmojiPickerPanel
+                onSelect={(emojiData) => onSetIcon?.(item.id, emojiData.native)}
+                onClear={() => onSetIcon?.(item.id, defaultIcon)}
+                clearLabel={t("tree.resetIcon")}
+                onClose={() => {}}
+              />
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        )}
 
-        <ContextMenuSeparator className="bg-accent" />
+        {!isMultiSelection && <ContextMenuSeparator className="bg-accent" />}
 
         {/* Zone 3: creation. */}
-        <ContextMenuItem
-          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-          onSelect={() => onNewFile?.(item.type === "canvas" ? null : item.id)}
-        >
-          <FileText className="size-3.5 text-muted-foreground" />
-          {t("tree.newNote")}
-        </ContextMenuItem>
+        {!isMultiSelection && (
+          <ContextMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={() => {
+              // Let Radix finish restoring focus after the context menu closes;
+              // otherwise that restore can blur the rename input immediately.
+              const parentId = item.type === "canvas" ? null : item.id
+              window.setTimeout(() => void onNewFile?.(parentId), 80)
+            }}
+          >
+            <FileText className="size-3.5 text-muted-foreground" />
+            {t("tree.newNote")}
+          </ContextMenuItem>
+        )}
 
-        <ContextMenuSeparator className="bg-accent" />
+        {!isMultiSelection && <ContextMenuSeparator className="bg-accent" />}
 
         {/* Zone 4: filesystem operations. */}
-        {onOpenInExplorer && (
+        {!isMultiSelection && onOpenInExplorer && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => onOpenInExplorer(item.path ?? item.id)}
@@ -265,27 +316,44 @@ export const TreeNode = React.memo(
             {t("tree.showInExplorer")}
           </ContextMenuItem>
         )}
-        <ContextMenuItem
-          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-          onSelect={() => setTimeout(onStartEdit, 80)}
-        >
-          <Pencil className="size-3.5 text-muted-foreground" />
-          {t("tree.rename")}
-        </ContextMenuItem>
-        <ContextMenuItem
-          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-          onSelect={() => onDelete?.(item.id)}
-        >
-          <Archive className="size-3.5 text-muted-foreground" />
-          {t("tree.archive")}
-        </ContextMenuItem>
-        <ContextMenuItem
-          className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
-          onSelect={() => onDelete?.(item.id)}
-        >
-          <Trash2 className="size-3.5" />
-          {t("tree.delete")}
-        </ContextMenuItem>
+        {!isMultiSelection && (
+          <ContextMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={() => setTimeout(() => onStartEdit(item.id), 80)}
+          >
+            <Pencil className="size-3.5 text-muted-foreground" />
+            {t("tree.rename")}
+          </ContextMenuItem>
+        )}
+        {isMultiSelection ? (
+          <ContextMenuItem
+            className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
+            onSelect={() => {
+              if (onDeleteMany) onDeleteMany(contextSelectionIds)
+              else onDelete?.(item.id)
+            }}
+          >
+            <Trash2 className="size-3.5" />
+            {t("tree.deleteSelected", { count: contextSelectionIds.length })}
+          </ContextMenuItem>
+        ) : (
+          <>
+            <ContextMenuItem
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+              onSelect={() => onDelete?.(item.id)}
+            >
+              <Archive className="size-3.5 text-muted-foreground" />
+              {t("tree.archive")}
+            </ContextMenuItem>
+            <ContextMenuItem
+              className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
+              onSelect={() => onDelete?.(item.id)}
+            >
+              <Trash2 className="size-3.5" />
+              {t("tree.delete")}
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     )
 
@@ -360,14 +428,28 @@ export const TreeNode = React.memo(
           >
             <ContextMenu>
               <ContextMenuTrigger asChild>
-                <div className={buttonCls} style={{ paddingLeft }} {...selectedAttr}>
+                <div
+                  className={buttonCls}
+                  style={{ paddingLeft }}
+                  onContextMenu={handleContextMenu}
+                  onClick={(event) => {
+                    // The row's gap around the chevron is part of the hover
+                    // surface too. On Windows it used to highlight there but
+                    // miss the nested item button, making the note feel
+                    // intermittently unclickable.
+                    if (!isEditing && !(event.target as HTMLElement).closest("button")) {
+                      onSelect(item.id, event)
+                    }
+                  }}
+                  {...selectedAttr}
+                >
                   <button
                     type="button"
                     className="flex size-3 shrink-0 items-center justify-center text-muted-foreground"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation()
-                      onToggleOpen()
+                      onToggleOpen(item.id)
                     }}
                     title={isOpen ? t("tree.collapse") : t("tree.expand")}
                   >
@@ -380,25 +462,43 @@ export const TreeNode = React.memo(
                       <ChevronRight className="size-3" />
                     </motion.span>
                   </button>
-                  <button
-                    type="button"
-                    draggable={false}
-                    data-tree-item-id={item.id}
-                    role="treeitem"
-                    aria-level={level + 1}
-                    aria-expanded={isOpen}
-                    aria-selected={isSelected}
-                    tabIndex={isKeyboardFocused ? 0 : -1}
-                    onFocus={() => onKeyboardFocus(item.id)}
-                    onPointerDown={handlePointerDown}
-                    onClick={(event) => {
-                      if (!isEditing) onSelect(item.id, event)
-                    }}
-                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                  >
-                    <TreeItemIcon item={item} className="text-muted-foreground" />
-                    {nameNode}
-                  </button>
+                  {isEditing ? (
+                    <div
+                      data-tree-item-id={item.id}
+                      role="treeitem"
+                      aria-level={level + 1}
+                      aria-expanded={isOpen}
+                      aria-selected={isSelected}
+                      tabIndex={-1}
+                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                      {...selectedAttr}
+                    >
+                      <TreeItemIcon item={item} className="text-muted-foreground" />
+                      {nameNode}
+                      {statusNode}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      draggable={false}
+                      data-tree-item-id={item.id}
+                      role="treeitem"
+                      aria-level={level + 1}
+                      aria-expanded={isOpen}
+                      aria-selected={isSelected}
+                      tabIndex={isKeyboardFocused ? 0 : -1}
+                      onFocus={() => onKeyboardFocus(item.id)}
+                      onPointerDown={handlePointerDown}
+                      onClick={(event) => onSelect(item.id, event)}
+                      onDoubleClick={handleDoubleClick}
+                      className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                      {...selectedAttr}
+                    >
+                      <TreeItemIcon item={item} className="text-muted-foreground" />
+                      {nameNode}
+                      {statusNode}
+                    </button>
+                  )}
                 </div>
               </ContextMenuTrigger>
               {ctxItems}
@@ -418,29 +518,44 @@ export const TreeNode = React.memo(
               data-drag-target={canReceiveDrop ? item.id : undefined}
               data-drag-target-path={canReceiveDrop ? item.path : undefined}
               className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
+              onContextMenu={handleContextMenu}
             >
-              <button
-                draggable={false}
-                data-tree-item-id={item.id}
-                role="treeitem"
-                aria-level={level + 1}
-                aria-selected={isSelected}
-                tabIndex={isKeyboardFocused ? 0 : -1}
-                onFocus={() => onKeyboardFocus(item.id)}
-                onPointerDown={handlePointerDown}
-                onClick={(event) => {
-                  if (!isEditing) onSelect(item.id, event)
-                }}
-                className={buttonCls}
-                style={{ paddingLeft: paddingLeft + 15 }}
-                {...selectedAttr}
-              >
-                <TreeItemIcon item={item} className="text-muted-foreground" />
-                {nameNode}
-                {favorites?.has(item.id) && (
-                  <Star className="ml-auto size-3 shrink-0 text-amber-400 fill-amber-400" />
-                )}
-              </button>
+              {isEditing ? (
+                <div
+                  data-tree-item-id={item.id}
+                  role="treeitem"
+                  aria-level={level + 1}
+                  aria-selected={isSelected}
+                  tabIndex={-1}
+                  className={buttonCls}
+                  style={{ paddingLeft: paddingLeft + 18 }}
+                  {...selectedAttr}
+                >
+                  <TreeItemIcon item={item} className="text-muted-foreground" />
+                  {nameNode}
+                  {statusNode}
+                </div>
+              ) : (
+                <button
+                  draggable={false}
+                  data-tree-item-id={item.id}
+                  role="treeitem"
+                  aria-level={level + 1}
+                  aria-selected={isSelected}
+                  tabIndex={isKeyboardFocused ? 0 : -1}
+                  onFocus={() => onKeyboardFocus(item.id)}
+                  onPointerDown={handlePointerDown}
+                  onClick={(event) => onSelect(item.id, event)}
+                  onDoubleClick={handleDoubleClick}
+                  className={buttonCls}
+                  style={{ paddingLeft: paddingLeft + 18 }}
+                  {...selectedAttr}
+                >
+                  <TreeItemIcon item={item} className="text-muted-foreground" />
+                  {nameNode}
+                  {statusNode}
+                </button>
+              )}
             </div>
           </ContextMenuTrigger>
           {ctxItems}
@@ -451,15 +566,30 @@ export const TreeNode = React.memo(
   },
   (prev, next) =>
     prev.item === next.item &&
+    prev.level === next.level &&
     prev.selectedIds === next.selectedIds &&
     prev.isKeyboardFocused === next.isKeyboardFocused &&
     prev.isOpen === next.isOpen &&
     prev.isEditing === next.isEditing &&
+    prev.onToggleOpen === next.onToggleOpen &&
+    prev.onStartEdit === next.onStartEdit &&
+    prev.onFinishEdit === next.onFinishEdit &&
     prev.onSelect === next.onSelect &&
+    prev.onDelete === next.onDelete &&
+    prev.onDeleteMany === next.onDeleteMany &&
+    prev.onNewFile === next.onNewFile &&
+    prev.onAttachCanvas === next.onAttachCanvas &&
     prev.onOpenInNewTab === next.onOpenInNewTab &&
-    prev.ptrDragSourceId === next.ptrDragSourceId &&
-    prev.ptrDragTargetId === next.ptrDragTargetId &&
+    prev.onOpenInNewWindow === next.onOpenInNewWindow &&
+    prev.onCloneFile === next.onCloneFile &&
+    prev.onOpenInExplorer === next.onOpenInExplorer &&
+    prev.onSetIcon === next.onSetIcon &&
+    prev.onContextMenuSelect === next.onContextMenuSelect &&
+    prev.onPtrDragStart === next.onPtrDragStart &&
+    prev.isPtrDragSource === next.isPtrDragSource &&
+    prev.isPtrDragTarget === next.isPtrDragTarget &&
     prev.favorites === next.favorites &&
+    prev.onToggleFavorite === next.onToggleFavorite &&
     prev.linkedLayersByDoc === next.linkedLayersByDoc &&
     prev.onAttachLayer === next.onAttachLayer &&
     prev.canCreateDatabaseLayer === next.canCreateDatabaseLayer,

@@ -35,6 +35,7 @@ export interface Document {
 export interface DocumentEditorProps {
   document: Document | null
   onContentChange?: (content: string, sourceDocumentId: string) => void
+  onContentDirty?: (sourceDocumentId: string) => void
   onRestoreDeleted?: () => void | Promise<void>
   onBack?: () => void
   onForward?: () => void
@@ -99,6 +100,7 @@ export interface DocumentEditorProps {
 export function DocumentEditor({
   document,
   onContentChange,
+  onContentDirty,
   onRestoreDeleted,
   onBack,
   onForward,
@@ -275,6 +277,11 @@ export function DocumentEditor({
     onContentChange?.(v, document.id)
   }
 
+  const handleContentDirty = React.useCallback(() => {
+    if (!document || effectiveLocked) return
+    onContentDirty?.(document.id)
+  }, [document, effectiveLocked, onContentDirty])
+
   const handleEditorSelectionChange = React.useCallback((next: MarkdownSelection) => {
     editorSelectionRef.current = next
   }, [])
@@ -289,7 +296,8 @@ export function DocumentEditor({
   const handleEditorViewModeChange = React.useCallback(
     (mode: DocumentViewMode) => {
       if (editingPolicy.sourceOnly && mode !== "source") return
-      setEditorSelection(editorSelectionRef.current)
+      editorRef.current?.flush()
+      setEditorSelection(editorRef.current?.getMarkdownSelection() ?? editorSelectionRef.current)
       onViewModeChange?.(mode)
     },
     [onViewModeChange, editingPolicy.sourceOnly],
@@ -450,6 +458,7 @@ export function DocumentEditor({
           docModified={document.modified}
           content={content}
           onContentChange={handleContentChange}
+          onContentDirty={handleContentDirty}
           activeLayer={activeLayer}
           viewMode={effectiveViewMode}
           onViewModeChange={handleEditorViewModeChange}
@@ -509,6 +518,7 @@ export function DocumentEditor({
           docModified={document.modified}
           content={content}
           onContentChange={handleContentChange}
+          onContentDirty={handleContentDirty}
           activeLayer={activeLayer}
           viewMode={effectiveViewMode}
           onViewModeChange={handleEditorViewModeChange}

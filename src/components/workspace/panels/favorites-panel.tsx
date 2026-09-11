@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Bookmark, BookmarkCheck, FileText } from "lucide-react"
+import { Bookmark } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
 
@@ -10,6 +10,7 @@ import { motionTransitions } from "@/lib/motion-config"
 import type { TreeItem } from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
 import { PanelHeader, PanelSearch } from "./panel-header"
+import { TreeItemIcon, TreeItemStatusIcon } from "../tree/tree-icons"
 
 function flattenTreeItems(items: TreeItem[]): TreeItem[] {
   const result: TreeItem[] = []
@@ -70,21 +71,23 @@ export function FavoritesPanel({
                 whileHover="hover"
                 onClick={() => onSelect(item.id)}
               >
-                <FileText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                <TreeItemIcon item={item} className="mt-0.5 text-muted-foreground" />
                 <span className="min-w-0 flex-1 whitespace-normal break-words text-[13px] leading-4 text-foreground [overflow-wrap:anywhere]">
                   {item.name}
                 </span>
                 <motion.button
+                  type="button"
+                  aria-label={t("favoritesPanel.removeBookmark")}
                   onClick={(e) => {
                     e.stopPropagation()
                     onToggleFavorite?.(item.id)
                   }}
-                  variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
+                  variants={{ rest: { opacity: 1 }, hover: { opacity: 1 } }}
                   whileFocus={{ opacity: 1 }}
                   transition={motionTransitions.fast}
                   title={t("favoritesPanel.removeBookmark")}
                 >
-                  <BookmarkCheck className="mt-0.5 size-3.5 text-amber-400" />
+                  <TreeItemStatusIcon item={item} isFavorite />
                 </motion.button>
               </motion.div>
             ))}

@@ -1,7 +1,7 @@
 {
   "name": "amby-notes",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local-first desktop knowledge workspace",
   "type": "module",
   "engines": {
@@ -46,7 +46,6 @@
     "@codemirror/state": "^6.6.0",
     "@codemirror/view": "^6.43.0",
     "@emoji-mart/data": "^1.2.1",
-    "@emoji-mart/react": "^1.1.1",
     "@lezer/highlight": "^1.2.3",
     "@radix-ui/react-context-menu": "^2.2.16",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -89,12 +88,6 @@
     "react-i18next": "^17.0.8",
     "tailwind-merge": "^3.5.0",
     "zustand": "^5.0.13"
-  },
-  "overrides": {
-    "@emoji-mart/react": {
-      "react": "$react",
-      "react-dom": "$react-dom"
-    }
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

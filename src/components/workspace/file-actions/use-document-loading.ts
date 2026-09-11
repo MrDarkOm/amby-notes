@@ -24,20 +24,13 @@ import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
 type Params = Pick<
   UseFileActionsParams,
-  | "vault"
-  | "treeItems"
-  | "refreshTree"
-  | "loadCanvas"
-  | "setPendingRenameId"
-  | "backendGeneration"
-  | "windowLabel"
+  "vault" | "treeItems" | "loadCanvas" | "setPendingRenameId" | "backendGeneration" | "windowLabel"
 > &
   MarkdownAutosaveActions
 
 export function useDocumentLoading({
   vault,
   treeItems,
-  refreshTree,
   loadCanvas,
   setPendingRenameId,
   backendGeneration,
@@ -46,6 +39,7 @@ export function useDocumentLoading({
   autosaveKey,
   handleApplyMutation,
   releaseUnusedDocumentBuffers,
+  recoveryScope,
 }: Params) {
   const t = i18n.t.bind(i18n)
   const { openItem } = useTabsStore.getState()
@@ -94,7 +88,7 @@ export function useDocumentLoading({
           fileId,
           path,
           diskContent: note.content,
-          readDraft: readRecoveryDraft,
+          readDraft: (id) => readRecoveryDraft(id, recoveryScope),
           confirmRestore: () => confirmAction(t("recovery.restorePrompt")),
           isCurrent,
         })
@@ -123,12 +117,25 @@ export function useDocumentLoading({
             expectedRevision: note.revision,
           })
         } else if (recovery.discardDraft) {
-          await Promise.all([discardRecoveryDraft(fileId), discardRecoveryDraft(path)])
+          await Promise.all([
+            discardRecoveryDraft(fileId, recoveryScope),
+            discardRecoveryDraft(path, recoveryScope),
+          ])
         }
         return document
       })
     },
-    [autosave, autosaveKey, backendGeneration, markUnsaved, setDoc, t, treeItems, vault],
+    [
+      autosave,
+      autosaveKey,
+      backendGeneration,
+      markUnsaved,
+      recoveryScope,
+      setDoc,
+      t,
+      treeItems,
+      vault,
+    ],
   )
   const openTreeItem = React.useCallback(
     async (fileId: string, inNewTab = false) => {
@@ -205,7 +212,6 @@ export function useDocumentLoading({
           windowLabel,
         )
         handleApplyMutation(result)
-        await refreshTree()
         setDoc(id, {
           id,
           title,
@@ -220,7 +226,7 @@ export function useDocumentLoading({
         openItem({ kind: "document", fileId: id, title })
         void releaseUnusedDocumentBuffers()
         setPendingRenameId(id)
-        setTimeout(() => setPendingRenameId(null), 500)
+        setTimeout(() => setPendingRenameId((current) => (current === id ? null : current)), 500)
       } catch (error) {
         console.error("Failed to clone file:", error)
       }
@@ -228,7 +234,6 @@ export function useDocumentLoading({
     [
       backendGeneration,
       handleApplyMutation,
-      refreshTree,
       openItem,
       releaseUnusedDocumentBuffers,
       setDoc,

@@ -6,7 +6,17 @@ use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 
-use crate::{model::IndexState, property_store, vault_index};
+use crate::{
+    model::{IndexState, PathChange},
+    property_store, vault_index,
+};
+
+pub struct PreparedMoveRefactor {
+    pub source_path: PathBuf,
+    pub target_path: PathBuf,
+    pub path_changes: Vec<PathChange>,
+    pub plan: Vec<vault_index::PlannedWikiRewrite>,
+}
 
 pub struct ActiveVault {
     pub root: PathBuf,
@@ -18,6 +28,8 @@ pub struct ActiveVault {
     pub index_health: Cell<IndexState>,
     /// Owned by this activation, so delayed callbacks cannot dirty a new vault.
     pub index_changes: Arc<Mutex<HashSet<PathBuf>>>,
+    /// Reuses the expensive link-refactor plan produced by the confirmation preview.
+    pub pending_move_refactor: Mutex<Option<PreparedMoveRefactor>>,
 }
 
 impl ActiveVault {
@@ -58,6 +70,9 @@ pub struct VaultContext {
     /// Kept as `conn` during the transition so all database command call sites
     /// lock this single context rather than a separate connection mutex.
     pub conn: Mutex<Option<ActiveVault>>,
+    /// Serializes filesystem mutations and vault activation without keeping
+    /// the SQLite connection mutex across the disk-heavy phase.
+    pub mutation_gate: Mutex<()>,
 }
 
 impl VaultContext {
@@ -128,7 +143,7 @@ impl VaultContext {
     /// post-commit setup while the context remains locked. If setup fails, the
     /// prior active vault is restored before any command can observe the new
     /// context.
-    pub fn commit_activation(
+    fn commit_activation_locked(
         &self,
         prepared: PreparedVault,
         after_commit: impl FnOnce(&ActiveVault) -> Result<(), String>,
@@ -146,6 +161,7 @@ impl VaultContext {
             watcher_identity: None,
             index_health: Cell::new(IndexState::Healthy),
             index_changes: Arc::new(Mutex::new(HashSet::new())),
+            pending_move_refactor: Mutex::new(None),
         });
         if let Err(error) = after_commit(active.as_ref().expect("active vault was just set")) {
             *active = previous;
@@ -160,9 +176,10 @@ impl VaultContext {
         update_scopes: impl FnOnce(&Path) -> Result<(), String>,
         result: impl FnOnce(vault_index::LoadVaultResult, u64) -> T,
     ) -> Result<T, String> {
+        let _mutation_guard = self.mutation_gate.lock().unwrap();
         let prepared = Self::prepare_activation(candidate)?;
         let (loaded, generation) =
-            self.commit_activation(prepared, |active| update_scopes(&active.root))?;
+            self.commit_activation_locked(prepared, |active| update_scopes(&active.root))?;
         Ok(result(loaded, generation))
     }
 

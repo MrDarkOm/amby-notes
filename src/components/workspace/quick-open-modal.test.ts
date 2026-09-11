@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { quickOpenItemValue } from "./quick-open-utils"
+import { quickOpenItemValue, rankQuickOpenFiles } from "./quick-open-utils"
 import type { TreeItem } from "./sidebar-tree"
 
 const file = (id: string, path: string): TreeItem => ({
@@ -19,5 +19,17 @@ describe("quickOpenItemValue", () => {
     expect(work).toContain("Daily.md")
     expect(work).toContain("/vault/Work/Daily.md")
     expect(work).toContain("work-id")
+  })
+
+  it("ranks path matches before limiting the result set", () => {
+    const files = Array.from({ length: 120 }, (_, index) =>
+      file(`id-${index}`, `/vault/Other/${index}.md`),
+    )
+    files.push(file("nested-match", "/vault/Projects/Release-plan.md"))
+
+    const result = rankQuickOpenFiles(files, "release", "/vault", 100)
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.id).toBe("nested-match")
   })
 })

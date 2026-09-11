@@ -6,6 +6,7 @@ import { LogicalPosition } from "@tauri-apps/api/dpi"
 import { emitTo, listen } from "@tauri-apps/api/event"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { getCurrentWindow } from "@tauri-apps/api/window"
+import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { motion } from "motion/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -106,7 +107,6 @@ import {
   type AiSettings,
   type ContentWidth,
   type Density,
-  type DockPreferences,
   type FontScale,
   type FontFamily,
   type Language,
@@ -234,8 +234,6 @@ interface SettingsDialogProps {
   navigationTarget?: SettingsNavigationTarget | null
   activeModules: string[]
   onModuleEnabledChange: (id: string, enabled: boolean) => void
-  dockPrefs: DockPreferences
-  onDockPrefsChange: (patch: Partial<DockPreferences>) => void
 }
 
 function SettingsWindowFrame({
@@ -294,8 +292,6 @@ export function SettingsDialog({
   navigationTarget = null,
   activeModules,
   onModuleEnabledChange,
-  dockPrefs,
-  onDockPrefsChange,
 }: SettingsDialogProps) {
   const { t } = useTranslation()
   const prefs = useSettingsStore((s) => s.prefs)
@@ -369,7 +365,7 @@ export function SettingsDialog({
       {
         section: "interface",
         label: t("settings.groups.interface"),
-        description: `${t("settings.appearance.density")} · ${t("settings.interface.leftDock")} · ${t("settings.interface.rightDock")} · ${t("settings.interface.tooltipDelay")}`,
+        description: `${t("settings.appearance.density")} · ${t("settings.interface.tooltipDelay")}`,
       },
       {
         section: "editor",
@@ -395,15 +391,11 @@ export function SettingsDialog({
 
   React.useEffect(() => {
     if (standalone || !isTauri()) return
-    let unlisten: (() => void) | undefined
-    listen<ModuleChangePayload>(SETTINGS_MODULE_CHANGE_EVENT, (event) => {
-      onModuleEnabledChange(event.payload.id, event.payload.enabled)
-    })
-      .then((dispose) => {
-        unlisten = dispose
-      })
-      .catch(() => {})
-    return () => unlisten?.()
+    return adoptAsyncDisposer(
+      listen<ModuleChangePayload>(SETTINGS_MODULE_CHANGE_EVENT, (event) => {
+        onModuleEnabledChange(event.payload.id, event.payload.enabled)
+      }),
+    )
   }, [onModuleEnabledChange, standalone])
 
   React.useEffect(() => {
@@ -662,18 +654,6 @@ export function SettingsDialog({
                       </SelectContent>
                     </Select>
                   </Row>
-                  <Row label={t("settings.interface.leftDock")}>
-                    <Switch
-                      checked={dockPrefs.leftVisible}
-                      onCheckedChange={(leftVisible) => onDockPrefsChange({ leftVisible })}
-                    />
-                  </Row>
-                  <Row label={t("settings.interface.rightDock")}>
-                    <Switch
-                      checked={dockPrefs.rightVisible}
-                      onCheckedChange={(rightVisible) => onDockPrefsChange({ rightVisible })}
-                    />
-                  </Row>
                   <Row label={t("settings.interface.tooltipDelay")}>
                     <Select
                       value={String(prefs.tooltipDelayMs)}
@@ -921,22 +901,16 @@ export function StandaloneSettingsWindow() {
   const [activeModules, setActiveModules] = React.useState(initialSettingsModules)
   const [vault, setVault] = React.useState(initialSettingsVault)
   const [navigationTarget, setNavigationTarget] = React.useState(initialSettingsNavigationTarget)
-  const dockPrefs = useSettingsStore((state) => state.prefs.docks)
-  const setPrefs = useSettingsStore((state) => state.setPrefs)
 
   React.useEffect(() => {
     if (!isTauri()) return
-    let unlisten: (() => void) | undefined
-    listen<SettingsContextPayload>(SETTINGS_CONTEXT_CHANGE_EVENT, (event) => {
-      setActiveModules(event.payload.activeModules)
-      setVault(event.payload.vault)
-      if (event.payload.target) setNavigationTarget(event.payload.target)
-    })
-      .then((dispose) => {
-        unlisten = dispose
-      })
-      .catch(() => {})
-    return () => unlisten?.()
+    return adoptAsyncDisposer(
+      listen<SettingsContextPayload>(SETTINGS_CONTEXT_CHANGE_EVENT, (event) => {
+        setActiveModules(event.payload.activeModules)
+        setVault(event.payload.vault)
+        if (event.payload.target) setNavigationTarget(event.payload.target)
+      }),
+    )
   }, [])
 
   const handleModuleEnabledChange = React.useCallback((id: string, enabled: boolean) => {
@@ -950,13 +924,6 @@ export function StandaloneSettingsWindow() {
     void emitTo<ModuleChangePayload>("main", SETTINGS_MODULE_CHANGE_EVENT, { id, enabled })
   }, [])
 
-  const handleDockPrefsChange = React.useCallback(
-    (patch: Partial<DockPreferences>) => {
-      void setPrefs({ docks: { ...useSettingsStore.getState().prefs.docks, ...patch } })
-    },
-    [setPrefs],
-  )
-
   return (
     <SettingsDialog
       standalone
@@ -968,8 +935,6 @@ export function StandaloneSettingsWindow() {
       }}
       activeModules={activeModules}
       onModuleEnabledChange={handleModuleEnabledChange}
-      dockPrefs={dockPrefs}
-      onDockPrefsChange={handleDockPrefsChange}
     />
   )
 }

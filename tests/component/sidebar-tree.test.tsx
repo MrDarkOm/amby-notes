@@ -49,13 +49,18 @@ afterEach(cleanup)
 describe("sidebar tree interactions", () => {
   it.each(["Leaf", "Parent", "Projects"])(
     "creates a note inside the context-menu target %s",
-    (name) => {
+    async (name) => {
       const onNewFile = vi.fn()
       render(
         <SidebarTree items={items} selectedId={null} onSelect={vi.fn()} onNewFile={onNewFile} />,
       )
       fireEvent.contextMenu(screen.getByRole("treeitem", { name }), { button: 2 })
       fireEvent.click(screen.getByRole("menuitem", { name: i18n.t("tree.newNote") }))
+
+      expect(onNewFile).not.toHaveBeenCalled()
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      })
       expect(onNewFile).toHaveBeenCalledWith(
         { Leaf: "leaf", Parent: "parent-note", Projects: "folder:/vault/projects" }[name],
       )

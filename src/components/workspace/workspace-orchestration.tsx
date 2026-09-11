@@ -29,7 +29,7 @@ import { useDocStore } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useVaultStore } from "./use-vault-store"
 import type { DocumentEditorProps, DocumentViewMode } from "./document-editor"
-import type { ContentWidth } from "./app-config"
+import type { ContentWidth, WindowPreferences } from "./app-config"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
 import { SearchModal } from "./search-modal"
@@ -46,6 +46,7 @@ import { useLayers } from "./use-layers"
 import { useTabActions } from "./use-tab-actions"
 import { canRenderSplit } from "./document-buffer-lifecycle"
 import { wsPathStem, canvasLayerPath, newTabKey } from "./workspace-tree-utils"
+import { recordLocalTreeMutation } from "./watcher-tree-reconciliation"
 import { WorkspacePicker } from "./workspace-picker"
 import { FolderView } from "./folder-view"
 import type { TreeItem } from "./sidebar-tree"
@@ -226,11 +227,30 @@ const CachedDocumentEditor = React.memo(
   },
 )
 
+const ConnectedCachedDocumentEditor = React.memo(function ConnectedCachedDocumentEditor({
+  editorProps,
+  ...props
+}: CachedDocumentEditorProps) {
+  const documentId = editorProps.document?.id ?? null
+  const document = useDocStore((state) =>
+    documentId ? (state.openDocs[documentId] ?? null) : null,
+  )
+  const connectedProps = React.useMemo(
+    () => ({ ...editorProps, document }),
+    [document, editorProps],
+  )
+  return <CachedDocumentEditor editorProps={connectedProps} {...props} />
+})
+
 export function WorkspaceOrchestration() {
   const { t } = useTranslation()
   const vault = useVaultStore((s) => s.vault)
   const autosaveGeneration = useVaultStore((s) => s.generation)
   const backendGeneration = useVaultStore((s) => s.backendGeneration)
+  const recoveryScope = React.useMemo(
+    () => ({ vault, generation: backendGeneration }),
+    [backendGeneration, vault],
+  )
   const vaults = useVaultStore((s) => s.vaults)
   const { setVaults } = useVaultStore.getState()
 
@@ -245,12 +265,14 @@ export function WorkspaceOrchestration() {
     windowLabel,
   } = useVaultData()
 
-  const openDocs = useDocStore((s) => s.openDocs)
   // Action is stable in zustand, so read it once without subscribing.
   const { applyMutation, patchDoc, markSaved, clearExternalConflict } = useDocStore.getState()
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
   const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
+  // Document buffers are read imperatively here. Visible editors subscribe to
+  // their own document below, so patchDoc cannot rerender the whole workspace.
+  const openDocs = useDocStore.getState().openDocs
   // Stable setters (value-or-updater, like setState); see use-tabs-store.
   const { setTabs, setActiveTabKey } = useTabsStore.getState()
   const unsavedFileIds = useDocStore((s) => s.unsavedFileIds)
@@ -295,26 +317,28 @@ export function WorkspaceOrchestration() {
   const defaultViewMode = useSettingsStore((s) => s.prefs.editor.defaultViewMode)
   const defaultContentWidth = useSettingsStore((s) => s.prefs.editor.contentWidth)
   const dockPrefs = useSettingsStore((s) => s.prefs.docks)
+  const windowPrefs = useSettingsStore((s) => s.prefs.window)
   const shortcuts = useSettingsStore((s) => s.prefs.shortcuts)
   const experimental = useSettingsStore((s) => s.experimental)
   const setPrefs = useSettingsStore((s) => s.setPrefs)
-  const [dockNotice, setDockNotice] = React.useState<string | null>(null)
 
   const updateDockPrefs = React.useCallback(
     (patch: Partial<typeof dockPrefs>) => setPrefs({ docks: { ...dockPrefs, ...patch } }),
     [dockPrefs, setPrefs],
   )
 
+  const updateWindowPrefs = React.useCallback(
+    (patch: Partial<WindowPreferences>) => {
+      const current = useSettingsStore.getState().prefs.window
+      void setPrefs({ window: { ...current, ...patch } }).catch(() => {})
+    },
+    [setPrefs],
+  )
+
   const openSettings = React.useCallback((target: SettingsNavigationTarget | null = null) => {
     setSettingsTarget(target)
     setSettingsOpen(true)
   }, [])
-
-  React.useEffect(() => {
-    if (!dockNotice) return
-    const timer = window.setTimeout(() => setDockNotice(null), 5000)
-    return () => window.clearTimeout(timer)
-  }, [dockNotice])
 
   const [pendingRenameId, setPendingRenameId] = React.useState<string | null>(null)
   const {
@@ -373,7 +397,7 @@ export function WorkspaceOrchestration() {
     loadCanvasBuffer,
     openCanvases,
     setOpenCanvases,
-  } = useCanvasWorkspace(autosaveGeneration, t)
+  } = useCanvasWorkspace(autosaveGeneration, t, recoveryScope)
 
   const activeTab = tabs.find((t) => t.key === activeTabKey) ?? null
   const selectedId =
@@ -451,9 +475,11 @@ export function WorkspaceOrchestration() {
 
   const {
     isLeftSidebarOpen,
-    setIsLeftSidebarOpen,
     isRightSidebarOpen,
-    setIsRightSidebarOpen,
+    isLeftSidebarVisible,
+    isRightSidebarVisible,
+    setSidebarHover,
+    toggleSidebar,
     leftWidth,
     rightWidth,
     startResize,
@@ -469,9 +495,7 @@ export function WorkspaceOrchestration() {
     dnd,
     handleActivate,
     activatePanelAnywhere,
-    isDockVisible,
     isDockPinned,
-    setDockVisible,
     setDockPinned,
   } = useSidebarLayout({
     activityButtons,
@@ -481,30 +505,14 @@ export function WorkspaceOrchestration() {
     actionContext,
     dockPrefs,
     onDockPrefsChange: updateDockPrefs,
+    windowPrefs,
+    onWindowPrefsChange: updateWindowPrefs,
   })
-
-  const handleHideDock = React.useCallback(
-    (side: "left" | "right") => {
-      setDockVisible(side, false)
-      setDockNotice(t("dock.hiddenNotice"))
-    },
-    [setDockVisible, t],
-  )
 
   const activityDockProps = (side: "left" | "right") => ({
     pinned: isDockPinned(side),
     onPinnedChange: (pinned: boolean) => setDockPinned(side, pinned),
-    onHide: () => handleHideDock(side),
   })
-
-  const dockNoticeToast = dockNotice && (
-    <div
-      role="status"
-      className="fixed bottom-5 left-1/2 z-[60] max-w-md -translate-x-1/2 rounded-lg border border-border bg-popover px-4 py-3 text-center text-[13px] text-foreground shadow-lg"
-    >
-      {dockNotice}
-    </div>
-  )
 
   const vaultName = vault?.replace(/\\/g, "/").split("/").pop() ?? undefined
 
@@ -542,6 +550,7 @@ export function WorkspaceOrchestration() {
   )
 
   function applyMutationResult(result: FsMutationResult) {
+    recordLocalTreeMutation(result)
     const { deletedIds, remapFn, hasChanges } = planMutation(result)
     setTreeItems((prev) => applyTreePatch(prev, result))
     if (!hasChanges) return
@@ -555,8 +564,8 @@ export function WorkspaceOrchestration() {
       if (!deleted.has(id)) {
         const nextPath = remapFn(doc.path)
         if (nextPath !== doc.path) {
-          void remapRecoveryDraft(id, id, "markdown", nextPath)
-          void remapRecoveryDraft(doc.path, nextPath, "markdown", nextPath)
+          void remapRecoveryDraft(id, id, "markdown", nextPath, recoveryScope)
+          void remapRecoveryDraft(doc.path, nextPath, "markdown", nextPath, recoveryScope)
         }
       }
     }
@@ -567,13 +576,13 @@ export function WorkspaceOrchestration() {
       for (const [path, json] of Object.entries(previous)) {
         if (deletedCanvasPaths.has(path)) {
           canvasAutosave.discard(canvasAutosaveKey(path))
-          void discardRecoveryDraft(path)
+          void discardRecoveryDraft(path, recoveryScope)
           continue
         }
         const nextPath = remapFn(path)
         if (nextPath !== path) {
           canvasAutosave.remapKey(canvasAutosaveKey(path), canvasAutosaveKey(nextPath))
-          void remapRecoveryDraft(path, nextPath, "canvas", nextPath)
+          void remapRecoveryDraft(path, nextPath, "canvas", nextPath, recoveryScope)
         }
         next[nextPath] = json
       }
@@ -661,6 +670,7 @@ export function WorkspaceOrchestration() {
     handleWikiLinkClick,
     handleRenameFile,
     handleDeleteFile,
+    handleDeleteFiles,
     handleNewFileIn,
     handleNewFolderIn,
     handleNewCanvasIn,
@@ -668,6 +678,7 @@ export function WorkspaceOrchestration() {
     handleMoveItem,
     handleMergeFile,
     handleContentChange,
+    handleContentDirty,
     loadDoc,
     releaseUnusedDocumentBuffers,
     deleteConfirmationDialog,
@@ -743,10 +754,10 @@ export function WorkspaceOrchestration() {
         handleNewFileIn(null)
       } else if (matchesShortcut(event, shortcuts.toggleLeftSidebar)) {
         event.preventDefault()
-        setIsLeftSidebarOpen((open) => !open)
+        toggleSidebar("left")
       } else if (matchesShortcut(event, shortcuts.toggleRightSidebar)) {
         event.preventDefault()
-        setIsRightSidebarOpen((open) => !open)
+        toggleSidebar("right")
       } else if (matchesShortcut(event, shortcuts.settings)) {
         event.preventDefault()
         openSettings()
@@ -760,15 +771,7 @@ export function WorkspaceOrchestration() {
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [
-    handleBack,
-    handleForward,
-    handleNewFileIn,
-    openSettings,
-    setIsLeftSidebarOpen,
-    setIsRightSidebarOpen,
-    shortcuts,
-  ])
+  }, [handleBack, handleForward, handleNewFileIn, openSettings, shortcuts, toggleSidebar])
 
   const { handleDeleteVault, handleMoveVault, handleOpenVault, handleRenameVault } =
     useVaultActions({
@@ -915,6 +918,7 @@ export function WorkspaceOrchestration() {
       onOpenVault: handleOpenVault,
       onRename: handleRenameFile,
       onDelete: handleDeleteFile,
+      onDeleteMany: handleDeleteFiles,
       onNewFile: handleNewFileIn,
       onNewFolder: handleNewFolderIn,
       onNewCanvas: handleNewCanvasIn,
@@ -996,6 +1000,7 @@ export function WorkspaceOrchestration() {
       handleOpenVault,
       handleRenameFile,
       handleDeleteFile,
+      handleDeleteFiles,
       handleNewFileIn,
       handleNewFolderIn,
       handleNewCanvasIn,
@@ -1072,6 +1077,9 @@ export function WorkspaceOrchestration() {
           handleContentChange(tab.fileId, content)
         }
       },
+      onContentDirty: (sourceDocumentId: string) => {
+        if (tab && sourceDocumentId === tab.fileId) handleContentDirty(tab.fileId)
+      },
       onBack: isPrimary ? handleBack : () => {},
       onForward: isPrimary ? handleForward : () => {},
       canGoBack: isPrimary ? canGoBack : false,
@@ -1132,7 +1140,7 @@ export function WorkspaceOrchestration() {
         : undefined,
       onOpenNestedNoteInNewTab: handleOpenInNewTab,
       onMoveFile: doc
-        ? (targetFolderId: string | null) => handleMoveItem(doc.id, targetFolderId)
+        ? (targetFolderId: string | null) => handleMoveItem([doc.id], targetFolderId)
         : undefined,
       onCreateFolder:
         doc && vault
@@ -1312,7 +1320,7 @@ export function WorkspaceOrchestration() {
               }
             >
               <React.Suspense fallback={<LazyEditorFallback />}>
-                <CachedDocumentEditor
+                <ConnectedCachedDocumentEditor
                   editorProps={props}
                   visible={visible}
                   isFocusMode={isFocusMode}
@@ -1493,20 +1501,19 @@ export function WorkspaceOrchestration() {
           onMouseLeave={() => setFocusShowLeft(false)}
         >
           <div className="flex min-h-0 flex-1">
-            {isDockVisible("left") && (
-              <ActivityBar
-                side="left"
-                buttons={leftButtons}
-                activeView={activeBySide.left}
-                isPanelOpen={focusShowLeft}
-                onActivate={handleActivate}
-                onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
-                onPointerDownButton={dnd.onPointerDown}
-                draggingId={dnd.draggingId}
-                {...activityBarPresetProps}
-                {...activityDockProps("left")}
-              />
-            )}
+            <ActivityBar
+              side="left"
+              buttons={leftButtons}
+              activeView={activeBySide.left}
+              isPanelOpen={focusShowLeft}
+              onActivate={handleActivate}
+              onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
+              onPointerDownButton={dnd.onPointerDown}
+              draggingId={dnd.draggingId}
+              {...activityBarPresetProps}
+              {...activityDockProps("left")}
+              autoHideReveal={focusShowLeft}
+            />
             <div
               style={{ width: "var(--amby-left-panel-width, 300px)" }}
               className="min-h-0 shrink-0"
@@ -1527,26 +1534,26 @@ export function WorkspaceOrchestration() {
           <div style={{ width: "var(--amby-right-panel-width, 300px)" }} className="shrink-0">
             <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} flush />
           </div>
-          {isDockVisible("right") && (
-            <ActivityBar
-              side="right"
-              buttons={rightButtons}
-              activeView={activeBySide.right}
-              isPanelOpen={focusShowRight}
-              onActivate={handleActivate}
-              onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
-              onPointerDownButton={dnd.onPointerDown}
-              draggingId={dnd.draggingId}
-              {...activityBarPresetProps}
-              {...activityDockProps("right")}
-            />
-          )}
+          <ActivityBar
+            side="right"
+            buttons={rightButtons}
+            activeView={activeBySide.right}
+            isPanelOpen={focusShowRight}
+            onActivate={handleActivate}
+            onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
+            onPointerDownButton={dnd.onPointerDown}
+            draggingId={dnd.draggingId}
+            {...activityBarPresetProps}
+            {...activityDockProps("right")}
+            autoHideReveal={focusShowRight}
+          />
         </motion.div>
 
         <QuickOpenModal
           open={quickOpenMode !== null}
           onClose={() => setQuickOpenMode(null)}
           treeItems={displayTreeItems}
+          vault={vault}
           onSelectFile={quickOpenMode === "new" ? handleOpenInNewTab : handleSelect}
           onNewNote={() => handleNewFileIn(null, quickOpenMode === "new")}
         />
@@ -1569,15 +1576,15 @@ export function WorkspaceOrchestration() {
           navigationTarget={settingsTarget}
           activeModules={activeModules}
           onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
-          dockPrefs={dockPrefs}
-          onDockPrefsChange={updateDockPrefs}
         />
-        {dockNoticeToast}
         {deleteConfirmationDialog}
         {propertyMigrationDialog}
       </div>
     )
   }
+
+  const leftDockPinned = isDockPinned("left")
+  const rightDockPinned = isDockPinned("right")
 
   // ── Normal layout ──────────────────────────────────────────────
   return (
@@ -1588,16 +1595,12 @@ export function WorkspaceOrchestration() {
         unsavedFileIds={unsavedFileIds}
         onTabChange={handleTabChange}
         onTabClose={handleTabClose}
-        onToggleLeftSidebar={() => setIsLeftSidebarOpen((v) => !v)}
-        onToggleRightSidebar={() => setIsRightSidebarOpen((v) => !v)}
-        isLeftSidebarOpen={isLeftSidebarOpen}
-        isRightSidebarOpen={isRightSidebarOpen}
-        isLeftDockVisible={isDockVisible("left")}
-        isRightDockVisible={isDockVisible("right")}
-        isLeftDockPinned={isDockPinned("left")}
-        isRightDockPinned={isDockPinned("right")}
-        onSetLeftDockVisible={(visible) => setDockVisible("left", visible)}
-        onSetRightDockVisible={(visible) => setDockVisible("right", visible)}
+        onToggleLeftSidebar={() => toggleSidebar("left")}
+        onToggleRightSidebar={() => toggleSidebar("right")}
+        isLeftSidebarOpen={isLeftSidebarVisible}
+        isRightSidebarOpen={isRightSidebarVisible}
+        isLeftDockPinned={leftDockPinned}
+        isRightDockPinned={rightDockPinned}
         onSetLeftDockPinned={(pinned) => setDockPinned("left", pinned)}
         onSetRightDockPinned={(pinned) => setDockPinned("right", pinned)}
         onOpenPlusModal={() => setQuickOpenMode("new")}
@@ -1612,7 +1615,7 @@ export function WorkspaceOrchestration() {
         onOpenVaultInExplorer={openInExplorer}
         onCloseAllTabs={handleCloseAllTabs}
         leftTreeWidth={isCompactLayout ? 0 : leftWidth}
-        rightPanelWidth={isCompactLayout ? 0 : rightWidth}
+        rightPanelWidth={isCompactLayout || !rightDockPinned ? 0 : rightWidth}
         activeFileId={activeTab?.fileId}
         favorites={favorites}
         onToggleFavorite={handleToggleFavorite}
@@ -1622,12 +1625,12 @@ export function WorkspaceOrchestration() {
       {propertyMigrationDialog}
 
       <div className="flex flex-1 overflow-hidden">
-        {isDockVisible("left") && (
+        {leftDockPinned && (
           <ActivityBar
             side="left"
             buttons={leftButtons}
             activeView={activeBySide.left}
-            isPanelOpen={isLeftSidebarOpen}
+            isPanelOpen={isLeftSidebarVisible}
             onActivate={handleActivate}
             onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
             onPointerDownButton={dnd.onPointerDown}
@@ -1637,20 +1640,74 @@ export function WorkspaceOrchestration() {
           />
         )}
 
-        {isLeftSidebarOpen && (
+        {leftDockPinned && isLeftSidebarOpen && (
           <>
-            <div
-              style={{ width: "var(--amby-left-panel-width, 300px)" }}
+            <motion.div
+              initial={false}
+              animate={{ width: isLeftSidebarVisible ? leftWidth : 0 }}
+              transition={motionTransitions.panel}
+              onMouseEnter={() => setSidebarHover("left", true)}
+              onMouseLeave={() => setSidebarHover("left", false)}
               className={
                 isCompactLayout
-                  ? "fixed inset-y-11 left-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
-                  : "relative shrink-0"
+                  ? "fixed bottom-0 left-10 top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
+                  : "relative shrink-0 overflow-hidden"
               }
             >
-              <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
-              {!isCompactLayout && <ResizeHandle side="right" onMouseDown={startResize("left")} />}
-            </div>
+              <div
+                className="h-full shrink-0"
+                style={{ width: "var(--amby-left-panel-width, 300px)" }}
+              >
+                <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
+                {!isCompactLayout && (
+                  <ResizeHandle side="right" onMouseDown={startResize("left")} />
+                )}
+              </div>
+            </motion.div>
           </>
+        )}
+
+        {!leftDockPinned && (
+          <motion.div
+            className="amby-sidebar-overlay--left fixed bottom-0 left-0 top-11 z-40 rounded-r-2xl"
+            initial={false}
+            animate={{ width: isLeftSidebarVisible ? leftWidth + 48 : 4 }}
+            transition={motionTransitions.panel}
+            onMouseEnter={() => setSidebarHover("left", true)}
+            onMouseLeave={() => setSidebarHover("left", false)}
+          >
+            <div className="flex h-full w-full overflow-hidden rounded-r-2xl bg-background">
+              <div className="flex h-full shrink-0" style={{ width: leftWidth + 48 }}>
+                <ActivityBar
+                  side="left"
+                  buttons={leftButtons}
+                  activeView={activeBySide.left}
+                  isPanelOpen={isLeftSidebarVisible}
+                  onActivate={handleActivate}
+                  onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
+                  onPointerDownButton={dnd.onPointerDown}
+                  draggingId={dnd.draggingId}
+                  {...activityBarPresetProps}
+                  {...activityDockProps("left")}
+                  autoHideReveal
+                />
+                <div
+                  className="h-full shrink-0"
+                  style={{ width: "var(--amby-left-panel-width, 300px)" }}
+                >
+                  <PanelHost
+                    side="left"
+                    activeId={activeBySide.left}
+                    props={panelRenderProps}
+                    flush
+                  />
+                  {!isCompactLayout && (
+                    <ResizeHandle side="right" onMouseDown={startResize("left")} />
+                  )}
+                </div>
+              </div>
+            </div>
+          </motion.div>
         )}
 
         <main className="flex flex-1 gap-0 overflow-hidden">
@@ -1682,28 +1739,39 @@ export function WorkspaceOrchestration() {
           )}
         </main>
 
-        {isRightSidebarOpen && (
+        {rightDockPinned && isRightSidebarOpen && (
           <>
-            <div
-              style={{ width: "var(--amby-right-panel-width, 300px)" }}
+            <motion.div
+              initial={false}
+              animate={{ width: isRightSidebarVisible ? rightWidth : 0 }}
+              transition={motionTransitions.panel}
+              onMouseEnter={() => setSidebarHover("right", true)}
+              onMouseLeave={() => setSidebarHover("right", false)}
               className={
                 isCompactLayout
-                  ? "fixed inset-y-11 right-10 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
-                  : "relative shrink-0"
+                  ? "fixed bottom-0 right-10 top-11 z-40 max-w-[calc(100vw-2.5rem)] overflow-hidden shadow-2xl"
+                  : "relative shrink-0 overflow-hidden"
               }
             >
-              {!isCompactLayout && <ResizeHandle side="left" onMouseDown={startResize("right")} />}
-              <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
-            </div>
+              <div
+                className="h-full shrink-0"
+                style={{ width: "var(--amby-right-panel-width, 300px)" }}
+              >
+                {!isCompactLayout && (
+                  <ResizeHandle side="left" onMouseDown={startResize("right")} />
+                )}
+                <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
+              </div>
+            </motion.div>
           </>
         )}
 
-        {isDockVisible("right") && (
+        {rightDockPinned && (
           <ActivityBar
             side="right"
             buttons={rightButtons}
             activeView={activeBySide.right}
-            isPanelOpen={isRightSidebarOpen}
+            isPanelOpen={isRightSidebarVisible}
             onActivate={handleActivate}
             onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
             onPointerDownButton={dnd.onPointerDown}
@@ -1712,12 +1780,56 @@ export function WorkspaceOrchestration() {
             {...activityDockProps("right")}
           />
         )}
+
+        {!rightDockPinned && (
+          <motion.div
+            className="amby-sidebar-overlay--right fixed bottom-0 right-0 top-11 z-40 rounded-l-2xl"
+            initial={false}
+            animate={{ width: isRightSidebarVisible ? rightWidth + 48 : 4 }}
+            transition={motionTransitions.panel}
+            onMouseEnter={() => setSidebarHover("right", true)}
+            onMouseLeave={() => setSidebarHover("right", false)}
+          >
+            <div className="flex h-full w-full justify-end overflow-hidden rounded-l-2xl bg-background">
+              <div className="flex h-full shrink-0" style={{ width: rightWidth + 48 }}>
+                <div
+                  className="h-full shrink-0"
+                  style={{ width: "var(--amby-right-panel-width, 300px)" }}
+                >
+                  {!isCompactLayout && (
+                    <ResizeHandle side="left" onMouseDown={startResize("right")} />
+                  )}
+                  <PanelHost
+                    side="right"
+                    activeId={activeBySide.right}
+                    props={panelRenderProps}
+                    flush
+                  />
+                </div>
+                <ActivityBar
+                  side="right"
+                  buttons={rightButtons}
+                  activeView={activeBySide.right}
+                  isPanelOpen={isRightSidebarVisible}
+                  onActivate={handleActivate}
+                  onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
+                  onPointerDownButton={dnd.onPointerDown}
+                  draggingId={dnd.draggingId}
+                  {...activityBarPresetProps}
+                  {...activityDockProps("right")}
+                  autoHideReveal
+                />
+              </div>
+            </div>
+          </motion.div>
+        )}
       </div>
 
       <QuickOpenModal
         open={quickOpenMode !== null}
         onClose={() => setQuickOpenMode(null)}
         treeItems={displayTreeItems}
+        vault={vault}
         onSelectFile={quickOpenMode === "new" ? handleOpenInNewTab : handleSelect}
         onNewNote={() => handleNewFileIn(null, quickOpenMode === "new")}
       />
@@ -1740,10 +1852,7 @@ export function WorkspaceOrchestration() {
         navigationTarget={settingsTarget}
         activeModules={activeModules}
         onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
-        dockPrefs={dockPrefs}
-        onDockPrefsChange={updateDockPrefs}
       />
-      {dockNoticeToast}
     </div>
   )
 }

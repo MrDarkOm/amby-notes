@@ -1,15 +1,15 @@
 "use client"
 
 import * as React from "react"
-import Picker from "@emoji-mart/react"
 import data from "@emoji-mart/data"
+import { Picker as EmojiMartPicker } from "emoji-mart"
 import { ImagePlus, Search, Trash2, Upload } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
+import EMOJI_MART_BASE_STYLE_URL from "@/themes/emoji-mart-base.css?url"
 import { ICON_PICKER_COLORS } from "@/themes/palettes"
-import { EMOJI_PICKER_SHADOW_STYLE } from "@/themes/emoji-picker"
 import { IconValue } from "@/components/workspace/icon-value"
 import { makeIconValue, PICKER_ICONS } from "@/components/workspace/icon-values"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
@@ -41,9 +41,88 @@ interface CropDraft {
   name: string
 }
 
+interface StableEmojiMartPickerProps {
+  pickerData: typeof data
+  i18n: Record<string, unknown>
+  onEmojiSelect: (emoji: EmojiData) => void
+  theme: "dark" | "light"
+}
+
+type EmojiMartPickerElement = HTMLElement & {
+  update: (props?: Record<string, unknown>) => void
+}
+
 const CUSTOM_EMOJI_KEY = "amby.customEmoji.v2"
 const LEGACY_CUSTOM_EMOJI_KEY = "amby.customEmoji.v1"
 const CROP_SIZE = 160
+
+function StableEmojiMartPicker({
+  pickerData,
+  i18n,
+  onEmojiSelect,
+  theme,
+}: StableEmojiMartPickerProps) {
+  const mountRef = React.useRef<HTMLDivElement>(null)
+  const pickerProps = React.useMemo(
+    () => ({
+      data: pickerData,
+      i18n,
+      onEmojiSelect,
+      theme,
+      previewPosition: "none",
+      skinTonePosition: "search",
+      navPosition: "bottom",
+      set: "native",
+    }),
+    [i18n, onEmojiSelect, pickerData, theme],
+  )
+
+  React.useLayoutEffect(() => {
+    const mount = mountRef.current
+    if (!mount) return
+
+    const picker = new EmojiMartPicker(pickerProps) as unknown as EmojiMartPickerElement
+    const shadowRoot = picker.shadowRoot
+    let styleRepairQueued = false
+
+    const ensureBundledStyles = () => {
+      styleRepairQueued = false
+      const currentShadowRoot = picker.shadowRoot
+      if (!currentShadowRoot) return
+      if (currentShadowRoot.querySelector("link[data-amby-emoji-mart-base]")) return
+
+      const stylesheet = document.createElement("link")
+      stylesheet.rel = "stylesheet"
+      stylesheet.href = EMOJI_MART_BASE_STYLE_URL
+      stylesheet.dataset.ambyEmojiMartBase = "true"
+      currentShadowRoot.prepend(stylesheet)
+    }
+
+    // emoji-mart inserts an inline stylesheet before Preact renders into the same shadow root.
+    // Tauri WebKit can discard or reject it, leaving raw SVG and no scrolling. A bundled
+    // same-origin stylesheet link survives CSP and is restored if Preact replaces the node.
+    const observer = new MutationObserver(() => {
+      if (styleRepairQueued) return
+      styleRepairQueued = true
+      queueMicrotask(ensureBundledStyles)
+    })
+    if (shadowRoot) observer.observe(shadowRoot, { childList: true })
+
+    mount.replaceChildren(picker)
+    queueMicrotask(ensureBundledStyles)
+    const frame = requestAnimationFrame(ensureBundledStyles)
+    const timer = window.setTimeout(ensureBundledStyles, 50)
+
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+      mount.replaceChildren()
+    }
+  }, [pickerProps])
+
+  return <div ref={mountRef} />
+}
 
 function readCustomEmoji() {
   if (typeof localStorage === "undefined") return []
@@ -159,35 +238,6 @@ export function EmojiPickerPanel({
     },
     [],
   )
-
-  React.useLayoutEffect(() => {
-    if (tab !== "emoji") return
-    const frame = requestAnimationFrame(() => {
-      const picker = ref.current?.querySelector<HTMLElement>("em-emoji-picker")
-      const root = picker?.shadowRoot
-      if (!root) return
-      const style =
-        root.querySelector<HTMLStyleElement>("[data-amby-picker-style]") ??
-        document.createElement("style")
-      style.dataset.ambyPickerStyle = "true"
-      style.textContent = EMOJI_PICKER_SHADOW_STYLE
-      if (!style.isConnected) root.append(style)
-      const loupe = root.querySelector(".search .loupe")
-      if (loupe) {
-        const icons = loupe.querySelectorAll("svg")
-        icons.forEach((icon, index) => {
-          if (index > 0) icon.remove()
-        })
-        const svg = icons[0]
-        const path = svg?.querySelector("path")
-        if (!svg || !path) return
-        svg.setAttribute("viewBox", "0 0 24 24")
-        svg.setAttribute("aria-hidden", "true")
-        path.setAttribute("d", "M19 11a8 8 0 1 1-16 0 8 8 0 0 1 16 0 M21 21l-4.35-4.35")
-      }
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [tab])
 
   function cropBounds(zoom = cropZoom) {
     if (!cropDraft) return { x: 0, y: 0 }
@@ -321,18 +371,12 @@ export function EmojiPickerPanel({
       </div>
 
       {tab === "emoji" && (
-        <>
-          <Picker
-            data={data}
-            i18n={emojiI18n}
-            onEmojiSelect={(emoji: EmojiData) => onSelect(emoji)}
-            theme={resolvedTheme === "dark" ? "dark" : "light"}
-            previewPosition="none"
-            skinTonePosition="search"
-            navPosition="bottom"
-            set="native"
-          />
-        </>
+        <StableEmojiMartPicker
+          pickerData={data}
+          i18n={emojiI18n}
+          onEmojiSelect={onSelect}
+          theme={resolvedTheme === "dark" ? "dark" : "light"}
+        />
       )}
 
       {tab === "icons" && (

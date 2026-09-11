@@ -21,7 +21,9 @@ export interface AvailableAppUpdate {
 }
 
 export function isAppUpdaterAvailable(): boolean {
-  return isTauri() && !import.meta.env.DEV
+  // Manual checks are useful in Tauri dev builds too. Automatic installation
+  // remains disabled below while Vite is running in development mode.
+  return isTauri()
 }
 
 export async function getCurrentAppVersion(): Promise<string> {
@@ -90,7 +92,7 @@ let automaticCheckStarted = false
  * confirmation because the Windows updater exits the app during installation.
  */
 export async function runAutomaticAppUpdate(): Promise<void> {
-  if (automaticCheckStarted || !isAppUpdaterAvailable()) return
+  if (automaticCheckStarted || import.meta.env.DEV || !isAppUpdaterAvailable()) return
   automaticCheckStarted = true
 
   let update: AvailableAppUpdate | null = null

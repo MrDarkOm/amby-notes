@@ -92,6 +92,12 @@ interface DragRowTarget {
   rect: DOMRect
 }
 
+interface ColumnGeometry {
+  columnRect: DOMRect
+  contentRect: DOMRect
+  blocks: Array<{ element: HTMLElement; rect: DOMRect }>
+}
+
 const HANDLE_WIDTH = 22
 const BUTTON_H = 22
 const GUTTER_GAP = 12
@@ -145,6 +151,11 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   const lastMoveRef = React.useRef<{ x: number; y: number } | null>(null)
   const widgetEnterRef = React.useRef<(() => void) | null>(null)
   const widgetLeaveRef = React.useRef<(() => void) | null>(null)
+  const columnGeometryRef = React.useRef<ColumnGeometry[] | null>(null)
+  const editorGeometryRef = React.useRef<{
+    rect: DOMRect
+    paddingLeft: number
+  } | null>(null)
 
   const isEditorSurfaceHidden = React.useCallback(() => {
     if (editor.isDestroyed) return true
@@ -168,6 +179,10 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     if (dragRef.current.active) return
 
     const { state, view } = editor
+    editorGeometryRef.current = {
+      rect: view.dom.getBoundingClientRect(),
+      paddingLeft: parseFloat(window.getComputedStyle(view.dom).paddingLeft) || 12,
+    }
 
     const mouseOver = mouseInsideEditorRef.current || mouseInsideWidgetRef.current
     const selectionTarget = view.hasFocus() ? findDraggableAncestor(state.selection.$from) : null
@@ -302,8 +317,30 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     if (editor.isDestroyed) return
     const view = editor.view
     const editorDom = view.dom as HTMLElement
+    const invalidateColumnGeometry = () => {
+      columnGeometryRef.current = null
+    }
+    const readColumnGeometry = (): ColumnGeometry[] => {
+      if (columnGeometryRef.current) return columnGeometryRef.current
+      const geometry: ColumnGeometry[] = []
+      editorDom.querySelectorAll<HTMLElement>(".amby-column").forEach((column) => {
+        const content = column.querySelector<HTMLElement>(":scope > .amby-column-content")
+        if (!content) return
+        const blocks = Array.from(content.children)
+          .filter((child): child is HTMLElement => child instanceof HTMLElement)
+          .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+        geometry.push({
+          columnRect: column.getBoundingClientRect(),
+          contentRect: content.getBoundingClientRect(),
+          blocks,
+        })
+      })
+      columnGeometryRef.current = geometry
+      return geometry
+    }
 
     const onChange = () => {
+      invalidateColumnGeometry()
       // Cached tabs remain laid out off-screen for instant switching. They do
       // not need geometry reads while another editor is visible. The handle is
       // rendered through a body portal, though, so simply skipping the read
@@ -313,6 +350,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         pinnedTargetRef.current = null
         mouseInsideEditorRef.current = false
         mouseInsideWidgetRef.current = false
+        editorGeometryRef.current = null
         setInsertPanel((panel) => (panel.open ? { open: false, anchorPos: -1 } : panel))
         setActionsOpen(false)
         setHandle((current) => (current.visible ? { ...current, visible: false } : current))
@@ -386,14 +424,13 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       applyVisibility()
     }
 
-    const projectedColumnX = (x: number, y: number): number | null => {
-      const columns = editorDom.querySelectorAll<HTMLElement>(".amby-column")
-      for (const column of columns) {
-        const columnRect = column.getBoundingClientRect()
+    const projectedColumnX = (
+      x: number,
+      y: number,
+      geometry: ColumnGeometry[] = readColumnGeometry(),
+    ): number | null => {
+      for (const { columnRect, contentRect } of geometry) {
         if (y < columnRect.top || y > columnRect.bottom) continue
-        const content = column.querySelector<HTMLElement>(":scope > .amby-column-content")
-        if (!content) continue
-        const contentRect = content.getBoundingClientRect()
         // The divider, resize hit area and grab gutter are outside the actual
         // text DOM. Project that whole strip onto the content for posAtCoords.
         if (x >= columnRect.left - 16 && x <= contentRect.left + 24) {
@@ -403,10 +440,12 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       return null
     }
 
-    const targetFromColumnRect = (x: number, y: number): HoverTarget | null => {
-      const columns = editorDom.querySelectorAll<HTMLElement>(".amby-column")
-      for (const column of columns) {
-        const columnRect = column.getBoundingClientRect()
+    const targetFromColumnRect = (
+      x: number,
+      y: number,
+      geometry: ColumnGeometry[] = readColumnGeometry(),
+    ): HoverTarget | null => {
+      for (const { columnRect, blocks } of geometry) {
         if (
           y < columnRect.top ||
           y > columnRect.bottom ||
@@ -414,19 +453,13 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           x > columnRect.right
         )
           continue
-        const content = column.querySelector<HTMLElement>(":scope > .amby-column-content")
-        if (!content) continue
-        const blocks = Array.from(content.children).filter(
-          (child): child is HTMLElement => child instanceof HTMLElement,
-        )
         const block =
           blocks.find((child) => {
-            const rect = child.getBoundingClientRect()
-            return y >= rect.top && y <= rect.bottom
+            return y >= child.rect.top && y <= child.rect.bottom
           }) ?? (blocks.length === 1 ? blocks[0] : undefined)
         if (!block) continue
         try {
-          const domPos = view.posAtDOM(block, 0)
+          const domPos = view.posAtDOM(block.element, 0)
           const safe = Math.min(Math.max(domPos, 0), Math.max(0, view.state.doc.content.size - 1))
           const target = findDraggableAncestor(view.state.doc.resolve(safe))
           if (target) {
@@ -449,17 +482,20 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         applyVisibility()
         return
       }
-      const columnTarget = targetFromColumnRect(x, y)
+      const geometry = readColumnGeometry()
+      const columnTarget = targetFromColumnRect(x, y, geometry)
       if (columnTarget) {
+        columnGutterRef.current = true
         setHoverTarget(columnTarget)
         return
       }
+      columnGutterRef.current = false
       const editorRect = view.dom.getBoundingClientRect()
       const paddingLeft = parseFloat(window.getComputedStyle(view.dom).paddingLeft) || 12
       const contentLeft = editorRect.left + paddingLeft
       const withinGutter =
         x >= contentLeft - HANDLE_WIDTH - GUTTER_GAP - GUTTER_HIT_SLOP && x <= contentLeft + 24
-      const localColumnX = projectedColumnX(x, y)
+      const localColumnX = projectedColumnX(x, y, geometry)
       const pos = view.posAtCoords({
         left: localColumnX ?? (withinGutter ? contentLeft + 1 : x),
         top: y,
@@ -500,6 +536,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     // `view.dom` starts at the content column, while the Grab gutter sits to
     // its left. Listen at document level as well so entering that outer gutter
     // can reveal the controls before the pointer crosses the block edge.
+    const columnGutterRef = { current: false }
     const onDocumentMouseMove = (e: MouseEvent) => {
       if (isEditorSurfaceHidden()) {
         mouseInsideEditorRef.current = false
@@ -509,15 +546,31 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         return
       }
       if (pinnedTargetRef.current) return
-      const rect = editorDom.getBoundingClientRect()
-      const paddingLeft = parseFloat(window.getComputedStyle(editorDom).paddingLeft) || 12
+      const editorGeometry = editorGeometryRef.current
+      if (!editorGeometry) {
+        lastMoveRef.current = { x: e.clientX, y: e.clientY }
+        if (rafRef.current == null) {
+          rafRef.current = window.requestAnimationFrame(() => {
+            rafRef.current = null
+            const p = lastMoveRef.current
+            if (p) {
+              applyVisibility()
+              recomputeFromHover(p.x, p.y)
+            }
+          })
+        }
+        return
+      }
+      const { rect, paddingLeft } = editorGeometry
       const contentLeft = rect.left + paddingLeft
       const inExtendedGutter =
         e.clientX >= contentLeft - HANDLE_WIDTH - GUTTER_GAP - GUTTER_HIT_SLOP &&
         e.clientX <= contentLeft + 24 &&
         e.clientY >= rect.top &&
         e.clientY <= rect.bottom
-      const inColumnGutter = projectedColumnX(e.clientX, e.clientY) !== null
+      // Geometry is read by the RAF-coalesced recompute path. Reuse its last
+      // classification here so document-level mousemove stays read-free.
+      const inColumnGutter = columnGutterRef.current
 
       if (inExtendedGutter || inColumnGutter) {
         mouseInsideEditorRef.current = true

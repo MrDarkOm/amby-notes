@@ -15,6 +15,8 @@ export const EMOJIS = ["✨", "✅", "🔥", "💡", "📌", "⭐", "❤️", "�
 export interface EditorHandle {
   undo: () => void
   redo: () => void
+  flush: () => void
+  getMarkdownSelection: () => { from: number; to: number } | null
 }
 
 export function clamp(value: number, min: number, max: number) {

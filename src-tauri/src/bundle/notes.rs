@@ -85,7 +85,94 @@ pub(crate) fn resolve_item_root(path: &Path) -> PathBuf {
     }
 }
 
-pub(crate) fn create_note_impl(parent_path: &Path, name: &str) -> Result<FsMutationResult, String> {
+pub(crate) struct CreateNotePlan {
+    parent_path: PathBuf,
+    prospective_container: PathBuf,
+    should_promote: bool,
+    planned_note: PathBuf,
+    initial_source: String,
+}
+
+impl CreateNotePlan {
+    pub(crate) fn planned_note(&self) -> &Path {
+        &self.planned_note
+    }
+
+    pub(crate) fn initial_source(&self) -> &str {
+        &self.initial_source
+    }
+
+    pub(crate) fn promotion_paths(&self) -> Option<(&Path, &Path, PathBuf)> {
+        self.should_promote.then(|| {
+            let parent_stem = file_stem(&self.parent_path).unwrap_or_default();
+            (
+                self.parent_path.as_path(),
+                self.prospective_container.as_path(),
+                self.prospective_container.join(format!("{parent_stem}.md")),
+            )
+        })
+    }
+
+    pub(crate) fn commit(self) -> Result<FsMutationResult, String> {
+        let Self {
+            parent_path,
+            prospective_container,
+            should_promote,
+            planned_note,
+            initial_source,
+        } = self;
+
+        let (container, mut path_changes, promoted_main) = if should_promote {
+            let (main_note, changes) = ensure_bundle_path(&parent_path)?;
+            let container = main_note
+                .parent()
+                .ok_or_else(|| format!("Bundle note has no parent: {}", path_string(&main_note)))?
+                .to_path_buf();
+            (container, changes, Some(main_note))
+        } else {
+            (prospective_container, Vec::new(), None)
+        };
+        let new_note = container.join(
+            planned_note
+                .file_name()
+                .ok_or_else(|| format!("Invalid note path: {}", path_string(&planned_note)))?,
+        );
+        if let Err(error) = frontmatter::atomic_write_new(&new_note, &initial_source) {
+            let error = match error {
+                frontmatter::AtomicCreateError::AlreadyExists => {
+                    format!("Note already exists: {}", path_string(&new_note))
+                }
+                frontmatter::AtomicCreateError::Other(error) => error,
+            };
+            if let Some(main_note) = promoted_main {
+                if let Err(rollback_error) = rollback_bundle_promotion(&parent_path, &main_note) {
+                    return Err(format!(
+                        "Could not create child note: {error}; bundle rollback failed: {rollback_error}"
+                    ));
+                }
+            }
+            return Err(error);
+        }
+
+        path_changes.push(PathChange {
+            old_path: String::new(),
+            new_path: path_string(&new_note),
+        });
+
+        Ok(FsMutationResult {
+            primary_id: None,
+            primary_path: Some(path_string(&new_note)),
+            path_changes,
+            deleted_paths: Vec::new(),
+            deleted_ids: Vec::new(),
+        })
+    }
+}
+
+pub(crate) fn prepare_create_note_impl(
+    parent_path: &Path,
+    name: &str,
+) -> Result<CreateNotePlan, String> {
     let trimmed = name.trim();
     if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
         return Err("Invalid note name".to_string());
@@ -145,44 +232,18 @@ pub(crate) fn create_note_impl(parent_path: &Path, name: &str) -> Result<FsMutat
         ));
     }
 
-    let (container, mut path_changes, promoted_main) = if should_promote {
-        let (main_note, changes) = ensure_bundle_path(parent_path)?;
-        let container = main_note
-            .parent()
-            .ok_or_else(|| format!("Bundle note has no parent: {}", path_string(&main_note)))?
-            .to_path_buf();
-        (container, changes, Some(main_note))
-    } else {
-        (prospective_container, Vec::new(), None)
-    };
-    let new_note = container.join(format!("{trimmed}.md"));
-    if let Err(error) = frontmatter::atomic_write_new(&new_note, "") {
-        let error = match error {
-            frontmatter::AtomicCreateError::AlreadyExists => {
-                format!("Note already exists: {}", path_string(&new_note))
-            }
-            frontmatter::AtomicCreateError::Other(error) => error,
-        };
-        if let Some(main_note) = promoted_main {
-            if let Err(rollback_error) = rollback_bundle_promotion(parent_path, &main_note) {
-                return Err(format!(
-                    "Could not create child note: {error}; bundle rollback failed: {rollback_error}"
-                ));
-            }
-        }
-        return Err(error);
-    }
-
-    path_changes.push(PathChange {
-        old_path: String::new(),
-        new_path: path_string(&new_note),
-    });
-
-    Ok(FsMutationResult {
-        primary_id: None,
-        primary_path: Some(path_string(&new_note)),
-        path_changes,
-        deleted_paths: Vec::new(),
-        deleted_ids: Vec::new(),
+    let note_id = ulid::Ulid::generate().to_string();
+    let initial_source = frontmatter::body_with_id("", &note_id)?;
+    Ok(CreateNotePlan {
+        parent_path: parent_path.to_path_buf(),
+        prospective_container,
+        should_promote,
+        planned_note,
+        initial_source,
     })
+}
+
+#[cfg(test)]
+pub(crate) fn create_note_impl(parent_path: &Path, name: &str) -> Result<FsMutationResult, String> {
+    prepare_create_note_impl(parent_path, name)?.commit()
 }

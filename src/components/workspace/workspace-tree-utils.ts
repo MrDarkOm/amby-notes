@@ -19,6 +19,59 @@ export function wsPathStem(path: string): string {
   return wsPathBase(path).replace(/\.[^.]+$/u, "")
 }
 
+function normalizeComparablePath(path: string): string {
+  return path.replace(/\\/gu, "/").replace(/\/+$/u, "")
+}
+
+function comparableName(name: string): string {
+  return name.trim().toLocaleLowerCase()
+}
+
+/**
+ * Pick the first free note name in a filesystem directory.
+ *
+ * Notes and bundle folders share the same namespace on disk, so both are
+ * considered occupied. Canvas files are intentionally ignored: a note and a
+ * canvas with the same stem are valid separate items.
+ */
+export function nextAvailableNoteName(
+  items: TreeItem[],
+  parentPath: string,
+  baseName: string,
+  reservedNames: ReadonlySet<string> = new Set(),
+): string {
+  const normalizedParent = normalizeComparablePath(parentPath)
+  const occupied = new Set<string>([...reservedNames].map(comparableName))
+
+  function visit(nodes: TreeItem[]) {
+    for (const item of nodes) {
+      const itemPath = normalizeComparablePath(item.path)
+      const itemDirectory = normalizeComparablePath(wsPathDir(item.path))
+      if (item.type !== "canvas" && itemDirectory === normalizedParent) {
+        occupied.add(
+          comparableName(item.type === "folder" ? wsPathBase(item.path) : wsPathStem(item.path)),
+        )
+      }
+      // A bundle's main note is rendered as one tree item, but its containing
+      // directory also occupies a sibling name in the parent directory.
+      if (item.type === "file" && isSuperNoteItem({ path: itemPath, type: item.type })) {
+        const bundleParent = normalizeComparablePath(wsPathDir(itemDirectory))
+        if (bundleParent === normalizedParent)
+          occupied.add(comparableName(wsPathBase(itemDirectory)))
+      }
+      if (item.children) visit(item.children)
+    }
+  }
+  visit(items)
+
+  const trimmedBase = baseName.trim()
+  if (!trimmedBase) return baseName
+  let candidate = trimmedBase
+  let suffix = 1
+  while (occupied.has(comparableName(candidate))) candidate = `${trimmedBase} ${suffix++}`
+  return candidate
+}
+
 /** A supernote is the main Markdown file inside its same-named bundle folder. */
 export function isSuperNoteItem(item: Pick<TreeItem, "path" | "type">): boolean {
   if (item.type !== "file") return false
@@ -97,11 +150,15 @@ export function applyIconOverrides(
   items: TreeItem[],
   overrides: Record<string, string>,
 ): TreeItem[] {
-  return items.map((item) => ({
-    ...item,
-    icon: overrides[item.id] ?? item.icon,
-    children: item.children ? applyIconOverrides(item.children, overrides) : undefined,
-  }))
+  let changed = false
+  const next = items.map((item) => {
+    const icon = overrides[item.id] ?? item.icon
+    const children = item.children ? applyIconOverrides(item.children, overrides) : undefined
+    if (icon === item.icon && children === item.children) return item
+    changed = true
+    return { ...item, icon, children }
+  })
+  return changed ? next : items
 }
 
 // ── Misc helpers ──────────────────────────────────────────────────────────────

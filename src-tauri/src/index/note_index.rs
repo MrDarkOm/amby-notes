@@ -40,10 +40,24 @@ pub struct PreparedNoteIndex {
     pub links: Vec<(String, String, String)>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct NoteIndexIdentitySnapshot {
+    pub by_path: std::collections::HashMap<String, String>,
+    pub by_id: std::collections::HashMap<String, String>,
+}
+
+pub struct PreparedIndexMutation {
+    pub notes: Vec<PreparedNoteIndex>,
+    pub deleted_ids: Vec<String>,
+}
+
 pub struct PreparedNoteWrite {
     pub path: PathBuf,
     pub next: String,
     pub body: String,
+    pub frontmatter_tags: Vec<String>,
+    pub links: Vec<(String, String, String)>,
+    pub persisted_bytes: Vec<u8>,
     pub preserve_opaque_bytes: bool,
 }
 
@@ -189,8 +203,15 @@ pub fn upsert_note_index(
     note_path: &Path,
 ) -> Result<(), String> {
     let prepared = prepare_note_index(vault, note_id, body, note_path)?;
+    upsert_prepared_note_index(conn, &prepared)
+}
+
+pub fn upsert_prepared_note_index(
+    conn: &Connection,
+    prepared: &PreparedNoteIndex,
+) -> Result<(), String> {
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
-    apply_prepared_note_index(&tx, &prepared)?;
+    apply_prepared_note_index(&tx, prepared)?;
     tx.commit().map_err(|e| e.to_string())
 }
 
@@ -199,6 +220,29 @@ pub fn prepare_note_index(
     note_id: &str,
     body: &str,
     note_path: &Path,
+) -> Result<PreparedNoteIndex, String> {
+    let parsed = frontmatter::read_markdown(note_path).ok();
+    let frontmatter_tags = parsed
+        .as_ref()
+        .map(|value| value.frontmatter_tags.clone())
+        .unwrap_or_default();
+    prepare_note_index_from_parts(
+        vault,
+        note_id,
+        body,
+        note_path,
+        frontmatter_tags,
+        extract_links(body),
+    )
+}
+
+pub fn prepare_note_index_from_parts(
+    vault: &Path,
+    note_id: &str,
+    body: &str,
+    note_path: &Path,
+    frontmatter_tags: Vec<String>,
+    links: Vec<(String, String, String)>,
 ) -> Result<PreparedNoteIndex, String> {
     let FileStamp {
         mtime,
@@ -210,10 +254,6 @@ pub fn prepare_note_index(
         .map(normalize_rel_path)
         .map_err(|e| e.to_string())?;
     let title = title_for(note_path, body);
-    let frontmatter_tags = frontmatter::read_markdown(note_path)
-        .map(|parsed| parsed.frontmatter_tags)
-        .unwrap_or_default();
-
     Ok(PreparedNoteIndex {
         note_id: note_id.to_string(),
         rel_path,
@@ -223,7 +263,7 @@ pub fn prepare_note_index(
         size,
         body: body.to_string(),
         frontmatter_tags,
-        links: extract_links(body),
+        links,
     })
 }
 
@@ -322,10 +362,19 @@ pub fn prepare_note_write(
     }
     .map_err(WriteNoteError::failed)?;
     let body = frontmatter::parse_markdown(&next).body;
+    let parsed_next = frontmatter::parse_markdown(&next);
+    let persisted_bytes = if opaque {
+        next.as_bytes().to_vec()
+    } else {
+        frontmatter::text_bytes_for_write(&path, &next).map_err(WriteNoteError::failed)?
+    };
     Ok(PreparedNoteWrite {
         path,
         next,
         body,
+        frontmatter_tags: parsed_next.frontmatter_tags,
+        links: extract_links(&parsed_next.body),
+        persisted_bytes,
         preserve_opaque_bytes: opaque,
     })
 }
@@ -361,18 +410,19 @@ pub fn commit_prepared_note_write(
     vault: &Path,
     prepared: PreparedNoteWrite,
 ) -> Result<(PathBuf, String, String), WriteNoteError> {
-    history::snapshot_before_write(vault, &prepared.path, prepared.next.as_bytes(), "note-save")
-        .map_err(WriteNoteError::failed)?;
-    if prepared.preserve_opaque_bytes {
-        frontmatter::atomic_write_bytes(&prepared.path, prepared.next.as_bytes())
-    } else {
-        frontmatter::atomic_write(&prepared.path, &prepared.next)
-    }
+    history::snapshot_before_write(
+        vault,
+        &prepared.path,
+        &prepared.persisted_bytes,
+        "note-save",
+    )
     .map_err(WriteNoteError::failed)?;
-    // atomic_write restores a note's original BOM/line-ending convention. Read
-    // back the persisted body so the returned CAS token hashes the actual bytes,
-    // not the frontend-normalised LF buffer.
-    let persisted = fs::read_to_string(&prepared.path)
+    frontmatter::atomic_write_bytes(&prepared.path, &prepared.persisted_bytes)
+        .map_err(WriteNoteError::failed)?;
+    // Hash the exact bytes already prepared for publication. This avoids a
+    // second disk read and keeps the CAS token tied to what atomic_write_bytes
+    // actually published.
+    let persisted = String::from_utf8(prepared.persisted_bytes.clone())
         .map_err(|error| WriteNoteError::failed(error.to_string()))?;
     let persisted_body = frontmatter::parse_markdown(&persisted).body;
     let revision = body_revision(if prepared.preserve_opaque_bytes {
@@ -428,6 +478,35 @@ pub fn prepare_note_at_path(
     vault: &Path,
     path: &Path,
 ) -> Result<PreparedNoteIndex, String> {
+    let identities = collect_note_index_identities(conn)?;
+    prepare_note_at_path_with_identities(vault, path, &identities)
+}
+
+pub fn collect_note_index_identities(
+    conn: &Connection,
+) -> Result<NoteIndexIdentitySnapshot, String> {
+    let mut statement = conn
+        .prepare("SELECT id, path FROM notes")
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| error.to_string())?;
+    let mut snapshot = NoteIndexIdentitySnapshot::default();
+    for row in rows {
+        let (id, path) = row.map_err(|error| error.to_string())?;
+        snapshot.by_path.insert(path.clone(), id.clone());
+        snapshot.by_id.insert(id, path);
+    }
+    Ok(snapshot)
+}
+
+pub fn prepare_note_at_path_with_identities(
+    vault: &Path,
+    path: &Path,
+    identities: &NoteIndexIdentitySnapshot,
+) -> Result<PreparedNoteIndex, String> {
     let rel_path = relative_path(vault, path)?;
     let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let parsed = frontmatter::parse_markdown(&content);
@@ -445,17 +524,10 @@ pub fn prepare_note_at_path(
     }
     let id = parsed.note_id().map(str::to_string);
     if let Some(existing_id) = &id {
-        let indexed_path: Option<String> = conn
-            .query_row(
-                "SELECT path FROM notes WHERE id = ?1",
-                [existing_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())?;
-        if indexed_path
-            .as_deref()
-            .is_some_and(|indexed| indexed != rel_path && abs_from_rel(vault, indexed).is_file())
+        if identities
+            .by_id
+            .get(existing_id)
+            .is_some_and(|indexed| indexed != &rel_path && abs_from_rel(vault, indexed).is_file())
         {
             return prepare_note_index(
                 vault,
@@ -490,6 +562,15 @@ pub fn prepare_path_changes(
     vault: &Path,
     changes: &[crate::model::PathChange],
 ) -> Result<Vec<PreparedNoteIndex>, String> {
+    let identities = collect_note_index_identities(conn)?;
+    prepare_path_changes_with_identities(vault, changes, &identities)
+}
+
+pub fn prepare_path_changes_with_identities(
+    vault: &Path,
+    changes: &[crate::model::PathChange],
+    identities: &NoteIndexIdentitySnapshot,
+) -> Result<Vec<PreparedNoteIndex>, String> {
     let mut prepared = Vec::new();
     for change in changes {
         if change.new_path.is_empty() {
@@ -501,28 +582,29 @@ pub fn prepare_path_changes(
         }
 
         if change.old_path.is_empty() || !is_markdown(Path::new(&change.old_path)) {
-            prepared.push(prepare_note_at_path(conn, vault, new_path)?);
+            prepared.push(prepare_note_at_path_with_identities(
+                vault, new_path, identities,
+            )?);
             continue;
         }
 
         let old_rel = relative_path(vault, Path::new(&change.old_path))?;
-        let id: Option<String> = conn
-            .query_row("SELECT id FROM notes WHERE path = ?1", [&old_rel], |row| {
-                row.get(0)
-            })
-            .optional()
-            .map_err(|e| e.to_string())?;
+        let id = identities.by_path.get(&old_rel).cloned();
 
         if let Some(id) = id.filter(|id| !is_path_identity(id)) {
             let content = fs::read_to_string(new_path).map_err(|e| e.to_string())?;
             let parsed = frontmatter::parse_markdown(&content);
             if parsed.frontmatter_status.is_malformed() {
-                prepared.push(prepare_note_at_path(conn, vault, new_path)?);
+                prepared.push(prepare_note_at_path_with_identities(
+                    vault, new_path, identities,
+                )?);
             } else {
                 prepared.push(prepare_note_index(vault, &id, &parsed.body, new_path)?);
             }
         } else {
-            prepared.push(prepare_note_at_path(conn, vault, new_path)?);
+            prepared.push(prepare_note_at_path_with_identities(
+                vault, new_path, identities,
+            )?);
         }
     }
     let mut identities = std::collections::HashSet::new();
@@ -532,6 +614,30 @@ pub fn prepare_path_changes(
         }
     }
     Ok(prepared)
+}
+
+pub fn collect_index_mutation_inputs(
+    conn: &Connection,
+    vault: &Path,
+    _changes: &[crate::model::PathChange],
+    deleted_paths: &[String],
+) -> Result<(NoteIndexIdentitySnapshot, Vec<String>), String> {
+    Ok((
+        collect_note_index_identities(conn)?,
+        prepare_deleted_ids(conn, vault, deleted_paths)?,
+    ))
+}
+
+pub fn prepare_index_mutation(
+    vault: &Path,
+    changes: &[crate::model::PathChange],
+    identities: &NoteIndexIdentitySnapshot,
+    deleted_ids: Vec<String>,
+) -> Result<PreparedIndexMutation, String> {
+    Ok(PreparedIndexMutation {
+        notes: prepare_path_changes_with_identities(vault, changes, identities)?,
+        deleted_ids,
+    })
 }
 
 pub fn prepare_deleted_ids(

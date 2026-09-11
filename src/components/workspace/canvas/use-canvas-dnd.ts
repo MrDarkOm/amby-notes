@@ -5,6 +5,7 @@ import type { useReactFlow } from "@xyflow/react"
 import { isTauri, importAsset, importAssetBytes } from "@/lib/storage"
 import { getTreeDragPayload, clearTreeDragPayload } from "@/lib/canvas-dnd"
 import { extFromMime } from "./canvas-markdown"
+import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import type { CanvasFlowNode, FileNodeData } from "@/lib/canvas-format"
 
 export function useCanvasDnd({
@@ -51,27 +52,29 @@ export function useCanvasDnd({
   // ── Finder file drop (Tauri) ──
   React.useEffect(() => {
     if (!isTauri() || !vault || !notePath) return
-    let unlisten: (() => void) | undefined
     let lastPointer = { x: 0, y: 0 }
     const track = (e: PointerEvent) => {
       lastPointer = { x: e.clientX, y: e.clientY }
     }
     window.addEventListener("pointermove", track)
-    ;(async () => {
-      const { getCurrentWebview } = await import("@tauri-apps/api/webview")
-      unlisten = await getCurrentWebview().onDragDropEvent(async (event) => {
-        const payload = event.payload as { type: string; paths?: string[] }
-        if (payload.type !== "drop" || !payload.paths) return
-        const pos = rf.screenToFlowPosition(lastPointer)
-        for (const src of payload.paths) {
-          const res = await importAsset(vault, notePath, src)
-          if (res) setNodes((nds) => [...nds, makeNode("file", pos, { file: res.relPath })])
-        }
-      })
-    })()
+    const cleanupListener = adoptAsyncDisposer(
+      Promise.resolve().then(async () => {
+        const { getCurrentWebview } = await import("@tauri-apps/api/webview")
+        return getCurrentWebview().onDragDropEvent(async (event) => {
+          const payload = event.payload as { type: string; paths?: string[] }
+          if (payload.type !== "drop" || !payload.paths) return
+          const pos = rf.screenToFlowPosition(lastPointer)
+          for (const src of payload.paths) {
+            const res = await importAsset(vault, notePath, src)
+            if (res) setNodes((nds) => [...nds, makeNode("file", pos, { file: res.relPath })])
+          }
+        })
+      }),
+      () => {},
+    )
     return () => {
       window.removeEventListener("pointermove", track)
-      unlisten?.()
+      cleanupListener?.()
     }
   }, [vault, notePath, rf, setNodes, makeNode])
 

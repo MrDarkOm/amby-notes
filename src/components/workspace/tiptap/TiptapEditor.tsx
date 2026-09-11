@@ -179,9 +179,6 @@ export function TiptapEditor({
       serializeTimerRef.current = setTimeout(() => flushSerialize(editor), 200)
     },
     onSelectionUpdate: ({ editor }) => {
-      onSelectionChangeRef.current?.(
-        docSelectionToMarkdownSelection(editor.state.doc, valueRef.current, editor.state.selection),
-      )
       if (!editor.isEditable) return
       if (suppressSelectionMenuRef.current) {
         closeMenu()
@@ -295,8 +292,11 @@ export function TiptapEditor({
     ;(editorRef as React.MutableRefObject<EditorHandle>).current = {
       undo: () => editor.chain().focus().undo().run(),
       redo: () => editor.chain().focus().redo().run(),
+      flush: () => flushSerialize(editor),
+      getMarkdownSelection: () =>
+        docSelectionToMarkdownSelection(editor.state.doc, valueRef.current, editor.state.selection),
     }
-  }, [editor, editorRef])
+  }, [editor, editorRef, flushSerialize])
 
   // Make vault/note paths reachable from inside extensions/node views.
   React.useEffect(() => {

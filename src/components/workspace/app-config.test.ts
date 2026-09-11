@@ -16,6 +16,7 @@ import {
   SESSION_SCHEMA_VERSION,
   WORKSPACES_SCHEMA_VERSION,
   SETTINGS_SAVE_ERROR_EVENT,
+  normalizeAppPreferences,
 } from "./app-config"
 import { readGlobalSettingsResult } from "@/lib/storage"
 
@@ -182,6 +183,26 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     )
 
     expect((await loadSettings()).prefs.updates.autoUpdate).toBe(false)
+  })
+
+  it("normalizes persisted window and panel dimensions", () => {
+    const prefs = normalizeAppPreferences({
+      window: {
+        width: 100,
+        height: 10000,
+        leftPanelWidth: 100,
+        rightPanelWidth: 999,
+        maximized: true,
+      },
+    })
+
+    expect(prefs.window).toEqual({
+      width: 640,
+      height: 8192,
+      leftPanelWidth: 250,
+      rightPanelWidth: 520,
+      maximized: true,
+    })
   })
 
   it("preserves the explicit database gate without changing module layout", async () => {

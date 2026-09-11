@@ -10,6 +10,7 @@ import {
   type DatabaseChangedPayload,
 } from "@/lib/storage"
 import { useDatabaseStore } from "./database-store"
+import { adoptAsyncDisposer } from "@/lib/async-disposable"
 
 interface DatabaseControllerOptions {
   enabled: boolean
@@ -61,19 +62,18 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
     }
 
     const signal = { cancelled: false }
-    let dispose: (() => void) | undefined
-    void (async () => {
+    const registration = (async () => {
       try {
         let runtime = await getDatabaseModuleState()
-        if (signal.cancelled) return
+        if (signal.cancelled) return undefined
         if (!runtime.enabled || runtime.vaultGeneration !== vaultGeneration) {
           runtime = await setDatabaseModuleEnabled(true, vaultGeneration)
         }
-        if (signal.cancelled) return
+        if (signal.cancelled) return undefined
         setRuntime(runtime)
         await refreshCatalog(signal)
-        if (signal.cancelled || !isTauri()) return
-        dispose = await listen<DatabaseChangedPayload>("database:changed", () => {
+        if (signal.cancelled || !isTauri()) return undefined
+        return listen<DatabaseChangedPayload>("database:changed", () => {
           void (async () => {
             try {
               const nextRuntime = await rebuildDatabaseProjection()
@@ -86,15 +86,16 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
             if (!signal.cancelled) invalidateHosts()
           })()
         })
-        if (signal.cancelled) dispose?.()
       } catch (error) {
         if (!signal.cancelled) setCatalogError(errorMessage(error))
+        return undefined
       }
     })()
+    const cleanupListener = adoptAsyncDisposer(registration, () => {})
 
     return () => {
       signal.cancelled = true
-      dispose?.()
+      cleanupListener()
     }
   }, [
     enabled,

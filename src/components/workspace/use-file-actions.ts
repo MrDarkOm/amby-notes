@@ -34,6 +34,8 @@ export function useFileActions(params: UseFileActionsParams) {
     ...crud,
     ...mutations,
     handleContentChange: markdownAutosave.handleContentChange,
+    handleContentDirty: markdownAutosave.handleContentDirty,
+    recoveryScope: markdownAutosave.recoveryScope,
     releaseUnusedDocumentBuffers: markdownAutosave.releaseUnusedDocumentBuffers,
   }
 }

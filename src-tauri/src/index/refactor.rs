@@ -24,6 +24,17 @@ pub struct RefactorPreview {
     pub replacements: usize,
 }
 
+/// Database-only part of an inbound link refactor. Keeping this value separate
+/// lets mutation commands release the SQLite mutex before scanning and reading
+/// Markdown/Canvas files from disk.
+#[derive(Clone, Debug)]
+pub struct InboundWikiRewriteInputs {
+    moved_sources: HashMap<String, String>,
+    inbound_links: Vec<(String, String, String)>,
+    literal_changes: Vec<(String, String)>,
+    moved_absolute: HashMap<PathBuf, PathBuf>,
+}
+
 pub fn refactor_preview(plan: &[PlannedWikiRewrite]) -> RefactorPreview {
     RefactorPreview {
         notes: plan.len(),
@@ -47,6 +58,16 @@ pub fn plan_inbound_wiki_rewrites(
     vault: &Path,
     changes: &[crate::model::PathChange],
 ) -> Result<Vec<PlannedWikiRewrite>, String> {
+    let inputs = collect_inbound_wiki_rewrite_inputs(conn, vault, changes)?;
+    build_inbound_wiki_rewrites(vault, changes, inputs)
+}
+
+/// Collect only SQL and path-normalization inputs for a link refactor.
+pub fn collect_inbound_wiki_rewrite_inputs(
+    conn: &Connection,
+    vault: &Path,
+    changes: &[crate::model::PathChange],
+) -> Result<InboundWikiRewriteInputs, String> {
     let mut moved_sources = HashMap::<String, String>::new();
     let mut targets = HashMap::<String, String>::new();
     for change in changes {
@@ -73,7 +94,7 @@ pub fn plan_inbound_wiki_rewrites(
         }
     }
 
-    let mut by_source = HashMap::<PathBuf, Vec<(String, String)>>::new();
+    let mut inbound_links = Vec::new();
     for (target_id, replacement) in targets {
         let mut statement = conn
             .prepare(
@@ -88,27 +109,10 @@ pub fn plan_inbound_wiki_rewrites(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| error.to_string())?;
         for (source_rel, raw) in rows {
-            let original_path = vault.join(&source_rel);
-            let readable_path = if original_path.is_file() {
-                original_path
-            } else {
-                vault.join(moved_sources.get(&source_rel).unwrap_or(&source_rel))
-            };
-            if frontmatter::read_markdown(&readable_path)?.frontmatter_status
-                == crate::model::FrontmatterStatus::Unterminated
-            {
-                continue;
-            }
-            let source_rel = moved_sources.get(&source_rel).unwrap_or(&source_rel);
-            let source = vault.join(source_rel);
-            let next = replace_wiki_target(&raw, &replacement);
-            if raw != next {
-                by_source.entry(source).or_default().push((raw, next));
-            }
+            inbound_links.push((source_rel, raw, replacement.clone()));
         }
     }
 
-    let mut literal_by_source = HashMap::<PathBuf, Vec<(String, String)>>::new();
     let literal_changes = changes
         .iter()
         .filter(|change| !change.old_path.is_empty() && !change.new_path.is_empty())
@@ -128,6 +132,43 @@ pub fn plan_inbound_wiki_rewrites(
             )
         })
         .collect::<HashMap<_, _>>();
+    Ok(InboundWikiRewriteInputs {
+        moved_sources,
+        inbound_links,
+        literal_changes,
+        moved_absolute,
+    })
+}
+
+/// Perform the disk-heavy part of an inbound link refactor without holding a
+/// SQLite connection mutex.
+pub fn build_inbound_wiki_rewrites(
+    vault: &Path,
+    _changes: &[crate::model::PathChange],
+    inputs: InboundWikiRewriteInputs,
+) -> Result<Vec<PlannedWikiRewrite>, String> {
+    let mut by_source = HashMap::<PathBuf, Vec<(String, String)>>::new();
+    for (source_rel, raw, replacement) in inputs.inbound_links {
+        let original_path = vault.join(&source_rel);
+        let readable_path = if original_path.is_file() {
+            original_path
+        } else {
+            vault.join(inputs.moved_sources.get(&source_rel).unwrap_or(&source_rel))
+        };
+        if frontmatter::read_markdown(&readable_path)?.frontmatter_status
+            == crate::model::FrontmatterStatus::Unterminated
+        {
+            continue;
+        }
+        let source_rel = inputs.moved_sources.get(&source_rel).unwrap_or(&source_rel);
+        let source = vault.join(source_rel);
+        let next = replace_wiki_target(&raw, &replacement);
+        if raw != next {
+            by_source.entry(source).or_default().push((raw, next));
+        }
+    }
+
+    let mut literal_by_source = HashMap::<PathBuf, Vec<(String, String)>>::new();
     for entry in WalkDir::new(vault).into_iter().filter_map(Result::ok) {
         let source = entry.path();
         if !source.is_file()
@@ -153,11 +194,12 @@ pub fn plan_inbound_wiki_rewrites(
         } else {
             content.as_str()
         };
-        let rewritten_source = moved_absolute
+        let rewritten_source = inputs
+            .moved_absolute
             .get(source)
             .cloned()
             .unwrap_or_else(|| source.to_path_buf());
-        for (old_rel, new_rel) in &literal_changes {
+        for (old_rel, new_rel) in &inputs.literal_changes {
             for (old, new) in [
                 (format!("]({old_rel})"), format!("]({new_rel})")),
                 (format!("](/{old_rel})"), format!("](/{new_rel})")),

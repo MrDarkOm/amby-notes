@@ -1,6 +1,14 @@
 "use client"
 
-import { BookOpenText, FileText, Folder, LayoutGrid, PanelsTopLeft, PenLine } from "lucide-react"
+import {
+  BookOpenText,
+  FileText,
+  Folder,
+  LayoutGrid,
+  PanelsTopLeft,
+  PenLine,
+  Star,
+} from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { IconValue } from "../icon-value"
@@ -32,7 +40,7 @@ export function TreeIcon({ icon, className }: { icon?: string; className?: strin
   if (isRichIconValue(icon)) return <IconValue value={icon} className={cls} />
   if (icon && !KNOWN_ICONS.has(icon)) {
     return (
-      <span className="size-4 shrink-0 text-[14px] leading-4 flex items-center justify-center">
+      <span className={cn(cls, "flex items-center justify-center text-[14px] leading-4")}>
         {icon}
       </span>
     )
@@ -67,4 +75,75 @@ export function TreeItemIcon({ item, className }: { item: TreeItem; className?: 
           ? "folder"
           : "file"
   return <TreeIcon icon={icon} className={className} />
+}
+
+export function FileStarIcon({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn("relative inline-flex size-3.5 shrink-0 overflow-visible", className)}
+    >
+      <FileText className="size-3.5" />
+      <Star className="absolute -bottom-0.5 -right-0.5 size-2.5 fill-current stroke-[2.25]" />
+    </span>
+  )
+}
+
+export function TreeItemStatusIcon({
+  item,
+  isFavorite,
+  className,
+  onActivate,
+  label,
+}: {
+  item: TreeItem
+  isFavorite: boolean
+  className?: string
+  onActivate?: () => void
+  label?: string
+}) {
+  const isFavoriteNote = item.type === "file" && isFavorite
+  const isInteractive = item.type === "file" && !!onActivate
+  const Icon = item.type === "folder" ? Folder : item.type === "canvas" ? LayoutGrid : FileText
+
+  return (
+    <span
+      aria-hidden={isInteractive ? undefined : true}
+      data-tree-file-status={
+        item.type === "folder" ? "folder" : isFavoriteNote ? "favorite" : item.type
+      }
+      role={isInteractive ? "button" : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
+      aria-label={isInteractive ? label : undefined}
+      aria-pressed={isInteractive ? isFavoriteNote : undefined}
+      title={isInteractive ? label : undefined}
+      onClick={
+        isInteractive
+          ? (event) => {
+              event.stopPropagation()
+              onActivate?.()
+            }
+          : undefined
+      }
+      onKeyDown={
+        isInteractive
+          ? (event) => {
+              if (event.key !== "Enter" && event.key !== " ") return
+              event.preventDefault()
+              event.stopPropagation()
+              onActivate?.()
+            }
+          : undefined
+      }
+      className={cn(
+        "ml-auto inline-flex size-3.5 shrink-0",
+        isFavoriteNote ? "text-primary" : "text-muted-foreground/40",
+        isInteractive &&
+          "cursor-pointer rounded-sm hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        className,
+      )}
+    >
+      {isFavoriteNote ? <FileStarIcon /> : <Icon className="size-3.5" />}
+    </span>
+  )
 }

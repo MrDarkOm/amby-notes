@@ -18,6 +18,7 @@ export function SidebarTree({
   onSelect,
   onRename,
   onDelete,
+  onDeleteMany,
   onNewFile,
   onAttachCanvas,
   onOpenInNewTab,
@@ -26,6 +27,7 @@ export function SidebarTree({
   onOpenInExplorer,
   onMoveItem,
   onSetIcon,
+  onContextMenuSelect,
   triggerRenameId,
   favorites,
   onToggleFavorite,
@@ -43,6 +45,7 @@ export function SidebarTree({
     selectedId ? new Set([selectedId]) : new Set(),
   )
   const selectionAnchorRef = React.useRef<string | null>(selectedId)
+  const handledRenameTriggerRef = React.useRef<string | null>(null)
 
   // Opening a different note from another part of the app starts a new
   // selection, while modifier-clicks inside the tree stay local to this view.
@@ -51,15 +54,10 @@ export function SidebarTree({
     selectionAnchorRef.current = selectedId
   }, [selectedId])
 
-  // ── Respond to external rename trigger ─────────────────────────────────────
-  React.useEffect(() => {
-    if (!triggerRenameId) return
-    const timer = setTimeout(() => setEditingId(triggerRenameId), 80)
-    return () => clearTimeout(timer)
-  }, [triggerRenameId])
-
   // ── Flat visible row list ───────────────────────────────────────────────────
   const flatRows = React.useMemo(() => flattenVisible(items, closedIds), [items, closedIds])
+  const flatRowsRef = React.useRef(flatRows)
+  flatRowsRef.current = flatRows
 
   // ── Virtualizer ─────────────────────────────────────────────────────────────
   const scrollRef = React.useRef<HTMLDivElement>(null)
@@ -71,17 +69,43 @@ export function SidebarTree({
     overscan: 6,
   })
 
+  // A newly created item may be outside the virtualized viewport. Select it,
+  // scroll it into view, and only then enter rename mode so its input can take
+  // focus reliably regardless of where the note was created.
+  React.useEffect(() => {
+    if (!triggerRenameId) {
+      handledRenameTriggerRef.current = null
+      return
+    }
+    if (handledRenameTriggerRef.current === triggerRenameId) return
+    const normalizePath = (path: string) => path.replace(/\\/gu, "/").replace(/\/+$/u, "")
+    const normalizedTrigger = normalizePath(triggerRenameId)
+    const target = flatRowsRef.current.find(
+      (row) =>
+        row.item.id === triggerRenameId || normalizePath(row.item.path) === normalizedTrigger,
+    )
+    if (!target) return
+    handledRenameTriggerRef.current = triggerRenameId
+    const index = flatRowsRef.current.findIndex((row) => row.item.id === target.item.id)
+    if (index !== -1) virtualizer.scrollToIndex(index, { align: "auto" })
+    setSelectedIds(new Set([target.item.id]))
+    selectionAnchorRef.current = target.item.id
+    setKeyboardFocusId(target.item.id)
+    setEditingId(target.item.id)
+  }, [flatRows, triggerRenameId, virtualizer])
+
   const handleSelect = React.useCallback(
     (id: string, event?: React.MouseEvent<HTMLElement>) => {
+      const currentRows = flatRowsRef.current
       const additive = Boolean(event?.metaKey || event?.ctrlKey)
       const anchor = selectionAnchorRef.current
-      const anchorIndex = anchor ? flatRows.findIndex((row) => row.item.id === anchor) : -1
-      const currentIndex = flatRows.findIndex((row) => row.item.id === id)
+      const anchorIndex = anchor ? currentRows.findIndex((row) => row.item.id === anchor) : -1
+      const currentIndex = currentRows.findIndex((row) => row.item.id === id)
 
       if (event?.shiftKey && anchorIndex !== -1 && currentIndex !== -1) {
         const from = Math.min(anchorIndex, currentIndex)
         const to = Math.max(anchorIndex, currentIndex)
-        setSelectedIds(new Set(flatRows.slice(from, to + 1).map((row) => row.item.id)))
+        setSelectedIds(new Set(currentRows.slice(from, to + 1).map((row) => row.item.id)))
         return
       }
 
@@ -100,7 +124,7 @@ export function SidebarTree({
       selectionAnchorRef.current = id
       onSelect(id)
     },
-    [flatRows, onSelect],
+    [onSelect],
   )
 
   const handleKeyboardSelect = React.useCallback((id: string) => handleSelect(id), [handleSelect])
@@ -115,7 +139,10 @@ export function SidebarTree({
   )
 
   React.useEffect(() => {
-    if (!keyboardFocusId) return
+    // While renaming, the input owns focus. Cancelling the pending row-focus
+    // frame is essential for nested creation: focusing the parent row after
+    // the input mounts would blur it and immediately commit the default name.
+    if (!keyboardFocusId || editingId) return
     const index = flatRows.findIndex((row) => row.item.id === keyboardFocusId)
     if (index === -1) return
     virtualizer.scrollToIndex(index, { align: "auto" })
@@ -126,7 +153,7 @@ export function SidebarTree({
       row?.focus()
     })
     return () => cancelAnimationFrame(frame)
-  }, [flatRows, keyboardFocusId, virtualizer])
+  }, [editingId, flatRows, keyboardFocusId, virtualizer])
 
   const { handleTreeKeyDown } = useTreeKeyboard({
     items,
@@ -162,9 +189,30 @@ export function SidebarTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [findActiveKey])
 
-  const { ptrDrag, onPtrDragStart } = useTreeDnd({ onMoveItem })
+  const { ptrDrag, onPtrDragStart } = useTreeDnd({ onMoveItem, selectedIds })
+  const ptrDragSourceIds = React.useMemo(
+    () => new Set(ptrDrag?.sourceIds ?? []),
+    [ptrDrag?.sourceIds],
+  )
 
   const totalSize = virtualizer.getTotalSize()
+  const handleToggleOpen = React.useCallback((id: string) => toggleOpen(id), [toggleOpen])
+  const handleStartEdit = React.useCallback((id: string) => setEditingId(id), [])
+  const handleContextMenuSelect = React.useCallback(
+    (id: string) => {
+      setSelectedIds(new Set([id]))
+      selectionAnchorRef.current = id
+      onContextMenuSelect?.(id)
+    },
+    [onContextMenuSelect],
+  )
+  const handleFinishEdit = React.useCallback(
+    (id: string, newName: string | null) => {
+      if (newName) onRename?.(id, newName)
+      setEditingId(null)
+    },
+    [onRename],
+  )
 
   return (
     <>
@@ -202,18 +250,16 @@ export function SidebarTree({
                   item={row.item}
                   level={row.level}
                   isOpen={!closedIds.has(row.item.id)}
-                  onToggleOpen={() => toggleOpen(row.item.id)}
+                  onToggleOpen={handleToggleOpen}
                   isEditing={editingId === row.item.id}
-                  onStartEdit={() => setEditingId(row.item.id)}
-                  onFinishEdit={(newName) => {
-                    if (newName) onRename?.(row.item.id, newName)
-                    setEditingId(null)
-                  }}
+                  onStartEdit={handleStartEdit}
+                  onFinishEdit={handleFinishEdit}
                   selectedIds={selectedIds}
                   isKeyboardFocused={keyboardFocusId === row.item.id}
                   onKeyboardFocus={setKeyboardFocusId}
                   onSelect={handleSelect}
                   onDelete={onDelete}
+                  onDeleteMany={onDeleteMany}
                   onNewFile={onNewFile}
                   onAttachCanvas={onAttachCanvas}
                   onOpenInNewTab={onOpenInNewTab}
@@ -221,9 +267,10 @@ export function SidebarTree({
                   onCloneFile={onCloneFile}
                   onOpenInExplorer={onOpenInExplorer}
                   onSetIcon={onSetIcon}
+                  onContextMenuSelect={handleContextMenuSelect}
                   onPtrDragStart={onPtrDragStart}
-                  ptrDragSourceId={ptrDrag?.sourceId ?? null}
-                  ptrDragTargetId={ptrDrag?.targetId ?? null}
+                  isPtrDragSource={ptrDragSourceIds.has(row.item.id)}
+                  isPtrDragTarget={ptrDrag?.targetId === row.item.id}
                   favorites={favorites}
                   onToggleFavorite={onToggleFavorite}
                   onAttachLayer={onAttachLayer}

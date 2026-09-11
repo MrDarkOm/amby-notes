@@ -356,10 +356,20 @@ export interface UpdatePrefs {
 }
 
 export interface DockPreferences {
-  leftVisible: boolean
-  rightVisible: boolean
   leftPinned: boolean
   rightPinned: boolean
+}
+
+export const PANEL_WIDTH_MIN = 250
+export const PANEL_WIDTH_MAX = 520
+export const DEFAULT_PANEL_WIDTH = 300
+
+export interface WindowPreferences {
+  width: number
+  height: number
+  leftPanelWidth: number
+  rightPanelWidth: number
+  maximized: boolean
 }
 
 /** Everything the Settings screen controls. Lives in the global settings.json
@@ -377,6 +387,7 @@ export interface AppPreferences {
   startup: StartupPrefs
   updates: UpdatePrefs
   docks: DockPreferences
+  window: WindowPreferences
   shortcuts: ShortcutBindings
 }
 
@@ -392,12 +403,25 @@ export const DEFAULT_PREFS: AppPreferences = {
   editor: { defaultViewMode: "live", contentWidth: "normal", autosaveMs: 500 },
   startup: { reopenLastVault: true, restoreSession: true },
   updates: { autoUpdate: true },
-  docks: { leftVisible: true, rightVisible: true, leftPinned: true, rightPinned: true },
+  docks: { leftPinned: true, rightPinned: true },
+  window: {
+    width: 1280,
+    height: 800,
+    leftPanelWidth: DEFAULT_PANEL_WIDTH,
+    rightPanelWidth: DEFAULT_PANEL_WIDTH,
+    maximized: false,
+  },
   shortcuts: { ...DEFAULT_SHORTCUTS },
 }
 
 function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
   return typeof v === "string" && (allowed as readonly string[]).includes(v) ? (v as T) : fallback
+}
+
+function boundedNumber(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(Math.max(min, Math.min(max, value)))
+    : fallback
 }
 
 export function normalizeAppPreferences(
@@ -409,6 +433,7 @@ export function normalizeAppPreferences(
   const su = (d.startup ?? {}) as Partial<StartupPrefs>
   const up = (d.updates ?? {}) as Partial<UpdatePrefs>
   const dk = (d.docks ?? {}) as Partial<DockPreferences>
+  const wi = (d.window ?? {}) as Partial<WindowPreferences>
   const storedTheme = d.theme ?? legacyTheme
   const migratedTheme = typeof storedTheme === "string" ? migrateThemeId(storedTheme) : storedTheme
   const autosaveMs =
@@ -453,10 +478,25 @@ export function normalizeAppPreferences(
       autoUpdate: typeof up.autoUpdate === "boolean" ? up.autoUpdate : true,
     },
     docks: {
-      leftVisible: typeof dk.leftVisible === "boolean" ? dk.leftVisible : true,
-      rightVisible: typeof dk.rightVisible === "boolean" ? dk.rightVisible : true,
       leftPinned: typeof dk.leftPinned === "boolean" ? dk.leftPinned : true,
       rightPinned: typeof dk.rightPinned === "boolean" ? dk.rightPinned : true,
+    },
+    window: {
+      width: boundedNumber(wi.width, 640, 8192, DEFAULT_PREFS.window.width),
+      height: boundedNumber(wi.height, 420, 8192, DEFAULT_PREFS.window.height),
+      leftPanelWidth: boundedNumber(
+        wi.leftPanelWidth,
+        PANEL_WIDTH_MIN,
+        PANEL_WIDTH_MAX,
+        DEFAULT_PREFS.window.leftPanelWidth,
+      ),
+      rightPanelWidth: boundedNumber(
+        wi.rightPanelWidth,
+        PANEL_WIDTH_MIN,
+        PANEL_WIDTH_MAX,
+        DEFAULT_PREFS.window.rightPanelWidth,
+      ),
+      maximized: typeof wi.maximized === "boolean" ? wi.maximized : false,
     },
     shortcuts: normalizeShortcutBindings(d.shortcuts),
   }

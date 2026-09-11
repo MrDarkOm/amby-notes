@@ -3,6 +3,7 @@ import type { AutosaveCoordinator, AutosaveKey } from "../autosave/autosave-coor
 import type { Document } from "../use-doc-store"
 import type { TreeItem } from "../sidebar-tree"
 import type { FsMutationResult } from "@/lib/storage"
+import type { RecoveryScope } from "@/lib/recovery-drafts"
 
 export interface UseFileActionsParams {
   vault: string | null
@@ -31,6 +32,8 @@ export interface MarkdownAutosaveActions {
   autosaveKey: (fileId: string) => AutosaveKey
   handleApplyMutation: (result: FsMutationResult) => void
   handleContentChange: (fileId: string, content: string) => void
+  handleContentDirty: (fileId: string) => void
+  recoveryScope: RecoveryScope
   releaseUnusedDocumentBuffers: () => Promise<void>
 }
 

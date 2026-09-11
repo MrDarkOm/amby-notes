@@ -49,8 +49,9 @@ export function planMutation(result: FsMutationResult): {
 } {
   // Only remap entries where both old and new path are non-empty strings.
   const changes = result.pathChanges.filter((c) => c.oldPath && c.newPath)
-  // Prefer deletedIds (ULID-keyed) over deletedPaths (legacy path-keyed).
-  const deleted = new Set(result.deletedIds ?? result.deletedPaths)
+  // Keep both forms: indexed notes return stable ids while unindexed files
+  // (for example canvases) may only be represented by their deleted path.
+  const deleted = new Set([...(result.deletedIds ?? []), ...result.deletedPaths])
 
   return {
     deletedIds: [...deleted],
@@ -219,26 +220,122 @@ function commonDir(paths: string[]): string | null {
   return value || null
 }
 
-function treeParentPath(item: TreeItem, allItems: TreeItem[]): string | null {
-  const parentDir = dirname(item.path)
-  if (!parentDir) return null
-  if (item.type === "file") {
-    const bundleMain = `${parentDir}/${basename(parentDir)}.md`
-    if (bundleMain === normalizeTreePath(item.path)) return dirname(parentDir)
-    if (allItems.some((candidate) => candidate.path === bundleMain)) {
-      return bundleMain
-    }
+function treeParentPath(item: TreeItem, itemsByPath: ReadonlyMap<string, TreeItem>): string | null {
+  const itemPath = normalizeTreePath(item.path)
+  let containerDir = dirname(itemPath)
+  if (!containerDir) return null
+
+  // A bundle main note represents its containing directory in the visual tree,
+  // so its parent lives one filesystem level above that directory.
+  if (item.type === "file" && itemPath === `${containerDir}/${basename(containerDir)}.md`) {
+    containerDir = dirname(containerDir)
+    if (!containerDir) return null
   }
-  return parentDir
+
+  // Regular files and folders inside a bundle are children of the bundle's
+  // main note, not root rows. Checking this for every item type is important:
+  // folder rows were previously detached whenever a mutation rebuilt the tree.
+  const bundleMain = `${containerDir}/${basename(containerDir)}.md`
+  if (itemsByPath.has(bundleMain)) return bundleMain
+  return itemsByPath.has(containerDir) ? containerDir : null
+}
+
+function compareTreeItems(left: TreeItem, right: TreeItem): number {
+  const typeOrder = (item: TreeItem) => (item.type === "folder" ? 0 : 1)
+  return typeOrder(left) - typeOrder(right) || left.name.localeCompare(right.name)
 }
 
 function sortTree(items: TreeItem[]): TreeItem[] {
   return items
     .map((item) => ({ ...item, children: item.children ? sortTree(item.children) : item.children }))
-    .sort((left, right) => {
-      const typeOrder = (item: TreeItem) => (item.type === "folder" ? 0 : 1)
-      return typeOrder(left) - typeOrder(right) || left.name.localeCompare(right.name)
+    .sort(compareTreeItems)
+}
+
+function reuseUnchangedTreeItems(previous: TreeItem[], next: TreeItem[]): TreeItem[] {
+  const previousById = new Map<string, TreeItem>()
+  const indexPrevious = (items: TreeItem[]) => {
+    for (const item of items) {
+      previousById.set(item.id, item)
+      if (item.children) indexPrevious(item.children)
+    }
+  }
+  indexPrevious(previous)
+
+  const reconcile = (item: TreeItem): TreeItem => {
+    const children = item.children?.map(reconcile)
+    const candidate = previousById.get(item.id)
+    const candidateChildren = candidate?.children
+    const childrenMatch =
+      children === undefined
+        ? candidateChildren === undefined
+        : candidateChildren !== undefined &&
+          children.length === candidateChildren.length &&
+          children.every((child, index) => child === candidateChildren[index])
+    if (
+      candidate &&
+      candidate.path === item.path &&
+      candidate.name === item.name &&
+      candidate.type === item.type &&
+      candidate.icon === item.icon &&
+      candidate.created === item.created &&
+      candidate.modified === item.modified &&
+      childrenMatch
+    ) {
+      return candidate
+    }
+    return children === item.children ? item : { ...item, children }
+  }
+
+  const reconciled = next.map(reconcile)
+  return reconciled.length === previous.length &&
+    reconciled.every((item, index) => item === previous[index])
+    ? previous
+    : reconciled
+}
+
+function insertCreatedNote(items: TreeItem[], note: TreeItem): TreeItem[] {
+  const notePath = normalizeTreePath(note.path)
+  const parentDir = dirname(notePath)
+  const bundleParentPath = parentDir ? `${parentDir}/${basename(parentDir)}.md` : null
+  let inserted = false
+
+  const visit = (list: TreeItem[]): TreeItem[] => {
+    let changed = false
+    const next = list.map((item) => {
+      if (normalizeTreePath(item.path) === notePath) {
+        inserted = true
+        changed = true
+        return note
+      }
+      if (
+        !inserted &&
+        parentDir &&
+        (normalizeTreePath(item.path) === parentDir ||
+          normalizeTreePath(item.path) === bundleParentPath)
+      ) {
+        inserted = true
+        changed = true
+        const children = item.children ?? []
+        const existingIndex = children.findIndex(
+          (child) => normalizeTreePath(child.path) === notePath,
+        )
+        const nextChildren =
+          existingIndex === -1
+            ? [...children, note]
+            : children.map((child, index) => (index === existingIndex ? note : child))
+        return { ...item, children: nextChildren.sort(compareTreeItems) }
+      }
+      if (!item.children) return item
+      const children = visit(item.children)
+      if (children === item.children) return item
+      changed = true
+      return { ...item, children }
     })
+    return changed ? next : list
+  }
+
+  const next = visit(items)
+  return inserted ? next : [...items, note].sort(compareTreeItems)
 }
 
 /**
@@ -248,6 +345,29 @@ function sortTree(items: TreeItem[]): TreeItem[] {
  * standalone-canvas move) deliberately keep using refreshTree at the caller.
  */
 export function applyTreePatch(items: TreeItem[], result: FsMutationResult): TreeItem[] {
+  const createdPaths = result.pathChanges.filter(
+    (change) => !change.oldPath && Boolean(change.newPath),
+  )
+  const isSimpleNoteCreation =
+    createdPaths.length === 1 &&
+    result.pathChanges.every((change) => !change.oldPath) &&
+    result.deletedPaths.length === 0 &&
+    (result.deletedIds?.length ?? 0) === 0 &&
+    Boolean(result.primaryPath)
+  if (isSimpleNoteCreation) {
+    const path = normalizeTreePath(result.primaryPath!)
+    return insertCreatedNote(items, {
+      // A degraded index can leave primaryId empty even though the file was
+      // created successfully. Keep it visible and renameable using its path;
+      // the next vault sync can replace this fallback with the stable id.
+      id: result.primaryId ?? path,
+      path,
+      name: displayName(path),
+      type: "file",
+      icon: "file",
+    })
+  }
+
   const pathMap = new Map(
     result.pathChanges
       .filter((change) => change.oldPath && change.newPath)
@@ -271,6 +391,11 @@ export function applyTreePatch(items: TreeItem[], result: FsMutationResult): Tre
       !deletedPaths.has(normalizeTreePath(item.path)) &&
       !absorbedCanvasPaths.has(normalizeTreePath(item.path)),
   )
+  const folderMovePrefixes = [...pathMap.entries()]
+    .filter(([oldPath]) =>
+      flat.some((item) => item.type === "folder" && normalizeTreePath(item.path) === oldPath),
+    )
+    .sort(([left], [right]) => right.length - left.length)
 
   const oldPaths = [...pathMap.keys()]
   const newPaths = [...pathMap.values()]
@@ -288,8 +413,12 @@ export function applyTreePatch(items: TreeItem[], result: FsMutationResult): Tre
   const next: TreeItem[] = flat.map((item) => {
     const oldPath = normalizeTreePath(item.path)
     const explicitPath = pathMap.get(oldPath)
+    const folderMove = folderMovePrefixes.find(
+      ([folderPath]) => oldPath === folderPath || oldPath.startsWith(`${folderPath}/`),
+    )
     const nextPath =
       explicitPath ??
+      (folderMove ? `${folderMove[1]}${oldPath.slice(folderMove[0].length)}` : undefined) ??
       (hasMovedFolder &&
       oldFolder &&
       newFolder &&
@@ -310,19 +439,28 @@ export function applyTreePatch(items: TreeItem[], result: FsMutationResult): Tre
     }
   })
 
-  if (
-    result.primaryId &&
-    result.primaryPath &&
-    !next.some((item) => item.id === result.primaryId)
-  ) {
+  if (result.primaryPath) {
     const path = normalizeTreePath(result.primaryPath)
-    next.push({ id: result.primaryId, path, name: displayName(path), type: "file", icon: "file" })
+    const alreadyPresent = result.primaryId
+      ? next.some((item) => item.id === result.primaryId)
+      : next.some((item) => normalizeTreePath(item.path) === path)
+    if (!alreadyPresent) {
+      next.push({
+        // A missing primary id means the index is degraded; the path remains
+        // a usable temporary identity until the next vault sync.
+        id: result.primaryId ?? path,
+        path,
+        name: displayName(path),
+        type: "file",
+        icon: "file",
+      })
+    }
   }
 
   const byPath = new Map(next.map((item) => [item.path, { ...item, children: [] as TreeItem[] }]))
   const roots: TreeItem[] = []
   for (const item of byPath.values()) {
-    const parentPath = treeParentPath(item, [...byPath.values()])
+    const parentPath = treeParentPath(item, byPath)
     const parent = parentPath ? byPath.get(parentPath) : undefined
     if (parent) parent.children!.push(item)
     else roots.push(item)
@@ -336,5 +474,107 @@ export function applyTreePatch(items: TreeItem[], result: FsMutationResult): Tre
     }
   }
 
-  return sortTree(roots).map(restoreOptionalChildren)
+  return reuseUnchangedTreeItems(items, sortTree(roots).map(restoreOptionalChildren))
+}
+
+/**
+ * Reparent selected rows immediately while the filesystem move is in flight.
+ * Paths are intentionally left untouched: the authoritative mutation result
+ * remaps them once the backend completes, while this keeps the tree stable
+ * during the operation.
+ */
+export function moveTreeItemsOptimistically(
+  items: TreeItem[],
+  sourceIds: string[],
+  targetId: string | null,
+): TreeItem[] {
+  const selected = new Set(sourceIds)
+  if (selected.size === 0) return items
+
+  const moved: TreeItem[] = []
+  function extract(list: TreeItem[]): TreeItem[] {
+    const remaining: TreeItem[] = []
+    for (const item of list) {
+      if (selected.has(item.id)) {
+        moved.push(item)
+        continue
+      }
+      if (item.children) {
+        remaining.push({ ...item, children: extract(item.children) })
+      } else {
+        remaining.push(item)
+      }
+    }
+    return remaining
+  }
+
+  const remaining = extract(items)
+  if (moved.length === 0) return items
+  if (!targetId) return [...remaining, ...moved]
+
+  let inserted = false
+  function insert(list: TreeItem[]): TreeItem[] {
+    return list.map((item) => {
+      if (item.id === targetId) {
+        inserted = true
+        return { ...item, children: [...(item.children ?? []), ...moved] }
+      }
+      return item.children ? { ...item, children: insert(item.children) } : item
+    })
+  }
+
+  const next = insert(remaining)
+  return inserted ? next : items
+}
+
+/** Insert a pending row without rebuilding unrelated branches of the tree. */
+export function insertTreeItemOptimistically(
+  items: TreeItem[],
+  parentId: string | null,
+  pendingItem: TreeItem,
+): TreeItem[] {
+  const insertSorted = (list: TreeItem[]) => [...list, pendingItem].sort(compareTreeItems)
+  if (!parentId) return insertSorted(items)
+
+  let inserted = false
+  const visit = (list: TreeItem[]): TreeItem[] => {
+    let changed = false
+    const next = list.map((item) => {
+      if (item.id === parentId) {
+        inserted = true
+        changed = true
+        return { ...item, children: insertSorted(item.children ?? []) }
+      }
+      if (!item.children) return item
+      const children = visit(item.children)
+      if (children === item.children) return item
+      changed = true
+      return { ...item, children }
+    })
+    return changed ? next : list
+  }
+
+  const next = visit(items)
+  return inserted ? next : items
+}
+
+export function removeTreeItem(items: TreeItem[], id: string): TreeItem[] {
+  let changed = false
+  const next: TreeItem[] = []
+  for (const item of items) {
+    if (item.id === id) {
+      changed = true
+      continue
+    }
+    if (item.children) {
+      const children = removeTreeItem(item.children, id)
+      if (children !== item.children) {
+        changed = true
+        next.push({ ...item, children })
+        continue
+      }
+    }
+    next.push(item)
+  }
+  return changed ? next : items
 }

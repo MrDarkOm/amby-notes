@@ -3,7 +3,11 @@ import { Workspace } from "./components/workspace/workspace"
 import { ExternalConflictDialog } from "./components/workspace/external-conflict-dialog"
 import { ThemeProvider } from "./components/theme-provider"
 import { TooltipProvider } from "./components/ui/tooltip-provider"
-import { useApplyPreferences, useSettingsStore } from "./components/workspace/use-settings-store"
+import {
+  useApplyPreferences,
+  useSettingsStore,
+  useWindowStatePersistence,
+} from "./components/workspace/use-settings-store"
 import { StandaloneSettingsWindow } from "./components/workspace/settings-dialog"
 import { MotionConfig } from "motion/react"
 import { MotionPulse } from "./lib/motion"
@@ -14,6 +18,7 @@ const isSettingsWindow = new URLSearchParams(window.location.search).get("ambyVi
 
 function PreferencesGate() {
   const preferencesReady = useApplyPreferences()
+  const windowStateReady = useWindowStatePersistence(!isSettingsWindow)
   const autoUpdate = useSettingsStore((state) => state.prefs.updates.autoUpdate)
 
   React.useEffect(() => {
@@ -21,7 +26,7 @@ function PreferencesGate() {
     void runAutomaticAppUpdate()
   }, [autoUpdate, preferencesReady])
 
-  if (!preferencesReady) {
+  if (!preferencesReady || !windowStateReady) {
     return (
       <main
         aria-busy="true"

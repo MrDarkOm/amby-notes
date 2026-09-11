@@ -67,6 +67,13 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(roundTripCheck("Text\n\n").ok).toBe(true)
   })
 
+  it("keeps a new empty note empty instead of materialising a newline", () => {
+    expect(roundTrip("")).toBe("")
+    expect(roundTripCheck("")).toEqual({ ok: true, result: "" })
+    expect(roundTripCheck("\n")).toEqual({ ok: true, result: "\n" })
+    expect(roundTripCheck("\r\n\r\n")).toEqual({ ok: true, result: "\r\n\r\n" })
+  })
+
   it("preserves intentional empty paragraphs between and after blocks", () => {
     expect(roundTrip("First\n\n\nSecond")).toBe("First\n\n\nSecond")
     expect(roundTrip("First\n\n\n")).toBe("First\n\n\n")

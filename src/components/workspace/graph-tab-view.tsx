@@ -61,9 +61,10 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
   // Keep stable refs to node objects across re-renders so positions persist.
   const nodeMapRef = React.useRef<Map<string, SimNode>>(new Map())
   const simRef = React.useRef<Simulation<SimNode, SimLink> | null>(null)
-  // Used to throttle d3 ticks to one React setState per animation frame (~60fps).
+  const nodeElementRef = React.useRef<Map<string, SVGGElement>>(new Map())
+  const edgeElementRef = React.useRef<Map<string, SVGLineElement>>(new Map())
+  // D3 owns coordinates during a simulation. React owns topology and UI state.
   const rafRef = React.useRef<number | null>(null)
-  const [, setTick] = React.useState(0)
 
   // Build / sync sim nodes and links whenever graph topology changes.
   const { simNodes, simLinks } = React.useMemo(() => {
@@ -86,12 +87,39 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
     })
     nodeMapRef.current = next
     const simNodes = Array.from(next.values())
-    const simLinks: SimLink[] = edges
-      .filter((e) => next.has(e.source) && next.has(e.target))
-      .map((e) => ({ source: e.source, target: e.target, unresolved: e.unresolved }))
+    const simLinks: SimLink[] = edges.flatMap((e) => {
+      const source = next.get(e.source)
+      const target = next.get(e.target)
+      return source && target ? [{ source, target, unresolved: e.unresolved }] : []
+    })
     return { simNodes, simLinks }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph])
+
+  const linkKey = React.useCallback(
+    (edge: SimLink, index: number) =>
+      `${typeof edge.source === "string" ? edge.source : edge.source.id}-${typeof edge.target === "string" ? edge.target : edge.target.id}-${index}`,
+    [],
+  )
+
+  const applyScenePositions = React.useCallback(() => {
+    simNodes.forEach((node) => {
+      const element = nodeElementRef.current.get(node.id)
+      if (!element || node.x == null || node.y == null) return
+      element.setAttribute("transform", `translate(${node.x} ${node.y})`)
+    })
+    simLinks.forEach((edge, index) => {
+      const element = edgeElementRef.current.get(linkKey(edge, index))
+      const source = edge.source as SimNode
+      const target = edge.target as SimNode
+      if (!element || source.x == null || source.y == null || target.x == null || target.y == null)
+        return
+      element.setAttribute("x1", String(source.x))
+      element.setAttribute("y1", String(source.y))
+      element.setAttribute("x2", String(target.x))
+      element.setAttribute("y2", String(target.y))
+    })
+  }, [linkKey, simLinks, simNodes])
 
   // Create / restart simulation.
   React.useEffect(() => {
@@ -112,26 +140,27 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
       .alpha(1)
       .alphaDecay(0.04)
       .on("tick", () => {
-        // Throttle to one React setState per animation frame. Without this, d3's internal
-        // timer fires faster than 60fps, queueing up many setState calls and janking the UI.
+        // Throttle direct SVG attribute writes to one animation frame. The
+        // simulation no longer causes a React render/commit per tick.
         if (rafRef.current !== null) return
         rafRef.current = requestAnimationFrame(() => {
           rafRef.current = null
-          setTick((t) => (t + 1) & 0xffff)
+          applyScenePositions()
         })
       })
 
     simRef.current = sim
+    const frame = requestAnimationFrame(applyScenePositions)
     return () => {
+      cancelAnimationFrame(frame)
       sim.stop()
       if (simRef.current === sim) simRef.current = null
-      // Cancel any pending RAF so setState is not called after unmount.
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current)
         rafRef.current = null
       }
     }
-  }, [simNodes, simLinks])
+  }, [applyScenePositions, simLinks, simNodes])
 
   // Viewport: pan + zoom.
   const [view, setView] = React.useState({ tx: 0, ty: 0, zoom: 1 })
@@ -313,9 +342,14 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
               const s = edge.source as SimNode
               const t = edge.target as SimNode
               if (s.x == null || s.y == null || t.x == null || t.y == null) return null
+              const key = linkKey(edge, i)
               return (
                 <line
-                  key={`${typeof edge.source === "string" ? edge.source : s.id}-${typeof edge.target === "string" ? edge.target : t.id}-${i}`}
+                  key={key}
+                  ref={(element) => {
+                    if (element) edgeElementRef.current.set(key, element)
+                    else edgeElementRef.current.delete(key)
+                  }}
                   x1={s.x}
                   y1={s.y}
                   x2={t.x}
@@ -332,13 +366,18 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
               return (
                 <g
                   key={node.id}
+                  ref={(element) => {
+                    if (element) nodeElementRef.current.set(node.id, element)
+                    else nodeElementRef.current.delete(node.id)
+                  }}
+                  transform={`translate(${node.x} ${node.y})`}
                   data-node-id={node.id}
                   className={node.unresolved ? "cursor-default" : "cursor-pointer"}
                   onPointerDown={(e) => handleNodePointerDown(e, node.id)}
                 >
                   <circle
-                    cx={node.x}
-                    cy={node.y}
+                    cx={0}
+                    cy={0}
                     r={r}
                     className={
                       selected
@@ -350,8 +389,8 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
                   />
                   {(showLabels || selected) && (
                     <text
-                      x={node.x}
-                      y={node.y + r + 12}
+                      x={0}
+                      y={r + 12}
                       textAnchor="middle"
                       style={{ fontSize: 11 / Math.max(view.zoom, 0.6) }}
                       className={selected ? "fill-sky-300" : "fill-zinc-500"}

@@ -5,7 +5,7 @@ export const motionTransitions = {
   fast: { duration: 0.1, ease: "easeOut" },
   default: { duration: 0.15, ease: "easeOut" },
   enter: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
-  panel: { duration: 0.2, ease: [0.2, 0.8, 0.2, 1] },
+  panel: { duration: 0.32, ease: [0.16, 1, 0.3, 1] },
   slow: { duration: 0.3, ease: [0.16, 1, 0.3, 1] },
   reorder: { type: "spring", stiffness: 520, damping: 38, mass: 0.55 },
 } satisfies Record<string, Transition>

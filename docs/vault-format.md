@@ -37,6 +37,8 @@ rename and move. The generic `id` field belongs to the user, including numbers,
 nulls, external strings such as `jira-123`, and collections. New assignments
 never replace or remove it. An explicit `amby-id` always takes precedence;
 an invalid value produces a diagnostic and never falls back to generic `id`.
+New notes are published with their `amby-id` in the first atomic no-replace
+write, so there is no temporary on-disk state that requires a second ID write.
 
 For compatibility, a canonical ULID in `id` with no `amby-id` is a legacy
 identity candidate, never a trusted identity. Normal indexing leaves its bytes
@@ -294,6 +296,17 @@ the draft remains until that save succeeds. Declining loads the disk version and
 deletes only that document's draft. A vault-generation change while a prompt is
 open abandons the stale decision without changing either the new vault or the
 old draft.
+
+The renderer coalesces recovery snapshots per document: the first snapshot of a
+dirty period starts immediately, later snapshots wait 500 ms after the latest
+edit, and a 1,000 ms maximum wait prevents continuous typing from postponing the
+next durable checkpoint forever. There is at most one write in flight and one
+latest pending snapshot per document. Close, visibility, vault-switch, restore,
+rename, and move boundaries flush the queue before releasing the document owner;
+an explicit durable save still waits for its write to finish. A process crash can
+therefore lose only the stated pending window plus an in-flight write, while a
+recovery write error is reported and never treated as a successful filesystem
+save.
 
 ## Backup and Git policy
 

@@ -37,6 +37,7 @@ pub fn import_asset(
     note_path: String,
     source_path: String,
 ) -> Result<ImportedAsset, String> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     let note = paths::guard(&context, &note_path)?;
     let vault = context.root()?;
     let source = Path::new(&source_path);
@@ -101,6 +102,7 @@ pub fn import_asset_bytes(
     bytes: Vec<u8>,
     suggested_ext: String,
 ) -> Result<ImportedAsset, String> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
     if bytes.len() > MAX_PASTED_BYTES {
         return Err(format!(
             "Pasted payload ({} MB) exceeds maximum allowed limit ({} MB)",

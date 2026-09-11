@@ -26,6 +26,7 @@ export const ROOT_DROP_TARGET = "__amby_root__"
 
 export interface PtrDrag {
   sourceId: string
+  sourceIds: string[]
   sourceName: string
   sourcePath: string
   startX: number
@@ -84,14 +85,16 @@ export interface SidebarTreeProps {
   onSelect: (id: string) => void
   onRename?: (id: string, newName: string) => void
   onDelete?: (id: string) => void
+  onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
-  onMoveItem?: (sourceId: string, targetId: string | null) => void
+  onMoveItem?: (sourceIds: string[], targetId: string | null) => void
   onSetIcon?: (id: string, icon: string) => void
+  onContextMenuSelect?: (id: string) => void
   triggerRenameId?: string | null
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
@@ -122,15 +125,16 @@ export interface TreeNodeProps {
   item: TreeItem
   level: number
   isOpen: boolean
-  onToggleOpen: () => void
+  onToggleOpen: (id: string) => void
   isEditing: boolean
-  onStartEdit: () => void
-  onFinishEdit: (newName: string | null) => void
+  onStartEdit: (id: string) => void
+  onFinishEdit: (id: string, newName: string | null) => void
   selectedIds: ReadonlySet<string>
   isKeyboardFocused: boolean
   onKeyboardFocus: (id: string) => void
   onSelect: (id: string, event?: React.MouseEvent<HTMLElement>) => void
   onDelete?: (id: string) => void
+  onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
@@ -138,9 +142,10 @@ export interface TreeNodeProps {
   onCloneFile?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onSetIcon?: (id: string, icon: string) => void
+  onContextMenuSelect?: (id: string) => void
   onPtrDragStart: (id: string, name: string, path: string, x: number, y: number) => void
-  ptrDragSourceId: string | null
-  ptrDragTargetId: string | null
+  isPtrDragSource: boolean
+  isPtrDragTarget: boolean
   favorites?: Set<string>
   onToggleFavorite?: (id: string) => void
   onAttachLayer?: (id: string, layer: AttachableLayer) => void

@@ -19,6 +19,6 @@ pub(super) fn is_bundle_main_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-pub(super) fn is_bundle_main_note(path: &Path) -> bool {
+pub(crate) fn is_bundle_main_note(path: &Path) -> bool {
     path.is_file() && is_bundle_main_path(path)
 }

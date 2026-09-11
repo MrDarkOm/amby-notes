@@ -5,7 +5,7 @@ import { deduplicateVaultRecords, reconcileVaultRecord } from "./vault-records"
 import { useDocStore } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useViewStateStore } from "./use-view-state-store"
-import { useSettingsStore } from "./use-settings-store"
+import { flushWindowStatePersistence, useSettingsStore } from "./use-settings-store"
 import {
   loadSession,
   loadWorkspaces,
@@ -15,6 +15,7 @@ import {
   WORKSPACES_SCHEMA_VERSION,
 } from "./app-config"
 import { remapRecoveryDraft } from "@/lib/recovery-drafts"
+import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { applySessionRemap, reconcileTreeBackedTabTitles } from "./workspace-mutations"
 import {
   flattenFileItems,
@@ -55,6 +56,8 @@ import {
   type VaultActivatedPayload,
 } from "./windows/vault-window-lifecycle"
 import {
+  filterLocalTreeWatcherChanges,
+  hasActiveLocalTreeMutation,
   planOpenDocumentTreeChanges,
   watcherChangeAffectsDocument,
 } from "./watcher-tree-reconciliation"
@@ -85,6 +88,7 @@ export function useVaultData() {
   const ownsWatcher = ownsVaultWatcher(desktop, windowLabel)
   const ownsPersistence = ownsWorkspacePersistence(desktop, windowLabel) && !launchFileId
   const vault = useVaultStore((s) => s.vault)
+  const backendGeneration = useVaultStore((s) => s.backendGeneration)
   const vaults = useVaultStore((s) => s.vaults)
   const { setVault, setVaults, setBackendGeneration } = useVaultStore.getState()
 
@@ -306,21 +310,17 @@ export function useVaultData() {
   // keeping a hidden independent backend context.
   React.useEffect(() => {
     if (!desktop) return
-    let unlisten: (() => void) | undefined
-    listen<VaultActivatedPayload>(VAULT_ACTIVATED_EVENT, (event) => {
-      if (activationMatchesCurrentVault(event.payload, useVaultStore.getState().vault)) {
-        setBackendGeneration(event.payload.generation)
-        return
-      }
-      void loadVaultRef.current(event.payload.path, false)
-    })
-      .then((dispose) => {
-        unlisten = dispose
-      })
-      .catch((error) =>
+    return adoptAsyncDisposer(
+      listen<VaultActivatedPayload>(VAULT_ACTIVATED_EVENT, (event) => {
+        if (activationMatchesCurrentVault(event.payload, useVaultStore.getState().vault)) {
+          setBackendGeneration(event.payload.generation)
+          return
+        }
+        void loadVaultRef.current(event.payload.path, false)
+      }),
+      (error) =>
         logger.warn("vault_switch.broadcast_listen_failed", { errorType: errorType(error) }),
-      )
-    return () => unlisten?.()
+    )
   }, [desktop, setBackendGeneration])
 
   // A backgrounded renderer may be suspended before Tiptap's 200 ms serializer
@@ -342,9 +342,8 @@ export function useVaultData() {
   React.useEffect(() => {
     if (!desktop) return
     let closing = false
-    let unlisten: (() => void) | undefined
-    getCurrentWindow()
-      .onCloseRequested(async (event) => {
+    return adoptAsyncDisposer(
+      getCurrentWindow().onCloseRequested(async (event) => {
         event.preventDefault()
         if (closing) return
         closing = true
@@ -352,6 +351,7 @@ export function useVaultData() {
           const generation = useVaultStore.getState().generation
           const result = await flushAutosaveGeneration(generation)
           if (!result.flushed) logger.warn("window_close.autosave_recovery_retained")
+          await flushWindowStatePersistence()
         } catch (error) {
           logger.warn("window_close.autosave_flush_failed", { errorType: errorType(error) })
         } finally {
@@ -364,12 +364,9 @@ export function useVaultData() {
             logger.warn("window_close.failed", { errorType: errorType(error) })
           }
         }
-      })
-      .then((dispose) => {
-        unlisten = dispose
-      })
-      .catch((error) => logger.warn("window_close.listen_failed", { errorType: errorType(error) }))
-    return () => unlisten?.()
+      }),
+      (error) => logger.warn("window_close.listen_failed", { errorType: errorType(error) }),
+    )
   }, [desktop])
 
   // Link graph: recompute whenever the tree or vault changes.
@@ -465,96 +462,104 @@ export function useVaultData() {
   // conflict UI asks the user what to keep.
   React.useEffect(() => {
     if (!vault || !desktop) return
-
-    let unlisten: (() => void) | undefined
     let refreshTimer: ReturnType<typeof setTimeout> | null = null
-    const pending = new Map<string, { kind: string; path: string }>()
+    const pending = new Map<string, { kind: string; path: string; duringLocalMutation: boolean }>()
     const normalize = (path: string) => path.replace(/\\/g, "/")
 
-    listen<{ kind: string; path: string }>("vault-file-changed", (event) => {
-      const change = event.payload
-      pending.set(`${change.kind}:${normalize(change.path)}`, change)
-      if (refreshTimer) clearTimeout(refreshTimer)
-      refreshTimer = setTimeout(async () => {
-        try {
-          const changes = [...pending.values()]
-          pending.clear()
-          const tree = await refreshTree(vault)
-          const openDocs = useDocStore.getState().openDocs
+    const flushPendingChanges = async () => {
+      const requestId = switchRef.current.requestId
+      const expectedGeneration = useVaultStore.getState().backendGeneration
+      const recoveryScope = {
+        vault,
+        generation: expectedGeneration,
+      }
+      const isCurrent = () =>
+        switchRef.current.requestId === requestId &&
+        useVaultStore.getState().vault === vault &&
+        useVaultStore.getState().backendGeneration === expectedGeneration
+      refreshTimer = null
+      if (hasActiveLocalTreeMutation()) {
+        refreshTimer = setTimeout(() => void flushPendingChanges(), 50)
+        return
+      }
+      try {
+        const changes = filterLocalTreeWatcherChanges([...pending.values()])
+        pending.clear()
+        if (!changes.length) return
+        const tree = await refreshTree(vault)
+        if (!isCurrent()) return
+        const openDocs = useDocStore.getState().openDocs
 
-          // A rename/move retains its frontmatter ID, so after rebuilding the
-          // tree we can update the open tab's path without closing it. macOS
-          // reports a move out of the watched vault as `rename`, not `remove`;
-          // absence of the stable ID after refresh is therefore the portable
-          // external-deletion signal.
-          for (const treeChange of planOpenDocumentTreeChanges(openDocs, tree)) {
-            const id = treeChange.fileId
-            const doc = openDocs[id]
-            if (!doc) continue
-            if (treeChange.kind === "deleted") {
-              const latest = useDocStore.getState().openDocs[id] ?? doc
-              if (!latest.externallyDeleted) {
-                patchDoc(id, { externallyDeleted: true })
-                setExternalConflict({
-                  fileId: id,
-                  path: latest.path,
-                  localContent: latest.content,
-                  externalContent: null,
-                  sourceTemplate: latest.source,
-                })
-              }
-              continue
+        // A rename/move retains its frontmatter ID, so after rebuilding the
+        // tree we can update the open tab's path without closing it. macOS
+        // reports a move out of the watched vault as `rename`, not `remove`;
+        // absence of the stable ID after refresh is therefore the portable
+        // external-deletion signal.
+        for (const treeChange of planOpenDocumentTreeChanges(openDocs, tree)) {
+          if (!isCurrent()) return
+          const id = treeChange.fileId
+          const doc = openDocs[id]
+          if (!doc) continue
+          if (treeChange.kind === "deleted") {
+            const latest = useDocStore.getState().openDocs[id] ?? doc
+            if (!latest.externallyDeleted) {
+              patchDoc(id, { externallyDeleted: true })
+              setExternalConflict({
+                fileId: id,
+                path: latest.path,
+                localContent: latest.content,
+                externalContent: null,
+                sourceTemplate: latest.source,
+              })
             }
-            if (treeChange.kind === "relocated") {
-              patchDoc(id, { path: treeChange.path, title: treeChange.title })
-              void remapRecoveryDraft(id, id, "markdown", treeChange.path)
-              void remapRecoveryDraft(doc.path, treeChange.path, "markdown", treeChange.path)
-              const conflict = useDocStore.getState().externalConflicts[id]
-              if (conflict) {
-                setExternalConflict({
-                  ...conflict,
-                  path: treeChange.path,
-                })
-              }
+            continue
+          }
+          if (treeChange.kind === "relocated") {
+            patchDoc(id, { path: treeChange.path, title: treeChange.title })
+            void remapRecoveryDraft(id, id, "markdown", treeChange.path, recoveryScope)
+            void remapRecoveryDraft(
+              doc.path,
+              treeChange.path,
+              "markdown",
+              treeChange.path,
+              recoveryScope,
+            )
+            const conflict = useDocStore.getState().externalConflicts[id]
+            if (conflict) {
+              setExternalConflict({
+                ...conflict,
+                path: treeChange.path,
+              })
             }
           }
+        }
 
-          for (const change of changes) {
-            for (const [id, doc] of Object.entries(useDocStore.getState().openDocs)) {
-              if (!watcherChangeAffectsDocument(doc.path, change.path)) continue
-              const activeConflict = useDocStore.getState().externalConflicts[id]
-              // The tree reconciliation above already classified this ID as
-              // deleted. Do not turn the expected read failure into a hidden
-              // warning while the path remains absent.
-              if (activeConflict?.externalContent === null && !findTreeItem(tree, id)) continue
-              try {
-                const note = await readNote(vault, id)
-                const latest = useDocStore.getState().openDocs[id]
-                if (!latest) continue
-                const currentConflict = useDocStore.getState().externalConflicts[id]
-                if (latest.externallyDeleted || currentConflict?.externalContent === null) {
-                  patchDoc(id, { externallyDeleted: false })
-                  if (note.content === latest.content) {
-                    patchDoc(id, {
-                      revision: note.revision,
-                      source: note.source,
-                    })
-                    markSaved(id)
-                    clearExternalConflict(id)
-                  } else {
-                    setExternalConflict({
-                      fileId: id,
-                      path: latest.path,
-                      localContent: latest.content,
-                      externalContent: note.content,
-                      externalRevision: note.revision,
-                      sourceTemplate: note.source,
-                    })
-                  }
-                  continue
-                }
-                if (note.content === latest.content && note.revision === latest.revision) continue
-                if (useDocStore.getState().unsavedFileIds.has(id)) {
+        for (const change of changes) {
+          if (!isCurrent()) return
+          for (const [id, doc] of Object.entries(useDocStore.getState().openDocs)) {
+            if (!isCurrent()) return
+            if (!watcherChangeAffectsDocument(doc.path, change.path)) continue
+            const activeConflict = useDocStore.getState().externalConflicts[id]
+            // The tree reconciliation above already classified this ID as
+            // deleted. Do not turn the expected read failure into a hidden
+            // warning while the path remains absent.
+            if (activeConflict?.externalContent === null && !findTreeItem(tree, id)) continue
+            try {
+              const note = await readNote(vault, id)
+              if (!isCurrent()) return
+              const latest = useDocStore.getState().openDocs[id]
+              if (!latest) continue
+              const currentConflict = useDocStore.getState().externalConflicts[id]
+              if (latest.externallyDeleted || currentConflict?.externalContent === null) {
+                patchDoc(id, { externallyDeleted: false })
+                if (note.content === latest.content) {
+                  patchDoc(id, {
+                    revision: note.revision,
+                    source: note.source,
+                  })
+                  markSaved(id)
+                  clearExternalConflict(id)
+                } else {
                   setExternalConflict({
                     fileId: id,
                     path: latest.path,
@@ -563,37 +568,58 @@ export function useVaultData() {
                     externalRevision: note.revision,
                     sourceTemplate: note.source,
                   })
-                  continue
                 }
-                // Do not replace a buffer if the user started editing during
-                // the asynchronous refresh.
-                if (!useDocStore.getState().unsavedFileIds.has(id)) {
-                  patchDoc(id, {
-                    content: note.content,
-                    revision: note.revision,
-                    source: note.source,
-                  })
-                  markSaved(id)
-                }
-              } catch (err) {
-                logger.warn("watcher.open_document_reload_failed", { errorType: errorType(err) })
+                continue
               }
+              if (note.content === latest.content && note.revision === latest.revision) continue
+              if (useDocStore.getState().unsavedFileIds.has(id)) {
+                setExternalConflict({
+                  fileId: id,
+                  path: latest.path,
+                  localContent: latest.content,
+                  externalContent: note.content,
+                  externalRevision: note.revision,
+                  sourceTemplate: note.source,
+                })
+                continue
+              }
+              // Do not replace a buffer if the user started editing during
+              // the asynchronous refresh.
+              if (!useDocStore.getState().unsavedFileIds.has(id)) {
+                patchDoc(id, {
+                  content: note.content,
+                  revision: note.revision,
+                  source: note.source,
+                })
+                markSaved(id)
+              }
+            } catch (err) {
+              logger.warn("watcher.open_document_reload_failed", { errorType: errorType(err) })
             }
           }
-        } catch (err) {
-          logger.warn("watcher.refresh_failed", { errorType: errorType(err) })
         }
-      }, 300)
-    })
-      .then((fn) => {
-        unlisten = fn
-      })
-      .catch(console.error)
+      } catch (err) {
+        logger.warn("watcher.refresh_failed", { errorType: errorType(err) })
+      }
+    }
+
+    const cleanupListener = adoptAsyncDisposer(
+      listen<{ kind: string; path: string }>("vault-file-changed", (event) => {
+        const change = {
+          ...event.payload,
+          duringLocalMutation: hasActiveLocalTreeMutation(),
+        }
+        pending.set(`${change.kind}:${normalize(change.path)}`, change)
+        if (refreshTimer) clearTimeout(refreshTimer)
+        refreshTimer = setTimeout(() => void flushPendingChanges(), 300)
+      }),
+      (error) => logger.warn("watcher.listen_failed", { errorType: errorType(error) }),
+    )
 
     return () => {
       if (refreshTimer) clearTimeout(refreshTimer)
       pending.clear()
-      unlisten?.()
+      cleanupListener()
     }
     // refreshTree closes over vault but vault is in the dep array (effect re-runs on change).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -604,51 +630,56 @@ export function useVaultData() {
   // suppression intentionally hides the atomic write event.
   React.useEffect(() => {
     if (!vault || !desktop) return
+    const expectedVault = vault
+    const expectedGeneration = backendGeneration
 
-    let unlisten: (() => void) | undefined
-    listen<{ noteId: string; revision: string; originWindow: string }>(
-      "amby:note-written",
-      async (event) => {
-        const { noteId, revision, originWindow } = event.payload
-        if (originWindow === windowLabel) return
-        const document = useDocStore.getState().openDocs[noteId]
-        if (!document) return
-        try {
-          const note = await readNote(vault, noteId)
-          // A newer write won the race while this event was in flight; its event
-          // will reconcile the buffer instead.
-          if (note.revision !== revision) return
-          const latest = useDocStore.getState().openDocs[noteId]
-          if (!latest) return
-          if (useDocStore.getState().unsavedFileIds.has(noteId)) {
-            setExternalConflict({
-              fileId: noteId,
-              path: latest.path,
-              localContent: latest.content,
-              externalContent: note.content,
-              externalRevision: note.revision,
-              sourceTemplate: note.source,
+    const cleanupListener = adoptAsyncDisposer(
+      listen<{ noteId: string; revision: string; originWindow: string }>(
+        "amby:note-written",
+        async (event) => {
+          const { noteId, revision, originWindow } = event.payload
+          if (originWindow === windowLabel) return
+          const document = useDocStore.getState().openDocs[noteId]
+          if (!document) return
+          try {
+            const note = await readNote(vault, noteId)
+            if (
+              useVaultStore.getState().vault !== expectedVault ||
+              useVaultStore.getState().backendGeneration !== expectedGeneration
+            )
+              return
+            // A newer write won the race while this event was in flight; its event
+            // will reconcile the buffer instead.
+            if (note.revision !== revision) return
+            const latest = useDocStore.getState().openDocs[noteId]
+            if (!latest) return
+            if (useDocStore.getState().unsavedFileIds.has(noteId)) {
+              setExternalConflict({
+                fileId: noteId,
+                path: latest.path,
+                localContent: latest.content,
+                externalContent: note.content,
+                externalRevision: note.revision,
+                sourceTemplate: note.source,
+              })
+              return
+            }
+            patchDoc(noteId, {
+              content: note.content,
+              revision: note.revision,
+              source: note.source,
             })
-            return
+            markSaved(noteId)
+          } catch (error) {
+            logger.warn("note_written.open_document_reload_failed", { errorType: errorType(error) })
           }
-          patchDoc(noteId, {
-            content: note.content,
-            revision: note.revision,
-            source: note.source,
-          })
-          markSaved(noteId)
-        } catch (error) {
-          logger.warn("note_written.open_document_reload_failed", { errorType: errorType(error) })
-        }
-      },
+        },
+      ),
+      (error) => logger.warn("note_written.listen_failed", { errorType: errorType(error) }),
     )
-      .then((fn) => {
-        unlisten = fn
-      })
-      .catch(console.error)
 
-    return () => unlisten?.()
-  }, [desktop, markSaved, patchDoc, setExternalConflict, vault, windowLabel])
+    return cleanupListener
+  }, [backendGeneration, desktop, markSaved, patchDoc, setExternalConflict, vault, windowLabel])
 
   // On mount: hydrate the known-vaults list from workspaces.json, then reopen
   // the last vault if the user has that setting enabled.

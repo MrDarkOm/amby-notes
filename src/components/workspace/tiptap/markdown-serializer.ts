@@ -70,6 +70,10 @@ const nodeSerializers: Record<
   },
   paragraph(state, node, parent) {
     if (node.childCount === 0 && parent.type.name === "doc") {
+      // A single empty paragraph is ProseMirror's structural representation of
+      // a genuinely empty Markdown document; it must not materialise a newline
+      // merely because the editor mounted or received a focus transaction.
+      if (parent.childCount === 1) return
       // The stock serializer coalesces an empty paragraph into the surrounding
       // block separator. Emit one extra line so it survives parsing and a
       // Source ↔ Live transition as a genuine blank block.

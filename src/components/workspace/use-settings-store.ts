@@ -2,8 +2,12 @@ import * as React from "react"
 import { create } from "zustand"
 import { useTheme } from "next-themes"
 import { emitTo, listen } from "@tauri-apps/api/event"
+import { getCurrentWindow } from "@tauri-apps/api/window"
+import { LogicalSize } from "@tauri-apps/api/dpi"
 import i18n from "@/lib/i18n"
 import { isTauri } from "@/lib/storage"
+import { adoptAsyncDisposer } from "@/lib/async-disposable"
+import { errorType, logger } from "@/lib/logger"
 import {
   APP_FONT_FAMILY,
   APP_FONT_SIZE,
@@ -20,6 +24,7 @@ import {
   saveSettingsPatch,
   type AppPreferences,
   type ExperimentalSettings,
+  type WindowPreferences,
 } from "./app-config"
 
 interface SettingsStore {
@@ -39,6 +44,14 @@ interface SettingsStore {
 }
 
 const PREFERENCES_CHANGED_EVENT = "amby:preferences-changed"
+const MAIN_WINDOW_LABEL = "main"
+
+let windowStateFlusher: (() => Promise<void>) | null = null
+
+/** Flushes the latest native window dimensions before the close lifecycle destroys the window. */
+export async function flushWindowStatePersistence(): Promise<void> {
+  await windowStateFlusher?.()
+}
 
 interface PreferencesChangedPayload {
   prefs?: AppPreferences
@@ -118,19 +131,15 @@ export function useApplyPreferences(): boolean {
 
   React.useEffect(() => {
     if (!isTauri()) return
-    let unlisten: (() => void) | undefined
-    listen<PreferencesChangedPayload>(PREFERENCES_CHANGED_EVENT, (event) => {
-      const patch: Partial<Pick<SettingsStore, "prefs" | "experimental" | "themes">> = {}
-      if (event.payload.prefs) patch.prefs = event.payload.prefs
-      if (event.payload.experimental) patch.experimental = event.payload.experimental
-      if (event.payload.themes) patch.themes = event.payload.themes
-      useSettingsStore.setState(patch)
-    })
-      .then((dispose) => {
-        unlisten = dispose
-      })
-      .catch(() => {})
-    return () => unlisten?.()
+    return adoptAsyncDisposer(
+      listen<PreferencesChangedPayload>(PREFERENCES_CHANGED_EVENT, (event) => {
+        const patch: Partial<Pick<SettingsStore, "prefs" | "experimental" | "themes">> = {}
+        if (event.payload.prefs) patch.prefs = event.payload.prefs
+        if (event.payload.experimental) patch.experimental = event.payload.experimental
+        if (event.payload.themes) patch.themes = event.payload.themes
+        useSettingsStore.setState(patch)
+      }),
+    )
   }, [])
 
   React.useEffect(() => {
@@ -172,4 +181,153 @@ export function useApplyPreferences(): boolean {
   }, [hydrated, prefs, setTheme, themes])
 
   return hydrated && applied
+}
+
+/**
+ * Restores the main window once preferences are ready and keeps its logical
+ * size in the global settings file. The native close lifecycle calls the
+ * exported flusher so a resize followed immediately by close is not lost.
+ */
+export function useWindowStatePersistence(enabled: boolean): boolean {
+  const hydrated = useSettingsStore((s) => s.hydrated)
+  const setPrefs = useSettingsStore((s) => s.setPrefs)
+  const [restored, setRestored] = React.useState(!enabled)
+
+  React.useEffect(() => {
+    if (!enabled) {
+      setRestored(true)
+      return
+    }
+    if (!hydrated || !isTauri()) {
+      setRestored(false)
+      return
+    }
+
+    let cancelled = false
+    const win = getCurrentWindow()
+    if (win.label !== MAIN_WINDOW_LABEL) {
+      setRestored(true)
+      return () => {
+        cancelled = true
+      }
+    }
+    void (async () => {
+      try {
+        const saved = useSettingsStore.getState().prefs.window
+        const currentlyMaximized = await win.isMaximized()
+        if (saved.maximized) {
+          if (!currentlyMaximized) await win.maximize()
+        } else {
+          if (currentlyMaximized) await win.unmaximize()
+          await win.setSize(new LogicalSize(saved.width, saved.height))
+        }
+      } catch (error) {
+        logger.warn("window_state.restore_failed", { errorType: errorType(error) })
+      } finally {
+        if (!cancelled) setRestored(true)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [enabled, hydrated])
+
+  React.useEffect(() => {
+    if (!enabled || !hydrated || !restored || !isTauri()) return
+
+    const win = getCurrentWindow()
+    if (win.label !== MAIN_WINDOW_LABEL) return
+    let disposed = false
+    let saveTimer: ReturnType<typeof setTimeout> | undefined
+    let pending: Partial<WindowPreferences> | null = null
+
+    function mergeAndPersist(patch: Partial<WindowPreferences>): Promise<void> {
+      const current = useSettingsStore.getState().prefs.window
+      const next: WindowPreferences = { ...current, ...patch }
+      if (
+        next.width === current.width &&
+        next.height === current.height &&
+        next.leftPanelWidth === current.leftPanelWidth &&
+        next.rightPanelWidth === current.rightPanelWidth &&
+        next.maximized === current.maximized
+      )
+        return Promise.resolve()
+      return setPrefs({ window: next }).catch((error) => {
+        logger.warn("window_state.save_failed", { errorType: errorType(error) })
+      })
+    }
+
+    async function readCurrentState(): Promise<Partial<WindowPreferences>> {
+      const [size, scaleFactor, maximized] = await Promise.all([
+        win.innerSize(),
+        win.scaleFactor(),
+        win.isMaximized(),
+      ])
+      if (maximized) return { maximized: true }
+      return {
+        width: Math.round(size.width / scaleFactor),
+        height: Math.round(size.height / scaleFactor),
+        maximized: false,
+      }
+    }
+
+    function schedule(patch: Partial<WindowPreferences>) {
+      pending = { ...pending, ...patch }
+      if (saveTimer) clearTimeout(saveTimer)
+      saveTimer = setTimeout(() => {
+        saveTimer = undefined
+        const next = pending
+        pending = null
+        if (!disposed && next) void mergeAndPersist(next)
+      }, 250)
+    }
+
+    const onResized = (event: { payload: { width: number; height: number } }) => {
+      void Promise.all([win.scaleFactor(), win.isMaximized()])
+        .then(([scaleFactor, maximized]) => {
+          if (maximized) {
+            schedule({ maximized: true })
+            return
+          }
+          schedule({
+            width: Math.round(event.payload.width / scaleFactor),
+            height: Math.round(event.payload.height / scaleFactor),
+            maximized: false,
+          })
+        })
+        .catch((error) =>
+          logger.warn("window_state.read_size_failed", { errorType: errorType(error) }),
+        )
+    }
+
+    const cleanupResize = adoptAsyncDisposer(win.onResized(onResized), (error) =>
+      logger.warn("window_state.resize_listen_failed", { errorType: errorType(error) }),
+    )
+
+    const flush = async () => {
+      if (saveTimer) {
+        clearTimeout(saveTimer)
+        saveTimer = undefined
+      }
+      try {
+        const current = await readCurrentState()
+        const latest = { ...pending, ...current }
+        pending = null
+        if (!disposed) await mergeAndPersist(latest)
+      } catch (error) {
+        logger.warn("window_state.flush_failed", { errorType: errorType(error) })
+      }
+    }
+    windowStateFlusher = flush
+
+    return () => {
+      disposed = true
+      if (saveTimer) clearTimeout(saveTimer)
+      if (windowStateFlusher === flush) windowStateFlusher = null
+      cleanupResize()
+    }
+  }, [enabled, hydrated, restored, setPrefs])
+
+  return !enabled || !hydrated || restored
 }

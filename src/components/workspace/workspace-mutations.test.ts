@@ -2,8 +2,11 @@ import { describe, it, expect } from "vitest"
 import {
   applySessionRemap,
   applyTreePatch,
+  insertTreeItemOptimistically,
+  moveTreeItemsOptimistically,
   planMutation,
   reconcileTreeBackedTabTitles,
+  removeTreeItem,
   remapPath,
   remapStoredId,
 } from "./workspace-mutations"
@@ -85,13 +88,11 @@ describe("planMutation", () => {
     expect(deletedIds).toEqual(expect.arrayContaining(["id1", "id2"]))
   })
 
-  it("prefers deletedIds over deletedPaths when both present", () => {
+  it("keeps both deleted ids and paths when both are present", () => {
     const { deletedIds } = planMutation(
       mutation({ deletedIds: ["ulid1"], deletedPaths: ["path1"] }),
     )
-    // deletedIds ?? deletedPaths — only deletedIds used
-    expect(deletedIds).toEqual(["ulid1"])
-    expect(deletedIds).not.toContain("path1")
+    expect(deletedIds).toEqual(["ulid1", "path1"])
   })
 
   it("deduplicates deletedIds", () => {
@@ -214,6 +215,109 @@ describe("applyTreePatch", () => {
     ])
   })
 
+  it("keeps a created note visible when the index has not returned its id yet", () => {
+    const result = applyTreePatch(
+      [],
+      mutation({
+        primaryPath: "/vault/New.md",
+        pathChanges: [{ oldPath: "", newPath: "/vault/New.md" }],
+      }),
+    )
+
+    expect(result).toEqual([
+      expect.objectContaining({ id: "/vault/New.md", path: "/vault/New.md", name: "New" }),
+    ])
+  })
+
+  it("keeps a newly created child under a standalone parent note after promotion", () => {
+    const parent: TreeItem = {
+      id: "parent",
+      path: "/vault/Parent.md",
+      name: "Parent",
+      type: "file",
+    }
+    const pending: TreeItem = {
+      id: "pending:create",
+      path: "/vault/Parent/Без названия.md",
+      name: "Без названия",
+      type: "file",
+    }
+    const optimistic = insertTreeItemOptimistically([parent], parent.id, pending)
+
+    const result = applyTreePatch(
+      optimistic,
+      mutation({
+        primaryId: "child",
+        primaryPath: pending.path,
+        pathChanges: [
+          { oldPath: parent.path, newPath: "/vault/Parent/Parent.md" },
+          { oldPath: "", newPath: pending.path },
+        ],
+      }),
+    )
+
+    const promotedParent = result.find((item) => item.id === parent.id)
+    expect(promotedParent).toMatchObject({ path: "/vault/Parent/Parent.md" })
+    expect(promotedParent?.children).toEqual([
+      expect.objectContaining({ id: "child", path: pending.path, name: "Без названия" }),
+    ])
+  })
+
+  it("keeps a promoted child visible when the index has not returned its id", () => {
+    const parent: TreeItem = {
+      id: "parent",
+      path: "/vault/Parent.md",
+      name: "Parent",
+      type: "file",
+    }
+    const childPath = "/vault/Parent/Child.md"
+
+    const result = applyTreePatch(
+      [parent],
+      mutation({
+        primaryPath: childPath,
+        pathChanges: [
+          { oldPath: parent.path, newPath: "/vault/Parent/Parent.md" },
+          { oldPath: "", newPath: childPath },
+        ],
+      }),
+    )
+
+    const promotedParent = result.find((item) => item.path === "/vault/Parent/Parent.md")
+    expect(promotedParent?.children).toEqual([
+      expect.objectContaining({ id: childPath, path: childPath, name: "Child" }),
+    ])
+  })
+
+  it("preserves unrelated branch identities when inserting a note", () => {
+    const unchanged: TreeItem = {
+      id: "folder:/vault/Unchanged",
+      path: "/vault/Unchanged",
+      name: "Unchanged",
+      type: "folder",
+      children: [{ id: "old", path: "/vault/Unchanged/Old.md", name: "Old", type: "file" }],
+    }
+    const target: TreeItem = {
+      id: "folder:/vault/Target",
+      path: "/vault/Target",
+      name: "Target",
+      type: "folder",
+      children: [],
+    }
+
+    const result = applyTreePatch(
+      [unchanged, target],
+      mutation({
+        primaryId: "new",
+        primaryPath: "/vault/Target/New.md",
+        pathChanges: [{ oldPath: "", newPath: "/vault/Target/New.md" }],
+      }),
+    )
+
+    expect(result.find((item) => item.id === unchanged.id)).toBe(unchanged)
+    expect(result.find((item) => item.id === target.id)).not.toBe(target)
+  })
+
   it("moves a bundle main note to its visual parent, not inside its bundle directory", () => {
     const result = applyTreePatch(
       tree([
@@ -249,6 +353,58 @@ describe("applyTreePatch", () => {
     })
   })
 
+  it("keeps folders and nested bundles attached to their bundle note after a tree patch", () => {
+    const result = applyTreePatch(
+      tree([
+        {
+          id: "languages",
+          path: "/vault/Languages/Languages.md",
+          name: "Languages",
+          type: "file",
+          children: [
+            {
+              id: "finnish",
+              path: "/vault/Languages/Finnish/Finnish.md",
+              name: "Finnish",
+              type: "file",
+              children: [
+                {
+                  id: "folder:/vault/Languages/Finnish/Grammar",
+                  path: "/vault/Languages/Finnish/Grammar",
+                  name: "Grammar",
+                  type: "folder",
+                  children: [],
+                },
+                {
+                  id: "word",
+                  path: "/vault/Languages/Finnish/Word.md",
+                  name: "Word",
+                  type: "file",
+                },
+              ],
+            },
+          ],
+        },
+        { id: "moved", path: "/vault/Moved.md", name: "Moved", type: "file" },
+      ]),
+      mutation({
+        primaryId: "moved",
+        primaryPath: "/vault/Languages/Finnish/Moved.md",
+        pathChanges: [{ oldPath: "/vault/Moved.md", newPath: "/vault/Languages/Finnish/Moved.md" }],
+      }),
+    )
+
+    expect(result).toHaveLength(1)
+    const languages = result[0]
+    expect(languages.id).toBe("languages")
+    const finnish = languages.children?.find((item) => item.id === "finnish")
+    expect(finnish?.children?.map((item) => item.id)).toEqual([
+      "folder:/vault/Languages/Finnish/Grammar",
+      "moved",
+      "word",
+    ])
+  })
+
   it("moves a folder even when it contains only one markdown note", () => {
     const result = applyTreePatch(
       tree([
@@ -278,6 +434,50 @@ describe("applyTreePatch", () => {
     expect(target?.children?.[0].children?.[0]).toMatchObject({ path: "/vault/Target/Old/A.md" })
   })
 
+  it("moves several empty folder trees from explicit folder path changes", () => {
+    const result = applyTreePatch(
+      tree([
+        {
+          id: "folder:/vault/A",
+          path: "/vault/A",
+          name: "A",
+          type: "folder",
+          children: [
+            {
+              id: "folder:/vault/A/Empty",
+              path: "/vault/A/Empty",
+              name: "Empty",
+              type: "folder",
+              children: [],
+            },
+          ],
+        },
+        { id: "folder:/vault/B", path: "/vault/B", name: "B", type: "folder", children: [] },
+        {
+          id: "folder:/vault/Target",
+          path: "/vault/Target",
+          name: "Target",
+          type: "folder",
+          children: [],
+        },
+      ]),
+      mutation({
+        primaryPath: "/vault/Target/B",
+        pathChanges: [
+          { oldPath: "/vault/A", newPath: "/vault/Target/A" },
+          { oldPath: "/vault/B", newPath: "/vault/Target/B" },
+        ],
+      }),
+    )
+
+    const target = result.find((item) => item.path === "/vault/Target")
+    expect(target?.children?.map((item) => item.path)).toEqual([
+      "/vault/Target/A",
+      "/vault/Target/B",
+    ])
+    expect(target?.children?.[0].children?.[0].path).toBe("/vault/Target/A/Empty")
+  })
+
   it("removes a standalone canvas when it becomes a note layer", () => {
     const result = applyTreePatch(
       tree([
@@ -301,6 +501,94 @@ describe("applyTreePatch", () => {
     expect(result).toEqual([
       expect.objectContaining({ id: "note-1", path: "/vault/Sketch/Sketch.md", type: "file" }),
     ])
+  })
+})
+
+describe("moveTreeItemsOptimistically", () => {
+  it("moves several selected rows under one folder without changing their paths", () => {
+    const items: TreeItem[] = [
+      {
+        id: "source",
+        path: "/vault/Source",
+        name: "Source",
+        type: "folder",
+        children: [{ id: "nested", path: "/vault/Source/Nested.md", name: "Nested", type: "file" }],
+      },
+      { id: "loose", path: "/vault/Loose.md", name: "Loose", type: "file" },
+      { id: "target", path: "/vault/Target", name: "Target", type: "folder", children: [] },
+    ]
+
+    const next = moveTreeItemsOptimistically(items, ["nested", "loose"], "target")
+
+    expect(next.find((item) => item.id === "source")?.children).toEqual([])
+    expect(next.find((item) => item.id === "target")?.children).toEqual([
+      expect.objectContaining({ id: "nested", path: "/vault/Source/Nested.md" }),
+      expect.objectContaining({ id: "loose", path: "/vault/Loose.md" }),
+    ])
+  })
+
+  it("does not duplicate a selected child when its parent is selected too", () => {
+    const items: TreeItem[] = [
+      {
+        id: "source",
+        path: "/vault/Source",
+        name: "Source",
+        type: "folder",
+        children: [{ id: "child", path: "/vault/Source/Child.md", name: "Child", type: "file" }],
+      },
+      { id: "target", path: "/vault/Target", name: "Target", type: "folder", children: [] },
+    ]
+
+    const next = moveTreeItemsOptimistically(items, ["source", "child"], "target")
+    const moved = next.find((item) => item.id === "target")?.children ?? []
+
+    expect(moved).toHaveLength(1)
+    expect(moved[0]).toMatchObject({ id: "source", path: "/vault/Source" })
+  })
+})
+
+describe("optimistic tree item lifecycle", () => {
+  it("inserts and removes a pending note without cloning unrelated branches", () => {
+    const unrelated: TreeItem = {
+      id: "unrelated",
+      path: "/vault/Unrelated",
+      name: "Unrelated",
+      type: "folder",
+      children: [],
+    }
+    const target: TreeItem = {
+      id: "target",
+      path: "/vault/Target",
+      name: "Target",
+      type: "folder",
+      children: [],
+    }
+    const pending: TreeItem = {
+      id: "pending",
+      path: "/vault/Target/Untitled.md",
+      name: "Untitled",
+      type: "file",
+    }
+
+    const inserted = insertTreeItemOptimistically([target, unrelated], "target", pending)
+    expect(inserted.find((item) => item.id === "unrelated")).toBe(unrelated)
+    expect(inserted.find((item) => item.id === "target")?.children).toEqual([pending])
+
+    const finalized = applyTreePatch(
+      inserted,
+      mutation({
+        primaryId: "created",
+        primaryPath: pending.path,
+        pathChanges: [{ oldPath: "", newPath: pending.path }],
+      }),
+    )
+    expect(finalized.find((item) => item.id === "target")?.children).toEqual([
+      expect.objectContaining({ id: "created", path: pending.path }),
+    ])
+
+    const removed = removeTreeItem(inserted, "pending")
+    expect(removed.find((item) => item.id === "unrelated")).toBe(unrelated)
+    expect(removed.find((item) => item.id === "target")?.children).toEqual([])
   })
 })
 

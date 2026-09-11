@@ -146,33 +146,33 @@ async readSnapshotText(snapshotId: string) : Promise<Result<SnapshotText, string
     else return { status: "error", error: e  as any };
 }
 },
-async saveRecovery(id: string, documentKind: string, pathHint: string, content: string) : Promise<Result<RecoveryEntry, string>> {
+async saveRecovery(id: string, documentKind: string, pathHint: string, content: string, expectedGeneration: number | null, expectedVault: string | null) : Promise<Result<RecoveryEntry, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("save_recovery", { id, documentKind, pathHint, content }) };
+    return { status: "ok", data: await TAURI_INVOKE("save_recovery", { id, documentKind, pathHint, content, expectedGeneration, expectedVault }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async readRecovery(id: string) : Promise<Result<RecoveryEntry | null, string>> {
+async readRecovery(id: string, expectedGeneration: number | null, expectedVault: string | null) : Promise<Result<RecoveryEntry | null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("read_recovery", { id }) };
+    return { status: "ok", data: await TAURI_INVOKE("read_recovery", { id, expectedGeneration, expectedVault }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async deleteRecovery(id: string) : Promise<Result<null, string>> {
+async deleteRecovery(id: string, expectedContentHash: string | null, expectedGeneration: number | null, expectedVault: string | null) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_recovery", { id }) };
+    return { status: "ok", data: await TAURI_INVOKE("delete_recovery", { id, expectedContentHash, expectedGeneration, expectedVault }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async listRecovery() : Promise<Result<RecoveryEntry[], string>> {
+async listRecovery(expectedGeneration: number | null, expectedVault: string | null) : Promise<Result<RecoveryEntry[], string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("list_recovery") };
+    return { status: "ok", data: await TAURI_INVOKE("list_recovery", { expectedGeneration, expectedVault }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

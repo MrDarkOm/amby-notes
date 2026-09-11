@@ -1,16 +1,7 @@
 "use client"
 
 import * as React from "react"
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  Download,
-  EyeOff,
-  Pin,
-  Settings2,
-  Upload,
-} from "lucide-react"
+import { ArrowLeft, ArrowRight, Check, Download, Pin, Settings2, Upload } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
 
@@ -57,8 +48,9 @@ interface ActivityBarProps {
   panelScope?: "global" | "workspace"
   onSetPanelScope?: (scope: "global" | "workspace") => void
   pinned?: boolean
+  autoHideReveal?: boolean
   onPinnedChange?: (pinned: boolean) => void
-  onHide?: () => void
+  onAutoHideChange?: (hovering: boolean) => void
   onOpenSettings: (target: SettingsNavigationTarget) => void
 }
 
@@ -85,12 +77,14 @@ export function ActivityBar({
   panelScope,
   onSetPanelScope,
   pinned = true,
+  autoHideReveal = false,
   onPinnedChange,
-  onHide,
+  onAutoHideChange,
   onOpenSettings,
 }: ActivityBarProps) {
   const { t } = useTranslation()
   const [isAutoHideHover, setIsAutoHideHover] = React.useState(false)
+  const isExpanded = pinned || autoHideReveal || isAutoHideHover
   const sideButtons = buttonsForSide(buttons, side)
   const viewButtons = sideButtons.filter((button) => findDef(button.defId)?.kind === "view")
   const actionButtons = sideButtons.filter((button) => findDef(button.defId)?.kind === "action")
@@ -182,13 +176,9 @@ export function ActivityBar({
         >
           <span className="flex items-center gap-2">
             <Pin className="size-4 text-muted-foreground" />
-            {t("dock.pin")}
+            {t(side === "left" ? "dock.pinLeft" : "dock.pinRight")}
           </span>
           {pinned && <Check className="size-4" />}
-        </ContextMenuItem>
-        <ContextMenuItem className="flex min-w-64 items-center gap-2" onSelect={onHide}>
-          <EyeOff className="size-4 text-muted-foreground" />
-          {t("dock.hide")}
         </ContextMenuItem>
       </>
     )
@@ -289,10 +279,16 @@ export function ActivityBar({
         <motion.div
           className="relative shrink-0"
           initial={false}
-          animate={{ width: pinned || isAutoHideHover ? 48 : 4 }}
+          animate={{ width: isExpanded ? 48 : 4 }}
           transition={motionTransitions.panel}
-          onMouseEnter={() => setIsAutoHideHover(true)}
-          onMouseLeave={() => setIsAutoHideHover(false)}
+          onMouseEnter={() => {
+            setIsAutoHideHover(true)
+            onAutoHideChange?.(true)
+          }}
+          onMouseLeave={() => {
+            setIsAutoHideHover(false)
+            onAutoHideChange?.(false)
+          }}
         >
           <motion.div
             data-activity-bar={side}
@@ -301,7 +297,7 @@ export function ActivityBar({
               side === "left" ? "left-0" : "right-0",
             )}
             initial={false}
-            animate={{ x: pinned || isAutoHideHover ? 0 : side === "left" ? -44 : 44 }}
+            animate={{ x: isExpanded ? 0 : side === "left" ? -44 : 44 }}
             transition={motionTransitions.panel}
           >
             <div
@@ -324,9 +320,8 @@ export function ActivityBar({
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
         <ContextMenuCheckboxItem checked={pinned} onCheckedChange={onPinnedChange}>
-          {t("dock.pin")}
+          {t(side === "left" ? "dock.pinLeft" : "dock.pinRight")}
         </ContextMenuCheckboxItem>
-        <ContextMenuItem onSelect={onHide}>{t("dock.hide")}</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   )

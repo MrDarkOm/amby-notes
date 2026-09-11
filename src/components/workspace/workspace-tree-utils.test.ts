@@ -10,6 +10,7 @@ import {
   findTreeItem,
   updateInTree,
   applyIconOverrides,
+  nextAvailableNoteName,
 } from "./workspace-tree-utils"
 import type { TreeItem } from "./sidebar-tree"
 
@@ -63,6 +64,38 @@ describe("wsPathStem", () => {
   })
   it("handles filenames without extension", () => {
     expect(wsPathStem("/vault/README")).toBe("README")
+  })
+})
+
+describe("nextAvailableNoteName", () => {
+  it("adds an incrementing suffix when the default name is already used", () => {
+    const tree: TreeItem[] = [
+      file("first", "Без названия", "/vault/Без названия.md"),
+      file("second", "Без названия 1", "/vault/Без названия 1.md"),
+    ]
+
+    expect(nextAvailableNoteName(tree, "/vault", "Без названия")).toBe("Без названия 2")
+  })
+
+  it("checks notes and folders in a nested bundle directory", () => {
+    const tree: TreeItem[] = [
+      folder("Project", [file("child", "Без названия", "/vault/Project/Без названия.md")]),
+      { ...folder("Без названия", []), path: "/vault/Без названия" },
+    ]
+
+    expect(nextAvailableNoteName(tree, "/vault/Project", "Без названия")).toBe("Без названия 1")
+    expect(nextAvailableNoteName(tree, "/vault", "Без названия")).toBe("Без названия 1")
+  })
+
+  it("treats a bundle main note as occupying its sibling folder name", () => {
+    const tree: TreeItem[] = [file("bundle", "Без названия", "/vault/Без названия/Без названия.md")]
+
+    expect(nextAvailableNoteName(tree, "/vault", "Без названия")).toBe("Без названия 1")
+  })
+
+  it("accounts for names reserved by concurrent creations", () => {
+    const reserved = new Set(["Без названия"])
+    expect(nextAvailableNoteName([], "/vault", "Без названия", reserved)).toBe("Без названия 1")
   })
 })
 
@@ -180,6 +213,8 @@ describe("applyIconOverrides", () => {
     const items = [file("b")]
     const result = applyIconOverrides(items, {})
     expect(result[0].icon).toBe("file")
+    expect(result).toBe(items)
+    expect(result[0]).toBe(items[0])
   })
 
   it("applies overrides recursively into children", () => {
@@ -192,5 +227,13 @@ describe("applyIconOverrides", () => {
     const items = [file("a")]
     applyIconOverrides(items, { a: "🌟" })
     expect(items[0].icon).toBe("file")
+  })
+
+  it("keeps unrelated branches referentially stable", () => {
+    const items = [folder("dir", [file("a")]), folder("other", [file("b")])]
+    const result = applyIconOverrides(items, { a: "🌟" })
+
+    expect(result[0]).not.toBe(items[0])
+    expect(result[1]).toBe(items[1])
   })
 })

@@ -20,6 +20,7 @@ import { tags } from "@lezer/highlight"
 
 import { INLINE_TOKEN_RE, getWikiLinkParts, type EditorHandle } from "./tiptap/constants"
 import { normalizeMarkdownSelection, type MarkdownSelection } from "./tiptap/markdown-selection"
+import { registerEditorSerialization } from "./tiptap/editor-serialization-lifecycle"
 
 interface SourceEditorProps {
   value: string
@@ -31,6 +32,7 @@ interface SourceEditorProps {
   selection?: MarkdownSelection | null
   onSelectionChange?: (selection: MarkdownSelection) => void
   editable?: boolean
+  onLocalEdit?: () => void
 }
 
 // Theme-aware source editor. The values intentionally come from the shared
@@ -124,6 +126,7 @@ export function SourceEditor({
   selection,
   onSelectionChange,
   editable = true,
+  onLocalEdit,
 }: SourceEditorProps) {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const viewRef = React.useRef<EditorView | null>(null)
@@ -131,7 +134,13 @@ export function SourceEditor({
   const applyingExternalValueRef = React.useRef(false)
   const onChangeRef = React.useRef(onChange)
   const onSelectionChangeRef = React.useRef(onSelectionChange)
+  const onLocalEditRef = React.useRef(onLocalEdit)
   const callbacksRef = React.useRef({ onTagClick, onWikiLinkClick })
+  const selectionRef = React.useRef<MarkdownSelection | null>(null)
+  const pendingChangeRef = React.useRef<string | null>(null)
+  const publishTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const publishMaxTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingSinceRef = React.useRef<number | null>(null)
 
   React.useEffect(() => {
     onChangeRef.current = onChange
@@ -142,12 +151,54 @@ export function SourceEditor({
   }, [onSelectionChange])
 
   React.useEffect(() => {
+    onLocalEditRef.current = onLocalEdit
+  }, [onLocalEdit])
+
+  React.useEffect(() => {
     callbacksRef.current = { onTagClick, onWikiLinkClick }
   }, [onTagClick, onWikiLinkClick])
+
+  const flushChange = React.useCallback(() => {
+    if (publishTimerRef.current) clearTimeout(publishTimerRef.current)
+    if (publishMaxTimerRef.current) clearTimeout(publishMaxTimerRef.current)
+    publishTimerRef.current = null
+    publishMaxTimerRef.current = null
+    pendingSinceRef.current = null
+    const next = pendingChangeRef.current
+    pendingChangeRef.current = null
+    if (next !== null && next !== valueRef.current) {
+      valueRef.current = next
+      onChangeRef.current(next)
+    }
+  }, [])
+
+  const scheduleChange = React.useCallback(
+    (next: string) => {
+      pendingChangeRef.current = next
+      pendingSinceRef.current ??= Date.now()
+      if (!publishTimerRef.current) {
+        publishTimerRef.current = setTimeout(() => {
+          publishTimerRef.current = null
+          flushChange()
+        }, 150)
+      }
+      if (!publishMaxTimerRef.current) {
+        publishMaxTimerRef.current = setTimeout(
+          () => {
+            publishMaxTimerRef.current = null
+            flushChange()
+          },
+          Math.max(0, 500 - (Date.now() - (pendingSinceRef.current ?? Date.now()))),
+        )
+      }
+    },
+    [flushChange],
+  )
 
   React.useEffect(() => {
     const parent = containerRef.current
     if (!parent) return
+    selectionRef.current = normalizeMarkdownSelection(selection, value)
 
     // Navigate on click into a #tag / [[wikilink]] token.
     const clickHandler = EditorView.domEventHandlers({
@@ -202,13 +253,20 @@ export function SourceEditor({
           EditorView.updateListener.of((update) => {
             if (update.selectionSet) {
               const range = update.state.selection.main
-              onSelectionChangeRef.current?.({ from: range.from, to: range.to })
+              selectionRef.current = { from: range.from, to: range.to }
+              onSelectionChangeRef.current?.(selectionRef.current)
             }
             if (!update.docChanged) return
             const next = update.state.doc.toString()
-            valueRef.current = next
             if (applyingExternalValueRef.current) return
-            onChangeRef.current(next)
+            onLocalEditRef.current?.()
+            scheduleChange(next)
+          }),
+          EditorView.domEventHandlers({
+            blur() {
+              flushChange()
+              return false
+            },
           }),
         ],
       }),
@@ -216,19 +274,23 @@ export function SourceEditor({
     viewRef.current = view
 
     return () => {
+      flushChange()
       view.destroy()
       viewRef.current = null
     }
     // Created once per mounted tab; document switches update the buffer below,
     // while lock changes remount this component through the React `key`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [flushChange, scheduleChange])
+
+  React.useEffect(() => registerEditorSerialization({ flush: flushChange }), [flushChange])
 
   // Sync external value changes without echoing our own edits.
   React.useEffect(() => {
     const view = viewRef.current
     if (!view) return
     if (value === valueRef.current) return
+    if (pendingChangeRef.current !== null) return
     valueRef.current = value
     applyingExternalValueRef.current = true
     try {
@@ -258,8 +320,15 @@ export function SourceEditor({
           view.focus()
         }
       },
+      flush: flushChange,
+      getMarkdownSelection: () => selectionRef.current,
     }
-  }, [editorRef])
+    return () => {
+      if ((editorRef as React.MutableRefObject<EditorHandle>).current) {
+        ;(editorRef as React.MutableRefObject<EditorHandle>).current = null as never
+      }
+    }
+  }, [editorRef, flushChange])
 
   return <div ref={containerRef} className="amby-source-editor relative min-h-[360px]" />
 }

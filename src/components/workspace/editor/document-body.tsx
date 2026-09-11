@@ -49,6 +49,7 @@ export interface DocumentBodyProps {
   docModified: string
   content: string
   onContentChange: (content: string) => void
+  onContentDirty?: () => void
   activeLayer: EditorLayer
   viewMode: DocumentViewMode
   onViewModeChange: (mode: DocumentViewMode) => void
@@ -90,6 +91,7 @@ export function DocumentBody({
   docModified,
   content,
   onContentChange,
+  onContentDirty,
   activeLayer,
   viewMode,
   onViewModeChange,
@@ -166,6 +168,7 @@ export function DocumentBody({
           key={`${docId}:canvas`}
           value={canvasValue ?? "{}"}
           onChange={(json) => onCanvasChange?.(json)}
+          onLocalEdit={onContentDirty}
           vault={vault ?? null}
           notePath={docPath}
           onOpenNote={onOpenCanvasNote}
@@ -291,6 +294,7 @@ export function DocumentBody({
               key={`${docId}:${isLocked}`}
               value={content}
               onChange={onContentChange}
+              onLocalEdit={onContentDirty}
               onTagClick={onTagClick}
               onWikiLinkClick={onWikiLinkClick}
               editorRef={editorRef}

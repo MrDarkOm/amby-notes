@@ -493,6 +493,43 @@
   background: transparent;
 }
 
+/* Frameless Windows title-bar controls. Keep the control strip on the same
+   surface as the header so no one-pixel rule appears under the buttons. */
+.amby-window-controls {
+  background: hsl(var(--background));
+}
+
+.amby-window-control {
+  display: flex;
+  height: 2.75rem;
+  width: 3rem;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground));
+}
+
+.amby-window-control:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.amby-window-control:active {
+  background: hsl(var(--accent) / 0.8);
+}
+
+.amby-window-control--close:hover {
+  background: #c42b1c;
+  color: #ffffff;
+}
+
+.amby-sidebar-overlay--left {
+  box-shadow: 8px 0 24px -8px rgb(15 23 42 / 0.35);
+}
+
+.amby-sidebar-overlay--right {
+  box-shadow: -8px 0 24px -8px rgb(15 23 42 / 0.35);
+}
+
 /* Editor scrollbar: inset from the panel edge with a visible recessed track. */
 .amby-editor-scroll::-webkit-scrollbar {
   width: 11px;

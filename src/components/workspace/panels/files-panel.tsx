@@ -42,13 +42,11 @@ import {
 } from "@/components/ui/dropdown-menu"
 import type { TreeItem } from "@/lib/storage"
 import { SidebarTree } from "../sidebar-tree"
+import { sortTreeItems, type TreeSortDirection, type TreeSortKey } from "../tree-sort"
 import { useViewStateStore } from "../use-view-state-store"
 import { NewItemModal } from "../new-item-modal"
 import type { PanelRenderProps } from "../panel-registry"
 import { PanelHeader, PanelSearch } from "./panel-header"
-
-type TreeSortKey = "name" | "created" | "modified"
-type TreeSortDirection = "asc" | "desc"
 
 const TREE_SORT_OPTIONS: Array<{
   key: TreeSortKey
@@ -63,32 +61,6 @@ const TREE_SORT_OPTIONS: Array<{
   { key: "created", direction: "desc", labelKey: "filesPanel.sortCreatedDesc", icon: Clock },
   { key: "created", direction: "asc", labelKey: "filesPanel.sortCreatedAsc", icon: Clock },
 ]
-
-function sortTreeItems(
-  items: TreeItem[],
-  key: TreeSortKey,
-  direction: TreeSortDirection,
-): TreeItem[] {
-  const multiplier = direction === "asc" ? 1 : -1
-  return items
-    .map((item) => ({
-      ...item,
-      children: item.children ? sortTreeItems(item.children, key, direction) : item.children,
-    }))
-    .sort((a, b) => {
-      // Keep folders and notes with attached layers (bundle nodes) above
-      // standalone files for every sort mode.
-      const kindRank = (item: TreeItem) =>
-        item.type === "folder" || (item.type === "file" && Boolean(item.children?.length)) ? 0 : 1
-      const kindResult = kindRank(a) - kindRank(b)
-      if (kindResult) return kindResult
-      const result =
-        key === "name"
-          ? a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-          : (a[key] ?? 0) - (b[key] ?? 0)
-      return result * multiplier || a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
-    })
-}
 
 function filterTreeItems(items: TreeItem[], query: string): TreeItem[] {
   const normalized = query.trim().toLocaleLowerCase()
@@ -111,6 +83,7 @@ export function FilesPanel(props: PanelRenderProps) {
     onOpenVault,
     onRename,
     onDelete,
+    onDeleteMany,
     onNewFile,
     onNewFolder,
     onNewCanvas,
@@ -293,6 +266,7 @@ export function FilesPanel(props: PanelRenderProps) {
                   onSelect={onSelect}
                   onRename={onRename}
                   onDelete={onDelete}
+                  onDeleteMany={onDeleteMany}
                   onNewFile={onNewFile}
                   onAttachCanvas={onAttachCanvas}
                   onOpenInNewTab={onOpenInNewTab}
@@ -330,7 +304,7 @@ export function FilesPanel(props: PanelRenderProps) {
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => {
               if (!vault) onOpenVault()
-              else onNewFile?.(null)
+              else window.setTimeout(() => void onNewFile?.(null), 80)
             }}
           >
             <FileText className="size-3.5 text-muted-foreground" />

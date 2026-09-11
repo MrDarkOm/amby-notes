@@ -205,8 +205,6 @@ const ru = {
       english: "Английский",
     },
     interface: {
-      leftDock: "Левая док-панель",
-      rightDock: "Правая док-панель",
       tooltipDelay: "Задержка подсказок",
       tooltipNone: "Без задержки",
       tooltipOneSecond: "1 с",
@@ -353,10 +351,8 @@ const ru = {
     none: "Без фона",
   },
   dock: {
-    pin: "Закрепить док-панель",
-    hide: "Скрыть док-панель",
-    hiddenNotice:
-      "Док-панель скрыта. Чтобы вернуть её, включите панель в настройках или в меню кнопки сворачивания.",
+    pinLeft: "Закрепить левую панель",
+    pinRight: "Закрепить правую панель",
   },
   panels: {
     files: "Файлы",
@@ -940,6 +936,8 @@ const ru = {
   },
   tree: {
     archive: "В архив",
+    selectedCount: "Выбрано: {{count}}",
+    deleteSelected: "Удалить выбранные ({{count}})",
     newNote: "Новая заметка",
     newPage: "Новая страница",
     newFolder: "Новая папка",
@@ -1211,12 +1209,17 @@ const ru = {
     openVault: "Открыть хранилище",
     deleteConfirm: 'Удалить "{{name}}"?',
     deleteTitle: "Удалить файл?",
+    deleteManyTitle: "Удалить выбранные файлы?",
+    deleteManyConfirm: "Переместить {{count}} файлов в корзину?",
     archive: "В архив",
     deleteDirtyTitle: "Удалить несохранённый файл?",
     deleteDirtyConfirm:
       "Файл «{{name}}» содержит несохранённые изменения или внешний конфликт. Сохранить черновик для восстановления или удалить без сохранения?",
+    deleteManyDirtyConfirm:
+      "Выбранные файлы содержат несохранённые изменения или внешние конфликты. Сохранить черновики для восстановления или удалить без сохранения?",
     deleteKeepRecovery: "Сохранить черновик",
     deleteDiscard: "Удалить без сохранения",
+    deleteManyFailed: "Не удалось переместить в корзину {{failed}} из {{total}} файлов.",
     dontAskAgain: "Больше не показывать это подтверждение",
     deleteLayerConfirm: 'Удалить {{layer}} у заметки "{{title}}"? Файл переедет в корзину.',
     graphTab: "Граф связей",
@@ -1440,8 +1443,6 @@ const en: typeof ru = {
       english: "English",
     },
     interface: {
-      leftDock: "Left dock panel",
-      rightDock: "Right dock panel",
       tooltipDelay: "Tooltip delay",
       tooltipNone: "No delay",
       tooltipOneSecond: "1 sec",
@@ -1587,10 +1588,8 @@ const en: typeof ru = {
     none: "No background",
   },
   dock: {
-    pin: "Pin dock panel",
-    hide: "Hide dock panel",
-    hiddenNotice:
-      "The dock panel is hidden. To restore it, enable it in Settings or from the sidebar toggle menu.",
+    pinLeft: "Pin left panel",
+    pinRight: "Pin right panel",
   },
   panels: {
     files: "Files",
@@ -2170,6 +2169,8 @@ const en: typeof ru = {
   },
   tree: {
     archive: "Archive",
+    selectedCount: "Selected: {{count}}",
+    deleteSelected: "Delete selected ({{count}})",
     newNote: "New note",
     newPage: "New page",
     newFolder: "New folder",
@@ -2441,12 +2442,17 @@ const en: typeof ru = {
     openVault: "Open vault",
     deleteConfirm: 'Delete "{{name}}"?',
     deleteTitle: "Delete file?",
+    deleteManyTitle: "Delete selected files?",
+    deleteManyConfirm: "Move {{count}} files to trash?",
     archive: "Archive",
     deleteDirtyTitle: "Delete unsaved file?",
     deleteDirtyConfirm:
       'File "{{name}}" has unsaved changes or an external conflict. Keep a recovery draft or discard changes?',
+    deleteManyDirtyConfirm:
+      "Selected files contain unsaved changes or external conflicts. Keep recovery drafts or discard changes?",
     deleteKeepRecovery: "Keep recovery draft",
     deleteDiscard: "Discard changes",
+    deleteManyFailed: "Could not move {{failed}} of {{total}} files to trash.",
     dontAskAgain: "Don't show this confirmation again",
     deleteLayerConfirm: 'Delete {{layer}} for note "{{title}}"? The file will be moved to trash.',
     graphTab: "Link graph",

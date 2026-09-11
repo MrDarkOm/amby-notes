@@ -10,11 +10,10 @@ import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 export function useWikiNavigation({
   vault,
   treeItems,
-  refreshTree,
   handleApplyMutation,
   handleSelect,
   releaseUnusedDocumentBuffers,
-}: Pick<UseFileActionsParams, "vault" | "treeItems" | "refreshTree"> &
+}: Pick<UseFileActionsParams, "vault" | "treeItems"> &
   Pick<MarkdownAutosaveActions, "handleApplyMutation" | "releaseUnusedDocumentBuffers"> & {
     handleSelect: (fileId: string) => Promise<void>
   }) {
@@ -40,7 +39,6 @@ export function useWikiNavigation({
       try {
         const result = await createNote(vault, vault, target.split("/").pop() ?? target)
         handleApplyMutation(result)
-        await refreshTree()
         const id = result.primaryId ?? result.primaryPath
         if (!id) return
         const note = await readNote(vault, id)
@@ -66,7 +64,6 @@ export function useWikiNavigation({
     [
       handleApplyMutation,
       handleSelect,
-      refreshTree,
       openItem,
       releaseUnusedDocumentBuffers,
       setDoc,

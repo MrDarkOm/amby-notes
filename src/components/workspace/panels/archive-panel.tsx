@@ -30,6 +30,11 @@ export function ArchivePanel(_props: PanelRenderProps) {
     }
   }, [])
   React.useEffect(() => void refresh(), [refresh])
+  React.useEffect(() => {
+    const handleTrashChanged = () => void refresh()
+    window.addEventListener("amby:trash-changed", handleTrashChanged)
+    return () => window.removeEventListener("amby:trash-changed", handleTrashChanged)
+  }, [refresh])
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const visibleEntries = entries.filter((entry) =>
     `${entry.name} ${entry.originalPath}`.toLocaleLowerCase().includes(normalizedQuery),

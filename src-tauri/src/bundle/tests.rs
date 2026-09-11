@@ -254,6 +254,21 @@ fn standalone_note_cannot_duplicate_a_bundle_name() {
 }
 
 #[test]
+fn newly_created_note_has_its_stable_id_in_the_first_published_source() {
+    let vault = temp_vault("create-with-id");
+
+    let result = create_note_impl(&vault, "New note").unwrap();
+    let path = PathBuf::from(result.primary_path.unwrap());
+    let source = fs::read_to_string(&path).unwrap();
+    let parsed = crate::frontmatter::parse_markdown(&source);
+
+    assert!(parsed.note_id().is_some());
+    assert!(parsed.body.is_empty());
+    assert_eq!(result.path_changes.len(), 1);
+    assert_eq!(result.path_changes[0].new_path, path_string(&path));
+}
+
+#[test]
 fn invalid_layer_does_not_promote_a_note() {
     let vault = temp_vault("invalid-layer");
     let note = vault.join("Note.md");

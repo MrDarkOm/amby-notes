@@ -27,10 +27,12 @@ pub fn read_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result
 #[specta::specta]
 pub fn write_file(
     scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
     content: String,
 ) -> Result<(), String> {
+    let _mutation_guard = db.mutation_gate.lock().unwrap();
     let path = paths::guard(&scope, &path)?;
     let vault = scope.get()?;
     let expected =
@@ -56,10 +58,12 @@ pub fn write_file(
 #[specta::specta]
 pub fn save_conflict_copy(
     scope: tauri::State<paths::VaultScope>,
+    db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
     content: String,
 ) -> Result<String, String> {
+    let _mutation_guard = db.mutation_gate.lock().unwrap();
     let original = paths::guard(&scope, &path)?;
     let parent = original
         .parent()
@@ -122,33 +126,40 @@ pub fn write_note(
     // A renderer can finish an autosave after another window activated a new
     // vault. Bind this write to the caller's active generation so it fails
     // safely instead of resolving the same note ID in the new backend context.
-    let conn_guard = db.conn.lock().unwrap();
-    let conn = conn_guard
-        .as_ref()
-        .ok_or_else(|| WriteNoteError::failed("No vault open"))?;
-    if request.expected_generation != conn.generation {
-        return Err(WriteNoteError::failed("Vault changed before note save"));
-    }
-    let destination = vault_index::note_metadata(conn, &conn.root, &request.note_id)
-        .map_err(WriteNoteError::failed)?;
-    let prepared_note = vault_index::prepare_note_write(
-        conn,
-        &conn.root,
-        &request.note_id,
-        &request.content,
-        &request.expected_revision,
-    )?;
-    let expected = if prepared_note.preserve_opaque_bytes {
-        watcher::fingerprint_for_bytes(prepared_note.next.as_bytes())
-    } else {
-        watcher::fingerprint_for_bytes(
-            &frontmatter::text_bytes_for_write(&prepared_note.path, &prepared_note.next)
-                .map_err(WriteNoteError::failed)?,
+    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let (vault_root, generation, destination, prepared_note, prepared_write) = {
+        let conn_guard = db.conn.lock().unwrap();
+        let conn = conn_guard
+            .as_ref()
+            .ok_or_else(|| WriteNoteError::failed("No vault open"))?;
+        if request.expected_generation != conn.generation {
+            return Err(WriteNoteError::failed("Vault changed before note save"));
+        }
+        let destination = vault_index::note_metadata(conn, &conn.root, &request.note_id)
+            .map_err(WriteNoteError::failed)?;
+        let prepared_note = vault_index::prepare_note_write(
+            conn,
+            &conn.root,
+            &request.note_id,
+            &request.content,
+            &request.expected_revision,
+        )?;
+        let expected = watcher::fingerprint_for_bytes(&prepared_note.persisted_bytes);
+        let prepared_write = watcher_state.prepare_write([(&prepared_note.path, expected)]);
+        (
+            conn.root.clone(),
+            conn.generation,
+            destination,
+            prepared_note,
+            prepared_write,
         )
     };
-    let prepared_write = watcher_state.prepare_write([(&prepared_note.path, expected)]);
+    let prepared_index_data = (
+        prepared_note.frontmatter_tags.clone(),
+        prepared_note.links.clone(),
+    );
     let (path, body, revision) =
-        match vault_index::commit_prepared_note_write(&conn.root, prepared_note) {
+        match vault_index::commit_prepared_note_write(&vault_root, prepared_note) {
             Ok(written) => {
                 watcher_state.confirm_prepared_write(&prepared_write);
                 written
@@ -158,9 +169,24 @@ pub fn write_note(
                 return Err(error);
             }
         };
-    let index_result =
-        vault_index::upsert_note_index(conn, &conn.root, &request.note_id, &body, &path);
-    drop(conn_guard); // release DB lock before touching watcher state
+    let index_result = {
+        let conn_guard = db.conn.lock().unwrap();
+        let conn = conn_guard
+            .as_ref()
+            .ok_or_else(|| WriteNoteError::failed("No vault open"))?;
+        if conn.generation != generation {
+            return Err(WriteNoteError::failed("Vault changed while saving note"));
+        }
+        vault_index::prepare_note_index_from_parts(
+            &conn.root,
+            &request.note_id,
+            &body,
+            &path,
+            prepared_index_data.0,
+            prepared_index_data.1,
+        )
+        .and_then(|prepared| vault_index::upsert_prepared_note_index(conn, &prepared))
+    };
     let outcome = match index_result {
         Ok(()) => WriteNoteOutcome {
             path: destination.path,
@@ -203,6 +229,7 @@ pub fn restore_deleted_note(
 ) -> Result<WriteNoteOutcome, WriteNoteError> {
     use tauri::Emitter;
 
+    let _mutation_guard = db.mutation_gate.lock().unwrap();
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard
         .as_ref()
@@ -383,6 +410,7 @@ pub fn upsert_custom_property(
     note_id: String,
     property: CustomProperty,
 ) -> Result<CustomProperty, String> {
+    let _mutation_guard = db.mutation_gate.lock().unwrap();
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     property_store::upsert(conn, &conn.root, &note_id, property)
@@ -395,6 +423,7 @@ pub fn delete_custom_property(
     note_id: String,
     property_id: String,
 ) -> Result<(), String> {
+    let _mutation_guard = db.mutation_gate.lock().unwrap();
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     property_store::delete(conn, &conn.root, &note_id, &property_id)
@@ -407,6 +436,7 @@ pub fn reorder_custom_properties(
     note_id: String,
     property_ids: Vec<String>,
 ) -> Result<(), String> {
+    let _mutation_guard = db.mutation_gate.lock().unwrap();
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     property_store::reorder(conn, &conn.root, &note_id, &property_ids)
@@ -418,6 +448,7 @@ pub fn backup_custom_properties(
     db: tauri::State<'_, VaultContext>,
     note_id: String,
 ) -> Result<String, String> {
+    let _mutation_guard = db.mutation_gate.lock().unwrap();
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
     property_store::backup_and_clear(conn, &conn.root, &note_id)

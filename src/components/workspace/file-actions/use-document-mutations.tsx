@@ -23,6 +23,7 @@ import {
   readNote,
   renameItem,
   showErrorMessage,
+  type FsMutationResult,
   type CustomProperty,
   type DatabaseNoteContext,
   type DatabasePropertySummary,
@@ -30,11 +31,13 @@ import {
 import { useDocStore } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { findTreeItem } from "../workspace-tree-utils"
+import { moveTreeItemsOptimistically } from "../workspace-mutations"
+import { beginLocalTreeMutation, recordLocalTreePaths } from "../watcher-tree-reconciliation"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
 type Params = Pick<
   UseFileActionsParams,
-  "vault" | "treeItems" | "refreshTree" | "backendGeneration"
+  "vault" | "treeItems" | "setTreeItems" | "refreshTree" | "backendGeneration"
 > &
   MarkdownAutosaveActions & { handleSelect: (id: string) => Promise<void> }
 
@@ -190,12 +193,14 @@ async function migratePropertiesToDatabase(
 export function useDocumentMutations({
   vault,
   treeItems,
+  setTreeItems,
   refreshTree,
   backendGeneration,
   autosave,
   autosaveKey,
   handleApplyMutation,
   handleSelect,
+  recoveryScope,
 }: Params) {
   const t = i18n.t.bind(i18n)
   const [pendingPropertyMigration, setPendingPropertyMigration] =
@@ -219,6 +224,7 @@ export function useDocumentMutations({
     async (id: string, newName: string) => {
       const item = findTreeItem(treeItems, id)
       if (!item) return
+      let finishLocalMutation: (() => void) | null = null
       try {
         const path = item.path ?? id
         const preview = await previewRenameRefactor(vault ?? "", path, newName)
@@ -232,23 +238,30 @@ export function useDocumentMutations({
           ))
         )
           return
+        finishLocalMutation = beginLocalTreeMutation()
         const result = await renameItem(vault ?? "", path, newName)
         handleApplyMutation(result)
+        finishLocalMutation()
         patchDoc(id, { title: newName, path: result.primaryPath ?? item.path ?? id })
         setTabs((previous) =>
           previous.map((tab) => (tab.fileId === id ? { ...tab, title: newName } : tab)),
         )
-        await refreshTree()
       } catch (error) {
         console.error("Failed to rename:", error)
+      } finally {
+        finishLocalMutation?.()
       }
     },
-    [handleApplyMutation, patchDoc, refreshTree, setTabs, t, treeItems, vault],
+    [handleApplyMutation, patchDoc, setTabs, t, treeItems, vault],
   )
   const handleMoveItem = React.useCallback(
-    async (sourceId: string, targetId: string | null) => {
-      const source = findTreeItem(treeItems, sourceId)
-      if (!source || !vault) return
+    async (sourceIds: string[], targetId: string | null) => {
+      if (!vault) return
+      const uniqueSourceIds = [...new Set(sourceIds)]
+      const selectedSources = uniqueSourceIds
+        .map((id) => findTreeItem(treeItems, id))
+        .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      if (!selectedSources.length) return
       const target = targetId ? findTreeItem(treeItems, targetId) : null
       if ((targetId && !target) || (target && target.type !== "folder" && target.type !== "file"))
         return
@@ -260,42 +273,119 @@ export function useDocumentMutations({
       }
       const basename = (path: string) => normalize(path).replace(/\/+$/, "").split("/").pop() ?? ""
       const stem = (path: string) => basename(path).replace(/\.[^.]+$/, "")
-      const sourcePath = source.path ?? sourceId
       const targetPath = target?.path ?? vault
-      const normalizedSource = normalize(sourcePath)
-      const sourceRoot =
-        source.type === "file" && basename(dirname(normalizedSource)) === stem(normalizedSource)
-          ? dirname(normalizedSource)
-          : normalizedSource
       const normalizedTarget = normalize(targetPath)
-      if (normalizedTarget.startsWith(`${sourceRoot}/`) || normalizedTarget === sourceRoot) return
+      const sourceEntries = selectedSources
+        .map((source) => {
+          const sourcePath = source.path ?? source.id
+          const normalizedSource = normalize(sourcePath)
+          const sourceRoot =
+            source.type === "file" && basename(dirname(normalizedSource)) === stem(normalizedSource)
+              ? dirname(normalizedSource)
+              : normalizedSource
+          return { source, sourcePath, sourceRoot }
+        })
+        .filter(
+          (entry, index, entries) =>
+            !entries.some(
+              (candidate, candidateIndex) =>
+                candidateIndex !== index && entry.sourceRoot.startsWith(`${candidate.sourceRoot}/`),
+            ),
+        )
+      if (!sourceEntries.length) return
+      if (
+        sourceEntries.some(
+          ({ sourceRoot }) =>
+            normalizedTarget.startsWith(`${sourceRoot}/`) || normalizedTarget === sourceRoot,
+        )
+      )
+        return
       if (
         target?.type === "file" &&
         basename(dirname(normalizedTarget)) === stem(normalizedTarget) &&
-        (sourceRoot === dirname(normalizedTarget) ||
-          sourceRoot.startsWith(`${dirname(normalizedTarget)}/`))
+        sourceEntries.some(
+          ({ sourceRoot }) =>
+            sourceRoot === dirname(normalizedTarget) ||
+            sourceRoot.startsWith(`${dirname(normalizedTarget)}/`),
+        )
       )
         return
-      if (!targetId && dirname(sourceRoot) === normalize(vault)) return
+      if (
+        !targetId &&
+        sourceEntries.some(({ sourceRoot }) => dirname(sourceRoot) === normalize(vault))
+      )
+        return
+
+      const previousTree = treeItems
+      setTreeItems((current) =>
+        moveTreeItemsOptimistically(
+          current,
+          sourceEntries.map(({ source }) => source.id),
+          targetId,
+        ),
+      )
+
+      const results: FsMutationResult[] = []
+      const finishLocalMutation = beginLocalTreeMutation()
       try {
+        const source = sourceEntries.length === 1 ? sourceEntries[0].source : null
         const previousProperties =
-          source.type === "file"
+          source?.type === "file"
             ? await getNoteProperties(vault, source.id).catch(() => null)
             : null
-        const preview = await previewMoveRefactor(vault, sourcePath, targetPath)
-        if (
-          preview.replacements > 0 &&
-          !(await confirmAction(
-            t("workspace.moveRefactorConfirm", {
-              replacements: preview.replacements,
-              notes: preview.notes,
-            }),
-          ))
-        )
-          return
-        handleApplyMutation(await moveItem(vault, sourcePath, targetPath))
-        await refreshTree()
-        if (previousProperties?.customProperties.length) {
+        if (sourceEntries.length === 1) {
+          const preview = await previewMoveRefactor(vault, sourceEntries[0].sourcePath, targetPath)
+          if (
+            preview.replacements > 0 &&
+            !(await confirmAction(
+              t("workspace.moveRefactorConfirm", {
+                replacements: preview.replacements,
+                notes: preview.notes,
+              }),
+            ))
+          ) {
+            setTreeItems(previousTree)
+            return
+          }
+        }
+
+        let currentTargetPath = targetPath
+        for (const { sourcePath } of sourceEntries) {
+          const result = await moveItem(vault, sourcePath, currentTargetPath)
+          results.push(result)
+          if (target?.type === "file") {
+            currentTargetPath =
+              result.pathChanges.find(
+                (change) => normalize(change.oldPath) === normalize(currentTargetPath),
+              )?.newPath ?? currentTargetPath
+          }
+        }
+
+        const lastResult = results[results.length - 1]
+        const pathChanges = results.flatMap((result, index) => {
+          const entry = sourceEntries[index]
+          if (
+            entry?.source.type !== "folder" ||
+            !result.primaryPath ||
+            result.pathChanges.some(
+              (change) => normalize(change.oldPath) === normalize(entry.sourceRoot),
+            )
+          ) {
+            return result.pathChanges
+          }
+          return [...result.pathChanges, { oldPath: entry.sourceRoot, newPath: result.primaryPath }]
+        })
+        handleApplyMutation({
+          primaryId: lastResult?.primaryId ?? null,
+          primaryPath: lastResult?.primaryPath ?? null,
+          pathChanges,
+          deletedPaths: results.flatMap((result) => result.deletedPaths),
+          deletedIds: results.flatMap((result) => result.deletedIds ?? []),
+        })
+        recordLocalTreePaths(sourceEntries.map((entry) => entry.sourceRoot))
+        finishLocalMutation()
+
+        if (previousProperties?.customProperties.length && source) {
           const databaseContext = await getDatabaseNoteContext(source.id).catch(() => null)
           if (databaseContext) {
             const choice = await requestPropertyMigration(
@@ -315,15 +405,22 @@ export function useDocumentMutations({
           }
         }
       } catch (error) {
+        if (results.length) {
+          await refreshTree()
+        } else {
+          setTreeItems(previousTree)
+        }
         console.error("Failed to move item:", error)
         void showErrorMessage(
           t("infoPanel.databasePropertyMoveFailed", {
             message: error instanceof Error ? error.message : String(error),
           }),
         )
+      } finally {
+        finishLocalMutation()
       }
     },
-    [handleApplyMutation, refreshTree, requestPropertyMigration, t, treeItems, vault],
+    [handleApplyMutation, refreshTree, requestPropertyMigration, setTreeItems, t, treeItems, vault],
   )
   const handleMergeFile = React.useCallback(
     async (sourceId: string, targetId: string) => {
@@ -360,7 +457,7 @@ export function useDocumentMutations({
           })
           markUnsaved(targetId)
         }
-        void saveRecoveryDraft(targetId, content, "markdown", path)
+        void saveRecoveryDraft(targetId, content, "markdown", path, recoveryScope)
         autosave.enqueueImmediate(autosaveKey(targetId), {
           fileId: targetId,
           path,
@@ -369,8 +466,13 @@ export function useDocumentMutations({
           expectedRevision: targetDocument?.revision ?? targetRead!.revision,
         })
         await autosave.flush(autosaveKey(targetId))
-        handleApplyMutation(await deleteItem(vault, source.path))
-        await refreshTree()
+        const finishLocalMutation = beginLocalTreeMutation()
+        try {
+          handleApplyMutation(await deleteItem(vault, source.path))
+          finishLocalMutation()
+        } finally {
+          finishLocalMutation()
+        }
         await handleSelect(targetId)
       } catch (error) {
         console.error("Failed to merge files:", error)
@@ -384,7 +486,7 @@ export function useDocumentMutations({
       handleSelect,
       markUnsaved,
       patchDoc,
-      refreshTree,
+      recoveryScope,
       t,
       treeItems,
       vault,

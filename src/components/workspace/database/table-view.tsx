@@ -182,7 +182,6 @@ export function TableView({
   const { t } = useTranslation()
   const iconOverrides = useViewStateStore((state) => state.iconOverrides)
   const setIcon = useViewStateStore((state) => state.setIcon)
-  const [scrollTop, setScrollTop] = React.useState(0)
   const [viewportHeight, setViewportHeight] = React.useState(480)
   const [selectedNoteId, setSelectedNoteId] = React.useState<string | null>(null)
   const [columnWidths, setColumnWidths] = React.useState<Record<string, number>>({})
@@ -197,6 +196,9 @@ export function TableView({
   const initializedWidthKeys = React.useRef(new Set<string>())
   const resizeRef = React.useRef<{ key: string; startX: number; startWidth: number } | null>(null)
   const viewportRef = React.useRef<HTMLDivElement>(null)
+  const scrollTopRef = React.useRef(0)
+  const rangeRafRef = React.useRef<number | null>(null)
+  const nextPagePendingRef = React.useRef(false)
 
   React.useEffect(() => {
     setColumnWidths((current) => {
@@ -316,11 +318,48 @@ export function TableView({
   )
     ? WRAPPED_ROW_HEIGHT
     : DEFAULT_ROW_HEIGHT
-  const first = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN)
-  const last = Math.min(
-    tableRows.length,
-    first + Math.ceil(viewportHeight / rowHeight) + OVERSCAN * 2,
+  const calculateRange = React.useCallback(
+    (offset: number) => {
+      const first = Math.min(
+        tableRows.length,
+        Math.max(0, Math.floor(offset / rowHeight) - OVERSCAN),
+      )
+      return {
+        first,
+        last: Math.min(
+          tableRows.length,
+          first + Math.ceil(viewportHeight / rowHeight) + OVERSCAN * 2,
+        ),
+      }
+    },
+    [rowHeight, tableRows.length, viewportHeight],
   )
+  const [visibleRange, setVisibleRange] = React.useState(() => calculateRange(0))
+  const rangeRef = React.useRef(visibleRange)
+  rangeRef.current = visibleRange
+  const scheduleRangeUpdate = React.useCallback(() => {
+    if (rangeRafRef.current !== null) return
+    rangeRafRef.current = requestAnimationFrame(() => {
+      rangeRafRef.current = null
+      const next = calculateRange(scrollTopRef.current)
+      const current = rangeRef.current
+      if (next.first === current.first && next.last === current.last) return
+      rangeRef.current = next
+      setVisibleRange(next)
+    })
+  }, [calculateRange])
+  React.useEffect(() => {
+    scheduleRangeUpdate()
+    return () => {
+      if (rangeRafRef.current !== null) cancelAnimationFrame(rangeRafRef.current)
+      rangeRafRef.current = null
+    }
+  }, [scheduleRangeUpdate])
+  React.useEffect(() => {
+    if (!loading) nextPagePendingRef.current = false
+  }, [loading])
+  const first = visibleRange.first
+  const last = visibleRange.last
   const visibleRows = tableRows.slice(first, last)
   const titleColumnWidth = columnWidths.title ?? defaultTitleWidth(rows)
   const titleColumn = `${titleColumnWidth}px`
@@ -359,12 +398,15 @@ export function TableView({
 
   function handleScroll(event: React.UIEvent<HTMLDivElement>) {
     const element = event.currentTarget
-    setScrollTop(element.scrollTop)
+    scrollTopRef.current = element.scrollTop
+    scheduleRangeUpdate()
     if (
       hasNextPage &&
       !loading &&
+      !nextPagePendingRef.current &&
       element.scrollTop + element.clientHeight >= element.scrollHeight - 320
     ) {
+      nextPagePendingRef.current = true
       onLoadNextPage()
     }
   }

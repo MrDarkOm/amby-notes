@@ -59,6 +59,7 @@ interface CanvasEdge {
 export interface CanvasFile {
   nodes: CanvasNode[]
   edges: CanvasEdge[]
+  [key: string]: unknown
 }
 
 // ── XyFlow node data shapes ──────────────────────────────────────────────────
@@ -82,6 +83,11 @@ export interface GroupNodeData {
   [key: string]: unknown
 }
 
+interface CanvasInternalData {
+  __canvasNodeType?: CanvasNodeType
+  __canvasExtras?: Record<string, unknown>
+}
+
 export type CanvasFlowNode = Node<TextNodeData | FileNodeData | GroupNodeData>
 
 // ── Parse / serialize ─────────────────────────────────────────────────────────
@@ -91,9 +97,10 @@ export function parseCanvas(json: string | null | undefined): CanvasFile {
   try {
     const data = JSON.parse(json) as Partial<CanvasFile>
     return {
+      ...data,
       nodes: Array.isArray(data.nodes) ? data.nodes : [],
       edges: Array.isArray(data.edges) ? data.edges : [],
-    }
+    } as CanvasFile
   } catch {
     return { nodes: [], edges: [] }
   }
@@ -143,18 +150,24 @@ export function toReactFlow(file: CanvasFile): {
   edges: Edge[]
 } {
   const nodes: CanvasFlowNode[] = file.nodes.map((n) => {
+    const { id, type, x, y, width, height, color, ...extras } = n
     const base = {
-      id: n.id,
-      position: { x: n.x, y: n.y },
-      style: { width: n.width, height: n.height },
-      width: n.width,
-      height: n.height,
+      id,
+      position: { x, y },
+      style: { width, height },
+      width,
+      height,
     }
     if (n.type === "group") {
       return {
         ...base,
         type: "group",
-        data: { label: n.label, color: n.color } as GroupNodeData,
+        data: {
+          label: n.label,
+          color,
+          __canvasNodeType: type,
+          __canvasExtras: extras,
+        } as GroupNodeData & CanvasInternalData,
         // Groups render behind other nodes and never grab pointer events on body.
         zIndex: 0,
         selectable: true,
@@ -165,7 +178,13 @@ export function toReactFlow(file: CanvasFile): {
       return {
         ...base,
         type: "file",
-        data: { file: n.file, subpath: n.subpath, color: n.color } as FileNodeData,
+        data: {
+          file: n.file,
+          subpath: n.subpath,
+          color,
+          __canvasNodeType: type,
+          __canvasExtras: extras,
+        } as FileNodeData & CanvasInternalData,
         zIndex: 1,
       }
     }
@@ -174,7 +193,12 @@ export function toReactFlow(file: CanvasFile): {
       return {
         ...base,
         type: "file",
-        data: { file: (n as CanvasLinkNode).url, color: n.color } as FileNodeData,
+        data: {
+          file: (n as CanvasLinkNode).url,
+          color,
+          __canvasNodeType: type,
+          __canvasExtras: extras,
+        } as FileNodeData & CanvasInternalData,
         zIndex: 1,
       }
     }
@@ -182,26 +206,38 @@ export function toReactFlow(file: CanvasFile): {
     return {
       ...base,
       type: "text",
-      data: { text: (n as CanvasTextNode).text ?? "", color: n.color } as TextNodeData,
+      data: {
+        text: (n as CanvasTextNode).text ?? "",
+        color,
+        __canvasNodeType: type,
+        __canvasExtras: extras,
+      } as TextNodeData & CanvasInternalData,
       zIndex: 1,
     }
   })
 
   const edges: Edge[] = file.edges.map((e) => {
-    const toEnd = e.toEnd ?? "arrow"
-    const fromEnd = e.fromEnd ?? "none"
-    const css = colorToCss(e.color)
+    const { id, fromNode, fromSide, fromEnd, toNode, toSide, toEnd, color, label, ...extras } = e
+    const resolvedToEnd = toEnd ?? "arrow"
+    const resolvedFromEnd = fromEnd ?? "none"
+    const css = colorToCss(color)
     return {
-      id: e.id,
+      id,
       type: "canvasEdge",
-      source: e.fromNode,
-      target: e.toNode,
-      sourceHandle: e.fromSide ? `s-${e.fromSide}` : undefined,
-      targetHandle: e.toSide ? `t-${e.toSide}` : undefined,
-      markerEnd: arrowMarker(toEnd, css),
-      markerStart: arrowMarker(fromEnd, css),
+      source: fromNode,
+      target: toNode,
+      sourceHandle: fromSide ? `s-${fromSide}` : undefined,
+      targetHandle: toSide ? `t-${toSide}` : undefined,
+      markerEnd: arrowMarker(resolvedToEnd, css),
+      markerStart: arrowMarker(resolvedFromEnd, css),
       style: css ? { stroke: css } : undefined,
-      data: { color: e.color, label: e.label, toEnd, fromEnd },
+      data: {
+        color,
+        label,
+        toEnd: resolvedToEnd,
+        fromEnd: resolvedFromEnd,
+        __canvasEdgeExtras: extras,
+      },
     }
   })
 
@@ -219,6 +255,7 @@ export interface CanvasEdgeData {
   label?: string
   toEnd?: CanvasEdgeEnd
   fromEnd?: CanvasEdgeEnd
+  __canvasEdgeExtras?: Record<string, unknown>
   [key: string]: unknown
 }
 
@@ -248,12 +285,19 @@ export function fromReactFlow(nodes: CanvasFlowNode[], edges: Edge[]): CanvasFil
       width,
       height,
     }
-    const data = node.data as Partial<TextNodeData & FileNodeData & GroupNodeData>
+    const data = node.data as Partial<TextNodeData & FileNodeData & GroupNodeData> &
+      CanvasInternalData
+    const extras = data.__canvasExtras ?? {}
+    const originalType = data.__canvasNodeType
     if (node.type === "group") {
-      return { ...common, type: "group", label: data.label, color: data.color }
+      return { ...extras, ...common, type: "group", label: data.label, color: data.color }
     }
     if (node.type === "file") {
+      if (originalType === "link") {
+        return { ...extras, ...common, type: "link", url: data.file ?? "", color: data.color }
+      }
       return {
+        ...extras,
         ...common,
         type: "file",
         file: data.file ?? "",
@@ -261,7 +305,7 @@ export function fromReactFlow(nodes: CanvasFlowNode[], edges: Edge[]): CanvasFil
         color: data.color,
       }
     }
-    return { ...common, type: "text", text: data.text ?? "", color: data.color }
+    return { ...extras, ...common, type: "text", text: data.text ?? "", color: data.color }
   })
 
   const outEdges: CanvasEdge[] = edges.map((e) => {
@@ -270,6 +314,7 @@ export function fromReactFlow(nodes: CanvasFlowNode[], edges: Edge[]): CanvasFil
     const fromEnd = d.fromEnd ?? (e.markerStart ? "arrow" : "none")
     const label = d.label ?? (typeof e.label === "string" ? e.label : undefined)
     return {
+      ...(d.__canvasEdgeExtras ?? {}),
       id: e.id,
       fromNode: e.source,
       fromSide: handleToSide(e.sourceHandle, "s"),

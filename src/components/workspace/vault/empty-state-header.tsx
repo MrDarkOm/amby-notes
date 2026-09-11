@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { Maximize2, Minimize2, Minus, X } from "lucide-react"
 
 import { isTauri } from "@/lib/storage"
+import { adoptAsyncDisposer } from "@/lib/async-disposable"
 
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
 
@@ -22,21 +23,14 @@ export function EmptyStateHeader() {
       .isMaximized()
       .then(setIsMaximized)
       .catch(() => {})
-    let unlisten: (() => void) | undefined
-    win
-      .onResized(() =>
+    return adoptAsyncDisposer(
+      win.onResized(() =>
         win
           .isMaximized()
           .then(setIsMaximized)
           .catch(() => {}),
-      )
-      .then((fn) => {
-        unlisten = fn
-      })
-      .catch(() => {})
-    return () => {
-      unlisten?.()
-    }
+      ),
+    )
   }, [])
 
   function handleMouseDown(e: React.MouseEvent) {

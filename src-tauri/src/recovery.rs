@@ -4,6 +4,7 @@ use crate::frontmatter;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const RECOVERY_DIR: &str = "recovery";
@@ -17,6 +18,12 @@ pub const MAX_TOTAL_RECOVERY_BYTES: u64 = 50 * 1024 * 1024;
 pub const MAX_RECOVERY_ENTRIES: usize = 100;
 /// Recovery drafts older than 14 days are eligible for expiry.
 pub const RECOVERY_TTL_MS: u64 = 14 * 24 * 60 * 60 * 1000;
+
+static RECOVERY_IO_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn recovery_io_lock() -> &'static Mutex<()> {
+    RECOVERY_IO_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -130,6 +137,7 @@ pub fn save_recovery(
     path_hint: &str,
     content: &str,
 ) -> Result<RecoveryEntry, String> {
+    let _lock = recovery_io_lock().lock().unwrap();
     if content.len() as u64 > MAX_ENTRY_SIZE_BYTES {
         return Err(format!(
             "Recovery draft exceeds maximum allowed size of {MAX_ENTRY_SIZE_BYTES} bytes"
@@ -165,6 +173,7 @@ pub fn save_recovery(
 /// Read a recovery entry for the given stable ID or path hint.
 /// Returns `Ok(None)` if no valid, non-expired entry exists.
 pub fn read_recovery(vault: &Path, id: &str) -> Result<Option<RecoveryEntry>, String> {
+    let _lock = recovery_io_lock().lock().unwrap();
     let root = recovery_root(vault);
     if !root.exists() {
         return Ok(None);
@@ -198,7 +207,12 @@ pub fn read_recovery(vault: &Path, id: &str) -> Result<Option<RecoveryEntry>, St
 }
 
 /// Delete recovery draft(s) associated with the given ID or path hint.
-pub fn delete_recovery(vault: &Path, id: &str) -> Result<(), String> {
+pub fn delete_recovery(
+    vault: &Path,
+    id: &str,
+    expected_content_hash: Option<&str>,
+) -> Result<(), String> {
+    let _lock = recovery_io_lock().lock().unwrap();
     let root = recovery_root(vault);
     if !root.exists() {
         return Ok(());
@@ -206,13 +220,22 @@ pub fn delete_recovery(vault: &Path, id: &str) -> Result<(), String> {
 
     let direct_path = entry_file_path(&root, id);
     if direct_path.exists() {
-        let _ = fs::remove_file(&direct_path);
+        let can_delete = expected_content_hash.is_none_or(|expected| {
+            read_entry_file(&direct_path)
+                .ok()
+                .is_some_and(|entry| entry.content_hash == expected)
+        });
+        if can_delete {
+            let _ = fs::remove_file(&direct_path);
+        }
     }
 
     // Also remove any file whose content matches this id or path_hint.
     let all = read_all_entries(&root);
     for (path, entry) in all {
-        if entry.id == id || entry.path_hint == id {
+        if (entry.id == id || entry.path_hint == id)
+            && expected_content_hash.is_none_or(|expected| entry.content_hash == expected)
+        {
             let _ = fs::remove_file(path);
         }
     }
@@ -222,6 +245,7 @@ pub fn delete_recovery(vault: &Path, id: &str) -> Result<(), String> {
 
 /// List all valid, non-expired recovery drafts sorted by saved timestamp descending.
 pub fn list_recovery(vault: &Path) -> Result<Vec<RecoveryEntry>, String> {
+    let _lock = recovery_io_lock().lock().unwrap();
     let root = recovery_root(vault);
     if !root.exists() {
         return Ok(Vec::new());
@@ -241,6 +265,7 @@ pub fn list_recovery(vault: &Path) -> Result<Vec<RecoveryEntry>, String> {
 /// Clean expired and corrupt entries and enforce storage limits.
 /// Returns the number of removed files.
 pub fn sweep_expired_recovery(vault: &Path) -> Result<usize, String> {
+    let _lock = recovery_io_lock().lock().unwrap();
     let root = recovery_root(vault);
     if !root.exists() {
         return Ok(0);
@@ -280,19 +305,23 @@ pub fn sweep_expired_recovery(vault: &Path) -> Result<usize, String> {
 }
 
 fn prune_quotas(root: &Path) -> usize {
-    let mut entries = read_all_entries(root);
+    let mut entries = read_all_entries(root)
+        .into_iter()
+        .map(|(path, entry)| {
+            let bytes = entry.content.len() as u64;
+            (path, bytes, entry.saved_at_ms)
+        })
+        .collect::<Vec<_>>();
     if entries.is_empty() {
         return 0;
     }
 
-    // Sort descending by saved_at_ms (newest first).
-    entries.sort_by_key(|(_, entry)| std::cmp::Reverse(entry.saved_at_ms));
+    entries.sort_by_key(|(_, _, modified_ms)| std::cmp::Reverse(*modified_ms));
 
     let mut total_bytes: u64 = 0;
     let mut to_delete: Vec<PathBuf> = Vec::new();
 
-    for (index, (path, entry)) in entries.into_iter().enumerate() {
-        let entry_bytes = entry.content.len() as u64;
+    for (index, (path, entry_bytes, _)) in entries.into_iter().enumerate() {
         if index >= MAX_RECOVERY_ENTRIES || total_bytes + entry_bytes > MAX_TOTAL_RECOVERY_BYTES {
             to_delete.push(path);
         } else {
@@ -341,7 +370,7 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].id, id);
 
-        delete_recovery(&vault, id).unwrap();
+        delete_recovery(&vault, id, None).unwrap();
         assert!(read_recovery(&vault, id).unwrap().is_none());
         assert_eq!(list_recovery(&vault).unwrap().len(), 0);
 
@@ -363,9 +392,24 @@ mod tests {
         assert_eq!(read.unwrap().content, content);
 
         // Delete by path hint
-        delete_recovery(&vault, path_hint).unwrap();
+        delete_recovery(&vault, path_hint, None).unwrap();
         assert!(read_recovery(&vault, id).unwrap().is_none());
 
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn compare_and_delete_keeps_a_newer_recovery_entry() {
+        let vault = temp_vault();
+        let id = "cas-recovery";
+        let old = save_recovery(&vault, 1, id, "markdown", "note.md", "old").unwrap();
+        let newer = save_recovery(&vault, 1, id, "markdown", "note.md", "new").unwrap();
+
+        delete_recovery(&vault, id, Some(&old.content_hash)).unwrap();
+        assert_eq!(read_recovery(&vault, id).unwrap().unwrap().content, "new");
+
+        delete_recovery(&vault, id, Some(&newer.content_hash)).unwrap();
+        assert!(read_recovery(&vault, id).unwrap().is_none());
         fs::remove_dir_all(vault).unwrap();
     }
 

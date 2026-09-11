@@ -87,8 +87,9 @@ pub fn is_amby_temporary_file(path: &Path) -> bool {
 pub struct WatcherState {
     /// The active watcher (dropped → OS unregisters the watch).
     pub watcher: Mutex<Option<notify::RecommendedWatcher>>,
-    /// Exact results of our own filesystem writes. Parent directories are not
-    /// recorded: a sibling file change must never be hidden by a broad marker.
+    /// Exact results of our own filesystem writes. Unrelated ancestor
+    /// directories are not recorded, while compound mutations register the
+    /// specific directories they actually create, remove, or touch.
     pub own_writes: Arc<Mutex<HashMap<PathBuf, SelfWriteRecord>>>,
     /// The active watcher's vault generation. A callback from a dropped prior
     /// watcher is ignored even if the OS delivers it late.

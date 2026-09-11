@@ -90,6 +90,7 @@ export interface PanelRenderProps {
   onOpenVault: () => void
   onRename?: (id: string, newName: string) => void
   onDelete?: (id: string) => void
+  onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
   onNewFolder?: (parentId: string | null) => void
   onNewCanvas?: (parentId: string | null) => void
@@ -99,7 +100,7 @@ export interface PanelRenderProps {
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
-  onMoveItem?: (sourceId: string, targetFolderId: string | null) => void
+  onMoveItem?: (sourceIds: string[], targetFolderId: string | null) => void
   onSetIcon?: (id: string, icon: string) => void
   triggerRenameId?: string | null
   readFile?: (path: string) => Promise<string>

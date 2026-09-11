@@ -9,6 +9,9 @@ import {
   Columns2,
   ChevronDown,
   FolderOpen,
+  Maximize2,
+  Minimize2,
+  Minus,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -22,6 +25,7 @@ import { cn } from "@/lib/utils"
 import { motionTransitions } from "@/lib/motion-config"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { isTauri } from "@/lib/storage"
+import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { WorkspacePicker, type VaultRecord } from "./workspace-picker"
 import { IconValue } from "./icon-value"
 import { isRichIconValue } from "./icon-values"
@@ -144,12 +148,8 @@ interface HeaderTabsProps {
   onToggleRightSidebar?: () => void
   isLeftSidebarOpen?: boolean
   isRightSidebarOpen?: boolean
-  isLeftDockVisible?: boolean
-  isRightDockVisible?: boolean
   isLeftDockPinned?: boolean
   isRightDockPinned?: boolean
-  onSetLeftDockVisible?: (visible: boolean) => void
-  onSetRightDockVisible?: (visible: boolean) => void
   onSetLeftDockPinned?: (pinned: boolean) => void
   onSetRightDockPinned?: (pinned: boolean) => void
   onOpenPlusModal?: () => void
@@ -210,12 +210,8 @@ export function HeaderTabs({
   onToggleRightSidebar,
   isLeftSidebarOpen = true,
   isRightSidebarOpen = true,
-  isLeftDockVisible = true,
-  isRightDockVisible = true,
   isLeftDockPinned = true,
   isRightDockPinned = true,
-  onSetLeftDockVisible,
-  onSetRightDockVisible,
   onSetLeftDockPinned,
   onSetRightDockPinned,
   onOpenPlusModal,
@@ -242,16 +238,17 @@ export function HeaderTabs({
   // The left header dock ends on the same divider as the left body panel.
   // On macOS the 80px traffic-light region already consumes 36px more than the
   // 44px activity rail, so subtract that difference from the panel header.
-  const rightDockWidth = isRightDockVisible ? (isRightDockPinned ? ACTIVITY_BAR_WIDTH : 4) : 0
+  const rightDockWidth = isRightDockPinned ? ACTIVITY_BAR_WIDTH : 0
   // When the right panel is hidden, edge controls still occupy the end of the
   // header: the system window controls on Windows/Linux or the right-sidebar
   // toggle on macOS. Keep the view controls to their left.
   const leftPanelHeaderCssWidth = isMac
     ? `max(0px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) - ${80 - ACTIVITY_BAR_WIDTH}px))`
     : `var(--amby-left-panel-width, ${leftTreeWidth}px)`
-  const rightHeaderInsetCss = isRightSidebarOpen
-    ? `max(${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}px))`
-    : `${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px`
+  const rightHeaderInsetCss =
+    isRightSidebarOpen && isRightDockPinned
+      ? `max(${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}px))`
+      : `${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px`
   const [isMaximized, setIsMaximized] = React.useState(false)
   const lastClickTimeRef = React.useRef(0)
 
@@ -262,21 +259,14 @@ export function HeaderTabs({
       .isMaximized()
       .then(setIsMaximized)
       .catch(() => {})
-    let unlisten: (() => void) | undefined
-    win
-      .onResized(() => {
+    return adoptAsyncDisposer(
+      win.onResized(() => {
         win
           .isMaximized()
           .then(setIsMaximized)
           .catch(() => {})
-      })
-      .then((fn) => {
-        unlisten = fn
-      })
-      .catch(() => {})
-    return () => {
-      unlisten?.()
-    }
+      }),
+    )
   }, [])
 
   function handleEmptySpaceMouseDown(e: React.MouseEvent) {
@@ -298,11 +288,10 @@ export function HeaderTabs({
 
   function withVisibilityMenu(
     trigger: React.ReactNode,
+    side: "left" | "right",
     sidebarOpen: boolean,
-    dockVisible: boolean,
     dockPinned: boolean,
     onToggleSidebar?: () => void,
-    onSetDockVisible?: (visible: boolean) => void,
     onSetDockPinned?: (pinned: boolean) => void,
   ) {
     return (
@@ -323,14 +312,7 @@ export function HeaderTabs({
             indicatorPosition="right"
             onCheckedChange={onSetDockPinned}
           >
-            {t("dock.pin")}
-          </ContextMenuCheckboxItem>
-          <ContextMenuCheckboxItem
-            checked={!dockVisible}
-            indicatorPosition="right"
-            onCheckedChange={(hidden) => onSetDockVisible?.(!hidden)}
-          >
-            {t("dock.hide")}
+            {t(side === "left" ? "dock.pinLeft" : "dock.pinRight")}
           </ContextMenuCheckboxItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -350,11 +332,10 @@ export function HeaderTabs({
         <PanelLeftOpen className="size-4 text-foreground" />
       )}
     </button>,
+    "left",
     isLeftSidebarOpen,
-    isLeftDockVisible,
     isLeftDockPinned,
     onToggleLeftSidebar,
-    onSetLeftDockVisible,
     onSetLeftDockPinned,
   )
 
@@ -371,11 +352,10 @@ export function HeaderTabs({
         <PanelRightOpen className="size-4 text-foreground" />
       )}
     </button>,
+    "right",
     isRightSidebarOpen,
-    isRightDockVisible,
     isRightDockPinned,
     onToggleRightSidebar,
-    onSetRightDockVisible,
     onSetRightDockPinned,
   )
 
@@ -429,17 +409,17 @@ export function HeaderTabs({
       {isMac ? (
         <div className="w-[80px] shrink-0" onMouseDown={handleDragStart} />
       ) : (
-        /* Non-mac: right panel toggle in the former logo position */
+        /* Windows: the left toggle is aligned with the left activity rail. */
         <div
           className="flex w-12 shrink-0 items-center justify-center"
           onMouseDown={handleDragStart}
         >
-          {rightSidebarToggle}
+          {leftSidebarToggle}
         </div>
       )}
 
       {/* Workspace switcher (left panel header column, only when panel open) */}
-      {isLeftSidebarOpen && (
+      {isLeftSidebarOpen && isLeftDockPinned && (
         <div
           className="flex shrink-0 items-center"
           style={{ width: leftPanelHeaderCssWidth }}
@@ -484,7 +464,13 @@ export function HeaderTabs({
       <div
         className={cn(
           "flex min-w-0 flex-1 items-center gap-1 overflow-hidden pr-1",
-          isLeftSidebarOpen ? "pl-0" : "pl-9",
+          isMac
+            ? isLeftSidebarOpen && isLeftDockPinned
+              ? "pl-0"
+              : "pl-9"
+            : isLeftSidebarOpen
+              ? "pl-0"
+              : "pl-9",
         )}
       >
         <div className="flex h-full min-w-0 items-center gap-1 overflow-hidden">
@@ -550,18 +536,17 @@ export function HeaderTabs({
 
       {/* Sidebar toggles are window-edge controls: unlike panel content they
           never move when a sidebar opens, closes, or is resized. */}
-      <div className={cn("absolute top-1.5 z-20", isMac ? "left-[80px]" : "left-12")}>
-        {leftSidebarToggle}
-      </div>
+      {isMac && <div className="absolute left-[80px] top-1.5 z-20">{leftSidebarToggle}</div>}
       {/* Match the exact body dock width. This keeps the right toggle attached
           to the panel divider and prevents the large jump when it is closed. */}
       <div
         style={{
-          width: isRightSidebarOpen
-            ? `calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}px)`
-            : isMac
-              ? 0
-              : rightDockWidth,
+          width:
+            isRightSidebarOpen && isRightDockPinned
+              ? `calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}px)`
+              : isMac
+                ? 0
+                : rightDockWidth,
         }}
         className="shrink-0"
         onMouseDown={handleDragStart}
@@ -577,37 +562,34 @@ export function HeaderTabs({
         </div>
       )}
 
-      {/* Non-mac window controls — absolutely positioned so they don't consume
-          flex width (the body has no window controls on this side, so the
-          editor's view controls line up with the panel divider). */}
+      {/* Windows: the right toggle stays immediately before the native-style
+          controls instead of jumping to the opposite side of the header. */}
       {!isMac && (
-        <div className="absolute right-0 top-0 flex h-11 items-center border-b border-border bg-background">
+        <div className="amby-window-controls absolute right-0 top-0 flex h-11 w-48 items-center justify-end">
+          <div className="flex h-11 w-12 shrink-0 items-center justify-center">
+            {rightSidebarToggle}
+          </div>
           <button
+            type="button"
+            aria-label={t("settings.window.minimize")}
             onClick={() => isTauri() && getCurrentWindow().minimize()}
-            className="flex h-11 w-12 items-center justify-center text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            className="amby-window-control"
           >
-            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M0 5h10" stroke="currentColor" strokeWidth="1" />
-            </svg>
+            <Minus className="size-3.5" />
           </button>
           <button
+            type="button"
+            aria-label={isMaximized ? t("settings.window.restore") : t("settings.window.maximize")}
             onClick={() => isTauri() && getCurrentWindow().toggleMaximize()}
-            className="flex h-11 w-12 items-center justify-center text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            className="amby-window-control"
           >
-            {isMaximized ? (
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                <rect x="0.5" y="2.5" width="7" height="7" stroke="currentColor" strokeWidth="1" />
-                <path d="M2.5 2.5V0.5h7v7H7.5" stroke="currentColor" strokeWidth="1" />
-              </svg>
-            ) : (
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-                <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" strokeWidth="1" />
-              </svg>
-            )}
+            {isMaximized ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </button>
           <button
+            type="button"
+            aria-label={t("settings.window.close")}
             onClick={() => isTauri() && getCurrentWindow().close()}
-            className="flex h-11 w-12 items-center justify-center text-muted-foreground hover:bg-red-600 hover:text-white"
+            className="amby-window-control amby-window-control--close"
           >
             <X className="size-4" />
           </button>
