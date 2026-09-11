@@ -205,6 +205,11 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     })
   })
 
+  it("defaults tree guide lines on and preserves the explicit preference", () => {
+    expect(normalizeAppPreferences({}).treeGuides).toBe(true)
+    expect(normalizeAppPreferences({ treeGuides: false }).treeGuides).toBe(false)
+  })
+
   it("preserves the explicit database gate without changing module layout", async () => {
     store.set(
       "amby:g:" + SETTINGS_FILE,

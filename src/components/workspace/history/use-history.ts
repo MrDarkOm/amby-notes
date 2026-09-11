@@ -6,15 +6,12 @@ import {
   deleteSnapshot,
   getHistoryStats,
   listSnapshots,
-  listTrash,
   previewHistoryCleanup,
   readFile,
   readSnapshotText,
   restoreSnapshot,
-  restoreTrash,
   type HistoryStats,
   type SnapshotEntry,
-  type TrashEntry,
 } from "@/lib/storage"
 import { errorType, logger } from "@/lib/logger"
 import { flushAutosaveGeneration } from "../autosave/autosave-lifecycle"
@@ -27,7 +24,6 @@ const RETENTION = { maxSnapshotsPerNote: 0, maxAgeDays: null }
 export function useHistory(path: string | null | undefined, onRestored?: () => Promise<void>) {
   const { t, i18n } = useTranslation()
   const [snapshots, setSnapshots] = React.useState<SnapshotEntry[]>([])
-  const [trash, setTrash] = React.useState<TrashEntry[]>([])
   const [stats, setStats] = React.useState<HistoryStats>({
     snapshotCount: 0,
     noteCount: 0,
@@ -67,14 +63,12 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
     setLoading(true)
     setError("")
     try {
-      const [versions, deleted, usage] = await Promise.all([
+      const [versions, usage] = await Promise.all([
         path ? listSnapshots(path) : Promise.resolve([]),
-        listTrash(),
         getHistoryStats(),
       ])
       if (!mounted.current || request !== refreshId.current) return
       setSnapshots([...versions].sort((a, b) => b.createdAtMs - a.createdAtMs))
-      setTrash([...deleted].sort((a, b) => b.deletedAtMs - a.deletedAtMs))
       setStats(usage)
     } catch (cause) {
       if (request === refreshId.current) report(cause, "historyPanel.loadFailed")
@@ -146,22 +140,6 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
       void select(null)
       await refresh()
       if (isCurrent()) setNotice(t("historyPanel.restored"))
-    })
-  }
-
-  function returnTrash(entry: TrashEntry) {
-    return action(async (isCurrent) => {
-      if (
-        !(await confirmAction(t("historyPanel.restoreTrashConfirm", { name: entry.name }))) ||
-        !isCurrent()
-      )
-        return
-      await restoreTrash(entry.id)
-      if (!isCurrent()) return
-      await onRestored?.()
-      if (!isCurrent()) return
-      await refresh()
-      if (isCurrent()) setNotice(t("historyPanel.trashRestored", { name: entry.name }))
     })
   }
 
@@ -241,7 +219,6 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
 
   return {
     snapshots,
-    trash,
     stats,
     loading,
     busy,
@@ -253,7 +230,6 @@ export function useHistory(path: string | null | undefined, onRestored?: () => P
     refresh,
     select,
     restore,
-    returnTrash,
     cleanup,
     removeSnapshot,
     clearAll,

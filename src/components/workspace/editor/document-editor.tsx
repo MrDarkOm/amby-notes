@@ -82,7 +82,7 @@ export interface DocumentEditorProps {
   onCreateFolder?: (parentId: string | null, name: string) => void
   onMergeFile?: (targetId: string) => void
   onShowInExplorer?: () => void
-  onDeleteFile?: () => void
+  onDeleteFile?: (mode?: "archive") => void
   treeItems?: TreeItem[]
   onOpenItem?: (id: string) => void
   onUnlinkLayer?: (layer: LayerKind) => void

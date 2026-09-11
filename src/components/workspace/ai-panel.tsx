@@ -131,7 +131,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
   }, [ai, currentDoc, input, loading, messages, t])
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card">
+    <div className="flex h-full min-h-0 flex-col">
       <PanelHeader
         leading={
           showSettings ? (

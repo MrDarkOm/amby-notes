@@ -108,6 +108,60 @@
 .database-property-drop-after {
   box-shadow: inset 0 -2px 0 hsl(var(--primary));
 }
+
+/* Manual tree sorting preview. The indicator lives in the virtual row so it
+   follows the same measured slot as the row and never changes tree height. */
+.amby-tree-drop-indicator {
+  position: absolute;
+  z-index: 30;
+  right: 6px;
+  left: calc(6px + (var(--tree-level, 0) * 22px));
+  height: 2px;
+  border-radius: 999px;
+  pointer-events: none;
+  color: var(--tree-branch-color, hsl(var(--primary)));
+  background: currentColor;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, currentColor 18%, transparent),
+    0 0 9px color-mix(in srgb, currentColor 58%, transparent);
+  transform-origin: center;
+}
+
+.amby-tree-drop-indicator::before,
+.amby-tree-drop-indicator::after {
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  content: "";
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 7px color-mix(in srgb, currentColor 65%, transparent);
+  transform: translateY(-50%);
+}
+
+.amby-tree-drop-indicator::before {
+  left: -3px;
+}
+
+.amby-tree-drop-indicator::after {
+  right: -3px;
+}
+
+.amby-tree-drop-indicator[data-position="before"] {
+  top: -1px;
+}
+
+.amby-tree-drop-indicator[data-position="after"] {
+  bottom: 1px;
+}
+
+.amby-tree-drop-indicator--root {
+  top: 7px;
+  right: 6px;
+  left: 6px;
+}
+
 @layer base {
   /* ── Light defaults (:root) ──────────────────────────────────────────────
        next-themes sets class="dark" on <html> for dark mode.
@@ -143,6 +197,7 @@
 
     /* Editor/preview base font size — overridden at runtime by font-scale
            preference (see use-settings-store.ts). */
+    --app-font-scale: 1;
     --editor-font-size: 1.02rem;
 
     /* ── Editor surface tokens ──────────────────────────────────────── */
@@ -2654,66 +2709,100 @@ html.dark .amby-activity-button[data-active="true"]:hover {
 }
 
 /* Keep all selectable accent colors on the same interaction scale. */
+html {
+  --tree-gradient-start: hsl(262 83% 58%);
+  --tree-gradient-end: hsl(199 89% 48%);
+}
+
+html.dark {
+  --tree-gradient-start: hsl(262 83% 71%);
+  --tree-gradient-end: hsl(199 89% 67%);
+}
+
 html[data-accent="violet"] {
   --primary: 262 83% 58%;
   --primary-foreground: 0 0% 100%;
   --ring: 262 83% 58%;
+  --tree-gradient-start: hsl(262 83% 58%);
+  --tree-gradient-end: hsl(199 89% 48%);
 }
 html[data-accent="sky"] {
   --primary: 199 89% 48%;
   --primary-foreground: 0 0% 100%;
   --ring: 199 89% 48%;
+  --tree-gradient-start: hsl(199 89% 48%);
+  --tree-gradient-end: hsl(173 80% 40%);
 }
 html[data-accent="teal"] {
   --primary: 173 80% 40%;
   --primary-foreground: 0 0% 100%;
   --ring: 173 80% 40%;
+  --tree-gradient-start: hsl(173 80% 40%);
+  --tree-gradient-end: hsl(160 84% 39%);
 }
 html[data-accent="emerald"] {
   --primary: 160 84% 39%;
   --primary-foreground: 0 0% 100%;
   --ring: 160 84% 39%;
+  --tree-gradient-start: hsl(160 84% 39%);
+  --tree-gradient-end: hsl(38 92% 50%);
 }
 html[data-accent="amber"] {
   --primary: 38 92% 50%;
   --primary-foreground: 31 40% 12%;
   --ring: 38 92% 50%;
+  --tree-gradient-start: hsl(38 92% 50%);
+  --tree-gradient-end: hsl(350 89% 60%);
 }
 html[data-accent="rose"] {
   --primary: 350 89% 60%;
   --primary-foreground: 0 0% 100%;
   --ring: 350 89% 60%;
+  --tree-gradient-start: hsl(350 89% 60%);
+  --tree-gradient-end: hsl(262 83% 58%);
 }
 
 html.dark[data-accent="violet"] {
   --primary: 262 83% 71%;
   --primary-foreground: 262 42% 13%;
   --ring: 262 83% 71%;
+  --tree-gradient-start: hsl(262 83% 71%);
+  --tree-gradient-end: hsl(199 89% 67%);
 }
 html.dark[data-accent="sky"] {
   --primary: 199 89% 67%;
   --primary-foreground: 199 45% 12%;
   --ring: 199 89% 67%;
+  --tree-gradient-start: hsl(199 89% 67%);
+  --tree-gradient-end: hsl(173 80% 60%);
 }
 html.dark[data-accent="teal"] {
   --primary: 173 80% 60%;
   --primary-foreground: 173 45% 11%;
   --ring: 173 80% 60%;
+  --tree-gradient-start: hsl(173 80% 60%);
+  --tree-gradient-end: hsl(160 84% 60%);
 }
 html.dark[data-accent="emerald"] {
   --primary: 160 84% 60%;
   --primary-foreground: 160 45% 10%;
   --ring: 160 84% 60%;
+  --tree-gradient-start: hsl(160 84% 60%);
+  --tree-gradient-end: hsl(38 92% 64%);
 }
 html.dark[data-accent="amber"] {
   --primary: 38 92% 64%;
   --primary-foreground: 31 45% 10%;
   --ring: 38 92% 64%;
+  --tree-gradient-start: hsl(38 92% 64%);
+  --tree-gradient-end: hsl(350 89% 70%);
 }
 html.dark[data-accent="rose"] {
   --primary: 350 89% 70%;
   --primary-foreground: 350 45% 12%;
   --ring: 350 89% 70%;
+  --tree-gradient-start: hsl(350 89% 70%);
+  --tree-gradient-end: hsl(262 83% 71%);
 }
 
 html,
@@ -2741,25 +2830,116 @@ body {
   outline: none;
 }
 
-html[data-rainbow-tree="true"] [role="treeitem"][aria-level="1"] > svg {
-  color: hsl(350 80% 65%);
+/* Blend each root branch from the active accent to its next neighbour.
+   The stop for every row is calculated from the current root-branch count. */
+
+html[data-rainbow-tree="true"] .amby-tree-virtual-row[data-tree-branch] [role="treeitem"],
+html[data-rainbow-tree="true"] .amby-tree-virtual-row[data-tree-branch] .amby-tree-main-icon {
+  color: var(--tree-branch-color);
 }
 
-html[data-rainbow-tree="true"] [role="treeitem"][aria-level="2"] > svg {
-  color: hsl(32 90% 62%);
+html[data-rainbow-tree="true"]
+  .amby-tree-virtual-row[data-tree-branch]
+  .amby-tree-row[data-tree-selected="true"] {
+  background-color: color-mix(in srgb, var(--tree-branch-color) 16%, transparent);
 }
 
-html[data-rainbow-tree="true"] [role="treeitem"][aria-level="3"] > svg {
-  color: hsl(155 62% 54%);
+.amby-tree-folder-toggle {
+  opacity: 0;
 }
 
-html[data-rainbow-tree="true"] [role="treeitem"][aria-level="4"] > svg {
-  color: hsl(205 85% 65%);
+.amby-tree-row:hover .amby-tree-folder-toggle,
+.amby-tree-folder-icon:focus-within .amby-tree-folder-toggle {
+  opacity: 1;
 }
 
-html[data-rainbow-tree="true"] [role="treeitem"][aria-level="5"] > svg,
-html[data-rainbow-tree="true"] [role="treeitem"][aria-level="6"] > svg {
-  color: hsl(275 72% 68%);
+.amby-tree-row:hover .amby-tree-folder-icon .amby-tree-main-icon {
+  opacity: 0;
+}
+
+html[data-rainbow-tree="true"] .amby-tree-virtual-row[data-tree-branch] .amby-tree-folder-icon {
+  color: var(--tree-branch-color);
+}
+
+html[data-rainbow-tree="true"]
+  .amby-tree-virtual-row[data-tree-branch]
+  [data-tree-file-status="file"]:not(:hover),
+html[data-rainbow-tree="true"]
+  .amby-tree-virtual-row[data-tree-branch]
+  [data-tree-file-status="folder"]:not(:hover),
+html[data-rainbow-tree="true"]
+  .amby-tree-virtual-row[data-tree-branch]
+  [data-tree-file-status="canvas"]:not(:hover) {
+  color: var(--tree-branch-color);
+}
+
+html[data-rainbow-tree="true"]
+  .amby-tree-virtual-row[data-tree-branch]
+  [data-tree-file-status="favorite"]:not(:hover) {
+  color: var(--tree-branch-color, hsl(var(--primary)));
+}
+
+html[data-tree-guides="true"]
+  .amby-tree-virtual-row[data-tree-branch]:not([data-tree-level="0"])
+  .amby-tree-row {
+  background-image: repeating-linear-gradient(
+    to right,
+    color-mix(in srgb, var(--tree-branch-color, hsl(var(--muted-foreground))) 58%, transparent) 0
+      1px,
+    transparent 1px 22px
+  );
+  background-position: 22px 0;
+  background-repeat: no-repeat;
+  background-size: calc(var(--tree-level) * 22px) 100%;
+}
+
+/* Scale text tokens independently from rem-based spacing and control sizes. */
+html[data-font-scale] body {
+  font-size: calc(1rem * var(--app-font-scale, 1));
+}
+
+html[data-font-scale] :where([class~="text-xs"], [class~="text-[12px]"]) {
+  font-size: calc(0.75rem * var(--app-font-scale, 1));
+}
+
+html[data-font-scale] :where([class~="text-sm"], [class~="text-[14px]"]) {
+  font-size: calc(0.875rem * var(--app-font-scale, 1));
+}
+
+html[data-font-scale] :where([class~="text-base"]) {
+  font-size: calc(1rem * var(--app-font-scale, 1));
+}
+
+html[data-font-scale] :where([class~="text-lg"]) {
+  font-size: calc(1.125rem * var(--app-font-scale, 1));
+}
+
+html[data-font-scale] :where([class~="text-xl"]) {
+  font-size: calc(1.25rem * var(--app-font-scale, 1));
+}
+
+html[data-font-scale] :where([class~="text-2xl"]) {
+  font-size: calc(1.5rem * var(--app-font-scale, 1));
+}
+
+html[data-font-scale] :where([class~="text-3xl"]) {
+  font-size: calc(1.875rem * var(--app-font-scale, 1));
+}
+
+html[data-font-scale] :where([class~="text-[8px]"]) {
+  font-size: calc(0.5rem * var(--app-font-scale, 1));
+}
+
+html[data-font-scale] :where([class~="text-[10px]"]) {
+  font-size: calc(0.625rem * var(--app-font-scale, 1));
+}
+
+html[data-font-scale] :where([class~="text-[11px]"]) {
+  font-size: calc(0.6875rem * var(--app-font-scale, 1));
+}
+
+html[data-font-scale] :where([class~="text-[13px]"]) {
+  font-size: calc(0.8125rem * var(--app-font-scale, 1));
 }
 
 .settings-row {
@@ -2855,6 +3035,11 @@ select {
   /* Match the clipping radius to the surface so a shadow never reads as a
      square corner against the workspace background. */
   border-radius: 0.9rem;
+}
+
+.amby-block-panel,
+.amby-panel-host {
+  background: hsl(var(--popover));
 }
 
 .amby-panel-host input,

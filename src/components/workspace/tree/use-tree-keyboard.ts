@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import type { FlatRow, TreeItem } from "./tree-types"
+import { treeItemHasChildren, type FlatRow, type TreeItem } from "./tree-types"
 
 export function useTreeKeyboard({
   items,
@@ -93,7 +93,7 @@ export function useTreeKeyboard({
           break
         case "ArrowRight": {
           if (!current) break
-          const hasChildren = current.item.type === "folder" || !!current.item.children?.length
+          const hasChildren = treeItemHasChildren(current.item)
           if (!hasChildren) break
           event.preventDefault()
           if (closedIds.has(current.item.id)) toggleOpen(current.item.id)
@@ -103,10 +103,7 @@ export function useTreeKeyboard({
         case "ArrowLeft": {
           if (!current) break
           event.preventDefault()
-          if (
-            !closedIds.has(current.item.id) &&
-            (current.item.type === "folder" || current.item.children?.length)
-          ) {
+          if (!closedIds.has(current.item.id) && treeItemHasChildren(current.item)) {
             toggleOpen(current.item.id)
           } else {
             const parentId = parentIdFor(current.item.id)

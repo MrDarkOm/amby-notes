@@ -3,17 +3,30 @@
 import * as React from "react"
 import { setTreeDragPayload, clearTreeDragPayload } from "@/lib/canvas-dnd"
 import { ROOT_DROP_TARGET, isValidTreeDropTarget, type PtrDrag } from "./tree-types"
+import type { TreeReorderPosition } from "../tree-sort"
+
+type ReorderDropTarget =
+  | { kind: "reorder"; targetId: string | null; position: TreeReorderPosition }
+  | { kind: "move"; targetId: string }
 
 export function useTreeDnd({
   onMoveItem,
+  onReorderItems,
   selectedIds,
 }: {
   onMoveItem?: (sourceIds: string[], targetId: string | null) => void
+  onReorderItems?: (
+    sourceIds: string[],
+    targetId: string | null,
+    position: TreeReorderPosition,
+  ) => void
   selectedIds: ReadonlySet<string>
 }) {
   const [ptrDrag, setPtrDrag] = React.useState<PtrDrag | null>(null)
   const ptrDragRef = React.useRef<PtrDrag | null>(null)
   const onMoveItemRef = React.useRef(onMoveItem)
+  const onReorderItemsRef = React.useRef(onReorderItems)
+  const reorderEnabledRef = React.useRef(Boolean(onReorderItems))
   const pointerDownRef = React.useRef<{
     id: string
     sourceIds: string[]
@@ -32,6 +45,11 @@ export function useTreeDnd({
   React.useEffect(() => {
     onMoveItemRef.current = onMoveItem
   }, [onMoveItem])
+
+  React.useEffect(() => {
+    onReorderItemsRef.current = onReorderItems
+    reorderEnabledRef.current = Boolean(onReorderItems)
+  }, [onReorderItems])
 
   const onPtrDragStart = React.useCallback(
     (id: string, name: string, path: string, x: number, y: number) => {
@@ -62,14 +80,58 @@ export function useTreeDnd({
           : null
     }
 
+    function getReorderDropTarget(drag: PtrDrag, x: number, y: number): ReorderDropTarget | null {
+      const el = document.elementFromPoint(x, y) as HTMLElement | null
+      const targetEl = el?.closest("[data-tree-reorder-target]") as HTMLElement | null
+      const targetId = targetEl?.getAttribute("data-tree-reorder-target")
+      const targetPath = targetEl?.getAttribute("data-tree-reorder-target-path")
+      if (targetEl && targetId && targetPath) {
+        if (!isValidTreeDropTarget(drag.sourceId, drag.sourcePath, targetId, targetPath)) {
+          return null
+        }
+        const rect = targetEl.getBoundingClientRect()
+        const relativeY = rect.height > 0 ? (y - rect.top) / rect.height : 0
+        if (
+          targetEl.hasAttribute("data-tree-move-target") &&
+          relativeY > 0.34 &&
+          relativeY < 0.66
+        ) {
+          return { kind: "move", targetId }
+        }
+        return {
+          kind: "reorder",
+          targetId,
+          position: relativeY < 0.5 ? "before" : "after",
+        }
+      }
+
+      // The scroll container is a legacy root move target and surrounds every
+      // row, so it must not be used to detect the manual-sort drop location.
+      // The dedicated bottom zone is the only place that means "append".
+      const rootTarget = el?.closest("[data-tree-root-drop-zone]")
+      if (rootTarget) return { kind: "reorder", targetId: null, position: "end" }
+      return null
+    }
+
     function updateDragAtPoint(x: number, y: number) {
       const drag = ptrDragRef.current
       if (!drag) return
-      const validTarget = getValidTarget(drag, x, y)
+      const reorderTarget = reorderEnabledRef.current ? getReorderDropTarget(drag, x, y) : null
+      const validTarget = reorderEnabledRef.current
+        ? (reorderTarget?.targetId ?? null)
+        : getValidTarget(drag, x, y)
+      const dropPosition: TreeReorderPosition | null =
+        reorderTarget?.kind === "reorder" ? reorderTarget.position : null
       setPtrDrag((prev) => {
         if (!prev) return null
-        if (prev.ghostX === x && prev.ghostY === y && prev.targetId === validTarget) return prev
-        return { ...prev, ghostX: x, ghostY: y, targetId: validTarget }
+        if (
+          prev.ghostX === x &&
+          prev.ghostY === y &&
+          prev.targetId === validTarget &&
+          prev.dropPosition === dropPosition
+        )
+          return prev
+        return { ...prev, ghostX: x, ghostY: y, targetId: validTarget, dropPosition }
       })
     }
 
@@ -116,6 +178,7 @@ export function useTreeDnd({
             ghostY: e.clientY,
             active: true,
             targetId: null,
+            dropPosition: null,
           })
         }
       }
@@ -130,12 +193,16 @@ export function useTreeDnd({
           dragMoveFrameRef.current = null
         }
         latestDragPointRef.current = null
-        const dropTarget = getValidTarget(drag, e.clientX, e.clientY) ?? drag.targetId
-        if (dropTarget) {
-          onMoveItemRef.current?.(
-            drag.sourceIds,
-            dropTarget === ROOT_DROP_TARGET ? null : dropTarget,
-          )
+        if (reorderEnabledRef.current && onReorderItemsRef.current) {
+          const dropTarget = getReorderDropTarget(drag, e.clientX, e.clientY)
+          if (dropTarget?.kind === "reorder") {
+            onReorderItemsRef.current(drag.sourceIds, dropTarget.targetId, dropTarget.position)
+          } else if (dropTarget?.kind === "move") {
+            onMoveItemRef.current?.(drag.sourceIds, dropTarget.targetId)
+          }
+        } else {
+          const dropTarget = getValidTarget(drag, e.clientX, e.clientY) ?? drag.targetId
+          if (dropTarget) onMoveItemRef.current?.(drag.sourceIds, dropTarget)
         }
         setPtrDrag(null)
       }

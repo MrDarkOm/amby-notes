@@ -30,7 +30,7 @@ export function DocumentTitle({
   const { t } = useTranslation()
   const [titleValue, setTitleValue] = React.useState(title)
   const [emojiPickerOpen, setEmojiPickerOpen] = React.useState(false)
-  const titleInputRef = React.useRef<HTMLInputElement>(null)
+  const titleInputRef = React.useRef<HTMLTextAreaElement>(null)
   const emojiSlotRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
@@ -40,6 +40,13 @@ export function DocumentTitle({
   React.useEffect(() => {
     if (editingTitle) titleInputRef.current?.focus()
   }, [editingTitle])
+
+  React.useLayoutEffect(() => {
+    const field = titleInputRef.current
+    if (!field) return
+    field.style.height = "0px"
+    field.style.height = `${Math.max(field.scrollHeight, 32)}px`
+  }, [titleValue])
 
   function commitTitleRename() {
     const trimmed = titleValue.trim()
@@ -125,8 +132,10 @@ export function DocumentTitle({
           </div>
         )}
       </div>
-      <input
+      <textarea
         ref={titleInputRef}
+        rows={1}
+        wrap="soft"
         value={titleValue}
         readOnly={!editingTitle}
         aria-label={title}
@@ -136,7 +145,7 @@ export function DocumentTitle({
         onChange={(e) => setTitleValue(e.target.value)}
         onBlur={commitTitleRename}
         onKeyDown={handleTitleKeyDown}
-        className="h-8 min-w-0 flex-1 cursor-text border-0 bg-transparent p-0 text-2xl font-semibold leading-none tracking-tight text-foreground outline-none sm:h-10 sm:text-3xl"
+        className="min-h-8 min-w-0 flex-1 cursor-text resize-none overflow-hidden whitespace-pre-wrap break-words border-0 bg-transparent p-0 text-2xl font-semibold leading-tight tracking-tight text-foreground outline-none sm:text-3xl"
       />
     </div>
   )

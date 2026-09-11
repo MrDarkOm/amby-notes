@@ -60,7 +60,7 @@ export function PanelHost({ side, activeId, props, flush = false }: PanelHostPro
           : `mb-2 h-[calc(100%-0.5rem)] w-[calc(100%-0.5rem)] ${side === "left" ? "ml-0 mr-2" : "ml-2 mr-0"}`
       }`}
     >
-      <div className="amby-panel-host relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/80 bg-card/70">
+      <div className="amby-panel-host relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-border/80">
         {activeId && cachedDefs.length > 0 ? (
           cachedDefs.map((definition) => {
             const active = definition.id === activeId

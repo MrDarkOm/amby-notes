@@ -3,10 +3,19 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { FileText } from "lucide-react"
+import { AnimatePresence, motion } from "motion/react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 
 import { cn } from "@/lib/utils"
-import { flattenVisible, ROOT_DROP_TARGET, type SidebarTreeProps } from "./tree-types"
+import { motionTransitions } from "@/lib/motion-config"
+import {
+  flattenVisible,
+  ROOT_DROP_TARGET,
+  treeBranchGradientColor,
+  treeItemHasChildren,
+  type SidebarTreeProps,
+} from "./tree-types"
+import { useSettingsStore } from "../use-settings-store"
 import { useViewStateStore } from "../use-view-state-store"
 import { TreeNode } from "./tree-row"
 import { useTreeKeyboard } from "./use-tree-keyboard"
@@ -26,6 +35,7 @@ export function SidebarTree({
   onCloneFile,
   onOpenInExplorer,
   onMoveItem,
+  onReorderItems,
   onSetIcon,
   onContextMenuSelect,
   triggerRenameId,
@@ -39,6 +49,7 @@ export function SidebarTree({
   const { t } = useTranslation()
   const closedIds = useViewStateStore((s) => s.closedTreeIds)
   const toggleOpen = useViewStateStore((s) => s.toggleTreeItem)
+  const rainbowTree = useSettingsStore((s) => s.prefs.rainbowTree)
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [keyboardFocusId, setKeyboardFocusId] = React.useState<string | null>(selectedId)
   const [selectedIds, setSelectedIds] = React.useState<Set<string>>(() =>
@@ -56,6 +67,10 @@ export function SidebarTree({
 
   // ── Flat visible row list ───────────────────────────────────────────────────
   const flatRows = React.useMemo(() => flattenVisible(items, closedIds), [items, closedIds])
+  const rootBranchCount = React.useMemo(
+    () => items.filter((item) => item.type === "folder" || treeItemHasChildren(item)).length,
+    [items],
+  )
   const flatRowsRef = React.useRef(flatRows)
   flatRowsRef.current = flatRows
 
@@ -189,7 +204,11 @@ export function SidebarTree({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [findActiveKey])
 
-  const { ptrDrag, onPtrDragStart } = useTreeDnd({ onMoveItem, selectedIds })
+  const { ptrDrag, onPtrDragStart } = useTreeDnd({
+    onMoveItem,
+    onReorderItems,
+    selectedIds,
+  })
   const ptrDragSourceIds = React.useMemo(
     () => new Set(ptrDrag?.sourceIds ?? []),
     [ptrDrag?.sourceIds],
@@ -232,19 +251,30 @@ export function SidebarTree({
         <div style={{ height: totalSize, position: "relative", padding: "6px" }}>
           {virtualizer.getVirtualItems().map((virtualRow) => {
             const row = flatRows[virtualRow.index]
+            const treeBranchColor =
+              rainbowTree && row.branchIndex !== null
+                ? treeBranchGradientColor(row.branchIndex, rootBranchCount)
+                : undefined
             return (
               <div
                 key={virtualRow.key}
+                className="amby-tree-virtual-row"
                 data-index={virtualRow.index}
+                data-tree-level={row.level}
+                data-tree-branch={row.branchIndex === null ? undefined : row.branchIndex}
                 ref={virtualizer.measureElement}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  transform: `translateY(${virtualRow.start}px)`,
-                  padding: "0 0 1px",
-                }}
+                style={
+                  {
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    transform: `translateY(${virtualRow.start}px)`,
+                    padding: "0 0 1px",
+                    "--tree-level": row.level,
+                    ...(treeBranchColor ? { "--tree-branch-color": treeBranchColor } : {}),
+                  } as React.CSSProperties
+                }
               >
                 <TreeNode
                   item={row.item}
@@ -270,13 +300,28 @@ export function SidebarTree({
                   onContextMenuSelect={handleContextMenuSelect}
                   onPtrDragStart={onPtrDragStart}
                   isPtrDragSource={ptrDragSourceIds.has(row.item.id)}
-                  isPtrDragTarget={ptrDrag?.targetId === row.item.id}
+                  isPtrDragTarget={
+                    ptrDrag?.targetId === row.item.id && ptrDrag.dropPosition === null
+                  }
                   favorites={favorites}
                   onToggleFavorite={onToggleFavorite}
                   onAttachLayer={onAttachLayer}
                   canCreateDatabaseLayer={canCreateDatabaseLayer}
                   linkedLayersByDoc={linkedLayersByDoc}
                 />
+                {ptrDrag?.targetId === row.item.id &&
+                  ptrDrag.dropPosition !== null &&
+                  ptrDrag.dropPosition !== "end" && (
+                    <motion.div
+                      layoutId="amby-tree-drop-indicator"
+                      className="amby-tree-drop-indicator"
+                      data-position={ptrDrag.dropPosition}
+                      initial={{ opacity: 0, scaleX: 0.72 }}
+                      animate={{ opacity: 1, scaleX: 1 }}
+                      transition={motionTransitions.reorder}
+                      aria-hidden="true"
+                    />
+                  )}
               </div>
             )
           })}
@@ -284,28 +329,47 @@ export function SidebarTree({
 
         {/* Root-level drop zone shown at the bottom of the list */}
         <div
+          data-tree-root-drop-zone="true"
           className={cn(
-            "mx-1.5 mt-1 min-h-10 rounded border border-transparent",
-            ptrDrag?.targetId === ROOT_DROP_TARGET && "border-blue-500 bg-blue-900/20",
+            "relative mx-1.5 mt-1 min-h-10 rounded border border-transparent",
+            ptrDrag?.dropPosition === "end" && "border-primary/40 bg-primary/5",
           )}
-        />
+        >
+          {ptrDrag?.dropPosition === "end" && (
+            <motion.div
+              layoutId="amby-tree-drop-indicator"
+              className="amby-tree-drop-indicator amby-tree-drop-indicator--root"
+              data-position="after"
+              initial={{ opacity: 0, scaleX: 0.72 }}
+              animate={{ opacity: 1, scaleX: 1 }}
+              transition={motionTransitions.reorder}
+              aria-hidden="true"
+            />
+          )}
+        </div>
       </div>
 
-      {ptrDrag?.active && (
-        <div
-          style={{
-            position: "fixed",
-            left: ptrDrag.ghostX + 14,
-            top: ptrDrag.ghostY + 10,
-            pointerEvents: "none",
-            zIndex: 9999,
-          }}
-          className="flex items-center gap-1.5 rounded bg-accent px-2 py-1 text-[12px] text-foreground shadow-xl ring-1 ring-border"
-        >
-          <FileText className="size-3.5 shrink-0" />
-          <span className="max-w-32 truncate">{ptrDrag.sourceName}</span>
-        </div>
-      )}
+      <AnimatePresence>
+        {ptrDrag?.active && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.86, y: 6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.86, y: 6 }}
+            transition={motionTransitions.reorder}
+            style={{
+              position: "fixed",
+              left: ptrDrag.ghostX + 14,
+              top: ptrDrag.ghostY + 10,
+              pointerEvents: "none",
+              zIndex: 9999,
+            }}
+            className="flex items-center gap-1.5 rounded-md bg-accent px-2 py-1 text-[12px] text-foreground shadow-xl ring-1 ring-primary/45"
+          >
+            <FileText className="size-3.5 shrink-0" />
+            <span className="max-w-40 truncate">{ptrDrag.sourceName}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   )
 }

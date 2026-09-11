@@ -89,7 +89,7 @@ export interface PanelRenderProps {
   onSelect: (id: string) => void
   onOpenVault: () => void
   onRename?: (id: string, newName: string) => void
-  onDelete?: (id: string) => void
+  onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
   onNewFolder?: (parentId: string | null) => void

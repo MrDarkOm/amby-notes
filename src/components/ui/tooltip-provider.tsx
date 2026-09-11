@@ -13,7 +13,7 @@ interface TooltipState {
 }
 
 const TOOLTIP_GAP = 10
-const TOOLTIP_SAFE_WIDTH = 260
+const TOOLTIP_SAFE_WIDTH = 320
 const TOOLTIP_DELAY = 1000
 
 /**
@@ -171,7 +171,7 @@ export function TooltipProvider() {
         <motion.div
           key={`${tooltip.content}:${tooltip.left}:${tooltip.top}`}
           role="tooltip"
-          className="pointer-events-none fixed z-[100] whitespace-nowrap rounded-lg border border-border bg-popover px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xl"
+          className="pointer-events-none fixed z-[100] max-w-[320px] break-words whitespace-pre-line rounded-lg border border-border bg-popover px-3 py-1.5 text-[13px] font-medium text-foreground shadow-xl"
           initial={{
             opacity: 0,
             x: tooltip.side === "right" ? -6 : "calc(-100% + 6px)",

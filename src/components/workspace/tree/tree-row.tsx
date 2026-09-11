@@ -23,6 +23,7 @@ import {
 
 import { cn } from "@/lib/utils"
 import { motionTransitions } from "@/lib/motion-config"
+import { countFolderContents } from "../folder-view-utils"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import {
   ContextMenu,
@@ -37,7 +38,7 @@ import {
 } from "@/components/ui/context-menu"
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { TreeItemIcon, TreeItemStatusIcon } from "./tree-icons"
-import type { AttachableLayer, TreeNodeProps } from "./tree-types"
+import { treeItemHasChildren, type AttachableLayer, type TreeNodeProps } from "./tree-types"
 
 export const TreeNode = React.memo(
   function TreeNode({
@@ -75,17 +76,21 @@ export const TreeNode = React.memo(
     const [pendingAttach, setPendingAttach] = React.useState<AttachableLayer | null>(null)
     const [editValue, setEditValue] = React.useState(item.name)
     const inputRef = React.useRef<HTMLInputElement>(null)
+    const nameRef = React.useRef<HTMLSpanElement>(null)
+    const [nameIsTruncated, setNameIsTruncated] = React.useState(false)
 
-    const hasChildren = (item.children && item.children.length > 0) || item.type === "folder"
+    const hasChildren = treeItemHasChildren(item)
     const isSelected = selectedIds.has(item.id)
     const contextSelectionIds = isSelected ? [...selectedIds] : [item.id]
     const isMultiSelection = contextSelectionIds.length > 1
     const isDragSource = isPtrDragSource
     const canReceiveDrop = item.type === "folder" || item.type === "file"
+    const canReceiveMove = item.type === "folder" || hasChildren
     const isDragTarget = isPtrDragTarget && canReceiveDrop
-    // Indent: file leaves get the chevron width plus its gap (18px) as an
-    // extra offset so their icons line up with expandable rows.
-    const paddingLeft = 6 + level * 12
+    // Keep the tree content close to the panel edge while preserving one
+    // icon-sized branch step per nested level. Expandable rows do not need a
+    // separate chevron reservation because the chevron overlays the icon.
+    const paddingLeft = 14 + level * 22
 
     // Sync edit value and focus when entering edit mode. Deferring focus until
     // the browser has completed the row update avoids a transient blur from
@@ -99,6 +104,27 @@ export const TreeNode = React.memo(
         }, 0)
         return () => window.clearTimeout(timer)
       }
+    }, [isEditing, item.name])
+
+    React.useLayoutEffect(() => {
+      if (isEditing) {
+        setNameIsTruncated(false)
+        return
+      }
+      const element = nameRef.current
+      if (!element) return
+
+      const measure = () => {
+        const truncated = element.scrollWidth > element.clientWidth + 1
+        setNameIsTruncated((current) => (current === truncated ? current : truncated))
+      }
+
+      measure()
+      if (typeof ResizeObserver === "undefined") return
+      const observer = new ResizeObserver(measure)
+      observer.observe(element)
+      if (element.parentElement) observer.observe(element.parentElement)
+      return () => observer.disconnect()
     }, [isEditing, item.name])
 
     function commitRename() {
@@ -129,6 +155,15 @@ export const TreeNode = React.memo(
       if (!isSelected) onContextMenuSelect?.(item.id)
     }
 
+    const folderCounts =
+      item.type === "folder" || hasChildren ? countFolderContents(item) : undefined
+    const folderContentsTooltip = folderCounts
+      ? t("tree.folderContents", {
+          files: folderCounts.notes,
+          folders: folderCounts.folders,
+        })
+      : undefined
+
     const nameNode = isEditing ? (
       <input
         ref={inputRef}
@@ -140,7 +175,17 @@ export const TreeNode = React.memo(
         className="w-full min-w-0 rounded bg-accent p-0 text-[13px] leading-4 text-foreground outline-none ring-1 ring-inset ring-ring"
       />
     ) : (
-      <span className="truncate">{item.name}</span>
+      <span
+        ref={nameRef}
+        data-amby-tooltip={
+          nameIsTruncated
+            ? [item.name, folderContentsTooltip].filter(Boolean).join("\n")
+            : undefined
+        }
+        className="min-w-0 flex-1 truncate"
+      >
+        {item.name}
+      </span>
     )
 
     const isFavorite = favorites?.has(item.id) ?? false
@@ -162,7 +207,6 @@ export const TreeNode = React.memo(
     )
 
     const defaultIcon = item.type === "folder" ? "folder" : "file"
-
     const layers = linkedLayersByDoc?.[item.id]
     const canvasAvailable = item.type === "file" && !layers?.canvas
     const databaseAvailable = canCreateDatabaseLayer && item.type === "file" && !layers?.database
@@ -340,7 +384,7 @@ export const TreeNode = React.memo(
           <>
             <ContextMenuItem
               className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-              onSelect={() => onDelete?.(item.id)}
+              onSelect={() => onDelete?.(item.id, "archive")}
             >
               <Archive className="size-3.5 text-muted-foreground" />
               {t("tree.archive")}
@@ -411,11 +455,37 @@ export const TreeNode = React.memo(
     )
 
     const buttonCls = cn(
-      "amby-tree-row flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-[13px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+      "amby-tree-row flex w-full items-center gap-1.5 rounded pl-0 py-1 pr-3 text-left text-[13px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
       isSelected && "bg-accent",
       isDragSource && "opacity-40",
     )
     const selectedAttr = isSelected ? { "data-tree-selected": "true" } : {}
+    const mainIconClassName = "amby-tree-main-icon text-muted-foreground"
+    const folderIconNode = hasChildren ? (
+      <span className="amby-tree-folder-icon relative inline-flex size-4 shrink-0 items-center justify-center">
+        <TreeItemIcon item={item} className={mainIconClassName} />
+        <button
+          type="button"
+          className="amby-tree-folder-toggle absolute inset-0 z-10 flex size-4 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          aria-label={isOpen ? t("tree.collapse") : t("tree.expand")}
+          title={isOpen ? t("tree.collapse") : t("tree.expand")}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            onToggleOpen(item.id)
+          }}
+        >
+          <motion.span
+            className="flex"
+            initial={false}
+            animate={{ rotate: isOpen ? 90 : 0 }}
+            transition={motionTransitions.default}
+          >
+            <ChevronRight className="size-3" />
+          </motion.span>
+        </button>
+      </span>
+    ) : null
 
     // ── Folder / bundle-file row (has children) ─────────────────────────────────
     if (hasChildren) {
@@ -424,6 +494,9 @@ export const TreeNode = React.memo(
           <div
             data-drag-target={canReceiveDrop ? item.id : undefined}
             data-drag-target-path={canReceiveDrop ? item.path : undefined}
+            data-tree-reorder-target={item.id}
+            data-tree-reorder-target-path={item.path}
+            data-tree-move-target={canReceiveMove ? item.id : undefined}
             className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
           >
             <ContextMenu>
@@ -431,37 +504,18 @@ export const TreeNode = React.memo(
                 <div
                   className={buttonCls}
                   style={{ paddingLeft }}
+                  title={folderContentsTooltip}
                   onContextMenu={handleContextMenu}
                   onClick={(event) => {
-                    // The row's gap around the chevron is part of the hover
-                    // surface too. On Windows it used to highlight there but
-                    // miss the nested item button, making the note feel
-                    // intermittently unclickable.
+                    // Keep clicks on the toggle and the item action button
+                    // out of the row-level selection handler.
                     if (!isEditing && !(event.target as HTMLElement).closest("button")) {
                       onSelect(item.id, event)
                     }
                   }}
                   {...selectedAttr}
                 >
-                  <button
-                    type="button"
-                    className="flex size-3 shrink-0 items-center justify-center text-muted-foreground"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      onToggleOpen(item.id)
-                    }}
-                    title={isOpen ? t("tree.collapse") : t("tree.expand")}
-                  >
-                    <motion.span
-                      className="flex"
-                      initial={false}
-                      animate={{ rotate: isOpen ? 90 : 0 }}
-                      transition={motionTransitions.default}
-                    >
-                      <ChevronRight className="size-3" />
-                    </motion.span>
-                  </button>
+                  {folderIconNode}
                   {isEditing ? (
                     <div
                       data-tree-item-id={item.id}
@@ -473,7 +527,6 @@ export const TreeNode = React.memo(
                       className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                       {...selectedAttr}
                     >
-                      <TreeItemIcon item={item} className="text-muted-foreground" />
                       {nameNode}
                       {statusNode}
                     </div>
@@ -494,7 +547,6 @@ export const TreeNode = React.memo(
                       className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                       {...selectedAttr}
                     >
-                      <TreeItemIcon item={item} className="text-muted-foreground" />
                       {nameNode}
                       {statusNode}
                     </button>
@@ -517,7 +569,11 @@ export const TreeNode = React.memo(
             <div
               data-drag-target={canReceiveDrop ? item.id : undefined}
               data-drag-target-path={canReceiveDrop ? item.path : undefined}
+              data-tree-reorder-target={item.id}
+              data-tree-reorder-target-path={item.path}
+              data-tree-move-target={canReceiveMove ? item.id : undefined}
               className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
+              title={folderContentsTooltip}
               onContextMenu={handleContextMenu}
             >
               {isEditing ? (
@@ -528,10 +584,10 @@ export const TreeNode = React.memo(
                   aria-selected={isSelected}
                   tabIndex={-1}
                   className={buttonCls}
-                  style={{ paddingLeft: paddingLeft + 18 }}
+                  style={{ paddingLeft }}
                   {...selectedAttr}
                 >
-                  <TreeItemIcon item={item} className="text-muted-foreground" />
+                  <TreeItemIcon item={item} className={mainIconClassName} />
                   {nameNode}
                   {statusNode}
                 </div>
@@ -548,10 +604,10 @@ export const TreeNode = React.memo(
                   onClick={(event) => onSelect(item.id, event)}
                   onDoubleClick={handleDoubleClick}
                   className={buttonCls}
-                  style={{ paddingLeft: paddingLeft + 18 }}
+                  style={{ paddingLeft }}
                   {...selectedAttr}
                 >
-                  <TreeItemIcon item={item} className="text-muted-foreground" />
+                  <TreeItemIcon item={item} className={mainIconClassName} />
                   {nameNode}
                   {statusNode}
                 </button>

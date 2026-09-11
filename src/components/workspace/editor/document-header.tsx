@@ -68,7 +68,7 @@ export interface DocumentHeaderProps {
   onExportPdf: () => void
   onShowInExplorer?: () => void
   onRequestRename: () => void
-  onDeleteFile?: () => void
+  onDeleteFile?: (mode?: "archive") => void
   moreActionsOpen: boolean
   onMoreActionsOpenChange: (open: boolean) => void
 }

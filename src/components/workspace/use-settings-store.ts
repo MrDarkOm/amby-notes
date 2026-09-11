@@ -10,7 +10,7 @@ import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { errorType, logger } from "@/lib/logger"
 import {
   APP_FONT_FAMILY,
-  APP_FONT_SIZE,
+  APP_FONT_SCALE,
   EDITOR_CONTENT_WIDTH,
   EDITOR_FONT_SIZE,
   THEME_TOKENS,
@@ -115,7 +115,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 /**
  * Hydrates the settings store once, then reflects preferences onto the DOM:
  * theme (next-themes), accent (data-accent → CSS vars in themes/app.css), font size
- * (--editor-font-size), density (data-density) and i18n language. Must be
+ * (--app-font-scale / --editor-font-size), density (data-density) and i18n language. Must be
  * mounted inside ThemeProvider. Returns whether hydration has completed.
  */
 export function useApplyPreferences(): boolean {
@@ -149,9 +149,11 @@ export function useApplyPreferences(): boolean {
     root.dataset.accent = prefs.accent
     root.dataset.density = prefs.density
     root.dataset.rainbowTree = String(prefs.rainbowTree)
+    root.dataset.treeGuides = String(prefs.treeGuides)
     root.dataset.fontScale = prefs.fontScale
     root.style.setProperty("--app-font-family", APP_FONT_FAMILY[prefs.fontFamily])
-    root.style.fontSize = APP_FONT_SIZE[prefs.fontScale]
+    root.style.removeProperty("font-size")
+    root.style.setProperty("--app-font-scale", APP_FONT_SCALE[prefs.fontScale])
     root.style.setProperty("--editor-font-size", EDITOR_FONT_SIZE[prefs.fontScale])
     root.style.setProperty("--content-max-width", EDITOR_CONTENT_WIDTH[prefs.editor.contentWidth])
     const theme = themeById(prefs.theme, themes)

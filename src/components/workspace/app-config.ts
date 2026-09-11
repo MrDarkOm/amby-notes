@@ -380,6 +380,7 @@ export interface AppPreferences {
   fontScale: FontScale
   fontFamily: FontFamily
   rainbowTree: boolean
+  treeGuides: boolean
   density: Density
   tooltipDelayMs: number
   language: Language
@@ -397,6 +398,7 @@ export const DEFAULT_PREFS: AppPreferences = {
   fontScale: "md",
   fontFamily: "system",
   rainbowTree: false,
+  treeGuides: true,
   density: "comfortable",
   tooltipDelayMs: 1000,
   language: "ru",
@@ -458,6 +460,7 @@ export function normalizeAppPreferences(
       DEFAULT_PREFS.fontFamily,
     ),
     rainbowTree: typeof d.rainbowTree === "boolean" ? d.rainbowTree : false,
+    treeGuides: typeof d.treeGuides === "boolean" ? d.treeGuides : true,
     density: oneOf<Density>(d.density, ["comfortable", "compact"], DEFAULT_PREFS.density),
     tooltipDelayMs,
     language: oneOf<Language>(

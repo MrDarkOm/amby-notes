@@ -24,27 +24,27 @@
 }
 
 [data-theme="light"] {
-  --em-rgb-color: var(--rgb-color, 34, 36, 39);
-  --em-rgb-accent: var(--rgb-accent, 34, 102, 237);
-  --em-rgb-background: var(--rgb-background, 255, 255, 255);
-  --em-rgb-input: var(--rgb-input, 255, 255, 255);
+  --em-color: var(--color-foreground, rgb(34, 36, 39));
+  --em-accent: var(--color-accent, rgb(34, 102, 237));
+  --em-background: var(--color-background, rgb(255, 255, 255));
+  --em-input: var(--color-input, rgb(255, 255, 255));
   --em-color-border: var(--color-border, rgba(0, 0, 0, 0.05));
   --em-color-border-over: var(--color-border-over, rgba(0, 0, 0, 0.1));
 }
 
 [data-theme="dark"] {
-  --em-rgb-color: var(--rgb-color, 222, 222, 221);
-  --em-rgb-accent: var(--rgb-accent, 58, 130, 247);
-  --em-rgb-background: var(--rgb-background, 21, 22, 23);
-  --em-rgb-input: var(--rgb-input, 0, 0, 0);
+  --em-color: var(--color-foreground, rgb(222, 222, 221));
+  --em-accent: var(--color-accent, rgb(58, 130, 247));
+  --em-background: var(--color-background, rgb(21, 22, 23));
+  --em-input: var(--color-input, rgb(0, 0, 0));
   --em-color-border: var(--color-border, rgba(255, 255, 255, 0.1));
   --em-color-border-over: var(--color-border-over, rgba(255, 255, 255, 0.2));
 }
 
 #root {
-  --color-a: rgb(var(--em-rgb-color));
-  --color-b: rgba(var(--em-rgb-color), 0.65);
-  --color-c: rgba(var(--em-rgb-color), 0.45);
+  --color-a: var(--em-color);
+  --color-b: color-mix(in srgb, var(--em-color) 65%, transparent);
+  --color-c: color-mix(in srgb, var(--em-color) 45%, transparent);
   --padding: 12px;
   --padding-small: calc(var(--padding) / 2);
   --sidebar-width: 16px;
@@ -55,7 +55,7 @@
   width: 100%;
   text-align: left;
   border-radius: var(--border-radius);
-  background-color: rgb(var(--em-rgb-background));
+  background-color: var(--em-background);
   position: relative;
 }
 
@@ -79,7 +79,7 @@
 #root,
 input,
 button {
-  color: rgb(var(--em-rgb-color));
+  color: var(--em-color);
   font-family: var(--font-family);
   font-size: var(--font-size);
   -webkit-font-smoothing: antialiased;
@@ -218,7 +218,7 @@ button {
 
 a {
   cursor: pointer;
-  color: rgb(var(--em-rgb-accent));
+  color: var(--em-accent);
 }
 
 a:hover {
@@ -262,7 +262,7 @@ a:hover {
 .scroll::-webkit-scrollbar-thumb {
   min-height: 20%;
   min-height: 65px;
-  border: 4px solid rgb(var(--em-rgb-background));
+  border: 4px solid var(--em-background);
   border-radius: 8px;
 }
 
@@ -276,9 +276,9 @@ a:hover {
 
 .sticky {
   z-index: 1;
-  background-color: rgba(var(--em-rgb-background), 0.9);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  background-color: var(--em-background);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   font-weight: 500;
   position: sticky;
   top: -1px;
@@ -339,15 +339,15 @@ a:hover {
 }
 
 .search input[type="search"]:focus {
-  background-color: rgb(var(--em-rgb-input));
+  background-color: var(--em-input);
   box-shadow:
-    inset 0 0 0 1px rgb(var(--em-rgb-accent)),
+    inset 0 0 0 1px var(--em-accent),
     0 1px 3px rgba(65, 69, 73, 0.2);
 }
 
 .search .icon {
   z-index: 1;
-  color: rgba(var(--em-rgb-color), 0.7);
+  color: color-mix(in srgb, var(--em-color) 70%, transparent);
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
@@ -408,7 +408,7 @@ button {
 #nav .bar {
   width: 100%;
   height: 3px;
-  background-color: rgb(var(--em-rgb-accent));
+  background-color: var(--em-accent);
   border-radius: 3px 3px 0 0;
   position: absolute;
   bottom: -12px;
@@ -416,7 +416,7 @@ button {
 }
 
 #nav button[aria-selected] {
-  color: rgb(var(--em-rgb-accent));
+  color: var(--em-accent);
 }
 
 #preview {
@@ -440,7 +440,7 @@ button {
 
 #nav:before,
 #preview:before {
-  content: "";
+  display: none;
   height: 2px;
   position: absolute;
   left: 0;
@@ -526,9 +526,9 @@ button {
   z-index: 2;
   white-space: nowrap;
   border: 1px solid var(--em-color-border);
-  background-color: rgba(var(--em-rgb-background), 0.9);
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  background-color: var(--em-background);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   border-radius: 10px;
   padding: 4px;
   position: absolute;
@@ -567,7 +567,7 @@ button {
 }
 
 .menu input[type="radio"]:checked + .option {
-  box-shadow: 0 0 0 2px rgb(var(--em-rgb-accent));
+  box-shadow: 0 0 0 2px var(--em-accent);
 }
 
 .option {
@@ -578,7 +578,7 @@ button {
 
 .option:hover {
   color: #fff;
-  background-color: rgb(var(--em-rgb-accent));
+  background-color: var(--em-accent);
 }
 
 .skin-tone {
@@ -730,7 +730,7 @@ button {
 /* Amby layout: match the Icons tab search and keep category navigation below the grid. */
 #root > .padding-lr:not(.scroll) {
   padding: 12px;
-  border-bottom: 1px solid var(--menu-border);
+  border-bottom: 0;
 }
 
 #root > .padding-lr:not(.scroll) .spacer {
@@ -743,7 +743,7 @@ button {
 
 .search input[type="search"] {
   height: 40px;
-  border: 1px solid var(--menu-border);
+  border: 1px solid hsl(var(--border));
   border-radius: 10px;
   background: transparent;
   box-shadow: none;
@@ -785,8 +785,17 @@ button {
   width: 40px !important;
   height: 40px !important;
   margin-left: 8px;
-  border: 1px solid var(--menu-border);
+  border: 1px solid hsl(var(--border));
   border-radius: 10px;
+  background: transparent;
+}
+
+.search + .flex:hover {
+  background: hsl(var(--accent));
+}
+
+.search + .flex:focus-within {
+  border-color: hsl(var(--primary));
 }
 
 .search + .flex .skin-tone-button {
@@ -796,4 +805,36 @@ button {
 
 .category .sticky {
   font-size: 12px;
+}
+
+/* Keep the long emoji list inside its own compositor/scrolling context. */
+.scroll {
+  contain: content;
+  overscroll-behavior: contain;
+}
+
+/* These rules are appended after emoji-mart's constructor stylesheet. */
+#nav:before,
+#preview:before {
+  display: none !important;
+  background: none !important;
+  content: none !important;
+}
+
+.sticky,
+.search,
+.scroll {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.scroll {
+  scroll-behavior: auto;
+  scrollbar-gutter: stable;
+}
+
+#root {
+  --duration: 0ms;
+  --duration-fast: 0ms;
+  --duration-instant: 0ms;
 }

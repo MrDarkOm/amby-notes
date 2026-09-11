@@ -36,6 +36,10 @@ export class MutationsRepository {
     return this.port().deleteItem(vaultPath, path)
   }
 
+  async archiveItem(vaultPath: string, path: string): Promise<FsMutationResult> {
+    return this.port().archiveItem(vaultPath, path)
+  }
+
   async noteLayers(notePath: string): Promise<NoteLayers> {
     return this.port().noteLayers(notePath)
   }

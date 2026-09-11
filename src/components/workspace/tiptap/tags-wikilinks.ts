@@ -45,9 +45,12 @@ function createWikiLinkButton(
   const { target, label } = getWikiLinkParts(raw)
   const button = document.createElement("button")
   const resolvedTarget = callbacks.current.resolveWikiLinkTarget?.(target) ?? target
+  const targetName = target.replace(/\\/gu, "/").split("/").pop() ?? target
+  const visibleLabel = raw.includes("|") && label !== target ? label : targetName
   button.type = "button"
   button.className = "amby-live-wikilink-button"
-  button.textContent = label
+  button.textContent = visibleLabel
+  button.title = resolvedTarget
   button.dataset.ambyInlineUnlink = "true"
   button.dataset.ambyFrom = String(from)
   button.dataset.ambyTo = String(to)

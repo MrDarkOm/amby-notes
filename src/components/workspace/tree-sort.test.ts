@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 
 import type { TreeItem } from "@/lib/storage"
-import { sortTreeItems } from "./tree-sort"
+import {
+  applyManualTreeOrder,
+  reorderTreeItems,
+  sortTreeItems,
+  type TreeReorderPosition,
+} from "./tree-sort"
 
 function item(
   id: string,
@@ -20,6 +25,12 @@ function item(
 }
 
 describe("sortTreeItems", () => {
+  it("preserves the current order for manual sorting", () => {
+    const sorted = sortTreeItems([item("second", "file"), item("first", "file")], "manual", "asc")
+
+    expect(sorted.map(({ id }) => id)).toEqual(["second", "first"])
+  })
+
   it("keeps only real folders above the unified note group", () => {
     const bundleNote = item("bundle", "file", {
       name: "Zulu",
@@ -85,5 +96,39 @@ describe("sortTreeItems", () => {
       "nested-note",
       "nested-bundle",
     ])
+  })
+})
+
+describe("manual tree ordering", () => {
+  it("restores sibling order independently at every level", () => {
+    const tree = [
+      item("root-a", "folder", {
+        children: [item("child-a", "file"), item("child-b", "file")],
+      }),
+      item("root-b", "folder"),
+    ]
+
+    const ordered = applyManualTreeOrder(tree, {
+      __amby_root__: ["root-b", "root-a"],
+      "root-a": ["child-b", "child-a"],
+    })
+
+    expect(ordered.map(({ id }) => id)).toEqual(["root-b", "root-a"])
+    expect(ordered[1]?.children?.map(({ id }) => id)).toEqual(["child-b", "child-a"])
+  })
+
+  it.each<[TreeReorderPosition, string[]]>([
+    ["before", ["a", "b", "c"]],
+    ["after", ["b", "a", "c"]],
+    ["end", ["b", "c", "a"]],
+  ])("moves a sibling %s the target", (position, expected) => {
+    const reordered = reorderTreeItems(
+      [item("a", "file"), item("b", "file"), item("c", "file")],
+      ["a"],
+      position === "end" ? null : "b",
+      position,
+    )
+
+    expect(reordered.map(({ id }) => id)).toEqual(expected)
   })
 })

@@ -295,7 +295,7 @@ fn database_layer_writer_is_disabled_without_promoting_a_note() {
 }
 
 #[test]
-fn deleting_a_layer_keeps_a_vault_local_recoverable_copy() {
+fn deleting_a_layer_moves_it_to_the_system_trash_without_archiving_it() {
     let vault = temp_vault("delete-layer");
     let bundle = vault.join("Note");
     fs::create_dir(&bundle).unwrap();
@@ -307,9 +307,8 @@ fn deleting_a_layer_keeps_a_vault_local_recoverable_copy() {
     delete_layer_impl(&vault, &note, "canvas").unwrap();
 
     assert!(!layer.exists());
-    let entry = crate::recycle_bin::list(&vault).pop().unwrap();
-    crate::recycle_bin::restore(&vault, &entry.id).unwrap();
-    assert_eq!(fs::read_to_string(&layer).unwrap(), "canvas data");
+    assert!(crate::recycle_bin::list(&vault).is_empty());
+    fs::remove_dir_all(vault).unwrap();
 }
 
 #[test]

@@ -78,7 +78,7 @@ describe("SidebarTree rename trigger", () => {
     expect(onRename).toHaveBeenCalledWith(item.id, `${item.name} renamed`)
   })
 
-  it("aligns leaf icons with the icons in expandable rows", () => {
+  it("keeps root and leaf icons on the compact tree grid", () => {
     const child = {
       id: "child",
       path: "/vault/Bundle/Child.md",
@@ -104,8 +104,30 @@ describe("SidebarTree rename trigger", () => {
 
     const expandableRow = container.querySelector('[data-tree-item-id="bundle"]')?.parentElement
     const leafRow = container.querySelector('[data-tree-item-id="leaf"]') as HTMLElement
-    expect(expandableRow?.style.paddingLeft).toBe("6px")
-    expect(leafRow.style.paddingLeft).toBe("24px")
+    expect(expandableRow?.style.paddingLeft).toBe("14px")
+    expect(leafRow.style.paddingLeft).toBe("14px")
+  })
+
+  it("keeps nested rows on the icon grid without reserving a hidden chevron", () => {
+    const child = {
+      id: "child",
+      path: "/vault/Folder/Child.md",
+      name: "Child",
+      type: "file" as const,
+    }
+    const folder = {
+      id: "folder",
+      path: "/vault/Folder",
+      name: "Folder",
+      type: "folder" as const,
+      children: [child],
+    }
+    const { container } = render(
+      <SidebarTree items={[folder]} selectedId={null} onSelect={() => {}} />,
+    )
+
+    const childRow = container.querySelector('[data-tree-item-id="child"]') as HTMLElement
+    expect(childRow.style.paddingLeft).toBe("36px")
   })
 
   it("shows type icons on the right and a file icon with a star for favorites", () => {
@@ -126,6 +148,20 @@ describe("SidebarTree rename trigger", () => {
     expect(container.querySelector('[data-tree-file-status="file"]')).not.toBeNull()
     expect(container.querySelector('[data-tree-file-status="favorite"]')).not.toBeNull()
     expect(container.querySelector('[data-tree-file-status="folder"]')).not.toBeNull()
+  })
+
+  it("keeps ordinary file icons visible without a folder hover affordance", () => {
+    const item = { id: "note-1", path: "/vault/one.md", name: "one", type: "file" as const }
+    const { container } = render(
+      <SidebarTree items={[item]} selectedId={null} onSelect={() => {}} />,
+    )
+
+    expect(
+      container.querySelector('[data-tree-item-id="note-1"] .amby-tree-main-icon'),
+    ).not.toBeNull()
+    expect(
+      container.querySelector('[data-tree-item-id="note-1"] .amby-tree-folder-icon'),
+    ).toBeNull()
   })
 
   it("toggles a file favorite from its right-side status icon", () => {

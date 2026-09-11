@@ -283,8 +283,12 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         left = Math.max(0, anchorRect.left - HANDLE_WIDTH - GUTTER_GAP - listMarkerClearance)
       }
       // Align the grip with the first line, rather than the visual centre of
-      // a tall block, matching Notion's block affordance.
-      top = taskLabel ? anchorRect.top + (anchorRect.height - BUTTON_H) / 2 : anchorRect.top + 1
+      // a tall block, matching Notion's block affordance. A horizontal rule is
+      // itself the visible anchor, so centre the grip directly on its line.
+      top =
+        taskLabel || target.nodeType === "horizontalRule"
+          ? anchorRect.top + (anchorRect.height - BUTTON_H) / 2
+          : anchorRect.top + 1
     }
 
     posRef.current = { top, left }

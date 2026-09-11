@@ -270,6 +270,13 @@ export function WorkspaceOrchestration() {
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
   const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
+  const activeTab = tabs.find((tab) => tab.key === activeTabKey) ?? null
+  // Subscribe only to whether the active document has been loaded. The editor
+  // owns content updates; this small subscription fixes the startup race
+  // without rerendering the whole workspace on every keystroke.
+  const activeDocumentLoaded = useDocStore((state) =>
+    activeTab ? Boolean(state.openDocs[activeTab.fileId]) : false,
+  )
   // Document buffers are read imperatively here. Visible editors subscribe to
   // their own document below, so patchDoc cannot rerender the whole workspace.
   const openDocs = useDocStore.getState().openDocs
@@ -399,7 +406,6 @@ export function WorkspaceOrchestration() {
     setOpenCanvases,
   } = useCanvasWorkspace(autosaveGeneration, t, recoveryScope)
 
-  const activeTab = tabs.find((t) => t.key === activeTabKey) ?? null
   const selectedId =
     activeTab && (activeTab.kind === "document" || activeTab.kind === "folder")
       ? activeTab.fileId
@@ -482,6 +488,7 @@ export function WorkspaceOrchestration() {
     toggleSidebar,
     leftWidth,
     rightWidth,
+    resizingSide,
     startResize,
     isFocusMode,
     isCompactLayout,
@@ -605,7 +612,7 @@ export function WorkspaceOrchestration() {
     })
   }
 
-  const currentDoc = activeTab ? (openDocs[activeTab.fileId] ?? null) : null
+  const currentDoc = activeDocumentLoaded && activeTab ? (openDocs[activeTab.fileId] ?? null) : null
   const currentDocId = currentDoc?.id ?? null
   const currentDocPath = currentDoc?.path ?? null
 
@@ -1148,7 +1155,7 @@ export function WorkspaceOrchestration() {
           : undefined,
       onMergeFile: doc ? (targetId: string) => handleMergeFile(doc.id, targetId) : undefined,
       onShowInExplorer: doc ? () => openInExplorer(doc.path) : undefined,
-      onDeleteFile: doc ? () => handleDeleteFile(doc.id) : undefined,
+      onDeleteFile: doc ? (mode?: "archive") => handleDeleteFile(doc.id, mode) : undefined,
       treeItems: displayTreeItems,
       onOpenItem: handleSelect,
       onUnlinkLayer: handleUnlinkLayer,
@@ -1642,10 +1649,12 @@ export function WorkspaceOrchestration() {
 
         {leftDockPinned && isLeftSidebarOpen && (
           <>
-            <motion.div
-              initial={false}
-              animate={{ width: isLeftSidebarVisible ? leftWidth : 0 }}
-              transition={motionTransitions.panel}
+            <div
+              style={{
+                width: isLeftSidebarVisible ? "var(--amby-left-panel-width, 300px)" : 0,
+                transition:
+                  resizingSide === "left" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
+              }}
               onMouseEnter={() => setSidebarHover("left", true)}
               onMouseLeave={() => setSidebarHover("left", false)}
               className={
@@ -1663,21 +1672,26 @@ export function WorkspaceOrchestration() {
                   <ResizeHandle side="right" onMouseDown={startResize("left")} />
                 )}
               </div>
-            </motion.div>
+            </div>
           </>
         )}
 
         {!leftDockPinned && (
-          <motion.div
+          <div
             className="amby-sidebar-overlay--left fixed bottom-0 left-0 top-11 z-40 rounded-r-2xl"
-            initial={false}
-            animate={{ width: isLeftSidebarVisible ? leftWidth + 48 : 4 }}
-            transition={motionTransitions.panel}
+            style={{
+              width: isLeftSidebarVisible ? "calc(var(--amby-left-panel-width, 300px) + 48px)" : 4,
+              transition:
+                resizingSide === "left" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
             onMouseEnter={() => setSidebarHover("left", true)}
             onMouseLeave={() => setSidebarHover("left", false)}
           >
             <div className="flex h-full w-full overflow-hidden rounded-r-2xl bg-background">
-              <div className="flex h-full shrink-0" style={{ width: leftWidth + 48 }}>
+              <div
+                className="flex h-full shrink-0"
+                style={{ width: "calc(var(--amby-left-panel-width, 300px) + 48px)" }}
+              >
                 <ActivityBar
                   side="left"
                   buttons={leftButtons}
@@ -1707,7 +1721,7 @@ export function WorkspaceOrchestration() {
                 </div>
               </div>
             </div>
-          </motion.div>
+          </div>
         )}
 
         <main className="flex flex-1 gap-0 overflow-hidden">
@@ -1741,10 +1755,12 @@ export function WorkspaceOrchestration() {
 
         {rightDockPinned && isRightSidebarOpen && (
           <>
-            <motion.div
-              initial={false}
-              animate={{ width: isRightSidebarVisible ? rightWidth : 0 }}
-              transition={motionTransitions.panel}
+            <div
+              style={{
+                width: isRightSidebarVisible ? "var(--amby-right-panel-width, 300px)" : 0,
+                transition:
+                  resizingSide === "right" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
+              }}
               onMouseEnter={() => setSidebarHover("right", true)}
               onMouseLeave={() => setSidebarHover("right", false)}
               className={
@@ -1762,7 +1778,7 @@ export function WorkspaceOrchestration() {
                 )}
                 <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
               </div>
-            </motion.div>
+            </div>
           </>
         )}
 
@@ -1782,16 +1798,23 @@ export function WorkspaceOrchestration() {
         )}
 
         {!rightDockPinned && (
-          <motion.div
+          <div
             className="amby-sidebar-overlay--right fixed bottom-0 right-0 top-11 z-40 rounded-l-2xl"
-            initial={false}
-            animate={{ width: isRightSidebarVisible ? rightWidth + 48 : 4 }}
-            transition={motionTransitions.panel}
+            style={{
+              width: isRightSidebarVisible
+                ? "calc(var(--amby-right-panel-width, 300px) + 48px)"
+                : 4,
+              transition:
+                resizingSide === "right" ? "none" : "width 320ms cubic-bezier(0.16, 1, 0.3, 1)",
+            }}
             onMouseEnter={() => setSidebarHover("right", true)}
             onMouseLeave={() => setSidebarHover("right", false)}
           >
             <div className="flex h-full w-full justify-end overflow-hidden rounded-l-2xl bg-background">
-              <div className="flex h-full shrink-0" style={{ width: rightWidth + 48 }}>
+              <div
+                className="flex h-full shrink-0"
+                style={{ width: "calc(var(--amby-right-panel-width, 300px) + 48px)" }}
+              >
                 <div
                   className="h-full shrink-0"
                   style={{ width: "var(--amby-right-panel-width, 300px)" }}
@@ -1821,7 +1844,7 @@ export function WorkspaceOrchestration() {
                 />
               </div>
             </div>
-          </motion.div>
+          </div>
         )}
       </div>
 

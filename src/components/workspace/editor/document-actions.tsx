@@ -4,8 +4,6 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
   Archive,
-  Bookmark,
-  BookmarkCheck,
   Code2,
   Copy,
   Database,
@@ -26,6 +24,7 @@ import {
   PenLine,
   Search,
   SquareArrowOutUpRight,
+  Star,
   Trash2,
 } from "lucide-react"
 
@@ -448,7 +447,7 @@ export function DocumentActionsDropdown({
   onExportPdf: () => void
   onShowInExplorer?: () => void
   onRequestRename: () => void
-  onDeleteFile?: () => void
+  onDeleteFile?: (mode?: "archive") => void
 }) {
   const { t } = useTranslation()
 
@@ -577,9 +576,9 @@ export function DocumentActionsDropdown({
           onSelect={onToggleFavorite}
         >
           {isFavorite ? (
-            <BookmarkCheck className="size-3.5 text-amber-400" />
+            <Star className="size-3.5 fill-current text-primary" />
           ) : (
-            <Bookmark className="size-3.5 text-muted-foreground" />
+            <Star className="size-3.5 text-muted-foreground" />
           )}
           {isFavorite ? t("tree.removeBookmark") : t("tree.addBookmark")}
         </DropdownMenuItem>
@@ -656,7 +655,7 @@ export function DocumentActionsDropdown({
         <DropdownMenuItem
           disabled={!hasDocument || !onDeleteFile}
           className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-          onSelect={onDeleteFile}
+          onSelect={() => onDeleteFile?.("archive")}
         >
           <Archive className="size-3.5 text-muted-foreground" />
           {t("workspace.archive")}
@@ -664,7 +663,7 @@ export function DocumentActionsDropdown({
         <DropdownMenuItem
           disabled={!hasDocument || !onDeleteFile}
           className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
-          onSelect={onDeleteFile}
+          onSelect={() => onDeleteFile?.()}
         >
           <Trash2 className="size-3.5" />
           {t("docEditor.deleteFile")}

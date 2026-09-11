@@ -278,9 +278,7 @@ pub(crate) fn unlink_layer_impl(note_path: &Path, kind: &str) -> Result<FsMutati
     })
 }
 
-/// Move a layer to Amby's vault-local recycle bin. Layer data is often binary
-/// (Canvas/Excalidraw), so relying on the OS recycle bin made recovery depend
-/// on a separate, user-emptyable store and left no entry in the app history.
+/// Move a layer to the system recycle bin along with other deleted files.
 pub(crate) fn delete_layer_impl(
     vault: &Path,
     note_path: &Path,
@@ -296,7 +294,7 @@ pub(crate) fn delete_layer_impl(
             path_string(&layer_path)
         ));
     }
-    let mut result = crate::recycle_bin::move_to_trash(vault, &layer_path)?;
+    let mut result = crate::system_recycle_bin::move_to_system_trash(vault, &layer_path)?;
     result.primary_path = Some(path_string(note_path));
     Ok(result)
 }

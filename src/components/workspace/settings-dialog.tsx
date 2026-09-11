@@ -360,7 +360,7 @@ export function SettingsDialog({
       {
         section: "appearance",
         label: t("settings.appearance.themeLibrary"),
-        description: `${t("settings.appearance.theme")} · ${t("settings.appearance.themeMode")} · ${t("settings.appearance.importTheme")} · ${t("settings.appearance.accent")}`,
+        description: `${t("settings.appearance.theme")} · ${t("settings.appearance.themeMode")} · ${t("settings.appearance.importTheme")} · ${t("settings.appearance.accent")} · ${t("settings.appearance.rainbowTree")} · ${t("settings.appearance.treeGuides")}`,
       },
       {
         section: "interface",
@@ -485,7 +485,7 @@ export function SettingsDialog({
 
         <div
           className={cn(
-            "m-3 ml-0 min-w-0 flex-1 overflow-y-auto rounded-xl border border-border bg-card shadow-sm",
+            "m-3 ml-0 min-w-0 flex-1 overflow-y-auto rounded-xl border border-border bg-[var(--panel-bg)] shadow-sm",
             activeSection === "modules" && !query.trim() ? "p-0" : "px-4 py-5 sm:px-7",
           )}
         >
@@ -593,6 +593,15 @@ export function SettingsDialog({
                     <Switch
                       checked={prefs.rainbowTree}
                       onCheckedChange={(rainbowTree) => setPrefs({ rainbowTree })}
+                    />
+                  </Row>
+                  <Row
+                    label={t("settings.appearance.treeGuides")}
+                    hint={t("settings.appearance.treeGuidesHint")}
+                  >
+                    <Switch
+                      checked={prefs.treeGuides}
+                      onCheckedChange={(treeGuides) => setPrefs({ treeGuides })}
                     />
                   </Row>
                 </SettingsGroup>

@@ -54,7 +54,9 @@ export function HistoryPreview({
           key?: string
           direction?: string
         }
-        if (saved.key === "created" || saved.key === "modified") sortKey = saved.key
+        if (saved.key === "manual" || saved.key === "created" || saved.key === "modified") {
+          sortKey = saved.key
+        }
         if (saved.direction === "desc") direction = "desc"
       } catch {
         /* use defaults */

@@ -237,6 +237,8 @@ export const moveItem = (
 ): Promise<FsMutationResult> => mutationsRepository.moveItem(vaultPath, sourcePath, targetPath)
 export const deleteItem = (vaultPath: string, path: string): Promise<FsMutationResult> =>
   mutationsRepository.deleteItem(vaultPath, path)
+export const archiveItem = (vaultPath: string, path: string): Promise<FsMutationResult> =>
+  mutationsRepository.archiveItem(vaultPath, path)
 export const noteLayers = (notePath: string): Promise<NoteLayers> =>
   mutationsRepository.noteLayers(notePath)
 export const createLayer = (notePath: string, kind: LayerKind): Promise<LayerResult> =>

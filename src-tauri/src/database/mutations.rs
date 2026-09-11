@@ -1682,17 +1682,13 @@ mod tests {
         let journal = BatchRecoveryJournal {
             format: "amby-database-recovery".to_owned(),
             format_version: 1,
-            operation_id,
+            operation_id: operation_id.clone(),
             database_id: ulid::Ulid::generate().to_string(),
             request_revision: "request".to_owned(),
             status: "inProgress".to_owned(),
             steps: vec![BatchRecoveryStep {
                 record_path: format!(".ambd/records/{note_id}.json"),
-                backup_path: backup_path
-                    .strip_prefix(&container)
-                    .unwrap()
-                    .to_string_lossy()
-                    .to_string(),
+                backup_path: format!(".ambd/recovery/{operation_id}/{note_id}.json"),
                 original_revision: raw_revision(original),
                 target_revision: raw_revision(target),
                 status: "written".to_owned(),

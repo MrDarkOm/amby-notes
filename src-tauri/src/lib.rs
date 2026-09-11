@@ -13,6 +13,7 @@ mod property_store;
 mod recovery;
 mod recycle_bin;
 mod state;
+mod system_recycle_bin;
 pub mod vault;
 mod vault_context;
 pub mod vault_index;
@@ -88,6 +89,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::mutations::rename_item,
         commands::history::preview_rename_refactor,
         commands::mutations::delete_item,
+        commands::mutations::archive_item,
         commands::notes::get_file_metadata,
         commands::vault::open_vault,
         commands::vault::start_vault_watcher,

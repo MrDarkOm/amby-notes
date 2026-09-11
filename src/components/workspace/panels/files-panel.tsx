@@ -13,6 +13,7 @@ import {
   FolderPlus,
   History,
   LayoutGrid,
+  ListOrdered,
   LocateFixed,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -42,7 +43,16 @@ import {
 } from "@/components/ui/dropdown-menu"
 import type { TreeItem } from "@/lib/storage"
 import { SidebarTree } from "../sidebar-tree"
-import { sortTreeItems, type TreeSortDirection, type TreeSortKey } from "../tree-sort"
+import {
+  applyManualTreeOrder,
+  collectManualTreeOrder,
+  reorderTreeItems,
+  sortTreeItems,
+  type ManualTreeOrder,
+  type TreeReorderPosition,
+  type TreeSortDirection,
+  type TreeSortKey,
+} from "../tree-sort"
 import { useViewStateStore } from "../use-view-state-store"
 import { NewItemModal } from "../new-item-modal"
 import type { PanelRenderProps } from "../panel-registry"
@@ -60,7 +70,49 @@ const TREE_SORT_OPTIONS: Array<{
   { key: "modified", direction: "asc", labelKey: "filesPanel.sortModifiedAsc", icon: History },
   { key: "created", direction: "desc", labelKey: "filesPanel.sortCreatedDesc", icon: Clock },
   { key: "created", direction: "asc", labelKey: "filesPanel.sortCreatedAsc", icon: Clock },
+  { key: "manual", direction: "asc", labelKey: "filesPanel.sortManual", icon: ListOrdered },
 ]
+
+const TREE_SORT_STORAGE_KEY = "amby:tree-sort"
+const TREE_ORDER_STORAGE_PREFIX = "amby:tree-order:"
+
+function readTreeSortSelection(): { key: TreeSortKey; direction: TreeSortDirection } {
+  if (typeof window === "undefined") return { key: "name", direction: "asc" }
+  try {
+    const saved = JSON.parse(localStorage.getItem(TREE_SORT_STORAGE_KEY) ?? "{}") as {
+      key?: string
+      direction?: string
+    }
+    return {
+      key:
+        saved.key === "manual" ||
+        saved.key === "created" ||
+        saved.key === "modified" ||
+        saved.key === "name"
+          ? saved.key
+          : "name",
+      direction: saved.direction === "desc" ? "desc" : "asc",
+    }
+  } catch {
+    return { key: "name", direction: "asc" }
+  }
+}
+
+function readManualTreeOrder(vault: string | null): ManualTreeOrder {
+  if (!vault || typeof window === "undefined") return {}
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(`${TREE_ORDER_STORAGE_PREFIX}${vault}`) ?? "{}",
+    ) as Record<string, unknown>
+    return Object.fromEntries(
+      Object.entries(saved).filter(
+        ([, value]) => Array.isArray(value) && value.every((id) => typeof id === "string"),
+      ),
+    ) as ManualTreeOrder
+  } catch {
+    return {}
+  }
+}
 
 function filterTreeItems(items: TreeItem[], query: string): TreeItem[] {
   const normalized = query.trim().toLocaleLowerCase()
@@ -111,18 +163,31 @@ export function FilesPanel(props: PanelRenderProps) {
   const setTreeExpanded = useViewStateStore((s) => s.setTreeExpanded)
   const allOpen = closedTreeIds.size === 0
   const [findActiveKey, setFindActiveKey] = React.useState(0)
-  const [sortKey, setSortKey] = React.useState<TreeSortKey>("name")
-  const [sortDirection, setSortDirection] = React.useState<TreeSortDirection>("asc")
+  const [sortSelection, setSortSelection] = React.useState(readTreeSortSelection)
+  const [manualOrder, setManualOrder] = React.useState<ManualTreeOrder>(() =>
+    readManualTreeOrder(vault),
+  )
+  const { key: sortKey, direction: sortDirection } = sortSelection
   const [query, setQuery] = React.useState("")
   React.useEffect(() => {
     localStorage.setItem(
-      "amby:tree-sort",
+      TREE_SORT_STORAGE_KEY,
       JSON.stringify({ key: sortKey, direction: sortDirection }),
     )
   }, [sortKey, sortDirection])
+  React.useEffect(() => {
+    setManualOrder(readManualTreeOrder(vault))
+  }, [vault])
+  React.useEffect(() => {
+    if (!vault || sortKey !== "manual") return
+    localStorage.setItem(`${TREE_ORDER_STORAGE_PREFIX}${vault}`, JSON.stringify(manualOrder))
+  }, [manualOrder, sortKey, vault])
   const sortedTreeItems = React.useMemo(
-    () => sortTreeItems(treeItems, sortKey, sortDirection),
-    [treeItems, sortKey, sortDirection],
+    () =>
+      sortKey === "manual"
+        ? applyManualTreeOrder(treeItems, manualOrder)
+        : sortTreeItems(treeItems, sortKey, sortDirection),
+    [manualOrder, sortDirection, sortKey, treeItems],
   )
   const visibleTreeItems = React.useMemo(
     () => filterTreeItems(sortedTreeItems, query),
@@ -166,6 +231,16 @@ export function FilesPanel(props: PanelRenderProps) {
     setFindActiveKey((k) => k + 1)
   }
 
+  const handleReorderItems = React.useCallback(
+    (sourceIds: string[], targetId: string | null, position: TreeReorderPosition) => {
+      if (sortKey !== "manual") return
+      const reorderedTree = reorderTreeItems(sortedTreeItems, sourceIds, targetId, position)
+      if (reorderedTree === sortedTreeItems) return
+      setManualOrder(collectManualTreeOrder(reorderedTree))
+    },
+    [sortKey, sortedTreeItems],
+  )
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PanelHeader
@@ -205,8 +280,7 @@ export function FilesPanel(props: PanelRenderProps) {
                     <DropdownMenuItem
                       className="relative flex items-start gap-2 pr-9 text-[13px] whitespace-normal break-words focus:bg-accent focus:text-white"
                       onSelect={() => {
-                        setSortKey(key)
-                        setSortDirection(direction)
+                        setSortSelection({ key, direction })
                       }}
                     >
                       <Icon className="size-3.5 text-muted-foreground" />
@@ -274,6 +348,7 @@ export function FilesPanel(props: PanelRenderProps) {
                   onCloneFile={onCloneFile}
                   onOpenInExplorer={onOpenInExplorer}
                   onMoveItem={onMoveItem}
+                  onReorderItems={sortKey === "manual" ? handleReorderItems : undefined}
                   onSetIcon={onSetIcon}
                   triggerRenameId={triggerRenameId}
                   favorites={favorites}

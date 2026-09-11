@@ -1,7 +1,7 @@
 {
   "name": "amby-notes",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Local-first desktop knowledge workspace",
   "type": "module",
   "engines": {

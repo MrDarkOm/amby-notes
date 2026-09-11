@@ -4,8 +4,6 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
 import {
-  Bookmark,
-  BookmarkCheck,
   Columns2,
   ChevronDown,
   FolderOpen,
@@ -17,6 +15,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Plus,
+  Star,
   X,
 } from "lucide-react"
 
@@ -94,12 +93,12 @@ export function TabsMenu({
         >
           {activeFileId && favorites?.has(activeFileId) ? (
             <>
-              <BookmarkCheck className="size-3.5 text-amber-400" />
+              <Star className="size-3.5 fill-current text-primary" />
               {t("tabs.removeBookmark")}
             </>
           ) : (
             <>
-              <Bookmark className="size-3.5 text-muted-foreground" />
+              <Star className="size-3.5 text-muted-foreground" />
               {t("tabs.addBookmark")}
             </>
           )}
@@ -177,7 +176,9 @@ interface HeaderTabsProps {
 // Using an approximate width here makes the sidebar toggles jump when a panel
 // opens or closes.
 const ACTIVITY_BAR_WIDTH = 48
-const WINDOW_CONTROLS_WIDTH = 144
+// Windows keeps the right-sidebar toggle beside the three native-style
+// window controls, so the full edge-control cluster is four 48px slots.
+const WINDOW_CONTROLS_WIDTH = 192
 const MACOS_SIDEBAR_TOGGLE_WIDTH = 44
 
 // Shared style for header toolbar icon buttons (sidebar toggles, dropdown,
@@ -470,7 +471,7 @@ export function HeaderTabs({
               : "pl-9"
             : isLeftSidebarOpen
               ? "pl-0"
-              : "pl-9",
+              : "pl-0",
         )}
       >
         <div className="flex h-full min-w-0 items-center gap-1 overflow-hidden">

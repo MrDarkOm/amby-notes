@@ -3,6 +3,7 @@ import i18n from "@/lib/i18n"
 import { discardRecoveryDraft, saveRecoveryDraft } from "@/lib/recovery-drafts"
 import {
   attachCanvasToNote,
+  archiveItem,
   createCanvasFile,
   createFolder,
   createNote,
@@ -26,6 +27,7 @@ import { beginLocalTreeMutation, recordLocalTreePaths } from "../watcher-tree-re
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
 type DeleteResolution = "confirm" | "archive" | "keep_recovery" | "discard" | "cancel"
+type DeleteMode = "delete" | "archive"
 
 function normalizeFsPath(path: string): string {
   return path.replace(/\\/gu, "/").replace(/\/+$/u, "")
@@ -138,7 +140,7 @@ export function useDocumentCrud({
     [pendingDelete],
   )
   const handleDeleteFiles = React.useCallback(
-    async (ids: string[]) => {
+    async (ids: string[], mode: DeleteMode = "delete") => {
       const items = ids
         .map((id) => findTreeItem(treeItems, id))
         .filter((item): item is NonNullable<typeof item> => Boolean(item))
@@ -156,11 +158,14 @@ export function useDocumentCrud({
           docStore.unsavedFileIds.has(document.id) ||
           Boolean(docStore.externalConflicts[document.id]),
       )
-      const resolution = await requestDeleteConfirmation(
-        targets.map((target) => target.id),
-        targets.map((target) => target.name),
-        hasDirtyDocuments,
-      )
+      const resolution =
+        mode === "archive"
+          ? "archive"
+          : await requestDeleteConfirmation(
+              targets.map((target) => target.id),
+              targets.map((target) => target.name),
+              hasDirtyDocuments,
+            )
       if (resolution === "cancel") return
       const finishLocalMutation = beginLocalTreeMutation()
       let failed = 0
@@ -170,13 +175,21 @@ export function useDocumentCrud({
             (document) => document.id === target.id || isPathInside(document.path, target.root),
           )
           try {
-            const result = await deleteItem(vault ?? "", target.path)
+            const result =
+              resolution === "archive"
+                ? await archiveItem(vault ?? "", target.path)
+                : await deleteItem(vault ?? "", target.path)
             handleApplyMutation(result)
-            window.dispatchEvent(new Event("amby:trash-changed"))
+            if (resolution === "archive") {
+              window.dispatchEvent(new Event("amby:archive-changed"))
+            }
             for (const document of targetDocuments) {
               autosave.discard(autosaveKey(document.id))
               useDocStore.getState().clearExternalConflict(document.id)
-              if (resolution === "keep_recovery") {
+              if (
+                resolution === "keep_recovery" ||
+                (resolution === "archive" && hasDirtyDocuments)
+              ) {
                 void saveRecoveryDraft(
                   document.id,
                   document.content,
@@ -213,7 +226,7 @@ export function useDocumentCrud({
     ],
   )
   const handleDeleteFile = React.useCallback(
-    (id: string) => handleDeleteFiles([id]),
+    (id: string, mode: DeleteMode = "delete") => handleDeleteFiles([id], mode),
     [handleDeleteFiles],
   )
   const createDocumentIn = React.useCallback(

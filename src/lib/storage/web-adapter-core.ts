@@ -782,6 +782,10 @@ export class WebAdapterCore implements StoragePort {
     }
   }
 
+  async archiveItem(vaultPath: string, path: string): Promise<FsMutationResult> {
+    return this.deleteItem(vaultPath, path)
+  }
+
   async noteLayers(notePath: string): Promise<NoteLayers> {
     const stem = pathStem(notePath)
     const dir = pathDir(notePath)

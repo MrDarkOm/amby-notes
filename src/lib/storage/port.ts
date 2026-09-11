@@ -75,6 +75,7 @@ export interface StoragePort extends DatabasePort {
   renameItem(vaultPath: string, path: string, newName: string): Promise<FsMutationResult>
   moveItem(vaultPath: string, sourcePath: string, targetPath: string): Promise<FsMutationResult>
   deleteItem(vaultPath: string, path: string): Promise<FsMutationResult>
+  archiveItem(vaultPath: string, path: string): Promise<FsMutationResult>
 
   // Layers
   noteLayers(notePath: string): Promise<NoteLayers>

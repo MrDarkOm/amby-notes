@@ -484,6 +484,10 @@ export class DesktopAdapter implements StoragePort {
     return unwrapMutation(commands.deleteItem(path))
   }
 
+  async archiveItem(_vaultPath: string, path: string): Promise<FsMutationResult> {
+    return unwrapMutation(commands.archiveItem(path))
+  }
+
   async noteLayers(notePath: string): Promise<NoteLayers> {
     return unwrapCommand(commands.noteLayers(notePath))
   }

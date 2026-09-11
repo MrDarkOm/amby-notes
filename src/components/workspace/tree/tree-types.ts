@@ -1,5 +1,6 @@
 import type * as React from "react"
 import type { TreeItem } from "@/lib/storage"
+import type { TreeReorderPosition } from "../tree-sort"
 
 export type { TreeItem }
 
@@ -35,6 +36,8 @@ export interface PtrDrag {
   ghostY: number
   active: boolean
   targetId: string | null
+  /** Reorder preview: before/after a sibling or append at the root. */
+  dropPosition: TreeReorderPosition | null
 }
 
 function normalizeTreePath(path: string): string {
@@ -84,7 +87,7 @@ export interface SidebarTreeProps {
   selectedId: string | null
   onSelect: (id: string) => void
   onRename?: (id: string, newName: string) => void
-  onDelete?: (id: string) => void
+  onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
@@ -93,6 +96,11 @@ export interface SidebarTreeProps {
   onCloneFile?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
   onMoveItem?: (sourceIds: string[], targetId: string | null) => void
+  onReorderItems?: (
+    sourceIds: string[],
+    targetId: string | null,
+    position: TreeReorderPosition,
+  ) => void
   onSetIcon?: (id: string, icon: string) => void
   onContextMenuSelect?: (id: string) => void
   triggerRenameId?: string | null
@@ -105,15 +113,34 @@ export interface SidebarTreeProps {
   findActiveKey?: number
 }
 
-export type FlatRow = { item: TreeItem; level: number }
+export type FlatRow = { item: TreeItem; level: number; branchIndex: number | null }
 
-export function flattenVisible(items: TreeItem[], closedIds: Set<string>, level = 0): FlatRow[] {
+export function treeItemHasChildren(item: TreeItem): boolean {
+  return Boolean(item.children?.length)
+}
+
+export function treeBranchGradientColor(branchIndex: number, branchCount: number): string {
+  const endWeight =
+    branchCount <= 1 ? 0 : Math.min(100, Math.max(0, (branchIndex / (branchCount - 1)) * 100))
+  return `color-mix(in oklch, var(--tree-gradient-start) ${100 - endWeight}%, var(--tree-gradient-end) ${endWeight}%)`
+}
+
+export function flattenVisible(
+  items: TreeItem[],
+  closedIds: Set<string>,
+  level = 0,
+  inheritedBranchIndex: number | null = null,
+): FlatRow[] {
   const rows: FlatRow[] = []
+  let nextRootBranchIndex = 0
   for (const item of items) {
-    rows.push({ item, level })
-    const hasChildren = (item.children && item.children.length > 0) || item.type === "folder"
+    const hasChildren = treeItemHasChildren(item)
+    const isRootBranch = item.type === "folder" || hasChildren
+    const branchIndex =
+      level === 0 ? (isRootBranch ? nextRootBranchIndex++ : null) : inheritedBranchIndex
+    rows.push({ item, level, branchIndex })
     if (hasChildren && !closedIds.has(item.id) && item.children?.length) {
-      for (const child of flattenVisible(item.children, closedIds, level + 1)) {
+      for (const child of flattenVisible(item.children, closedIds, level + 1, branchIndex)) {
         rows.push(child)
       }
     }
@@ -133,7 +160,7 @@ export interface TreeNodeProps {
   isKeyboardFocused: boolean
   onKeyboardFocus: (id: string) => void
   onSelect: (id: string, event?: React.MouseEvent<HTMLElement>) => void
-  onDelete?: (id: string) => void
+  onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void

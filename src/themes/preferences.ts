@@ -1,14 +1,14 @@
 /** Appearance preference values consumed by runtime components. */
 export const EDITOR_FONT_SIZE = {
-  sm: "1.02rem",
-  md: "1.02rem",
-  lg: "1.02rem",
+  sm: "calc(1.02rem * var(--app-font-scale, 1))",
+  md: "calc(1.02rem * var(--app-font-scale, 1))",
+  lg: "calc(1.02rem * var(--app-font-scale, 1))",
 } as const
 
-export const APP_FONT_SIZE = {
-  sm: "14px",
-  md: "16px",
-  lg: "18px",
+export const APP_FONT_SCALE = {
+  sm: "0.875",
+  md: "1",
+  lg: "1.125",
 } as const
 
 export const APP_FONT_FAMILY = {

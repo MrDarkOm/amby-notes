@@ -21,13 +21,11 @@ import * as storage from "@/lib/storage"
 vi.mock("@/lib/storage", async (original) => ({
   ...(await original<typeof import("@/lib/storage")>()),
   listSnapshots: vi.fn(),
-  listTrash: vi.fn(),
   getHistoryStats: vi.fn(),
   readSnapshotText: vi.fn(),
   readFile: vi.fn(),
   confirmAction: vi.fn(),
   restoreSnapshot: vi.fn(),
-  restoreTrash: vi.fn(),
   previewHistoryCleanup: vi.fn(),
   cleanupHistory: vi.fn(),
 }))
@@ -60,14 +58,6 @@ beforeEach(() => {
   useVaultStore.setState({ ...useVaultStore.getInitialState(), vault: "/vault" })
   useDocStore.getState().clearDocs()
   vi.mocked(storage.listSnapshots).mockResolvedValue(entries)
-  vi.mocked(storage.listTrash).mockResolvedValue([
-    {
-      id: "trash-1",
-      name: "Deleted.md",
-      originalPath: "/vault/Deleted.md",
-      deletedAtMs: entries[0].createdAtMs,
-    },
-  ])
   vi.mocked(storage.getHistoryStats).mockResolvedValue({
     snapshotCount: 52,
     noteCount: 1,
@@ -85,7 +75,7 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("history interface", () => {
-  it("paginates and searches versions, previews real changes, and separates the trash", async () => {
+  it("paginates and searches versions without an in-app trash", async () => {
     render(<HistoryPanel {...props} />)
     await waitFor(() =>
       expect(screen.getAllByRole("button", { name: /Посмотреть версию/ })).toHaveLength(40),
@@ -103,9 +93,8 @@ describe("history interface", () => {
     expect(within(dialog).getByText("+1 строка")).toBeTruthy()
     expect(storage.restoreSnapshot).not.toHaveBeenCalled()
     fireEvent.click(within(dialog).getByRole("button", { name: "Закрыть" }))
-    fireEvent.click(screen.getByRole("button", { name: /Корзина/ }))
-    expect(screen.getByText("Deleted.md")).toBeTruthy()
-    expect(screen.queryByRole("button", { name: /Посмотреть версию/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /Корзина/ })).toBeNull()
+    expect(screen.getAllByRole("button", { name: /Посмотреть версию/ })).toHaveLength(1)
   })
   it("discards an old note response after switching notes", async () => {
     const old = deferred<storage.SnapshotEntry[]>()

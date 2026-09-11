@@ -8,6 +8,7 @@ use crate::frontmatter;
 use crate::model::*;
 use crate::paths;
 use crate::recycle_bin;
+use crate::system_recycle_bin;
 use crate::vault_context::VaultContext;
 use crate::vault_index;
 use crate::watcher::{self, PathFingerprint, WatcherState};
@@ -757,6 +758,40 @@ pub fn rename_item(
 #[tauri::command]
 #[specta::specta]
 pub fn delete_item(
+    db: tauri::State<'_, VaultContext>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    path: String,
+) -> Result<MutationOutcome, String> {
+    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let path = paths::guard(&db, &path)?;
+    let vault = db.root()?;
+    let preview = recycle_bin::preview_move_to_trash(&vault, &path)?;
+    let mut writes = vec![(preview.original_path.clone(), PathFingerprint::Missing)];
+    writes.extend(
+        preview
+            .deleted_paths
+            .iter()
+            .cloned()
+            .map(|path| (path, PathFingerprint::Missing)),
+    );
+    let prepared = watcher_state.prepare_write(writes);
+    let result = match system_recycle_bin::move_to_system_trash(&vault, &path) {
+        Ok(result) => {
+            watcher_state.confirm_prepared_write(&prepared);
+            result
+        }
+        Err(error) => {
+            watcher_state.cancel_prepared_write(&prepared);
+            return Err(error);
+        }
+    };
+    let vault = db.root()?;
+    Ok(sync_mutation_result(&db, &vault, result))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn archive_item(
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,

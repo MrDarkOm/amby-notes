@@ -54,6 +54,7 @@ export function useSidebarLayout({
   // and resize gestures are intentionally independent.
   const [leftWidth, setLeftWidth] = React.useState(windowPrefs.leftPanelWidth)
   const [rightWidth, setRightWidth] = React.useState(windowPrefs.rightPanelWidth)
+  const [resizingSide, setResizingSide] = React.useState<Side | null>(null)
   const [isLeftSidebarHover, setIsLeftSidebarHover] = React.useState(false)
   const [isRightSidebarHover, setIsRightSidebarHover] = React.useState(false)
   const [isFocusMode, setIsFocusMode] = React.useState(false)
@@ -128,6 +129,7 @@ export function useSidebarLayout({
   function startResize(side: "left" | "right") {
     return (e: React.MouseEvent) => {
       e.preventDefault()
+      setResizingSide(side)
       const startX = e.clientX
       const startW = side === "left" ? leftWidth : rightWidth
       const setWidth = side === "left" ? setLeftWidth : setRightWidth
@@ -179,6 +181,12 @@ export function useSidebarLayout({
         }
         window.removeEventListener("mousemove", onMove)
         window.removeEventListener("mouseup", onUp)
+        // Keep Motion's width transition disabled through the final resize
+        // render. Re-enabling it in the same mouseup batch lets the animated
+        // outer boundary lag behind the panel and exposes a wide empty strip.
+        requestAnimationFrame(() => {
+          setResizingSide((current) => (current === side ? null : current))
+        })
       }
 
       window.addEventListener("mousemove", onMove)
@@ -430,6 +438,7 @@ export function useSidebarLayout({
     toggleSidebar,
     leftWidth,
     rightWidth,
+    resizingSide,
     startResize,
     isFocusMode,
     isCompactLayout,

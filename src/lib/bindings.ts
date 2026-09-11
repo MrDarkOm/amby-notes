@@ -418,6 +418,14 @@ async deleteItem(path: string) : Promise<Result<MutationOutcome, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async archiveItem(path: string) : Promise<Result<MutationOutcome, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("archive_item", { path }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getFileMetadata(path: string) : Promise<Result<FileMetadata, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_file_metadata", { path }) };

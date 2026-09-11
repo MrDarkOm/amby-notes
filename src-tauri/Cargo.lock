@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "amby-notes"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "futures-util",
  "keyring",
@@ -92,6 +92,7 @@ dependencies = [
  "tracing-subscriber",
  "ulid",
  "walkdir",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

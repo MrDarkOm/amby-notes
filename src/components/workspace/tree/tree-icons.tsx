@@ -77,13 +77,19 @@ export function TreeItemIcon({ item, className }: { item: TreeItem; className?: 
   return <TreeIcon icon={icon} className={className} />
 }
 
-export function FileStarIcon({ className }: { className?: string }) {
+export function FileStarIcon({
+  className,
+  Icon = FileText,
+}: {
+  className?: string
+  Icon?: typeof FileText
+}) {
   return (
     <span
       aria-hidden="true"
       className={cn("relative inline-flex size-3.5 shrink-0 overflow-visible", className)}
     >
-      <FileText className="size-3.5" />
+      <Icon className="size-3.5" />
       <Star className="absolute -bottom-0.5 -right-0.5 size-2.5 fill-current stroke-[2.25]" />
     </span>
   )
@@ -104,7 +110,15 @@ export function TreeItemStatusIcon({
 }) {
   const isFavoriteNote = item.type === "file" && isFavorite
   const isInteractive = item.type === "file" && !!onActivate
-  const Icon = item.type === "folder" ? Folder : item.type === "canvas" ? LayoutGrid : FileText
+  const isSuperNote = isSuperNoteItem(item)
+  const Icon =
+    item.type === "folder"
+      ? Folder
+      : item.type === "canvas"
+        ? LayoutGrid
+        : isSuperNote
+          ? BookOpenText
+          : FileText
 
   return (
     <span
@@ -143,7 +157,7 @@ export function TreeItemStatusIcon({
         className,
       )}
     >
-      {isFavoriteNote ? <FileStarIcon /> : <Icon className="size-3.5" />}
+      {isFavoriteNote ? <FileStarIcon Icon={Icon} /> : <Icon className="size-3.5" />}
     </span>
   )
 }

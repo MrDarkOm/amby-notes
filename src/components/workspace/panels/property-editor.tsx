@@ -74,7 +74,7 @@ export function PropertyEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm gap-3 p-4">
+      <DialogContent className="max-w-sm gap-3 border-border bg-popover p-4 text-foreground">
         <DialogHeader>
           <DialogTitle className="text-sm">{t("infoPanel.propertyEditor")}</DialogTitle>
         </DialogHeader>

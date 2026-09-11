@@ -1,14 +1,15 @@
 "use client"
 
 import * as React from "react"
+import { useVirtualizer } from "@tanstack/react-virtual"
 import data from "@emoji-mart/data"
 import { Picker as EmojiMartPicker } from "emoji-mart"
-import { ImagePlus, Search, Trash2, Upload } from "lucide-react"
+import { ImagePlus, Search, Trash2, Upload, type LucideIcon } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useTranslation } from "react-i18next"
 
 import { cn } from "@/lib/utils"
-import EMOJI_MART_BASE_STYLE_URL from "@/themes/emoji-mart-base.css?url"
+import EMOJI_MART_BASE_STYLES from "@/themes/emoji-mart-base.css?raw"
 import { ICON_PICKER_COLORS } from "@/themes/palettes"
 import { IconValue } from "@/components/workspace/icon-value"
 import { makeIconValue, PICKER_ICONS } from "@/components/workspace/icon-values"
@@ -48,13 +49,61 @@ interface StableEmojiMartPickerProps {
   theme: "dark" | "light"
 }
 
-type EmojiMartPickerElement = HTMLElement & {
-  update: (props?: Record<string, unknown>) => void
-}
+type EmojiMartPickerElement = HTMLElement
 
 const CUSTOM_EMOJI_KEY = "amby.customEmoji.v2"
 const LEGACY_CUSTOM_EMOJI_KEY = "amby.customEmoji.v1"
 const CROP_SIZE = 160
+const ICON_GRID_COLUMNS = 8
+
+interface IconGridProps {
+  icons: Array<[string, LucideIcon]>
+  iconColor: string
+  onSelect: (name: string) => void
+}
+
+function IconGrid({ icons, iconColor, onSelect }: IconGridProps) {
+  const scrollRef = React.useRef<HTMLDivElement>(null)
+  const rowCount = Math.ceil(icons.length / ICON_GRID_COLUMNS)
+  const virtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 42,
+    overscan: 4,
+  })
+
+  return (
+    <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const start = virtualRow.index * ICON_GRID_COLUMNS
+          const rowIcons = icons.slice(start, start + ICON_GRID_COLUMNS)
+          return (
+            <div
+              key={virtualRow.key}
+              ref={virtualizer.measureElement}
+              data-index={virtualRow.index}
+              className="absolute inset-x-0 top-0 grid grid-cols-8 gap-1"
+              style={{ transform: `translateY(${virtualRow.start}px)` }}
+            >
+              {rowIcons.map(([name, Icon]) => (
+                <button
+                  key={name}
+                  type="button"
+                  title={name}
+                  className="flex aspect-square items-center justify-center rounded-md hover:bg-accent"
+                  onClick={() => onSelect(name)}
+                >
+                  <Icon className="size-5" style={{ color: iconColor }} />
+                </button>
+              ))}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 function StableEmojiMartPicker({
   pickerData,
@@ -63,18 +112,25 @@ function StableEmojiMartPicker({
   theme,
 }: StableEmojiMartPickerProps) {
   const mountRef = React.useRef<HTMLDivElement>(null)
+  const onEmojiSelectRef = React.useRef(onEmojiSelect)
+  onEmojiSelectRef.current = onEmojiSelect
+  const stableOnEmojiSelect = React.useCallback(
+    (emoji: EmojiData) => onEmojiSelectRef.current(emoji),
+    [],
+  )
   const pickerProps = React.useMemo(
     () => ({
       data: pickerData,
       i18n,
-      onEmojiSelect,
+      onEmojiSelect: stableOnEmojiSelect,
       theme,
       previewPosition: "none",
       skinTonePosition: "search",
       navPosition: "bottom",
       set: "native",
+      dynamicWidth: true,
     }),
-    [i18n, onEmojiSelect, pickerData, theme],
+    [i18n, pickerData, stableOnEmojiSelect, theme],
   )
 
   React.useLayoutEffect(() => {
@@ -82,39 +138,27 @@ function StableEmojiMartPicker({
     if (!mount) return
 
     const picker = new EmojiMartPicker(pickerProps) as unknown as EmojiMartPickerElement
-    const shadowRoot = picker.shadowRoot
-    let styleRepairQueued = false
 
     const ensureBundledStyles = () => {
-      styleRepairQueued = false
       const currentShadowRoot = picker.shadowRoot
       if (!currentShadowRoot) return
-      if (currentShadowRoot.querySelector("link[data-amby-emoji-mart-base]")) return
+      if (currentShadowRoot.querySelector("style[data-amby-emoji-mart-base]")) return
 
-      const stylesheet = document.createElement("link")
-      stylesheet.rel = "stylesheet"
-      stylesheet.href = EMOJI_MART_BASE_STYLE_URL
+      const stylesheet = document.createElement("style")
       stylesheet.dataset.ambyEmojiMartBase = "true"
-      currentShadowRoot.prepend(stylesheet)
+      stylesheet.textContent = EMOJI_MART_BASE_STYLES
+      currentShadowRoot.append(stylesheet)
     }
 
-    // emoji-mart inserts an inline stylesheet before Preact renders into the same shadow root.
-    // Tauri WebKit can discard or reject it, leaving raw SVG and no scrolling. A bundled
-    // same-origin stylesheet link survives CSP and is restored if Preact replaces the node.
-    const observer = new MutationObserver(() => {
-      if (styleRepairQueued) return
-      styleRepairQueued = true
-      queueMicrotask(ensureBundledStyles)
-    })
-    if (shadowRoot) observer.observe(shadowRoot, { childList: true })
-
+    // Append the picker before installing our stylesheet so the shadow root and
+    // emoji-mart's own stylesheet already exist. A persistent MutationObserver
+    // caused work during every scroll/update and made the emoji list hitch.
     mount.replaceChildren(picker)
-    queueMicrotask(ensureBundledStyles)
+    ensureBundledStyles()
     const frame = requestAnimationFrame(ensureBundledStyles)
     const timer = window.setTimeout(ensureBundledStyles, 50)
 
     return () => {
-      observer.disconnect()
       cancelAnimationFrame(frame)
       window.clearTimeout(timer)
       mount.replaceChildren()
@@ -165,6 +209,9 @@ export function EmojiPickerPanel({
   const { resolvedTheme } = useTheme()
   const { t } = useTranslation()
   const [tab, setTab] = React.useState<PickerTab>("emoji")
+  const [visitedTabs, setVisitedTabs] = React.useState<Set<PickerTab>>(
+    () => new Set<PickerTab>(["emoji"]),
+  )
   const [iconColor, setIconColor] = React.useState<string>(ICON_PICKER_COLORS[0])
   const [iconFilter, setIconFilter] = React.useState("")
   const [colorOpen, setColorOpen] = React.useState(false)
@@ -317,8 +364,13 @@ export function EmojiPickerPanel({
     onSelect({ native: value })
   }
 
-  const visibleIcons = PICKER_ICONS.filter(([name]) =>
-    name.includes(iconFilter.trim().toLowerCase()),
+  const visibleIcons = React.useMemo(
+    () => PICKER_ICONS.filter(([name]) => name.includes(iconFilter.trim().toLowerCase())),
+    [iconFilter],
+  )
+  const selectIcon = React.useCallback(
+    (name: string) => onSelect({ native: makeIconValue(name, iconColor) }),
+    [iconColor, onSelect],
   )
   const tabs: Array<[PickerTab, string]> = emojiOnly
     ? [["emoji", t("emojiPicker.emoji")]]
@@ -328,10 +380,20 @@ export function EmojiPickerPanel({
         ["upload", t("emojiPicker.upload")],
       ]
 
+  function selectTab(nextTab: PickerTab) {
+    setTab(nextTab)
+    setVisitedTabs((visited) => {
+      if (visited.has(nextTab)) return visited
+      const next = new Set(visited)
+      next.add(nextTab)
+      return next
+    })
+  }
+
   return (
     <div
       ref={ref}
-      className="amby-emoji-picker-panel w-[352px]"
+      className="amby-emoji-picker-panel flex min-h-[424px] w-[352px] flex-col"
       onPaste={(event) => {
         const file = Array.from(event.clipboardData.files).find((item) =>
           item.type.startsWith("image/"),
@@ -342,7 +404,7 @@ export function EmojiPickerPanel({
         }
       }}
     >
-      <div className="flex h-11 items-stretch border-b border-border px-2">
+      <div className="flex h-11 items-stretch px-2">
         {tabs.map(([value, label]) => (
           <button
             key={value}
@@ -352,7 +414,7 @@ export function EmojiPickerPanel({
               tab === value &&
                 "text-foreground after:absolute after:inset-x-2 after:bottom-0 after:h-0.5 after:bg-primary",
             )}
-            onClick={() => setTab(value)}
+            onClick={() => selectTab(value)}
           >
             {label}
           </button>
@@ -370,17 +432,19 @@ export function EmojiPickerPanel({
         )}
       </div>
 
-      {tab === "emoji" && (
-        <StableEmojiMartPicker
-          pickerData={data}
-          i18n={emojiI18n}
-          onEmojiSelect={onSelect}
-          theme={resolvedTheme === "dark" ? "dark" : "light"}
-        />
+      {visitedTabs.has("emoji") && (
+        <div className={cn("min-h-0 flex-1", tab !== "emoji" && "hidden")}>
+          <StableEmojiMartPicker
+            pickerData={data}
+            i18n={emojiI18n}
+            onEmojiSelect={onSelect}
+            theme={resolvedTheme === "dark" ? "dark" : "light"}
+          />
+        </div>
       )}
 
-      {tab === "icons" && (
-        <div className="flex h-[380px] flex-col">
+      {visitedTabs.has("icons") && (
+        <div className={cn("flex h-[380px] flex-col", tab !== "icons" && "hidden")}>
           <div className="relative flex gap-2 border-b border-border p-3">
             <label className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-border px-3 focus-within:border-primary">
               <Search className="size-5 text-muted-foreground" />
@@ -420,24 +484,17 @@ export function EmojiPickerPanel({
               </div>
             )}
           </div>
-          <div className="grid flex-1 grid-cols-8 content-start gap-1 overflow-y-auto p-3">
-            {visibleIcons.map(([name, Icon]) => (
-              <button
-                key={name}
-                type="button"
-                title={name}
-                className="flex aspect-square items-center justify-center rounded-md hover:bg-accent"
-                onClick={() => onSelect({ native: makeIconValue(name, iconColor) })}
-              >
-                <Icon className="size-5" style={{ color: iconColor }} />
-              </button>
-            ))}
-          </div>
+          <IconGrid icons={visibleIcons} iconColor={iconColor} onSelect={selectIcon} />
         </div>
       )}
 
-      {tab === "upload" && (
-        <div className="flex h-[380px] flex-col gap-3 overflow-y-auto p-4">
+      {visitedTabs.has("upload") && (
+        <div
+          className={cn(
+            "flex h-[380px] flex-col gap-3 overflow-y-auto p-4",
+            tab !== "upload" && "hidden",
+          )}
+        >
           <input
             ref={inputRef}
             type="file"

@@ -1321,6 +1321,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(real_columns, 0);
+        drop(conn);
         fs::remove_dir_all(vault).unwrap();
     }
 
@@ -1386,6 +1387,7 @@ mod tests {
             fs::read(database.join("ambd.json")).unwrap(),
             manifest_bytes
         );
+        drop(conn);
         fs::remove_dir_all(vault).unwrap();
     }
 
@@ -1410,6 +1412,7 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM db_databases", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1);
+        drop(conn);
         fs::remove_dir_all(vault).unwrap();
     }
 
@@ -1433,6 +1436,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(version, "1");
+        drop(conn);
         fs::remove_dir_all(vault).unwrap();
     }
 }
