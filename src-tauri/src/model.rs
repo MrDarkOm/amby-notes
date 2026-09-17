@@ -95,7 +95,7 @@ pub struct NoteWrittenPayload {
     pub origin_window: String,
 }
 
-#[derive(Serialize, specta::Type)]
+#[derive(Clone, Debug, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PathChange {
     pub old_path: String,
@@ -127,6 +127,7 @@ pub struct NoteLayers {
     pub canvas: bool,
     pub sketch: bool,
     pub database: bool,
+    pub note: bool,
 }
 
 #[derive(Serialize, specta::Type)]

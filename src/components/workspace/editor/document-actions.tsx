@@ -53,7 +53,7 @@ import { relativeToVault } from "./document-breadcrumbs-utils"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
 import type { ContentWidth } from "../app-config"
 
-export type LayerKind = "canvas" | "database" | "sketch"
+export type LayerKind = "canvas" | "database" | "sketch" | "note"
 
 export function LayerButton({
   layer,
@@ -80,11 +80,12 @@ export function LayerButton({
           type="button"
           title={title}
           onClick={onActivate}
-          className={`flex size-7 items-center justify-center rounded-full ${
+          className={cn(
+            "flex size-7 items-center justify-center rounded-md",
             active
-              ? "bg-accent text-foreground"
-              : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
-          }`}
+              ? "bg-primary text-primary-foreground shadow-xs font-semibold"
+              : "bg-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+          )}
         >
           {icon}
         </button>
@@ -136,7 +137,9 @@ export function LayerConfirmDialog({
             ? t("docEditor.confirmCreateCanvas")
             : layerConfirm === "sketch"
               ? t("docEditor.confirmCreateSketch")
-              : t("docEditor.confirmCreateDatabase")}
+              : layerConfirm === "database"
+                ? t("docEditor.confirmCreateDatabase")
+                : t("docEditor.confirmCreateNote")}
         </p>
         <div className="mt-1 flex justify-end gap-2">
           <button
@@ -402,6 +405,7 @@ export function DocumentActionsDropdown({
   hasDocument,
   activeLayer,
   isLocked,
+  onToggleLock,
   viewMode,
   onViewModeChange,
   contentWidth,
@@ -419,6 +423,9 @@ export function DocumentActionsDropdown({
   onRequestMerge,
   onCopyPath,
   onExportPdf,
+  onExportCsv,
+  onExportSqlite,
+  onExportImage,
   onShowInExplorer,
   onRequestRename,
   onDeleteFile,
@@ -428,6 +435,7 @@ export function DocumentActionsDropdown({
   hasDocument: boolean
   activeLayer: EditorLayer
   isLocked: boolean
+  onToggleLock?: () => void
   viewMode: DocumentViewMode
   onViewModeChange: (mode: DocumentViewMode) => void
   contentWidth: ContentWidth
@@ -435,7 +443,7 @@ export function DocumentActionsDropdown({
   nestedNotes: TreeItem[]
   nestedNotesPlacement: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
-  linkedLayers?: { canvas: boolean; sketch: boolean; database: boolean }
+  linkedLayers?: { note?: boolean; canvas: boolean; sketch: boolean; database: boolean }
   canCreateDatabaseLayer?: boolean
   onRequestAttachLayer: (layer: EditorLayer) => void
   isFavorite?: boolean
@@ -445,6 +453,9 @@ export function DocumentActionsDropdown({
   onRequestMerge: () => void
   onCopyPath: (kind: "app" | "vault" | "absolute") => void
   onExportPdf: () => void
+  onExportCsv?: () => void
+  onExportSqlite?: () => void
+  onExportImage?: (format: "png" | "jpg") => void
   onShowInExplorer?: () => void
   onRequestRename: () => void
   onDeleteFile?: (mode?: "archive") => void
@@ -465,44 +476,75 @@ export function DocumentActionsDropdown({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64 border-border bg-popover text-foreground">
-        {(
-          [
-            ["live", PenLine, "docEditor.viewLive"],
-            ["source", Code2, "docEditor.viewSource"],
-            ["read", Eye, "docEditor.viewRead"],
-          ] as const
-        ).map(([mode, Icon, labelKey]) => (
-          <DropdownMenuItem
-            key={mode}
-            disabled={!hasDocument || activeLayer !== "editor" || (mode === "live" && isLocked)}
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-            onSelect={() => onViewModeChange(mode)}
-          >
-            <Icon className="size-3.5 text-muted-foreground" />
-            <span className="flex-1">{t(labelKey)}</span>
-            {viewMode === mode && <span className="text-primary">✓</span>}
-          </DropdownMenuItem>
-        ))}
+        {activeLayer === "editor" ? (
+          (
+            [
+              ["live", PenLine, "docEditor.viewLive"],
+              ["source", Code2, "docEditor.viewSource"],
+              ["read", Eye, "docEditor.viewRead"],
+            ] as const
+          ).map(([mode, Icon, labelKey]) => (
+            <DropdownMenuItem
+              key={mode}
+              disabled={!hasDocument}
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+              onSelect={() => onViewModeChange(mode)}
+            >
+              <Icon className="size-3.5 text-muted-foreground" />
+              <span className="flex-1">{t(labelKey)}</span>
+              {viewMode === mode && <span className="text-primary">✓</span>}
+            </DropdownMenuItem>
+          ))
+        ) : (
+          <>
+            <DropdownMenuItem
+              disabled={!hasDocument}
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+              onSelect={() => {
+                if (isLocked) onToggleLock?.()
+                if (viewMode === "read") onViewModeChange("live")
+              }}
+            >
+              <PenLine className="size-3.5 text-muted-foreground" />
+              <span className="flex-1">{t("docEditor.viewLive")}</span>
+              {!isLocked && viewMode !== "read" && <span className="text-primary">✓</span>}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!hasDocument}
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+              onSelect={() => {
+                if (!isLocked) onToggleLock?.()
+                onViewModeChange("read")
+              }}
+            >
+              <Eye className="size-3.5 text-muted-foreground" />
+              <span className="flex-1">{t("docEditor.viewRead")}</span>
+              {(isLocked || viewMode === "read") && <span className="text-primary">✓</span>}
+            </DropdownMenuItem>
+          </>
+        )}
 
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
-            <Maximize2 className="size-3.5 text-muted-foreground" />
-            {t("settings.editor.contentWidth")}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-44 border-border bg-popover text-foreground">
-            {(["normal", "wide", "full"] as const).map((width) => (
-              <DropdownMenuItem
-                key={width}
-                disabled={!hasDocument}
-                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                onSelect={() => onContentWidthChange(width)}
-              >
-                <span className="flex-1">{t(`settings.editor.${width}`)}</span>
-                {contentWidth === width && <span className="text-primary">✓</span>}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+        {(activeLayer === "editor" || activeLayer === "database") && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+              <Maximize2 className="size-3.5 text-muted-foreground" />
+              {t("settings.editor.contentWidth")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-44 border-border bg-popover text-foreground">
+              {(["normal", "wide", "full"] as const).map((width) => (
+                <DropdownMenuItem
+                  key={width}
+                  disabled={!hasDocument}
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                  onSelect={() => onContentWidthChange(width)}
+                >
+                  <span className="flex-1">{t(`settings.editor.${width}`)}</span>
+                  {contentWidth === width && <span className="text-primary">✓</span>}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
         <DropdownMenuSeparator className="bg-accent" />
 
         {nestedNotes.length > 0 && (
@@ -543,12 +585,12 @@ export function DocumentActionsDropdown({
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="w-52 border-border bg-popover text-foreground">
             <DropdownMenuItem
-              disabled={linkedLayers?.canvas}
+              disabled={linkedLayers?.note}
               className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-              onSelect={() => onRequestAttachLayer("canvas")}
+              onSelect={() => onRequestAttachLayer("editor")}
             >
-              <LayoutGrid className="size-3.5 text-muted-foreground" />
-              {t("docEditor.attachCanvas")}
+              <FileText className="size-3.5 text-muted-foreground" />
+              {t("docEditor.attachNote")}
             </DropdownMenuItem>
             {canCreateDatabaseLayer && (
               <DropdownMenuItem
@@ -560,6 +602,14 @@ export function DocumentActionsDropdown({
                 {t("docEditor.attachDatabase")}
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem
+              disabled={linkedLayers?.canvas}
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+              onSelect={() => onRequestAttachLayer("canvas")}
+            >
+              <LayoutGrid className="size-3.5 text-muted-foreground" />
+              {t("docEditor.attachCanvas")}
+            </DropdownMenuItem>
             <DropdownMenuItem
               disabled={linkedLayers?.sketch}
               className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
@@ -625,14 +675,68 @@ export function DocumentActionsDropdown({
             ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
-        <DropdownMenuItem
-          disabled={!hasDocument}
-          className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-          onSelect={onExportPdf}
-        >
-          <FileDown className="size-3.5 text-muted-foreground" />
-          {t("docEditor.exportPdf")}
-        </DropdownMenuItem>
+        {activeLayer === "editor" ? (
+          <DropdownMenuItem
+            disabled={!hasDocument}
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={onExportPdf}
+          >
+            <FileDown className="size-3.5 text-muted-foreground" />
+            {t("docEditor.exportPdf")}
+          </DropdownMenuItem>
+        ) : activeLayer === "database" ? (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger
+              disabled={!hasDocument}
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent"
+            >
+              <FileDown className="size-3.5 text-muted-foreground" />
+              {t("docEditor.export")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-48 border-border bg-popover text-foreground">
+              <DropdownMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={onExportCsv}
+              >
+                <FileDown className="size-3.5 text-muted-foreground" />
+                {t("docEditor.exportCsv")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={onExportSqlite}
+              >
+                <FileDown className="size-3.5 text-muted-foreground" />
+                {t("docEditor.exportSqlite")}
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ) : (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger
+              disabled={!hasDocument}
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent"
+            >
+              <FileDown className="size-3.5 text-muted-foreground" />
+              {t("docEditor.export")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-48 border-border bg-popover text-foreground">
+              <DropdownMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={() => onExportImage?.("png")}
+              >
+                <FileDown className="size-3.5 text-muted-foreground" />
+                {t("docEditor.exportPng")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={() => onExportImage?.("jpg")}
+              >
+                <FileDown className="size-3.5 text-muted-foreground" />
+                {t("docEditor.exportJpg")}
+              </DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
 
         <DropdownMenuSeparator className="bg-accent" />
 

@@ -68,7 +68,9 @@ async function persistRecoveryDraft(
   scope?: RecoveryScope,
 ): Promise<string | undefined> {
   if (!id) return
-  const kind = documentKind ?? (id.endsWith(".canvas") ? "canvas" : "markdown")
+  const kind =
+    documentKind ??
+    (id.endsWith(".canvas") ? "canvas" : id.endsWith(".excalidraw") ? "sketch" : "markdown")
   const hint = pathHint ?? id
 
   if (isDesktop()) {
@@ -251,7 +253,9 @@ export function scheduleRecoveryDraft(
   scope?: RecoveryScope,
 ): void {
   if (!id) return
-  const kind = documentKind ?? (id.endsWith(".canvas") ? "canvas" : "markdown")
+  const kind =
+    documentKind ??
+    (id.endsWith(".canvas") ? "canvas" : id.endsWith(".excalidraw") ? "sketch" : "markdown")
   scheduleQueuedRecoveryDraft(id, content, kind, pathHint ?? id, scope)
 }
 
@@ -298,7 +302,9 @@ export async function saveRecoveryDraft(
   scope?: RecoveryScope,
 ): Promise<void> {
   if (!id) return
-  const kind = documentKind ?? (id.endsWith(".canvas") ? "canvas" : "markdown")
+  const kind =
+    documentKind ??
+    (id.endsWith(".canvas") ? "canvas" : id.endsWith(".excalidraw") ? "sketch" : "markdown")
   scheduleQueuedRecoveryDraft(id, content, kind, pathHint ?? id, scope)
   await flushRecoveryDraft(id, kind, scope)
 }
@@ -360,13 +366,13 @@ export async function discardRecoveryDraft(id: string, scope?: RecoveryScope): P
   let canRemoveLocalStorage = true
   for (const state of states) {
     const version = state.version
-    const expectedContentHash = state.persistedContentHash
     clearRecoveryTimers(state)
     if (state.inFlight) await state.inFlight
     if (state.version !== version) {
       canRemoveLocalStorage = false
       continue
     }
+    const expectedContentHash = state.persistedContentHash
 
     if (isDesktop()) {
       try {
@@ -492,7 +498,11 @@ export async function migrateLegacyRecoveryDrafts(scope?: RecoveryScope): Promis
         continue
       }
 
-      const kind = path.endsWith(".canvas") ? "canvas" : "markdown"
+      const kind = path.endsWith(".canvas")
+        ? "canvas"
+        : path.endsWith(".excalidraw")
+          ? "sketch"
+          : "markdown"
       await saveRecoveryDraft(path, draft.content, kind, path, scope)
 
       // Verify the write succeeded before removing from legacy localStorage

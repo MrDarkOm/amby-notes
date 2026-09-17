@@ -18,8 +18,526 @@ use super::validation::{validate_manifest, validate_record};
 use crate::frontmatter;
 use crate::paths;
 
-const DATABASE_MANIFEST: &str = "ambd.json";
+pub const LEGACY_DATABASE_MANIFEST: &str = "ambd.json";
+#[allow(dead_code)]
+pub const DATABASE_MANIFEST: &str = LEGACY_DATABASE_MANIFEST;
+
+/// Returns true if a path is a candidate for a database manifest:
+/// either `ambd.json`, or `<container_name>.json`, or `<container_name>.database`.
+pub fn is_manifest_file_candidate(path: &Path) -> bool {
+    let Some(file_name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if file_name == LEGACY_DATABASE_MANIFEST {
+        return true;
+    }
+    let Some(parent) = path.parent() else {
+        return false;
+    };
+    let Some(parent_name) = parent.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        if stem == parent_name {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                return ext == "json" || ext == "database";
+            }
+        }
+    }
+    false
+}
+
+/// Find existing manifest path for a container:
+/// 1. `<container_name>.json`
+/// 2. `<container_name>.database`
+/// 3. `ambd.json` (legacy)
+pub fn find_manifest_path(container: &Path) -> Option<PathBuf> {
+    let name = container.file_name()?.to_string_lossy();
+    let named_json = container.join(format!("{name}.json"));
+    if named_json.is_file() {
+        return Some(named_json);
+    }
+    let named_database = container.join(format!("{name}.database"));
+    if named_database.is_file() {
+        return Some(named_database);
+    }
+    let legacy = container.join(LEGACY_DATABASE_MANIFEST);
+    if legacy.is_file() {
+        return Some(legacy);
+    }
+    None
+}
+
+/// Returns the manifest path for creating or targeting a container.
+/// If an existing manifest is found, returns that.
+/// Otherwise returns `<container_name>.json`.
+pub fn manifest_path_for_container(container: &Path) -> PathBuf {
+    if let Some(existing) = find_manifest_path(container) {
+        existing
+    } else {
+        let name = container
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "database".to_string());
+        container.join(format!("{name}.json"))
+    }
+}
+
 const SERVICE_DIRECTORIES: &[&str] = &[".amby", ".obsidian", ".git", ".trash", "assets", ".ambd"];
+
+fn repair_or_create_default_view(views_dir: &Path, database_id: &str, view_id: &str) {
+    let view_path = views_dir.join(format!("{view_id}.json"));
+    if !view_path.is_file() {
+        let view_json = serde_json::json!({
+            "format": "amby-database-view",
+            "formatVersion": 1,
+            "databaseId": database_id,
+            "viewId": view_id,
+            "name": "Table",
+            "layout": "table",
+            "openMode": "sidePeek",
+            "subitemsMode": "nested",
+            "density": "default",
+            "fields": [{"field": {"kind": "system", "field": "title"}, "visible": true, "width": null, "frozen": true}],
+            "filter": null,
+            "sorts": [{"field": {"kind": "system", "field": "title"}, "direction": "asc", "nulls": "last"}],
+            "group": null,
+            "aggregates": []
+        });
+        if let Ok(bytes) = serde_json::to_vec_pretty(&view_json) {
+            let _ = frontmatter::atomic_write_bytes(&view_path, &bytes);
+        }
+    } else if let Ok(bytes) = fs::read(&view_path) {
+        if let Ok(mut val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+            let mut changed = false;
+            if val.get("format").and_then(|v| v.as_str()) != Some("amby-database-view") {
+                val["format"] = serde_json::Value::String("amby-database-view".to_string());
+                changed = true;
+            }
+            if val.get("formatVersion").and_then(|v| v.as_u64()) != Some(1) {
+                val["formatVersion"] = serde_json::json!(1);
+                changed = true;
+            }
+            if val.get("databaseId").and_then(|v| v.as_str()) != Some(database_id) {
+                val["databaseId"] = serde_json::Value::String(database_id.to_string());
+                changed = true;
+            }
+            if val.get("viewId").and_then(|v| v.as_str()) != Some(view_id) {
+                val["viewId"] = serde_json::Value::String(view_id.to_string());
+                changed = true;
+            }
+            if val
+                .get("name")
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim())
+                .unwrap_or("")
+                .is_empty()
+            {
+                val["name"] = serde_json::Value::String("Table".to_string());
+                changed = true;
+            }
+            if val.get("layout").and_then(|v| v.as_str()).is_none() {
+                val["layout"] = serde_json::Value::String("table".to_string());
+                changed = true;
+            }
+            if val.get("openMode").and_then(|v| v.as_str()).is_none() {
+                val["openMode"] = serde_json::Value::String("sidePeek".to_string());
+                changed = true;
+            }
+            if val.get("subitemsMode").and_then(|v| v.as_str()).is_none() {
+                val["subitemsMode"] = serde_json::Value::String("nested".to_string());
+                changed = true;
+            }
+            if val.get("density").and_then(|v| v.as_str()).is_none() {
+                val["density"] = serde_json::Value::String("default".to_string());
+                changed = true;
+            }
+            let fields_empty = val
+                .get("fields")
+                .and_then(|v| v.as_array())
+                .is_none_or(|arr| arr.is_empty());
+            if fields_empty {
+                val["fields"] = serde_json::json!([{
+                    "field": {"kind": "system", "field": "title"},
+                    "visible": true,
+                    "width": null,
+                    "frozen": true
+                }]);
+                changed = true;
+            }
+            if val.get("sorts").and_then(|v| v.as_array()).is_none() {
+                val["sorts"] = serde_json::json!([]);
+                changed = true;
+            }
+            if changed {
+                if let Ok(new_bytes) = serde_json::to_vec_pretty(&val) {
+                    let _ = frontmatter::atomic_write_bytes(&view_path, &new_bytes);
+                }
+            }
+        }
+    }
+}
+
+fn repair_container_shards(
+    dir: &Path,
+    database_id: &str,
+    view_order_ids: &mut Vec<String>,
+) -> bool {
+    let mut changed = false;
+
+    // 1. Repair and reconcile existing views in .ambd/views
+    let views_dir = dir.join(".ambd").join("views");
+    if let Ok(entries) = fs::read_dir(&views_dir) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if ulid::Ulid::from_string(stem).is_err() {
+                continue;
+            }
+            repair_or_create_default_view(&views_dir, database_id, stem);
+            if !view_order_ids.iter().any(|id| id == stem) {
+                view_order_ids.push(stem.to_string());
+                changed = true;
+            }
+        }
+    }
+
+    for view_id in view_order_ids.iter() {
+        repair_or_create_default_view(&views_dir, database_id, view_id);
+    }
+
+    // 2. Repair all records in .ambd/records
+    let records_dir = dir.join(".ambd").join("records");
+    if let Ok(entries) = fs::read_dir(&records_dir) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if let Ok(bytes) = fs::read(&path) {
+                if let Ok(mut val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    let mut record_changed = false;
+                    if val.get("format").and_then(|v| v.as_str()) != Some("amby-database-record") {
+                        val["format"] =
+                            serde_json::Value::String("amby-database-record".to_string());
+                        record_changed = true;
+                    }
+                    if val.get("formatVersion").and_then(|v| v.as_u64()) != Some(1) {
+                        val["formatVersion"] = serde_json::json!(1);
+                        record_changed = true;
+                    }
+                    if val.get("databaseId").and_then(|v| v.as_str()) != Some(database_id) {
+                        val["databaseId"] = serde_json::Value::String(database_id.to_string());
+                        record_changed = true;
+                    }
+                    if val.get("noteId").and_then(|v| v.as_str()) != Some(stem) {
+                        val["noteId"] = serde_json::Value::String(stem.to_string());
+                        record_changed = true;
+                    }
+                    if !val.get("values").is_some_and(|v| v.is_object()) {
+                        val["values"] = serde_json::json!({});
+                        record_changed = true;
+                    }
+                    if record_changed {
+                        if let Ok(new_bytes) = serde_json::to_vec_pretty(&val) {
+                            let _ = frontmatter::atomic_write_bytes(&path, &new_bytes);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Repair all templates in .ambd/templates
+    let templates_dir = dir.join(".ambd").join("templates");
+    if let Ok(entries) = fs::read_dir(&templates_dir) {
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if let Ok(bytes) = fs::read(&path) {
+                if let Ok(mut val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    let mut template_changed = false;
+                    if val.get("format").and_then(|v| v.as_str()) != Some("amby-database-template")
+                    {
+                        val["format"] =
+                            serde_json::Value::String("amby-database-template".to_string());
+                        template_changed = true;
+                    }
+                    if val.get("formatVersion").and_then(|v| v.as_u64()) != Some(1) {
+                        val["formatVersion"] = serde_json::json!(1);
+                        template_changed = true;
+                    }
+                    if val.get("databaseId").and_then(|v| v.as_str()) != Some(database_id) {
+                        val["databaseId"] = serde_json::Value::String(database_id.to_string());
+                        template_changed = true;
+                    }
+                    if val.get("templateId").and_then(|v| v.as_str()) != Some(stem) {
+                        val["templateId"] = serde_json::Value::String(stem.to_string());
+                        template_changed = true;
+                    }
+                    if template_changed {
+                        if let Ok(new_bytes) = serde_json::to_vec_pretty(&val) {
+                            let _ = frontmatter::atomic_write_bytes(&path, &new_bytes);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    changed
+}
+
+/// Migrates and repairs any legacy database manifests in a vault:
+/// 1. Finds directories with `ambd.json`, `<container_name>.json`, or `.ambd`.
+/// 2. Ensures `format: "amby-database"`, `formatVersion: 1`, and valid ULID `databaseId`.
+/// 3. Normalizes `membership: {"kind": "filesystem-descendants", "recursive": true}`.
+/// 4. Sets `containerKind` to `"attached"` if `<container_name>.md` exists, else `"standalone"`.
+/// 5. Ensures `.ambd/views/` exists and has at least one valid view file matching `viewOrder`.
+/// 6. Migrates to `<container_name>.json` atomically and deletes stale `ambd.json`.
+pub fn migrate_legacy_database_manifests(vault: &Path) -> Result<usize, String> {
+    let mut count = 0;
+    for entry in WalkDir::new(vault)
+        .min_depth(1)
+        .into_iter()
+        .filter_entry(|e| {
+            if !e.file_type().is_dir() {
+                return true;
+            }
+            let name = e.file_name().to_string_lossy();
+            !SERVICE_DIRECTORIES.contains(&name.as_ref())
+        })
+        .filter_map(Result::ok)
+    {
+        if !entry.file_type().is_dir() {
+            continue;
+        }
+        let dir = entry.path();
+        let Some(name) = dir.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let named_json = dir.join(format!("{name}.json"));
+        let named_database = dir.join(format!("{name}.database"));
+        let legacy_json = dir.join(LEGACY_DATABASE_MANIFEST);
+        let ambd_dir = dir.join(".ambd");
+
+        let has_database = legacy_json.is_file()
+            || named_json.is_file()
+            || named_database.is_file()
+            || ambd_dir.is_dir();
+
+        if !has_database {
+            continue;
+        }
+
+        let mut raw_manifest_bytes: Option<Vec<u8>> = None;
+        let mut existing_manifest_path: Option<PathBuf> = None;
+        if named_json.is_file() {
+            if let Ok(bytes) = fs::read(&named_json) {
+                raw_manifest_bytes = Some(bytes);
+                existing_manifest_path = Some(named_json.clone());
+            }
+        } else if named_database.is_file() {
+            if let Ok(bytes) = fs::read(&named_database) {
+                raw_manifest_bytes = Some(bytes);
+                existing_manifest_path = Some(named_database.clone());
+            }
+        } else if legacy_json.is_file() {
+            if let Ok(bytes) = fs::read(&legacy_json) {
+                raw_manifest_bytes = Some(bytes);
+                existing_manifest_path = Some(legacy_json.clone());
+            }
+        }
+
+        // If an existing manifest parses cleanly and has no validation errors,
+        // it is already valid: do not rewrite it, but repair any existing shards on disk.
+        if let Some(ref bytes) = raw_manifest_bytes {
+            if let Ok(parsed) = parse_manifest(bytes) {
+                if validate_manifest(&parsed.value).errors.is_empty() {
+                    let mut view_order_ids = parsed.value.view_order.clone();
+                    repair_container_shards(dir, &parsed.value.database_id, &mut view_order_ids);
+                    continue;
+                }
+            }
+        }
+
+        let mut value = match raw_manifest_bytes
+            .as_deref()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(b).ok())
+        {
+            Some(v) => v,
+            None => {
+                if raw_manifest_bytes.is_some() || !ambd_dir.is_dir() {
+                    continue;
+                }
+                serde_json::json!({})
+            }
+        };
+
+        // Determine if this is a database
+        let is_db = legacy_json.is_file()
+            || ambd_dir.is_dir()
+            || value.get("format").and_then(|v| v.as_str()) == Some("amby-database")
+            || value.get("databaseId").is_some()
+            || value.get("properties").is_some();
+
+        if !is_db {
+            continue;
+        }
+
+        let mut manifest_changed = false;
+
+        // Ensure "format": "amby-database"
+        if value.get("format").and_then(|v| v.as_str()) != Some("amby-database") {
+            value["format"] = serde_json::Value::String("amby-database".to_string());
+            manifest_changed = true;
+        }
+
+        // Ensure "formatVersion": 1
+        if value.get("formatVersion").and_then(|v| v.as_u64()) != Some(1) {
+            value["formatVersion"] = serde_json::json!(1);
+            manifest_changed = true;
+        }
+
+        // Ensure "databaseId" is valid ULID
+        let valid_db_id = value
+            .get("databaseId")
+            .and_then(|v| v.as_str())
+            .filter(|s| ulid::Ulid::from_string(s).is_ok())
+            .map(|s| s.to_string());
+        let database_id = match valid_db_id {
+            Some(id) => id,
+            None => {
+                let new_id = ulid::Ulid::generate().to_string();
+                value["databaseId"] = serde_json::Value::String(new_id.clone());
+                manifest_changed = true;
+                new_id
+            }
+        };
+
+        // Ensure "name"
+        let current_name = value
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty());
+        if current_name.is_none() {
+            value["name"] = serde_json::Value::String(name.to_string());
+            manifest_changed = true;
+        }
+
+        // Ensure "containerKind"
+        let has_attached_note = dir.join(format!("{name}.md")).is_file();
+        let expected_kind = if has_attached_note {
+            "attached"
+        } else {
+            "standalone"
+        };
+        if value.get("containerKind").and_then(|v| v.as_str()) != Some(expected_kind) {
+            value["containerKind"] = serde_json::Value::String(expected_kind.to_string());
+            manifest_changed = true;
+        }
+
+        // Ensure "locked"
+        if !value.get("locked").is_some_and(|v| v.is_boolean()) {
+            value["locked"] = serde_json::Value::Bool(false);
+            manifest_changed = true;
+        }
+
+        // Ensure "membership"
+        let valid_membership = value
+            .get("membership")
+            .and_then(|v| v.as_object())
+            .is_some_and(|obj| {
+                obj.get("kind").and_then(|k| k.as_str()) == Some("filesystem-descendants")
+                    && obj.get("recursive").and_then(|r| r.as_bool()) == Some(true)
+            });
+        if !valid_membership {
+            value["membership"] = serde_json::json!({
+                "kind": "filesystem-descendants",
+                "recursive": true,
+            });
+            manifest_changed = true;
+        }
+
+        // Ensure "properties"
+        if !value.get("properties").is_some_and(|v| v.is_array()) {
+            value["properties"] = serde_json::json!([]);
+            manifest_changed = true;
+        }
+
+        // Ensure "templateOrder"
+        if !value.get("templateOrder").is_some_and(|v| v.is_array()) {
+            value["templateOrder"] = serde_json::json!([]);
+            manifest_changed = true;
+        }
+
+        // Ensure .ambd and .ambd/views directory
+        let views_dir = dir.join(".ambd").join("views");
+        let _ = fs::create_dir_all(&views_dir);
+
+        // Normalize viewOrder and defaultViewId
+        let mut view_order_ids: Vec<String> = value
+            .get("viewOrder")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .filter(|s| ulid::Ulid::from_string(s).is_ok())
+                    .map(|s| s.to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let shards_changed = repair_container_shards(dir, &database_id, &mut view_order_ids);
+        if shards_changed {
+            manifest_changed = true;
+        }
+
+        if !view_order_ids.is_empty() {
+            let new_view_order_json = serde_json::json!(view_order_ids);
+            if value.get("viewOrder") != Some(&new_view_order_json) {
+                value["viewOrder"] = new_view_order_json;
+                manifest_changed = true;
+            }
+
+            let default_view_id = value
+                .get("defaultViewId")
+                .and_then(|v| v.as_str())
+                .filter(|id| view_order_ids.contains(&id.to_string()))
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| view_order_ids[0].clone());
+            if value.get("defaultViewId").and_then(|v| v.as_str()) != Some(&default_view_id) {
+                value["defaultViewId"] = serde_json::Value::String(default_view_id);
+                manifest_changed = true;
+            }
+        }
+
+        let target_manifest_path = existing_manifest_path.unwrap_or_else(|| named_json.clone());
+        let needs_write = manifest_changed || !target_manifest_path.is_file();
+        if needs_write {
+            if let Ok(new_bytes) = serde_json::to_vec_pretty(&value) {
+                if frontmatter::atomic_write_bytes(&target_manifest_path, &new_bytes).is_ok() {
+                    count += 1;
+                }
+            }
+        }
+    }
+    Ok(count)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContainerKind {
@@ -183,11 +701,12 @@ fn discover_boundaries(
             diagnose_symlink(vault, path, diagnostics);
             continue;
         }
-        if !entry.file_type().is_file()
-            || path.file_name().and_then(|name| name.to_str()) != Some(DATABASE_MANIFEST)
-        {
+        if !entry.file_type().is_file() || !is_manifest_file_candidate(path) {
             continue;
         }
+
+        let is_legacy =
+            path.file_name().and_then(|name| name.to_str()) == Some(LEGACY_DATABASE_MANIFEST);
 
         let root = path
             .parent()
@@ -213,54 +732,10 @@ fn discover_boundaries(
             continue;
         }
 
-        let (parsed, validation_errors) = match fs::read(path) {
-            Ok(bytes) => match parse_manifest(&bytes) {
-                Ok(parsed) => {
-                    let report = validate_manifest(&parsed.value);
-                    if !report.errors.is_empty() {
-                        push_diagnostic(
-                            diagnostics,
-                            DiagnosticCode::InvalidManifest,
-                            DiagnosticSeverity::Error,
-                            vault,
-                            path,
-                            format!(
-                                "manifest validation failed: {} issue(s)",
-                                report.errors.len()
-                            ),
-                        );
-                    }
-                    for issue in &report.warnings {
-                        push_diagnostic(
-                            diagnostics,
-                            DiagnosticCode::InvalidManifest,
-                            DiagnosticSeverity::Warning,
-                            vault,
-                            path,
-                            format!("{}: {}", issue.path, issue.message),
-                        );
-                    }
-                    (
-                        Some(parsed),
-                        report
-                            .errors
-                            .iter()
-                            .map(|issue| format!("{}: {}", issue.path, issue.message))
-                            .collect(),
-                    )
-                }
-                Err(error @ FormatError::UnsupportedFormatVersion { .. }) => {
-                    push_diagnostic(
-                        diagnostics,
-                        DiagnosticCode::UnsupportedManifest,
-                        DiagnosticSeverity::Error,
-                        vault,
-                        path,
-                        error.to_string(),
-                    );
-                    (None, vec![error.to_string()])
-                }
-                Err(error) => {
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                if is_legacy {
                     push_diagnostic(
                         diagnostics,
                         DiagnosticCode::BrokenManifest,
@@ -269,9 +744,69 @@ fn discover_boundaries(
                         path,
                         error.to_string(),
                     );
-                    (None, vec![error.to_string()])
+                    boundaries.push(ContainerBoundary {
+                        root,
+                        manifest_path: path.to_path_buf(),
+                        parsed: None,
+                        validation_errors: vec![error.to_string()],
+                        kind: ContainerKind::Standalone,
+                        attached_note_path: None,
+                    });
                 }
-            },
+                continue;
+            }
+        };
+
+        if !is_legacy && !bytes.windows(15).any(|w| w == b"\"amby-database\"") {
+            continue;
+        }
+
+        let (parsed, validation_errors) = match parse_manifest(&bytes) {
+            Ok(parsed) => {
+                let report = validate_manifest(&parsed.value);
+                if !report.errors.is_empty() {
+                    push_diagnostic(
+                        diagnostics,
+                        DiagnosticCode::InvalidManifest,
+                        DiagnosticSeverity::Error,
+                        vault,
+                        path,
+                        format!(
+                            "manifest validation failed: {} issue(s)",
+                            report.errors.len()
+                        ),
+                    );
+                }
+                for issue in &report.warnings {
+                    push_diagnostic(
+                        diagnostics,
+                        DiagnosticCode::InvalidManifest,
+                        DiagnosticSeverity::Warning,
+                        vault,
+                        path,
+                        format!("{}: {}", issue.path, issue.message),
+                    );
+                }
+                (
+                    Some(parsed),
+                    report
+                        .errors
+                        .iter()
+                        .map(|issue| format!("{}: {}", issue.path, issue.message))
+                        .collect(),
+                )
+            }
+            Err(error @ FormatError::UnsupportedFormatVersion { .. }) => {
+                push_diagnostic(
+                    diagnostics,
+                    DiagnosticCode::UnsupportedManifest,
+                    DiagnosticSeverity::Error,
+                    vault,
+                    path,
+                    error.to_string(),
+                );
+                (None, vec![error.to_string()])
+            }
             Err(error) => {
                 push_diagnostic(
                     diagnostics,
@@ -304,6 +839,13 @@ fn discover_boundaries(
             }
         }
         inspect_container_links(vault, &root, diagnostics);
+        if let Some(pos) = boundaries.iter().position(|b| b.root == root) {
+            if !is_legacy {
+                boundaries.remove(pos);
+            } else {
+                continue;
+            }
+        }
         boundaries.push(ContainerBoundary {
             root,
             manifest_path: path.to_path_buf(),
@@ -369,7 +911,9 @@ fn discover_notes(
             path: path.to_path_buf(),
             relative_path,
             note_id: parsed.note_id().map(str::to_owned),
-            title: crate::vault::scan::title_for(path, &parsed.body),
+            title: parsed
+                .display_title
+                .unwrap_or_else(|| crate::vault::scan::title_for(path, &parsed.body)),
         });
     }
     candidates.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
@@ -1194,5 +1738,191 @@ mod tests {
             .all(|note| !note.relative_path.contains("Secret")));
         fs::remove_dir_all(vault).unwrap();
         fs::remove_dir_all(outside).unwrap();
+    }
+
+    #[test]
+    fn named_manifest_database_is_discovered_and_preferred_over_legacy() {
+        let vault = temp_vault("named-manifest");
+        let db_dir = vault.join("Projects");
+        fs::create_dir_all(&db_dir).unwrap();
+
+        // 1. Named manifest
+        let manifest = json!({
+            "format": "amby-database",
+            "formatVersion": 1,
+            "databaseId": OUTER_ID,
+            "name": "Projects",
+            "locked": false,
+            "membership": {"kind": "filesystem-descendants", "recursive": true},
+            "properties": [],
+            "viewOrder": [],
+            "defaultViewId": null,
+            "templateOrder": [],
+            "defaultTemplateId": null,
+        });
+        fs::write(
+            db_dir.join("Projects.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        // 2. An unrelated JSON file in another folder
+        let config_dir = vault.join("Config");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("Config.json"), b"{\"unrelated\": true}").unwrap();
+
+        let result = discover_vault(&vault).unwrap();
+        assert_eq!(result.databases.len(), 1);
+        let db = &result.databases[0];
+        assert_eq!(db.database_id, OUTER_ID);
+        assert_eq!(db.name, "Projects");
+        assert_eq!(
+            db.manifest_path,
+            vault.canonicalize().unwrap().join("Projects/Projects.json")
+        );
+        assert!(result.diagnostics.is_empty());
+
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn migrates_and_repairs_legacy_database_manifest() {
+        let vault = temp_vault("migrate-legacy-db");
+        let db_dir = vault.join("Tasks");
+        fs::create_dir_all(&db_dir).unwrap();
+        let legacy_manifest = json!({
+            "format": "amby-database",
+            "databaseId": "invalid-non-ulid",
+            "name": "Tasks",
+            "properties": "not-an-array",
+        });
+        fs::write(
+            db_dir.join("Tasks.json"),
+            serde_json::to_vec_pretty(&legacy_manifest).unwrap(),
+        )
+        .unwrap();
+
+        let migrated = migrate_legacy_database_manifests(&vault).unwrap();
+        assert_eq!(migrated, 1);
+        assert!(db_dir.join("Tasks.json").exists());
+
+        let content: serde_json::Value =
+            serde_json::from_slice(&fs::read(db_dir.join("Tasks.json")).unwrap()).unwrap();
+        assert_eq!(content["containerKind"], "standalone");
+        assert_eq!(content["name"], "Tasks");
+        assert_eq!(content["formatVersion"], 1);
+        assert!(content["properties"].is_array());
+        assert!(ulid::Ulid::from_string(content["databaseId"].as_str().unwrap()).is_ok());
+
+        let migrated_again = migrate_legacy_database_manifests(&vault).unwrap();
+        assert_eq!(migrated_again, 0);
+
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn migrate_legacy_database_manifests_reconciles_shard_database_ids() {
+        let vault = temp_vault("shard_reconcile");
+        let db_dir = vault.join("PaLooVerse");
+        fs::create_dir_all(db_dir.join(".ambd/views")).unwrap();
+        fs::create_dir_all(db_dir.join(".ambd/records")).unwrap();
+
+        let manifest_id = "01M2NKEGMJY9YHDNTV6HNWDFE6";
+        let view_id = "01M1PTZSVFN6EZA2H7ENZ1CSB9";
+        let note_id = "01M1Q23EBJDZNPWBC01W513DS0";
+        let old_db_id = "01M1PTZSVFTGA864YBJP7TJKXN";
+
+        let manifest = serde_json::json!({
+            "format": "amby-database",
+            "formatVersion": 1,
+            "databaseId": manifest_id,
+            "name": "PaLooVerse",
+            "containerKind": "standalone",
+            "locked": false,
+            "membership": {
+                "kind": "filesystem-descendants",
+                "recursive": true
+            },
+            "properties": [],
+            "viewOrder": [view_id],
+            "defaultViewId": view_id,
+            "templateOrder": []
+        });
+        fs::write(
+            db_dir.join("PaLooVerse.json"),
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+
+        let old_view = serde_json::json!({
+            "format": "amby-database-view",
+            "formatVersion": 1,
+            "databaseId": old_db_id,
+            "viewId": view_id,
+            "name": "Table",
+            "layout": "table",
+            "openMode": "sidePeek",
+            "subitemsMode": "nested",
+            "density": "default",
+            "fields": [{"field": {"kind": "system", "field": "title"}, "visible": true, "width": null, "frozen": true}],
+            "filter": null,
+            "sorts": [],
+            "group": null,
+            "aggregates": []
+        });
+        fs::write(
+            db_dir.join(".ambd/views").join(format!("{view_id}.json")),
+            serde_json::to_vec_pretty(&old_view).unwrap(),
+        )
+        .unwrap();
+
+        let old_record = serde_json::json!({
+            "format": "amby-database-record",
+            "formatVersion": 1,
+            "databaseId": old_db_id,
+            "noteId": note_id,
+            "values": {}
+        });
+        fs::write(
+            db_dir.join(".ambd/records").join(format!("{note_id}.json")),
+            serde_json::to_vec_pretty(&old_record).unwrap(),
+        )
+        .unwrap();
+
+        // Create the note file so record is owned
+        fs::write(
+            db_dir.join("Row.md"),
+            format!("---\namby-id: {note_id}\n---\n# Row\n"),
+        )
+        .unwrap();
+
+        migrate_legacy_database_manifests(&vault).unwrap();
+
+        // Check view shard reconciled
+        let view_val: serde_json::Value = serde_json::from_slice(
+            &fs::read(db_dir.join(".ambd/views").join(format!("{view_id}.json"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(view_val["databaseId"], manifest_id);
+
+        // Check record shard reconciled
+        let record_val: serde_json::Value = serde_json::from_slice(
+            &fs::read(db_dir.join(".ambd/records").join(format!("{note_id}.json"))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(record_val["databaseId"], manifest_id);
+
+        // Discovery should find zero errors
+        let discovery = discover_vault(&vault).unwrap();
+        let errors = discovery
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == DiagnosticSeverity::Error)
+            .collect::<Vec<_>>();
+        assert!(errors.is_empty(), "Expected 0 errors, got: {:?}", errors);
+        assert_eq!(discovery.databases.len(), 1);
+        assert_eq!(discovery.databases[0].database_id, manifest_id);
+
+        fs::remove_dir_all(vault).unwrap();
     }
 }

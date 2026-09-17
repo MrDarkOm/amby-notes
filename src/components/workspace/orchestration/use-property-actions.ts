@@ -2,8 +2,10 @@ import * as React from "react"
 import type { TFunction } from "i18next"
 import {
   deleteCustomProperty,
+  getNoteProperties,
   reorderCustomProperties,
   type CustomProperty,
+  type NoteProperties,
   type TreeItem,
   upsertCustomProperty,
 } from "@/lib/storage"
@@ -126,61 +128,116 @@ export function usePropertyActions({
     return items
   }, [currentDoc, includeAttachmentImages])
 
+  const patchAllDocKeys = React.useCallback(
+    (updater: (current: NoteProperties) => NoteProperties) => {
+      if (!currentDoc) return
+      const store = useDocStore.getState()
+      const keys = new Set<string>()
+      if (currentDoc.id) keys.add(currentDoc.id)
+      if (currentDoc.path) keys.add(currentDoc.path)
+      if (currentDoc.noteId) keys.add(currentDoc.noteId)
+      if (activeTab?.fileId) keys.add(activeTab.fileId)
+      for (const key of keys) {
+        const doc = store.openDocs[key]
+        if (doc) {
+          const current = doc.noteProperties ?? {
+            hasFrontmatter: false,
+            properties: [],
+            customProperties: [],
+          }
+          store.patchDoc(key, { noteProperties: updater(current) })
+        }
+      }
+    },
+    [activeTab?.fileId, currentDoc],
+  )
+
   const handleUpsertCustomProperty = React.useCallback(
     async (property: CustomProperty) => {
       if (!vault || !currentDoc) throw new Error("No active document")
-      const saved = await upsertCustomProperty(vault, currentDoc.id, property)
-      const current = currentDoc.noteProperties ?? {
-        hasFrontmatter: false,
-        properties: [],
-        customProperties: [],
-      }
-      const next = [...current.customProperties]
-      const index = next.findIndex((item) => item.id === saved.id)
-      if (index >= 0) next[index] = saved
-      else next.push(saved)
-      useDocStore.getState().patchDoc(currentDoc.id, {
-        noteProperties: { ...current, customProperties: next },
+      const noteId = currentDoc.noteId ?? currentDoc.id
+
+      patchAllDocKeys((current: NoteProperties) => {
+        const next = [...current.customProperties]
+        const index = next.findIndex(
+          (item: CustomProperty) =>
+            item.id === property.id ||
+            (property.name && item.name.toLowerCase() === property.name.toLowerCase()),
+        )
+        if (index >= 0) next[index] = { ...next[index], ...property }
+        else next.push(property)
+        return { ...current, customProperties: next }
       })
+
+      const saved = await upsertCustomProperty(vault, noteId, property)
+      try {
+        const refreshed = await getNoteProperties(vault, noteId)
+        patchAllDocKeys(() => refreshed)
+      } catch {
+        patchAllDocKeys((current: NoteProperties) => {
+          const next = [...current.customProperties]
+          const index = next.findIndex((item: CustomProperty) => item.id === saved.id)
+          if (index >= 0) next[index] = saved
+          else next.push(saved)
+          return { ...current, customProperties: next }
+        })
+      }
       return saved
     },
-    [currentDoc, vault],
+    [currentDoc, patchAllDocKeys, vault],
   )
 
   const handleDeleteCustomProperty = React.useCallback(
     async (propertyId: string) => {
       if (!vault || !currentDoc) return
-      await deleteCustomProperty(vault, currentDoc.id, propertyId)
-      const current = currentDoc.noteProperties
-      if (!current) return
-      useDocStore.getState().patchDoc(currentDoc.id, {
-        noteProperties: {
-          ...current,
-          customProperties: current.customProperties.filter((item) => item.id !== propertyId),
-        },
-      })
+      const noteId = currentDoc.noteId ?? currentDoc.id
+
+      patchAllDocKeys((current: NoteProperties) => ({
+        ...current,
+        properties: current.properties.filter((item: { key: string }) => item.key !== propertyId),
+        customProperties: current.customProperties.filter(
+          (item: CustomProperty) => item.id !== propertyId,
+        ),
+      }))
+
+      await deleteCustomProperty(vault, noteId, propertyId)
+      try {
+        const refreshed = await getNoteProperties(vault, noteId)
+        patchAllDocKeys(() => refreshed)
+      } catch {
+        // Optimistic state already set
+      }
     },
-    [currentDoc, vault],
+    [currentDoc, patchAllDocKeys, vault],
   )
 
   const handleReorderCustomProperties = React.useCallback(
     async (propertyIds: string[]) => {
       if (!vault || !currentDoc?.noteProperties) return
-      await reorderCustomProperties(vault, currentDoc.id, propertyIds)
-      const byId = new Map(
-        currentDoc.noteProperties.customProperties.map((property) => [property.id, property]),
-      )
-      useDocStore.getState().patchDoc(currentDoc.id, {
-        noteProperties: {
-          ...currentDoc.noteProperties,
+      const noteId = currentDoc.noteId ?? currentDoc.id
+
+      patchAllDocKeys((current: NoteProperties) => {
+        const byId = new Map(
+          current.customProperties.map((property: CustomProperty) => [property.id, property]),
+        )
+        return {
+          ...current,
           customProperties: propertyIds.flatMap((id) => {
             const property = byId.get(id)
             return property ? [property] : []
           }),
-        },
+        }
       })
+
+      await reorderCustomProperties(vault, noteId, propertyIds)
+      try {
+        const refreshed = await getNoteProperties(vault, noteId)
+        patchAllDocKeys(() => refreshed)
+      } catch {
+        // Optimistic state already set
+      }
     },
-    [currentDoc, vault],
+    [currentDoc?.noteProperties, currentDoc?.noteId, currentDoc?.id, patchAllDocKeys, vault],
   )
 
   return {

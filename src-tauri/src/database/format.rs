@@ -141,16 +141,19 @@ pub struct DatabaseManifest {
     pub icon: Option<String>,
     #[serde(default)]
     pub cover: Option<DatabaseCover>,
+    #[serde(default)]
     pub locked: bool,
+    #[serde(default)]
     pub membership: Membership,
+    #[serde(default)]
     pub properties: Vec<PropertyDefinition>,
-    #[serde(rename = "viewOrder")]
+    #[serde(rename = "viewOrder", default)]
     pub view_order: Vec<String>,
-    #[serde(rename = "defaultViewId")]
+    #[serde(rename = "defaultViewId", default)]
     pub default_view_id: Option<String>,
-    #[serde(rename = "templateOrder")]
+    #[serde(rename = "templateOrder", default)]
     pub template_order: Vec<String>,
-    #[serde(rename = "defaultTemplateId")]
+    #[serde(rename = "defaultTemplateId", default)]
     pub default_template_id: Option<String>,
     #[serde(flatten)]
     pub extra: ExtraFields,
@@ -175,6 +178,16 @@ pub struct Membership {
     pub recursive: bool,
     #[serde(flatten)]
     pub extra: ExtraFields,
+}
+
+impl Default for Membership {
+    fn default() -> Self {
+        Self {
+            kind: "filesystem-descendants".to_string(),
+            recursive: true,
+            extra: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -277,6 +290,29 @@ pub struct RelationConfig {
     pub extra: ExtraFields,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct FormulaConfig {
+    pub version: u64,
+    pub expression: String,
+    #[serde(rename = "resultType", default)]
+    pub result_type: Option<String>,
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+    #[serde(flatten)]
+    pub extra: ExtraFields,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct RollupConfig {
+    #[serde(rename = "relationPropertyId")]
+    pub relation_property_id: String,
+    #[serde(rename = "targetPropertyId")]
+    pub target_property_id: String,
+    pub aggregation: String,
+    #[serde(flatten)]
+    pub extra: ExtraFields,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropertyDefinition {
     Text(PropertyFields<TextConfig>),
@@ -289,6 +325,8 @@ pub enum PropertyDefinition {
     Url(PropertyFields<CheckboxConfig>),
     Files(PropertyFields<FilesConfig>),
     Relation(PropertyFields<RelationConfig>),
+    Formula(PropertyFields<FormulaConfig>),
+    Rollup(PropertyFields<RollupConfig>),
     Opaque(Value),
 }
 
@@ -305,6 +343,8 @@ impl PropertyDefinition {
             Self::Url(_) => "url",
             Self::Files(_) => "files",
             Self::Relation(_) => "relation",
+            Self::Formula(_) => "formula",
+            Self::Rollup(_) => "rollup",
             Self::Opaque(_) => "opaque",
         }
     }
@@ -321,6 +361,8 @@ impl PropertyDefinition {
             Self::Url(fields) => Some(&fields.id),
             Self::Files(fields) => Some(&fields.id),
             Self::Relation(fields) => Some(&fields.id),
+            Self::Formula(fields) => Some(&fields.id),
+            Self::Rollup(fields) => Some(&fields.id),
             Self::Opaque(_) => None,
         }
     }
@@ -337,6 +379,8 @@ impl PropertyDefinition {
             Self::Url(fields) => fields.yaml_binding.as_ref(),
             Self::Files(fields) => fields.yaml_binding.as_ref(),
             Self::Relation(fields) => fields.yaml_binding.as_ref(),
+            Self::Formula(fields) => fields.yaml_binding.as_ref(),
+            Self::Rollup(fields) => fields.yaml_binding.as_ref(),
             Self::Opaque(_) => None,
         }
     }
@@ -361,6 +405,8 @@ impl Serialize for PropertyDefinition {
             Self::Url(fields) => ("url", serde_json::to_value(fields)),
             Self::Files(fields) => ("files", serde_json::to_value(fields)),
             Self::Relation(fields) => ("relation", serde_json::to_value(fields)),
+            Self::Formula(fields) => ("formula", serde_json::to_value(fields)),
+            Self::Rollup(fields) => ("rollup", serde_json::to_value(fields)),
             Self::Opaque(_) => unreachable!(),
         };
         let mut object = value
@@ -404,6 +450,8 @@ impl<'de> Deserialize<'de> for PropertyDefinition {
             "url" => parse!(Url, PropertyFields<CheckboxConfig>),
             "files" => parse!(Files, PropertyFields<FilesConfig>),
             "relation" => parse!(Relation, PropertyFields<RelationConfig>),
+            "formula" => parse!(Formula, PropertyFields<FormulaConfig>),
+            "rollup" => parse!(Rollup, PropertyFields<RollupConfig>),
             _ => Ok(Self::Opaque(raw)),
         }
     }
@@ -785,6 +833,14 @@ impl<'de> Deserialize<'de> for YamlSyncBase {
     }
 }
 
+fn default_open_mode() -> String {
+    "sidePeek".to_string()
+}
+
+fn default_subitems_mode() -> String {
+    "nested".to_string()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DatabaseViewFile {
     pub format: String,
@@ -796,19 +852,22 @@ pub struct DatabaseViewFile {
     pub view_id: String,
     pub name: String,
     pub layout: String,
-    #[serde(rename = "openMode")]
+    #[serde(rename = "openMode", default = "default_open_mode")]
     pub open_mode: String,
-    #[serde(rename = "subitemsMode")]
+    #[serde(rename = "subitemsMode", default = "default_subitems_mode")]
     pub subitems_mode: String,
     pub density: Option<String>,
+    #[serde(default)]
     pub fields: Vec<ViewField>,
     pub filter: Option<FilterNode>,
+    #[serde(default)]
     pub sorts: Vec<SortRule>,
     pub group: Option<GroupRule>,
-    #[serde(rename = "manualOrder")]
+    #[serde(rename = "manualOrder", default)]
     pub manual_order: Vec<String>,
+    #[serde(default)]
     pub aggregates: Vec<AggregateRule>,
-    #[serde(rename = "layoutConfig")]
+    #[serde(rename = "layoutConfig", default)]
     pub layout_config: Value,
     #[serde(flatten)]
     pub extra: ExtraFields,

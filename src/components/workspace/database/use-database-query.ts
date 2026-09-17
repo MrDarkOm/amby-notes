@@ -1,5 +1,5 @@
 import * as React from "react"
-import { DatabaseOperationError, queryDatabase, type DatabaseRow } from "@/lib/storage"
+import * as storage from "@/lib/storage"
 import {
   databaseHostKey,
   emptyDatabaseHost,
@@ -14,7 +14,7 @@ function messageOf(error: unknown): string {
 }
 
 function isStaleCursor(error: unknown): boolean {
-  return error instanceof DatabaseOperationError && /stale cursor/i.test(error.message)
+  return error instanceof storage.DatabaseOperationError && error.code === "staleCursor"
 }
 
 interface UseDatabaseQueryOptions {
@@ -24,6 +24,19 @@ interface UseDatabaseQueryOptions {
   viewId?: string | null
   hostKind?: DatabaseHostKind
   hostId?: string | null
+  search?: string
+  filterValues?: Record<string, string>
+  sortValue?: { key: string; direction: "asc" | "desc" } | null
+}
+
+// Module-level map of in-flight query promises to prevent duplicate requests
+// and prevent React StrictMode or fast re-renders from abandoning active queries.
+const inFlightQueries = new Map<string, Promise<void>>()
+const querySequences = new Map<string, number>()
+
+export function _clearInFlightQueriesForTesting() {
+  inFlightQueries.clear()
+  querySequences.clear()
 }
 
 export function useDatabaseQuery({
@@ -33,113 +46,226 @@ export function useDatabaseQuery({
   viewId = null,
   hostKind = "tab",
   hostId = null,
+  search = "",
+  filterValues = {},
+  sortValue = null,
 }: UseDatabaseQueryOptions) {
-  const key = databaseHostKey(hostKind, databaseId, viewId, hostId)
+  const normalizedFilters = React.useMemo(() => {
+    return Object.entries(filterValues).filter(
+      ([, value]) => typeof value === "string" && value.trim().length > 0,
+    )
+  }, [filterValues])
+
+  const queryIdentity = React.useMemo(() => {
+    const filterTokens = normalizedFilters.map(
+      ([filterKey, filterVal]) => `${filterKey}:${filterVal}`,
+    )
+    const sortToken = sortValue ? `${sortValue.key}:${sortValue.direction}` : ""
+    return [search.trim(), sortToken, ...filterTokens].filter(Boolean).join("|") || "raw"
+  }, [normalizedFilters, search, sortValue])
+
+  const key = React.useMemo(
+    () => databaseHostKey(hostKind, databaseId, viewId, hostId, queryIdentity),
+    [databaseId, hostId, hostKind, queryIdentity, viewId],
+  )
   const host = useDatabaseStore((state) => state.hosts[key])
   const runtime = useDatabaseStore((state) => state.runtime)
   const invalidationSeq = useDatabaseStore((state) => state.invalidationSeq)
   const setHost = useDatabaseStore((state) => state.setHost)
-  const requestSerial = React.useRef(0)
 
   const loadPage = React.useCallback(
     async (cursor: string | null, append: boolean) => {
       if (!enabled || vaultGeneration === null) return
-      const serial = ++requestSerial.current
+
+      const inFlightKey = `${vaultGeneration}:${key}:${cursor ?? "initial"}`
+      const existingInFlight = inFlightQueries.get(inFlightKey)
+      if (existingInFlight) {
+        return existingInFlight
+      }
+
+      const requestSeq = (querySequences.get(key) ?? 0) + 1
+      querySequences.set(key, requestSeq)
+
       const currentInvalidationSeq = useDatabaseStore.getState().invalidationSeq
       const current =
         useDatabaseStore.getState().hosts[key] ??
-        emptyDatabaseHost(hostKind, databaseId, viewId, hostId, currentInvalidationSeq)
-      setHost({ ...current, status: "loading", error: null })
-      try {
-        const result = await queryDatabase({
-          expectedGeneration: vaultGeneration,
+        emptyDatabaseHost(
+          hostKind,
           databaseId,
-          source: viewId
-            ? { kind: "savedView", viewId }
-            : {
-                kind: "inline",
-                spec: {
-                  sorts: [
-                    {
-                      field: { kind: "system", field: "title" },
-                      direction: "asc",
-                      nulls: "last",
-                    },
-                  ],
+          viewId,
+          hostId,
+          currentInvalidationSeq,
+          queryIdentity,
+        )
+
+      setHost({ ...current, status: "loading", error: null })
+
+      const promise = (async () => {
+        try {
+          const filter = normalizedFilters.length
+            ? {
+                kind: "group" as const,
+                operator: "and" as const,
+                children: normalizedFilters.map(([filterKey, filterVal]) => ({
+                  kind: "condition" as const,
+                  field: (filterKey === "title"
+                    ? { kind: "system", field: "title" }
+                    : { kind: "property", propertyId: filterKey }) as storage.DatabaseFieldRef,
+                  operator: "contains" as const,
+                  value: JSON.stringify(filterVal),
+                })),
+              }
+            : undefined
+
+          const result = await storage.queryDatabase({
+            expectedGeneration: vaultGeneration,
+            databaseId,
+            search: search.trim() || undefined,
+            sorts: sortValue
+              ? [
+                  {
+                    field:
+                      sortValue.key === "title"
+                        ? { kind: "system", field: "title" }
+                        : { kind: "property", propertyId: sortValue.key },
+                    direction: sortValue.direction,
+                    nulls: "last",
+                  },
+                ]
+              : undefined,
+            filter,
+            source: viewId
+              ? { kind: "savedView", viewId }
+              : {
+                  kind: "inline",
+                  spec: {
+                    sorts: [
+                      {
+                        field: { kind: "system", field: "title" },
+                        direction: "asc",
+                        nulls: "last",
+                      },
+                    ],
+                  },
                 },
-              },
-          page: { limit: DEFAULT_PAGE_SIZE, cursor: cursor ?? undefined },
-        })
-        const state = useDatabaseStore.getState()
-        if (serial !== requestSerial.current || state.vaultGeneration !== vaultGeneration) return
-        const latest = state.hosts[key] ?? current
-        const rows: DatabaseRow[] = append ? [...latest.rows, ...result.rows] : result.rows
-        setHost({
-          ...latest,
-          status: "ready",
-          loadedInvalidationSeq: state.invalidationSeq,
-          rows,
-          projection: result.projection,
-          diagnostics: result.diagnostics,
-          error: null,
-          nextCursor: result.nextCursor,
-        })
-      } catch (error) {
-        if (serial !== requestSerial.current) return
-        if (cursor && isStaleCursor(error)) {
-          await loadPage(null, false)
-          return
+            page: { limit: DEFAULT_PAGE_SIZE, cursor: cursor ?? undefined },
+          })
+
+          const state = useDatabaseStore.getState()
+          if (state.vaultGeneration !== vaultGeneration) {
+            return
+          }
+
+          // If a newer query was scheduled for this same key, let that newer query set state
+          if (querySequences.get(key) !== requestSeq) {
+            return
+          }
+
+          const latest = state.hosts[key] ?? current
+          const rows: storage.DatabaseRow[] = append
+            ? [...latest.rows, ...result.rows]
+            : result.rows
+          setHost({
+            ...latest,
+            status: "ready",
+            loadedInvalidationSeq: state.invalidationSeq,
+            rows,
+            projection: result.projection,
+            diagnostics: result.diagnostics,
+            error: null,
+            nextCursor: result.nextCursor,
+            totalCount: result.totalCount,
+          })
+        } catch (error) {
+          const state = useDatabaseStore.getState()
+          if (state.vaultGeneration !== vaultGeneration) return
+
+          if (cursor && isStaleCursor(error)) {
+            void loadPage(null, false)
+            return
+          }
+
+          if (querySequences.get(key) === requestSeq) {
+            const latest = state.hosts[key] ?? current
+            setHost({
+              ...latest,
+              status: "error",
+              error: messageOf(error),
+              loadedInvalidationSeq: state.invalidationSeq,
+            })
+          }
+        } finally {
+          inFlightQueries.delete(inFlightKey)
         }
-        const latest = useDatabaseStore.getState().hosts[key] ?? current
-        setHost({ ...latest, status: "error", error: messageOf(error) })
-      }
+      })()
+
+      inFlightQueries.set(inFlightKey, promise)
+      return promise
     },
-    [databaseId, enabled, hostId, hostKind, key, setHost, viewId, vaultGeneration],
+    [
+      databaseId,
+      enabled,
+      hostId,
+      hostKind,
+      key,
+      normalizedFilters,
+      queryIdentity,
+      search,
+      setHost,
+      sortValue,
+      vaultGeneration,
+      viewId,
+    ],
   )
 
+  const loadPageRef = React.useRef(loadPage)
+  loadPageRef.current = loadPage
+
   React.useEffect(() => {
-    requestSerial.current += 1
     if (!enabled || vaultGeneration === null || !runtime?.enabled) return
 
-    // Host sessions live in the database store rather than in this component.
-    // Reuse a ready/loading session when a tab or panel remounts; otherwise a
-    // simple tab switch needlessly clears the rows and starts the query again.
     const cachedHost = useDatabaseStore.getState().hosts[key]
+    const inFlightKey = `${vaultGeneration}:${key}:initial`
+    const isAlreadyRunning = inFlightQueries.has(inFlightKey)
+
+    // Reuse cached session when generation and invalidation match and query has already settled (ready or error)
     if (
       cachedHost?.loadedInvalidationSeq === invalidationSeq &&
-      (cachedHost.status === "loading" || cachedHost.status === "ready")
+      (cachedHost.status === "ready" || cachedHost.status === "error")
     ) {
       return
     }
 
-    setHost(emptyDatabaseHost(hostKind, databaseId, viewId, hostId, invalidationSeq))
-    void loadPage(null, false)
-    return () => {
-      requestSerial.current += 1
+    // If an initial query for this exact vaultGeneration and host key is already in flight,
+    // let it finish and update the host session.
+    if (isAlreadyRunning) {
+      return
     }
-  }, [
-    databaseId,
-    enabled,
-    hostId,
-    hostKind,
-    invalidationSeq,
-    key,
-    loadPage,
-    runtime?.enabled,
-    setHost,
-    vaultGeneration,
-    viewId,
-  ])
+
+    void loadPageRef.current(null, false)
+  }, [enabled, invalidationSeq, key, runtime?.enabled, vaultGeneration])
 
   const loadNextPage = React.useCallback(async () => {
     const latest = useDatabaseStore.getState().hosts[key]
-    if (!latest || latest.status === "loading" || !latest.nextCursor) return
+    if (!latest || latest.status === "loading" || !latest.nextCursor || vaultGeneration === null) {
+      return
+    }
+    const inFlightKey = `${vaultGeneration}:${key}:${latest.nextCursor}`
+    if (inFlightQueries.has(inFlightKey)) return
     await loadPage(latest.nextCursor, true)
-  }, [key, loadPage])
+  }, [key, loadPage, vaultGeneration])
 
   const retry = React.useCallback(async () => {
+    const currentHost = useDatabaseStore.getState().hosts[key]
+    if (currentHost?.error?.includes("not found")) {
+      try {
+        await storage.rebuildDatabaseProjection()
+      } catch {
+        // ignore projection rebuild errors and let loadPage surface query error
+      }
+    }
     await loadPage(null, false)
-  }, [loadPage])
+  }, [key, loadPage])
 
   return {
     host,

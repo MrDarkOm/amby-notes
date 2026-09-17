@@ -10,7 +10,8 @@ import {
   readNote,
   writeNote,
 } from "@/lib/storage"
-import { formatModified, findTreeItem } from "../workspace-tree-utils"
+import { formatModified, findTreeItem, noteLayerPath } from "../workspace-tree-utils"
+import { splitWebFrontmatter, webRevision } from "@/lib/storage/web-frontmatter"
 import { findTabTreeItem, treeItemTabTarget } from "../tab-target"
 import {
   InFlightDocumentLoads,
@@ -20,11 +21,18 @@ import {
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useVaultStore } from "../use-vault-store"
+import { useViewStateStore, type EditorLayer } from "../use-view-state-store"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
 
 type Params = Pick<
   UseFileActionsParams,
-  "vault" | "treeItems" | "loadCanvas" | "setPendingRenameId" | "backendGeneration" | "windowLabel"
+  | "vault"
+  | "treeItems"
+  | "loadCanvas"
+  | "loadSketch"
+  | "setPendingRenameId"
+  | "backendGeneration"
+  | "windowLabel"
 > &
   MarkdownAutosaveActions
 
@@ -32,6 +40,7 @@ export function useDocumentLoading({
   vault,
   treeItems,
   loadCanvas,
+  loadSketch,
   setPendingRenameId,
   backendGeneration,
   windowLabel,
@@ -65,7 +74,74 @@ export function useDocumentLoading({
             current.backendGeneration === expectedBackendGeneration
           )
         }
-        const item = findTreeItem(treeItems, fileId)
+        const item = findTabTreeItem(treeItems, fileId)
+        const isCanvas =
+          item?.type === "canvas" || fileId.endsWith(".canvas") || fileId.startsWith("canvas:")
+        const isSketch =
+          item?.type === "sketch" || fileId.endsWith(".excalidraw") || fileId.startsWith("sketch:")
+
+        if (isCanvas || isSketch) {
+          const path = item?.path ?? fileId.replace(/^(canvas|sketch):/u, "")
+          if (isCanvas) {
+            await loadCanvas(path)
+          } else {
+            await loadSketch(path)
+          }
+          let noteContent = ""
+          let noteSource = ""
+          let noteId: string | undefined
+          let revision = ""
+          const mdPath = noteLayerPath(path)
+          try {
+            const source = await readFile(mdPath)
+            noteSource = source
+            const idMatch = source.match(/^(?:amby-id|id):\s*([^\s]+)/m)
+            if (idMatch) noteId = idMatch[1]
+            if (noteId && vault) {
+              try {
+                const note = await readNote(vault, noteId)
+                noteContent = note.content
+                noteSource = note.source
+                revision = note.revision
+              } catch {
+                // The note layer can exist briefly before the index sees it.
+                // Keep it read-only until a stable revision is available.
+              }
+            }
+            if (!revision) {
+              const split = splitWebFrontmatter(source)
+              noteContent = split ? split.body : source
+              if (!noteId) revision = webRevision(noteContent)
+            }
+          } catch {
+            // No markdown layer yet
+          }
+          const document: Document = {
+            id: fileId,
+            title: itemName,
+            content: noteContent,
+            created: item?.created ? formatModified(item.created) : "",
+            modified: item?.modified ? formatModified(item.modified) : "",
+            wordCount: 0,
+            path,
+            revision,
+            source: noteSource,
+            noteId,
+          }
+          setDoc(fileId, document)
+          if (path && path !== fileId) {
+            setDoc(path, document)
+          }
+          const targetLayer: EditorLayer = isCanvas ? "canvas" : "sketch"
+          if (!useViewStateStore.getState().activeLayers[fileId]) {
+            useViewStateStore.getState().setActiveLayer(fileId, targetLayer)
+          }
+          if (path && !useViewStateStore.getState().activeLayers[path]) {
+            useViewStateStore.getState().setActiveLayer(path, targetLayer)
+          }
+          return document
+        }
+
         const [note, meta, noteProperties] = vault
           ? await Promise.all([
               readNote(vault, fileId),
@@ -105,6 +181,7 @@ export function useDocumentLoading({
           revision: note.revision,
           source: note.source,
           noteProperties,
+          noteId: fileId,
         }
         setDoc(fileId, document)
         if (recovery.restored) {
@@ -129,6 +206,8 @@ export function useDocumentLoading({
       autosave,
       autosaveKey,
       backendGeneration,
+      loadCanvas,
+      loadSketch,
       markUnsaved,
       recoveryScope,
       setDoc,
@@ -138,24 +217,42 @@ export function useDocumentLoading({
     ],
   )
   const openTreeItem = React.useCallback(
-    async (fileId: string, inNewTab = false) => {
+    async (fileId: string, inNewTab = false, displayTitle?: string) => {
       const item = findTabTreeItem(treeItems, fileId)
       if (!item) return
       const request = ++selectionRequestRef.current
       const initial = useTabsStore.getState()
       const initialTab = initial.tabs.find((tab) => tab.key === initial.activeTabKey)
-      const target = treeItemTabTarget(item)
-      // Existing tabs already own their buffers. Activate them immediately.
+      const target = { ...treeItemTabTarget(item), title: displayTitle ?? item.name }
+      const docExists = Boolean(
+        useDocStore.getState().openDocs[target.fileId] ??
+        (item.path ? useDocStore.getState().openDocs[item.path] : null),
+      )
+      // Existing tabs already own their buffers. Activate them immediately if loaded.
       if (
         !inNewTab &&
-        initial.tabs.some((tab) => tab.kind === target.kind && tab.fileId === target.fileId)
+        initial.tabs.some((tab) => tab.kind === target.kind && tab.fileId === target.fileId) &&
+        (target.kind === "database" || docExists)
       ) {
+        initial.setTabs((tabs) =>
+          tabs.map((tab) =>
+            tab.kind === target.kind && tab.fileId === target.fileId
+              ? { ...tab, title: target.title }
+              : tab,
+          ),
+        )
+        if (target.kind !== "database") {
+          useDocStore.getState().patchDoc(fileId, { title: target.title })
+        }
         openItem(target)
         return
       }
       try {
-        if (item.type === "file") await loadDoc(item.id, item.name)
-        else if (item.type === "canvas") await loadCanvas(item.path)
+        if (item.type === "file") {
+          await loadDoc(item.id, target.title)
+        } else if (item.type === "canvas" || item.type === "sketch") {
+          await loadDoc(target.fileId, target.title)
+        }
       } catch (error) {
         console.error("Failed to load file:", error)
         return
@@ -174,17 +271,12 @@ export function useDocumentLoading({
       openItem(target, inNewTab)
       void releaseUnusedDocumentBuffers()
     },
-    [
-      backendGeneration,
-      loadCanvas,
-      loadDoc,
-      openItem,
-      releaseUnusedDocumentBuffers,
-      treeItems,
-      vault,
-    ],
+    [backendGeneration, loadDoc, openItem, releaseUnusedDocumentBuffers, treeItems, vault],
   )
-  const handleSelect = React.useCallback((fileId: string) => openTreeItem(fileId), [openTreeItem])
+  const handleSelect = React.useCallback(
+    (fileId: string, displayTitle?: string) => openTreeItem(fileId, false, displayTitle),
+    [openTreeItem],
+  )
   const handleOpenInNewTab = React.useCallback(
     (fileId: string) => openTreeItem(fileId, true),
     [openTreeItem],
@@ -250,12 +342,14 @@ export function useDocumentLoading({
       if (!item) return
       try {
         if (item.type === "file") await loadDoc(item.id, item.name)
-        else if (item.type === "canvas") await loadCanvas(item.path)
+        else if (item.type === "canvas" || item.type === "sketch") {
+          await loadDoc(item.path, item.name)
+        }
       } catch {
         /* navigation is best-effort */
       }
     },
-    [loadCanvas, loadDoc, treeItems],
+    [loadDoc, treeItems],
   )
   return { loadDoc, handleSelect, handleOpenInNewTab, handleCloneFile, navigateToFile }
 }

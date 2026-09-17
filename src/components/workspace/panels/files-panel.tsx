@@ -15,6 +15,7 @@ import {
   LayoutGrid,
   ListOrdered,
   LocateFixed,
+  PenLine,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
@@ -139,8 +140,10 @@ export function FilesPanel(props: PanelRenderProps) {
     onNewFile,
     onNewFolder,
     onNewCanvas,
+    onNewSketch,
     onNewDatabase,
     onAttachCanvas,
+    onAttachSketch,
     onOpenInNewTab,
     onOpenInNewWindow,
     onCloneFile,
@@ -152,9 +155,11 @@ export function FilesPanel(props: PanelRenderProps) {
     onToggleFavorite,
     onAttachLayer,
     canCreateDatabaseLayer,
+    databaseRuntimeEnabled,
     linkedLayersByDoc,
     workspaceSwitcher,
   } = props
+  const canCreateDatabase = Boolean(databaseRuntimeEnabled ?? canCreateDatabaseLayer)
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
   const [databaseDialogOpen, setDatabaseDialogOpen] = React.useState(false)
   const [databaseName, setDatabaseName] = React.useState("")
@@ -343,6 +348,7 @@ export function FilesPanel(props: PanelRenderProps) {
                   onDeleteMany={onDeleteMany}
                   onNewFile={onNewFile}
                   onAttachCanvas={onAttachCanvas}
+                  onAttachSketch={onAttachSketch}
                   onOpenInNewTab={onOpenInNewTab}
                   onOpenInNewWindow={onOpenInNewWindow}
                   onCloneFile={onCloneFile}
@@ -406,7 +412,17 @@ export function FilesPanel(props: PanelRenderProps) {
             {t("filesPanel.newCanvas")}
           </ContextMenuItem>
           <ContextMenuItem
-            disabled={!canCreateDatabaseLayer}
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={() => {
+              if (!vault) onOpenVault()
+              else onNewSketch?.(null)
+            }}
+          >
+            <PenLine className="size-3.5 text-muted-foreground" />
+            {t("filesPanel.newSketch")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!canCreateDatabase}
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white disabled:opacity-50"
             onSelect={handleNewDatabaseClick}
           >
@@ -422,8 +438,9 @@ export function FilesPanel(props: PanelRenderProps) {
         onCreateNote={() => onNewFile?.(null)}
         onCreateFolder={() => onNewFolder?.(null)}
         onCreateCanvas={() => onNewCanvas?.(null)}
+        onCreateSketch={() => onNewSketch?.(null)}
         onCreateDatabase={handleNewDatabaseClick}
-        canCreateDatabase={canCreateDatabaseLayer}
+        canCreateDatabase={canCreateDatabase}
       />
 
       <Dialog open={databaseDialogOpen} onOpenChange={setDatabaseDialogOpen}>

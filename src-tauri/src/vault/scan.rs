@@ -9,6 +9,7 @@ pub struct ScannedNote {
     pub path: PathBuf,
     pub rel_path: String,
     pub parsed_id: Option<String>,
+    pub display_title: Option<String>,
     pub identity_error: Option<String>,
     pub body: String,
     pub frontmatter_tags: Vec<String>,
@@ -43,6 +44,10 @@ pub fn is_canvas(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "canvas")
 }
 
+pub fn is_sketch(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "excalidraw")
+}
+
 pub fn file_stem(path: &Path) -> String {
     path.file_stem()
         .unwrap_or_default()
@@ -71,6 +76,12 @@ pub fn is_bundle_dir(dir: &Path) -> bool {
     }
     let name = file_name(dir);
     dir.join(format!("{name}.md")).is_file()
+        || dir.join(format!("{name}.canvas")).is_file()
+        || dir.join(format!("{name}.excalidraw")).is_file()
+}
+
+pub fn is_database_dir(dir: &Path) -> bool {
+    dir.is_dir() && crate::database::discovery::find_manifest_path(dir).is_some()
 }
 
 pub fn should_descend(entry: &DirEntry) -> bool {
@@ -127,4 +138,15 @@ pub fn title_for(path: &Path, body: &str) -> String {
         .filter(|title| !title.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| file_stem(path))
+}
+
+/// Resolve a note title using the same precedence everywhere a note is
+/// indexed: explicit Amby title, then the first Markdown H1, then filename.
+/// The source is only read by callers that already have it, so this helper is
+/// pure and never rewrites frontmatter.
+pub fn title_for_markdown(path: &Path, source: &str) -> String {
+    let parsed = crate::frontmatter::parse_markdown(source);
+    parsed
+        .display_title
+        .unwrap_or_else(|| title_for(path, &parsed.body))
 }

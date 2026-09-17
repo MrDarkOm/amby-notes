@@ -3,6 +3,7 @@ import {
   Bookmark,
   Database,
   FolderTree,
+  HelpCircle,
   History,
   Info,
   LayoutTemplate,
@@ -139,6 +140,14 @@ export const ACTION_DEFS: ActionDef[] = [
     persistent: true,
   },
   {
+    id: "help",
+    labelKey: "actions.help",
+    icon: HelpCircle,
+    kind: "action",
+    persistent: true,
+    invoke: (context) => context.openHelp?.(),
+  },
+  {
     id: "settings",
     labelKey: "actions.settings",
     icon: Settings,
@@ -158,7 +167,8 @@ export function findButtonDef(defId: string): ButtonDef | undefined {
 export const PERSISTENT_ACTION_BUTTONS: ActivityButton[] = [
   { defId: "refresh", side: "left", order: 1 },
   { defId: "presets", side: "left", order: 3 },
-  { defId: "settings", side: "left", order: 4 },
+  { defId: "help", side: "left", order: 4 },
+  { defId: "settings", side: "left", order: 5 },
 ]
 
 export const DEFAULT_BUTTONS: ActivityButton[] = [

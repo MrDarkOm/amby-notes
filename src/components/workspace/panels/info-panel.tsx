@@ -15,6 +15,7 @@ import {
   Paperclip,
   Plus,
   Tags,
+  Trash2,
   Type,
   Waypoints,
 } from "lucide-react"
@@ -23,6 +24,7 @@ import { motion, Reorder, useDragControls } from "motion/react"
 
 import { cn } from "@/lib/utils"
 import { motionTransitions } from "@/lib/motion-config"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   applyDatabaseValueBatch,
@@ -34,10 +36,12 @@ import {
   type CustomProperty,
   type DatabaseNoteContext,
   type DatabasePropertySummary,
+  type FrontmatterProperty,
 } from "@/lib/storage"
 import { IconValue } from "../icon-value"
 import { noteEditingPolicy } from "../editor/note-editing-policy"
 import { PropertyEditor } from "./property-editor"
+import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import type { PanelRenderProps } from "../panel-registry"
 import { DatabaseCell } from "../database/database-cell"
 import { useDatabaseStore } from "../database/database-store"
@@ -415,7 +419,7 @@ function PropertyValueTextarea({
       disabled={disabled}
       rows={1}
       title={initialValue}
-      className="min-h-7 w-full min-w-0 resize-none overflow-hidden rounded-md bg-transparent px-1 py-1 text-xs leading-4 whitespace-pre-wrap break-words text-foreground outline-none focus:bg-accent/40 disabled:opacity-60"
+      className="min-h-7 w-full min-w-0 resize-none overflow-hidden rounded-md bg-transparent px-1 py-1.5 text-xs leading-4 whitespace-pre-wrap break-words text-foreground outline-none focus:bg-accent/40 disabled:opacity-60"
       placeholder="—"
       onChange={(event) => {
         onChange(event.target.value)
@@ -593,6 +597,558 @@ function PropertyRow({
   )
 }
 
+function frontmatterPropertyIcon(property: FrontmatterProperty, propertyType?: string) {
+  if (propertyType === "checkbox") return CheckSquare
+  if (propertyType === "number") return Hash
+  if (propertyType === "date") return CalendarDays
+  if (propertyType === "select") return List
+  if (propertyType === "url") return Link2
+  if (propertyType === "text") {
+    const key = property.key.trim().toLowerCase()
+    if (key === "tags" || key === "tag" || key === "keywords") return Tags
+    return Type
+  }
+
+  const key = property.key.trim().toLowerCase()
+  if (key === "tags" || key === "tag" || key === "keywords") return Tags
+  if (
+    key === "date" ||
+    key === "due" ||
+    key === "created" ||
+    key === "modified" ||
+    key === "deadline"
+  ) {
+    return CalendarDays
+  }
+  if (
+    property.valueKind === "checkbox" ||
+    property.value === "true" ||
+    property.value === "false"
+  ) {
+    return CheckSquare
+  }
+  if (property.valueKind === "number") return Hash
+  if (property.valueKind === "list") return List
+  if (
+    property.valueKind === "url" ||
+    property.value.startsWith("http://") ||
+    property.value.startsWith("https://")
+  ) {
+    return Link2
+  }
+  return Type
+}
+
+function parseYamlList(value: string): string[] {
+  const trimmed = value.trim()
+  if (!trimmed) return []
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed
+      .slice(1, -1)
+      .split(",")
+      .map((item) => item.trim().replace(/^['"]|['"]$/gu, ""))
+      .filter(Boolean)
+  }
+  const lines = trimmed.split("\n")
+  const items: string[] = []
+  let hasDash = false
+  for (const line of lines) {
+    const itemMatch = /^\s*-\s*(.+)$/u.exec(line)
+    if (itemMatch) {
+      hasDash = true
+      items.push(itemMatch[1].trim().replace(/^['"]|['"]$/gu, ""))
+    } else if (line.trim()) {
+      items.push(line.trim().replace(/^['"]|['"]$/gu, ""))
+    }
+  }
+  if (!hasDash && items.length === 1 && items[0].includes(",")) {
+    return items[0]
+      .split(",")
+      .map((item) => item.trim().replace(/^['"]|['"]$/gu, ""))
+      .filter(Boolean)
+  }
+  return items.filter(Boolean)
+}
+
+function FrontmatterPropertyValue({
+  property,
+  propertyType,
+  settings = "",
+  onSave,
+  disabled,
+}: {
+  property: FrontmatterProperty
+  propertyType?: string
+  settings?: string
+  onSave?: (value: string) => Promise<void>
+  disabled?: boolean
+}) {
+  const effectiveType =
+    propertyType ||
+    (property.valueKind === "checkbox" || property.value === "true" || property.value === "false"
+      ? "checkbox"
+      : property.valueKind === "number"
+        ? "number"
+        : property.valueKind === "date"
+          ? "date"
+          : property.valueKind === "list"
+            ? "list"
+            : property.valueKind === "url" ||
+                property.value.startsWith("http://") ||
+                property.value.startsWith("https://")
+              ? "url"
+              : "text")
+
+  const [value, setValue] = React.useState(property.value)
+  const [isEditingList, setIsEditingList] = React.useState(false)
+  React.useEffect(() => setValue(property.value), [property.value])
+
+  const options = React.useMemo(() => {
+    const list = settings
+      .split(",")
+      .map((option) => option.trim())
+      .filter(Boolean)
+    if (value && !list.includes(value)) {
+      list.unshift(value)
+    }
+    return list
+  }, [settings, value])
+
+  if (effectiveType === "checkbox") {
+    const checked = value === "true"
+    return (
+      <div className="flex h-7 items-center px-1">
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={checked}
+          aria-label={property.key}
+          disabled={disabled}
+          onClick={async () => {
+            const next = checked ? "false" : "true"
+            setValue(next)
+            await onSave?.(next)
+          }}
+          className={cn(
+            "flex size-4 shrink-0 items-center justify-center rounded border",
+            checked
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border bg-background hover:border-primary/50",
+          )}
+        >
+          {checked && <Check className="size-3" />}
+        </button>
+      </div>
+    )
+  }
+
+  if (effectiveType === "select") {
+    return (
+      <select
+        value={value}
+        disabled={disabled}
+        className="h-7 w-full min-w-0 rounded-md border-0 bg-transparent px-1 text-xs text-foreground outline-none focus:bg-accent/40"
+        onChange={(event) => {
+          const next = event.target.value
+          setValue(next)
+          void onSave?.(next)
+        }}
+      >
+        <option value="">—</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    )
+  }
+
+  if (effectiveType === "number") {
+    return (
+      <input
+        type="number"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => {
+          if (value !== property.value) void onSave?.(value)
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur()
+          if (event.key === "Escape") {
+            setValue(property.value)
+            event.currentTarget.blur()
+          }
+        }}
+        className="h-7 w-full min-w-0 rounded-md bg-transparent px-1 font-mono text-xs tabular-nums text-foreground outline-none focus:bg-accent/40"
+      />
+    )
+  }
+
+  if (effectiveType === "date") {
+    return (
+      <input
+        type="date"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => {
+          if (value !== property.value) void onSave?.(value)
+        }}
+        className="h-7 w-full min-w-0 rounded-md bg-transparent px-1 text-xs text-foreground outline-none focus:bg-accent/40"
+      />
+    )
+  }
+
+  if (effectiveType === "list" && !isEditingList) {
+    const items = parseYamlList(value)
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setIsEditingList(true)}
+        className="flex min-h-7 w-full flex-wrap items-center gap-1 rounded-md px-1 py-1 text-left text-xs outline-none hover:bg-accent/40 focus-visible:bg-accent/40"
+      >
+        {items.length > 0 ? (
+          items.map((item, index) => (
+            <span
+              key={`${item}-${index}`}
+              className="inline-flex items-center rounded bg-secondary px-1.5 py-0.5 text-[11px] font-medium text-secondary-foreground"
+            >
+              {item}
+            </span>
+          ))
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </button>
+    )
+  }
+
+  return (
+    <PropertyValueTextarea
+      value={value}
+      initialValue={property.value}
+      disabled={Boolean(disabled)}
+      onChange={setValue}
+      onSave={async () => {
+        setIsEditingList(false)
+        if (value !== property.value) await onSave?.(value)
+      }}
+      onReset={() => {
+        setValue(property.value)
+        setIsEditingList(false)
+      }}
+    />
+  )
+}
+
+function FrontmatterPropertyRow({
+  property,
+  iconValue,
+  propertyType = "text",
+  settings = "",
+  onIconChange,
+  onRename,
+  onChangeType,
+  onChangeSettings,
+  onSave,
+  onDelete,
+  disabled,
+}: {
+  property: FrontmatterProperty
+  iconValue?: string
+  propertyType?: string
+  settings?: string
+  onIconChange?: (icon: string) => Promise<void> | void
+  onRename?: (name: string) => Promise<void> | void
+  onChangeType?: (type: string) => Promise<void> | void
+  onChangeSettings?: (settings: string) => Promise<void> | void
+  onSave?: (value: string) => Promise<void>
+  onDelete?: () => Promise<void>
+  disabled?: boolean
+}) {
+  const { t } = useTranslation()
+  const PropertyIcon = frontmatterPropertyIcon(property, propertyType)
+  const [popoverOpen, setPopoverOpen] = React.useState(false)
+  const [showEmojiPicker, setShowEmojiPicker] = React.useState(false)
+  const [nameDraft, setNameDraft] = React.useState(property.key)
+  const [selectedType, setSelectedType] = React.useState(propertyType)
+  const [settingsDraft, setSettingsDraft] = React.useState(settings)
+  const [isRenaming, setIsRenaming] = React.useState(false)
+  const [currentIcon, setCurrentIcon] = React.useState(iconValue)
+  const triggerRef = React.useRef<HTMLButtonElement>(null)
+  const iconButtonRef = React.useRef<HTMLButtonElement>(null)
+  const inputRef = React.useRef<HTMLInputElement>(null)
+
+  React.useEffect(() => {
+    setCurrentIcon(iconValue)
+  }, [iconValue])
+
+  const handleSelectIcon = React.useCallback(
+    (newIcon: string) => {
+      setCurrentIcon(newIcon)
+      setShowEmojiPicker(false)
+      void onIconChange?.(newIcon)
+    },
+    [onIconChange],
+  )
+
+  const handleClearIcon = React.useCallback(() => {
+    setCurrentIcon("")
+    setShowEmojiPicker(false)
+    void onIconChange?.("")
+  }, [onIconChange])
+
+  React.useEffect(() => {
+    if (!popoverOpen) {
+      setNameDraft(property.key)
+      setSelectedType(propertyType)
+      setSettingsDraft(settings)
+      setShowEmojiPicker(false)
+    } else {
+      setSelectedType(propertyType)
+      setSettingsDraft(settings)
+      requestAnimationFrame(() => {
+        inputRef.current?.focus()
+        inputRef.current?.select()
+      })
+    }
+  }, [popoverOpen, property.key, propertyType, settings])
+
+  const commitRename = React.useCallback(async () => {
+    const trimmed = nameDraft.trim()
+    if (!trimmed || trimmed === property.key) {
+      setNameDraft(property.key)
+      return
+    }
+    try {
+      setIsRenaming(true)
+      await onRename?.(trimmed)
+    } finally {
+      setIsRenaming(false)
+    }
+  }, [nameDraft, onRename, property.key])
+
+  const handleTypeChange = React.useCallback(
+    async (nextType: string) => {
+      setSelectedType(nextType)
+      await onChangeType?.(nextType)
+    },
+    [onChangeType],
+  )
+
+  const handleSettingsCommit = React.useCallback(async () => {
+    if (settingsDraft !== settings) {
+      await onChangeSettings?.(settingsDraft)
+    }
+  }, [onChangeSettings, settings, settingsDraft])
+
+  return (
+    <div
+      role="listitem"
+      className="group/item relative grid min-h-8 grid-cols-[minmax(7rem,42%)_minmax(0,1fr)] items-start gap-1"
+    >
+      <div className="flex min-h-8 min-w-0 items-start py-0.5">
+        <Popover
+          open={popoverOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              if (settingsDraft !== settings) {
+                void onChangeSettings?.(settingsDraft)
+              }
+              void commitRename()
+            }
+            setPopoverOpen(open)
+          }}
+        >
+          <PopoverTrigger asChild>
+            <button
+              ref={triggerRef}
+              type="button"
+              disabled={disabled}
+              className={cn(
+                "group/property flex h-7 min-h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left outline-none",
+                !disabled &&
+                  "hover:bg-accent/60 focus-visible:ring-1 focus-visible:ring-ring cursor-pointer",
+                popoverOpen && "bg-accent/60",
+              )}
+              title={property.key}
+              aria-label={property.key}
+            >
+              <div className="flex size-4 shrink-0 items-center justify-center leading-none text-muted-foreground group-hover/property:text-foreground">
+                <IconValue
+                  value={currentIcon && currentIcon !== "◆" ? currentIcon : undefined}
+                  fallback={<PropertyIcon className="size-3.5" aria-hidden="true" />}
+                  className="size-3.5"
+                />
+              </div>
+              <span className="min-w-0 flex-1 truncate text-xs leading-4 text-muted-foreground group-hover/property:text-foreground">
+                {property.key}
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            side="bottom"
+            sideOffset={4}
+            collisionPadding={16}
+            className={cn(
+              "z-50",
+              showEmojiPicker
+                ? "w-auto border-0 bg-transparent p-0 shadow-none"
+                : "w-64 rounded-xl border border-border bg-popover p-2 text-popover-foreground shadow-lg",
+            )}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && showEmojiPicker) {
+                event.stopPropagation()
+                event.preventDefault()
+                setShowEmojiPicker(false)
+              }
+            }}
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
+            {showEmojiPicker ? (
+              <EmojiPickerPanel
+                triggerRef={iconButtonRef}
+                onSelect={(emoji) => handleSelectIcon(emoji.native)}
+                onClear={handleClearIcon}
+                clearLabel={t("tree.resetIcon")}
+                onClose={() => setShowEmojiPicker(false)}
+              />
+            ) : (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    ref={iconButtonRef}
+                    type="button"
+                    disabled={!onIconChange}
+                    onClick={() => setShowEmojiPicker(true)}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-background hover:bg-accent cursor-pointer disabled:cursor-default"
+                    title={t("infoPanel.propertyIcon")}
+                    aria-label={t("infoPanel.propertyIcon")}
+                  >
+                    <IconValue
+                      value={currentIcon && currentIcon !== "◆" ? currentIcon : undefined}
+                      fallback={<PropertyIcon className="size-4" />}
+                      className="size-4"
+                    />
+                  </button>
+                  <div className="flex h-8 min-w-0 flex-1 items-center rounded-lg border border-border bg-background px-2 focus-within:ring-1 focus-within:ring-ring">
+                    <input
+                      ref={inputRef}
+                      value={nameDraft}
+                      disabled={isRenaming}
+                      aria-label={t("infoPanel.propertyName")}
+                      className="min-w-0 flex-1 bg-transparent text-xs font-medium text-foreground outline-none disabled:opacity-60"
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      onBlur={() => void commitRename()}
+                      onKeyDown={(e) => {
+                        e.stopPropagation()
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          void commitRename().then(() => setPopoverOpen(false))
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault()
+                          setNameDraft(property.key)
+                          setPopoverOpen(false)
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {onChangeType && (
+                  <div className="flex items-center justify-between gap-2 px-1">
+                    <span className="text-[11px] text-muted-foreground">
+                      {t("infoPanel.propertyType")}
+                    </span>
+                    <select
+                      value={selectedType}
+                      onChange={(e) => void handleTypeChange(e.target.value)}
+                      className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none cursor-pointer"
+                    >
+                      <option value="text">
+                        {t("infoPanel.propertyTypes.text", { defaultValue: "Текст" })}
+                      </option>
+                      <option value="number">
+                        {t("infoPanel.propertyTypes.number", { defaultValue: "Число" })}
+                      </option>
+                      <option value="checkbox">
+                        {t("infoPanel.propertyTypes.checkbox", { defaultValue: "Флажок" })}
+                      </option>
+                      <option value="date">
+                        {t("infoPanel.propertyTypes.date", { defaultValue: "Дата" })}
+                      </option>
+                      <option value="select">
+                        {t("infoPanel.propertyTypes.select", { defaultValue: "Выбор" })}
+                      </option>
+                      <option value="url">
+                        {t("infoPanel.propertyTypes.url", { defaultValue: "Ссылка" })}
+                      </option>
+                    </select>
+                  </div>
+                )}
+
+                {selectedType === "select" && (
+                  <div className="flex flex-col gap-1 px-1">
+                    <span className="text-[11px] text-muted-foreground">
+                      {t("infoPanel.propertyOptions")}
+                    </span>
+                    <input
+                      value={settingsDraft}
+                      onChange={(e) => setSettingsDraft(e.target.value)}
+                      onBlur={() => void handleSettingsCommit()}
+                      onKeyDown={(e) => {
+                        e.stopPropagation()
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          void handleSettingsCommit()
+                        }
+                      }}
+                      placeholder={t("infoPanel.propertyOptionsHint")}
+                      className="h-7 w-full rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                )}
+
+                {onDelete && (
+                  <>
+                    <div className="my-0.5 h-px bg-border" />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setPopoverOpen(false)
+                        await onDelete()
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-destructive hover:bg-destructive/10 cursor-pointer"
+                      title={t("infoPanel.deleteProperty")}
+                    >
+                      <Trash2 className="size-3.5" />
+                      <span>{t("infoPanel.deleteProperty")}</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
+      </div>
+      <div className="min-h-8 min-w-0 px-1 py-0.5">
+        <FrontmatterPropertyValue
+          property={property}
+          propertyType={propertyType}
+          settings={settings}
+          onSave={onSave}
+          disabled={disabled}
+        />
+      </div>
+    </div>
+  )
+}
+
 export function InfoPanel({
   properties,
   databaseProperties,
@@ -630,6 +1186,20 @@ export function InfoPanel({
         : (properties.frontmatter.customProperties ?? []),
     [properties],
   )
+  const frontmatterProperties = React.useMemo(
+    () =>
+      !properties || properties.kind === "folder" || properties.frontmatter.parseError
+        ? []
+        : (properties.frontmatter.properties ?? []).filter((property) => {
+            const key = property.key.trim().toLowerCase()
+            return key !== "amby-id" && key !== "id"
+          }),
+    [properties],
+  )
+  const frontmatterKeySet = React.useMemo(
+    () => new Set(frontmatterProperties.map((prop) => prop.key.trim().toLowerCase())),
+    [frontmatterProperties],
+  )
 
   React.useEffect(() => {
     let cancelled = false
@@ -647,7 +1217,8 @@ export function InfoPanel({
     return () => {
       cancelled = true
     }
-  }, [databaseInvalidationSeq, properties])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [databaseInvalidationSeq, properties?.id, properties?.kind])
 
   const commitDatabaseProperty = React.useCallback(
     async (property: DatabasePropertySummary, valueJson?: string) => {
@@ -884,8 +1455,15 @@ export function InfoPanel({
     databaseProperties?.properties.map((property) => property.propertyId) ?? [],
     persistDatabaseSchemaOrder,
   )
+  const visibleCustomProperties = React.useMemo(
+    () =>
+      customProperties.filter(
+        (property) => !frontmatterKeySet.has(property.name.trim().toLowerCase()),
+      ),
+    [customProperties, frontmatterKeySet],
+  )
   const customOrder = useMotionPropertyOrder(
-    customProperties.map((property) => property.id),
+    visibleCustomProperties.map((property) => property.id),
     persistCustomPropertyOrder,
   )
   const orderedNoteDatabaseProperties = noteDatabaseOrder.order.flatMap((id) => {
@@ -898,8 +1476,8 @@ export function InfoPanel({
     const property = databaseProperties?.properties.find((candidate) => candidate.propertyId === id)
     return property ? [property] : []
   })
-  const orderedCustomProperties = customOrder.order.flatMap((id) => {
-    const property = customProperties.find((candidate) => candidate.id === id)
+  const nonDuplicateCustomProperties = customOrder.order.flatMap((id) => {
+    const property = visibleCustomProperties.find((candidate) => candidate.id === id)
     return property ? [property] : []
   })
   if (databaseProperties) {
@@ -1018,7 +1596,7 @@ export function InfoPanel({
                       title={t("infoPanel.copyId")}
                     >
                       {copied ? (
-                        <Check className="size-3.5 text-emerald-400" />
+                        <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
                       ) : (
                         <Copy className="size-3.5" />
                       )}
@@ -1125,7 +1703,9 @@ export function InfoPanel({
               </button>
             )}
             <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-              {customProperties.length + (noteDatabaseContext?.properties.length ?? 0)}
+              {frontmatterProperties.length +
+                nonDuplicateCustomProperties.length +
+                (noteDatabaseContext?.properties.length ?? 0)}
             </span>
           </>
         }
@@ -1138,7 +1718,10 @@ export function InfoPanel({
             </p>
           )}
           <section>
-            {(noteDatabaseContext?.properties.length ?? 0) + customProperties.length > 0 ? (
+            {(noteDatabaseContext?.properties.length ?? 0) +
+              nonDuplicateCustomProperties.length +
+              frontmatterProperties.length >
+            0 ? (
               <div className="space-y-0.5">
                 {noteDatabaseContext && orderedNoteDatabaseProperties.length > 0 && (
                   <Reorder.Group
@@ -1197,7 +1780,97 @@ export function InfoPanel({
                     ))}
                   </Reorder.Group>
                 )}
-                {orderedCustomProperties.length > 0 && (
+                {frontmatterProperties.length > 0 && (
+                  <div role="list" className="space-y-0.5">
+                    {frontmatterProperties.map((property) => {
+                      const matchedCustom = customProperties.find(
+                        (cp) =>
+                          cp.name.trim().toLowerCase() === property.key.trim().toLowerCase() ||
+                          cp.id === property.key,
+                      )
+                      const propertyType =
+                        matchedCustom?.propertyType ||
+                        (property.valueKind === "checkbox"
+                          ? "checkbox"
+                          : property.valueKind === "number"
+                            ? "number"
+                            : property.valueKind === "date"
+                              ? "date"
+                              : property.valueKind === "list"
+                                ? "list"
+                                : "text")
+                      const icon = matchedCustom?.icon
+
+                      return (
+                        <FrontmatterPropertyRow
+                          key={property.key}
+                          property={property}
+                          iconValue={icon}
+                          propertyType={propertyType}
+                          settings={matchedCustom?.settings || ""}
+                          onIconChange={async (nextIcon) => {
+                            await onUpsertCustomProperty?.({
+                              id: matchedCustom?.id || property.key,
+                              name: property.key,
+                              icon: nextIcon ?? "",
+                              propertyType,
+                              value: matchedCustom?.value || property.value,
+                              settings: matchedCustom?.settings || "",
+                            })
+                          }}
+                          onRename={async (newName) => {
+                            if (!newName.trim() || newName.trim() === property.key) return
+                            await onUpsertCustomProperty?.({
+                              id: matchedCustom?.id || property.key,
+                              name: newName.trim(),
+                              icon: icon ?? "",
+                              propertyType,
+                              value: matchedCustom?.value || property.value,
+                              settings: matchedCustom?.settings || "",
+                            })
+                          }}
+                          onChangeType={async (nextType) => {
+                            if (nextType === propertyType) return
+                            await onUpsertCustomProperty?.({
+                              id: matchedCustom?.id || property.key,
+                              name: property.key,
+                              icon: icon ?? "",
+                              propertyType: nextType,
+                              value: matchedCustom?.value || property.value,
+                              settings: matchedCustom?.settings || "",
+                            })
+                          }}
+                          onChangeSettings={async (nextSettings) => {
+                            if (nextSettings === (matchedCustom?.settings || "")) return
+                            await onUpsertCustomProperty?.({
+                              id: matchedCustom?.id || property.key,
+                              name: property.key,
+                              icon: icon ?? "",
+                              propertyType,
+                              value: matchedCustom?.value || property.value,
+                              settings: nextSettings,
+                            })
+                          }}
+                          onSave={async (nextVal) => {
+                            await onUpsertCustomProperty?.({
+                              id: matchedCustom?.id || property.key,
+                              name: property.key,
+                              icon: icon ?? "",
+                              propertyType,
+                              value: nextVal,
+                              settings: matchedCustom?.settings || "",
+                            })
+                          }}
+                          onDelete={async () => {
+                            await onDeleteCustomProperty?.(matchedCustom?.id || property.key)
+                          }}
+                          disabled={Boolean(properties.frontmatter.parseError)}
+                        />
+                      )
+                    })}
+                  </div>
+                )}
+                {nonDuplicateCustomProperties.length > 0 && (
                   <Reorder.Group
                     as="div"
                     axis="y"
@@ -1206,7 +1879,7 @@ export function InfoPanel({
                     role="list"
                     className="space-y-0.5"
                   >
-                    {orderedCustomProperties.map((property, propertyIndex) => (
+                    {nonDuplicateCustomProperties.map((property, propertyIndex) => (
                       <PropertyRow
                         key={property.id}
                         property={property}
@@ -1228,7 +1901,7 @@ export function InfoPanel({
                           }
                           if (
                             event.key === "ArrowDown" &&
-                            propertyIndex < orderedCustomProperties.length - 1
+                            propertyIndex < nonDuplicateCustomProperties.length - 1
                           ) {
                             event.preventDefault()
                             customOrder.moveWithKeyboard(property.id, 1)
@@ -1240,8 +1913,11 @@ export function InfoPanel({
                 )}
               </div>
             ) : (
-              <div className="px-1 py-3 text-xs text-muted-foreground">
-                {t("infoPanel.noCustom")}
+              <div className="space-y-1 px-1 py-3 text-xs text-muted-foreground">
+                <div>{t("infoPanel.noCustom")}</div>
+                <div className="text-[11px] text-muted-foreground/75">
+                  {t("infoPanel.noCustomHint")}
+                </div>
               </div>
             )}
           </section>
@@ -1302,14 +1978,14 @@ export function InfoPanel({
                     title={t("infoPanel.copyId")}
                   >
                     {copied ? (
-                      <Check className="size-3.5 text-emerald-400" />
+                      <Check className="size-3.5 text-emerald-600 dark:text-emerald-400" />
                     ) : (
                       <Copy className="size-3.5" />
                     )}
                   </button>
                 </div>
                 {copied && (
-                  <div className="px-3 pb-2 text-[10px] text-emerald-400">
+                  <div className="px-3 pb-2 text-[10px] text-emerald-600 dark:text-emerald-400">
                     {t("infoPanel.copied")}
                   </div>
                 )}
@@ -1323,6 +1999,9 @@ export function InfoPanel({
         open={propertyEditorOpen}
         onOpenChange={setPropertyEditorOpen}
         onSave={async (property) => {
+          if (editingProperty?.name && editingProperty.name !== property.name) {
+            await onDeleteCustomProperty?.(editingProperty.name)
+          }
           await onUpsertCustomProperty?.(property)
         }}
         onDelete={async (propertyId) => {

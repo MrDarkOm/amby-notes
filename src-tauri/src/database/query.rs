@@ -12,9 +12,9 @@ use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 
 use super::model::{
-    DatabaseDiagnostic, DatabaseError, DatabaseFieldRef, DatabaseFilterNode, DatabaseQueryRequest,
-    DatabaseQueryResult, DatabaseQuerySource, DatabaseRow, DatabaseSortSpec, DatabaseSummary,
-    ProjectionVersion,
+    DatabaseAggregateGroup, DatabaseAggregateRequest, DatabaseAggregateResult, DatabaseDiagnostic,
+    DatabaseError, DatabaseFieldRef, DatabaseFilterNode, DatabaseQueryRequest, DatabaseQueryResult,
+    DatabaseQuerySource, DatabaseRow, DatabaseSortSpec, DatabaseSummary, ProjectionVersion,
 };
 use crate::database::format::{
     DatabaseViewFile, FieldRef as DurableFieldRef, FilterNode as DurableFilterNode,
@@ -67,6 +67,14 @@ struct SortPlan {
     nulls: &'static str,
 }
 
+type AggregateFieldPlan = (
+    Option<String>,
+    Option<String>,
+    Vec<Value>,
+    Option<String>,
+    Vec<Value>,
+);
+
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Cursor {
@@ -105,7 +113,7 @@ pub fn query_database(
         ));
     }
     let projection = projection_version(conn)?;
-    let (database_title, view_spec) = match &request.source {
+    let (database_title, mut view_spec) = match &request.source {
         DatabaseQuerySource::Inline { spec } => {
             (database_name(conn, &request.database_id)?, spec.clone())
         }
@@ -143,6 +151,18 @@ pub fn query_database(
             (Some(row.0), query_spec_from_view(view))
         }
     };
+    if let Some(sorts) = &request.sorts {
+        view_spec.sorts = sorts.clone();
+    }
+    if let Some(filter) = &request.filter {
+        view_spec.filter = Some(match view_spec.filter.take() {
+            Some(saved_filter) => DatabaseFilterNode::Group {
+                operator: "and".to_owned(),
+                children: vec![saved_filter, filter.clone()],
+            },
+            None => filter.clone(),
+        });
+    }
     let database_name = database_title
         .or_else(|| database_name(conn, &request.database_id).ok().flatten())
         .ok_or_else(|| QueryFailure::new("databaseNotFound", "database was not found"))?;
@@ -174,6 +194,14 @@ pub fn query_database(
     } else {
         "1 = 1".to_owned()
     };
+    let search_sql = request
+        .search
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| compile_search(value, &mut bindings))
+        .unwrap_or_else(|| "1 = 1".to_owned());
+    let count_bindings = bindings.clone();
     let cursor_sql = cursor
         .as_ref()
         .map(|cursor| format!(" AND ({})", cursor_predicate(&sorts, cursor, &mut bindings)))
@@ -200,7 +228,7 @@ pub fn query_database(
         .collect::<Vec<_>>()
         .join(", ");
     let sql = format!(
-        "SELECT m.note_id, n.title, m.relative_path, m.parent_note_id, m.depth, m.category_path, COALESCE(r.revision, ''), {sort_keys} FROM db_members m JOIN notes n ON n.id = m.note_id LEFT JOIN db_record_revisions r ON r.database_id = m.database_id AND r.note_id = m.note_id {joins} WHERE m.database_id = ? AND ({filter_sql}) {cursor_sql} ORDER BY {order}, m.note_id ASC LIMIT ?"
+        "SELECT m.note_id, n.title, m.relative_path, m.parent_note_id, m.depth, m.category_path, COALESCE(r.revision, ''), {sort_keys} FROM db_members m JOIN notes n ON n.id = m.note_id LEFT JOIN db_record_revisions r ON r.database_id = m.database_id AND r.note_id = m.note_id {joins} WHERE m.database_id = ? AND ({filter_sql}) AND ({search_sql}) {cursor_sql} ORDER BY {order}, m.note_id ASC LIMIT ?"
     );
     let mut statement = conn.prepare(&sql).map_err(sql_failure)?;
     let mut rows = statement
@@ -265,6 +293,16 @@ pub fn query_database(
             })
         })
         .flatten();
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM db_members m JOIN notes n ON n.id = m.note_id {joins} WHERE m.database_id = ? AND ({filter_sql}) AND ({search_sql})"
+    );
+    let total_count = conn
+        .prepare(&count_sql)
+        .and_then(|mut statement| {
+            statement.query_row(params_from_iter(count_bindings), |row| row.get::<_, i64>(0))
+        })
+        .map_err(sql_failure)?
+        .max(0) as u64;
     Ok(DatabaseQueryResult {
         database: DatabaseSummary {
             database_id: request.database_id.clone(),
@@ -282,7 +320,270 @@ pub fn query_database(
         rows,
         next_cursor,
         diagnostics: load_diagnostics(conn, &request.database_id)?,
+        total_count,
     })
+}
+
+/// Run an aggregate against the filtered projection. The query returns one
+/// row per group and never transfers the source rows to the renderer.
+pub fn aggregate_database(
+    conn: &Connection,
+    request: &DatabaseAggregateRequest,
+) -> Result<DatabaseAggregateResult, QueryFailure> {
+    if request.limit == 0 || request.limit > 256 {
+        return Err(QueryFailure::new(
+            "invalidAggregateLimit",
+            "aggregate limit must be between 1 and 256",
+        ));
+    }
+    let (spec, database_title) = match &request.source {
+        DatabaseQuerySource::Inline { spec } => (spec.clone(), None),
+        DatabaseQuerySource::SavedView {
+            view_id,
+            expected_revision,
+        } => {
+            let row = conn
+                .query_row(
+                    "SELECT name, revision, query_json FROM db_views WHERE database_id = ?1 AND view_id = ?2",
+                    [request.database_id.as_str(), view_id.as_str()],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    },
+                )
+                .map_err(sql_failure)?;
+            if expected_revision
+                .as_deref()
+                .is_some_and(|revision| revision != row.1)
+            {
+                return Err(QueryFailure::new(
+                    "viewRevisionConflict",
+                    "saved view changed before aggregation",
+                ));
+            }
+            let view = serde_json::from_str::<DatabaseViewFile>(&row.2).map_err(|error| {
+                QueryFailure::new(
+                    "brokenView",
+                    format!("saved view is not queryable: {error}"),
+                )
+            })?;
+            (query_spec_from_view(view), Some(row.0))
+        }
+    };
+    let _database_name = database_title
+        .or_else(|| database_name(conn, &request.database_id).ok().flatten())
+        .ok_or_else(|| QueryFailure::new("databaseNotFound", "database was not found"))?;
+    if let Some(search) = request
+        .search
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        // Keep the temporary search independent from the durable view.
+        let _ = search;
+    }
+
+    let (category_type, category_expr, mut bindings, label_expr, label_bindings) =
+        aggregate_field_plan(conn, &request.database_id, request.category.as_ref())?;
+    let (measure_expr, measure_bindings) = aggregate_measure_plan(
+        conn,
+        &request.database_id,
+        request.measure.as_ref(),
+        &request.aggregation,
+    )?;
+    bindings.extend(measure_bindings);
+    bindings.push(Value::Text(request.database_id.clone()));
+    let filter_sql = if let Some(filter) = &spec.filter {
+        compile_filter(conn, &request.database_id, filter, 0, &mut 0, &mut bindings)?
+    } else {
+        "1 = 1".to_owned()
+    };
+    let search_sql = request
+        .search
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| compile_search(value, &mut bindings))
+        .unwrap_or_else(|| "1 = 1".to_owned());
+    bindings.extend(label_bindings);
+    let label_expression = label_expr.unwrap_or_else(|| "base.category_key".to_owned());
+    let category_expression = category_expr.unwrap_or_else(|| "NULL".to_owned());
+    let value_expression = match request.aggregation.as_str() {
+        "count" => "NULL".to_owned(),
+        "sum" => "CAST(SUM(CAST(base.measure_value AS REAL)) AS TEXT)".to_owned(),
+        "average" => "CAST(AVG(CAST(base.measure_value AS REAL)) AS TEXT)".to_owned(),
+        "min" => "MIN(base.measure_value)".to_owned(),
+        "max" => "MAX(base.measure_value)".to_owned(),
+        _ => unreachable!("aggregate_measure_plan validates the measure"),
+    };
+    let sql = format!(
+        "WITH base AS (SELECT m.note_id, {category_expression} AS category_key, {measure_expr} AS measure_value FROM db_members m JOIN notes n ON n.id = m.note_id WHERE m.database_id = ? AND ({filter_sql}) AND ({search_sql})) SELECT COALESCE(base.category_key, '__empty__') AS category_key, COALESCE({label_expression}, '') AS category_label, COUNT(DISTINCT base.note_id), {value_expression}, SUM(COUNT(DISTINCT base.note_id)) OVER () FROM base GROUP BY base.category_key ORDER BY COUNT(DISTINCT base.note_id) DESC, category_key ASC LIMIT ?"
+    );
+    bindings.push(Value::Integer(i64::from(request.limit)));
+    let mut statement = conn.prepare(&sql).map_err(sql_failure)?;
+    let mut rows = statement
+        .query(params_from_iter(bindings))
+        .map_err(sql_failure)?;
+    let mut groups = Vec::new();
+    let mut complete_count = 0;
+    while let Some(row) = rows.next().map_err(sql_failure)? {
+        groups.push(DatabaseAggregateGroup {
+            key: row.get(0).map_err(sql_failure)?,
+            label: row.get(1).map_err(sql_failure)?,
+            count: row.get::<_, i64>(2).map_err(sql_failure)?.max(0) as u64,
+            value: row.get(3).map_err(sql_failure)?,
+        });
+        complete_count = row.get::<_, i64>(4).map_err(sql_failure)?.max(0) as u64;
+    }
+    let total_count = complete_count;
+    let mut warnings = Vec::new();
+    if category_type.as_deref() == Some("multiSelect") {
+        warnings.push("Multi-select groups are limited to the first projected option".to_owned());
+    }
+    Ok(DatabaseAggregateResult {
+        database_id: request.database_id.clone(),
+        groups,
+        total_count,
+        warnings,
+    })
+}
+
+fn aggregate_field_plan(
+    conn: &Connection,
+    database_id: &str,
+    field: Option<&DatabaseFieldRef>,
+) -> Result<AggregateFieldPlan, QueryFailure> {
+    let Some(field) = field else {
+        return Ok((None, None, Vec::new(), None, Vec::new()));
+    };
+    match field {
+        DatabaseFieldRef::System { field } => {
+            let expression = match field.as_str() {
+                "title" => "n.title".to_owned(),
+                "path" => "m.relative_path".to_owned(),
+                "depth" => "CAST(m.depth AS TEXT)".to_owned(),
+                "parent" => "m.parent_note_id".to_owned(),
+                _ => {
+                    return Err(QueryFailure::new(
+                        "invalidAggregateField",
+                        "unknown category field",
+                    ))
+                }
+            };
+            Ok((
+                Some("system".to_owned()),
+                Some(expression),
+                Vec::new(),
+                None,
+                Vec::new(),
+            ))
+        }
+        DatabaseFieldRef::Property { property_id } => {
+            let property_type = conn
+                .query_row(
+                    "SELECT property_type FROM db_properties WHERE database_id = ?1 AND property_id = ?2",
+                    [database_id, property_id],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()
+                .map_err(sql_failure)?
+                .ok_or_else(|| QueryFailure::new("missingReference", "aggregate property is missing"))?;
+            if property_type == "multiSelect" {
+                return Err(QueryFailure::new(
+                    "unsupportedAggregateField",
+                    "multi-select grouping requires a dedicated group query",
+                ));
+            }
+            let column = match property_type.as_str() {
+                "number" => "decimal_value",
+                "checkbox" => "CAST(bool_value AS TEXT)",
+                "date" => "date_start",
+                "select" | "status" => "option_id",
+                "text" | "url" => "text_value",
+                _ => {
+                    return Err(QueryFailure::new(
+                        "invalidAggregateField",
+                        "property cannot be a category",
+                    ))
+                }
+            };
+            let expression = format!(
+                "(SELECT {column} FROM db_values cv WHERE cv.database_id = m.database_id AND cv.note_id = m.note_id AND cv.property_id = ?)"
+            );
+            let (label_expr, label_bindings) = if matches!(
+                property_type.as_str(),
+                "select" | "status"
+            ) {
+                (
+                    Some("(SELECT o.name FROM db_options o WHERE o.database_id = ? AND o.property_id = ? AND o.option_id = base.category_key)".to_owned()),
+                    vec![Value::Text(database_id.to_owned()), Value::Text(property_id.clone())],
+                )
+            } else {
+                (None, Vec::new())
+            };
+            Ok((
+                Some(property_type),
+                Some(expression),
+                vec![Value::Text(property_id.clone())],
+                label_expr,
+                label_bindings,
+            ))
+        }
+    }
+}
+
+fn aggregate_measure_plan(
+    conn: &Connection,
+    database_id: &str,
+    field: Option<&DatabaseFieldRef>,
+    aggregation: &str,
+) -> Result<(String, Vec<Value>), QueryFailure> {
+    if aggregation == "count" {
+        return Ok(("NULL".to_owned(), Vec::new()));
+    }
+    if !matches!(aggregation, "sum" | "average" | "min" | "max") {
+        return Err(QueryFailure::new(
+            "invalidAggregateMeasure",
+            "measure must be count, sum, average, min, or max",
+        ));
+    }
+    let Some(DatabaseFieldRef::Property { property_id }) = field else {
+        return Err(QueryFailure::new(
+            "invalidAggregateMeasure",
+            "numeric aggregation requires a number property field",
+        ));
+    };
+    let property_type = conn
+        .query_row(
+            "SELECT property_type FROM db_properties WHERE database_id = ?1 AND property_id = ?2",
+            [database_id, property_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(sql_failure)?
+        .ok_or_else(|| QueryFailure::new("missingReference", "measure property is missing"))?;
+    if property_type != "number" {
+        return Err(QueryFailure::new(
+            "invalidAggregateMeasure",
+            "numeric aggregation requires a number property",
+        ));
+    }
+    Ok((
+        "(SELECT decimal_value FROM db_values mv WHERE mv.database_id = m.database_id AND mv.note_id = m.note_id AND mv.property_id = ?)".to_owned(),
+        vec![Value::Text(property_id.clone())],
+    ))
+}
+
+fn compile_search(value: &str, bindings: &mut Vec<Value>) -> String {
+    let pattern = format!("%{}%", like_escape(value));
+    // Search is deliberately restricted to indexed titles and user-facing
+    // property text. All values are bound; `%`, `_` and quotes remain data.
+    bindings.push(Value::Text(pattern.clone()));
+    bindings.push(Value::Text(pattern));
+    "(n.title LIKE ? ESCAPE '\\' COLLATE NOCASE OR EXISTS (SELECT 1 FROM db_values_fts f WHERE f.database_id = m.database_id AND f.note_id = m.note_id AND f.searchable_text LIKE ? ESCAPE '\\' COLLATE NOCASE))".to_owned()
 }
 
 fn database_name(conn: &Connection, database_id: &str) -> Result<Option<String>, QueryFailure> {
@@ -737,8 +1038,12 @@ fn query_hash(
     request: &DatabaseQueryRequest,
     spec: &super::model::DatabaseQuerySpec,
 ) -> Result<String, QueryFailure> {
-    let encoded = serde_json::to_vec(&(request.database_id.as_str(), spec))
-        .map_err(|error| QueryFailure::new("queryHash", error.to_string()))?;
+    let encoded = serde_json::to_vec(&(
+        request.database_id.as_str(),
+        request.search.as_deref().unwrap_or_default(),
+        spec,
+    ))
+    .map_err(|error| QueryFailure::new("queryHash", error.to_string()))?;
     let digest = Sha256::digest(encoded);
     Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
 }
@@ -866,6 +1171,59 @@ fn load_values(
             .or_default()
             .insert(property_id, value);
     }
+
+    // Dynamically resolve reciprocal relation edges for two-way relations
+    if let Ok(mut stmt) = conn.prepare(
+        "SELECT property_id, config_json FROM db_properties WHERE database_id = ?1 AND property_type = 'relation'",
+    ) {
+        let relation_props = stmt
+            .query_map([database_id], |row| {
+                let prop_id: String = row.get(0)?;
+                let config_json: String = row.get(1)?;
+                Ok((prop_id, config_json))
+            })
+            .ok()
+            .into_iter()
+            .flat_map(|mapped| mapped.filter_map(Result::ok))
+            .filter_map(|(prop_id, config_json)| {
+                let config: serde_json::Value = serde_json::from_str(&config_json).ok()?;
+                let inverse_id = config.get("inversePropertyId")?.as_str()?.to_owned();
+                Some((prop_id, inverse_id))
+            })
+            .collect::<Vec<_>>();
+
+        for (prop_id, inverse_id) in relation_props {
+            let edge_sql = format!(
+                "SELECT target_note_id, source_note_id FROM db_relation_edges WHERE property_id = ? AND target_note_id IN ({placeholders}) AND target_state != 'missing' ORDER BY position"
+            );
+            let mut edge_bindings = vec![Value::Text(inverse_id)];
+            edge_bindings.extend(rows.iter().map(|row| Value::Text(row.note_id.clone())));
+            if let Ok(mut edge_stmt) = conn.prepare(&edge_sql) {
+                if let Ok(mut edge_rows) = edge_stmt.query(params_from_iter(edge_bindings)) {
+                    while let Ok(Some(edge_row)) = edge_rows.next() {
+                        let target_note_id: String = edge_row.get(0).unwrap_or_default();
+                        let source_note_id: String = edge_row.get(1).unwrap_or_default();
+                        if !target_note_id.is_empty() && !source_note_id.is_empty() {
+                            let row_vals = values.entry(target_note_id).or_default();
+                            let entry = row_vals.entry(prop_id.clone()).or_insert_with(|| {
+                                serde_json::json!({
+                                    "type": "relation",
+                                    "targetNoteIds": []
+                                })
+                            });
+                            if let Some(targets) = entry.get_mut("targetNoteIds").and_then(JsonValue::as_array_mut) {
+                                let val = JsonValue::String(source_note_id);
+                                if !targets.contains(&val) {
+                                    targets.push(val);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     values
         .into_iter()
         .map(|(note_id, values)| {
@@ -975,7 +1333,67 @@ mod tests {
                 },
             },
             page,
+            search: None,
+            sorts: None,
+            filter: None,
         }
+    }
+
+    #[test]
+    fn aggregate_count_is_calculated_before_pagination() {
+        let conn = connection();
+        let result = aggregate_database(
+            &conn,
+            &DatabaseAggregateRequest {
+                expected_generation: 1,
+                database_id: "01J00000000000000000000000".to_owned(),
+                source: DatabaseQuerySource::Inline {
+                    spec: DatabaseQuerySpec {
+                        filter: None,
+                        sorts: Vec::new(),
+                    },
+                },
+                category: None,
+                measure: None,
+                aggregation: "count".to_owned(),
+                search: None,
+                limit: 1,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.total_count, 3);
+        assert_eq!(result.groups.len(), 1);
+        assert_eq!(result.groups[0].count, 3);
+    }
+
+    #[test]
+    fn temporary_filter_is_combined_with_inline_view_filter() {
+        let conn = connection();
+        let mut request = request(
+            Some(DatabaseFilterNode::Condition {
+                field: DatabaseFieldRef::System {
+                    field: "title".to_owned(),
+                },
+                operator: "startsWith".to_owned(),
+                value: Some(serde_json::json!("A").to_string()),
+            }),
+            DatabasePageRequest {
+                limit: 10,
+                cursor: None,
+            },
+        );
+        request.filter = Some(DatabaseFilterNode::Condition {
+            field: DatabaseFieldRef::System {
+                field: "title".to_owned(),
+            },
+            operator: "equals".to_owned(),
+            value: Some(serde_json::json!("Beta").to_string()),
+        });
+
+        let result = query_database(&conn, &request).unwrap();
+
+        assert!(result.rows.is_empty());
+        assert_eq!(result.total_count, 0);
     }
 
     fn property(conn: &Connection, kind: &str, values: &[Option<JsonValue>]) {

@@ -16,7 +16,8 @@ pub(crate) use assets::{
 };
 pub(crate) use execute::{move_item_impl, rename_item_impl};
 pub(crate) use layers::{
-    attach_canvas_impl, create_canvas_impl, create_layer_impl, delete_layer_impl, unlink_layer_impl,
+    attach_canvas_impl, attach_sketch_impl, create_canvas_impl, create_layer_impl,
+    create_sketch_impl, delete_layer_impl, unlink_layer_impl,
 };
 #[cfg(test)]
 pub(crate) use notes::create_note_impl;

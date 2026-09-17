@@ -10,7 +10,7 @@ export interface DatabaseModuleState {
 }
 
 export interface DatabaseChangedPayload {
-  kind: string
+  kind: "manifest" | "record" | "view" | "template" | "note" | "container"
   path: string
   containerPath: string
   generation: number
@@ -53,6 +53,85 @@ export interface DatabaseViewSummary {
   groupField: DatabaseFieldRef | null
 }
 
+export interface DatabaseViewDocument {
+  databaseId: string
+  viewId: string
+  title: string
+  layout: string
+  revision: string
+  configJson: string
+}
+
+export interface CreateDatabaseViewRequest {
+  expectedGeneration: number
+  databaseId: string
+  expectedManifestRevision: string
+  name: string
+  layout: string
+}
+
+export interface DatabaseViewRequest {
+  expectedGeneration: number
+  databaseId: string
+  viewId: string
+  expectedViewRevision: string
+  expectedManifestRevision?: string
+}
+
+export interface UpdateDatabaseViewConfigRequest extends DatabaseViewRequest {
+  configJson: string
+}
+
+export interface RenameDatabaseViewRequest extends DatabaseViewRequest {
+  name: string
+}
+
+export interface DeleteDatabaseViewRequest extends DatabaseViewRequest {
+  expectedManifestRevision: string
+}
+
+export interface ReorderDatabaseViewsRequest {
+  expectedGeneration: number
+  databaseId: string
+  expectedManifestRevision: string
+  viewIds: string[]
+}
+
+export interface DatabaseViewMutationResult {
+  databaseId: string
+  viewId: string
+  viewRevision: string
+  manifestRevision: string
+  warnings: string[]
+}
+
+export interface DatabaseAggregateRequest {
+  expectedGeneration: number
+  databaseId: string
+  source:
+    | { kind: "savedView"; viewId: string; expectedRevision?: string }
+    | { kind: "inline"; spec: DatabaseQuerySpec }
+  category?: DatabaseFieldRef
+  measure?: DatabaseFieldRef
+  aggregation: "count" | "sum" | "average" | "min" | "max"
+  search?: string
+  limit: number
+}
+
+export interface DatabaseAggregateGroup {
+  key: string
+  label: string
+  count: number
+  value: string | null
+}
+
+export interface DatabaseAggregateResult {
+  databaseId: string
+  groups: DatabaseAggregateGroup[]
+  totalCount: number
+  warnings: string[]
+}
+
 export interface DatabaseTemplateSummary {
   templateId: string
   name: string
@@ -92,6 +171,11 @@ export interface CreateDatabasePropertyRequest {
   propertyType: string
   beforePropertyId?: string
   options?: string[]
+  formulaExpression?: string
+  relationTargetDatabaseId?: string
+  relationMaxItems?: number | null
+  relationTwoWay?: boolean
+  relationInversePropertyName?: string
 }
 
 export interface RenameDatabaseRequest {
@@ -114,6 +198,41 @@ export interface CreatedDatabaseProperty {
   name: string
   propertyType: string
   manifestRevision: string
+  warnings: string[]
+}
+
+export interface ChangeDatabasePropertyTypeRequest {
+  expectedGeneration: number
+  databaseId: string
+  propertyId: string
+  expectedManifestRevision: string
+  propertyType: string
+  relationTargetDatabaseId?: string
+  relationMaxItems?: number | null
+  relationTwoWay?: boolean
+  relationInversePropertyName?: string
+}
+
+export interface ChangedDatabasePropertyType {
+  databaseId: string
+  propertyId: string
+  propertyType: string
+  manifestRevision: string
+  warnings: string[]
+}
+
+export interface UpdateDatabaseRelationValueRequest {
+  expectedGeneration: number
+  databaseId: string
+  noteId: string
+  propertyId: string
+  targetNoteIds: string[]
+}
+
+export interface UpdateDatabaseRelationValueResult {
+  databaseId: string
+  noteId: string
+  targetNoteIds: string[]
   warnings: string[]
 }
 
@@ -270,6 +389,12 @@ export interface DatabaseQuerySpec {
 export interface DatabaseQueryRequest {
   expectedGeneration: number
   databaseId: string
+  /** Temporary, non-persisted search text for this query session. */
+  search?: string
+  /** Temporary sort override; saved view bytes remain unchanged. */
+  sorts?: DatabaseSortSpec[]
+  /** Temporary filter override; saved view bytes remain unchanged. */
+  filter?: DatabaseFilterNode
   source:
     | { kind: "savedView"; viewId: string; expectedRevision?: string }
     | { kind: "inline"; spec: DatabaseQuerySpec }
@@ -325,6 +450,8 @@ export interface DatabaseQueryResult {
   rows: DatabaseRow[]
   nextCursor: string | null
   diagnostics: DatabaseDiagnostic[]
+  /** Count of the complete filtered result, independent of the current page. */
+  totalCount: number
 }
 
 export type DatabaseError =
@@ -337,6 +464,7 @@ export class DatabaseOperationError extends Error {
   constructor(
     public readonly kind: DatabaseError["kind"],
     message: string,
+    public readonly code?: string,
   ) {
     super(message)
     this.name = "DatabaseOperationError"

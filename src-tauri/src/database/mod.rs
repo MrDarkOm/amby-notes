@@ -5,6 +5,7 @@ pub mod discovery;
 pub mod events;
 #[allow(dead_code)]
 pub mod format;
+pub mod formula;
 pub mod model;
 pub mod mutation_state;
 pub mod mutations;
@@ -14,4 +15,5 @@ pub mod rows;
 pub mod runtime_state;
 #[allow(dead_code)]
 pub mod validation;
+pub mod views;
 pub mod yaml_sync;

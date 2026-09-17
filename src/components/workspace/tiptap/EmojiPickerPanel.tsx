@@ -94,7 +94,11 @@ function IconGrid({ icons, iconColor, onSelect }: IconGridProps) {
                   className="flex aspect-square items-center justify-center rounded-md hover:bg-accent"
                   onClick={() => onSelect(name)}
                 >
-                  <Icon className="size-5" style={{ color: iconColor }} />
+                  <Icon
+                    className="size-5"
+                    data-amby-icon-color={iconColor ? iconColor.toLowerCase() : undefined}
+                    style={{ color: iconColor }}
+                  />
                 </button>
               ))}
             </div>
@@ -461,7 +465,11 @@ export function EmojiPickerPanel({
               className="flex size-10 shrink-0 items-center justify-center rounded-[10px] border border-border hover:bg-accent"
               onClick={() => setColorOpen((open) => !open)}
             >
-              <span className="size-4 rounded-full" style={{ backgroundColor: iconColor }} />
+              <span
+                className="size-4 rounded-full"
+                data-amby-icon-color={iconColor ? iconColor.toLowerCase() : undefined}
+                style={{ backgroundColor: iconColor }}
+              />
             </button>
             {colorOpen && (
               <div className="absolute right-3 top-[58px] z-10 grid grid-cols-3 gap-2 rounded-lg border border-border bg-popover p-2 shadow-lg">
@@ -470,6 +478,7 @@ export function EmojiPickerPanel({
                     key={color}
                     type="button"
                     aria-label={color}
+                    data-amby-icon-color={color.toLowerCase()}
                     className={cn(
                       "size-7 rounded-full border-2",
                       iconColor === color ? "border-foreground" : "border-transparent",

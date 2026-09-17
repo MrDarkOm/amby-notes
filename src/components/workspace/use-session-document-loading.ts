@@ -24,7 +24,12 @@ export async function loadMissingSessionDocuments({
   const seen = new Set<string>()
   for (const tab of tabs) {
     if (!isCurrent()) return
-    if (tab.kind !== "document" || seen.has(tab.fileId) || isLoaded(tab.fileId)) continue
+    if (
+      (tab.kind !== "document" && tab.kind !== "canvas" && tab.kind !== "sketch") ||
+      seen.has(tab.fileId) ||
+      isLoaded(tab.fileId)
+    )
+      continue
     seen.add(tab.fileId)
     try {
       await loadDocument(tab.fileId, tab.title)

@@ -20,6 +20,18 @@ export class MutationsRepository {
     return this.port().attachCanvasToNote(vaultPath, canvasPath)
   }
 
+  async createSketchFile(
+    vaultPath: string,
+    parentPath: string | null,
+    name: string,
+  ): Promise<string> {
+    return this.port().createSketchFile(vaultPath, parentPath, name)
+  }
+
+  async attachSketchToNote(vaultPath: string, sketchPath: string): Promise<FsMutationResult> {
+    return this.port().attachSketchToNote(vaultPath, sketchPath)
+  }
+
   async renameItem(vaultPath: string, path: string, newName: string): Promise<FsMutationResult> {
     return this.port().renameItem(vaultPath, path, newName)
   }

@@ -13,10 +13,13 @@ export interface UseFileActionsParams {
   applyMutationResult: (result: FsMutationResult) => void
   loadCanvas: (path: string) => Promise<void>
   setOpenCanvases: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  loadSketch: (path: string) => Promise<void>
+  setOpenSketches: React.Dispatch<React.SetStateAction<Record<string, string>>>
   setPendingRenameId: React.Dispatch<React.SetStateAction<string | null>>
   autosaveGeneration: number
   backendGeneration: number | null
   windowLabel: string
+  refreshDatabaseCatalog?: () => Promise<void>
 }
 
 export interface MarkdownAutosavePayload {

@@ -46,6 +46,22 @@ impl ActiveVault {
             loaded
         })
     }
+
+    pub fn reindex(&self) -> Result<vault_index::LoadVaultResult, String> {
+        let _ = crate::database::discovery::migrate_legacy_database_manifests(&self.root);
+        let _ = property_store::restore_cache(&self.connection, &self.root);
+        let mut changed = HashSet::new();
+        changed.insert(self.root.clone());
+        self.index_changes.lock().unwrap().clear();
+        let result = vault_index::load_vault_with_changes(self, &self.root, &changed);
+        let _ = property_store::sync_all_properties_to_markdown(&self.connection, &self.root);
+        let _ =
+            crate::database::projection::rebuild_database_projection(&self.connection, &self.root);
+        result.map(|mut loaded| {
+            loaded.generation = self.generation;
+            loaded
+        })
+    }
 }
 
 impl Deref for ActiveVault {
@@ -127,10 +143,13 @@ impl VaultContext {
                 recovery.journal_path
             ));
         }
+        let _ = crate::database::discovery::migrate_legacy_database_manifests(&root);
         let connection = vault_index::open_connection(&root)?;
         property_store::restore_cache(&connection, &root)?;
         let _ = crate::recovery::sweep_expired_recovery(&root);
         let loaded = vault_index::load_vault(&connection, &root)?;
+        let _ = property_store::sync_all_properties_to_markdown(&connection, &root);
+        let _ = crate::database::projection::rebuild_database_projection(&connection, &root);
 
         Ok(PreparedVault {
             root,
@@ -398,5 +417,19 @@ mod tests {
         for command in commands {
             command.join().unwrap().unwrap();
         }
+    }
+
+    #[test]
+    fn reindexing_active_vault_rescans_all_notes_and_rebuilds_tree() {
+        let context = VaultContext::default();
+        let vault = temp_dir("reindex");
+        fs::write(vault.join("Note.md"), "# Note Content\n").unwrap();
+        context
+            .activate(vault.to_str().unwrap(), |_| Ok(()), |loaded, _| loaded)
+            .unwrap();
+
+        let reindexed = context.with_active(|active| active.reindex()).unwrap();
+        assert_eq!(reindexed.notes.len(), 1);
+        assert_eq!(reindexed.tree.len(), 1);
     }
 }

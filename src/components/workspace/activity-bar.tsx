@@ -30,6 +30,7 @@ import {
   settingsTargetForActivityButton,
   type SettingsNavigationTarget,
 } from "./settings-navigation"
+import type { HelpContext } from "./help-modal"
 
 interface ActivityBarProps {
   side: Side
@@ -52,6 +53,7 @@ interface ActivityBarProps {
   onPinnedChange?: (pinned: boolean) => void
   onAutoHideChange?: (hovering: boolean) => void
   onOpenSettings: (target: SettingsNavigationTarget) => void
+  helpContext?: HelpContext
 }
 
 type ActivityZone = "view" | "action"
@@ -81,6 +83,7 @@ export function ActivityBar({
   onPinnedChange,
   onAutoHideChange,
   onOpenSettings,
+  helpContext,
 }: ActivityBarProps) {
   const { t } = useTranslation()
   const [isAutoHideHover, setIsAutoHideHover] = React.useState(false)
@@ -190,7 +193,10 @@ export function ActivityBar({
     const isActive = def.kind === "view" && isPanelOpen && activeView === def.id
     const isDragging = draggingId === def.id
     const Icon = def.icon
-    const label = t(def.labelKey)
+    const label =
+      def.id === "help" && helpContext && helpContext !== "workspace"
+        ? t("actions.helpWithContext", { context: t(`help.tabs.${helpContext}`) })
+        : t(def.labelKey)
     const settingsTarget = settingsTargetForActivityButton(def.id)
     const settingsLabelKey = settingsLabelKeyForActivityButton(def.id)
     const element = (
@@ -199,6 +205,7 @@ export function ActivityBar({
         draggable={false}
         title={label}
         aria-label={label}
+        data-tooltip-side={side === "left" ? "right" : "left"}
         data-activity-button={def.id}
         data-activity-zone={zone}
         data-active={isActive || undefined}

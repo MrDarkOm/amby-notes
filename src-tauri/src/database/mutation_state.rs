@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
 use super::mutations::{DatabaseValueBatchRequest, DatabaseValueBatchResult};
@@ -12,6 +12,7 @@ struct CompletedMutation {
 #[derive(Default)]
 pub struct DatabaseMutationState {
     completed: Mutex<HashMap<(u64, String), CompletedMutation>>,
+    order: Mutex<VecDeque<(u64, String)>>,
 }
 
 impl DatabaseMutationState {
@@ -41,13 +42,23 @@ impl DatabaseMutationState {
         request: DatabaseValueBatchRequest,
         result: DatabaseValueBatchResult,
     ) {
+        let key = (generation, result.operation_id.clone());
         self.completed
             .lock()
             .expect("database mutation state poisoned")
-            .insert(
-                (generation, result.operation_id.clone()),
-                CompletedMutation { request, result },
-            );
+            .insert(key.clone(), CompletedMutation { request, result });
+        let mut order = self.order.lock().expect("database mutation order poisoned");
+        order.retain(|candidate| candidate != &key);
+        order.push_back(key);
+        while order.len() > 512 {
+            let Some(oldest) = order.pop_front() else {
+                break;
+            };
+            self.completed
+                .lock()
+                .expect("database mutation state poisoned")
+                .remove(&oldest);
+        }
     }
 
     pub fn reset_for_generation(&self, generation: u64) {
@@ -55,6 +66,10 @@ impl DatabaseMutationState {
             .lock()
             .expect("database mutation state poisoned")
             .retain(|(stored_generation, _), _| *stored_generation == generation);
+        self.order
+            .lock()
+            .expect("database mutation order poisoned")
+            .retain(|(stored_generation, _)| *stored_generation == generation);
     }
 }
 

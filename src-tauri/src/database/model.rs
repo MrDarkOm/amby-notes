@@ -17,6 +17,16 @@ pub struct DatabaseModuleState {
     pub projection: Option<ProjectionVersion>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseChangedRequest {
+    pub kind: String,
+    pub path: String,
+    pub container_path: String,
+    pub generation: u64,
+    pub requires_full_rebuild: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DatabaseViewSummary {
@@ -25,6 +35,87 @@ pub struct DatabaseViewSummary {
     pub layout: String,
     pub revision: String,
     pub group_field: Option<DatabaseFieldRef>,
+}
+
+#[derive(Clone, Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseViewDocument {
+    pub database_id: String,
+    pub view_id: String,
+    pub title: String,
+    pub layout: String,
+    pub revision: String,
+    pub config_json: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDatabaseViewRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub expected_manifest_revision: String,
+    pub name: String,
+    pub layout: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseViewRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub view_id: String,
+    pub expected_view_revision: String,
+    #[serde(default)]
+    pub expected_manifest_revision: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDatabaseViewConfigRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub view_id: String,
+    pub expected_view_revision: String,
+    pub config_json: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameDatabaseViewRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub view_id: String,
+    pub expected_view_revision: String,
+    pub name: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteDatabaseViewRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub view_id: String,
+    pub expected_view_revision: String,
+    pub expected_manifest_revision: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderDatabaseViewsRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub expected_manifest_revision: String,
+    pub view_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseViewMutationResult {
+    pub database_id: String,
+    pub view_id: String,
+    pub view_revision: String,
+    pub manifest_revision: String,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
@@ -132,6 +223,9 @@ pub enum DatabaseQuerySource {
 pub struct DatabaseQueryRequest {
     pub expected_generation: u64,
     pub database_id: String,
+    pub search: Option<String>,
+    pub sorts: Option<Vec<DatabaseSortSpec>>,
+    pub filter: Option<DatabaseFilterNode>,
     pub source: DatabaseQuerySource,
     pub page: DatabasePageRequest,
 }
@@ -179,6 +273,38 @@ pub struct DatabaseQueryResult {
     pub rows: Vec<DatabaseRow>,
     pub next_cursor: Option<String>,
     pub diagnostics: Vec<DatabaseDiagnostic>,
+    pub total_count: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseAggregateRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub source: DatabaseQuerySource,
+    pub category: Option<DatabaseFieldRef>,
+    pub measure: Option<DatabaseFieldRef>,
+    pub aggregation: String,
+    pub search: Option<String>,
+    pub limit: u32,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseAggregateGroup {
+    pub key: String,
+    pub label: String,
+    pub count: u64,
+    pub value: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseAggregateResult {
+    pub database_id: String,
+    pub groups: Vec<DatabaseAggregateGroup>,
+    pub total_count: u64,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]

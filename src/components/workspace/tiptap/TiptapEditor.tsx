@@ -52,6 +52,7 @@ interface TiptapEditorProps {
   onSelectionChange?: (selection: MarkdownSelection) => void
   /** Read uses the same Tiptap instance but must not inherit Live layout styles. */
   isReadOnly?: boolean
+  onContentDirty?: () => void
 }
 
 interface MenuState {
@@ -89,10 +90,12 @@ export function TiptapEditor({
   selection,
   onSelectionChange,
   isReadOnly = false,
+  onContentDirty,
 }: TiptapEditorProps) {
   const valueRef = React.useRef(value)
   const originalValueRef = React.useRef(value)
   const onChangeRef = React.useRef(onChange)
+  const onContentDirtyRef = React.useRef(onContentDirty)
   const onSelectionChangeRef = React.useRef(onSelectionChange)
   const restoredSelectionRef = React.useRef(false)
   const suppressSelectionMenuRef = React.useRef(false)
@@ -125,12 +128,17 @@ export function TiptapEditor({
     documentDirtyRef.current = false
     if (markdown === valueRef.current) return
     valueRef.current = markdown
+    originalValueRef.current = markdown
     onChangeRef.current(markdown)
   }, [])
 
   React.useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
+
+  React.useEffect(() => {
+    onContentDirtyRef.current = onContentDirty
+  }, [onContentDirty])
 
   React.useEffect(() => {
     onSelectionChangeRef.current = onSelectionChange
@@ -175,6 +183,7 @@ export function TiptapEditor({
     },
     onUpdate: ({ editor }) => {
       documentDirtyRef.current = true
+      onContentDirtyRef.current?.()
       if (serializeTimerRef.current) clearTimeout(serializeTimerRef.current)
       serializeTimerRef.current = setTimeout(() => flushSerialize(editor), 200)
     },

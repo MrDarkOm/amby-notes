@@ -6,7 +6,12 @@ export function restoreSourceFormatting(serialized: string, original: string): s
   // An all-blank document has no text nodes in ProseMirror. Preserve its exact
   // count and style of line endings instead of trying to derive overlapping
   // leading and trailing segments from the same bytes.
-  if (/^(?:\r?\n)*$/u.test(original)) return original
+  if (/^(?:\r?\n)*$/u.test(serialized)) {
+    return /^(?:\r?\n)*$/u.test(original) ? original : serialized
+  }
+  if (/^(?:\r?\n)*$/u.test(original)) {
+    return original.includes("\r\n") ? serialized.replace(/\n/g, "\r\n") : serialized
+  }
   const hasCrLf = original.includes("\r\n")
   const hasLoneLf = /(^|[^\r])\n/.test(original)
   const hasLoneCr = /\r(?!\n)/.test(original)

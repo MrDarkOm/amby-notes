@@ -2,7 +2,16 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { FileText, Folder, FolderPlus, LayoutGrid, Plus, Search } from "lucide-react"
+import {
+  Database,
+  FileText,
+  Folder,
+  FolderPlus,
+  LayoutGrid,
+  PenTool,
+  Plus,
+  Search,
+} from "lucide-react"
 import { motion } from "motion/react"
 import { cn } from "@/lib/utils"
 import { motionTransitions } from "@/lib/motion-config"
@@ -20,10 +29,24 @@ interface FolderViewProps {
 }
 
 function itemIcon(item: TreeItem) {
-  const customIcon = item.icon && !["folder", "file", "canvas", "supernote"].includes(item.icon)
+  const customIcon =
+    item.icon &&
+    ![
+      "folder",
+      "file",
+      "canvas",
+      "sketch",
+      "database",
+      "supernote",
+      "supercanvas",
+      "supersketch",
+      "superdatabase",
+    ].includes(item.icon)
   if (customIcon) return <IconValue value={item.icon} className="size-5" />
   if (item.type === "folder") return <Folder className="size-5" />
   if (item.type === "canvas") return <LayoutGrid className="size-5" />
+  if (item.type === "sketch") return <PenTool className="size-5" />
+  if (item.type === "database") return <Database className="size-5" />
   return <FileText className="size-5" />
 }
 
@@ -69,10 +92,19 @@ export function FolderView({
                 aria-label={t("docEditor.changeIcon")}
                 onClick={() => setIconPickerOpen((open) => !open)}
               >
-                {folder.icon && !["folder", "file", "canvas", "supernote"].includes(folder.icon) ? (
+                {folder.icon &&
+                ![
+                  "folder",
+                  "file",
+                  "canvas",
+                  "sketch",
+                  "supernote",
+                  "supercanvas",
+                  "supersketch",
+                ].includes(folder.icon) ? (
                   <IconValue value={folder.icon} className="size-7" />
                 ) : (
-                  <Folder className="size-7 text-amber-500" strokeWidth={1.8} />
+                  <Folder className="size-7 text-amber-600 dark:text-amber-500" strokeWidth={1.8} />
                 )}
               </motion.button>
               {iconPickerOpen && (
@@ -147,7 +179,7 @@ export function FolderView({
                   <span
                     className={cn(
                       "flex size-9 shrink-0 items-center justify-center rounded-lg bg-accent text-muted-foreground group-hover:text-foreground",
-                      item.type === "folder" && "text-amber-500",
+                      item.type === "folder" && "text-amber-600 dark:text-amber-500",
                     )}
                   >
                     {itemIcon(item)}

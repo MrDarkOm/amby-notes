@@ -4,7 +4,11 @@ import {
   wsPathBase,
   wsPathStem,
   isSuperNoteItem,
+  isSuperCanvasItem,
+  isSuperSketchItem,
+  noteLayerPath,
   canvasLayerPath,
+  sketchLayerPath,
   flattenFileItems,
   flattenTree,
   findTreeItem,
@@ -114,9 +118,75 @@ describe("isSuperNoteItem", () => {
   })
 })
 
+describe("isSuperCanvasItem", () => {
+  it("recognizes a bundle's same-named main canvas", () => {
+    expect(isSuperCanvasItem({ type: "canvas", path: "/vault/Diagram/Diagram.canvas" })).toBe(true)
+  })
+
+  it("does not mark a loose canvas as a supercanvas", () => {
+    expect(isSuperCanvasItem({ type: "canvas", path: "/vault/Diagram.canvas" })).toBe(false)
+  })
+})
+
+describe("isSuperSketchItem", () => {
+  it("recognizes a bundle's same-named main sketch", () => {
+    expect(isSuperSketchItem({ type: "sketch", path: "/vault/Drawing/Drawing.excalidraw" })).toBe(
+      true,
+    )
+  })
+
+  it("does not mark a loose sketch as a supersketch", () => {
+    expect(isSuperSketchItem({ type: "sketch", path: "/vault/Drawing.excalidraw" })).toBe(false)
+  })
+})
+
+describe("noteLayerPath", () => {
+  it("builds the sidecar note path for a canvas", () => {
+    expect(noteLayerPath("/vault/notes/my-canvas.canvas")).toBe("/vault/notes/my-canvas.md")
+  })
+
+  it("handles root-level files without leading slashes", () => {
+    expect(noteLayerPath("my-canvas.canvas")).toBe("my-canvas.md")
+  })
+
+  it("returns markdown path unchanged", () => {
+    expect(noteLayerPath("my-note.md")).toBe("my-note.md")
+  })
+
+  it("builds the sidecar note path for a container directory", () => {
+    expect(noteLayerPath("/vault/Projects")).toBe("/vault/Projects/Projects.md")
+  })
+})
+
 describe("canvasLayerPath", () => {
   it("builds the sidecar canvas path", () => {
     expect(canvasLayerPath("/vault/notes/my-note.md")).toBe("/vault/notes/my-note.canvas")
+  })
+
+  it("handles root-level files without leading slashes", () => {
+    expect(canvasLayerPath("my-note.md")).toBe("my-note.canvas")
+  })
+
+  it("returns canvas path unchanged", () => {
+    expect(canvasLayerPath("my-canvas.canvas")).toBe("my-canvas.canvas")
+  })
+
+  it("builds the sidecar canvas path for a container directory", () => {
+    expect(canvasLayerPath("/vault/Projects")).toBe("/vault/Projects/Projects.canvas")
+  })
+})
+
+describe("sketchLayerPath", () => {
+  it("builds the sidecar sketch path", () => {
+    expect(sketchLayerPath("/vault/notes/my-note.md")).toBe("/vault/notes/my-note.excalidraw")
+  })
+
+  it("handles root-level files without leading slashes", () => {
+    expect(sketchLayerPath("my-sketch.excalidraw")).toBe("my-sketch.excalidraw")
+  })
+
+  it("builds the sidecar sketch path for a container directory", () => {
+    expect(sketchLayerPath("/vault/Projects")).toBe("/vault/Projects/Projects.excalidraw")
   })
 })
 

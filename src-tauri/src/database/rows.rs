@@ -66,16 +66,12 @@ pub fn create_database_row(
     if database.read_only {
         return Err("Database is read-only".to_owned());
     }
-    let notes = discover_vault(vault)?.notes;
-    let normalized = normalize_title(title);
-    if notes.iter().any(|note| {
-        note.owner_database_id.as_deref() == Some(request.database_id.as_str())
-            && normalize_title(&note.title) == normalized
-    }) {
-        return Err("A row with this normalized title already exists".to_owned());
-    }
     let note_id = ulid::Ulid::generate().to_string();
-    let note_path = database.container_path.join(format!("{title}.md"));
+    // The stable ID belongs to the row metadata, not the user's filename.
+    // Resolve duplicate titles with the familiar numeric suffix used by file
+    // managers, while the frontmatter ID remains the durable identity.
+    let stem = safe_row_stem(title);
+    let note_path = unique_row_path(&database.container_path, &stem)?;
     let record_path = database
         .container_path
         .join(".ambd/records")
@@ -90,7 +86,10 @@ pub fn create_database_row(
             load_template(&database, &request.database_id, template_id)
         }
     };
-    let note_bytes = format!("---\namby-id: {note_id}\n---\n{template_body}").into_bytes();
+    let encoded_title = serde_json::to_string(title).map_err(|error| error.to_string())?;
+    let note_bytes =
+        format!("---\namby-id: {note_id}\namby-title: {encoded_title}\n---\n{template_body}")
+            .into_bytes();
     let record_bytes = json_bytes(&json!({
         "format": "amby-database-record",
         "formatVersion": 1,
@@ -205,12 +204,67 @@ fn load_template_file(
     (template.value.body, values)
 }
 
-fn normalize_title(value: &str) -> String {
-    value
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase()
+fn safe_row_stem(title: &str) -> String {
+    let mut readable = title
+        .chars()
+        .map(|character| {
+            if character.is_control() || matches!(character, '/' | '\\' | ':') {
+                '-'
+            } else {
+                character
+            }
+        })
+        .collect::<String>();
+    while readable.ends_with(['.', ' ']) {
+        readable.pop();
+    }
+    let reserved = matches!(
+        readable.to_ascii_uppercase().as_str(),
+        "CON" | "PRN" | "AUX" | "NUL"
+    ) || (readable.len() == 4
+        && (readable.to_ascii_uppercase().starts_with("COM")
+            || readable.to_ascii_uppercase().starts_with("LPT"))
+        && readable
+            .as_bytes()
+            .get(3)
+            .is_some_and(|byte| (b'1'..=b'9').contains(byte)));
+    if reserved {
+        readable = "row".to_owned();
+    }
+    let readable = readable.trim();
+    let readable = if readable.is_empty() { "row" } else { readable };
+    let max_readable = 96usize;
+    let mut prefix = String::new();
+    for character in readable.chars() {
+        if prefix.len() + character.len_utf8() > max_readable.max(1) {
+            break;
+        }
+        prefix.push(character);
+    }
+    prefix
+}
+
+fn unique_row_path(container: &Path, stem: &str) -> Result<std::path::PathBuf, String> {
+    for number in 1..=10_000_u32 {
+        let suffix = if number == 1 {
+            String::new()
+        } else {
+            format!(" {number}")
+        };
+        let max_stem_len = 96usize.saturating_sub(suffix.len());
+        let mut base = String::new();
+        for character in stem.chars() {
+            if base.len() + character.len_utf8() > max_stem_len {
+                break;
+            }
+            base.push(character);
+        }
+        let candidate = container.join(format!("{base}{suffix}.md"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err("Could not find an available filename for the database row".to_owned())
 }
 
 fn json_bytes(value: &serde_json::Value) -> Result<Vec<u8>, String> {
@@ -297,7 +351,7 @@ mod tests {
         let container = vault.join("Projects");
         let property_id = ulid::Ulid::generate().to_string();
         let template_id = ulid::Ulid::generate().to_string();
-        let manifest_path = container.join("ambd.json");
+        let manifest_path = crate::database::discovery::manifest_path_for_container(&container);
         let mut manifest: serde_json::Value =
             serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
         manifest["templateOrder"] = json!([template_id.clone()]);
@@ -367,10 +421,66 @@ mod tests {
         )
         .unwrap();
         let note = String::from_utf8(fs::read(row.note_path).unwrap()).unwrap();
-        assert_eq!(note, format!("---\namby-id: {}\n---\n", row.note_id));
+        assert_eq!(
+            note,
+            format!(
+                "---\namby-id: {}\namby-title: \"Blank\"\n---\n",
+                row.note_id
+            )
+        );
         let record: serde_json::Value =
             serde_json::from_slice(&fs::read(row.record_path).unwrap()).unwrap();
         assert_eq!(record["values"], json!({}));
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn duplicate_titles_get_readable_numbered_paths_and_display_titles() {
+        let vault = temp_vault();
+        let database = create_database(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Duplicate names".to_owned(),
+            },
+        )
+        .unwrap();
+        let first = create_database_row(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRowRequest {
+                expected_generation: 1,
+                database_id: database.database_id.clone(),
+                title: "Алекс".to_owned(),
+                template: DatabaseRowTemplate::Empty,
+            },
+        )
+        .unwrap();
+        let second = create_database_row(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRowRequest {
+                expected_generation: 1,
+                database_id: database.database_id,
+                title: "Алекс".to_owned(),
+                template: DatabaseRowTemplate::Empty,
+            },
+        )
+        .unwrap();
+        assert_ne!(first.note_id, second.note_id);
+        assert_ne!(first.note_path, second.note_path);
+        assert!(first.note_path.ends_with("Алекс.md"));
+        assert!(second.note_path.ends_with("Алекс 2.md"));
+        assert!(String::from_utf8(fs::read(first.note_path).unwrap())
+            .unwrap()
+            .contains("amby-title: \"Алекс\""));
+        assert!(String::from_utf8(fs::read(second.note_path).unwrap())
+            .unwrap()
+            .contains("amby-title: \"Алекс\""));
         let _ = fs::remove_dir_all(vault);
     }
 

@@ -13,6 +13,10 @@ describe("validateAndSerializeCanvas", () => {
     )
   })
 
+  it("normalizes an empty JSON object into canonical empty canvas", () => {
+    expect(validateAndSerializeCanvas("{}")).toBe('{\n  "nodes": [],\n  "edges": []\n}\n')
+  })
+
   it("rejects malformed or incomplete Canvas JSON", () => {
     expect(() => validateAndSerializeCanvas("not json")).toThrow("valid JSON")
     expect(() => validateAndSerializeCanvas('{"nodes":[]}')).toThrow("nodes and edges")

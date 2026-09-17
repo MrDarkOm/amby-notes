@@ -1,6 +1,6 @@
 "use client"
 
-import { Database, FileText, FolderPlus, LayoutGrid } from "lucide-react"
+import { Database, FileText, FolderPlus, LayoutGrid, PenLine } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
@@ -10,6 +10,7 @@ interface NewItemModalProps {
   onCreateNote: () => void
   onCreateFolder: () => void
   onCreateCanvas: () => void
+  onCreateSketch: () => void
   onCreateDatabase?: () => void
   canCreateDatabase?: boolean
 }
@@ -20,6 +21,7 @@ export function NewItemModal({
   onCreateNote,
   onCreateFolder,
   onCreateCanvas,
+  onCreateSketch,
   onCreateDatabase,
   canCreateDatabase = false,
 }: NewItemModalProps) {
@@ -69,6 +71,18 @@ export function NewItemModal({
             className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center hover:border-border hover:bg-accent"
           >
             <LayoutGrid className="size-5 text-foreground" />
+          </button>
+
+          <button
+            onClick={() => {
+              onClose()
+              onCreateSketch()
+            }}
+            title={t("newItem.sketch")}
+            aria-label={t("newItem.sketch")}
+            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center hover:border-border hover:bg-accent"
+          >
+            <PenLine className="size-5 text-foreground" />
           </button>
 
           <button

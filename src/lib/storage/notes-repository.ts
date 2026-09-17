@@ -39,6 +39,10 @@ export class NotesRepository {
     return this.port().loadActiveVaultData()
   }
 
+  async reindexActiveVaultData(): Promise<LoadVaultResult> {
+    return this.port().reindexActiveVaultData()
+  }
+
   async preflightVault(vaultPath: string): Promise<VaultPreflight> {
     return this.port().preflightVault(vaultPath)
   }

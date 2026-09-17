@@ -6,22 +6,34 @@ use crate::model::{FsMutationResult, PathChange};
 
 use super::path_ops::file_stem;
 use super::path_string;
-use super::scan::{is_bundle_main_note, is_markdown};
+use super::scan::{is_bundle_main_note, is_supported_document};
 
 pub(crate) fn ensure_bundle_path(note_path: &Path) -> Result<(PathBuf, Vec<PathChange>), String> {
-    if !note_path.is_file() || !is_markdown(note_path) {
-        return Err(format!("Not a markdown note: {}", path_string(note_path)));
+    if note_path.is_dir() {
+        if let Some(manifest) = crate::database::discovery::find_manifest_path(note_path) {
+            return Ok((manifest, Vec::new()));
+        }
+    }
+    if !note_path.is_file() || !is_supported_document(note_path) {
+        return Err(format!(
+            "Not a supported document: {}",
+            path_string(note_path)
+        ));
     }
     if is_bundle_main_note(note_path) {
         return Ok((note_path.to_path_buf(), Vec::new()));
     }
 
     let stem = file_stem(note_path)?;
+    let ext = note_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("md");
     let parent = note_path
         .parent()
-        .ok_or_else(|| format!("Note has no parent: {}", path_string(note_path)))?;
+        .ok_or_else(|| format!("Document has no parent: {}", path_string(note_path)))?;
     let bundle_dir = parent.join(&stem);
-    let new_note = bundle_dir.join(format!("{stem}.md"));
+    let new_note = bundle_dir.join(format!("{stem}.{ext}"));
 
     if bundle_dir.exists() {
         return Err(format!(
@@ -105,10 +117,16 @@ impl CreateNotePlan {
     pub(crate) fn promotion_paths(&self) -> Option<(&Path, &Path, PathBuf)> {
         self.should_promote.then(|| {
             let parent_stem = file_stem(&self.parent_path).unwrap_or_default();
+            let ext = self
+                .parent_path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("md");
             (
                 self.parent_path.as_path(),
                 self.prospective_container.as_path(),
-                self.prospective_container.join(format!("{parent_stem}.md")),
+                self.prospective_container
+                    .join(format!("{parent_stem}.{ext}")),
             )
         })
     }
@@ -179,15 +197,21 @@ pub(crate) fn prepare_create_note_impl(
     }
 
     let (prospective_container, should_promote) = if parent_path.is_file() {
-        if !is_markdown(parent_path) {
-            return Err(format!("Not a markdown note: {}", path_string(parent_path)));
+        if !is_supported_document(parent_path) {
+            return Err(format!(
+                "Not a supported document: {}",
+                path_string(parent_path)
+            ));
         }
         if is_bundle_main_note(parent_path) {
             (
                 parent_path
                     .parent()
                     .ok_or_else(|| {
-                        format!("Bundle note has no parent: {}", path_string(parent_path))
+                        format!(
+                            "Bundle document has no parent: {}",
+                            path_string(parent_path)
+                        )
                     })?
                     .to_path_buf(),
                 false,
@@ -195,7 +219,7 @@ pub(crate) fn prepare_create_note_impl(
         } else {
             let parent = parent_path
                 .parent()
-                .ok_or_else(|| format!("Note has no parent: {}", path_string(parent_path)))?;
+                .ok_or_else(|| format!("Document has no parent: {}", path_string(parent_path)))?;
             (parent.join(file_stem(parent_path)?), true)
         }
     } else {
@@ -220,7 +244,11 @@ pub(crate) fn prepare_create_note_impl(
     let sibling_bundle = prospective_container.join(trimmed);
     let planned_main = should_promote.then(|| {
         let parent_stem = file_stem(parent_path).unwrap_or_default();
-        prospective_container.join(format!("{parent_stem}.md"))
+        let ext = parent_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("md");
+        prospective_container.join(format!("{parent_stem}.{ext}"))
     });
     if planned_main.as_ref() == Some(&planned_note) {
         return Err("A child note cannot have the same name as its parent note".to_string());

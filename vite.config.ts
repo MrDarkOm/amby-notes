@@ -38,8 +38,8 @@ const vendorChunks: Record<string, string[]> = {
   "vendor-tauri": ["@tauri-apps/api"],
   "vendor-d3": ["d3-force"],
   "vendor-xyflow": ["@xyflow/react"],
+  "vendor-excalidraw": ["@excalidraw/excalidraw"],
   "vendor-emoji-core": ["emoji-mart"],
-  "vendor-emoji-react": ["@emoji-mart/react"],
   "vendor-emoji-data": ["@emoji-mart/data"],
 }
 

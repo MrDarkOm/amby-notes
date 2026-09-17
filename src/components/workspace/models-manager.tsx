@@ -249,7 +249,7 @@ function ModelEditor({
           <div className="flex items-center justify-between">
             <label className={label}>{t("models.apiKey")}</label>
             {credInfo?.exists && (
-              <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+              <span className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
                 <KeyRound className="size-3" />
                 {t("models.keyStoredInKeychain")}
               </span>

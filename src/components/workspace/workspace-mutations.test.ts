@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest"
 import {
   applySessionRemap,
   applyTreePatch,
+  filterDeletedTabs,
   insertTreeItemOptimistically,
+  isPathInside,
+  isTargetDeleted,
   moveTreeItemsOptimistically,
   planMutation,
   reconcileTreeBackedTabTitles,
@@ -757,5 +760,112 @@ describe("applySessionRemap", () => {
       false,
     )
     expect(result.closedTreeIds).toEqual(["note-id", "folder:/vault/folder"])
+  })
+})
+
+// ── filterDeletedTabs ─────────────────────────────────────────────────────────
+
+describe("filterDeletedTabs", () => {
+  it("filters tabs matching deleted id exactly", () => {
+    const tabs: Tab[] = [
+      {
+        key: "1",
+        fileId: "note-1",
+        title: "Note 1",
+        kind: "document",
+        history: ["note-1"],
+        historyIndex: 0,
+      },
+      {
+        key: "2",
+        fileId: "note-2",
+        title: "Note 2",
+        kind: "document",
+        history: ["note-2"],
+        historyIndex: 0,
+      },
+    ]
+    const surviving = filterDeletedTabs(tabs, ["note-1"])
+    expect(surviving.map((t) => t.fileId)).toEqual(["note-2"])
+  })
+
+  it("filters database tabs with database: prefix when database path is deleted", () => {
+    const tabs: Tab[] = [
+      {
+        key: "1",
+        fileId: "database:PaLooVerse",
+        title: "PaLooVerse",
+        kind: "database",
+        history: ["database:PaLooVerse"],
+        historyIndex: 0,
+      },
+      {
+        key: "2",
+        fileId: "note-2",
+        title: "Note 2",
+        kind: "document",
+        history: ["note-2"],
+        historyIndex: 0,
+      },
+    ]
+    const surviving = filterDeletedTabs(tabs, ["PaLooVerse"])
+    expect(surviving.map((t) => t.fileId)).toEqual(["note-2"])
+  })
+
+  it("filters child tabs whose document path is inside a deleted folder", () => {
+    const tabs: Tab[] = [
+      {
+        key: "1",
+        fileId: "01JNOTECHILD",
+        title: "Child",
+        kind: "document",
+        history: ["01JNOTECHILD"],
+        historyIndex: 0,
+      },
+      {
+        key: "2",
+        fileId: "01JNOTEOTHER",
+        title: "Other",
+        kind: "document",
+        history: ["01JNOTEOTHER"],
+        historyIndex: 0,
+      },
+    ]
+    const openDocs = {
+      "01JNOTECHILD": { path: "MyFolder/Child.md" },
+      "01JNOTEOTHER": { path: "Root.md" },
+    }
+    const surviving = filterDeletedTabs(tabs, ["MyFolder"], openDocs)
+    expect(surviving.map((t) => t.fileId)).toEqual(["01JNOTEOTHER"])
+  })
+
+  it("cleans deleted items from tab history", () => {
+    const tabs: Tab[] = [
+      {
+        key: "1",
+        fileId: "note-2",
+        title: "Note 2",
+        kind: "document",
+        history: ["note-1", "note-2"],
+        historyIndex: 1,
+      },
+    ]
+    const surviving = filterDeletedTabs(tabs, ["note-1"])
+    expect(surviving[0]?.history).toEqual(["note-2"])
+  })
+})
+
+describe("isPathInside and isTargetDeleted", () => {
+  it("detects exact match and nested path", () => {
+    expect(isPathInside("Folder/File.md", "Folder")).toBe(true)
+    expect(isPathInside("Folder", "Folder")).toBe(true)
+    expect(isPathInside("FolderOther/File.md", "Folder")).toBe(false)
+  })
+
+  it("detects database target deletion with database prefix", () => {
+    expect(isTargetDeleted("database:PaLooVerse", ["PaLooVerse"])).toBe(true)
+    expect(isTargetDeleted("PaLooVerse", ["PaLooVerse"])).toBe(true)
+    expect(isTargetDeleted("database:PaLooVerse/Sub", ["PaLooVerse"])).toBe(true)
+    expect(isTargetDeleted("database:Other", ["PaLooVerse"])).toBe(false)
   })
 })

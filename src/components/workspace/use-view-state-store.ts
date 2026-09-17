@@ -1,12 +1,38 @@
 import { create } from "zustand"
 import type { DocumentViewMode } from "./document-editor"
 import type { ContentWidth } from "./app-config"
-import type { NoteLayers, LayerKind } from "@/lib/storage"
+import type { NoteLayers } from "@/lib/storage"
 import type { TreeItem } from "./sidebar-tree"
+import type { EditorLayer } from "./editor/use-document-view-mode"
 
-/** "editor" layer or any named layer kind (canvas / database / sketch). */
-export type EditorLayer = "editor" | LayerKind
+export type { EditorLayer }
 export type NestedNotesPlacement = "top" | "bottom" | "hidden"
+
+export function getLayerViewMode(
+  viewModes: Record<string, DocumentViewMode>,
+  docId: string,
+  layer: EditorLayer,
+  defaultMode: DocumentViewMode = "live",
+): DocumentViewMode {
+  if (layer === "editor") {
+    return viewModes[`${docId}:editor`] ?? viewModes[docId] ?? defaultMode
+  }
+  return viewModes[`${docId}:${layer}`] ?? defaultMode
+}
+
+export function isLayerLocked(
+  lockedFileIds: Set<string>,
+  viewModes: Record<string, DocumentViewMode>,
+  docId: string,
+  layer: EditorLayer,
+): boolean {
+  const mode = getLayerViewMode(viewModes, docId, layer)
+  if (mode === "read") return true
+  if (layer === "editor") {
+    return lockedFileIds.has(`${docId}:editor`) || lockedFileIds.has(docId)
+  }
+  return lockedFileIds.has(`${docId}:${layer}`)
+}
 
 interface ViewStateStore {
   /** Collapsed folders and note bundles in the vault tree. */
@@ -155,6 +181,13 @@ function createViewStateStore() {
     applyMutation: (deletedIds, remapPath = (path) => path) =>
       set((s) => {
         const deleted = new Set(deletedIds)
+        const isDeleted = (id: string) => {
+          if (deleted.has(id)) return true
+          const colonIdx = id.indexOf(":")
+          if (colonIdx > 0 && deleted.has(id.slice(0, colonIdx))) return true
+          return false
+        }
+
         const closedTreeIds = new Set<string>()
         for (const id of s.closedTreeIds) {
           if (deleted.has(id)) continue
@@ -167,19 +200,19 @@ function createViewStateStore() {
         for (const id of s.favorites) if (!deleted.has(id)) favorites.add(id)
 
         const lockedFileIds = new Set<string>()
-        for (const id of s.lockedFileIds) if (!deleted.has(id)) lockedFileIds.add(id)
+        for (const id of s.lockedFileIds) if (!isDeleted(id)) lockedFileIds.add(id)
 
         const iconOverrides: Record<string, string> = {}
         for (const [id, icon] of Object.entries(s.iconOverrides))
-          if (!deleted.has(id)) iconOverrides[id] = icon
+          if (!isDeleted(id)) iconOverrides[id] = icon
 
         const activeLayers: Record<string, EditorLayer> = {}
         for (const [id, layer] of Object.entries(s.activeLayers))
-          if (!deleted.has(id)) activeLayers[id] = layer
+          if (!isDeleted(id)) activeLayers[id] = layer
 
         const viewModes: Record<string, DocumentViewMode> = {}
         for (const [id, mode] of Object.entries(s.viewModes))
-          if (!deleted.has(id)) viewModes[id] = mode
+          if (!isDeleted(id)) viewModes[id] = mode
 
         const contentWidths: Record<string, ContentWidth> = {}
         for (const [id, width] of Object.entries(s.contentWidths ?? {}))

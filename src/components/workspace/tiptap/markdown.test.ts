@@ -74,6 +74,12 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(roundTripCheck("\r\n\r\n")).toEqual({ ok: true, result: "\r\n\r\n" })
   })
 
+  it("restores typed content when the note was initially empty or blank", () => {
+    expect(restoreSourceFormatting("Hello world", "")).toBe("Hello world")
+    expect(restoreSourceFormatting("Hello world", "\n")).toBe("Hello world")
+    expect(restoreSourceFormatting("Hello world", "\r\n\r\n")).toBe("Hello world")
+  })
+
   it("preserves intentional empty paragraphs between and after blocks", () => {
     expect(roundTrip("First\n\n\nSecond")).toBe("First\n\n\nSecond")
     expect(roundTrip("First\n\n\n")).toBe("First\n\n\n")

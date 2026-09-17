@@ -71,6 +71,9 @@ export interface DocumentEditorProps {
   linkedLayers?: { canvas: boolean; sketch: boolean; database: boolean }
   isLocked?: boolean
   onToggleLock?: () => void
+  onExportCsv?: () => void
+  onExportSqlite?: () => void
+  onExportImage?: (format: "png" | "jpg") => void
   isFavorite?: boolean
   onToggleFavorite?: () => void
   onOpenInNewTab?: () => void
@@ -90,11 +93,14 @@ export interface DocumentEditorProps {
   canvasValue?: string
   onCanvasChange?: (json: string) => void
   onOpenCanvasNote?: (file: string) => void
+  sketchValue?: string
+  onSketchChange?: (json: string) => void
   databaseBody?: React.ReactNode
   editorSurfaceOwner?: EditorSurface
   scrollPositionKey?: string
   scrollPosition?: number
   onScrollPositionChange?: (position: number) => void
+  onCloseTab?: () => void
 }
 
 export function DocumentEditor({
@@ -135,6 +141,10 @@ export function DocumentEditor({
   onFileIconChange,
   linkedLayers,
   isLocked = false,
+  onToggleLock,
+  onExportCsv,
+  onExportSqlite,
+  onExportImage,
   isFavorite = false,
   onToggleFavorite,
   onOpenInNewTab,
@@ -154,11 +164,14 @@ export function DocumentEditor({
   canvasValue,
   onCanvasChange,
   onOpenCanvasNote,
+  sketchValue,
+  onSketchChange,
   databaseBody,
   editorSurfaceOwner = "document",
   scrollPositionKey,
   scrollPosition,
   onScrollPositionChange,
+  onCloseTab,
 }: DocumentEditorProps) {
   const [content, setContent] = React.useState(document?.content ?? "")
   const [editingTitle, setEditingTitle] = React.useState(false)
@@ -332,6 +345,7 @@ export function DocumentEditor({
       onUnlinkLayer={onUnlinkLayer}
       onDeleteLayer={onDeleteLayer}
       isLocked={effectiveLocked}
+      onToggleLock={onToggleLock}
       isFavorite={isFavorite}
       onToggleFavorite={onToggleFavorite}
       onOpenInNewTab={onOpenInNewTab}
@@ -353,6 +367,9 @@ export function DocumentEditor({
       }}
       onCopyPath={copyPath}
       onExportPdf={requestPdfExport}
+      onExportCsv={onExportCsv}
+      onExportSqlite={onExportSqlite}
+      onExportImage={onExportImage}
       onShowInExplorer={onShowInExplorer}
       onRequestRename={() => setEditingTitle(true)}
       onDeleteFile={onDeleteFile}
@@ -360,6 +377,12 @@ export function DocumentEditor({
       onMoreActionsOpenChange={(open) => setExclusiveMenu("actions", open)}
     />
   )
+
+  const canRestore =
+    Boolean(onRestoreDeleted) &&
+    !document?.id.startsWith("database:") &&
+    !document?.path.endsWith(".canvas") &&
+    !document?.path.endsWith(".excalidraw")
 
   const deletedBanner = document?.externallyDeleted ? (
     <div
@@ -376,16 +399,28 @@ export function DocumentEditor({
           <p className="mt-1 text-xs text-destructive">{t("conflict.restoreFailed")}</p>
         )}
       </div>
-      <Button
-        type="button"
-        size="sm"
-        variant="outline"
-        disabled={restoringDeleted}
-        onClick={() => void restoreDeletedDocument()}
-        className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
-      >
-        {restoringDeleted ? t("conflict.saving") : t("conflict.restoreDeleted")}
-      </Button>
+      {canRestore ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={restoringDeleted}
+          onClick={() => void restoreDeletedDocument()}
+          className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
+        >
+          {restoringDeleted ? t("conflict.saving") : t("conflict.restoreDeleted")}
+        </Button>
+      ) : onCloseTab ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={onCloseTab}
+          className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
+        >
+          {t("common.close")}
+        </Button>
+      ) : null}
     </div>
   ) : null
 
@@ -441,67 +476,10 @@ export function DocumentEditor({
     )
   }
 
-  if (activeLayer === "canvas") {
-    return (
-      <div className="relative flex h-full flex-1 flex-col bg-background">
-        {headerElement}
-        {deletedBanner}
-        {editingPolicy.warningKey && (
-          <p role="status" className="px-4 py-2 text-xs text-muted-foreground">
-            {t(editingPolicy.warningKey)}
-          </p>
-        )}
-        <DocumentBody
-          docId={document.id}
-          docTitle={document.title}
-          docPath={document.path}
-          docModified={document.modified}
-          content={content}
-          onContentChange={handleContentChange}
-          onContentDirty={handleContentDirty}
-          activeLayer={activeLayer}
-          viewMode={effectiveViewMode}
-          onViewModeChange={handleEditorViewModeChange}
-          contentWidth={contentWidth}
-          isLocked={effectiveLocked}
-          fileIcon={fileIcon}
-          onFileIconChange={onFileIconChange}
-          editingTitle={editingTitle}
-          onEditingTitleChange={setEditingTitle}
-          onRenameTitle={onRenameTitle}
-          nestedNotes={nestedNotes}
-          nestedNotesPlacement={nestedNotesPlacement}
-          onNestedNotesPlacementChange={onNestedNotesPlacementChange}
-          onOpenItem={onOpenItem}
-          onOpenNestedNoteInNewTab={onOpenNestedNoteInNewTab}
-          onTagClick={onTagClick}
-          onWikiLinkClick={onWikiLinkClick}
-          resolveWikiLinkTarget={resolveWikiLinkTarget}
-          fetchTransclusion={fetchTransclusion}
-          vault={vault}
-          canvasValue={canvasValue}
-          onCanvasChange={onCanvasChange}
-          onOpenCanvasNote={onOpenCanvasNote}
-          databaseBody={databaseBody}
-          editorSelection={editorSelection}
-          onEditorSelectionChange={handleEditorSelectionChange}
-          editorRef={editorRef}
-          scrollPositionKey={scrollPositionKey}
-          scrollPosition={scrollPosition}
-          onScrollPositionChange={onScrollPositionChange}
-          viewModeMenuOpen={viewModeMenuOpen}
-          onViewModeMenuOpenChange={(open) => setExclusiveMenu("view", open)}
-        />
-        {pdfExportDialog}
-        {pdfExport}
-      </div>
-    )
-  }
-
   return (
     <div className="relative flex h-full min-w-0 flex-1 flex-col">
       <div
-        className={`${isFocusMode ? "" : "mb-2"} mt-0 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]`}
+        className={`relative ${isFocusMode ? "" : "mb-2"} mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]`}
         style={{ boxShadow: "var(--note-surface-shadow)" }}
       >
         {headerElement}
@@ -523,7 +501,9 @@ export function DocumentEditor({
           viewMode={effectiveViewMode}
           onViewModeChange={handleEditorViewModeChange}
           contentWidth={contentWidth}
+          onContentWidthChange={onContentWidthChange}
           isLocked={effectiveLocked}
+          onToggleLock={onToggleLock}
           fileIcon={fileIcon}
           onFileIconChange={onFileIconChange}
           editingTitle={editingTitle}
@@ -539,9 +519,12 @@ export function DocumentEditor({
           resolveWikiLinkTarget={resolveWikiLinkTarget}
           fetchTransclusion={fetchTransclusion}
           vault={vault}
+          treeItems={treeItems}
           canvasValue={canvasValue}
           onCanvasChange={onCanvasChange}
           onOpenCanvasNote={onOpenCanvasNote}
+          sketchValue={sketchValue}
+          onSketchChange={onSketchChange}
           databaseBody={databaseBody}
           editorSelection={editorSelection}
           onEditorSelectionChange={handleEditorSelectionChange}

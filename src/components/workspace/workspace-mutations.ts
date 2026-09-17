@@ -60,6 +60,57 @@ export function planMutation(result: FsMutationResult): {
   }
 }
 
+export function isPathInside(path: string, root: string): boolean {
+  const normPath = path.replace(/\\/g, "/").replace(/\/+$/, "")
+  const normRoot = root.replace(/\\/g, "/").replace(/\/+$/, "")
+  return normPath === normRoot || normPath.startsWith(`${normRoot}/`)
+}
+
+export function isTargetDeleted(idOrPath: string, deleted: Iterable<string>): boolean {
+  const deletedSet = deleted instanceof Set ? deleted : new Set(deleted)
+  if (deletedSet.has(idOrPath)) return true
+  const normPath = idOrPath.replace(/\\/g, "/").replace(/\/+$/, "")
+  const cleanId = idOrPath.startsWith("database:")
+    ? idOrPath.slice("database:".length).replace(/\\/g, "/").replace(/\/+$/, "")
+    : ""
+  for (const del of deletedSet) {
+    if (!del) continue
+    const normDel = del.replace(/\\/g, "/").replace(/\/+$/, "")
+    if (!normDel) continue
+    if (normPath === normDel || normPath.startsWith(`${normDel}/`)) return true
+    if (cleanId && (cleanId === normDel || cleanId.startsWith(`${normDel}/`))) return true
+  }
+  return false
+}
+
+export function filterDeletedTabs(
+  tabs: Tab[],
+  deleted: Iterable<string>,
+  openDocs?: Record<string, { path: string }>,
+  remapFn?: (path: string) => string,
+): Tab[] {
+  const deletedSet = deleted instanceof Set ? deleted : new Set(deleted)
+  return tabs
+    .filter((tab) => {
+      if (isTargetDeleted(tab.fileId, deletedSet)) return false
+      const doc = openDocs?.[tab.fileId]
+      if (doc && isTargetDeleted(doc.path, deletedSet)) return false
+      return true
+    })
+    .map((tab) => {
+      const remappedFileId =
+        remapFn && (tab.kind === "canvas" || tab.kind === "sketch")
+          ? remapFn(tab.fileId)
+          : tab.fileId
+      const remappedHistory = tab.history.filter((item) => !isTargetDeleted(item, deletedSet))
+      return {
+        ...tab,
+        fileId: remappedFileId,
+        history: remappedHistory.length > 0 ? remappedHistory : [remappedFileId],
+      }
+    })
+}
+
 // ── Session-restore remap ───────────────────────────────────────────────────
 
 /**

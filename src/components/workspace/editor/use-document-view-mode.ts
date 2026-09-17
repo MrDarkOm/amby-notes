@@ -10,11 +10,11 @@ export const LAYER_OPTIONS: Array<{
   icon: React.ElementType
 }> = [
   { id: "editor", labelKey: "docEditor.markdownEditor", icon: FileText },
-  { id: "canvas", labelKey: "docEditor.canvasLayer", icon: LayoutGrid },
   {
     id: "database",
     labelKey: "docEditor.databaseLayer",
     icon: Database,
   },
+  { id: "canvas", labelKey: "docEditor.canvasLayer", icon: LayoutGrid },
   { id: "sketch", labelKey: "docEditor.sketchLayer", icon: PenLine },
 ]

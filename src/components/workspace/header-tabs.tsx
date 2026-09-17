@@ -28,6 +28,7 @@ import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { WorkspacePicker, type VaultRecord } from "./workspace-picker"
 import { IconValue } from "./icon-value"
 import { isRichIconValue } from "./icon-values"
+import { KNOWN_ICONS } from "./tree/tree-types"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,11 +51,7 @@ export interface HeaderTab {
 }
 
 function tabEmoji(icon?: string) {
-  return Boolean(
-    icon &&
-    (isRichIconValue(icon) ||
-      !/^(folder|file|supernote|page|workspace|canvas|draft|brain)$/u.test(icon)),
-  )
+  return Boolean(icon && (isRichIconValue(icon) || !KNOWN_ICONS.has(icon)))
 }
 
 interface TabsMenuProps {

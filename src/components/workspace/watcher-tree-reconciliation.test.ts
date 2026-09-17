@@ -140,4 +140,34 @@ describe("planOpenDocumentTreeChanges", () => {
       planOpenDocumentTreeChanges({ "note-1": document("/vault/Note.md", "Note") }, tree),
     ).toEqual([])
   })
+
+  it("preserves open database, canvas and sketch documents without falsely marking them deleted", () => {
+    const tree: TreeItem[] = [
+      {
+        id: "01JDB1234567890",
+        name: "Tasks",
+        path: "/vault/Tasks",
+        type: "database",
+        icon: "database",
+      },
+      {
+        id: "canvas:/vault/Board.canvas",
+        name: "Board",
+        path: "/vault/Board.canvas",
+        type: "canvas",
+        icon: "canvas",
+      },
+    ]
+
+    expect(
+      planOpenDocumentTreeChanges(
+        {
+          "01JDB1234567890": document("/vault/Tasks", "Tasks"),
+          "/vault/Tasks": document("/vault/Tasks", "Tasks"),
+          "canvas:/vault/Board.canvas": document("/vault/Board.canvas", "Board"),
+        },
+        tree,
+      ),
+    ).toEqual([])
+  })
 })

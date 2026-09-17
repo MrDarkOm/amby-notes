@@ -6,27 +6,26 @@ import { isTauri, importAsset, importAssetBytes } from "@/lib/storage"
 import { getTreeDragPayload, clearTreeDragPayload } from "@/lib/canvas-dnd"
 import { extFromMime } from "./canvas-markdown"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
-import type { CanvasFlowNode, FileNodeData } from "@/lib/canvas-format"
+import type { FileNodeData } from "@/lib/canvas-format"
 
 export function useCanvasDnd({
   vault,
   notePath,
   rf,
   wrapRef,
-  setNodes,
-  makeNode,
+  addNode,
 }: {
   vault: string | null
   notePath?: string
   rf: ReturnType<typeof useReactFlow>
   wrapRef: React.RefObject<HTMLDivElement | null>
-  setNodes: React.Dispatch<React.SetStateAction<CanvasFlowNode[]>>
-  makeNode: (
-    type: "text" | "file" | "group",
-    pos: { x: number; y: number },
-    extra?: Partial<FileNodeData>,
-  ) => CanvasFlowNode
+  addNode: (type: "file", pos: { x: number; y: number }, extra?: Partial<FileNodeData>) => void
 }) {
+  const addNodeRef = React.useRef(addNode)
+  addNodeRef.current = addNode
+  const rfRef = React.useRef(rf)
+  rfRef.current = rf
+
   // ── image paste ──
   React.useEffect(() => {
     async function onPaste(e: ClipboardEvent) {
@@ -35,19 +34,22 @@ export function useCanvasDnd({
       )
       if (items.length === 0 || !vault || !notePath) return
       e.preventDefault()
-      const pos = rf.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
+      const pos = rfRef.current.screenToFlowPosition({
+        x: window.innerWidth / 2,
+        y: window.innerHeight / 2,
+      })
       for (const item of items) {
         const file = item.getAsFile()
         if (!file) continue
         const bytes = new Uint8Array(await file.arrayBuffer())
         const res = await importAssetBytes(vault, notePath, bytes, extFromMime(file.type))
-        if (res) setNodes((nds) => [...nds, makeNode("file", pos, { file: res.relPath })])
+        if (res) addNodeRef.current("file", pos, { file: res.relPath })
       }
     }
     const el = wrapRef.current
     el?.addEventListener("paste", onPaste)
     return () => el?.removeEventListener("paste", onPaste)
-  }, [vault, notePath, rf, setNodes, makeNode, wrapRef])
+  }, [vault, notePath, wrapRef])
 
   // ── Finder file drop (Tauri) ──
   React.useEffect(() => {
@@ -63,10 +65,10 @@ export function useCanvasDnd({
         return getCurrentWebview().onDragDropEvent(async (event) => {
           const payload = event.payload as { type: string; paths?: string[] }
           if (payload.type !== "drop" || !payload.paths) return
-          const pos = rf.screenToFlowPosition(lastPointer)
+          const pos = rfRef.current.screenToFlowPosition(lastPointer)
           for (const src of payload.paths) {
             const res = await importAsset(vault, notePath, src)
-            if (res) setNodes((nds) => [...nds, makeNode("file", pos, { file: res.relPath })])
+            if (res) addNodeRef.current("file", pos, { file: res.relPath })
           }
         })
       }),
@@ -76,25 +78,20 @@ export function useCanvasDnd({
       window.removeEventListener("pointermove", track)
       cleanupListener?.()
     }
-  }, [vault, notePath, rf, setNodes, makeNode])
+  }, [vault, notePath])
 
   // ── tree-note drop onto canvas ──
-  const onPaneDrop = React.useCallback(
-    (clientX: number, clientY: number) => {
-      const payload = getTreeDragPayload()
-      if (!payload) return
-      clearTreeDragPayload()
-      const pos = rf.screenToFlowPosition({ x: clientX, y: clientY })
-      setNodes((nds) => [...nds, makeNode("file", pos, { file: payload.path })])
-    },
-    [rf, setNodes, makeNode],
-  )
-
   React.useEffect(() => {
     const el = wrapRef.current
     if (!el) return
-    const onUp = (e: PointerEvent) => onPaneDrop(e.clientX, e.clientY)
+    const onUp = (e: PointerEvent) => {
+      const payload = getTreeDragPayload()
+      if (!payload) return
+      clearTreeDragPayload()
+      const pos = rfRef.current.screenToFlowPosition({ x: e.clientX, y: e.clientY })
+      addNodeRef.current("file", pos, { file: payload.path })
+    }
     el.addEventListener("pointerup", onUp)
     return () => el.removeEventListener("pointerup", onUp)
-  }, [onPaneDrop, wrapRef])
+  }, [wrapRef])
 }

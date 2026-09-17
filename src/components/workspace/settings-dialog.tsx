@@ -180,41 +180,65 @@ async function openSettingsWindow(
   title: string,
   vault: string | null,
   target: SettingsNavigationTarget | null,
-): Promise<void> {
-  const existing = await WebviewWindow.getByLabel(SETTINGS_WINDOW_LABEL)
-  if (existing) {
-    await existing.unminimize()
-    await existing.show()
-    await existing.setFocus()
-    await emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
-      activeModules,
-      vault,
-      target: target ?? undefined,
-    }).catch(() => {})
-    return
-  }
+): Promise<boolean> {
+  try {
+    const existing = await WebviewWindow.getByLabel(SETTINGS_WINDOW_LABEL)
+    if (existing) {
+      await existing.unminimize()
+      await existing.show()
+      await existing.setFocus()
+      await emitTo<SettingsContextPayload>(SETTINGS_WINDOW_LABEL, SETTINGS_CONTEXT_CHANGE_EVENT, {
+        activeModules,
+        vault,
+        target: target ?? undefined,
+      }).catch(() => {})
+      return true
+    }
 
-  const child = new WebviewWindow(SETTINGS_WINDOW_LABEL, {
-    url: settingsWindowUrl(activeModules, vault, target),
-    title,
-    width: 1024,
-    height: 720,
-    minWidth: 680,
-    minHeight: 480,
-    center: true,
-    focus: true,
-    resizable: true,
-    maximizable: true,
-    minimizable: true,
-    closable: true,
-    decorations: isMac,
-    titleBarStyle: isMac ? "overlay" : undefined,
-    hiddenTitle: isMac,
-    trafficLightPosition: isMac ? new LogicalPosition(14, 22) : undefined,
-  })
-  void child.once("tauri://error", (event) => {
-    console.error("Failed to open settings window:", event.payload)
-  })
+    const child = new WebviewWindow(SETTINGS_WINDOW_LABEL, {
+      url: settingsWindowUrl(activeModules, vault, target),
+      title,
+      width: 1024,
+      height: 720,
+      minWidth: 680,
+      minHeight: 480,
+      center: true,
+      focus: true,
+      resizable: true,
+      maximizable: true,
+      minimizable: true,
+      closable: true,
+      decorations: isMac,
+      titleBarStyle: isMac ? "overlay" : undefined,
+      hiddenTitle: isMac,
+      trafficLightPosition: isMac ? new LogicalPosition(14, 22) : undefined,
+    })
+    return await new Promise<boolean>((resolve) => {
+      let settled = false
+      const settle = (opened: boolean) => {
+        if (settled) return
+        settled = true
+        resolve(opened)
+      }
+      const timeout = window.setTimeout(() => settle(false), 3_000)
+      void child
+        .once("tauri://created", () => {
+          window.clearTimeout(timeout)
+          settle(true)
+        })
+        .catch(() => settle(false))
+      void child
+        .once("tauri://error", (event) => {
+          console.error("Failed to open settings window:", event.payload)
+          window.clearTimeout(timeout)
+          settle(false)
+        })
+        .catch(() => settle(false))
+    })
+  } catch (error) {
+    console.error("Failed to open settings window:", error)
+    return false
+  }
 }
 
 const SETTINGS_NAV = [
@@ -304,6 +328,7 @@ export function SettingsDialog({
   const [selectedModuleId, setSelectedModuleId] = React.useState(MODULE_REGISTRY[0]?.id ?? "")
   const [query, setQuery] = React.useState("")
   const [maximized, setMaximized] = React.useState(false)
+  const [useInlineFallback, setUseInlineFallback] = React.useState(false)
 
   React.useEffect(() => {
     if (!navigationTarget) return
@@ -407,21 +432,29 @@ export function SettingsDialog({
   }, [activeModules, standalone, vault])
 
   React.useEffect(() => {
-    if (!open || standalone || !isTauri()) return
+    if (!open || standalone || !isTauri() || useInlineFallback) return
+    let cancelled = false
     void openSettingsWindow(
       activeModules,
       t("settings.window.title"),
       vault,
       navigationTarget,
-    ).finally(() => onOpenChange(false))
-  }, [activeModules, navigationTarget, onOpenChange, open, standalone, t, vault])
+    ).then((opened) => {
+      if (cancelled) return
+      if (opened) onOpenChange(false)
+      else setUseInlineFallback(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [activeModules, navigationTarget, onOpenChange, open, standalone, t, useInlineFallback, vault])
 
   React.useEffect(() => {
     if (!standalone || !open) return
     searchInputRef.current?.focus()
   }, [open, standalone])
 
-  if (!standalone && isTauri()) return null
+  if (!standalone && isTauri() && !useInlineFallback) return null
 
   return (
     <SettingsWindowFrame

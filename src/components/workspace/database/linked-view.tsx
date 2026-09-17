@@ -14,7 +14,7 @@ export function DatabaseLinkedView({ reference }: DatabaseLinkedViewProps) {
   const runtime = useDatabaseStore((state) => state.runtime)
   const catalogStatus = useDatabaseStore((state) => state.catalogStatus)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
-  const { host, retry } = useDatabaseQuery({
+  const { host, retry, loadNextPage } = useDatabaseQuery({
     databaseId: reference.databaseId,
     viewId: reference.viewId,
     hostKind: "block",
@@ -46,7 +46,7 @@ export function DatabaseLinkedView({ reference }: DatabaseLinkedViewProps) {
   }
   return (
     <div className="overflow-hidden">
-      {host?.rows.slice(0, 5).map((row) => (
+      {host?.rows.map((row) => (
         <div
           key={row.noteId}
           className="flex items-center gap-3 border-b border-border/60 px-3 py-2 text-xs"
@@ -57,6 +57,15 @@ export function DatabaseLinkedView({ reference }: DatabaseLinkedViewProps) {
       ))}
       {host?.rows.length === 0 && (
         <p className="px-3 py-4 text-xs text-muted-foreground">{t("databaseLinkedView.empty")}</p>
+      )}
+      {host?.nextCursor && (
+        <button
+          type="button"
+          className="px-3 py-2 text-xs text-primary underline-offset-2 hover:underline"
+          onClick={() => void loadNextPage()}
+        >
+          {t("databaseLinkedView.loadMore")}
+        </button>
       )}
     </div>
   )

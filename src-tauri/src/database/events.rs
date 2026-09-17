@@ -56,9 +56,17 @@ pub fn classify_path(vault: &Path, path: &Path, generation: u64) -> Option<Datab
         return None;
     }
     let normalized = components.join("/");
-    let manifest_index = components
-        .iter()
-        .position(|component| *component == "ambd.json");
+    let manifest_index = components.iter().enumerate().position(|(idx, component)| {
+        *component == "ambd.json"
+            || (idx > 0 && {
+                let parent = components[idx - 1];
+                let (stem, ext) = match component.rsplit_once('.') {
+                    Some((s, e)) => (s, e),
+                    None => ("", ""),
+                };
+                stem == parent && (ext == "json" || ext == "database")
+            })
+    });
     let ambd_index = components
         .iter()
         .position(|component| *component == ".ambd");

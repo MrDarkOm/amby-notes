@@ -23,19 +23,33 @@ export function ListView({
   onRetry,
   onRowSelect,
 }: ListViewProps) {
+  const nextPagePendingRef = React.useRef(false)
+  const lastPageTriggerRef = React.useRef(0)
+
+  React.useEffect(() => {
+    if (!loading) nextPagePendingRef.current = false
+  }, [loading])
+
   function handleScroll(event: React.UIEvent<HTMLDivElement>) {
     const element = event.currentTarget
+    const now = Date.now()
     if (
       hasNextPage &&
       !loading &&
-      element.scrollTop + element.clientHeight >= element.scrollHeight - 320
+      !nextPagePendingRef.current &&
+      now - lastPageTriggerRef.current >= 350 &&
+      element.scrollHeight > element.clientHeight &&
+      element.scrollTop > 0 &&
+      element.scrollTop + element.clientHeight >= element.scrollHeight - 240
     ) {
+      nextPagePendingRef.current = true
+      lastPageTriggerRef.current = now
       onLoadNextPage?.()
     }
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-4" onScroll={handleScroll}>
+    <div className="min-h-0 min-w-0 flex-1 overflow-auto p-4" onScroll={handleScroll}>
       <div className="mx-auto max-w-3xl space-y-2">
         {rows.map((row) => (
           <button
@@ -44,7 +58,15 @@ export function ListView({
             className="flex w-full items-center gap-3 rounded-lg border border-border/70 bg-card/50 px-4 py-3 text-left hover:bg-accent/40"
             onClick={() => onRowSelect?.(row)}
           >
-            <span className="min-w-0 flex-1" style={{ paddingLeft: 12 + row.depth * 12 }}>
+            <span
+              className="amby-density-inline-padding-left min-w-0 flex-1"
+              style={
+                {
+                  paddingLeft: 12 + row.depth * 12,
+                  "--amby-density-padding-left": `${12 + row.depth * 12}px`,
+                } as React.CSSProperties
+              }
+            >
               <span className="block truncate text-sm font-medium">{row.title}</span>
               <span className="block truncate text-xs text-muted-foreground">
                 {row.categoryPath.length > 0 ? `${row.categoryPath.join(" / ")} · ` : ""}

@@ -2,6 +2,7 @@
 
 import {
   BookOpenText,
+  Database,
   FileText,
   Folder,
   LayoutGrid,
@@ -13,7 +14,7 @@ import {
 import { cn } from "@/lib/utils"
 import { IconValue } from "../icon-value"
 import { isRichIconValue } from "../icon-values"
-import { isSuperNoteItem } from "../workspace-tree-utils"
+import { isSuperCanvasItem, isSuperNoteItem, isSuperSketchItem } from "../workspace-tree-utils"
 import { KNOWN_ICONS, type TreeItem } from "./tree-types"
 
 export function BrainIcon({ className }: { className?: string }) {
@@ -50,12 +51,21 @@ export function TreeIcon({ icon, className }: { icon?: string; className?: strin
       return <Folder className={cls} />
     case "supernote":
       return <BookOpenText className={cls} />
+    case "supercanvas":
+      return <LayoutGrid className={cls} />
+    case "supersketch":
+      return <PenLine className={cls} />
+    case "superdatabase":
+    case "database":
+      return <Database className={cls} />
     case "workspace":
       return <WorkspaceIcon className={cls} />
     case "brain":
       return <BrainIcon className={cls} />
     case "canvas":
       return <LayoutGrid className={cls} />
+    case "sketch":
+      return <PenLine className={cls} />
     case "draft":
       return <PenLine className={cls} />
     case "page":
@@ -67,13 +77,27 @@ export function TreeIcon({ icon, className }: { icon?: string; className?: strin
 
 export function TreeItemIcon({ item, className }: { item: TreeItem; className?: string }) {
   const icon =
-    item.icon && item.icon !== "file"
+    item.icon &&
+    item.icon !== "file" &&
+    item.icon !== "canvas" &&
+    item.icon !== "sketch" &&
+    item.icon !== "database"
       ? item.icon
       : isSuperNoteItem(item)
         ? "supernote"
-        : item.type === "folder"
-          ? "folder"
-          : "file"
+        : isSuperCanvasItem(item)
+          ? "supercanvas"
+          : isSuperSketchItem(item)
+            ? "supersketch"
+            : item.type === "folder"
+              ? "folder"
+              : item.type === "canvas"
+                ? "canvas"
+                : item.type === "sketch"
+                  ? "sketch"
+                  : item.type === "database"
+                    ? "database"
+                    : "file"
   return <TreeIcon icon={icon} className={className} />
 }
 
@@ -108,28 +132,32 @@ export function TreeItemStatusIcon({
   onActivate?: () => void
   label?: string
 }) {
-  const isFavoriteNote = item.type === "file" && isFavorite
-  const isInteractive = item.type === "file" && !!onActivate
+  const isFavoriteItem = (item.type === "file" || item.type === "database") && isFavorite
+  const isInteractive = (item.type === "file" || item.type === "database") && !!onActivate
   const isSuperNote = isSuperNoteItem(item)
   const Icon =
     item.type === "folder"
       ? Folder
       : item.type === "canvas"
         ? LayoutGrid
-        : isSuperNote
-          ? BookOpenText
-          : FileText
+        : item.type === "sketch"
+          ? PenLine
+          : item.type === "database"
+            ? Database
+            : isSuperNote
+              ? BookOpenText
+              : FileText
 
   return (
     <span
       aria-hidden={isInteractive ? undefined : true}
       data-tree-file-status={
-        item.type === "folder" ? "folder" : isFavoriteNote ? "favorite" : item.type
+        item.type === "folder" ? "folder" : isFavoriteItem ? "favorite" : item.type
       }
       role={isInteractive ? "button" : undefined}
       tabIndex={isInteractive ? 0 : undefined}
       aria-label={isInteractive ? label : undefined}
-      aria-pressed={isInteractive ? isFavoriteNote : undefined}
+      aria-pressed={isInteractive ? isFavoriteItem : undefined}
       title={isInteractive ? label : undefined}
       onClick={
         isInteractive
@@ -151,13 +179,13 @@ export function TreeItemStatusIcon({
       }
       className={cn(
         "ml-auto inline-flex size-3.5 shrink-0",
-        isFavoriteNote ? "text-primary" : "text-muted-foreground/40",
+        isFavoriteItem ? "text-primary" : "text-muted-foreground/40",
         isInteractive &&
           "cursor-pointer rounded-sm hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         className,
       )}
     >
-      {isFavoriteNote ? <FileStarIcon Icon={Icon} /> : <Icon className="size-3.5" />}
+      {isFavoriteItem ? <FileStarIcon Icon={Icon} /> : <Icon className="size-3.5" />}
     </span>
   )
 }

@@ -226,14 +226,18 @@ pub fn prepare_note_index(
         .as_ref()
         .map(|value| value.frontmatter_tags.clone())
         .unwrap_or_default();
-    prepare_note_index_from_parts(
+    let mut prepared = prepare_note_index_from_parts(
         vault,
         note_id,
         body,
         note_path,
         frontmatter_tags,
         extract_links(body),
-    )
+    )?;
+    if let Some(display_title) = parsed.and_then(|value| value.display_title) {
+        prepared.title = display_title;
+    }
+    Ok(prepared)
 }
 
 pub fn prepare_note_index_from_parts(

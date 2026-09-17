@@ -200,8 +200,12 @@ export function useWindowStatePersistence(enabled: boolean): boolean {
       setRestored(true)
       return
     }
-    if (!hydrated || !isTauri()) {
+    if (!hydrated) {
       setRestored(false)
+      return
+    }
+    if (!isTauri()) {
+      setRestored(true)
       return
     }
 

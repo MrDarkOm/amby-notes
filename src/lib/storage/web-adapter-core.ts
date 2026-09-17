@@ -3,7 +3,13 @@ import i18n from "@/lib/i18n"
 import type { StoragePort } from "./port"
 import { NoteRevisionConflictError } from "./types"
 import { FILE_PREFIX, TREE_KEY, WEB_VAULT, flattenWebNotes } from "./web-tree"
-import { splitWebFrontmatter, webNoteProperties, webRevision } from "./web-frontmatter"
+import {
+  removeWebFrontmatterProperty,
+  splitWebFrontmatter,
+  upsertWebFrontmatterProperty,
+  webNoteProperties,
+  webRevision,
+} from "./web-frontmatter"
 import { WebMetadataStorage } from "./web-metadata"
 import {
   webHistoryPreview,
@@ -47,6 +53,8 @@ import type {
   CreateDatabaseRequest,
   CreatedDatabase,
   CreateDatabasePropertyRequest,
+  ChangeDatabasePropertyTypeRequest,
+  ChangedDatabasePropertyType,
   DeleteDatabasePropertyRequest,
   DeletedDatabaseProperty,
   RenameDatabasePropertyRequest,
@@ -63,6 +71,8 @@ import type {
   DatabaseSummary,
   DatabaseValueBatchRequest,
   DatabaseValueBatchResult,
+  UpdateDatabaseRelationValueRequest,
+  UpdateDatabaseRelationValueResult,
   CreateDatabaseRowRequest,
   CreatedDatabaseRow,
   ImportDatabaseAssetRequest,
@@ -70,6 +80,17 @@ import type {
   DatabaseYamlSyncRequest,
   DatabaseYamlSyncResult,
   DatabaseYamlResolveRequest,
+  CreateDatabaseViewRequest,
+  DatabaseViewDocument,
+  DatabaseViewMutationResult,
+  DatabaseViewRequest,
+  DeleteDatabaseViewRequest,
+  RenameDatabaseViewRequest,
+  ReorderDatabaseViewsRequest,
+  UpdateDatabaseViewConfigRequest,
+  DatabaseAggregateRequest,
+  DatabaseAggregateResult,
+  DatabaseChangedPayload,
 } from "./database-types"
 import { DatabaseOperationError } from "./database-types"
 
@@ -107,7 +128,9 @@ function joinPath(parent: string, child: string): string {
 }
 
 function isBundleMainPath(path: string): boolean {
-  return path.endsWith(".md") && pathBase(pathDir(path)) === pathStem(path)
+  const ext = path.split(".").pop()?.toLowerCase()
+  if (ext !== "md" && ext !== "canvas" && ext !== "excalidraw") return false
+  return pathBase(pathDir(path)) === pathStem(path)
 }
 
 function webGetTree(): TreeItem[] {
@@ -226,11 +249,13 @@ function webEnsureBundle(notePath: string): {
 } {
   const tree = webGetTree()
   const item = webFindItem(tree, notePath)
-  if (!item || item.type !== "file") throw new Error(i18n.t("errors.notANote", { path: notePath }))
+  if (!item || (item.type !== "file" && item.type !== "canvas" && item.type !== "sketch"))
+    throw new Error(i18n.t("errors.notANote", { path: notePath }))
   if (isBundleMainPath(notePath)) return { notePath, changes: [], tree }
 
+  const ext = notePath.split(".").pop() || "md"
   const stem = pathStem(notePath)
-  const newPath = joinPath(joinPath(pathDir(notePath), stem), `${stem}.md`)
+  const newPath = joinPath(joinPath(pathDir(notePath), stem), `${stem}.${ext}`)
   const changes = [{ oldPath: notePath, newPath }]
   webApplyPathChanges(changes)
   const nextTree = webUpdateItem(tree, notePath, (current) => ({
@@ -290,6 +315,10 @@ export class WebAdapterCore implements StoragePort {
     )
   }
 
+  async refreshDatabaseChange(_change: DatabaseChangedPayload): Promise<DatabaseModuleState> {
+    return { ...this.databaseModuleState }
+  }
+
   async createDatabase(_request: CreateDatabaseRequest): Promise<CreatedDatabase> {
     throw new DatabaseOperationError("failed", "Database creation requires the desktop runtime")
   }
@@ -300,6 +329,15 @@ export class WebAdapterCore implements StoragePort {
     throw new DatabaseOperationError(
       "failed",
       "Database property creation requires the desktop runtime",
+    )
+  }
+
+  async changeDatabasePropertyType(
+    _request: ChangeDatabasePropertyTypeRequest,
+  ): Promise<ChangedDatabasePropertyType> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database property type changes require the desktop runtime",
     )
   }
 
@@ -347,6 +385,15 @@ export class WebAdapterCore implements StoragePort {
     )
   }
 
+  async updateDatabaseRelationValue(
+    _request: UpdateDatabaseRelationValueRequest,
+  ): Promise<UpdateDatabaseRelationValueResult> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database relation editing requires the desktop runtime",
+    )
+  }
+
   async createDatabaseRow(_request: CreateDatabaseRowRequest): Promise<CreatedDatabaseRow> {
     throw new DatabaseOperationError("failed", "Database row creation requires the desktop runtime")
   }
@@ -385,6 +432,86 @@ export class WebAdapterCore implements StoragePort {
     )
   }
 
+  async getDatabaseView(_request: DatabaseViewRequest): Promise<DatabaseViewDocument> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database view access requires the desktop runtime",
+      "unsupported",
+    )
+  }
+
+  async createDatabaseView(_request: CreateDatabaseViewRequest): Promise<DatabaseViewDocument> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database view creation requires the desktop runtime",
+      "unsupported",
+    )
+  }
+
+  async renameDatabaseView(
+    _request: RenameDatabaseViewRequest,
+  ): Promise<DatabaseViewMutationResult> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database view rename requires the desktop runtime",
+      "unsupported",
+    )
+  }
+
+  async updateDatabaseViewConfig(
+    _request: UpdateDatabaseViewConfigRequest,
+  ): Promise<DatabaseViewMutationResult> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database view editing requires the desktop runtime",
+      "unsupported",
+    )
+  }
+
+  async duplicateDatabaseView(_request: DatabaseViewRequest): Promise<DatabaseViewDocument> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database view duplication requires the desktop runtime",
+      "unsupported",
+    )
+  }
+
+  async deleteDatabaseView(
+    _request: DeleteDatabaseViewRequest,
+  ): Promise<DatabaseViewMutationResult> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database view deletion requires the desktop runtime",
+      "unsupported",
+    )
+  }
+
+  async reorderDatabaseViews(
+    _request: ReorderDatabaseViewsRequest,
+  ): Promise<DatabaseViewMutationResult> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database view reordering requires the desktop runtime",
+      "unsupported",
+    )
+  }
+
+  async setDefaultDatabaseView(_request: DatabaseViewRequest): Promise<DatabaseViewMutationResult> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database default view requires the desktop runtime",
+      "unsupported",
+    )
+  }
+
+  async aggregateDatabase(_request: DatabaseAggregateRequest): Promise<DatabaseAggregateResult> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database aggregation requires the desktop runtime",
+      "unsupported",
+    )
+  }
+
   async openVault(): Promise<string | null> {
     return WEB_VAULT
   }
@@ -411,6 +538,10 @@ export class WebAdapterCore implements StoragePort {
   }
 
   async loadActiveVaultData(): Promise<LoadVaultResult> {
+    return this.loadVaultData(WEB_VAULT)
+  }
+
+  async reindexActiveVaultData(): Promise<LoadVaultResult> {
     return this.loadVaultData(WEB_VAULT)
   }
 
@@ -667,6 +798,73 @@ export class WebAdapterCore implements StoragePort {
     }
   }
 
+  async createSketchFile(
+    _vaultPath: string,
+    parentPath: string | null,
+    name: string,
+  ): Promise<string> {
+    const tree = webGetTree()
+    const parentItem = parentPath ? webFindItem(tree, parentPath) : null
+    let targetDir = WEB_VAULT
+    let parentFolderId: string | null = null
+    if (parentItem?.type === "folder") {
+      targetDir = parentItem.path ?? parentItem.id
+      parentFolderId = parentItem.id
+    } else if (parentItem?.type === "file") {
+      targetDir = pathDir(parentItem.path ?? parentItem.id)
+    } else if (parentPath && parentPath !== WEB_VAULT) {
+      targetDir = parentPath
+    }
+
+    const stem = name.trim() || i18n.t("defaults.untitled")
+    let path = joinPath(targetDir, `${stem}.excalidraw`)
+    let i = 2
+    while (webGet(FILE_PREFIX + path) !== null) {
+      path = joinPath(targetDir, `${stem}_${i}.excalidraw`)
+      i += 1
+    }
+    webSet(FILE_PREFIX + path, "{}\n")
+    const item: TreeItem = {
+      id: `sketch:${path}`,
+      path,
+      name: pathStem(path),
+      type: "sketch",
+      icon: "sketch",
+    }
+    webSaveTree(webAddChild(tree, parentFolderId, item))
+    return path
+  }
+
+  async attachSketchToNote(_vaultPath: string, sketchPath: string): Promise<FsMutationResult> {
+    const dir = pathDir(sketchPath)
+    const stem = pathStem(sketchPath)
+    const content = webGet(FILE_PREFIX + sketchPath) ?? "{}\n"
+
+    let name = stem
+    let i = 2
+    while (webFindItem(webGetTree(), joinPath(dir, `${name}.md`))) {
+      name = `${stem}-${i}`
+      i += 1
+    }
+    const createRes = await this.createNote(dir, dir, name)
+    const created = createRes.primaryPath ?? joinPath(dir, `${name}.md`)
+    const ensured = webEnsureBundle(created)
+    const bundleDir = pathDir(ensured.notePath)
+    const layerPath = joinPath(bundleDir, `${pathStem(ensured.notePath)}.excalidraw`)
+    webSet(FILE_PREFIX + layerPath, content)
+    webRemove(FILE_PREFIX + sketchPath)
+    const removed = webRemoveItem(webGetTree(), `sketch:${sketchPath}`)
+    webSaveTree(removed.tree)
+
+    return {
+      primaryId: ensured.notePath,
+      primaryPath: ensured.notePath,
+      pathChanges: [...createRes.pathChanges, ...ensured.changes],
+      deletedPaths: [],
+      deletedIds: [],
+    }
+  }
+
   async renameItem(_vaultPath: string, path: string, newName: string): Promise<FsMutationResult> {
     if (!newName.trim() || /[/\\]/u.test(newName) || newName === "." || newName === "..") {
       throw new StorageOperationError("invalidPath", i18n.t("errors.pathNotFound", { path }))
@@ -675,12 +873,20 @@ export class WebAdapterCore implements StoragePort {
     const item = webFindItem(tree, path)
     if (!item) throw new StorageOperationError("notFound", i18n.t("errors.pathNotFound", { path }))
 
+    const ext = path.split(".").pop() || "md"
     const oldIds = webCollectFileIds(item)
     const oldPrefix = isBundleMainPath(path) ? pathDir(path) : path
     const newPrefix = isBundleMainPath(path)
       ? joinPath(pathDir(pathDir(path)), newName)
-      : joinPath(pathDir(path), item.type === "file" ? `${newName}.md` : newName)
-    const primaryPath = isBundleMainPath(path) ? joinPath(newPrefix, `${newName}.md`) : newPrefix
+      : joinPath(
+          pathDir(path),
+          item.type === "file" || item.type === "canvas" || item.type === "sketch"
+            ? `${newName}.${ext}`
+            : newName,
+        )
+    const primaryPath = isBundleMainPath(path)
+      ? joinPath(newPrefix, `${newName}.${ext}`)
+      : newPrefix
     if (primaryPath !== path && webFindItem(tree, primaryPath)) {
       throw new StorageOperationError(
         "alreadyExists",
@@ -789,13 +995,21 @@ export class WebAdapterCore implements StoragePort {
   async noteLayers(notePath: string): Promise<NoteLayers> {
     const stem = pathStem(notePath)
     const dir = pathDir(notePath)
-    if (pathBase(dir) !== stem) return { canvas: false, sketch: false, database: false }
+    const isBundle = pathBase(dir) === stem
+    const ext = notePath.split(".").pop()?.toLowerCase()
     return {
-      canvas: webGet(FILE_PREFIX + joinPath(dir, `${stem}.canvas`)) !== null,
-      sketch: webGet(FILE_PREFIX + joinPath(dir, `${stem}.excalidraw`)) !== null,
+      note: isBundle ? webGet(FILE_PREFIX + joinPath(dir, `${stem}.md`)) !== null : ext === "md",
+      canvas: isBundle
+        ? webGet(FILE_PREFIX + joinPath(dir, `${stem}.canvas`)) !== null
+        : ext === "canvas",
+      sketch: isBundle
+        ? webGet(FILE_PREFIX + joinPath(dir, `${stem}.excalidraw`)) !== null
+        : ext === "excalidraw",
       database:
-        webGet(FILE_PREFIX + joinPath(dir, "ambd.json")) !== null ||
-        webGet(FILE_PREFIX + joinPath(dir, "Metadata.md")) !== null,
+        isBundle &&
+        (webGet(FILE_PREFIX + joinPath(dir, `${stem}.json`)) !== null ||
+          webGet(FILE_PREFIX + joinPath(dir, "ambd.json")) !== null ||
+          webGet(FILE_PREFIX + joinPath(dir, "Metadata.md")) !== null),
     }
   }
 
@@ -806,9 +1020,9 @@ export class WebAdapterCore implements StoragePort {
     const ensured = webEnsureBundle(notePath)
     const stem = pathStem(ensured.notePath)
     const dir = pathDir(ensured.notePath)
-    const extension = kind === "sketch" ? "excalidraw" : "canvas"
+    const extension = kind === "sketch" ? "excalidraw" : kind === "canvas" ? "canvas" : "md"
     const layerPath = joinPath(dir, `${stem}.${extension}`)
-    webSet(FILE_PREFIX + layerPath, "{}\n")
+    webSet(FILE_PREFIX + layerPath, extension === "md" ? "" : "{}\n")
     return { notePath: ensured.notePath, layerPath, kind, pathChanges: ensured.changes }
   }
 
@@ -823,7 +1037,7 @@ export class WebAdapterCore implements StoragePort {
     const dir = pathDir(notePath)
     const parentDir = pathDir(dir)
     const stem = pathStem(notePath)
-    const ext = kind === "sketch" ? "excalidraw" : "canvas"
+    const ext = kind === "sketch" ? "excalidraw" : kind === "canvas" ? "canvas" : "md"
     const oldPath = joinPath(dir, `${stem}.${ext}`)
     const newStem = `${stem}_ul`
     let newPath = joinPath(parentDir, `${newStem}.${ext}`)
@@ -855,7 +1069,7 @@ export class WebAdapterCore implements StoragePort {
     }
     const dir = pathDir(notePath)
     const stem = pathStem(notePath)
-    const extension = kind === "sketch" ? "excalidraw" : "canvas"
+    const extension = kind === "sketch" ? "excalidraw" : kind === "canvas" ? "canvas" : "md"
     const layerPath = joinPath(dir, `${stem}.${extension}`)
     webRemove(FILE_PREFIX + layerPath)
     return {
@@ -895,11 +1109,42 @@ export class WebAdapterCore implements StoragePort {
     property: CustomProperty,
   ): Promise<CustomProperty> {
     const current = (await this.getNoteProperties("", noteId)).customProperties
-    const saved = { ...property, id: property.id || crypto.randomUUID() }
-    const index = current.findIndex((item) => item.id === saved.id)
+    const index = current.findIndex(
+      (item) =>
+        item.id === property.id ||
+        (property.name && item.name.toLowerCase() === property.name.toLowerCase()),
+    )
+    const oldName =
+      index >= 0 && current[index].name.toLowerCase() !== property.name.toLowerCase()
+        ? current[index].name
+        : null
+    const saved = {
+      ...property,
+      id: property.id || (index >= 0 ? current[index].id : crypto.randomUUID()),
+    }
     if (index >= 0) current[index] = saved
     else current.push(saved)
     webSet(`amby:custom-properties:${noteId}`, JSON.stringify(current))
+
+    try {
+      let source = webGet(FILE_PREFIX + noteId)
+      if (source !== null) {
+        if (oldName) {
+          source = removeWebFrontmatterProperty(source, oldName)
+        }
+        const updated = upsertWebFrontmatterProperty(
+          source,
+          noteId,
+          property.name,
+          property.value,
+          property.propertyType,
+        )
+        webSet(FILE_PREFIX + noteId, updated)
+      }
+    } catch {
+      // Best-effort in web mock
+    }
+
     return saved
   }
 
@@ -908,10 +1153,26 @@ export class WebAdapterCore implements StoragePort {
     noteId: string,
     propertyId: string,
   ): Promise<void> {
-    const current = (await this.getNoteProperties("", noteId)).customProperties.filter(
-      (property) => property.id !== propertyId,
+    const properties = (await this.getNoteProperties("", noteId)).customProperties
+    const targetProp = properties.find(
+      (p) => p.id === propertyId || p.name.toLowerCase() === propertyId.toLowerCase(),
+    )
+    const propertyName = targetProp?.name ?? propertyId
+    const current = properties.filter(
+      (property) =>
+        property.id !== propertyId && property.name.toLowerCase() !== propertyId.toLowerCase(),
     )
     webSet(`amby:custom-properties:${noteId}`, JSON.stringify(current))
+
+    try {
+      const source = webGet(FILE_PREFIX + noteId)
+      if (source !== null) {
+        const updated = removeWebFrontmatterProperty(source, propertyName)
+        webSet(FILE_PREFIX + noteId, updated)
+      }
+    } catch {
+      // Best-effort in web mock
+    }
   }
 
   async reorderCustomProperties(

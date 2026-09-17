@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { escapeHtml, renderCardHtml, pathStem, extFromMime } from "./canvas-markdown"
+import {
+  escapeHtml,
+  renderCardHtml,
+  pathStem,
+  extFromMime,
+  resolveVaultFilePath,
+  toRelativeVaultPath,
+} from "./canvas-markdown"
 
 describe("canvas-markdown", () => {
   it("escapes html special characters", () => {
@@ -32,5 +39,25 @@ describe("canvas-markdown", () => {
     expect(extFromMime("image/png")).toBe("png")
     expect(extFromMime("image/webp")).toBe("webp")
     expect(extFromMime("application/octet-stream")).toBe("png")
+  })
+
+  it("resolves vault file path correctly without double-prefixing", () => {
+    expect(resolveVaultFilePath("notes/daily.md", "/Users/me/vault")).toBe(
+      "/Users/me/vault/notes/daily.md",
+    )
+    expect(resolveVaultFilePath("/Users/me/vault/notes/daily.md", "/Users/me/vault")).toBe(
+      "/Users/me/vault/notes/daily.md",
+    )
+    expect(resolveVaultFilePath("C:/Vault/note.md", "C:/Vault")).toBe("C:/Vault/note.md")
+    expect(resolveVaultFilePath("", "/Users/me/vault")).toBe("")
+    expect(resolveVaultFilePath("note.md", null)).toBe("note.md")
+  })
+
+  it("converts absolute path to relative vault path", () => {
+    expect(toRelativeVaultPath("/Users/me/vault/notes/daily.md", "/Users/me/vault")).toBe(
+      "notes/daily.md",
+    )
+    expect(toRelativeVaultPath("notes/daily.md", "/Users/me/vault")).toBe("notes/daily.md")
+    expect(toRelativeVaultPath("", "/Users/me/vault")).toBe("")
   })
 })

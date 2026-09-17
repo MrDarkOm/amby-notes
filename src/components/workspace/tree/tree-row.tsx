@@ -57,6 +57,7 @@ export const TreeNode = React.memo(
     onDeleteMany,
     onNewFile,
     onAttachCanvas,
+    onAttachSketch,
     onOpenInNewTab,
     onOpenInNewWindow,
     onCloneFile,
@@ -84,7 +85,12 @@ export const TreeNode = React.memo(
     const contextSelectionIds = isSelected ? [...selectedIds] : [item.id]
     const isMultiSelection = contextSelectionIds.length > 1
     const isDragSource = isPtrDragSource
-    const canReceiveDrop = item.type === "folder" || item.type === "file"
+    const canReceiveDrop =
+      item.type === "folder" ||
+      item.type === "file" ||
+      item.type === "canvas" ||
+      item.type === "sketch" ||
+      item.type === "database"
     const canReceiveMove = item.type === "folder" || hasChildren
     const isDragTarget = isPtrDragTarget && canReceiveDrop
     // Keep the tree content close to the panel edge while preserving one
@@ -155,8 +161,7 @@ export const TreeNode = React.memo(
       if (!isSelected) onContextMenuSelect?.(item.id)
     }
 
-    const folderCounts =
-      item.type === "folder" || hasChildren ? countFolderContents(item) : undefined
+    const folderCounts = item.type === "folder" ? countFolderContents(item) : undefined
     const folderContentsTooltip = folderCounts
       ? t("tree.folderContents", {
           files: folderCounts.notes,
@@ -182,6 +187,7 @@ export const TreeNode = React.memo(
             ? [item.name, folderContentsTooltip].filter(Boolean).join("\n")
             : undefined
         }
+        data-tooltip-side={nameIsTruncated ? "right" : undefined}
         className="min-w-0 flex-1 truncate"
       >
         {item.name}
@@ -208,12 +214,15 @@ export const TreeNode = React.memo(
 
     const defaultIcon = item.type === "folder" ? "folder" : "file"
     const layers = linkedLayersByDoc?.[item.id]
-    const canvasAvailable = item.type === "file" && !layers?.canvas
-    const databaseAvailable = canCreateDatabaseLayer && item.type === "file" && !layers?.database
-    const sketchAvailable = item.type === "file" && !layers?.sketch
+    const noteAvailable = (item.type === "canvas" || item.type === "sketch") && !layers?.note
+    const canvasAvailable = item.type !== "canvas" && item.type !== "folder" && !layers?.canvas
+    const databaseAvailable = canCreateDatabaseLayer && item.type !== "folder" && !layers?.database
+    const sketchAvailable = item.type !== "sketch" && item.type !== "folder" && !layers?.sketch
     const canAttach =
       (item.type === "canvas" && !!onAttachCanvas) ||
-      (!!onAttachLayer && (canvasAvailable || databaseAvailable || sketchAvailable))
+      (item.type === "sketch" && !!onAttachSketch) ||
+      (!!onAttachLayer &&
+        (noteAvailable || canvasAvailable || databaseAvailable || sketchAvailable))
 
     const ctxItems = (
       <ContextMenuContent className="w-60 border-border bg-popover text-foreground">
@@ -232,7 +241,7 @@ export const TreeNode = React.memo(
             {t("tree.openInNewTab")}
           </ContextMenuItem>
         )}
-        {!isMultiSelection && item.type === "file" && onOpenInNewWindow && (
+        {!isMultiSelection && item.type !== "folder" && onOpenInNewWindow && (
           <ContextMenuItem
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
             onSelect={() => onOpenInNewWindow(item.id)}
@@ -257,10 +266,28 @@ export const TreeNode = React.memo(
               {t("tree.attach")}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-52 border-border bg-popover text-foreground">
+              {noteAvailable && (
+                <ContextMenuItem
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                  onSelect={() => setPendingAttach("note")}
+                >
+                  <FileText className="size-3.5 text-muted-foreground" />
+                  {t("tree.attachNote")}
+                </ContextMenuItem>
+              )}
               {item.type === "canvas" && onAttachCanvas && (
                 <ContextMenuItem
                   className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
                   onSelect={() => onAttachCanvas(item.id)}
+                >
+                  <FileText className="size-3.5 text-muted-foreground" />
+                  {t("tree.attachToNote")}
+                </ContextMenuItem>
+              )}
+              {item.type === "sketch" && onAttachSketch && (
+                <ContextMenuItem
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                  onSelect={() => onAttachSketch(item.id)}
                 >
                   <FileText className="size-3.5 text-muted-foreground" />
                   {t("tree.attachToNote")}
@@ -296,19 +323,21 @@ export const TreeNode = React.memo(
             </ContextMenuSubContent>
           </ContextMenuSub>
         )}
-        {!isMultiSelection && item.type === "file" && onToggleFavorite && (
-          <ContextMenuItem
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-            onSelect={() => onToggleFavorite(item.id)}
-          >
-            {favorites?.has(item.id) ? (
-              <Star className="size-3.5 fill-current text-primary" />
-            ) : (
-              <Star className="size-3.5 text-muted-foreground" />
-            )}
-            {favorites?.has(item.id) ? t("tree.removeBookmark") : t("tree.addBookmark")}
-          </ContextMenuItem>
-        )}
+        {!isMultiSelection &&
+          (item.type === "file" || item.type === "database") &&
+          onToggleFavorite && (
+            <ContextMenuItem
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+              onSelect={() => onToggleFavorite(item.id)}
+            >
+              {favorites?.has(item.id) ? (
+                <Star className="size-3.5 fill-current text-primary" />
+              ) : (
+                <Star className="size-3.5 text-muted-foreground" />
+              )}
+              {favorites?.has(item.id) ? t("tree.removeBookmark") : t("tree.addBookmark")}
+            </ContextMenuItem>
+          )}
 
         {!isMultiSelection && <ContextMenuSeparator className="bg-accent" />}
 
@@ -339,7 +368,7 @@ export const TreeNode = React.memo(
             onSelect={() => {
               // Let Radix finish restoring focus after the context menu closes;
               // otherwise that restore can blur the rename input immediately.
-              const parentId = item.type === "canvas" ? null : item.id
+              const parentId = item.id
               window.setTimeout(() => void onNewFile?.(parentId), 80)
             }}
           >
@@ -426,7 +455,9 @@ export const TreeNode = React.memo(
               ? t("tree.confirmAttachCanvas", { name: item.name })
               : pendingAttach === "database"
                 ? t("tree.confirmAttachDatabase", { name: item.name })
-                : t("tree.confirmAttachSketch", { name: item.name })}
+                : pendingAttach === "sketch"
+                  ? t("tree.confirmAttachSketch", { name: item.name })
+                  : t("tree.confirmAttachNote", { name: item.name })}
           </p>
           <div className="mt-1 flex justify-end gap-2">
             <button
@@ -455,7 +486,7 @@ export const TreeNode = React.memo(
     )
 
     const buttonCls = cn(
-      "amby-tree-row flex w-full items-center gap-1.5 rounded pl-0 py-1 pr-3 text-left text-[13px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+      "amby-density-inline-padding-left amby-tree-row flex w-full items-center gap-1.5 rounded pl-0 py-1 pr-3 text-left text-[13px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
       isSelected && "bg-accent",
       isDragSource && "opacity-40",
     )
@@ -503,8 +534,14 @@ export const TreeNode = React.memo(
               <ContextMenuTrigger asChild>
                 <div
                   className={buttonCls}
-                  style={{ paddingLeft }}
+                  style={
+                    {
+                      paddingLeft,
+                      "--amby-density-padding-left": `${paddingLeft}px`,
+                    } as React.CSSProperties
+                  }
                   title={folderContentsTooltip}
+                  data-tooltip-side={folderContentsTooltip ? "right" : undefined}
                   onContextMenu={handleContextMenu}
                   onClick={(event) => {
                     // Keep clicks on the toggle and the item action button
@@ -573,7 +610,6 @@ export const TreeNode = React.memo(
               data-tree-reorder-target-path={item.path}
               data-tree-move-target={canReceiveMove ? item.id : undefined}
               className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
-              title={folderContentsTooltip}
               onContextMenu={handleContextMenu}
             >
               {isEditing ? (
@@ -584,7 +620,12 @@ export const TreeNode = React.memo(
                   aria-selected={isSelected}
                   tabIndex={-1}
                   className={buttonCls}
-                  style={{ paddingLeft }}
+                  style={
+                    {
+                      paddingLeft,
+                      "--amby-density-padding-left": `${paddingLeft}px`,
+                    } as React.CSSProperties
+                  }
                   {...selectedAttr}
                 >
                   <TreeItemIcon item={item} className={mainIconClassName} />
@@ -604,7 +645,12 @@ export const TreeNode = React.memo(
                   onClick={(event) => onSelect(item.id, event)}
                   onDoubleClick={handleDoubleClick}
                   className={buttonCls}
-                  style={{ paddingLeft }}
+                  style={
+                    {
+                      paddingLeft,
+                      "--amby-density-padding-left": `${paddingLeft}px`,
+                    } as React.CSSProperties
+                  }
                   {...selectedAttr}
                 >
                   <TreeItemIcon item={item} className={mainIconClassName} />
@@ -635,6 +681,7 @@ export const TreeNode = React.memo(
     prev.onDeleteMany === next.onDeleteMany &&
     prev.onNewFile === next.onNewFile &&
     prev.onAttachCanvas === next.onAttachCanvas &&
+    prev.onAttachSketch === next.onAttachSketch &&
     prev.onOpenInNewTab === next.onOpenInNewTab &&
     prev.onOpenInNewWindow === next.onOpenInNewWindow &&
     prev.onCloneFile === next.onCloneFile &&

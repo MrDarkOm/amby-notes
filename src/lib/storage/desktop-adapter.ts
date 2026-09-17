@@ -12,6 +12,8 @@ import type {
   CreateDatabaseRequest,
   CreatedDatabase,
   CreateDatabasePropertyRequest,
+  ChangeDatabasePropertyTypeRequest,
+  ChangedDatabasePropertyType,
   DeleteDatabasePropertyRequest,
   DeletedDatabaseProperty,
   RenameDatabasePropertyRequest,
@@ -34,6 +36,19 @@ import type {
   DatabaseYamlSyncRequest,
   DatabaseYamlSyncResult,
   DatabaseYamlResolveRequest,
+  CreateDatabaseViewRequest,
+  DatabaseViewDocument,
+  DatabaseViewMutationResult,
+  DatabaseViewRequest,
+  DeleteDatabaseViewRequest,
+  RenameDatabaseViewRequest,
+  ReorderDatabaseViewsRequest,
+  UpdateDatabaseViewConfigRequest,
+  DatabaseAggregateRequest,
+  DatabaseAggregateResult,
+  DatabaseChangedPayload,
+  UpdateDatabaseRelationValueRequest,
+  UpdateDatabaseRelationValueResult,
 } from "./database-types"
 import type {
   CredentialInfo,
@@ -148,33 +163,46 @@ function toBindingFilter(filter: DatabaseFilterNode):
 }
 
 function toBindingQueryRequest(request: DatabaseQueryRequest) {
+  return {
+    expectedGeneration: request.expectedGeneration,
+    databaseId: request.databaseId,
+    search: request.search ?? null,
+    sorts: request.sorts
+      ? request.sorts.map((sort) => ({
+          field: toBindingField(sort.field),
+          direction: sort.direction,
+          nulls: sort.nulls,
+        }))
+      : null,
+    filter: request.filter ? toBindingFilter(request.filter) : null,
+    source: toBindingQuerySource(request.source),
+    page: {
+      limit: request.page.limit,
+      cursor: request.page.cursor ?? null,
+    },
+  }
+}
+
+function toBindingQuerySource(sourceRequest: DatabaseQueryRequest["source"]) {
   const source =
-    request.source.kind === "savedView"
+    sourceRequest.kind === "savedView"
       ? {
           kind: "savedView" as const,
-          view_id: request.source.viewId,
-          expected_revision: request.source.expectedRevision ?? null,
+          view_id: sourceRequest.viewId,
+          expected_revision: sourceRequest.expectedRevision ?? null,
         }
       : {
           kind: "inline" as const,
           spec: {
-            filter: request.source.spec.filter ? toBindingFilter(request.source.spec.filter) : null,
-            sorts: request.source.spec.sorts.map((sort) => ({
+            filter: sourceRequest.spec.filter ? toBindingFilter(sourceRequest.spec.filter) : null,
+            sorts: sourceRequest.spec.sorts.map((sort) => ({
               field: toBindingField(sort.field),
               direction: sort.direction,
               nulls: sort.nulls,
             })),
           },
         }
-  return {
-    expectedGeneration: request.expectedGeneration,
-    databaseId: request.databaseId,
-    source,
-    page: {
-      limit: request.page.limit,
-      cursor: request.page.cursor ?? null,
-    },
-  }
+  return source
 }
 
 export class DesktopAdapter implements StoragePort {
@@ -193,6 +221,10 @@ export class DesktopAdapter implements StoragePort {
 
   async rebuildDatabaseProjection(): Promise<DatabaseModuleState> {
     return unwrapDatabaseCommand(await commands.rebuildDatabaseProjection())
+  }
+
+  async refreshDatabaseChange(change: DatabaseChangedPayload): Promise<DatabaseModuleState> {
+    return unwrapDatabaseCommand(await commands.refreshDatabaseChange(change))
   }
 
   async createDatabase(request: CreateDatabaseRequest): Promise<CreatedDatabase> {
@@ -215,8 +247,33 @@ export class DesktopAdapter implements StoragePort {
         ...request,
         beforePropertyId: request.beforePropertyId ?? null,
         options: request.options ?? [],
+        formulaExpression: request.formulaExpression ?? null,
+        relationTargetDatabaseId: request.relationTargetDatabaseId ?? null,
+        relationMaxItems: request.relationMaxItems ?? null,
+        relationTwoWay: request.relationTwoWay ?? null,
+        relationInversePropertyName: request.relationInversePropertyName ?? null,
       }),
     )
+  }
+
+  async changeDatabasePropertyType(
+    request: ChangeDatabasePropertyTypeRequest,
+  ): Promise<ChangedDatabasePropertyType> {
+    return unwrapDatabaseCommand(
+      await commands.changeDatabasePropertyType({
+        ...request,
+        relationTargetDatabaseId: request.relationTargetDatabaseId ?? null,
+        relationMaxItems: request.relationMaxItems ?? null,
+        relationTwoWay: request.relationTwoWay ?? null,
+        relationInversePropertyName: request.relationInversePropertyName ?? null,
+      }),
+    )
+  }
+
+  async updateDatabaseRelationValue(
+    request: UpdateDatabaseRelationValueRequest,
+  ): Promise<UpdateDatabaseRelationValueResult> {
+    return unwrapDatabaseCommand(await commands.updateDatabaseRelationValue(request))
   }
 
   async deleteDatabaseProperty(
@@ -318,6 +375,66 @@ export class DesktopAdapter implements StoragePort {
     return { ...result, database: fromBindingSummary(result.database) }
   }
 
+  async aggregateDatabase(request: DatabaseAggregateRequest): Promise<DatabaseAggregateResult> {
+    const result = unwrapDatabaseCommand(
+      await commands.aggregateDatabase({
+        expectedGeneration: request.expectedGeneration,
+        databaseId: request.databaseId,
+        source: toBindingQuerySource(request.source),
+        category: request.category ? toBindingField(request.category) : null,
+        measure: request.measure ? toBindingField(request.measure) : null,
+        aggregation: request.aggregation,
+        search: request.search ?? null,
+        limit: request.limit,
+      }),
+    )
+    return {
+      ...result,
+      databaseId: result.databaseId,
+      groups: result.groups,
+    }
+  }
+
+  async getDatabaseView(request: DatabaseViewRequest): Promise<DatabaseViewDocument> {
+    return unwrapDatabaseCommand(await commands.getDatabaseView(request))
+  }
+
+  async createDatabaseView(request: CreateDatabaseViewRequest): Promise<DatabaseViewDocument> {
+    return unwrapDatabaseCommand(await commands.createDatabaseView(request))
+  }
+
+  async renameDatabaseView(
+    request: RenameDatabaseViewRequest,
+  ): Promise<DatabaseViewMutationResult> {
+    return unwrapDatabaseCommand(await commands.renameDatabaseView(request))
+  }
+
+  async updateDatabaseViewConfig(
+    request: UpdateDatabaseViewConfigRequest,
+  ): Promise<DatabaseViewMutationResult> {
+    return unwrapDatabaseCommand(await commands.updateDatabaseViewConfig(request))
+  }
+
+  async duplicateDatabaseView(request: DatabaseViewRequest): Promise<DatabaseViewDocument> {
+    return unwrapDatabaseCommand(await commands.duplicateDatabaseView(request))
+  }
+
+  async deleteDatabaseView(
+    request: DeleteDatabaseViewRequest,
+  ): Promise<DatabaseViewMutationResult> {
+    return unwrapDatabaseCommand(await commands.deleteDatabaseView(request))
+  }
+
+  async reorderDatabaseViews(
+    request: ReorderDatabaseViewsRequest,
+  ): Promise<DatabaseViewMutationResult> {
+    return unwrapDatabaseCommand(await commands.reorderDatabaseViews(request))
+  }
+
+  async setDefaultDatabaseView(request: DatabaseViewRequest): Promise<DatabaseViewMutationResult> {
+    return unwrapDatabaseCommand(await commands.setDefaultDatabaseView(request))
+  }
+
   async openVault(): Promise<string | null> {
     return unwrapCommand(commands.openVault())
   }
@@ -336,6 +453,10 @@ export class DesktopAdapter implements StoragePort {
 
   async loadActiveVaultData(): Promise<LoadVaultResult> {
     return unwrapCommand(commands.loadActiveVault())
+  }
+
+  async reindexActiveVaultData(): Promise<LoadVaultResult> {
+    return unwrapCommand(commands.reindexVault())
   }
 
   async preflightVault(vaultPath: string): Promise<VaultPreflight> {
@@ -466,6 +587,18 @@ export class DesktopAdapter implements StoragePort {
 
   async attachCanvasToNote(_vaultPath: string, canvasPath: string): Promise<FsMutationResult> {
     return unwrapMutation(commands.attachCanvasToNote(canvasPath))
+  }
+
+  async createSketchFile(
+    vaultPath: string,
+    parentPath: string | null,
+    name: string,
+  ): Promise<string> {
+    return unwrapCommand(commands.createSketch(parentPath ?? vaultPath, name))
+  }
+
+  async attachSketchToNote(_vaultPath: string, sketchPath: string): Promise<FsMutationResult> {
+    return unwrapMutation(commands.attachSketchToNote(sketchPath))
   }
 
   async renameItem(_vaultPath: string, path: string, newName: string): Promise<FsMutationResult> {

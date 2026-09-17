@@ -22,7 +22,28 @@ const note: TreeItem = {
   icon: "😀",
 }
 
+const databaseItem: TreeItem = {
+  id: "database-1",
+  name: "Projects",
+  path: "Projects",
+  type: "database",
+  icon: "database",
+}
+
 describe("TreeItemIcon", () => {
+  it("renders a database icon for database items", () => {
+    const { container } = render(<TreeItemIcon item={databaseItem} />)
+
+    expect(container.querySelector("svg")).not.toBeNull()
+  })
+
+  it("renders a database icon with star when a database is favorited", () => {
+    const { container } = render(<TreeItemStatusIcon item={databaseItem} isFavorite />)
+
+    expect(container.querySelector('[data-tree-file-status="favorite"]')).not.toBeNull()
+    expect(container.querySelectorAll("svg")).toHaveLength(2)
+  })
+
   it("keeps a custom folder icon without adding a folder glyph", () => {
     const { container } = render(<TreeItemIcon item={folder} />)
 

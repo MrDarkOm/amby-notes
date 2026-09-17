@@ -9,6 +9,7 @@ import {
   type RecoveryScope,
 } from "@/lib/recovery-drafts"
 import {
+  getNoteProperties,
   NoteRevisionConflictError,
   readNote,
   showErrorMessage,
@@ -66,13 +67,27 @@ export function useMarkdownAutosave({
           autosaveRef.current?.pause(snapshot.key)
           throw new AutosaveConflictPausedError()
         }
+        const currentDocument = useDocStore.getState().openDocs[snapshot.value.fileId]
         const activeVault = vaultRef.current
-        if (!activeVault) return writeFile(snapshot.value.path, snapshot.value.content)
+        if (!activeVault) {
+          const savePath = currentDocument?.path.endsWith(".md")
+            ? currentDocument.path
+            : snapshot.value.path.replace(/\.(canvas|excalidraw)$/u, ".md")
+          await writeFile(savePath, snapshot.value.content)
+          const updatedProperties = await getNoteProperties("", snapshot.value.fileId).catch(
+            () => null,
+          )
+          if (updatedProperties) {
+            useDocStore
+              .getState()
+              .patchDoc(snapshot.value.fileId, { noteProperties: updatedProperties })
+          }
+          return
+        }
         // A newer local edit can enter the queue while the previous save is in
         // flight. The previous save updates the open document's revision before
         // the coordinator starts this snapshot, so read the CAS baseline at
         // execution time instead of reusing the revision captured on edit.
-        const currentDocument = useDocStore.getState().openDocs[snapshot.value.fileId]
         if (currentDocument?.externallyDeleted) {
           useDocStore.getState().setExternalConflict({
             fileId: currentDocument.id,
@@ -86,19 +101,24 @@ export function useMarkdownAutosave({
         }
         const expectedRevision = currentDocument?.revision ?? snapshot.value.expectedRevision
         if (!expectedRevision) throw new Error("Missing note revision for autosave")
+        const noteId = currentDocument?.noteId ?? snapshot.value.fileId
         try {
           const outcome = await writeNote(
             activeVault,
-            snapshot.value.fileId,
+            noteId,
             snapshot.value.content,
             snapshot.value.backendGeneration,
             expectedRevision,
             windowLabel,
           )
-          useDocStore.getState().patchDoc(snapshot.value.fileId, { revision: outcome.revision })
+          const updatedProperties = await getNoteProperties(activeVault, noteId).catch(() => null)
+          useDocStore.getState().patchDoc(snapshot.value.fileId, {
+            revision: outcome.revision,
+            ...(updatedProperties ? { noteProperties: updatedProperties } : {}),
+          })
         } catch (error) {
           if (!(error instanceof NoteRevisionConflictError)) throw error
-          const external = await readNote(activeVault, snapshot.value.fileId)
+          const external = await readNote(activeVault, noteId)
           const current = useDocStore.getState().openDocs[snapshot.value.fileId]
           if (current)
             useDocStore.getState().setExternalConflict({

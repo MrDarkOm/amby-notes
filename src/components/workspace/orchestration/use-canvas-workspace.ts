@@ -1,6 +1,6 @@
 import * as React from "react"
 import type { TFunction } from "i18next"
-import { validateAndSerializeCanvas } from "@/lib/canvas-format"
+import { serializeCanvas, validateAndSerializeCanvas } from "@/lib/canvas-format"
 import {
   discardRecoveryDraft,
   migrateLegacyRecoveryDrafts,
@@ -78,7 +78,7 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
         try {
           diskContent = validateAndSerializeCanvas(await readFile(path))
         } catch {
-          diskContent = "{}"
+          diskContent = serializeCanvas({ nodes: [], edges: [] })
         }
         const recovery = (await readRecoveryDraft(path, recoveryScope))?.content
         let recoveredContent: string | undefined
@@ -119,6 +119,29 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
     [autosave, autosaveKey, recoveryScope],
   )
 
+  const reloadExternalCanvas = React.useCallback(
+    async (path: string): Promise<boolean> => {
+      if (openCanvasesRef.current[path] === undefined) return false
+      const pending = autosave.inspect(autosaveKey(path))
+      if (pending?.dirty) {
+        return false
+      }
+      try {
+        const diskContent = await readFile(path)
+        const normalized = validateAndSerializeCanvas(diskContent)
+        if (openCanvasesRef.current[path] === normalized) return false
+        openCanvasesRef.current = { ...openCanvasesRef.current, [path]: normalized }
+        setCanvasRevision((revision) => revision + 1)
+        void discardRecoveryDraft(path, recoveryScope)
+        return true
+      } catch (error) {
+        console.error("Failed to reload external canvas:", error)
+        return false
+      }
+    },
+    [autosave, autosaveKey, recoveryScope],
+  )
+
   React.useEffect(
     () =>
       registerAutosaveLifecycle({
@@ -142,6 +165,7 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
     handleCanvasSave,
     loadCanvasBuffer,
     openCanvases,
+    reloadExternalCanvas,
     setOpenCanvases,
   }
 }

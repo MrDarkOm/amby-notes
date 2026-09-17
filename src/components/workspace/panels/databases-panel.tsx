@@ -55,7 +55,7 @@ export function DatabasesPanel({ databaseRuntimeEnabled, onOpenDatabase }: Panel
         </div>
       ) : status === "error" ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center">
-          <AlertTriangle className="size-7 text-amber-500" />
+          <AlertTriangle className="size-7 text-amber-600 dark:text-amber-500" />
           <p className="text-xs font-medium">{t("databasePanel.loadFailed")}</p>
           <p className="break-words text-[11px] text-muted-foreground">{error}</p>
         </div>
@@ -72,7 +72,7 @@ export function DatabasesPanel({ databaseRuntimeEnabled, onOpenDatabase }: Panel
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
           {diagnostics.length > 0 && (
-            <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-[10px] text-amber-200">
+            <div className="mb-2 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-[10px] text-amber-800 dark:text-amber-200">
               <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
               <span>{t("databasePanel.diagnostics", { count: diagnostics.length })}</span>
             </div>

@@ -1,4 +1,4 @@
-export type AutosaveDocumentKind = "markdown" | "canvas"
+export type AutosaveDocumentKind = "markdown" | "canvas" | "sketch"
 
 /** A stable identity for a saveable buffer. */
 export interface AutosaveKey {

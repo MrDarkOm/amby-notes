@@ -27,6 +27,8 @@ fn is_bundle_dir(dir: &Path) -> bool {
         return false;
     };
     dir.join(format!("{name}.md")).is_file()
+        || dir.join(format!("{name}.canvas")).is_file()
+        || dir.join(format!("{name}.excalidraw")).is_file()
 }
 
 #[cfg(test)]
@@ -292,6 +294,43 @@ fn database_layer_writer_is_disabled_without_promoting_a_note() {
     assert!(error.contains("DB-10"));
     assert!(note.exists());
     assert!(!vault.join("Note").exists());
+}
+
+#[test]
+fn attach_layers_to_database_container() {
+    let vault = temp_vault("database-layers");
+    let db_dir = vault.join("Projects");
+    fs::create_dir(&db_dir).unwrap();
+    let manifest = db_dir.join("Projects.json");
+    fs::write(&manifest, "{}").unwrap();
+
+    // Attach note layer
+    let note_res = create_layer_impl(&db_dir, "note").unwrap();
+    assert_eq!(
+        note_res.layer_path,
+        path_string(&db_dir.join("Projects.md"))
+    );
+    assert!(db_dir.join("Projects.md").exists());
+
+    // Attach canvas layer
+    let canvas_res = create_layer_impl(&db_dir, "canvas").unwrap();
+    assert_eq!(
+        canvas_res.layer_path,
+        path_string(&db_dir.join("Projects.canvas"))
+    );
+    assert!(db_dir.join("Projects.canvas").exists());
+
+    // Attach sketch layer
+    let sketch_res = create_layer_impl(&db_dir, "sketch").unwrap();
+    assert_eq!(
+        sketch_res.layer_path,
+        path_string(&db_dir.join("Projects.excalidraw"))
+    );
+    assert!(db_dir.join("Projects.excalidraw").exists());
+
+    // Calling again returns existing layer path without error
+    let repeat = create_layer_impl(&manifest, "note").unwrap();
+    assert_eq!(repeat.layer_path, path_string(&db_dir.join("Projects.md")));
 }
 
 #[test]
@@ -679,4 +718,47 @@ fn test_sniff_image_format() {
     assert_eq!(sniff_image_format(b"BM\x00\x00\x00\x00"), Some("bmp"));
     assert_eq!(sniff_image_format(b"<svg xmlns=..."), None);
     assert_eq!(sniff_image_format(b"plain text"), None);
+}
+
+#[test]
+fn create_sketch_and_attach_to_note() {
+    let vault = temp_vault("sketch-test");
+    let sketch_path = create_sketch_impl(&vault, "Drawing").unwrap();
+    assert!(sketch_path.exists());
+    assert!(sketch_path.ends_with("Drawing.excalidraw"));
+
+    let res = attach_sketch_impl(&sketch_path).unwrap();
+    assert!(res.primary_path.is_some());
+    let note_path = PathBuf::from(res.primary_path.unwrap());
+    assert!(note_path.exists());
+    let bundle_dir = note_path.parent().unwrap();
+    assert!(bundle_dir.join("Drawing.excalidraw").exists());
+}
+
+#[test]
+fn canvas_bundle_child_note_and_layers() {
+    let vault = temp_vault("canvas-bundle-test");
+    let canvas_path = create_canvas_impl(&vault, "Architecture").unwrap();
+    assert!(canvas_path.exists());
+    assert!(canvas_path.ends_with("Architecture.canvas"));
+
+    // Create child note under canvas: should promote canvas to Architecture/Architecture.canvas
+    let child_res = prepare_create_note_impl(&canvas_path, "Component")
+        .unwrap()
+        .commit()
+        .unwrap();
+    assert!(child_res.primary_path.is_some());
+    let child_path = PathBuf::from(child_res.primary_path.unwrap());
+    assert!(child_path.exists());
+    assert!(child_path.ends_with("Architecture/Component.md"));
+
+    let bundle_dir = child_path.parent().unwrap();
+    let promoted_canvas = bundle_dir.join("Architecture.canvas");
+    assert!(promoted_canvas.exists());
+
+    // Create a note layer on the canvas bundle
+    let layer_res = create_layer_impl(&promoted_canvas, "note").unwrap();
+    let note_layer_path = PathBuf::from(layer_res.layer_path);
+    assert!(note_layer_path.exists());
+    assert!(note_layer_path.ends_with("Architecture/Architecture.md"));
 }

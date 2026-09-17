@@ -5,6 +5,7 @@ import type {
   NoteProperties,
   TreeItem,
 } from "@/lib/storage"
+import type { AttachableLayer, NodeLayers } from "./tree/tree-types"
 import type { SettingsNavigationTarget } from "./settings-navigation"
 
 export type Side = "left" | "right"
@@ -94,8 +95,10 @@ export interface PanelRenderProps {
   onNewFile?: (parentId: string | null) => void
   onNewFolder?: (parentId: string | null) => void
   onNewCanvas?: (parentId: string | null) => void
+  onNewSketch?: (parentId: string | null) => void
   onNewDatabase?: (parentId: string | null, name: string) => void | Promise<void>
   onAttachCanvas?: (id: string) => void
+  onAttachSketch?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
@@ -110,10 +113,10 @@ export interface PanelRenderProps {
   onToggleFavorite?: (id: string) => void
 
   // Layer attachment from tree
-  onAttachLayer?: (id: string, layer: "canvas" | "database" | "sketch") => void
+  onAttachLayer?: (id: string, layer: AttachableLayer) => void
   /** Enabled when the durable beta database creator is available. */
   canCreateDatabaseLayer?: boolean
-  linkedLayersByDoc?: Record<string, { canvas: boolean; database: boolean; sketch: boolean }>
+  linkedLayersByDoc?: Record<string, NodeLayers>
   databaseRuntimeEnabled?: boolean
   onOpenDatabase?: (databaseId: string, title: string, inNewTab?: boolean) => void
 
@@ -139,6 +142,7 @@ export interface ActionContext {
   refreshVault: () => void
   openSearch: () => void
   openSettings: (target?: SettingsNavigationTarget) => void
+  openHelp?: () => void
 }
 
 export interface PanelDef {

@@ -1,5 +1,5 @@
 use crate::{frontmatter, model::CustomProperty};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -98,6 +98,87 @@ pub fn restore_cache(conn: &Connection, vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Syncs all properties stored in `.amby/properties.json` into their respective
+/// markdown files' YAML frontmatter if missing.
+pub fn sync_all_properties_to_markdown(conn: &Connection, vault: &Path) -> Result<usize, String> {
+    let file = read(vault)?;
+    let mut updated_count = 0;
+
+    for (note_id, properties) in &file.notes {
+        if properties.is_empty() {
+            continue;
+        }
+
+        let note_rel_path: Option<String> = conn
+            .query_row("SELECT path FROM notes WHERE id = ?1", [note_id], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(|error| error.to_string())?;
+
+        let Some(rel_path) = note_rel_path else {
+            continue;
+        };
+
+        let note_path = vault.join(&rel_path);
+        if !note_path.is_file() {
+            continue;
+        }
+
+        let Ok(content) = fs::read_to_string(&note_path) else {
+            continue;
+        };
+
+        let note_props = frontmatter::note_properties(&content);
+        if note_props.frontmatter_status.is_malformed() {
+            continue;
+        }
+
+        let existing_keys: std::collections::HashSet<String> = note_props
+            .properties
+            .into_iter()
+            .map(|p| p.key.trim().to_ascii_lowercase())
+            .collect();
+
+        let mut current_content = content.clone();
+        let mut modified = false;
+
+        for prop in properties {
+            if prop.name.trim().is_empty() {
+                continue;
+            }
+            let key_lower = prop.name.trim().to_ascii_lowercase();
+            if !existing_keys.contains(&key_lower) {
+                if let Ok(updated) = frontmatter::upsert_frontmatter_property(
+                    &current_content,
+                    note_id,
+                    &prop.name,
+                    &prop.value,
+                    &prop.property_type,
+                ) {
+                    current_content = updated;
+                    modified = true;
+                }
+            }
+        }
+
+        if modified && current_content != content {
+            if let Ok(bytes) = frontmatter::text_bytes_for_write(&note_path, &current_content) {
+                let _ = crate::history::snapshot_before_write(
+                    vault,
+                    &note_path,
+                    &bytes,
+                    "property-frontmatter-sync",
+                );
+                let _ = frontmatter::atomic_write_bytes(&note_path, &bytes);
+                updated_count += 1;
+            }
+        }
+    }
+
+    Ok(updated_count)
+}
+
 pub fn list(conn: &Connection, note_id: &str) -> Result<Vec<CustomProperty>, String> {
     let mut statement = conn
         .prepare(
@@ -148,7 +229,17 @@ pub fn upsert(
     }
     let mut file = read(vault)?;
     let properties = file.notes.entry(note_id.to_string()).or_default();
-    if let Some(existing) = properties.iter_mut().find(|item| item.id == property.id) {
+    let mut old_name_to_remove: Option<String> = None;
+    if let Some(existing) = properties.iter_mut().find(|item| {
+        item.id == property.id
+            || (!property.name.is_empty() && item.name.eq_ignore_ascii_case(&property.name))
+    }) {
+        if property.id.is_empty() {
+            property.id = existing.id.clone();
+        }
+        if !existing.name.eq_ignore_ascii_case(&property.name) {
+            old_name_to_remove = Some(existing.name.clone());
+        }
         *existing = property.clone();
     } else {
         properties.push(property.clone());
@@ -156,6 +247,44 @@ pub fn upsert(
     let cache = properties.clone();
     write(vault, &file)?;
     replace_note_cache(conn, note_id, &cache)?;
+
+    let note_rel_path: Option<String> = conn
+        .query_row("SELECT path FROM notes WHERE id = ?1", [note_id], |row| {
+            row.get(0)
+        })
+        .optional()
+        .map_err(|error| error.to_string())?;
+
+    if let Some(rel_path) = note_rel_path {
+        let note_path = vault.join(rel_path);
+        if note_path.exists() {
+            if let Ok(content) = fs::read_to_string(&note_path) {
+                let content_after_old_removed = if let Some(old_name) = old_name_to_remove {
+                    frontmatter::remove_frontmatter_property(&content, &old_name).unwrap_or(content)
+                } else {
+                    content
+                };
+                if let Ok(updated) = frontmatter::upsert_frontmatter_property(
+                    &content_after_old_removed,
+                    note_id,
+                    &property.name,
+                    &property.value,
+                    &property.property_type,
+                ) {
+                    if let Ok(bytes) = frontmatter::text_bytes_for_write(&note_path, &updated) {
+                        let _ = crate::history::snapshot_before_write(
+                            vault,
+                            &note_path,
+                            &bytes,
+                            "property-upsert",
+                        );
+                        let _ = frontmatter::atomic_write_bytes(&note_path, &bytes);
+                    }
+                }
+            }
+        }
+    }
+
     Ok(property)
 }
 
@@ -168,18 +297,59 @@ pub fn delete(
     crate::index::identity::ensure_unique_identity(conn, note_id)?;
     ensure_frontmatter_properties_available(conn, vault, note_id)?;
     let mut file = read(vault)?;
+    let property_name = file
+        .notes
+        .get(note_id)
+        .and_then(|props| {
+            props
+                .iter()
+                .find(|p| p.id == property_id || p.name.eq_ignore_ascii_case(property_id))
+        })
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| property_id.to_string());
     if let Some(properties) = file.notes.get_mut(note_id) {
-        properties.retain(|property| property.id != property_id);
+        properties.retain(|property| {
+            property.id != property_id && !property.name.eq_ignore_ascii_case(property_id)
+        });
         if properties.is_empty() {
             file.notes.remove(note_id);
         }
     }
     write(vault, &file)?;
     conn.execute(
-        "DELETE FROM note_custom_properties WHERE note_id = ?1 AND id = ?2",
+        "DELETE FROM note_custom_properties WHERE note_id = ?1 AND (id = ?2 OR name = ?2)",
         params![note_id, property_id],
     )
     .map_err(|error| error.to_string())?;
+
+    let note_rel_path: Option<String> = conn
+        .query_row("SELECT path FROM notes WHERE id = ?1", [note_id], |row| {
+            row.get(0)
+        })
+        .optional()
+        .map_err(|error| error.to_string())?;
+
+    if let Some(rel_path) = note_rel_path {
+        let note_path = vault.join(rel_path);
+        if note_path.exists() {
+            if let Ok(content) = fs::read_to_string(&note_path) {
+                if let Ok(updated) =
+                    frontmatter::remove_frontmatter_property(&content, &property_name)
+                {
+                    if let Ok(bytes) = frontmatter::text_bytes_for_write(&note_path, &updated) {
+                        let _ = crate::history::snapshot_before_write(
+                            vault,
+                            &note_path,
+                            &bytes,
+                            "property-delete",
+                        );
+                        let _ = frontmatter::atomic_write_bytes(&note_path, &bytes);
+                    }
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -394,6 +564,74 @@ mod tests {
         fs::write(&file_path, "not-json").unwrap();
         assert!(upsert(&conn, &vault, "01TEST", property()).is_err());
         assert_eq!(fs::read_to_string(file_path).unwrap(), "not-json");
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn upsert_and_delete_synchronizes_markdown_frontmatter() {
+        let (vault, conn) = fixture();
+        let prop = property();
+        let saved = upsert(&conn, &vault, "01TEST", prop).unwrap();
+
+        let note_content = fs::read_to_string(vault.join("Note.md")).unwrap();
+        assert!(note_content.contains("amby-id: 01TEST"));
+        assert!(note_content.contains("Status: Done"));
+        assert!(note_content.ends_with("# Note"));
+
+        delete(&conn, &vault, "01TEST", &saved.id).unwrap();
+        let after_delete = fs::read_to_string(vault.join("Note.md")).unwrap();
+        assert!(!after_delete.contains("Status:"));
+        assert!(after_delete.contains("amby-id: 01TEST"));
+        assert!(after_delete.ends_with("# Note"));
+
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn rename_synchronizes_markdown_frontmatter() {
+        let (vault, conn) = fixture();
+        let prop = property();
+        let mut saved = upsert(&conn, &vault, "01TEST", prop).unwrap();
+
+        let note_content = fs::read_to_string(vault.join("Note.md")).unwrap();
+        assert!(note_content.contains("Status: Done"));
+
+        saved.name = "Priority".to_string();
+        upsert(&conn, &vault, "01TEST", saved).unwrap();
+
+        let after_rename = fs::read_to_string(vault.join("Note.md")).unwrap();
+        assert!(!after_rename.contains("Status:"));
+        assert!(after_rename.contains("Priority: Done"));
+        assert!(after_rename.contains("amby-id: 01TEST"));
+        assert!(after_rename.ends_with("# Note"));
+
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn sync_all_properties_to_markdown_writes_missing_properties() {
+        let (vault, conn) = fixture();
+        let prop = property();
+        let mut file = PropertyFile {
+            version: FORMAT_VERSION,
+            notes: HashMap::new(),
+        };
+        file.notes.insert("01TEST".to_string(), vec![prop]);
+        write(&vault, &file).unwrap();
+
+        assert_eq!(fs::read_to_string(vault.join("Note.md")).unwrap(), "# Note");
+
+        let updated = sync_all_properties_to_markdown(&conn, &vault).unwrap();
+        assert_eq!(updated, 1);
+
+        let note_content = fs::read_to_string(vault.join("Note.md")).unwrap();
+        assert!(note_content.contains("amby-id: 01TEST"));
+        assert!(note_content.contains("Status: Done"));
+        assert!(note_content.ends_with("# Note"));
+
+        let updated_again = sync_all_properties_to_markdown(&conn, &vault).unwrap();
+        assert_eq!(updated_again, 0);
+
         fs::remove_dir_all(vault).unwrap();
     }
 }

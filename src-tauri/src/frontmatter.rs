@@ -9,6 +9,9 @@ use crate::model::{FrontmatterProperty, FrontmatterStatus, NoteProperties};
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub const AMBY_ID_FIELD: &str = "amby-id";
+/// Optional Amby-owned display name. It is intentionally namespaced so a
+/// user's generic `title` metadata keeps its existing meaning.
+pub const AMBY_TITLE_FIELD: &str = "amby-title";
 pub const LEGACY_ID_FIELD: &str = "id";
 
 pub fn is_amby_id(id: &str) -> bool {
@@ -145,6 +148,7 @@ fn publish_prepared_no_replace(temp: &Path, target: &Path) -> Result<(), AtomicC
 pub struct ParsedMarkdown {
     pub frontmatter_status: FrontmatterStatus,
     pub id: Option<String>,
+    pub display_title: Option<String>,
     pub legacy_id: Option<String>,
     pub identity_error: Option<String>,
     pub body: String,
@@ -281,7 +285,7 @@ pub(crate) fn replace_yaml_binding_lossless(
     if key.is_empty()
         || !key
             .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+            .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_'))
     {
         return Err("YAML binding key is not a safe top-level key".to_owned());
     }
@@ -389,7 +393,7 @@ pub(crate) fn remove_yaml_binding_lossless(content: &str, key: &str) -> Result<S
     if key.is_empty()
         || !key
             .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+            .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_'))
     {
         return Err("YAML binding key is not a safe top-level key".to_owned());
     }
@@ -447,6 +451,87 @@ pub(crate) fn remove_yaml_binding_lossless(content: &str, key: &str) -> Result<S
     Ok(next)
 }
 
+pub fn property_value_to_yaml_value(value: &str, property_type: &str) -> Value {
+    let trimmed = value.trim();
+    match property_type {
+        "checkbox" => {
+            let is_checked = trimmed.eq_ignore_ascii_case("true") || trimmed == "1";
+            Value::Bool(is_checked)
+        }
+        "number" => {
+            if let Ok(v @ Value::Number(_)) = serde_yaml::from_str::<Value>(trimmed) {
+                v
+            } else {
+                Value::String(value.to_string())
+            }
+        }
+        "list" => {
+            if (trimmed.starts_with('[') && trimmed.ends_with(']')) || trimmed.starts_with('-') {
+                if let Ok(v @ Value::Sequence(_)) = serde_yaml::from_str::<Value>(trimmed) {
+                    v
+                } else {
+                    let items: Vec<Value> = trimmed
+                        .split(',')
+                        .map(|s| Value::String(s.trim().to_string()))
+                        .filter(|v| {
+                            if let Value::String(s) = v {
+                                !s.is_empty()
+                            } else {
+                                true
+                            }
+                        })
+                        .collect();
+                    Value::Sequence(items)
+                }
+            } else {
+                let items: Vec<Value> = trimmed
+                    .split(',')
+                    .map(|s| Value::String(s.trim().to_string()))
+                    .filter(|v| {
+                        if let Value::String(s) = v {
+                            !s.is_empty()
+                        } else {
+                            true
+                        }
+                    })
+                    .collect();
+                Value::Sequence(items)
+            }
+        }
+        _ => Value::String(value.to_string()),
+    }
+}
+
+pub fn upsert_frontmatter_property(
+    content: &str,
+    note_id: &str,
+    key: &str,
+    value: &str,
+    property_type: &str,
+) -> Result<String, String> {
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("Property key cannot be empty".to_owned());
+    }
+    let yaml_value = property_value_to_yaml_value(value, property_type);
+
+    let content_with_envelope = if split_frontmatter(content).is_some() {
+        content.to_owned()
+    } else {
+        body_with_identity_field(content, note_id, AMBY_ID_FIELD)?
+    };
+
+    replace_yaml_binding_lossless(&content_with_envelope, key, &yaml_value)
+}
+
+pub fn remove_frontmatter_property(content: &str, key: &str) -> Result<String, String> {
+    let key = key.trim();
+    if key.is_empty() {
+        return Err("Property key cannot be empty".to_owned());
+    }
+    remove_yaml_binding_lossless(content, key)
+}
+
 pub fn parse_markdown(content: &str) -> ParsedMarkdown {
     let Some((yaml, body)) = split_frontmatter(content) else {
         let without_bom = content.strip_prefix('\u{feff}').unwrap_or(content);
@@ -458,6 +543,7 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
                 FrontmatterStatus::None
             },
             id: None,
+            display_title: None,
             legacy_id: None,
             identity_error: None,
             body: content.to_string(),
@@ -476,6 +562,12 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
             id: map
                 .get(Value::String(AMBY_ID_FIELD.to_string()))
                 .and_then(Value::as_str)
+                .map(str::to_string),
+            display_title: map
+                .get(Value::String(AMBY_TITLE_FIELD.to_string()))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
                 .map(str::to_string),
             legacy_id: if map.contains_key(Value::String(AMBY_ID_FIELD.to_string())) {
                 None
@@ -507,6 +599,7 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
         Ok(_) => ParsedMarkdown {
             frontmatter_status: FrontmatterStatus::Invalid,
             id: None,
+            display_title: None,
             legacy_id: None,
             identity_error: None,
             body: body.to_string(),
@@ -518,6 +611,7 @@ pub fn parse_markdown(content: &str) -> ParsedMarkdown {
         Err(err) => ParsedMarkdown {
             frontmatter_status: FrontmatterStatus::Invalid,
             id: None,
+            display_title: None,
             legacy_id: None,
             identity_error: None,
             body: body.to_string(),
@@ -965,6 +1059,17 @@ mod tests {
 
         assert_eq!(parsed.id.as_deref(), Some("01ARZ3NDEKTSV4RRFFQ69G5FAV"));
         assert_eq!(parsed.body, "Hello\r\n");
+    }
+
+    #[test]
+    fn parses_independent_display_title_without_claiming_generic_title() {
+        let parsed = parse_markdown(
+            "---\r\namby-title:  Алекс из YAML  \r\ntitle: Generic\r\n---\r\n# Алекс из body\r\n",
+        );
+        assert_eq!(parsed.display_title.as_deref(), Some("Алекс из YAML"));
+
+        let empty = parse_markdown("---\namby-title: \"\"\n---\n# Body\n");
+        assert_eq!(empty.display_title, None);
     }
 
     #[test]
@@ -1482,5 +1587,47 @@ mod tests {
         )
         .unwrap();
         assert!(sequence.contains("labels: [one, two]"));
+    }
+
+    #[test]
+    fn upsert_and_remove_frontmatter_property_handles_types_and_missing_envelope() {
+        let note_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        // 1. Without initial frontmatter envelope
+        let bare = "Just body text here.";
+        let with_status =
+            upsert_frontmatter_property(bare, note_id, "status", "active", "text").unwrap();
+        assert!(with_status.contains("amby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV"));
+        assert!(with_status.contains("status: active"));
+        assert!(with_status.ends_with("Just body text here."));
+
+        // 2. Add checkbox property
+        let with_checkbox =
+            upsert_frontmatter_property(&with_status, note_id, "done", "true", "checkbox").unwrap();
+        assert!(with_checkbox.contains("done: true"));
+
+        // 3. Add number property
+        let with_number =
+            upsert_frontmatter_property(&with_checkbox, note_id, "priority", "42", "number")
+                .unwrap();
+        assert!(with_number.contains("priority: 42"));
+
+        // 4. Add unicode property key (e.g. Russian "статус")
+        let with_unicode =
+            upsert_frontmatter_property(&with_number, note_id, "статус", "в_работе", "text")
+                .unwrap();
+        assert!(with_unicode.contains("статус: в_работе"));
+
+        // 5. Update existing property
+        let updated =
+            upsert_frontmatter_property(&with_unicode, note_id, "done", "false", "checkbox")
+                .unwrap();
+        assert!(updated.contains("done: false"));
+
+        // 6. Remove property
+        let removed = remove_frontmatter_property(&updated, "done").unwrap();
+        assert!(!removed.contains("done:"));
+        assert!(removed.contains("priority: 42"));
+        assert!(removed.contains("статус: в_работе"));
+        assert!(removed.ends_with("Just body text here."));
     }
 }

@@ -34,10 +34,10 @@ describe("preset activity zones", () => {
     expect(STANDARD_PRESET.activeModules).not.toContain("databases")
   })
 
-  it("does not expose unimplemented notification or help actions", () => {
+  it("does not expose unimplemented notification action, exposes help", () => {
     const ids = ACTION_DEFS.map((action) => action.id)
     expect(ids).not.toContain("notifications")
-    expect(ids).not.toContain("help")
+    expect(ids).toContain("help")
     expect(ACTION_DEFS.find((action) => action.id === "presets")?.invoke).toBeUndefined()
   })
 })

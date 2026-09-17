@@ -7,6 +7,7 @@ import { motion } from "motion/react"
 
 import { motionTransitions } from "@/lib/motion-config"
 import { IconValue } from "../icon-value"
+import { KNOWN_ICONS } from "../tree/tree-types"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "../tiptap/floating-menu-events"
 
@@ -62,9 +63,7 @@ export function DocumentTitle({
     }
   }
 
-  const hasPageEmoji = Boolean(
-    fileIcon && !/^(folder|file|page|workspace|canvas|draft|brain)$/.test(fileIcon),
-  )
+  const hasPageEmoji = Boolean(fileIcon && !KNOWN_ICONS.has(fileIcon))
 
   return (
     <div className="amby-page-title relative mb-4 flex items-center gap-3">

@@ -80,8 +80,13 @@ export function HistoryPreview({
         <React.Fragment key={item.id}>
           <button
             type="button"
-            className="flex w-full items-center gap-1 rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
-            style={{ paddingLeft: `${8 + depth * 12}px` }}
+            className="amby-density-inline-padding-left flex w-full items-center gap-1 rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
+            style={
+              {
+                paddingLeft: `${8 + depth * 12}px`,
+                "--amby-density-padding-left": `${8 + depth * 12}px`,
+              } as React.CSSProperties
+            }
             onClick={() =>
               folder
                 ? setExpandedFolders((current) => {

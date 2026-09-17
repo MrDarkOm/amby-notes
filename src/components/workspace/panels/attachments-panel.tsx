@@ -135,7 +135,8 @@ export function AttachmentsPanel({
         ) : (
           <IconValue
             value={
-              attachment.icon && !["file", "supernote"].includes(attachment.icon)
+              attachment.icon &&
+              !["file", "supernote", "supercanvas", "supersketch"].includes(attachment.icon)
                 ? attachment.icon
                 : undefined
             }

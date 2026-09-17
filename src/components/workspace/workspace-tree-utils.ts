@@ -49,7 +49,11 @@ export function nextAvailableNoteName(
       const itemDirectory = normalizeComparablePath(wsPathDir(item.path))
       if (item.type !== "canvas" && itemDirectory === normalizedParent) {
         occupied.add(
-          comparableName(item.type === "folder" ? wsPathBase(item.path) : wsPathStem(item.path)),
+          comparableName(
+            item.type === "folder" || item.type === "database"
+              ? wsPathBase(item.path)
+              : wsPathStem(item.path),
+          ),
         )
       }
       // A bundle's main note is rendered as one tree item, but its containing
@@ -79,11 +83,58 @@ export function isSuperNoteItem(item: Pick<TreeItem, "path" | "type">): boolean 
   return wsPathBase(parent) === wsPathStem(item.path)
 }
 
+/** A supercanvas is the main Canvas file inside its same-named bundle folder. */
+export function isSuperCanvasItem(item: Pick<TreeItem, "path" | "type">): boolean {
+  if (item.type !== "canvas") return false
+  const parent = wsPathDir(item.path).replace(/[\\/]+$/u, "")
+  return wsPathBase(parent) === wsPathStem(item.path)
+}
+
+/** A supersketch is the main Sketch file inside its same-named bundle folder. */
+export function isSuperSketchItem(item: Pick<TreeItem, "path" | "type">): boolean {
+  if (item.type !== "sketch") return false
+  const parent = wsPathDir(item.path).replace(/[\\/]+$/u, "")
+  return wsPathBase(parent) === wsPathStem(item.path)
+}
+
+function isContainerPath(path: string): boolean {
+  return !/\.[a-zA-Z0-9]+$/u.test(path.replace(/\\/g, "/"))
+}
+
+/** Path of a document's markdown note layer sidecar file (<dir>/<stem>.md). */
+export function noteLayerPath(documentPath: string): string {
+  if (documentPath.endsWith(".md")) return documentPath
+  if (isContainerPath(documentPath)) {
+    const stem = wsPathBase(documentPath)
+    return `${documentPath}/${stem}.md`
+  }
+  const dir = wsPathDir(documentPath)
+  const stem = wsPathStem(documentPath)
+  return dir ? `${dir}/${stem}.md` : `${stem}.md`
+}
+
 /** Path of a note's canvas layer sidecar file (<dir>/<stem>.canvas). */
 export function canvasLayerPath(notePath: string): string {
+  if (notePath.endsWith(".canvas")) return notePath
+  if (isContainerPath(notePath)) {
+    const stem = wsPathBase(notePath)
+    return `${notePath}/${stem}.canvas`
+  }
   const dir = wsPathDir(notePath)
   const stem = wsPathStem(notePath)
-  return `${dir}/${stem}.canvas`
+  return dir ? `${dir}/${stem}.canvas` : `${stem}.canvas`
+}
+
+/** Path of a note's sketch layer sidecar file (<dir>/<stem>.excalidraw). */
+export function sketchLayerPath(notePath: string): string {
+  if (notePath.endsWith(".excalidraw")) return notePath
+  if (isContainerPath(notePath)) {
+    const stem = wsPathBase(notePath)
+    return `${notePath}/${stem}.excalidraw`
+  }
+  const dir = wsPathDir(notePath)
+  const stem = wsPathStem(notePath)
+  return dir ? `${dir}/${stem}.excalidraw` : `${stem}.excalidraw`
 }
 
 // ── Tree traversal helpers ────────────────────────────────────────────────────
@@ -117,7 +168,14 @@ export function flattenTree(items: TreeItem[]): Set<string> {
 /** Find a TreeItem by id (depth-first). Returns null if not found. */
 export function findTreeItem(items: TreeItem[], id: string): TreeItem | null {
   for (const item of items) {
-    if (item.id === id) return item
+    if (
+      item.id === id ||
+      item.path === id ||
+      (id.startsWith("database:") &&
+        (item.path === id.slice("database:".length) || item.id === id.slice("database:".length)))
+    ) {
+      return item
+    }
     if (item.children) {
       const found = findTreeItem(item.children, id)
       if (found) return found

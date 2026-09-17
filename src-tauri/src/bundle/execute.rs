@@ -60,8 +60,9 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
             .parent()
             .ok_or_else(|| "Bundle has no parent".to_string())?;
         let old_stem = file_stem(path)?;
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("md");
         let new_dir = parent.join(trimmed);
-        let new_main = new_dir.join(format!("{trimmed}.md"));
+        let new_main = new_dir.join(format!("{trimmed}.{ext}"));
 
         ensure_rename_target_available(bundle_dir, &new_dir)?;
 
@@ -114,6 +115,29 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
             renamed_inside_new_dir.push((renamed, current));
         }
 
+        let manifest_path = if new_dir.join(format!("{trimmed}.json")).is_file() {
+            new_dir.join(format!("{trimmed}.json"))
+        } else if new_dir.join(format!("{trimmed}.database")).is_file() {
+            new_dir.join(format!("{trimmed}.database"))
+        } else {
+            new_dir.join("ambd.json")
+        };
+        if manifest_path.is_file() {
+            if let Ok(bytes) = std::fs::read(&manifest_path) {
+                if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.insert(
+                            "name".to_string(),
+                            serde_json::Value::String(trimmed.to_string()),
+                        );
+                        if let Ok(pretty) = serde_json::to_vec_pretty(&value) {
+                            let _ = std::fs::write(&manifest_path, pretty);
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(FsMutationResult {
             primary_id: None,
             primary_path: Some(path_string(&new_main)),
@@ -151,6 +175,39 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
         let old_markdown_paths = collect_refactor_paths(path)?;
         let path_changes = path_changes_for_prefix(&old_markdown_paths, path, &new_path);
         rename_path_case_safe(path, &new_path)?;
+        let old_name = file_name(path).unwrap_or_default();
+        let old_named_json = new_path.join(format!("{old_name}.json"));
+        let new_named_json = new_path.join(format!("{trimmed}.json"));
+        if old_named_json.is_file() && old_named_json != new_named_json {
+            let _ = rename_path_case_safe(&old_named_json, &new_named_json);
+        }
+        let old_named_db = new_path.join(format!("{old_name}.database"));
+        let new_named_db = new_path.join(format!("{trimmed}.database"));
+        if old_named_db.is_file() && old_named_db != new_named_db {
+            let _ = rename_path_case_safe(&old_named_db, &new_named_db);
+        }
+        let manifest_path = if new_named_json.is_file() {
+            new_named_json
+        } else if new_named_db.is_file() {
+            new_named_db
+        } else {
+            new_path.join("ambd.json")
+        };
+        if manifest_path.is_file() {
+            if let Ok(bytes) = std::fs::read(&manifest_path) {
+                if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    if let Some(obj) = value.as_object_mut() {
+                        obj.insert(
+                            "name".to_string(),
+                            serde_json::Value::String(trimmed.to_string()),
+                        );
+                        if let Ok(pretty) = serde_json::to_vec_pretty(&value) {
+                            let _ = std::fs::write(&manifest_path, pretty);
+                        }
+                    }
+                }
+            }
+        }
         Ok(FsMutationResult {
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
@@ -228,7 +285,11 @@ fn move_item_to_dir(source_path: &Path, target_dir: &Path) -> Result<FsMutationR
 
     let primary_path = if is_bundle_main_note(source_path) {
         let stem = file_stem(source_path)?;
-        Some(path_string(&destination.join(format!("{stem}.md"))))
+        let ext = source_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("md");
+        Some(path_string(&destination.join(format!("{stem}.{ext}"))))
     } else {
         Some(path_string(&destination))
     };

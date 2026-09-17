@@ -165,8 +165,13 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
                 <div key={tag}>
                   <button
                     onClick={() => toggleTag(tag)}
-                    className="flex w-full items-start gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"
-                    style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
+                    className="amby-density-inline-padding-left flex w-full items-start gap-1.5 rounded px-2 py-1.5 text-left hover:bg-accent"
+                    style={
+                      {
+                        paddingLeft: `${0.5 + depth * 0.75}rem`,
+                        "--amby-density-padding-left": `${0.5 + depth * 0.75}rem`,
+                      } as React.CSSProperties
+                    }
                     title={`#${tag}`}
                   >
                     <motion.span

@@ -119,6 +119,7 @@ pub fn scan_disk(
                     path: path.to_path_buf(),
                     rel_path,
                     parsed_id: Some(id.clone()),
+                    display_title: None,
                     identity_error: None,
                     body: String::new(),
                     frontmatter_tags: Vec::new(),
@@ -147,6 +148,7 @@ pub fn scan_disk(
             path: path.to_path_buf(),
             rel_path,
             parsed_id,
+            display_title: parsed.display_title.clone(),
             identity_error: parsed.indexing_identity_error(),
             body: parsed.body,
             frontmatter_tags: parsed.frontmatter_tags,
@@ -290,7 +292,10 @@ pub fn sync_vault_with_changes(
             inserted += 1;
         }
 
-        let title = title_for(&note.path, &note.body);
+        let title = note
+            .display_title
+            .clone()
+            .unwrap_or_else(|| title_for(&note.path, &note.body));
         // Identity may have been repaired externally at this same path. The
         // old row is disposable; durable custom properties remain in sidecars.
         tx.execute(

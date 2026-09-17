@@ -2,7 +2,7 @@ export interface TreeItem {
   id: string
   path: string
   name: string
-  type: "folder" | "file" | "canvas"
+  type: "folder" | "file" | "canvas" | "sketch" | "database"
   icon?: string
   /** Filesystem timestamps in Unix seconds, used by the file-panel sorter. */
   created?: number
@@ -189,7 +189,7 @@ export class NoteRevisionConflictError extends Error {
   }
 }
 
-export type LayerKind = "canvas" | "database" | "sketch"
+export type LayerKind = "canvas" | "database" | "sketch" | "note"
 
 export interface LayerResult {
   notePath: string
@@ -202,6 +202,7 @@ export interface NoteLayers {
   canvas: boolean
   sketch: boolean
   database: boolean
+  note: boolean
 }
 
 export interface LinkGraphNode {

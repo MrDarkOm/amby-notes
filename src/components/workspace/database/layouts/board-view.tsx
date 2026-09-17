@@ -31,7 +31,13 @@ export function BoardView({
   const [optimisticRows, setOptimisticRows] = React.useState(rows)
   const [pending, setPending] = React.useState<Set<string>>(new Set())
   const draggedNoteId = React.useRef<string | null>(null)
+  const nextPagePendingRef = React.useRef(false)
+  const lastPageTriggerRef = React.useRef(0)
   const lanes = groupBoardRows(optimisticRows, groupField)
+
+  React.useEffect(() => {
+    if (!loading) nextPagePendingRef.current = false
+  }, [loading])
 
   React.useEffect(() => {
     if (pending.size === 0) setOptimisticRows(rows)
@@ -58,6 +64,12 @@ export function BoardView({
     [groupField, onMoveRow, pending, rows],
   )
 
+  const handleDropToLane = (noteId: string, laneKey: string) => {
+    draggedNoteId.current = null
+    const row = optimisticRows.find((candidate) => candidate.noteId === noteId)
+    if (row) void moveRow(row, laneKey)
+  }
+
   function laneLabel(key: string) {
     if (key === EMPTY_BOARD_LANE) return t("databaseBoard.empty")
     if (key === ALL_BOARD_LANE) return t("databaseBoard.noGroup")
@@ -67,24 +79,34 @@ export function BoardView({
   function handleDrop(event: React.DragEvent, laneKey: string) {
     event.preventDefault()
     const noteId = draggedNoteId.current
-    draggedNoteId.current = null
-    const row = optimisticRows.find((candidate) => candidate.noteId === noteId)
-    if (row) void moveRow(row, laneKey)
+    if (noteId) {
+      handleDropToLane(noteId, laneKey)
+    }
   }
 
   function handleScroll(event: React.UIEvent<HTMLDivElement>) {
     const element = event.currentTarget
+    const now = Date.now()
     if (
       hasNextPage &&
       !loading &&
-      element.scrollLeft + element.clientWidth >= element.scrollWidth - 360
+      !nextPagePendingRef.current &&
+      now - lastPageTriggerRef.current >= 350 &&
+      element.scrollWidth > element.clientWidth &&
+      element.scrollLeft > 0 &&
+      element.scrollLeft + element.clientWidth >= element.scrollWidth - 240
     ) {
+      nextPagePendingRef.current = true
+      lastPageTriggerRef.current = now
       onLoadNextPage?.()
     }
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden p-4" onScroll={handleScroll}>
+    <div
+      className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden p-4"
+      onScroll={handleScroll}
+    >
       <div className="flex h-full min-w-full gap-3">
         {lanes.map((lane, index) => (
           <BoardLane
@@ -157,12 +179,18 @@ function BoardLane({
 }: BoardLaneProps) {
   const { t } = useTranslation()
   const parentRef = React.useRef<HTMLDivElement>(null)
+  const laneNextPagePendingRef = React.useRef(false)
+  const lastLanePageTriggerRef = React.useRef(0)
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 74,
     overscan: 5,
   })
+
+  React.useEffect(() => {
+    if (!loading) laneNextPagePendingRef.current = false
+  }, [loading])
 
   return (
     <section
@@ -177,11 +205,18 @@ function BoardLane({
         className="min-h-0 flex-1 overflow-y-auto p-2"
         onScroll={(event) => {
           const element = event.currentTarget
+          const now = Date.now()
           if (
             hasNextPage &&
             !loading &&
+            !laneNextPagePendingRef.current &&
+            now - lastLanePageTriggerRef.current >= 350 &&
+            element.scrollHeight > element.clientHeight &&
+            element.scrollTop > 0 &&
             element.scrollTop + element.clientHeight >= element.scrollHeight - 240
           ) {
+            laneNextPagePendingRef.current = true
+            lastLanePageTriggerRef.current = now
             onLoadNextPage?.()
           }
         }}

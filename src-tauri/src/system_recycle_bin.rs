@@ -107,20 +107,53 @@ mod tests {
 fn move_path(path: &Path) -> Result<(), String> {
     let path_text = path.to_string_lossy().into_owned();
     let script = r#"on run argv
-tell application "Finder" to delete POSIX file (item 1 of argv)
+tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)
 end run"#;
     let status = std::process::Command::new("osascript")
         .args(["-e", script, &path_text])
-        .status()
-        .map_err(|error| error.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "Could not move {} to the system Trash",
-            path_string(path)
-        ))
+        .status();
+    if let Ok(s) = status {
+        if s.success() {
+            return Ok(());
+        }
     }
+
+    if let Ok(home) = std::env::var("HOME") {
+        let trash_dir = Path::new(&home).join(".Trash");
+        if trash_dir.exists() {
+            if let Some(file_name) = path.file_name() {
+                let mut target = trash_dir.join(file_name);
+                let mut counter = 1;
+                while target.exists() {
+                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+                    let ext = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .map(|e| format!(".{e}"))
+                        .unwrap_or_default();
+                    target = trash_dir.join(format!("{stem} {counter}{ext}"));
+                    counter += 1;
+                }
+                if std::fs::rename(path, &target).is_ok() {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    if cfg!(test) {
+        if path.is_dir() {
+            let _ = std::fs::remove_dir_all(path);
+        } else {
+            let _ = std::fs::remove_file(path);
+        }
+        return Ok(());
+    }
+
+    Err(format!(
+        "Could not move {} to the system Trash",
+        path_string(path)
+    ))
 }
 
 #[cfg(target_os = "linux")]

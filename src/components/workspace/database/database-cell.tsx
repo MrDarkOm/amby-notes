@@ -1,35 +1,61 @@
 import * as React from "react"
+import { useTranslation } from "react-i18next"
+import { FileText, Plus, X } from "lucide-react"
 import type { DatabasePropertySummary } from "@/lib/storage"
+import { IconValue } from "@/components/workspace/icon-value"
 import { cn } from "@/lib/utils"
 import {
   databaseCellText,
   encodeDatabaseCellDraft,
   readDatabaseCellValue,
 } from "./database-cell-value"
+import { RelationPickerPopover, type RelationItem } from "./relation-picker-popover"
 
 interface DatabaseCellProps {
   property: DatabasePropertySummary
   valuesJson: string
+  relationOptions?: RelationItem[]
   wrap?: boolean
   compact?: boolean
   pending: boolean
   error?: string | null
+  targetDatabaseTitle?: string
   onCommit: (valueJson?: string) => Promise<void>
+  onOpenNote?: (noteId: string) => void
+  onCreateRelationRow?: (title: string) => Promise<string | void>
 }
 
 export function DatabaseCell({
   property,
   valuesJson,
+  relationOptions = [],
   wrap = false,
   compact = false,
   pending,
   error,
+  targetDatabaseTitle,
   onCommit,
+  onOpenNote,
+  onCreateRelationRow,
 }: DatabaseCellProps) {
+  const { t } = useTranslation()
+  const [relationPickerOpen, setRelationPickerOpen] = React.useState(false)
   const value = React.useMemo(
     () => readDatabaseCellValue(valuesJson, property.propertyId),
     [property.propertyId, valuesJson],
   )
+  const relationConfig = React.useMemo(() => {
+    if (property.propertyType !== "relation") return null
+    try {
+      return JSON.parse(property.configJson) as {
+        targetDatabaseId?: string
+        maxItems?: number | null
+        inversePropertyId?: string | null
+      }
+    } catch {
+      return null
+    }
+  }, [property.configJson, property.propertyType])
   const [draft, setDraft] = React.useState(() => databaseCellText(value, property.propertyType))
   const initial = databaseCellText(value, property.propertyType)
   const wrappedTextRef = React.useRef<HTMLTextAreaElement>(null)
@@ -121,6 +147,115 @@ export function DatabaseCell({
             </option>
           ))}
         </select>
+      </div>
+    )
+  }
+
+  if (property.propertyType === "relation") {
+    const selected = Array.isArray(value?.targetNoteIds)
+      ? value.targetNoteIds.filter((noteId): noteId is string => typeof noteId === "string")
+      : []
+
+    const handleSelectNotes = (nextIds: string[]) => {
+      void onCommit(
+        nextIds.length ? JSON.stringify({ type: "relation", targetNoteIds: nextIds }) : undefined,
+      )
+    }
+
+    const handleRemoveOne = (noteIdToRemove: string) => {
+      handleSelectNotes(selected.filter((id) => id !== noteIdToRemove))
+    }
+
+    const targetDatabaseId = relationConfig?.targetDatabaseId || ""
+    const maxItems = relationConfig?.maxItems ?? null
+
+    return (
+      <div
+        className={cn(
+          "flex h-full w-full min-h-[30px] flex-wrap items-center gap-1 overflow-hidden",
+          compact ? "px-0 py-0.5" : "px-1 py-1",
+        )}
+        onClick={stopRowSelection}
+      >
+        <RelationPickerPopover
+          open={relationPickerOpen}
+          onOpenChange={setRelationPickerOpen}
+          targetDatabaseId={targetDatabaseId}
+          targetDatabaseTitle={targetDatabaseTitle}
+          maxItems={maxItems}
+          selectedNoteIds={selected}
+          options={relationOptions}
+          isLoading={pending}
+          onSelectNotes={handleSelectNotes}
+          onCreatePage={onCreateRelationRow}
+          onOpenNote={onOpenNote}
+        >
+          <div className="flex flex-wrap items-center gap-1 w-full min-w-0">
+            {selected.map((noteId) => {
+              const option = relationOptions.find((opt) => opt.noteId === noteId)
+              const title = option?.title || noteId
+              return (
+                <span
+                  key={noteId}
+                  className="group/chip inline-flex items-center gap-1 rounded bg-muted/80 hover:bg-muted px-1.5 py-0.5 text-xs text-foreground max-w-full cursor-pointer select-none"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    if (onOpenNote) {
+                      onOpenNote(noteId)
+                    } else {
+                      setRelationPickerOpen(true)
+                    }
+                  }}
+                  title={title}
+                >
+                  <IconValue
+                    value={option?.icon ?? undefined}
+                    fallback={<FileText className="size-3 text-muted-foreground shrink-0" />}
+                    className="size-3 shrink-0"
+                  />
+                  <span className="truncate max-w-[130px] font-medium">{title}</span>
+                  {!pending && (
+                    <button
+                      type="button"
+                      className="opacity-40 group-hover/chip:opacity-100 hover:text-destructive hover:bg-background/80 rounded p-0.5 shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemoveOne(noteId)
+                      }}
+                      title={t("databaseWorkspace.relationRemoveItem")}
+                    >
+                      <X className="size-2.5" />
+                    </button>
+                  )}
+                </span>
+              )
+            })}
+
+            {!pending && (maxItems !== 1 || selected.length === 0) && (
+              <button
+                type="button"
+                className="inline-flex items-center justify-center size-5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/60 shrink-0"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setRelationPickerOpen(true)
+                }}
+                title={t("databaseWorkspace.relationAdd")}
+              >
+                <Plus className="size-3" />
+              </button>
+            )}
+
+            {selected.length === 0 && (
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground italic cursor-pointer"
+                onClick={() => setRelationPickerOpen(true)}
+              >
+                —
+              </button>
+            )}
+          </div>
+        </RelationPickerPopover>
       </div>
     )
   }

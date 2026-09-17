@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::format::{
-    parse_manifest, parse_record, prepare_json, PropertyDefinition, PropertyValue, RecordShard,
+    parse_manifest, parse_record, parse_template, prepare_json, PropertyDefinition, PropertyValue,
+    RecordShard,
 };
 use super::format::{raw_revision, MAX_JSON_BYTES};
 use super::validation::{validate_manifest, validate_record};
@@ -103,7 +104,7 @@ struct BatchRecoveryJournal {
     result: Option<DatabaseValueBatchResult>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDatabasePropertyRequest {
     pub expected_generation: u64,
@@ -114,6 +115,16 @@ pub struct CreateDatabasePropertyRequest {
     pub before_property_id: Option<String>,
     #[serde(default)]
     pub options: Vec<String>,
+    #[serde(default)]
+    pub formula_expression: Option<String>,
+    #[serde(default)]
+    pub relation_target_database_id: Option<String>,
+    #[serde(default)]
+    pub relation_max_items: Option<u8>,
+    #[serde(default)]
+    pub relation_two_way: Option<bool>,
+    #[serde(default)]
+    pub relation_inverse_property_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
@@ -161,6 +172,53 @@ pub struct RenamedDatabaseProperty {
     pub database_id: String,
     pub property_id: String,
     pub name: String,
+    pub manifest_revision: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeDatabasePropertyTypeRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub property_id: String,
+    pub expected_manifest_revision: String,
+    pub property_type: String,
+    #[serde(default)]
+    pub relation_target_database_id: Option<String>,
+    #[serde(default)]
+    pub relation_max_items: Option<u8>,
+    #[serde(default)]
+    pub relation_two_way: Option<bool>,
+    #[serde(default)]
+    pub relation_inverse_property_name: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDatabaseRelationValueRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub note_id: String,
+    pub property_id: String,
+    pub target_note_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDatabaseRelationValueResult {
+    pub database_id: String,
+    pub note_id: String,
+    pub target_note_ids: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangedDatabasePropertyType {
+    pub database_id: String,
+    pub property_id: String,
+    pub property_type: String,
     pub manifest_revision: String,
     pub warnings: Vec<String>,
 }
@@ -254,11 +312,11 @@ pub fn create_database(
     }
     let database_id = ulid::Ulid::generate().to_string();
     let view_id = ulid::Ulid::generate().to_string();
-    let manifest_path = container.join("ambd.json");
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
     let view_path = container
         .join(".ambd/views")
         .join(format!("{view_id}.json"));
-    if manifest_path.exists() {
+    if manifest_path.exists() || container.join("ambd.json").exists() {
         rollback_promotion(promoted_from.as_ref())?;
         return Err(format!(
             "Database manifest already exists: {}",
@@ -273,9 +331,14 @@ pub fn create_database(
         ));
     }
 
+    let container_kind = match request.mode {
+        DatabaseCreateMode::Standalone => "standalone",
+        DatabaseCreateMode::Attached => "attached",
+    };
     let manifest = json!({
         "format": "amby-database",
         "formatVersion": 1,
+        "containerKind": container_kind,
         "databaseId": database_id,
         "name": name,
         "icon": null,
@@ -361,7 +424,7 @@ pub fn create_database_property(
         return Err("Property name is required".to_owned());
     }
     let container = find_database_container(vault, &request.database_id)?;
-    let manifest_path = container.join("ambd.json");
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
     let original = fs::read(&manifest_path).map_err(|error| error.to_string())?;
     let parsed = parse_manifest(&original).map_err(|error| error.to_string())?;
     if parsed.revision != request.expected_manifest_revision {
@@ -408,6 +471,47 @@ pub fn create_database_property(
                 .collect::<Vec<_>>();
             json!({"options": options})
         }
+        "formula" => json!({
+            "version": 1,
+            "expression": request
+                .formula_expression
+                .as_deref()
+                .unwrap_or("0")
+                .trim(),
+            "resultType": null,
+            "dependencies": [],
+        }),
+        "relation" => {
+            let target_database_id = request
+                .relation_target_database_id
+                .as_deref()
+                .or_else(|| {
+                    request
+                        .options
+                        .first()
+                        .filter(|id| !id.trim().is_empty())
+                        .map(String::as_str)
+                })
+                .unwrap_or(&request.database_id);
+            find_database_container(vault, target_database_id)?;
+            let max_items = request.relation_max_items.filter(|&limit| limit == 1);
+            let two_way = request.relation_two_way.unwrap_or(false);
+            let inverse_property_id = if two_way {
+                Some(ulid::Ulid::generate().to_string())
+            } else {
+                None
+            };
+            json!({
+                "targetDatabaseId": target_database_id,
+                "maxItems": max_items,
+                "inversePropertyId": inverse_property_id,
+            })
+        }
+        // Rollups need a relation and target property at creation time. The
+        // generic create dialog does not have enough information to produce a
+        // valid portable config, so they are created through a future config
+        // editor rather than emitting an invalid shard.
+        "rollup" => return Err("Rollup requires a relation and target property".to_owned()),
         _ => return Err("Unsupported property type".to_owned()),
     };
     let property: PropertyDefinition = serde_json::from_value(json!({
@@ -420,6 +524,96 @@ pub fn create_database_property(
     }))
     .map_err(|error| error.to_string())?;
     let mut manifest = parsed.value.clone();
+
+    // If two-way relation is requested, create the reciprocal property
+    if request.property_type == "relation" && request.relation_two_way == Some(true) {
+        let target_database_id = config
+            .get("targetDatabaseId")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&request.database_id);
+        let inv_id = config
+            .get("inversePropertyId")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| "Failed to generate inverse property ID".to_owned())?;
+
+        if target_database_id == request.database_id {
+            let inv_name = request
+                .relation_inverse_property_name
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or("Обратная связь");
+            let self_inv_prop: PropertyDefinition = serde_json::from_value(json!({
+                "type": "relation",
+                "id": inv_id,
+                "name": inv_name,
+                "pageVisibility": "alwaysShow",
+                "yamlBinding": null,
+                "config": {
+                    "targetDatabaseId": request.database_id,
+                    "maxItems": null,
+                    "inversePropertyId": property_id,
+                },
+            }))
+            .map_err(|error| error.to_string())?;
+            manifest.properties.push(self_inv_prop);
+        } else {
+            let target_container = find_database_container(vault, target_database_id)?;
+            let target_manifest_path =
+                super::discovery::manifest_path_for_container(&target_container);
+            let target_original =
+                fs::read(&target_manifest_path).map_err(|error| error.to_string())?;
+            let target_parsed =
+                parse_manifest(&target_original).map_err(|error| error.to_string())?;
+            if target_parsed.value.locked {
+                return Err("Target database is locked".to_owned());
+            }
+            let inv_name = request
+                .relation_inverse_property_name
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or(&parsed.value.name);
+            let target_inv_prop: PropertyDefinition = serde_json::from_value(json!({
+                "type": "relation",
+                "id": inv_id,
+                "name": inv_name,
+                "pageVisibility": "alwaysShow",
+                "yamlBinding": null,
+                "config": {
+                    "targetDatabaseId": request.database_id,
+                    "maxItems": null,
+                    "inversePropertyId": property_id,
+                },
+            }))
+            .map_err(|error| error.to_string())?;
+
+            let mut target_manifest = target_parsed.value.clone();
+            target_manifest.properties.push(target_inv_prop);
+            let target_report = validate_manifest(&target_manifest);
+            if !target_report.errors.is_empty() {
+                return Err("Inverse property would make target manifest invalid".to_owned());
+            }
+            let target_prepared = prepare_json(&target_parsed, &target_manifest)
+                .map_err(|error| error.to_string())?;
+            crate::history::snapshot_before_write(
+                vault,
+                &target_manifest_path,
+                &target_prepared.bytes,
+                "database-schema",
+            )?;
+            let target_write = watcher.prepare_write([(
+                &target_manifest_path,
+                watcher::fingerprint_for_bytes(&target_prepared.bytes),
+            )]);
+            if let Err(error) =
+                frontmatter::atomic_write_bytes(&target_manifest_path, &target_prepared.bytes)
+            {
+                watcher.cancel_prepared_write(&target_write);
+                return Err(error);
+            }
+            watcher.confirm_prepared_write(&target_write);
+        }
+    }
+
     if let Some(before_property_id) = request.before_property_id.as_deref() {
         let index = manifest
             .properties
@@ -464,13 +658,339 @@ pub fn create_database_property(
     })
 }
 
+fn default_property_config(
+    property_type: &str,
+    database_id: &str,
+    relation_target_database_id: Option<&str>,
+    relation_max_items: Option<u8>,
+    relation_inverse_property_id: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    match property_type {
+        "text" => Ok(json!({"multiline": false})),
+        "number" => Ok(json!({"format": "number", "currency": null})),
+        "checkbox" | "url" => Ok(json!({})),
+        "date" => Ok(json!({"includeTime": false, "allowRange": false})),
+        "select" | "multiSelect" | "status" => Ok(json!({"options": []})),
+        "formula" => Ok(json!({
+            "version": 1,
+            "expression": "0",
+            "resultType": null,
+            "dependencies": [],
+        })),
+        "relation" => Ok(json!({
+            "targetDatabaseId": relation_target_database_id.unwrap_or(database_id),
+            "maxItems": relation_max_items.filter(|&limit| limit == 1),
+            "inversePropertyId": relation_inverse_property_id,
+        })),
+        _ => Err("Unsupported property type".to_owned()),
+    }
+}
+
+fn ensure_property_has_no_durable_values(
+    container: &Path,
+    property_id: &str,
+) -> Result<(), String> {
+    let records_dir = container.join(".ambd/records");
+    if records_dir.exists() {
+        for entry in fs::read_dir(&records_dir).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            if !entry
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_file()
+                || entry.path().extension().and_then(|value| value.to_str()) != Some("json")
+            {
+                continue;
+            }
+            let parsed = parse_record(&fs::read(entry.path()).map_err(|error| error.to_string())?)
+                .map_err(|error| error.to_string())?;
+            if !parsed.is_writable() {
+                return Err("A record is read-only; property type was not changed".to_owned());
+            }
+            if parsed.value.values.contains_key(property_id)
+                || parsed.value.yaml_sync_bases.contains_key(property_id)
+            {
+                return Err(
+                    "Property type can only be changed after its existing values are cleared"
+                        .to_owned(),
+                );
+            }
+        }
+    }
+
+    let templates_dir = container.join(".ambd/templates");
+    if templates_dir.exists() {
+        for entry in fs::read_dir(&templates_dir).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            if !entry
+                .file_type()
+                .map_err(|error| error.to_string())?
+                .is_file()
+                || entry.path().extension().and_then(|value| value.to_str()) != Some("json")
+            {
+                continue;
+            }
+            let parsed =
+                parse_template(&fs::read(entry.path()).map_err(|error| error.to_string())?)
+                    .map_err(|error| error.to_string())?;
+            if !parsed.is_writable() {
+                return Err("A template is read-only; property type was not changed".to_owned());
+            }
+            if parsed.value.values.contains_key(property_id) {
+                return Err(
+                    "Property type can only be changed after its template values are cleared"
+                        .to_owned(),
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
+pub fn change_database_property_type(
+    vault: &Path,
+    watcher: &WatcherState,
+    request: &ChangeDatabasePropertyTypeRequest,
+) -> Result<ChangedDatabasePropertyType, String> {
+    let container = find_database_container(vault, &request.database_id)?;
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
+    let original = fs::read(&manifest_path).map_err(|error| error.to_string())?;
+    let parsed = parse_manifest(&original).map_err(|error| error.to_string())?;
+    if parsed.revision != request.expected_manifest_revision {
+        return Err("Manifest revision conflict".to_owned());
+    }
+    if !parsed.is_writable() {
+        return Err("Database manifest is read-only".to_owned());
+    }
+    if parsed.value.locked {
+        return Err("Database is locked".to_owned());
+    }
+
+    let Some(index) = parsed
+        .value
+        .properties
+        .iter()
+        .position(|property| property.id() == Some(request.property_id.as_str()))
+    else {
+        return Err("Property was not found".to_owned());
+    };
+    let current_property = &parsed.value.properties[index];
+    let configuring_relation =
+        current_property.kind() == "relation" && request.property_type == "relation";
+
+    if current_property.kind() == request.property_type && !configuring_relation {
+        return Ok(ChangedDatabasePropertyType {
+            database_id: request.database_id.clone(),
+            property_id: request.property_id.clone(),
+            property_type: request.property_type.clone(),
+            manifest_revision: parsed.revision,
+            warnings: Vec::new(),
+        });
+    }
+
+    let mut target_db_id = request
+        .relation_target_database_id
+        .as_deref()
+        .unwrap_or(&request.database_id);
+    let mut max_items = request.relation_max_items.filter(|&limit| limit == 1);
+    let mut inverse_prop_id = None;
+
+    if configuring_relation {
+        let current_rel_config = match current_property {
+            PropertyDefinition::Relation(fields) => Some(&fields.config),
+            _ => None,
+        };
+        target_db_id = request
+            .relation_target_database_id
+            .as_deref()
+            .or_else(|| current_rel_config.map(|c| c.target_database_id.as_str()))
+            .unwrap_or(&request.database_id);
+        find_database_container(vault, target_db_id)?;
+
+        if request.relation_max_items.is_some() {
+            max_items = request.relation_max_items.filter(|&limit| limit == 1);
+        } else {
+            max_items = current_rel_config.and_then(|c| c.max_items);
+        }
+
+        inverse_prop_id = current_rel_config.and_then(|c| c.inverse_property_id.clone());
+
+        if request.relation_two_way == Some(true) {
+            if inverse_prop_id.is_none() {
+                let new_inv_id = ulid::Ulid::generate().to_string();
+                if target_db_id == request.database_id {
+                    let inv_name = request
+                        .relation_inverse_property_name
+                        .as_deref()
+                        .filter(|s| !s.trim().is_empty())
+                        .unwrap_or("Обратная связь");
+                    let self_inv_prop: PropertyDefinition = serde_json::from_value(json!({
+                        "type": "relation",
+                        "id": new_inv_id,
+                        "name": inv_name,
+                        "pageVisibility": "alwaysShow",
+                        "yamlBinding": null,
+                        "config": {
+                            "targetDatabaseId": request.database_id,
+                            "maxItems": null,
+                            "inversePropertyId": request.property_id,
+                        },
+                    }))
+                    .map_err(|error| error.to_string())?;
+                    let mut extra_manifest = parsed.value.clone();
+                    extra_manifest.properties.push(self_inv_prop);
+                } else {
+                    let target_container = find_database_container(vault, target_db_id)?;
+                    let target_manifest_path =
+                        super::discovery::manifest_path_for_container(&target_container);
+                    let target_original =
+                        fs::read(&target_manifest_path).map_err(|error| error.to_string())?;
+                    let target_parsed =
+                        parse_manifest(&target_original).map_err(|error| error.to_string())?;
+                    if target_parsed.value.locked {
+                        return Err("Target database is locked".to_owned());
+                    }
+                    let inv_name = request
+                        .relation_inverse_property_name
+                        .as_deref()
+                        .filter(|s| !s.trim().is_empty())
+                        .unwrap_or(&parsed.value.name);
+                    let target_inv_prop: PropertyDefinition = serde_json::from_value(json!({
+                        "type": "relation",
+                        "id": new_inv_id,
+                        "name": inv_name,
+                        "pageVisibility": "alwaysShow",
+                        "yamlBinding": null,
+                        "config": {
+                            "targetDatabaseId": request.database_id,
+                            "maxItems": null,
+                            "inversePropertyId": request.property_id,
+                        },
+                    }))
+                    .map_err(|error| error.to_string())?;
+
+                    let mut target_manifest = target_parsed.value.clone();
+                    target_manifest.properties.push(target_inv_prop);
+                    let target_prepared = prepare_json(&target_parsed, &target_manifest)
+                        .map_err(|error| error.to_string())?;
+                    crate::history::snapshot_before_write(
+                        vault,
+                        &target_manifest_path,
+                        &target_prepared.bytes,
+                        "database-schema",
+                    )?;
+                    let target_write = watcher.prepare_write([(
+                        &target_manifest_path,
+                        watcher::fingerprint_for_bytes(&target_prepared.bytes),
+                    )]);
+                    if let Err(error) = frontmatter::atomic_write_bytes(
+                        &target_manifest_path,
+                        &target_prepared.bytes,
+                    ) {
+                        watcher.cancel_prepared_write(&target_write);
+                        return Err(error);
+                    }
+                    watcher.confirm_prepared_write(&target_write);
+                }
+                inverse_prop_id = Some(new_inv_id);
+            }
+        } else if request.relation_two_way == Some(false) {
+            inverse_prop_id = None;
+        }
+    } else if request.property_type == "relation" {
+        find_database_container(vault, target_db_id)?;
+    }
+
+    let config = default_property_config(
+        &request.property_type,
+        &request.database_id,
+        Some(target_db_id),
+        max_items,
+        inverse_prop_id.as_deref(),
+    )?;
+
+    if current_property.yaml_binding().is_some() {
+        return Err("Remove the YAML binding before changing the property type".to_owned());
+    }
+    for property in &parsed.value.properties {
+        let referenced = match property {
+            PropertyDefinition::Formula(fields) => fields
+                .config
+                .dependencies
+                .iter()
+                .any(|dependency| dependency == &request.property_id),
+            PropertyDefinition::Rollup(fields) => {
+                fields.config.relation_property_id == request.property_id
+                    || fields.config.target_property_id == request.property_id
+            }
+            _ => false,
+        };
+        if referenced {
+            return Err(
+                "Property type cannot be changed while another property depends on it".to_owned(),
+            );
+        }
+    }
+
+    if !configuring_relation {
+        ensure_property_has_no_durable_values(&container, &request.property_id)?;
+    }
+
+    let mut replacement =
+        serde_json::to_value(current_property).map_err(|error| error.to_string())?;
+    let object = replacement
+        .as_object_mut()
+        .ok_or_else(|| "Property definition is not editable".to_owned())?;
+    object.insert(
+        "type".to_owned(),
+        serde_json::Value::String(request.property_type.clone()),
+    );
+    object.insert("config".to_owned(), config);
+    let replacement = serde_json::from_value::<PropertyDefinition>(replacement)
+        .map_err(|error| error.to_string())?;
+
+    let mut manifest = parsed.value.clone();
+    manifest.properties[index] = replacement;
+    let report = validate_manifest(&manifest);
+    if !report.errors.is_empty() {
+        return Err("Property type change would make the database manifest invalid".to_owned());
+    }
+    let prepared = prepare_json(&parsed, &manifest).map_err(|error| error.to_string())?;
+    let current = fs::read(&manifest_path).map_err(|error| error.to_string())?;
+    if raw_revision(&current) != request.expected_manifest_revision {
+        return Err("Manifest revision conflict".to_owned());
+    }
+    crate::history::snapshot_before_write(
+        vault,
+        &manifest_path,
+        &prepared.bytes,
+        "database-schema",
+    )?;
+    let write = watcher.prepare_write([(
+        &manifest_path,
+        watcher::fingerprint_for_bytes(&prepared.bytes),
+    )]);
+    if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path, &prepared.bytes) {
+        watcher.cancel_prepared_write(&write);
+        return Err(error);
+    }
+    watcher.confirm_prepared_write(&write);
+    Ok(ChangedDatabasePropertyType {
+        database_id: request.database_id.clone(),
+        property_id: request.property_id.clone(),
+        property_type: request.property_type.clone(),
+        manifest_revision: prepared.revision,
+        warnings: Vec::new(),
+    })
+}
+
 pub fn delete_database_property(
     vault: &Path,
     watcher: &WatcherState,
     request: &DeleteDatabasePropertyRequest,
 ) -> Result<DeletedDatabaseProperty, String> {
     let container = find_database_container(vault, &request.database_id)?;
-    let manifest_path = container.join("ambd.json");
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
     let original = fs::read(&manifest_path).map_err(|error| error.to_string())?;
     let parsed = parse_manifest(&original).map_err(|error| error.to_string())?;
     if parsed.revision != request.expected_manifest_revision {
@@ -526,7 +1046,7 @@ pub fn reorder_database_properties(
     request: &ReorderDatabasePropertiesRequest,
 ) -> Result<ReorderedDatabaseProperties, String> {
     let container = find_database_container(vault, &request.database_id)?;
-    let manifest_path = container.join("ambd.json");
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
     let original = fs::read(&manifest_path).map_err(|error| error.to_string())?;
     let parsed = parse_manifest(&original).map_err(|error| error.to_string())?;
     if parsed.revision != request.expected_manifest_revision {
@@ -621,7 +1141,7 @@ pub fn rename_database_property(
         return Err("Property name is required".to_owned());
     }
     let container = find_database_container(vault, &request.database_id)?;
-    let manifest_path = container.join("ambd.json");
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
     let original = fs::read(&manifest_path).map_err(|error| error.to_string())?;
     let parsed = parse_manifest(&original).map_err(|error| error.to_string())?;
     if parsed.revision != request.expected_manifest_revision {
@@ -663,6 +1183,8 @@ pub fn rename_database_property(
             PropertyDefinition::Url(fields) => fields.id == request.property_id,
             PropertyDefinition::Files(fields) => fields.id == request.property_id,
             PropertyDefinition::Relation(fields) => fields.id == request.property_id,
+            PropertyDefinition::Formula(fields) => fields.id == request.property_id,
+            PropertyDefinition::Rollup(fields) => fields.id == request.property_id,
             PropertyDefinition::Opaque(_) => false,
         };
         if !matches {
@@ -679,6 +1201,8 @@ pub fn rename_database_property(
             PropertyDefinition::Url(fields) => fields.name = name.to_owned(),
             PropertyDefinition::Files(fields) => fields.name = name.to_owned(),
             PropertyDefinition::Relation(fields) => fields.name = name.to_owned(),
+            PropertyDefinition::Formula(fields) => fields.name = name.to_owned(),
+            PropertyDefinition::Rollup(fields) => fields.name = name.to_owned(),
             PropertyDefinition::Opaque(_) => unreachable!(),
         }
         renamed = true;
@@ -731,7 +1255,7 @@ pub fn rename_database(
         return Err("Invalid database name".to_owned());
     }
     let container = find_database_container(vault, &request.database_id)?;
-    let manifest_path = container.join("ambd.json");
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
     let original = fs::read(&manifest_path).map_err(|error| error.to_string())?;
     let parsed = parse_manifest(&original).map_err(|error| error.to_string())?;
     if parsed.revision != request.expected_manifest_revision {
@@ -849,7 +1373,7 @@ pub fn apply_value_batch(
     if backup_dir.exists() {
         fs::remove_dir_all(&backup_dir).map_err(|error| error.to_string())?;
     }
-    let manifest_path = container.join("ambd.json");
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
     let manifest_bytes = fs::read(&manifest_path).map_err(|error| error.to_string())?;
     let manifest = parse_manifest(&manifest_bytes).map_err(|error| error.to_string())?;
     let property_ids = manifest
@@ -1133,6 +1657,239 @@ fn recovery_step_paths(
     Ok((record_path, backup_path))
 }
 
+pub fn update_database_relation_value(
+    vault: &Path,
+    watcher: &WatcherState,
+    request: &UpdateDatabaseRelationValueRequest,
+) -> Result<UpdateDatabaseRelationValueResult, String> {
+    if ulid::Ulid::from_string(&request.note_id).is_err()
+        || ulid::Ulid::from_string(&request.property_id).is_err()
+    {
+        return Err("noteId and propertyId must be canonical ULIDs".to_owned());
+    }
+    let container = find_database_container(vault, &request.database_id)?;
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
+    let manifest_bytes = fs::read(&manifest_path).map_err(|error| error.to_string())?;
+    let manifest = parse_manifest(&manifest_bytes).map_err(|error| error.to_string())?;
+    if manifest.value.locked {
+        return Err("Database is locked".to_owned());
+    }
+
+    let rel_prop = manifest
+        .value
+        .properties
+        .iter()
+        .find_map(|p| match p {
+            PropertyDefinition::Relation(fields) if fields.id == request.property_id => {
+                Some(fields.clone())
+            }
+            _ => None,
+        })
+        .ok_or_else(|| format!("Relation property not found: {}", request.property_id))?;
+
+    let target_database_id = rel_prop.config.target_database_id;
+    let max_items = rel_prop.config.max_items;
+    let inverse_property_id = rel_prop.config.inverse_property_id;
+
+    // Respect max_items == Some(1)
+    let mut clean_targets = Vec::new();
+    for id in &request.target_note_ids {
+        if ulid::Ulid::from_string(id).is_ok() && !clean_targets.contains(id) {
+            clean_targets.push(id.clone());
+            if max_items == Some(1) {
+                break;
+            }
+        }
+    }
+
+    // 1. Read current record of request.note_id to get previous target_note_ids
+    let record_dir = container.join(".ambd/records");
+    fs::create_dir_all(&record_dir).map_err(|error| error.to_string())?;
+    let record_path = record_dir.join(format!("{}.json", request.note_id));
+    let (mut current_record, current_original) = if record_path.exists() {
+        let bytes = fs::read(&record_path).map_err(|error| error.to_string())?;
+        let parsed = parse_record(&bytes).map_err(|error| error.to_string())?;
+        (parsed.value, bytes)
+    } else {
+        let default_rec = RecordShard {
+            format: "amby-database-record".to_owned(),
+            format_version: 1,
+            database_id: request.database_id.clone(),
+            note_id: request.note_id.clone(),
+            values: std::collections::BTreeMap::new(),
+            yaml_sync_bases: std::collections::BTreeMap::new(),
+            extra: Default::default(),
+        };
+        let bytes = serde_json::to_vec_pretty(&default_rec).map_err(|e| e.to_string())?;
+        (default_rec, bytes)
+    };
+
+    let prev_targets = match current_record.values.get(&request.property_id) {
+        Some(PropertyValue::Relation {
+            target_note_ids, ..
+        }) => target_note_ids.clone(),
+        _ => Vec::new(),
+    };
+
+    if clean_targets.is_empty() {
+        current_record.values.remove(&request.property_id);
+    } else {
+        current_record.values.insert(
+            request.property_id.clone(),
+            PropertyValue::Relation {
+                target_note_ids: clean_targets.clone(),
+                extra: Default::default(),
+            },
+        );
+    }
+
+    let report = validate_record(&current_record, Some(&manifest.value));
+    if !report.errors.is_empty() {
+        return Err(format!("Invalid record for {}", request.note_id));
+    }
+    let parsed_temp = parse_record(&current_original).map_err(|e| e.to_string())?;
+    let prepared = prepare_json(&parsed_temp, &current_record).map_err(|e| e.to_string())?;
+    crate::history::snapshot_before_write(vault, &record_path, &prepared.bytes, "database-value")?;
+    let write = watcher.prepare_write([(
+        &record_path,
+        watcher::fingerprint_for_bytes(&prepared.bytes),
+    )]);
+    if let Err(error) = frontmatter::atomic_write_bytes(&record_path, &prepared.bytes) {
+        watcher.cancel_prepared_write(&write);
+        return Err(error);
+    }
+    watcher.confirm_prepared_write(&write);
+
+    // 2. If inversePropertyId exists, update the target notes reciprocally
+    let warnings = Vec::new();
+    if let Some(inv_prop_id) = inverse_property_id {
+        if let Ok(target_container) = find_database_container(vault, &target_database_id) {
+            let target_records_dir = target_container.join(".ambd/records");
+            let _ = fs::create_dir_all(&target_records_dir);
+
+            let added_targets = clean_targets
+                .iter()
+                .filter(|id| !prev_targets.contains(id))
+                .collect::<Vec<_>>();
+            let removed_targets = prev_targets
+                .iter()
+                .filter(|id| !clean_targets.contains(id))
+                .collect::<Vec<_>>();
+
+            for target_id in added_targets {
+                let path = target_records_dir.join(format!("{target_id}.json"));
+                let (mut rec, orig) = if path.exists() {
+                    match fs::read(&path).map_err(|e| e.to_string()).and_then(|b| {
+                        parse_record(&b)
+                            .map(|p| (p.value, b))
+                            .map_err(|e| e.to_string())
+                    }) {
+                        Ok(pair) => pair,
+                        Err(_) => continue,
+                    }
+                } else {
+                    let r = RecordShard {
+                        format: "amby-database-record".to_owned(),
+                        format_version: 1,
+                        database_id: target_database_id.clone(),
+                        note_id: target_id.clone(),
+                        values: std::collections::BTreeMap::new(),
+                        yaml_sync_bases: std::collections::BTreeMap::new(),
+                        extra: Default::default(),
+                    };
+                    let b = serde_json::to_vec_pretty(&r).unwrap_or_default();
+                    (r, b)
+                };
+
+                let mut list = match rec.values.get(&inv_prop_id) {
+                    Some(PropertyValue::Relation {
+                        target_note_ids, ..
+                    }) => target_note_ids.clone(),
+                    _ => Vec::new(),
+                };
+                if !list.contains(&request.note_id) {
+                    list.push(request.note_id.clone());
+                    rec.values.insert(
+                        inv_prop_id.clone(),
+                        PropertyValue::Relation {
+                            target_note_ids: list,
+                            extra: Default::default(),
+                        },
+                    );
+                    if let Ok(p) = parse_record(&orig) {
+                        if let Ok(prep) = prepare_json(&p, &rec) {
+                            let _ = crate::history::snapshot_before_write(
+                                vault,
+                                &path,
+                                &prep.bytes,
+                                "database-value",
+                            );
+                            let w = watcher.prepare_write([(
+                                &path,
+                                watcher::fingerprint_for_bytes(&prep.bytes),
+                            )]);
+                            if frontmatter::atomic_write_bytes(&path, &prep.bytes).is_ok() {
+                                watcher.confirm_prepared_write(&w);
+                            } else {
+                                watcher.cancel_prepared_write(&w);
+                            }
+                        }
+                    }
+                }
+            }
+
+            for target_id in removed_targets {
+                let path = target_records_dir.join(format!("{target_id}.json"));
+                if !path.exists() {
+                    continue;
+                }
+                if let Ok((mut rec, orig)) =
+                    fs::read(&path).map_err(|e| e.to_string()).and_then(|b| {
+                        parse_record(&b)
+                            .map(|p| (p.value, b))
+                            .map_err(|e| e.to_string())
+                    })
+                {
+                    if let Some(PropertyValue::Relation {
+                        target_note_ids, ..
+                    }) = rec.values.get_mut(&inv_prop_id)
+                    {
+                        if target_note_ids.contains(&request.note_id) {
+                            target_note_ids.retain(|id| id != &request.note_id);
+                            if let Ok(p) = parse_record(&orig) {
+                                if let Ok(prep) = prepare_json(&p, &rec) {
+                                    let _ = crate::history::snapshot_before_write(
+                                        vault,
+                                        &path,
+                                        &prep.bytes,
+                                        "database-value",
+                                    );
+                                    let w = watcher.prepare_write([(
+                                        &path,
+                                        watcher::fingerprint_for_bytes(&prep.bytes),
+                                    )]);
+                                    if frontmatter::atomic_write_bytes(&path, &prep.bytes).is_ok() {
+                                        watcher.confirm_prepared_write(&w);
+                                    } else {
+                                        watcher.cancel_prepared_write(&w);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(UpdateDatabaseRelationValueResult {
+        database_id: request.database_id.clone(),
+        note_id: request.note_id.clone(),
+        target_note_ids: clean_targets,
+        warnings,
+    })
+}
+
 fn find_database_container(vault: &Path, database_id: &str) -> Result<PathBuf, String> {
     let discovery = super::discovery::discover_vault(vault)?;
     discovery
@@ -1232,6 +1989,8 @@ mod tests {
                 property_type: "number".to_owned(),
                 before_property_id: None,
                 options: Vec::new(),
+                formula_expression: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1254,6 +2013,8 @@ mod tests {
                 property_type: "text".to_owned(),
                 before_property_id: None,
                 options: Vec::new(),
+                formula_expression: None,
+                ..Default::default()
             },
         )
         .is_err());
@@ -1288,6 +2049,8 @@ mod tests {
                 property_type: "select".to_owned(),
                 before_property_id: None,
                 options: vec!["Todo".to_owned(), " todo ".to_owned(), "".to_owned()],
+                formula_expression: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1298,6 +2061,273 @@ mod tests {
         assert_eq!(options.len(), 1);
         assert_eq!(options[0]["name"], "Todo");
         assert!(ulid::Ulid::from_string(options[0]["id"].as_str().unwrap()).is_ok());
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn formula_property_creation_stores_the_validated_expression() {
+        let vault = temp_vault();
+        let watcher = WatcherState::new();
+        let created = create_database(
+            &vault,
+            &watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Projects".to_owned(),
+            },
+        )
+        .unwrap();
+        create_database_property(
+            &vault,
+            &watcher,
+            &CreateDatabasePropertyRequest {
+                expected_generation: 1,
+                database_id: created.database_id,
+                expected_manifest_revision: created.manifest_revision,
+                name: "Score".to_owned(),
+                property_type: "formula".to_owned(),
+                before_property_id: None,
+                options: Vec::new(),
+                formula_expression: Some("1 + 2".to_owned()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let parsed = parse_manifest(&fs::read(&created.manifest_path).unwrap()).unwrap();
+        let value = serde_json::to_value(&parsed.value.properties[0]).unwrap();
+        assert_eq!(value["type"], "formula");
+        assert_eq!(value["config"]["expression"], "1 + 2");
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn relation_property_creation_defaults_to_the_current_database() {
+        let vault = temp_vault();
+        let watcher = WatcherState::new();
+        let created = create_database(
+            &vault,
+            &watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Projects".to_owned(),
+            },
+        )
+        .unwrap();
+        create_database_property(
+            &vault,
+            &watcher,
+            &CreateDatabasePropertyRequest {
+                expected_generation: 1,
+                database_id: created.database_id.clone(),
+                expected_manifest_revision: created.manifest_revision,
+                name: "Related projects".to_owned(),
+                property_type: "relation".to_owned(),
+                before_property_id: None,
+                options: Vec::new(),
+                formula_expression: None,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let parsed = parse_manifest(&fs::read(&created.manifest_path).unwrap()).unwrap();
+        let value = serde_json::to_value(&parsed.value.properties[0]).unwrap();
+        assert_eq!(value["type"], "relation");
+        assert_eq!(value["config"]["targetDatabaseId"], created.database_id);
+        assert!(value["config"]["maxItems"].is_null());
+        assert!(value["config"]["inversePropertyId"].is_null());
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn relation_property_creation_can_target_another_database() {
+        let vault = temp_vault();
+        let watcher = WatcherState::new();
+        let source = create_database(
+            &vault,
+            &watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Characters".to_owned(),
+            },
+        )
+        .unwrap();
+        let target = create_database(
+            &vault,
+            &watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Locations".to_owned(),
+            },
+        )
+        .unwrap();
+        create_database_property(
+            &vault,
+            &watcher,
+            &CreateDatabasePropertyRequest {
+                expected_generation: 1,
+                database_id: source.database_id.clone(),
+                expected_manifest_revision: source.manifest_revision,
+                name: "Location".to_owned(),
+                property_type: "relation".to_owned(),
+                before_property_id: None,
+                options: vec![target.database_id.clone()],
+                formula_expression: None,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let parsed = parse_manifest(&fs::read(&source.manifest_path).unwrap()).unwrap();
+        let value = serde_json::to_value(&parsed.value.properties[0]).unwrap();
+        assert_eq!(value["config"]["targetDatabaseId"], target.database_id);
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn property_type_change_updates_an_unused_definition() {
+        let vault = temp_vault();
+        let watcher = WatcherState::new();
+        let created = create_database(
+            &vault,
+            &watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Projects".to_owned(),
+            },
+        )
+        .unwrap();
+        let property = create_database_property(
+            &vault,
+            &watcher,
+            &CreateDatabasePropertyRequest {
+                expected_generation: 1,
+                database_id: created.database_id.clone(),
+                expected_manifest_revision: created.manifest_revision,
+                name: "Estimate".to_owned(),
+                property_type: "text".to_owned(),
+                before_property_id: None,
+                options: Vec::new(),
+                formula_expression: None,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let changed = change_database_property_type(
+            &vault,
+            &watcher,
+            &ChangeDatabasePropertyTypeRequest {
+                expected_generation: 1,
+                database_id: created.database_id,
+                property_id: property.property_id.clone(),
+                expected_manifest_revision: property.manifest_revision,
+                property_type: "number".to_owned(),
+                relation_target_database_id: None,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let parsed = parse_manifest(&fs::read(&created.manifest_path).unwrap()).unwrap();
+        assert_eq!(parsed.revision, changed.manifest_revision);
+        assert_eq!(parsed.value.properties[0].kind(), "number");
+        assert_eq!(
+            parsed.value.properties[0].id(),
+            Some(property.property_id.as_str())
+        );
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn property_type_change_refuses_to_discard_existing_values() {
+        let vault = temp_vault();
+        let watcher = WatcherState::new();
+        let created = create_database(
+            &vault,
+            &watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Projects".to_owned(),
+            },
+        )
+        .unwrap();
+        let property = create_database_property(
+            &vault,
+            &watcher,
+            &CreateDatabasePropertyRequest {
+                expected_generation: 1,
+                database_id: created.database_id.clone(),
+                expected_manifest_revision: created.manifest_revision,
+                name: "Estimate".to_owned(),
+                property_type: "text".to_owned(),
+                before_property_id: None,
+                options: Vec::new(),
+                formula_expression: None,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let note_id = ulid::Ulid::generate().to_string();
+        let record_path = Path::new(&created.manifest_path)
+            .parent()
+            .unwrap()
+            .join(".ambd/records")
+            .join(format!("{note_id}.json"));
+        fs::create_dir_all(record_path.parent().unwrap()).unwrap();
+        fs::write(
+            record_path,
+            serde_json::to_vec_pretty(&json!({
+                "format": "amby-database-record",
+                "formatVersion": 1,
+                "databaseId": created.database_id,
+                "noteId": note_id,
+                "values": {
+                    property.property_id.clone(): {"type": "text", "value": "keep me"}
+                },
+                "yamlSyncBases": {}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let manifest_before = fs::read(&created.manifest_path).unwrap();
+
+        let error = change_database_property_type(
+            &vault,
+            &watcher,
+            &ChangeDatabasePropertyTypeRequest {
+                expected_generation: 1,
+                database_id: created.database_id,
+                property_id: property.property_id,
+                expected_manifest_revision: property.manifest_revision,
+                property_type: "number".to_owned(),
+                relation_target_database_id: None,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.contains("existing values"));
+        assert_eq!(fs::read(&created.manifest_path).unwrap(), manifest_before);
         let _ = fs::remove_dir_all(vault);
     }
 
@@ -1328,6 +2358,8 @@ mod tests {
                 property_type: "number".to_owned(),
                 before_property_id: None,
                 options: Vec::new(),
+                formula_expression: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1398,6 +2430,8 @@ mod tests {
                 property_type: "text".to_owned(),
                 before_property_id: None,
                 options: Vec::new(),
+                formula_expression: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1412,6 +2446,8 @@ mod tests {
                 property_type: "number".to_owned(),
                 before_property_id: Some(right.property_id.clone()),
                 options: Vec::new(),
+                formula_expression: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1608,6 +2644,8 @@ mod tests {
                 property_type: "text".to_owned(),
                 before_property_id: None,
                 options: Vec::new(),
+                formula_expression: None,
+                ..Default::default()
             },
         )
         .unwrap();
@@ -1622,7 +2660,8 @@ mod tests {
             },
         )
         .unwrap();
-        let manifest_path = vault.join("Projects/ambd.json");
+        let manifest_path =
+            crate::database::discovery::manifest_path_for_container(&vault.join("Projects"));
         let mut locked_manifest: serde_json::Value =
             serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
         locked_manifest["locked"] = serde_json::Value::Bool(true);
@@ -1717,5 +2756,232 @@ mod tests {
         };
         assert!(recovery_step_paths(&container, "safe", &step).is_err());
         let _ = fs::remove_dir_all(container);
+    }
+
+    #[test]
+    fn two_way_relation_creates_property_in_target_database_and_links_reciprocals() {
+        let vault = temp_vault();
+        let watcher = WatcherState::new();
+        let tasks_db = create_database(
+            &vault,
+            &watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Tasks".to_owned(),
+            },
+        )
+        .unwrap();
+        let projects_db = create_database(
+            &vault,
+            &watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Projects".to_owned(),
+            },
+        )
+        .unwrap();
+
+        let tasks_rel = create_database_property(
+            &vault,
+            &watcher,
+            &CreateDatabasePropertyRequest {
+                expected_generation: 1,
+                database_id: tasks_db.database_id.clone(),
+                expected_manifest_revision: tasks_db.manifest_revision.clone(),
+                name: "Project".to_owned(),
+                property_type: "relation".to_owned(),
+                relation_target_database_id: Some(projects_db.database_id.clone()),
+                relation_max_items: Some(1),
+                relation_two_way: Some(true),
+                relation_inverse_property_name: Some("Tasks".to_owned()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let tasks_manifest = parse_manifest(&fs::read(&tasks_db.manifest_path).unwrap()).unwrap();
+        let tasks_prop_val = serde_json::to_value(&tasks_manifest.value.properties[0]).unwrap();
+        assert_eq!(tasks_prop_val["name"], "Project");
+        assert_eq!(
+            tasks_prop_val["config"]["targetDatabaseId"],
+            projects_db.database_id
+        );
+        assert_eq!(tasks_prop_val["config"]["maxItems"], 1);
+        let inverse_id = tasks_prop_val["config"]["inversePropertyId"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let projects_manifest =
+            parse_manifest(&fs::read(&projects_db.manifest_path).unwrap()).unwrap();
+        let projects_prop_val =
+            serde_json::to_value(&projects_manifest.value.properties[0]).unwrap();
+        assert_eq!(projects_prop_val["name"], "Tasks");
+        assert_eq!(projects_prop_val["id"], inverse_id);
+        assert_eq!(
+            projects_prop_val["config"]["targetDatabaseId"],
+            tasks_db.database_id
+        );
+        assert_eq!(
+            projects_prop_val["config"]["inversePropertyId"],
+            tasks_rel.property_id
+        );
+
+        // Now test update_database_relation_value syncs reciprocal records
+        let task_note_id = ulid::Ulid::generate().to_string();
+        let project_note_id = ulid::Ulid::generate().to_string();
+
+        update_database_relation_value(
+            &vault,
+            &watcher,
+            &UpdateDatabaseRelationValueRequest {
+                expected_generation: 1,
+                database_id: tasks_db.database_id.clone(),
+                note_id: task_note_id.clone(),
+                property_id: tasks_rel.property_id.clone(),
+                target_note_ids: vec![project_note_id.clone()],
+            },
+        )
+        .unwrap();
+
+        // Check task record
+        let task_rec_path = Path::new(&tasks_db.manifest_path)
+            .parent()
+            .unwrap()
+            .join(format!(".ambd/records/{task_note_id}.json"));
+        let task_rec = parse_record(&fs::read(&task_rec_path).unwrap())
+            .unwrap()
+            .value;
+        match task_rec.values.get(&tasks_rel.property_id) {
+            Some(PropertyValue::Relation {
+                target_note_ids, ..
+            }) => {
+                assert_eq!(target_note_ids, &[project_note_id.clone()]);
+            }
+            other => panic!("expected relation value, got {other:?}"),
+        }
+
+        // Check project record was reciprocally updated!
+        let project_rec_path = Path::new(&projects_db.manifest_path)
+            .parent()
+            .unwrap()
+            .join(format!(".ambd/records/{project_note_id}.json"));
+        let project_rec = parse_record(&fs::read(&project_rec_path).unwrap())
+            .unwrap()
+            .value;
+        match project_rec.values.get(&inverse_id) {
+            Some(PropertyValue::Relation {
+                target_note_ids, ..
+            }) => {
+                assert_eq!(target_note_ids, &[task_note_id.clone()]);
+            }
+            other => panic!("expected inverse relation value on project, got {other:?}"),
+        }
+
+        // Now unlink
+        update_database_relation_value(
+            &vault,
+            &watcher,
+            &UpdateDatabaseRelationValueRequest {
+                expected_generation: 1,
+                database_id: tasks_db.database_id.clone(),
+                note_id: task_note_id.clone(),
+                property_id: tasks_rel.property_id.clone(),
+                target_note_ids: vec![],
+            },
+        )
+        .unwrap();
+
+        let project_rec_after = parse_record(&fs::read(&project_rec_path).unwrap())
+            .unwrap()
+            .value;
+        match project_rec_after.values.get(&inverse_id) {
+            Some(PropertyValue::Relation {
+                target_note_ids, ..
+            }) => {
+                assert!(target_note_ids.is_empty());
+            }
+            None => {} // valid if emptied or removed
+            other => panic!("expected empty inverse relation, got {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn creates_standalone_database_with_named_json_file() {
+        let vault = temp_vault();
+        let watcher = WatcherState::new();
+
+        let created = create_database(
+            &vault,
+            &watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "My Tasks".to_owned(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(created.title, "My Tasks");
+        let db_dir = vault.join("My Tasks");
+        assert!(db_dir.is_dir());
+
+        // The manifest MUST be named "My Tasks.json"
+        let manifest_path = db_dir.join("My Tasks.json");
+        assert!(manifest_path.is_file());
+        assert!(!db_dir.join("ambd.json").exists());
+
+        // Verify content
+        let parsed = parse_manifest(&fs::read(&manifest_path).unwrap()).unwrap();
+        assert_eq!(parsed.value.name, "My Tasks");
+        assert_eq!(parsed.value.database_id, created.database_id);
+
+        // Add a property
+        let prop = create_database_property(
+            &vault,
+            &watcher,
+            &CreateDatabasePropertyRequest {
+                expected_generation: 1,
+                expected_manifest_revision: parsed.revision.clone(),
+                database_id: created.database_id.clone(),
+                name: "Priority".to_owned(),
+                property_type: "select".to_owned(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        // Verify property was written to "My Tasks.json"
+        let parsed_after = parse_manifest(&fs::read(&manifest_path).unwrap()).unwrap();
+        assert_eq!(parsed_after.revision, prop.manifest_revision);
+        assert_eq!(parsed_after.value.properties.len(), 1);
+
+        // Rename the database item via crate::bundle::rename_item_impl
+        crate::bundle::rename_item_impl(&db_dir, "All Tasks").unwrap();
+
+        let new_db_dir = vault.join("All Tasks");
+        assert!(new_db_dir.is_dir());
+        assert!(!db_dir.exists());
+
+        // The manifest file should have been renamed to "All Tasks.json"
+        let new_manifest_path = new_db_dir.join("All Tasks.json");
+        assert!(new_manifest_path.is_file());
+        assert!(!new_db_dir.join("My Tasks.json").exists());
+
+        // The internal "name" should be updated to "All Tasks"
+        let parsed_renamed = parse_manifest(&fs::read(&new_manifest_path).unwrap()).unwrap();
+        assert_eq!(parsed_renamed.value.name, "All Tasks");
+
+        let _ = fs::remove_dir_all(vault);
     }
 }

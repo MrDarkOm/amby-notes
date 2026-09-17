@@ -45,3 +45,43 @@ describe("tree view state", () => {
     })
   })
 })
+
+describe("layer view state helpers", () => {
+  it("tracks view mode and lock independently per layer", async () => {
+    const { getLayerViewMode, isLayerLocked } = await import("./use-view-state-store")
+    const viewModes = {
+      "note-1": "source" as const,
+      "note-1:canvas": "live" as const,
+      "note-1:sketch": "read" as const,
+    }
+    const lockedFileIds = new Set(["note-1:canvas"])
+
+    expect(getLayerViewMode(viewModes, "note-1", "editor")).toBe("source")
+    expect(getLayerViewMode(viewModes, "note-1", "canvas")).toBe("live")
+    expect(getLayerViewMode(viewModes, "note-1", "sketch")).toBe("read")
+    expect(getLayerViewMode(viewModes, "note-1", "database")).toBe("live")
+
+    expect(isLayerLocked(lockedFileIds, viewModes, "note-1", "editor")).toBe(false)
+    expect(isLayerLocked(lockedFileIds, viewModes, "note-1", "canvas")).toBe(true)
+    expect(isLayerLocked(lockedFileIds, viewModes, "note-1", "sketch")).toBe(true) // because mode is read
+    expect(isLayerLocked(lockedFileIds, viewModes, "note-1", "database")).toBe(false)
+  })
+
+  it("cleans up per-layer state when document is deleted", () => {
+    const store = useViewStateStore.getState()
+    store.setViewMode("note-1", "source")
+    store.setViewMode("note-1:canvas", "read")
+    store.toggleLock("note-1:canvas")
+    store.toggleLock("note-2:sketch")
+
+    expect(useViewStateStore.getState().lockedFileIds.has("note-1:canvas")).toBe(true)
+    expect(useViewStateStore.getState().viewModes["note-1:canvas"]).toBe("read")
+
+    store.applyMutation(["note-1"])
+
+    expect(useViewStateStore.getState().lockedFileIds.has("note-1:canvas")).toBe(false)
+    expect(useViewStateStore.getState().lockedFileIds.has("note-2:sketch")).toBe(true)
+    expect(useViewStateStore.getState().viewModes["note-1"]).toBeUndefined()
+    expect(useViewStateStore.getState().viewModes["note-1:canvas"]).toBeUndefined()
+  })
+})

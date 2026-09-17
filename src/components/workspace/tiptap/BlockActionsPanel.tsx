@@ -527,6 +527,7 @@ function CalloutContext({
                 key={c.id}
                 type="button"
                 title={c.id}
+                data-amby-color={c.color ? c.color.toLowerCase() : undefined}
                 className={
                   c.color == null ? "amby-ctx-swatch amby-ctx-swatch--none" : "amby-ctx-swatch"
                 }

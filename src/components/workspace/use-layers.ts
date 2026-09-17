@@ -1,7 +1,7 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
 import { useViewStateStore, type EditorLayer } from "./use-view-state-store"
-import type { Document } from "./use-doc-store"
+import { useDocStore, type Document } from "./use-doc-store"
 import type { TreeItem } from "./sidebar-tree"
 import type { FsMutationResult, LayerKind } from "@/lib/storage"
 import {
@@ -11,8 +11,53 @@ import {
   unlinkLayer,
   deleteLayer,
   noteLayers,
+  readFile,
+  readNote,
 } from "@/lib/storage"
+import { splitWebFrontmatter, webRevision } from "@/lib/storage/web-frontmatter"
 import { useDatabaseStore } from "./database/database-store"
+import { noteLayerPath, wsPathDir } from "./workspace-tree-utils"
+import { recordLocalTreePaths } from "./watcher-tree-reconciliation"
+
+function patchDocBuffer(fileId: string, path: string | undefined, patch: Partial<Document>) {
+  useDocStore.getState().patchDoc(fileId, patch)
+  if (path && path !== fileId) {
+    useDocStore.getState().patchDoc(path, patch)
+  }
+}
+
+export async function loadNoteLayerContent(
+  layerPath: string,
+  vault?: string,
+): Promise<{ content: string; source: string; noteId?: string; revision?: string }> {
+  const noteContent = await readFile(layerPath)
+  const idMatch = noteContent.match(/^(?:amby-id|id):\s*([^\s]+)/m)
+  const noteId = idMatch ? idMatch[1] : undefined
+  let revision: string | undefined
+  let content: string | undefined
+  let source = noteContent
+
+  if (noteId && vault) {
+    try {
+      const indexedNote = await readNote(vault, noteId)
+      revision = indexedNote.revision
+      content = indexedNote.content
+      source = indexedNote.source
+    } catch {
+      // Fall back if SQLite indexer has not indexed yet
+    }
+  }
+
+  if (content === undefined) {
+    const split = splitWebFrontmatter(noteContent)
+    content = split ? split.body : noteContent
+    if (!revision) {
+      revision = webRevision(content)
+    }
+  }
+
+  return { content, source, noteId, revision }
+}
 
 interface UseLayersParams {
   vault: string | null
@@ -57,6 +102,12 @@ export function useLayers({
         setLinkedLayers(docId, layers)
       } catch (err) {
         console.error("Failed to load note layers:", err)
+        setLinkedLayers(docId, {
+          note: notePath.endsWith(".md"),
+          canvas: false,
+          sketch: false,
+          database: false,
+        })
       }
     },
     [setLinkedLayers],
@@ -110,7 +161,9 @@ export function useLayers({
         const findAttached = () =>
           useDatabaseStore
             .getState()
-            .databases.find((database) => database.attachedNoteId === doc.id)
+            .databases.find(
+              (database) => database.attachedNoteId === doc.id || database.databaseId === doc.id,
+            )
         if (findAttached()) {
           setActiveLayer(doc.id, "database")
           return
@@ -129,11 +182,71 @@ export function useLayers({
       return
     }
     if (layer === "editor") {
+      if (linkedLayersByDoc[doc.id] && !linkedLayersByDoc[doc.id]?.note) {
+        try {
+          const result = await createLayer(doc.path, "note")
+          recordLocalTreePaths([
+            result.notePath,
+            result.layerPath,
+            ...result.pathChanges.flatMap((c) => [c.oldPath, c.newPath]),
+          ])
+          applyMutationResult({
+            primaryPath: result.notePath,
+            pathChanges: result.pathChanges,
+            deletedPaths: [],
+          })
+          await refreshTree()
+          setActiveLayer(doc.id, "editor")
+          await refreshLinkedLayers(doc.id, result.notePath ?? doc.path)
+          if (result.layerPath) {
+            try {
+              const loaded = await loadNoteLayerContent(result.layerPath, vault ?? undefined)
+              patchDocBuffer(doc.id, doc.path, {
+                content: loaded.content,
+                source: loaded.source,
+                noteId: loaded.noteId,
+                ...(loaded.revision ? { revision: loaded.revision } : {}),
+              })
+            } catch (e) {
+              console.error("Failed to read newly created note layer:", e)
+            }
+          }
+        } catch (err) {
+          console.error("Failed to create note layer:", err)
+        }
+        return
+      }
+      const current = useDocStore.getState().openDocs[doc.id]
+      if (
+        current &&
+        (!current.noteId ||
+          current.content === current.source ||
+          current.content.includes("amby-id:")) &&
+        linkedLayersByDoc[doc.id]?.note
+      ) {
+        try {
+          const notePath = noteLayerPath(current.path)
+          const loaded = await loadNoteLayerContent(notePath, vault ?? undefined)
+          patchDocBuffer(doc.id, doc.path, {
+            content: loaded.content,
+            source: loaded.source,
+            noteId: loaded.noteId,
+            ...(loaded.revision ? { revision: loaded.revision } : {}),
+          })
+        } catch (e) {
+          console.error("Failed to load existing note layer:", e)
+        }
+      }
       setActiveLayer(doc.id, "editor")
       return
     }
     try {
       const result = await createLayer(doc.path, layer)
+      recordLocalTreePaths([
+        result.notePath,
+        result.layerPath,
+        ...result.pathChanges.flatMap((c) => [c.oldPath, c.newPath]),
+      ])
       applyMutationResult({
         primaryPath: result.notePath,
         pathChanges: result.pathChanges,
@@ -148,10 +261,10 @@ export function useLayers({
   }
 
   const handleAttachLayerToFile = React.useCallback(
-    async (fileId: string, layer: "canvas" | "database" | "sketch") => {
+    async (fileId: string, layer: "canvas" | "database" | "sketch" | "note") => {
       function findFile(items: TreeItem[]): TreeItem | null {
         for (const item of items) {
-          if (item.id === fileId && item.type === "file") return item
+          if (item.id === fileId && item.type !== "folder") return item
           if (item.children) {
             const found = findFile(item.children)
             if (found) return found
@@ -168,6 +281,11 @@ export function useLayers({
         }
         const filePath = item.path
         const result = await createLayer(filePath, layer)
+        recordLocalTreePaths([
+          result.notePath,
+          result.layerPath,
+          ...result.pathChanges.flatMap((c) => [c.oldPath, c.newPath]),
+        ])
         applyMutationResult({
           primaryPath: result.notePath,
           pathChanges: result.pathChanges,
@@ -175,21 +293,49 @@ export function useLayers({
         })
         await refreshTree()
         await refreshLinkedLayers(fileId, result.notePath ?? filePath)
+        if (layer === "note" && result.layerPath) {
+          try {
+            const loaded = await loadNoteLayerContent(result.layerPath, vault ?? undefined)
+            patchDocBuffer(fileId, item.path, {
+              content: loaded.content,
+              source: loaded.source,
+              noteId: loaded.noteId,
+              ...(loaded.revision ? { revision: loaded.revision } : {}),
+            })
+          } catch (e) {
+            console.error("Failed to read newly created note layer:", e)
+          }
+        }
       } catch (err) {
         console.error("Failed to attach layer:", err)
       }
     },
-    [applyMutationResult, createAttachedDatabase, refreshLinkedLayers, refreshTree, treeItems],
+    [
+      applyMutationResult,
+      createAttachedDatabase,
+      refreshLinkedLayers,
+      refreshTree,
+      treeItems,
+      vault,
+    ],
   )
 
   const handleNewDatabase = React.useCallback(
     async (parentId: string | null, name: string) => {
       if (!vault || !databasesEnabled || backendGeneration === null) return
       const parent = parentId ? findFileOrFolder(treeItems, parentId) : null
+      let parentPath = vault
+      if (parent) {
+        if (parent.type === "folder" || parent.type === "database") {
+          parentPath = parent.path
+        } else {
+          parentPath = wsPathDir(parent.path) || vault
+        }
+      }
       const created = await createDatabase({
         expectedGeneration: backendGeneration,
         mode: "standalone",
-        parentPath: parent?.path ?? vault,
+        parentPath,
         name,
       })
       await refreshTree()
@@ -215,8 +361,15 @@ export function useLayers({
       applyMutationResult(result)
       await refreshTree()
       await refreshLinkedLayers(currentDoc.id, result.primaryPath ?? currentDoc.path)
-      // If the unlinked layer was active, fall back to the editor.
-      if (activeLayers[currentDoc.id] === layer) setActiveLayer(currentDoc.id, "editor")
+      // If the unlinked layer was active, fall back to a remaining layer.
+      if (activeLayers[currentDoc.id] === layer) {
+        const remaining = await noteLayers(result.primaryPath ?? currentDoc.path)
+        if (remaining.database) setActiveLayer(currentDoc.id, "database")
+        else if (remaining.note) setActiveLayer(currentDoc.id, "editor")
+        else if (remaining.canvas) setActiveLayer(currentDoc.id, "canvas")
+        else if (remaining.sketch) setActiveLayer(currentDoc.id, "sketch")
+        else setActiveLayer(currentDoc.id, "editor")
+      }
     } catch (err) {
       console.error("Failed to unlink layer:", err)
     }
@@ -236,24 +389,65 @@ export function useLayers({
       applyMutationResult(result)
       await refreshTree()
       await refreshLinkedLayers(currentDoc.id, result.primaryPath ?? currentDoc.path)
-      if (activeLayers[currentDoc.id] === layer) setActiveLayer(currentDoc.id, "editor")
+      if (activeLayers[currentDoc.id] === layer) {
+        const remaining = await noteLayers(result.primaryPath ?? currentDoc.path)
+        if (remaining.database) setActiveLayer(currentDoc.id, "database")
+        else if (remaining.note) setActiveLayer(currentDoc.id, "editor")
+        else if (remaining.canvas) setActiveLayer(currentDoc.id, "canvas")
+        else if (remaining.sketch) setActiveLayer(currentDoc.id, "sketch")
+        else setActiveLayer(currentDoc.id, "editor")
+      }
     } catch (err) {
       console.error("Failed to delete layer:", err)
     }
   }
 
   // Load the cached layer-presence map for a document the first time it opens.
+  const requestedLayersRef = React.useRef<Set<string>>(new Set())
   React.useEffect(() => {
     if (!currentDoc) return
-    if (linkedLayersByDoc[currentDoc.id]) return
-    refreshLinkedLayers(currentDoc.id, currentDoc.path)
+    if (linkedLayersByDoc[currentDoc.id] || requestedLayersRef.current.has(currentDoc.id)) return
+    requestedLayersRef.current.add(currentDoc.id)
+    void refreshLinkedLayers(currentDoc.id, currentDoc.path)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentDoc?.id, currentDoc?.path])
+  }, [currentDoc?.id, currentDoc?.path, linkedLayersByDoc])
 
   React.useEffect(() => {
     if (!currentDoc || databasesEnabled) return
     if (activeLayers[currentDoc.id] === "database") setActiveLayer(currentDoc.id, "editor")
   }, [activeLayers, currentDoc, databasesEnabled, setActiveLayer])
+
+  // For container docs (like databases), lazily load the attached note layer once when editor layer is active.
+  const loadedNoteLayersRef = React.useRef<Set<string>>(new Set())
+  React.useEffect(() => {
+    if (!currentDoc || currentDoc.path.endsWith(".md")) return
+    const isEditorActive = activeLayers[currentDoc.id] === "editor"
+    if (!isEditorActive) return
+    const hasNoteLayer = linkedLayersByDoc[currentDoc.id]?.note
+    if (!hasNoteLayer) return
+    if (loadedNoteLayersRef.current.has(currentDoc.id)) return
+    loadedNoteLayersRef.current.add(currentDoc.id)
+    let cancelled = false
+    void (async () => {
+      try {
+        const notePath = noteLayerPath(currentDoc.path)
+        const loaded = await loadNoteLayerContent(notePath, vault ?? undefined)
+        if (cancelled) return
+        patchDocBuffer(currentDoc.id, currentDoc.path, {
+          content: loaded.content,
+          source: loaded.source,
+          noteId: loaded.noteId,
+          ...(loaded.revision ? { revision: loaded.revision } : {}),
+        })
+      } catch (err) {
+        console.error("Failed to load active note layer:", err)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLayers, currentDoc?.id, currentDoc?.path, linkedLayersByDoc, vault])
 
   return {
     refreshLinkedLayers,

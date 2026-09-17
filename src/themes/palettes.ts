@@ -111,6 +111,21 @@ export const CANVAS_UI_COLORS = {
   minimapNode: "#52525b",
 } as const
 
+export const CANVAS_UI_THEME_COLORS = {
+  dark: {
+    backgroundDots: "#3f3f46",
+    minimapMask: "rgba(0,0,0,0.6)",
+    minimapNode: "#52525b",
+    guideLine: "#38bdf8",
+  },
+  light: {
+    backgroundDots: "#cbd5e1",
+    minimapMask: "rgba(240,240,240,0.6)",
+    minimapNode: "#94a3b8",
+    guideLine: "#0284c7",
+  },
+} as const
+
 /** Obsidian Canvas numeric colors; kept here so every editable color is centralized. */
 export const OBSIDIAN_CANVAS_PRESET_COLORS: Record<string, string> = {
   "1": "#e93147",

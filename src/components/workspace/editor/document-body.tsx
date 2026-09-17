@@ -2,19 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  Check,
-  Code2,
-  Eye,
-  EyeOff,
-  FileText,
-  PanelBottom,
-  PanelTop,
-  PenLine,
-  Redo2,
-  SquareArrowOutUpRight,
-  Undo2,
-} from "lucide-react"
+import { Check, EyeOff, FileText, PanelBottom, PanelTop, SquareArrowOutUpRight } from "lucide-react"
 
 import {
   ContextMenu,
@@ -23,24 +11,24 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { SourceEditor } from "../source-editor"
 import { TiptapEditor } from "../tiptap/TiptapEditor"
 import { CanvasEditor } from "../canvas-editor"
+import { SketchEditor } from "../sketch-editor"
 import type { EditorHandle } from "../tiptap/constants"
 import type { MarkdownSelection } from "../tiptap/markdown-selection"
 import { IconValue } from "../icon-value"
+import { KNOWN_ICONS } from "../tree/tree-types"
 import type { TreeItem } from "../sidebar-tree"
 import { stripMdExt } from "./document-breadcrumbs-utils"
 import { DocumentTitle } from "./document-title"
+import { DocumentAreaControls } from "./document-area-controls"
 import { LAYER_OPTIONS, type DocumentViewMode, type EditorLayer } from "./use-document-view-mode"
+import { useViewStateStore, isLayerLocked } from "../use-view-state-store"
 import { EDITOR_CONTENT_WIDTH } from "@/lib/themes"
 import type { ContentWidth } from "../app-config"
+import { CANONICAL_EMPTY_CANVAS } from "@/lib/canvas-format"
+import { defaultSketchJson } from "@/lib/sketch-format"
 
 export interface DocumentBodyProps {
   docId: string
@@ -54,7 +42,9 @@ export interface DocumentBodyProps {
   viewMode: DocumentViewMode
   onViewModeChange: (mode: DocumentViewMode) => void
   contentWidth: ContentWidth
+  onContentWidthChange?: (width: ContentWidth) => void
   isLocked: boolean
+  onToggleLock?: () => void
   fileIcon?: string
   onFileIconChange?: (icon: string) => void
   editingTitle: boolean
@@ -73,6 +63,8 @@ export interface DocumentBodyProps {
   canvasValue?: string
   onCanvasChange?: (json: string) => void
   onOpenCanvasNote?: (file: string) => void
+  sketchValue?: string
+  onSketchChange?: (json: string) => void
   databaseBody?: React.ReactNode
   editorSelection: MarkdownSelection | null
   onEditorSelectionChange: (selection: MarkdownSelection) => void
@@ -82,6 +74,7 @@ export interface DocumentBodyProps {
   onScrollPositionChange?: (position: number) => void
   viewModeMenuOpen: boolean
   onViewModeMenuOpenChange: (open: boolean) => void
+  treeItems?: TreeItem[]
 }
 
 export function DocumentBody({
@@ -96,7 +89,9 @@ export function DocumentBody({
   viewMode,
   onViewModeChange,
   contentWidth,
+  onContentWidthChange,
   isLocked,
+  onToggleLock,
   fileIcon,
   onFileIconChange,
   editingTitle,
@@ -115,6 +110,8 @@ export function DocumentBody({
   canvasValue,
   onCanvasChange,
   onOpenCanvasNote,
+  sketchValue,
+  onSketchChange,
   databaseBody,
   editorSelection,
   onEditorSelectionChange,
@@ -124,6 +121,7 @@ export function DocumentBody({
   onScrollPositionChange,
   viewModeMenuOpen,
   onViewModeMenuOpenChange,
+  treeItems,
 }: DocumentBodyProps) {
   const { t } = useTranslation()
   const scrollRef = React.useRef<HTMLDivElement>(null)
@@ -139,6 +137,7 @@ export function DocumentBody({
   }, [scrollPosition])
 
   React.useLayoutEffect(() => {
+    if (activeLayer !== "editor") return
     const element = scrollRef.current
     if (!element) return
     const top = Math.max(0, scrollPosition ?? lastScrollTopRef.current)
@@ -161,25 +160,28 @@ export function DocumentBody({
     [deferredContent],
   )
 
-  if (activeLayer === "canvas") {
-    return (
-      <div className="flex-1 overflow-hidden">
-        <CanvasEditor
-          key={`${docId}:canvas`}
-          value={canvasValue ?? "{}"}
-          onChange={(json) => onCanvasChange?.(json)}
-          onLocalEdit={onContentDirty}
-          vault={vault ?? null}
-          notePath={docPath}
-          onOpenNote={onOpenCanvasNote}
-        />
-      </div>
-    )
+  const [visitedLayers, setVisitedLayers] = React.useState<Set<EditorLayer>>(
+    () => new Set([activeLayer]),
+  )
+  const prevDocIdRef = React.useRef(docId)
+  if (prevDocIdRef.current !== docId) {
+    prevDocIdRef.current = docId
+    setVisitedLayers(new Set([activeLayer]))
   }
 
-  if (activeLayer === "database" && databaseBody) {
-    return <div className="mr-2 flex min-h-0 flex-1 overflow-hidden">{databaseBody}</div>
-  }
+  React.useEffect(() => {
+    setVisitedLayers((prev) => {
+      if (prev.has(activeLayer)) return prev
+      const next = new Set(prev)
+      next.add(activeLayer)
+      return next
+    })
+  }, [activeLayer])
+
+  const viewModes = useViewStateStore((s) => s.viewModes)
+  const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
+  const canvasLocked = isLayerLocked(lockedFileIds, viewModes, docId, "canvas")
+  const sketchLocked = isLayerLocked(lockedFileIds, viewModes, docId, "sketch")
 
   const activeLayerMeta =
     LAYER_OPTIONS.find((option) => option.id === activeLayer) ?? LAYER_OPTIONS[0]
@@ -195,7 +197,15 @@ export function DocumentBody({
         <div className="flex flex-wrap gap-2">
           {nestedNotes.map((note) => {
             const icon =
-              note.icon && !/^(folder|file|supernote|page)$/u.test(note.icon) ? note.icon : "📄"
+              note.icon && !KNOWN_ICONS.has(note.icon)
+                ? note.icon
+                : note.type === "canvas"
+                  ? "🗺️"
+                  : note.type === "sketch"
+                    ? "✏️"
+                    : note.type === "database"
+                      ? "🗄️"
+                      : "📄"
             return (
               <ContextMenu key={note.id}>
                 <ContextMenuTrigger asChild>
@@ -245,40 +255,125 @@ export function DocumentBody({
     ) : null
 
   return (
-    <>
+    <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      {/* Editor Layer */}
       <div
-        ref={scrollRef}
-        className="amby-editor-scroll mr-2 min-h-0 flex-1 overscroll-none overflow-y-auto"
-        onScroll={(event) => {
-          // A display:none transition can emit a synthetic scroll event with
-          // scrollTop=0. Never let that overwrite the user's saved position.
-          if (event.currentTarget.clientHeight === 0 || event.currentTarget.offsetParent === null)
-            return
-          lastScrollTopRef.current = event.currentTarget.scrollTop
-          onScrollPositionChangeRef.current?.(lastScrollTopRef.current)
-        }}
+        aria-hidden={activeLayer !== "editor"}
+        className={
+          activeLayer === "editor"
+            ? "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+            : "hidden"
+        }
       >
         <div
-          className="mx-auto px-4 pb-8 pt-5 sm:px-8 sm:pt-6 lg:px-10"
-          style={{ maxWidth: EDITOR_CONTENT_WIDTH[contentWidth] }}
+          ref={scrollRef}
+          className="amby-editor-scroll mr-2 min-h-0 min-w-0 flex-1 overscroll-none overflow-y-auto"
+          onScroll={(event) => {
+            // A display:none transition or inactive layer can emit a synthetic scroll event
+            // with scrollTop=0. Never let that overwrite the user's saved position.
+            if (
+              activeLayer !== "editor" ||
+              event.currentTarget.clientHeight === 0 ||
+              event.currentTarget.offsetParent === null
+            )
+              return
+            lastScrollTopRef.current = event.currentTarget.scrollTop
+            onScrollPositionChangeRef.current?.(lastScrollTopRef.current)
+          }}
         >
-          <DocumentTitle
-            title={docTitle}
-            fileIcon={fileIcon}
-            editingTitle={editingTitle}
-            onEditingTitleChange={onEditingTitleChange}
-            onRenameTitle={onRenameTitle}
-            onFileIconChange={onFileIconChange}
-          />
+          <div
+            className="mx-auto min-w-0 px-3 pb-8 pt-5 sm:px-8 sm:pt-6 lg:px-10"
+            style={{ maxWidth: EDITOR_CONTENT_WIDTH[contentWidth] }}
+          >
+            <DocumentTitle
+              title={docTitle}
+              fileIcon={fileIcon}
+              editingTitle={editingTitle}
+              onEditingTitleChange={onEditingTitleChange}
+              onRenameTitle={onRenameTitle}
+              onFileIconChange={onFileIconChange}
+            />
 
-          {nestedNotesPlacement === "top" && nestedNotesBar ? (
-            nestedNotesBar
-          ) : (
-            <div className="mb-2" />
-          )}
+            {nestedNotesPlacement === "top" && nestedNotesBar ? (
+              nestedNotesBar
+            ) : (
+              <div className="mb-2" />
+            )}
 
-          {activeLayer !== "editor" ? (
-            <div className="flex min-h-[360px] flex-col items-center justify-center gap-3 rounded border border-dashed border-border bg-background/40 text-center">
+            {viewMode === "source" ? (
+              <SourceEditor
+                key={`${docId}:${isLocked}`}
+                value={content}
+                onChange={onContentChange}
+                onLocalEdit={onContentDirty}
+                onTagClick={onTagClick}
+                onWikiLinkClick={onWikiLinkClick}
+                editorRef={editorRef}
+                placeholder={t("editor.placeholder")}
+                selection={editorSelection}
+                onSelectionChange={onEditorSelectionChange}
+                editable={!isLocked}
+              />
+            ) : (
+              <TiptapEditor
+                key={docId}
+                value={content}
+                onChange={onContentChange}
+                onContentDirty={onContentDirty}
+                editorRef={editorRef}
+                editable={viewMode === "live" && !isLocked}
+                isReadOnly={viewMode === "read"}
+                onTagClick={onTagClick}
+                onWikiLinkClick={onWikiLinkClick}
+                resolveWikiLinkTarget={resolveWikiLinkTarget}
+                fetchTransclusion={fetchTransclusion}
+                placeholder={t("editor.placeholder")}
+                vaultPath={vault}
+                notePath={docPath}
+                selection={editorSelection}
+                onSelectionChange={onEditorSelectionChange}
+              />
+            )}
+            {nestedNotesPlacement === "bottom" && nestedNotesBar}
+          </div>
+        </div>
+
+        {/* Floating Area Controls widget (Canvas benchmark style) */}
+        <DocumentAreaControls
+          docModified={docModified}
+          wordCount={liveWordCount}
+          viewMode={viewMode}
+          onViewModeChange={onViewModeChange}
+          viewModeMenuOpen={viewModeMenuOpen}
+          onViewModeMenuOpenChange={onViewModeMenuOpenChange}
+          isLocked={isLocked}
+          onToggleLock={onToggleLock}
+          onUndo={() => editorRef.current?.undo()}
+          onRedo={() => editorRef.current?.redo()}
+          contentWidth={contentWidth}
+          onContentWidthChange={onContentWidthChange}
+          nestedNotes={nestedNotes}
+          nestedNotesPlacement={nestedNotesPlacement}
+          onNestedNotesPlacementChange={onNestedNotesPlacementChange}
+        />
+      </div>
+
+      {/* Database Layer */}
+      {visitedLayers.has("database") &&
+        (databaseBody ? (
+          <div
+            aria-hidden={activeLayer !== "database"}
+            className={
+              activeLayer === "database"
+                ? "relative mr-2 flex min-h-0 min-w-0 flex-1 overflow-hidden"
+                : "hidden"
+            }
+          >
+            {databaseBody}
+          </div>
+        ) : activeLayer === "database" ? (
+          <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-8">
+            <div className="flex min-h-[360px] w-full max-w-md flex-col items-center justify-center gap-3 rounded border border-dashed border-border bg-background/40 text-center">
               <div className="flex size-12 items-center justify-center rounded border border-border bg-card text-foreground">
                 <ActiveLayerIcon className="size-5" />
               </div>
@@ -289,117 +384,60 @@ export function DocumentBody({
                 </p>
               </div>
             </div>
-          ) : viewMode === "source" ? (
-            <SourceEditor
-              key={`${docId}:${isLocked}`}
-              value={content}
-              onChange={onContentChange}
-              onLocalEdit={onContentDirty}
-              onTagClick={onTagClick}
-              onWikiLinkClick={onWikiLinkClick}
-              editorRef={editorRef}
-              placeholder={t("editor.placeholder")}
-              selection={editorSelection}
-              onSelectionChange={onEditorSelectionChange}
-              editable={!isLocked}
-            />
-          ) : (
-            <TiptapEditor
-              key={docId}
-              value={content}
-              onChange={onContentChange}
-              editorRef={editorRef}
-              editable={viewMode === "live" && !isLocked}
-              isReadOnly={viewMode === "read"}
-              onTagClick={onTagClick}
-              onWikiLinkClick={onWikiLinkClick}
-              resolveWikiLinkTarget={resolveWikiLinkTarget}
-              fetchTransclusion={fetchTransclusion}
-              placeholder={t("editor.placeholder")}
-              vaultPath={vault}
-              notePath={docPath}
-              selection={editorSelection}
-              onSelectionChange={onEditorSelectionChange}
-            />
-          )}
-          {nestedNotesPlacement === "bottom" && nestedNotesBar}
-        </div>
-      </div>
+          </div>
+        ) : null)}
 
-      {/* Floating stats widget */}
-      <div className="pointer-events-none absolute bottom-4 right-4 z-10">
-        <div className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-background/90 px-3 py-1.5 shadow-sm backdrop-blur-sm">
-          <span className="text-[11px] text-muted-foreground">{docModified}</span>
-          <span className="text-border">·</span>
-          <span className="text-[11px] text-muted-foreground">
-            {t("docEditor.wordCount", { count: liveWordCount })}
-          </span>
-          <div className="mx-1 h-3 w-px bg-accent" />
-          <DropdownMenu open={viewModeMenuOpen} onOpenChange={onViewModeMenuOpenChange}>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                title={t("docEditor.viewMode")}
-                aria-label={t("docEditor.viewMode")}
-                disabled={activeLayer !== "editor" || isLocked}
-                className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-                onMouseDown={(e) => e.preventDefault()}
-              >
-                {viewMode === "source" ? (
-                  <Code2 className="size-3" />
-                ) : viewMode === "read" ? (
-                  <Eye className="size-3" />
-                ) : (
-                  <PenLine className="size-3" />
-                )}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="w-40 border-border bg-popover text-foreground"
-            >
-              {(
-                [
-                  ["live", PenLine, "docEditor.viewLive"],
-                  ["read", Eye, "docEditor.viewRead"],
-                  ["source", Code2, "docEditor.viewSource"],
-                ] as const
-              ).map(([mode, Icon, labelKey]) => (
-                <DropdownMenuItem
-                  key={mode}
-                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                  onSelect={() => onViewModeChange(mode)}
-                >
-                  <Icon className="size-3.5 text-muted-foreground" />
-                  <span className="flex-1">{t(labelKey)}</span>
-                  {viewMode === mode && <span className="text-primary">✓</span>}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <div className="mx-1 h-3 w-px bg-accent" />
-          <button
-            title={t("docEditor.undo")}
-            className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-            onMouseDown={(e) => {
-              e.preventDefault()
-              editorRef.current?.undo()
-            }}
-          >
-            <Undo2 className="size-3" />
-          </button>
-          <button
-            title={t("docEditor.redo")}
-            className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-            onMouseDown={(e) => {
-              e.preventDefault()
-              editorRef.current?.redo()
-            }}
-          >
-            <Redo2 className="size-3" />
-          </button>
+      {/* Canvas Layer */}
+      {visitedLayers.has("canvas") && (
+        <div
+          aria-hidden={activeLayer !== "canvas"}
+          className={
+            activeLayer === "canvas"
+              ? "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+              : "hidden"
+          }
+        >
+          <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+            <CanvasEditor
+              key={`${docId}:canvas`}
+              value={canvasValue ?? CANONICAL_EMPTY_CANVAS}
+              onChange={(json) => onCanvasChange?.(json)}
+              onLocalEdit={onContentDirty}
+              vault={vault ?? null}
+              notePath={docPath}
+              onOpenNote={onOpenCanvasNote}
+              treeItems={treeItems}
+              isLocked={canvasLocked}
+              onToggleLock={onToggleLock}
+            />
+          </div>
         </div>
-      </div>
-    </>
+      )}
+
+      {/* Sketch Layer */}
+      {visitedLayers.has("sketch") && (
+        <div
+          aria-hidden={activeLayer !== "sketch"}
+          className={
+            activeLayer === "sketch"
+              ? "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+              : "hidden"
+          }
+        >
+          <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+            <SketchEditor
+              key={`${docId}:sketch`}
+              value={sketchValue ?? defaultSketchJson()}
+              onChange={(json) => onSketchChange?.(json)}
+              onLocalEdit={onContentDirty}
+              vault={vault ?? null}
+              notePath={docPath}
+              isLocked={sketchLocked}
+              onToggleLock={onToggleLock}
+            />
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

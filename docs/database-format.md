@@ -1,6 +1,6 @@
 # Формат базы данных Amby
 
-Статус: proposed contract
+Статус: implemented v1 contract with additive computed/chart extensions
 Версия документа: 1
 Дата: 2026-09-04
 
@@ -13,7 +13,7 @@
 
 ```text
 Персонажи/
-├── ambd.json
+├── Персонажи.json   (или устаревший ambd.json для обратной совместимости)
 ├── .ambd/
 │   ├── views/
 │   │   └── <view-id>.json
@@ -30,8 +30,10 @@
     └── assets/
 ```
 
-`ambd.json` — небольшой manifest и общая schema. Часто изменяемые views,
-templates и record values вынесены в отдельные атомарные shards. Это уменьшает
+`<Название_Контейнера>.json` (или `ambd.json` в старых версиях) — небольшой manifest и общая schema.
+Использование именованного файла манифеста обеспечивает архитектурную симметрию со всеми слоями бандла (`.md`, `.canvas`, `.excalidraw`)
+и автоматически исключается из списка дочерних строк в дереве файлов.
+Часто изменяемые views, templates и record values вынесены в отдельные атомарные shards. Это уменьшает
 конфликты между окнами и не требует переписывать всю базу при правке ячейки.
 
 `.ambd/` является durable частью базы:
@@ -79,7 +81,7 @@ Revision не записывается внутрь JSON, иначе внешн�
 Несовпадение возвращает typed conflict. Last-write-wins и автоматическая запись
 поверх поврежденного JSON запрещены.
 
-## 4. `ambd.json`
+## 4. Манифест базы данных (`<Название_Контейнера>.json` / `ambd.json`)
 
 ```json
 {
@@ -186,6 +188,33 @@ type PropertyDefinition =
         inversePropertyId: string | null
       }
     })
+  | (PropertyBase & {
+      type: "formula"
+      config: {
+        version: 1
+        expression: string
+        resultType: string | null
+        dependencies: string[]
+      }
+    })
+  | (PropertyBase & {
+      type: "rollup"
+      config: {
+        relationPropertyId: string
+        targetPropertyId: string
+        aggregation:
+          | "count"
+          | "countNonEmpty"
+          | "sum"
+          | "average"
+          | "min"
+          | "max"
+          | "earliest"
+          | "latest"
+          | "unique"
+          | "percentChecked"
+      }
+    })
 ```
 
 Title, Created, Modified, Path, Tags, Backlinks, Word count, Parent и Sub-items
@@ -221,6 +250,14 @@ Binding разрешен только для Text, Number, Checkbox, Date, Selec
 URL. `key` — непустой top-level YAML mapping key, не равный `amby-id`; два поля
 одной базы не могут писать один key. Создание binding требует preflight всех
 текущих строк.
+
+### Независимое отображаемое название заметки
+
+Новая запись может содержать namespaced frontmatter key `amby-title`. Его
+непустое значение имеет приоритет над первым H1/body title и именем файла.
+Generic `title` не захватывается и не изменяется. Смена `amby-title` не требует
+переименования файла; пустое или некорректное значение игнорируется с
+сохранением исходных bytes.
 
 ## 6. Record shard
 
@@ -335,7 +372,7 @@ interface DatabaseViewFile {
   databaseId: string
   viewId: string
   name: string
-  layout: "table" | "board" | "list" | "gallery"
+  layout: "table" | "board" | "list" | "gallery" | "chart"
   openMode: "sidePeek" | "centerPeek" | "fullPage"
   subitemsMode: "nested" | "flat"
   density: "compact" | "default" | "tall" | null
@@ -410,8 +447,12 @@ type FilterNode =
 - List: secondary fields и indentation.
 - Gallery: card size, field list и preview source (`property`, `firstImage`,
   `icon`, `none`).
+- Chart: chart type, category/measure fields, aggregation и ограничение числа
+  групп. Данные получает backend aggregate query, а не renderer-side full scan.
 
-Unknown layout/config открывается read-only без удаления payload.
+Unknown layout/config открывается read-only без удаления payload. Calendar и
+timeline пока не входят в v1: для них ещё нет согласованного range-query и
+fictional-time контракта.
 
 ## 10. Template shard
 

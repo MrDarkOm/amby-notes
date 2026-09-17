@@ -1,12 +1,13 @@
 "use client"
 
 import * as React from "react"
-import { Trash2 } from "lucide-react"
+import { CalendarDays, CheckSquare, Hash, Link2, List, Trash2, Type } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import type { CustomProperty } from "@/lib/storage"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { IconValue } from "../icon-value"
@@ -61,6 +62,19 @@ export function PropertyEditor({
     .map((option) => option.trim())
     .filter(Boolean)
 
+  const PropertyTypeIcon =
+    draft.propertyType === "checkbox"
+      ? CheckSquare
+      : draft.propertyType === "number"
+        ? Hash
+        : draft.propertyType === "date"
+          ? CalendarDays
+          : draft.propertyType === "select"
+            ? List
+            : draft.propertyType === "url"
+              ? Link2
+              : Type
+
   async function save() {
     if (!draft.name.trim() || saving) return
     setSaving(true)
@@ -78,34 +92,51 @@ export function PropertyEditor({
         <DialogHeader>
           <DialogTitle className="text-sm">{t("infoPanel.propertyEditor")}</DialogTitle>
         </DialogHeader>
-        <div className="relative flex items-center gap-2">
-          <button
-            ref={emojiRef}
-            type="button"
-            className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-base hover:bg-accent"
-            onClick={() => setEmojiOpen((value) => !value)}
-            title={t("infoPanel.propertyIcon")}
-          >
-            <IconValue value={draft.icon} fallback="◆" className="size-5" />
-          </button>
-          <Input
-            value={draft.name}
-            onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
-            placeholder={t("infoPanel.propertyName")}
-            className="h-9 text-xs"
-          />
-          {emojiOpen && (
-            <div className="absolute left-0 top-11 z-[70]">
+        <div className="flex items-center gap-2">
+          <Popover open={emojiOpen} onOpenChange={setEmojiOpen}>
+            <PopoverTrigger asChild>
+              <button
+                ref={emojiRef}
+                type="button"
+                className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border text-base hover:bg-accent cursor-pointer"
+                title={t("infoPanel.propertyIcon")}
+              >
+                <IconValue
+                  value={draft.icon && draft.icon !== "◆" ? draft.icon : undefined}
+                  fallback={<PropertyTypeIcon className="size-5" />}
+                  className="size-5"
+                />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="start"
+              side="bottom"
+              sideOffset={4}
+              collisionPadding={16}
+              className="z-50 w-auto p-2 border-border bg-popover text-popover-foreground shadow-lg rounded-xl"
+              onCloseAutoFocus={(event) => event.preventDefault()}
+            >
               <EmojiPickerPanel
                 triggerRef={emojiRef}
                 onSelect={(emoji) => {
                   setDraft((value) => ({ ...value, icon: emoji.native }))
                   setEmojiOpen(false)
                 }}
+                onClear={() => {
+                  setDraft((value) => ({ ...value, icon: "" }))
+                  setEmojiOpen(false)
+                }}
+                clearLabel={t("tree.resetIcon")}
                 onClose={() => setEmojiOpen(false)}
               />
-            </div>
-          )}
+            </PopoverContent>
+          </Popover>
+          <Input
+            value={draft.name}
+            onChange={(event) => setDraft((value) => ({ ...value, name: event.target.value }))}
+            placeholder={t("infoPanel.propertyName")}
+            className="h-9 text-xs"
+          />
         </div>
         <label className="grid gap-1 text-[10px] text-muted-foreground">
           {t("infoPanel.propertyType")}

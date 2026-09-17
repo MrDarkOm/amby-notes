@@ -32,6 +32,7 @@ import {
   readNote,
   loadVaultData,
   loadActiveVaultData,
+  reindexActiveVaultData,
   preflightVault,
   applyIdMigration,
   recoverIdMigration,
@@ -73,8 +74,14 @@ const VAULT_ACTIVATED_EVENT = "amby:vault-activated"
  * Collaborates with useVaultStore, useDocStore, useTabsStore,
  * useViewStateStore, and useSettingsStore but does not own them.
  */
-export function useVaultData() {
+export interface UseVaultDataOptions {
+  onExternalChange?: (changes: Array<{ kind: string; path: string }>) => Promise<void>
+}
+
+export function useVaultData(options: UseVaultDataOptions = {}) {
   const { t } = useTranslation()
+  const onExternalChangeRef = React.useRef(options.onExternalChange)
+  onExternalChangeRef.current = options.onExternalChange
   const desktop = isTauri()
   const windowLabel = desktop ? getCurrentWindow().label : MAIN_WINDOW_LABEL
   // Keep the launch target in the URL so a browser note window also retains
@@ -144,11 +151,28 @@ export function useVaultData() {
     return loaded.tree
   }
 
+  async function reindexTree(path: string | null = vault): Promise<TreeItem[]> {
+    if (!path) return []
+    const requestId = switchRef.current.requestId
+    const loaded = await reindexActiveVaultData()
+    if (
+      requestId !== switchRef.current.requestId ||
+      useVaultStore.getState().vault !== path ||
+      loaded.vaultPath !== path
+    ) {
+      return []
+    }
+    setBackendGeneration(loaded.generation)
+    setTreeItems(loaded.tree)
+    setTabs((previous) => reconcileTreeBackedTabTitles(previous, loaded.tree))
+    return loaded.tree
+  }
+
   /** Re-scan the vault and clear the rendered link graph while its index rebuilds. */
   async function reloadVaultData(): Promise<void> {
     if (!vault) return
     setLinkGraph({ nodes: [], edges: [] })
-    await refreshTree(vault)
+    await reindexTree(vault)
   }
 
   // ── loadVault ───────────────────────────────────────────────────────────────
@@ -501,6 +525,26 @@ export function useVaultData() {
           const doc = openDocs[id]
           if (!doc) continue
           if (treeChange.kind === "deleted") {
+            const isSpecial =
+              id.startsWith("database:") ||
+              id.endsWith(".canvas") ||
+              id.endsWith(".excalidraw") ||
+              doc.path.endsWith(".canvas") ||
+              doc.path.endsWith(".excalidraw")
+            if (isSpecial) {
+              useDocStore.getState().dropDocs([id])
+              setTabs((prev) => {
+                const surviving = prev.filter((t) => t.fileId !== id && t.fileId !== doc.path)
+                if (surviving.length !== prev.length) {
+                  const activeKey = useTabsStore.getState().activeTabKey
+                  if (!surviving.some((t) => t.key === activeKey)) {
+                    setActiveTabKey(surviving[surviving.length - 1]?.key ?? "")
+                  }
+                }
+                return surviving
+              })
+              continue
+            }
             const latest = useDocStore.getState().openDocs[id] ?? doc
             if (!latest.externallyDeleted) {
               patchDoc(id, { externallyDeleted: true })
@@ -539,13 +583,16 @@ export function useVaultData() {
           for (const [id, doc] of Object.entries(useDocStore.getState().openDocs)) {
             if (!isCurrent()) return
             if (!watcherChangeAffectsDocument(doc.path, change.path)) continue
+            const isMarkdownDoc = doc.path.endsWith(".md") || Boolean(doc.noteId)
+            if (!isMarkdownDoc) continue
             const activeConflict = useDocStore.getState().externalConflicts[id]
             // The tree reconciliation above already classified this ID as
             // deleted. Do not turn the expected read failure into a hidden
             // warning while the path remains absent.
             if (activeConflict?.externalContent === null && !findTreeItem(tree, id)) continue
             try {
-              const note = await readNote(vault, id)
+              const noteIdToRead = doc.noteId ?? id
+              const note = await readNote(vault, noteIdToRead)
               if (!isCurrent()) return
               const latest = useDocStore.getState().openDocs[id]
               if (!latest) continue
@@ -596,6 +643,14 @@ export function useVaultData() {
             } catch (err) {
               logger.warn("watcher.open_document_reload_failed", { errorType: errorType(err) })
             }
+          }
+        }
+
+        if (onExternalChangeRef.current) {
+          try {
+            await onExternalChangeRef.current(changes)
+          } catch (err) {
+            logger.warn("watcher.external_change_callback_failed", { errorType: errorType(err) })
           }
         }
       } catch (err) {

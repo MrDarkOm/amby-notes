@@ -30,6 +30,7 @@ export function SidebarTree({
   onDeleteMany,
   onNewFile,
   onAttachCanvas,
+  onAttachSketch,
   onOpenInNewTab,
   onOpenInNewWindow,
   onCloneFile,
@@ -292,6 +293,7 @@ export function SidebarTree({
                   onDeleteMany={onDeleteMany}
                   onNewFile={onNewFile}
                   onAttachCanvas={onAttachCanvas}
+                  onAttachSketch={onAttachSketch}
                   onOpenInNewTab={onOpenInNewTab}
                   onOpenInNewWindow={onOpenInNewWindow}
                   onCloneFile={onCloneFile}

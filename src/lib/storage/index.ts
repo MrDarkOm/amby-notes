@@ -9,6 +9,7 @@ import type { StoragePort } from "./port"
 import type {
   CreateDatabaseRequest,
   CreateDatabasePropertyRequest,
+  ChangeDatabasePropertyTypeRequest,
   DeleteDatabasePropertyRequest,
   ReorderDatabasePropertiesRequest,
   RenameDatabasePropertyRequest,
@@ -19,6 +20,15 @@ import type {
   ImportDatabaseAssetRequest,
   DatabaseYamlSyncRequest,
   DatabaseYamlResolveRequest,
+  CreateDatabaseViewRequest,
+  DatabaseViewRequest,
+  RenameDatabaseViewRequest,
+  UpdateDatabaseViewConfigRequest,
+  DeleteDatabaseViewRequest,
+  ReorderDatabaseViewsRequest,
+  DatabaseAggregateRequest,
+  DatabaseChangedPayload,
+  UpdateDatabaseRelationValueRequest,
 } from "./database-types"
 import type {
   CredentialInfo,
@@ -97,6 +107,8 @@ export const loadVaultData = (vaultPath: string): Promise<LoadVaultResult> =>
   notesRepository.loadVaultData(vaultPath)
 export const loadActiveVaultData = (): Promise<LoadVaultResult> =>
   notesRepository.loadActiveVaultData()
+export const reindexActiveVaultData = (): Promise<LoadVaultResult> =>
+  notesRepository.reindexActiveVaultData()
 export const preflightVault = (vaultPath: string): Promise<VaultPreflight> =>
   notesRepository.preflightVault(vaultPath)
 export const applyIdMigration = (vaultPath: string): Promise<void> =>
@@ -186,10 +198,14 @@ export const getDatabaseModuleState = () => getAdapter().getDatabaseModuleState(
 export const setDatabaseModuleEnabled = (enabled: boolean, expectedGeneration: number) =>
   getAdapter().setDatabaseModuleEnabled(enabled, expectedGeneration)
 export const rebuildDatabaseProjection = () => getAdapter().rebuildDatabaseProjection()
+export const refreshDatabaseChange = (change: DatabaseChangedPayload) =>
+  getAdapter().refreshDatabaseChange(change)
 export const createDatabase = (request: CreateDatabaseRequest) =>
   getAdapter().createDatabase(request)
 export const createDatabaseProperty = (request: CreateDatabasePropertyRequest) =>
   getAdapter().createDatabaseProperty(request)
+export const changeDatabasePropertyType = (request: ChangeDatabasePropertyTypeRequest) =>
+  getAdapter().changeDatabasePropertyType(request)
 export const deleteDatabaseProperty = (request: DeleteDatabasePropertyRequest) =>
   getAdapter().deleteDatabaseProperty(request)
 export const renameDatabaseProperty = (request: RenameDatabasePropertyRequest) =>
@@ -198,6 +214,8 @@ export const renameDatabase = (request: RenameDatabaseRequest) =>
   getAdapter().renameDatabase(request)
 export const applyDatabaseValueBatch = (request: DatabaseValueBatchRequest) =>
   getAdapter().applyDatabaseValueBatch(request)
+export const updateDatabaseRelationValue = (request: UpdateDatabaseRelationValueRequest) =>
+  getAdapter().updateDatabaseRelationValue(request)
 export const createDatabaseRow = (request: CreateDatabaseRowRequest) =>
   getAdapter().createDatabaseRow(request)
 export const importDatabaseAsset = (request: ImportDatabaseAssetRequest) =>
@@ -212,6 +230,24 @@ export const getDatabaseNoteContext = (noteId: string) =>
 export const reorderDatabaseProperties = (request: ReorderDatabasePropertiesRequest) =>
   getAdapter().reorderDatabaseProperties(request)
 export const queryDatabase = (request: DatabaseQueryRequest) => getAdapter().queryDatabase(request)
+export const getDatabaseView = (request: DatabaseViewRequest) =>
+  getAdapter().getDatabaseView(request)
+export const createDatabaseView = (request: CreateDatabaseViewRequest) =>
+  getAdapter().createDatabaseView(request)
+export const renameDatabaseView = (request: RenameDatabaseViewRequest) =>
+  getAdapter().renameDatabaseView(request)
+export const updateDatabaseViewConfig = (request: UpdateDatabaseViewConfigRequest) =>
+  getAdapter().updateDatabaseViewConfig(request)
+export const duplicateDatabaseView = (request: DatabaseViewRequest) =>
+  getAdapter().duplicateDatabaseView(request)
+export const deleteDatabaseView = (request: DeleteDatabaseViewRequest) =>
+  getAdapter().deleteDatabaseView(request)
+export const reorderDatabaseViews = (request: ReorderDatabaseViewsRequest) =>
+  getAdapter().reorderDatabaseViews(request)
+export const setDefaultDatabaseView = (request: DatabaseViewRequest) =>
+  getAdapter().setDefaultDatabaseView(request)
+export const aggregateDatabase = (request: DatabaseAggregateRequest) =>
+  getAdapter().aggregateDatabase(request)
 
 // Mutations & Canvas / Layers
 export const createFolder = (vaultPath: string, name: string): Promise<string> =>
@@ -225,6 +261,15 @@ export const attachCanvasToNote = (
   vaultPath: string,
   canvasPath: string,
 ): Promise<FsMutationResult> => mutationsRepository.attachCanvasToNote(vaultPath, canvasPath)
+export const createSketchFile = (
+  vaultPath: string,
+  parentPath: string | null,
+  name: string,
+): Promise<string> => mutationsRepository.createSketchFile(vaultPath, parentPath, name)
+export const attachSketchToNote = (
+  vaultPath: string,
+  sketchPath: string,
+): Promise<FsMutationResult> => mutationsRepository.attachSketchToNote(vaultPath, sketchPath)
 export const renameItem = (
   vaultPath: string,
   path: string,

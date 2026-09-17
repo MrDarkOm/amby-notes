@@ -17,6 +17,7 @@ export interface Document {
   /** The stable-ID note is absent from the latest indexed filesystem tree. */
   externallyDeleted?: boolean
   noteProperties?: NoteProperties
+  noteId?: string
 }
 
 export interface ExternalConflict {
@@ -48,6 +49,8 @@ interface DocStore {
   /** Record an external change that must be resolved before autosave resumes. */
   setExternalConflict: (conflict: ExternalConflict) => void
   clearExternalConflict: (fileId: string) => void
+  /** Drop in-memory documents, unsaved flags, and external conflicts immediately (e.g. after deletion). */
+  dropDocs: (fileIds: Iterable<string>) => void
   /** After a filesystem mutation, remap surviving docs' paths and drop deleted ones. */
   applyMutation: (deletedIds: string[], remapPath: (path: string) => string) => void
 }
@@ -121,19 +124,42 @@ export const useDocStore = create<DocStore>((set) => ({
       return { externalConflicts }
     }),
 
+  dropDocs: (fileIds) =>
+    set((s) => {
+      const toDrop = new Set(fileIds)
+      const openDocs: Record<string, Document> = {}
+      for (const [id, doc] of Object.entries(s.openDocs)) {
+        if (!toDrop.has(id)) openDocs[id] = doc
+      }
+      const unsavedFileIds = new Set<string>()
+      for (const id of s.unsavedFileIds) {
+        if (!toDrop.has(id)) unsavedFileIds.add(id)
+      }
+      const externalConflicts: Record<string, ExternalConflict> = {}
+      for (const [id, conflict] of Object.entries(s.externalConflicts)) {
+        if (!toDrop.has(id)) externalConflicts[id] = conflict
+      }
+      return { openDocs, unsavedFileIds, externalConflicts }
+    }),
+
   applyMutation: (deletedIds, remapPath) =>
     set((s) => {
       const deleted = new Set(deletedIds)
       const openDocs: Record<string, Document> = {}
       for (const [id, doc] of Object.entries(s.openDocs)) {
-        if (deleted.has(id)) continue
+        if (isDocDeleted(id, doc.path, deleted)) continue
         openDocs[id] = { ...doc, path: remapPath(doc.path) }
       }
       const unsavedFileIds = new Set<string>()
-      for (const id of s.unsavedFileIds) if (!deleted.has(id)) unsavedFileIds.add(id)
+      for (const id of s.unsavedFileIds) {
+        const doc = s.openDocs[id]
+        if (!deleted.has(id) && (!doc || !isDocDeleted(id, doc.path, deleted))) {
+          unsavedFileIds.add(id)
+        }
+      }
       const externalConflicts: Record<string, ExternalConflict> = {}
       for (const [id, conflict] of Object.entries(s.externalConflicts)) {
-        if (!deleted.has(id)) {
+        if (!isDocDeleted(id, conflict.path, deleted)) {
           externalConflicts[id] = {
             ...conflict,
             path: remapPath(conflict.path),
@@ -143,3 +169,19 @@ export const useDocStore = create<DocStore>((set) => ({
       return { openDocs, unsavedFileIds, externalConflicts }
     }),
 }))
+
+function isDocDeleted(id: string, path: string, deleted: Set<string>): boolean {
+  if (deleted.has(id) || deleted.has(path)) return true
+  const normPath = path.replace(/\\/g, "/").replace(/\/+$/, "")
+  const idClean = id.startsWith("database:")
+    ? id.slice("database:".length).replace(/\\/g, "/").replace(/\/+$/, "")
+    : ""
+  for (const del of deleted) {
+    if (!del) continue
+    const normDel = del.replace(/\\/g, "/").replace(/\/+$/, "")
+    if (!normDel) continue
+    if (normPath === normDel || normPath.startsWith(`${normDel}/`)) return true
+    if (idClean && (idClean === normDel || idClean.startsWith(`${normDel}/`))) return true
+  }
+  return false
+}

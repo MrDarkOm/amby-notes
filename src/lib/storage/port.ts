@@ -36,6 +36,7 @@ export interface StoragePort extends DatabasePort {
   stopVaultWatcher(): Promise<void>
   loadVaultData(vaultPath: string): Promise<LoadVaultResult>
   loadActiveVaultData(): Promise<LoadVaultResult>
+  reindexActiveVaultData(): Promise<LoadVaultResult>
   preflightVault(vaultPath: string): Promise<VaultPreflight>
   applyIdMigration(vaultPath: string): Promise<void>
   inspectIdMigrations(vaultPath: string): Promise<IdMigrationRecovery[]>
@@ -72,6 +73,8 @@ export interface StoragePort extends DatabasePort {
   createFolder(vaultPath: string, name: string): Promise<string>
   createCanvasFile(vaultPath: string, parentPath: string | null, name: string): Promise<string>
   attachCanvasToNote(vaultPath: string, canvasPath: string): Promise<FsMutationResult>
+  createSketchFile(vaultPath: string, parentPath: string | null, name: string): Promise<string>
+  attachSketchToNote(vaultPath: string, sketchPath: string): Promise<FsMutationResult>
   renameItem(vaultPath: string, path: string, newName: string): Promise<FsMutationResult>
   moveItem(vaultPath: string, sourcePath: string, targetPath: string): Promise<FsMutationResult>
   deleteItem(vaultPath: string, path: string): Promise<FsMutationResult>

@@ -29,4 +29,34 @@ describe("recovery restore decisions", () => {
       discardDraft: true,
     })
   })
+
+  it("does not prompt when both disk and draft represent empty Canvas", () => {
+    expect(recoveryNeedsConfirmation("{}", '{\n  "nodes": [],\n  "edges": []\n}\n')).toBe(false)
+    expect(resolveRecoveryContent("{}", '{\n  "nodes": [],\n  "edges": []\n}\n', false)).toEqual({
+      content: "{}",
+      restored: false,
+      discardDraft: true,
+    })
+  })
+
+  it("does not prompt when both disk and draft represent empty Sketch", () => {
+    const disk = '{"type":"excalidraw","elements":[],"appState":{"viewBackgroundColor":"#ffffff"}}'
+    const draft =
+      '{"type":"excalidraw","elements":[],"appState":{"viewBackgroundColor":"#ffffff","currentItemStrokeColor":"#1e1e1e"}}'
+    expect(recoveryNeedsConfirmation(disk, draft)).toBe(false)
+    expect(resolveRecoveryContent(disk, draft, false)).toEqual({
+      content: disk,
+      restored: false,
+      discardDraft: true,
+    })
+  })
+
+  it("does not prompt when both disk and draft are whitespace", () => {
+    expect(recoveryNeedsConfirmation("", "\n  \n")).toBe(false)
+    expect(resolveRecoveryContent("", "\n  \n", false)).toEqual({
+      content: "",
+      restored: false,
+      discardDraft: true,
+    })
+  })
 })

@@ -34,6 +34,17 @@ The update metric includes the full refresh, not just the single SQLite row.
 Do not compare these Windows/debug numbers directly to the older macOS sample.
 Resident WebView memory remains unmeasured.
 
+## Database fixture generator — 2026-09-12
+
+`npm run db:fixture -- --size 10000|50000|100000` creates a disposable database
+fixture under the operating system temporary directory. It contains a manifest,
+20 properties, four views, duplicate Unicode titles, empty values, exact
+decimal strings, dates, multi-value fields and self-relations. The generator
+does not accept a vault path and does not read an existing vault. It is a
+dataset generator, not a completed performance result: database cold rebuild,
+warm open, query p50/p95, memory and 50k/100k native UI measurements are NOT
+RUN for this batch.
+
 ## Windows repeat — 2026-09-01
 
 Current `dev` working tree after the NTFS race/rollback regressions, on the same
@@ -63,3 +74,18 @@ large-vault smoke passed at every roadmap size:
 Commands: `AMBY_E2E_LARGE_VAULT_SIZE=1000 npm run test:e2e:large`, then the same
 command with `5000` and `10000`. These are indexed backend measurements only;
 WebView input latency, DOM counts and resident memory remain unmeasured.
+
+## Database projection repeat — 2026-09-12
+
+Command: `npm run db:benchmark -- --size 10000`. macOS arm64, Rust debug test
+profile, one run per phase. The fixture contains 10,000 database rows and 20
+properties; the numbers are a baseline for this checkout, not release limits.
+
+| Rows   | Vault index sync | Database rebuild | First page (100) | Three searches |
+| ------ | ---------------- | ---------------- | ---------------- | -------------- |
+| 10,000 | 1.747 s          | 4.972 s          | 28.2 ms          | 122.6 ms       |
+
+The benchmark also verifies the complete count (10,000) and a search checksum
+(590). 50,000/100,000 runs, p50/p95 series, memory and native UI latency remain
+NOT RUN; repeat the same command for those sizes before calling EX-02/EX-43
+complete.

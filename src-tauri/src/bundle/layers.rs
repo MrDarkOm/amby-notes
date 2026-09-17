@@ -9,8 +9,11 @@ use super::path_ops::file_stem;
 use super::path_string;
 use super::scan::is_markdown;
 
+pub(crate) const DEFAULT_CANVAS_JSON: &str = "{\n  \"nodes\": [],\n  \"edges\": []\n}\n";
+pub(crate) const DEFAULT_SKETCH_JSON: &str = "{\n  \"type\": \"excalidraw\",\n  \"version\": 2,\n  \"source\": \"amby-notes\",\n  \"elements\": [],\n  \"appState\": {\n    \"viewBackgroundColor\": \"#ffffff\",\n    \"gridSize\": null\n  },\n  \"files\": {}\n}\n";
+
 pub(crate) fn create_layer_impl(note_path: &Path, kind: &str) -> Result<LayerResult, String> {
-    if !matches!(kind, "canvas" | "database" | "sketch") {
+    if !matches!(kind, "canvas" | "database" | "sketch" | "note" | "editor") {
         return Err(format!("Unknown layer kind: {kind}"));
     }
     if kind == "database" {
@@ -20,20 +23,39 @@ pub(crate) fn create_layer_impl(note_path: &Path, kind: &str) -> Result<LayerRes
     let bundle_dir = main_note
         .parent()
         .ok_or_else(|| format!("Bundle note has no parent: {}", path_string(&main_note)))?;
-    let stem = file_stem(&main_note)?;
+    let stem = if main_note.file_name().is_some_and(|n| n == "ambd.json") {
+        bundle_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("database")
+            .to_string()
+    } else {
+        file_stem(&main_note)?
+    };
 
     let (layer_path, default_content) = match kind {
-        "canvas" => (bundle_dir.join(format!("{stem}.canvas")), "{}\n"),
-        "database" => (
-            bundle_dir.join("Metadata.md"),
-            "# Metadata\n\n```amby-db\n[]\n```\n",
+        "canvas" => (
+            bundle_dir.join(format!("{stem}.canvas")),
+            DEFAULT_CANVAS_JSON.to_string(),
         ),
-        "sketch" => (bundle_dir.join(format!("{stem}.excalidraw")), "{}\n"),
+        "database" => (
+            bundle_dir.join(format!("{stem}.json")),
+            "# Metadata\n\n```amby-db\n[]\n```\n".to_string(),
+        ),
+        "sketch" => (
+            bundle_dir.join(format!("{stem}.excalidraw")),
+            DEFAULT_SKETCH_JSON.to_string(),
+        ),
+        "note" | "editor" => {
+            let note_id = ulid::Ulid::generate().to_string();
+            let initial_body = frontmatter::body_with_id("", &note_id)?;
+            (bundle_dir.join(format!("{stem}.md")), initial_body)
+        }
         _ => unreachable!("layer kind was validated before bundle promotion"),
     };
 
     if !layer_path.exists() {
-        if let Err(error) = frontmatter::atomic_write_new(&layer_path, default_content) {
+        if let Err(error) = frontmatter::atomic_write_new(&layer_path, &default_content) {
             // Another process may have created the layer after the existence
             // check. Its file is now the authoritative layer; never replace it.
             if matches!(error, frontmatter::AtomicCreateError::AlreadyExists) {
@@ -58,6 +80,19 @@ pub(crate) fn create_layer_impl(note_path: &Path, kind: &str) -> Result<LayerRes
         }
     }
 
+    if crate::vault::scan::is_database_dir(bundle_dir) {
+        if let Ok(bytes) = fs::read(&main_note) {
+            if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                if value.get("containerKind").is_none() {
+                    value["containerKind"] = serde_json::Value::String("standalone".to_string());
+                    if let Ok(new_bytes) = serde_json::to_vec_pretty(&value) {
+                        let _ = fs::write(&main_note, new_bytes);
+                    }
+                }
+            }
+        }
+    }
+
     Ok(LayerResult {
         note_path: path_string(&main_note),
         layer_path: path_string(&layer_path),
@@ -67,27 +102,63 @@ pub(crate) fn create_layer_impl(note_path: &Path, kind: &str) -> Result<LayerRes
 }
 
 fn layer_file_path(note_path: &Path, kind: &str) -> Result<PathBuf, String> {
-    let bundle_dir = note_path
-        .parent()
-        .ok_or_else(|| "Bundle note has no parent".to_string())?;
-    let stem = file_stem(note_path)?;
-    let parent_name = bundle_dir
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_default();
-    if parent_name != stem {
-        return Err(format!("Note is not a bundle: {}", path_string(note_path)));
-    }
+    let (bundle_dir, stem) = if note_path.is_dir() {
+        let stem = file_stem(note_path)?;
+        (note_path.to_path_buf(), stem)
+    } else {
+        let bundle_dir = note_path
+            .parent()
+            .ok_or_else(|| "Bundle note has no parent".to_string())?;
+        let stem = if note_path.file_name().is_some_and(|n| n == "ambd.json") {
+            bundle_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("database")
+                .to_string()
+        } else {
+            file_stem(note_path)?
+        };
+        let parent_name = bundle_dir
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if parent_name != stem && !crate::database::discovery::is_manifest_file_candidate(note_path)
+        {
+            return Err(format!("Note is not a bundle: {}", path_string(note_path)));
+        }
+        (bundle_dir.to_path_buf(), stem)
+    };
     Ok(match kind {
         "canvas" => bundle_dir.join(format!("{stem}.canvas")),
         "sketch" => bundle_dir.join(format!("{stem}.excalidraw")),
-        "database" => bundle_dir.join("Metadata.md"),
+        "database" => {
+            if let Some(manifest) = crate::database::discovery::find_manifest_path(&bundle_dir) {
+                manifest
+            } else {
+                let named_json = bundle_dir.join(format!("{stem}.json"));
+                if named_json.is_file() {
+                    named_json
+                } else {
+                    let manifest = bundle_dir.join("ambd.json");
+                    if manifest.is_file() {
+                        manifest
+                    } else {
+                        bundle_dir.join("Metadata.md")
+                    }
+                }
+            }
+        }
+        "note" | "editor" => bundle_dir.join(format!("{stem}.md")),
         other => return Err(format!("Unknown layer kind: {other}")),
     })
 }
 
 fn is_canvas_file(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "canvas")
+}
+
+fn is_sketch_file(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "excalidraw")
 }
 
 fn unique_note_path(base_dir: &Path, stem: &str) -> PathBuf {
@@ -145,7 +216,7 @@ pub(crate) fn create_canvas_impl(parent_path: &Path, name: &str) -> Result<PathB
         return Err(format!("Not a directory: {}", path_string(&container)));
     }
     let path = unique_canvas_path(&container, trimmed);
-    match frontmatter::atomic_write_new(&path, "{}\n") {
+    match frontmatter::atomic_write_new(&path, DEFAULT_CANVAS_JSON) {
         Ok(()) => {}
         Err(frontmatter::AtomicCreateError::AlreadyExists) => {
             return Err(format!("Canvas already exists: {}", path_string(&path)));
@@ -202,6 +273,117 @@ pub(crate) fn attach_canvas_impl(canvas_path: &Path) -> Result<FsMutationResult,
 
     path_changes.push(PathChange {
         old_path: path_string(canvas_path),
+        new_path: path_string(&target),
+    });
+    path_changes.push(PathChange {
+        old_path: String::new(),
+        new_path: path_string(&main_note),
+    });
+
+    Ok(FsMutationResult {
+        primary_id: None,
+        primary_path: Some(path_string(&main_note)),
+        path_changes,
+        deleted_paths: Vec::new(),
+        deleted_ids: Vec::new(),
+    })
+}
+
+fn unique_sketch_path(base_dir: &Path, stem: &str) -> PathBuf {
+    let mut index = 1;
+    loop {
+        let candidate_stem = if index == 1 {
+            stem.to_string()
+        } else {
+            format!("{stem}_{index}")
+        };
+        let sketch = base_dir.join(format!("{candidate_stem}.excalidraw"));
+        let note = base_dir.join(format!("{candidate_stem}.md"));
+        let bundle = base_dir.join(&candidate_stem);
+        if !sketch.exists() && !note.exists() && !bundle.exists() {
+            return sketch;
+        }
+        index += 1;
+    }
+}
+
+/// Create a standalone `.excalidraw` file inside the given container (or next to a note).
+pub(crate) fn create_sketch_impl(parent_path: &Path, name: &str) -> Result<PathBuf, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.contains('/') || trimmed.contains('\\') {
+        return Err("Invalid sketch name".to_string());
+    }
+    let container = if parent_path.is_dir() {
+        parent_path.to_path_buf()
+    } else if parent_path.is_file() {
+        parent_path
+            .parent()
+            .ok_or_else(|| format!("Path has no parent: {}", path_string(parent_path)))?
+            .to_path_buf()
+    } else {
+        parent_path.to_path_buf()
+    };
+    if !container.is_dir() {
+        return Err(format!("Not a directory: {}", path_string(&container)));
+    }
+    let path = unique_sketch_path(&container, trimmed);
+    match frontmatter::atomic_write_new(&path, DEFAULT_SKETCH_JSON) {
+        Ok(()) => {}
+        Err(frontmatter::AtomicCreateError::AlreadyExists) => {
+            return Err(format!("Sketch already exists: {}", path_string(&path)));
+        }
+        Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+    }
+    Ok(path)
+}
+
+/// Promote a standalone `.excalidraw` into a freshly-created note's bundle as its sketch layer.
+pub(crate) fn attach_sketch_impl(sketch_path: &Path) -> Result<FsMutationResult, String> {
+    if !sketch_path.is_file() || !is_sketch_file(sketch_path) {
+        return Err(format!("Not a sketch file: {}", path_string(sketch_path)));
+    }
+    let dir = sketch_path
+        .parent()
+        .ok_or_else(|| format!("Sketch has no parent: {}", path_string(sketch_path)))?;
+    let stem = file_stem(sketch_path)?;
+
+    // Create a sibling note (unique name), then turn it into a bundle that owns the sketch.
+    let note_path = unique_note_path(dir, &stem);
+    match frontmatter::atomic_write_new(&note_path, "") {
+        Ok(()) => {}
+        Err(frontmatter::AtomicCreateError::AlreadyExists) => {
+            return Err(format!("Note already exists: {}", path_string(&note_path)));
+        }
+        Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
+    }
+    let (main_note, mut path_changes) = match ensure_bundle_path(&note_path) {
+        Ok(result) => result,
+        Err(error) => {
+            let _ = fs::remove_file(&note_path);
+            return Err(error);
+        }
+    };
+    let bundle_dir = main_note
+        .parent()
+        .ok_or_else(|| "Bundle note has no parent".to_string())?;
+    let note_stem = file_stem(&main_note)?;
+    let target = bundle_dir.join(format!("{note_stem}.excalidraw"));
+    if let Err(error) = fs::rename(sketch_path, &target) {
+        if let Err(rollback_error) = rollback_bundle_promotion(&note_path, &main_note) {
+            return Err(format!(
+                "Could not attach sketch: {error}; bundle rollback failed: {rollback_error}"
+            ));
+        }
+        if let Err(cleanup_error) = fs::remove_file(&note_path) {
+            return Err(format!(
+                "Could not attach sketch: {error}; temporary note cleanup failed: {cleanup_error}"
+            ));
+        }
+        return Err(error.to_string());
+    }
+
+    path_changes.push(PathChange {
+        old_path: path_string(sketch_path),
         new_path: path_string(&target),
     });
     path_changes.push(PathChange {

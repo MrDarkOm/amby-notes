@@ -6,7 +6,7 @@ use crate::model::{FsMutationResult, PathChange};
 use super::notes::resolve_item_root;
 use super::path_ops::{ensure_rename_target_available, file_name, file_stem};
 use super::path_string;
-use super::scan::{is_bundle_main_note, is_markdown};
+use super::scan::{is_bundle_main_note, is_supported_document};
 
 pub(super) fn collect_refactor_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
     if root.is_file() {
@@ -63,6 +63,10 @@ pub(super) fn bundle_rename_path_changes(
                 PathBuf::from(format!("{new_stem}.canvas"))
             } else if relative == Path::new(&format!("{old_stem}.excalidraw")) {
                 PathBuf::from(format!("{new_stem}.excalidraw"))
+            } else if relative == Path::new(&format!("{old_stem}.json")) {
+                PathBuf::from(format!("{new_stem}.json"))
+            } else if relative == Path::new(&format!("{old_stem}.database")) {
+                PathBuf::from(format!("{new_stem}.database"))
             } else {
                 relative.to_path_buf()
             };
@@ -145,22 +149,29 @@ pub(crate) fn preview_move_item(
     target_path: &Path,
 ) -> Result<FsMutationResult, String> {
     let (target_dir, mut target_changes) = if target_path.is_file() {
-        if !is_markdown(target_path) {
-            return Err(format!("Not a markdown note: {}", path_string(target_path)));
+        if !is_supported_document(target_path) {
+            return Err(format!(
+                "Not a supported document: {}",
+                path_string(target_path)
+            ));
         }
         if is_bundle_main_note(target_path) {
             (
                 target_path
                     .parent()
-                    .ok_or_else(|| "Bundle note has no parent".to_string())?
+                    .ok_or_else(|| "Bundle document has no parent".to_string())?
                     .to_path_buf(),
                 Vec::new(),
             )
         } else {
             let stem = file_stem(target_path)?;
+            let ext = target_path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("md");
             let parent = target_path
                 .parent()
-                .ok_or_else(|| "Note has no parent".to_string())?;
+                .ok_or_else(|| "Document has no parent".to_string())?;
             let bundle_dir = parent.join(&stem);
             if bundle_dir.exists() {
                 return Err(format!(
@@ -168,7 +179,7 @@ pub(crate) fn preview_move_item(
                     path_string(&bundle_dir)
                 ));
             }
-            let new_note = bundle_dir.join(format!("{stem}.md"));
+            let new_note = bundle_dir.join(format!("{stem}.{ext}"));
             (
                 bundle_dir,
                 vec![PathChange {

@@ -109,4 +109,73 @@ describe("useDocStore external conflicts", () => {
       conflicted: expect.any(Object),
     })
   })
+
+  it("dropDocs immediately removes documents, unsaved flags, and conflicts", () => {
+    const store = useDocStore.getState()
+    store.setDoc("doc-1", {
+      id: "doc-1",
+      title: "Doc 1",
+      content: "content",
+      created: "",
+      modified: "",
+      wordCount: 1,
+      path: "/vault/doc-1.md",
+      source: "content",
+    })
+    store.markUnsaved("doc-1")
+    store.setExternalConflict({
+      fileId: "doc-1",
+      path: "/vault/doc-1.md",
+      localContent: "content",
+      externalContent: null,
+    })
+
+    store.dropDocs(["doc-1"])
+
+    const state = useDocStore.getState()
+    expect(state.openDocs["doc-1"]).toBeUndefined()
+    expect(state.unsavedFileIds.has("doc-1")).toBe(false)
+    expect(state.externalConflicts["doc-1"]).toBeUndefined()
+  })
+
+  it("applyMutation drops child documents and database documents when directory is deleted", () => {
+    const store = useDocStore.getState()
+    store.setDoc("database:PaLooVerse", {
+      id: "database:PaLooVerse",
+      title: "PaLooVerse",
+      content: "",
+      created: "",
+      modified: "",
+      wordCount: 0,
+      path: "PaLooVerse",
+      source: "",
+    })
+    store.setDoc("child-note", {
+      id: "child-note",
+      title: "Child",
+      content: "child",
+      created: "",
+      modified: "",
+      wordCount: 1,
+      path: "PaLooVerse/Child.md",
+      source: "child",
+    })
+    store.setDoc("other-note", {
+      id: "other-note",
+      title: "Other",
+      content: "other",
+      created: "",
+      modified: "",
+      wordCount: 1,
+      path: "Other.md",
+      source: "other",
+    })
+
+    store.applyMutation(["PaLooVerse"], (p) => p)
+
+    const state = useDocStore.getState()
+    expect(state.openDocs["database:PaLooVerse"]).toBeUndefined()
+    expect(state.openDocs["child-note"]).toBeUndefined()
+    expect(state.openDocs["other-note"]).toBeDefined()
+  })
 })

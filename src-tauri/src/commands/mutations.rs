@@ -39,23 +39,52 @@ pub fn mutation_paths(result: &FsMutationResult) -> Vec<PathBuf> {
 
 fn inspect_note_layers(path: &Path) -> Result<NoteLayers, String> {
     let mut layers = NoteLayers::default();
+    if path.is_dir() {
+        let stem = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        layers.note = path.join(format!("{stem}.md")).is_file();
+        layers.canvas = path.join(format!("{stem}.canvas")).is_file();
+        layers.sketch = path.join(format!("{stem}.excalidraw")).is_file();
+        layers.database = path.join(format!("{stem}.json")).is_file()
+            || path.join(format!("{stem}.database")).is_file()
+            || path.join("ambd.json").is_file()
+            || path.join("Metadata.md").is_file();
+        return Ok(layers);
+    }
     if !path.is_file() {
         return Ok(layers);
     }
+    layers.note = path.extension().is_some_and(|ext| ext == "md");
+    layers.canvas = path.extension().is_some_and(|ext| ext == "canvas");
+    layers.sketch = path.extension().is_some_and(|ext| ext == "excalidraw");
+    layers.database = path
+        .extension()
+        .is_some_and(|ext| ext == "json" || ext == "database")
+        || path
+            .file_name()
+            .is_some_and(|n| n == "ambd.json" || n == "Metadata.md");
+
     let Some(parent) = path.parent() else {
         return Ok(layers);
     };
     let Some(parent_name) = parent.file_name().map(|s| s.to_string_lossy().to_string()) else {
         return Ok(layers);
     };
-    let stem = file_stem(path)?;
+    let stem = if path.file_name().is_some_and(|n| n == "ambd.json") {
+        parent_name.clone()
+    } else {
+        file_stem(path)?
+    };
     if parent_name != stem {
         return Ok(layers);
     }
+    layers.note = parent.join(format!("{stem}.md")).is_file();
     layers.canvas = parent.join(format!("{stem}.canvas")).is_file();
     layers.sketch = parent.join(format!("{stem}.excalidraw")).is_file();
-    // Metadata.md is the readable legacy layer; ambd.json is the released DB layer.
-    layers.database = parent.join("Metadata.md").is_file() || parent.join("ambd.json").is_file();
+    // Database layer: <stem>.json, <stem>.database, ambd.json, or legacy Metadata.md.
+    layers.database = parent.join(format!("{stem}.json")).is_file()
+        || parent.join(format!("{stem}.database")).is_file()
+        || parent.join("ambd.json").is_file()
+        || parent.join("Metadata.md").is_file();
     Ok(layers)
 }
 
@@ -391,7 +420,14 @@ pub fn create_layer(
     }
     watcher_state.mark_write(paths);
     let vault = scope.get()?;
-    sync_path_changes(&db, &vault, &result.path_changes)?;
+    let mut changes = result.path_changes.clone();
+    if crate::vault::scan::is_markdown(Path::new(&result.layer_path)) {
+        changes.push(PathChange {
+            old_path: String::new(),
+            new_path: result.layer_path.clone(),
+        });
+    }
+    sync_path_changes(&db, &vault, &changes)?;
     Ok(result)
 }
 
@@ -420,6 +456,36 @@ pub fn attach_canvas_to_note(
     let _mutation_guard = db.mutation_gate.lock().unwrap();
     let canvas_path = paths::guard(&db, &canvas_path)?;
     let result = attach_canvas_impl(&canvas_path)?;
+    watcher_state.mark_write(mutation_paths(&result));
+    let vault = db.root()?;
+    Ok(sync_mutation_result(&db, &vault, result))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn create_sketch(
+    db: tauri::State<'_, VaultContext>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    parent_path: String,
+    name: String,
+) -> Result<String, String> {
+    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let parent_path = paths::guard(&db, &parent_path)?;
+    let path = create_sketch_impl(&parent_path, &name)?;
+    watcher_state.mark_write([path.as_path()]);
+    Ok(path_string(&path))
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn attach_sketch_to_note(
+    db: tauri::State<'_, VaultContext>,
+    watcher_state: tauri::State<'_, WatcherState>,
+    sketch_path: String,
+) -> Result<MutationOutcome, String> {
+    let _mutation_guard = db.mutation_gate.lock().unwrap();
+    let sketch_path = paths::guard(&db, &sketch_path)?;
+    let result = attach_sketch_impl(&sketch_path)?;
     watcher_state.mark_write(mutation_paths(&result));
     let vault = db.root()?;
     Ok(sync_mutation_result(&db, &vault, result))
@@ -486,6 +552,29 @@ mod layer_tests {
         assert!(layers.database);
         assert!(!layers.canvas);
         assert!(!layers.sketch);
+        assert!(layers.note);
+
+        let canvas_file = bundle.join("Meeting.canvas");
+        fs::write(&canvas_file, "{}\n").unwrap();
+        let canvas_layers = inspect_note_layers(&canvas_file).unwrap();
+        assert!(canvas_layers.canvas);
+        assert!(canvas_layers.note);
+        assert!(canvas_layers.database);
+
+        let db_dir = root.join("Projects");
+        fs::create_dir_all(&db_dir).unwrap();
+        fs::write(db_dir.join("Projects.json"), "{}\n").unwrap();
+        let db_layers = inspect_note_layers(&db_dir).unwrap();
+        assert!(db_layers.database);
+        assert!(!db_layers.note);
+        assert!(!db_layers.canvas);
+        assert!(!db_layers.sketch);
+
+        fs::write(db_dir.join("Projects.md"), "# Projects\n").unwrap();
+        let db_layers_with_note = inspect_note_layers(&db_dir).unwrap();
+        assert!(db_layers_with_note.database);
+        assert!(db_layers_with_note.note);
+
         fs::remove_dir_all(root).unwrap();
     }
 }

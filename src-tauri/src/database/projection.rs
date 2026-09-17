@@ -6,7 +6,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
+use std::time::UNIX_EPOCH;
 
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde_json::Value;
@@ -61,6 +63,7 @@ pub fn rebuild_database_projection(
     conn: &Connection,
     vault: &Path,
 ) -> Result<ProjectionReport, String> {
+    let _ = super::discovery::migrate_legacy_database_manifests(vault);
     init_schema(conn)?;
     let discovery = discover_vault(vault)?;
     let inputs = load_inputs(&discovery)?;
@@ -94,6 +97,7 @@ pub fn rebuild_database_projection(
     }
 
     let epoch = Ulid::generate().to_string();
+    let source_stamp = database_source_stamp(vault)?;
     let state = if has_errors || inputs.iter().any(|input| input.database.read_only) {
         STALE_READ_ONLY
     } else {
@@ -106,6 +110,7 @@ pub fn rebuild_database_projection(
     set_metadata(&tx, "database_projection_epoch", &epoch)?;
     set_metadata(&tx, "database_projection_seq", "0")?;
     set_metadata(&tx, "database_projection_status", state)?;
+    set_metadata(&tx, "database_projection_source_stamp", &source_stamp)?;
     tx.commit().map_err(|error| error.to_string())?;
 
     Ok(ProjectionReport {
@@ -115,6 +120,313 @@ pub fn rebuild_database_projection(
         seq: 0,
         diagnostics: discovery.diagnostics.len(),
     })
+}
+
+/// Return a previously published projection without touching the vault.
+///
+/// The projection is durable derived state. Reusing a healthy snapshot avoids
+/// reparsing every record on reopen; a metadata-only source stamp catches
+/// database files changed while the application was closed.
+pub fn cached_projection_version(
+    conn: &Connection,
+    vault: &Path,
+) -> Result<Option<super::model::ProjectionVersion>, String> {
+    init_schema(conn)?;
+    if metadata_value(conn, "database_projection_status")?.as_deref() != Some(HEALTHY) {
+        return Ok(None);
+    }
+    let Some(epoch) = metadata_value(conn, "database_projection_epoch")? else {
+        return Ok(None);
+    };
+    let Some(seq) = metadata_value(conn, "database_projection_seq")?
+        .and_then(|value| value.parse::<u64>().ok())
+    else {
+        return Ok(None);
+    };
+    let Some(stored_stamp) = metadata_value(conn, "database_projection_source_stamp")? else {
+        return Ok(None);
+    };
+    if stored_stamp != database_source_stamp(vault)? {
+        return Ok(None);
+    }
+    Ok(Some(super::model::ProjectionVersion { epoch, seq }))
+}
+
+/// Apply record-shard changes without rediscovering the vault or rebuilding
+/// unrelated databases. Filesystem reads are limited to the changed shards;
+/// the publish transaction replaces only the affected note values and child
+/// tables. A full rebuild remains the recovery/startup path.
+pub fn update_database_values_incremental(
+    conn: &Connection,
+    vault: &Path,
+    database_id: &str,
+    note_ids: &[String],
+) -> Result<ProjectionReport, String> {
+    if note_ids.is_empty() {
+        return projection_report(conn);
+    }
+    init_schema(conn)?;
+    let container_path: String = conn
+        .query_row(
+            "SELECT container_path FROM db_databases WHERE database_id = ?1",
+            [database_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let container = crate::paths::confine(vault, &vault.join(&container_path))?;
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
+    let manifest = parse_manifest(&fs::read(&manifest_path).map_err(|error| error.to_string())?)
+        .map_err(|error| error.to_string())?;
+    if manifest.value.database_id != database_id {
+        return Err("database manifest identity changed before incremental projection".to_owned());
+    }
+
+    // Prepare all source reads before opening the short SQLite publish
+    // transaction. A malformed changed shard fails the operation while the
+    // last safe projection stays intact.
+    let mut records = Vec::with_capacity(note_ids.len());
+    for note_id in note_ids {
+        if ulid::Ulid::from_string(note_id).is_err() {
+            return Err("noteId must be a canonical ULID".to_owned());
+        }
+        let record_path = container
+            .join(".ambd/records")
+            .join(format!("{note_id}.json"));
+        let record = match fs::read(&record_path) {
+            Ok(bytes) => Some(parse_record(&bytes).map_err(|error| error.to_string())?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.to_string()),
+        };
+        if let Some(record) = &record {
+            if record.value.database_id != database_id || record.value.note_id != *note_id {
+                return Err(format!("record shard identity mismatch for {note_id}"));
+            }
+        }
+        records.push((note_id.clone(), record));
+    }
+
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    for (note_id, record) in records {
+        tx.execute(
+            "DELETE FROM db_relation_edges WHERE source_database_id = ?1 AND source_note_id = ?2",
+            params![database_id, note_id],
+        )
+        .map_err(|error| error.to_string())?;
+        for table in [
+            "db_value_files",
+            "db_value_options",
+            "db_values_fts",
+            "db_values",
+            "db_record_revisions",
+            "db_yaml_conflicts",
+        ] {
+            tx.execute(
+                &format!("DELETE FROM {table} WHERE database_id = ?1 AND note_id = ?2"),
+                params![database_id, note_id],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        if let Some(record) = record {
+            let property_ids = manifest
+                .value
+                .properties
+                .iter()
+                .filter_map(PropertyDefinition::id)
+                .collect::<HashSet<_>>();
+            for (property_id, value) in record.value.values {
+                if property_ids.contains(property_id.as_str()) {
+                    insert_incremental_value(
+                        &tx,
+                        database_id,
+                        &note_id,
+                        &property_id,
+                        &value,
+                        &record.revision,
+                        &manifest.value,
+                    )?;
+                }
+            }
+            tx.execute(
+                "INSERT INTO db_record_revisions (database_id, note_id, revision) VALUES (?1, ?2, ?3)",
+                params![database_id, note_id, record.revision],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+    }
+    let seq = metadata_value(conn, "database_projection_seq")?
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0)
+        .saturating_add(1);
+    set_metadata(&tx, "database_projection_seq", &seq.to_string())?;
+    set_metadata(&tx, "database_projection_status", HEALTHY)?;
+    tx.commit().map_err(|error| error.to_string())?;
+    projection_report(conn)
+}
+
+/// Refresh only the saved-view rows after a view mutation. View JSON is
+/// durable source data, but changing it must not reread every Markdown note or
+/// record shard in a large database.
+pub fn refresh_database_views(
+    conn: &Connection,
+    vault: &Path,
+    database_id: &str,
+) -> Result<ProjectionReport, String> {
+    init_schema(conn)?;
+    let container_path: String = conn
+        .query_row(
+            "SELECT container_path FROM db_databases WHERE database_id = ?1",
+            [database_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let container = crate::paths::confine(vault, &vault.join(&container_path))?;
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
+    let manifest_bytes = fs::read(&manifest_path).map_err(|error| error.to_string())?;
+    let manifest = parse_manifest(&manifest_bytes).map_err(|error| error.to_string())?;
+    if manifest.value.database_id != database_id {
+        return Err("Database manifest identity mismatch".to_owned());
+    }
+    let state =
+        metadata_value(conn, "database_projection_status")?.unwrap_or_else(|| HEALTHY.to_owned());
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|error| error.to_string())?;
+    tx.execute("DELETE FROM db_views WHERE database_id = ?1", [database_id])
+        .map_err(|error| error.to_string())?;
+    let view_dir = container.join(".ambd/views");
+    for (position, view_id) in manifest.value.view_order.iter().enumerate() {
+        let path = view_dir.join(format!("{view_id}.json"));
+        let Ok(bytes) = fs::read(path) else {
+            continue;
+        };
+        let Ok(view) = parse_view(&bytes) else {
+            continue;
+        };
+        insert_view(&tx, database_id, position, &view, &state)?;
+    }
+    let seq = metadata_value(conn, "database_projection_seq")?
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0)
+        .saturating_add(1);
+    set_metadata(&tx, "database_projection_seq", &seq.to_string())?;
+    tx.commit().map_err(|error| error.to_string())?;
+    projection_report(conn)
+}
+
+fn projection_report(conn: &Connection) -> Result<ProjectionReport, String> {
+    Ok(ProjectionReport {
+        published: true,
+        state: metadata_value(conn, "database_projection_status")?
+            .unwrap_or_else(|| HEALTHY.to_owned()),
+        epoch: metadata_value(conn, "database_projection_epoch")?
+            .unwrap_or_else(|| Ulid::generate().to_string()),
+        seq: metadata_value(conn, "database_projection_seq")?
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(0),
+        diagnostics: 0,
+    })
+}
+
+fn insert_incremental_value(
+    tx: &Transaction<'_>,
+    database_id: &str,
+    note_id: &str,
+    property_id: &str,
+    value: &PropertyValue,
+    source_revision: &str,
+    manifest: &DatabaseManifest,
+) -> Result<(), String> {
+    let canonical_json = serde_json::to_string(value).map_err(|error| error.to_string())?;
+    let columns = typed_columns(value);
+    tx.execute(
+        "INSERT INTO db_values (database_id, note_id, property_id, value_type, canonical_json, text_value, text_sort_key, decimal_value, decimal_sort_key, bool_value, date_start, date_end, date_start_key, date_end_key, date_precision, option_id, source_revision) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+        params![
+            database_id,
+            note_id,
+            property_id,
+            value.kind(),
+            canonical_json,
+            columns.text_value,
+            columns.text_sort_key,
+            columns.decimal_value,
+            columns.decimal_sort_key,
+            columns.bool_value,
+            columns.date_start,
+            columns.date_end,
+            columns.date_start_key,
+            columns.date_end_key,
+            columns.date_precision,
+            columns.option_id,
+            source_revision,
+        ],
+    )
+    .map_err(|error| error.to_string())?;
+    match value {
+        PropertyValue::MultiSelect { option_ids, .. } => {
+            for (position, option_id) in option_ids.iter().enumerate() {
+                tx.execute(
+                    "INSERT INTO db_value_options (database_id, note_id, property_id, option_id, position) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![database_id, note_id, property_id, option_id, position as i64],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+        PropertyValue::Files { items, .. } => {
+            for (position, item) in items.iter().enumerate() {
+                tx.execute(
+                    "INSERT INTO db_value_files (database_id, note_id, property_id, asset_id, position, relative_path, name, mime_type, size_bytes) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![database_id, note_id, property_id, item.asset_id, position as i64, item.relative_path, item.name, item.mime_type, item.size_bytes as i64],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+        PropertyValue::Relation {
+            target_note_ids, ..
+        } => {
+            let target_database_id =
+                manifest
+                    .properties
+                    .iter()
+                    .find_map(|property| match property {
+                        PropertyDefinition::Relation(fields) if fields.id == property_id => {
+                            Some(fields.config.target_database_id.as_str())
+                        }
+                        _ => None,
+                    });
+            for (position, target_note_id) in target_note_ids.iter().enumerate() {
+                let owner: Option<String> = tx
+                    .query_row(
+                        "SELECT database_id FROM db_members WHERE note_id = ?1",
+                        [target_note_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|error| error.to_string())?;
+                let target_state = match (owner.as_deref(), target_database_id) {
+                    (None, _) => "missing",
+                    (Some(owner), Some(target)) if owner == target => "resolved",
+                    (Some(_), _) => "outsideDatabase",
+                };
+                tx.execute(
+                    "INSERT INTO db_relation_edges (source_database_id, source_note_id, property_id, target_note_id, position, target_state) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                    params![database_id, note_id, property_id, target_note_id, position as i64, target_state],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        }
+        _ => {}
+    }
+    let searchable = searchable_text(value);
+    if !searchable.is_empty() {
+        tx.execute(
+            "INSERT INTO db_values_fts (database_id, note_id, property_id, searchable_text) VALUES (?1, ?2, ?3, ?4)",
+            params![database_id, note_id, property_id, searchable],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn load_inputs(discovery: &DiscoveryResult) -> Result<Vec<DatabaseInput>, String> {
@@ -620,24 +932,17 @@ fn insert_views_and_templates(
         let Ok(view) = parse_view(&bytes) else {
             continue;
         };
-        let query_json = serde_json::to_string(&view.value).map_err(|error| error.to_string())?;
-        let layout_json =
-            serde_json::to_string(&view.value.layout_config).map_err(|error| error.to_string())?;
-        tx.execute(
-            "INSERT INTO db_views (database_id, view_id, position, name, layout, revision, query_json, layout_json, projection_state) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                database_id,
-                view.value.view_id,
-                position as i64,
-                view.value.name,
-                view.value.layout,
-                view.revision,
-                query_json,
-                layout_json,
-                if input.database.read_only { STALE_READ_ONLY } else { state },
-            ],
-        )
-        .map_err(|error| error.to_string())?;
+        insert_view(
+            tx,
+            database_id,
+            position,
+            &view,
+            if input.database.read_only {
+                STALE_READ_ONLY
+            } else {
+                state
+            },
+        )?;
     }
 
     let template_dir = input.database.container_path.join(".ambd/templates");
@@ -651,6 +956,34 @@ fn insert_views_and_templates(
         };
         insert_template(tx, database_id, position, &template, state)?;
     }
+    Ok(())
+}
+
+fn insert_view(
+    tx: &Transaction<'_>,
+    database_id: &str,
+    position: usize,
+    view: &ParsedJson<super::format::DatabaseViewFile>,
+    state: &str,
+) -> Result<(), String> {
+    let query_json = serde_json::to_string(&view.value).map_err(|error| error.to_string())?;
+    let layout_json =
+        serde_json::to_string(&view.value.layout_config).map_err(|error| error.to_string())?;
+    tx.execute(
+        "INSERT INTO db_views (database_id, view_id, position, name, layout, revision, query_json, layout_json, projection_state) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![
+            database_id,
+            view.value.view_id,
+            position as i64,
+            view.value.name,
+            view.value.layout,
+            view.revision,
+            query_json,
+            layout_json,
+            state,
+        ],
+    )
+    .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -1107,9 +1440,75 @@ fn metadata_value(conn: &Connection, key: &str) -> Result<Option<String>, String
     .map_err(|error| error.to_string())
 }
 
+fn database_source_stamp(vault: &Path) -> Result<String, String> {
+    let mut files = Vec::new();
+    let mut walker = walkdir::WalkDir::new(vault).follow_links(false).into_iter();
+    while let Some(entry) = walker.next() {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if entry.file_type().is_dir() {
+            if path.components().any(|component| {
+                matches!(
+                    component.as_os_str().to_str(),
+                    Some(".amby" | ".obsidian" | ".git" | ".trash" | "assets")
+                )
+            }) {
+                walker.skip_current_dir();
+            }
+            continue;
+        }
+        let relative = path
+            .strip_prefix(vault)
+            .map_err(|error| error.to_string())?;
+        let components = relative.components().collect::<Vec<_>>();
+        if components.iter().any(|component| {
+            matches!(
+                component.as_os_str().to_str(),
+                Some(".amby" | ".obsidian" | ".git" | ".trash" | "assets")
+            )
+        }) {
+            continue;
+        }
+        let is_manifest = super::discovery::is_manifest_file_candidate(path);
+        let is_database_shard = components
+            .iter()
+            .position(|component| component.as_os_str() == ".ambd")
+            .and_then(|index| components.get(index + 1))
+            .and_then(|scope| scope.as_os_str().to_str())
+            .is_some_and(|scope| matches!(scope, "records" | "views" | "templates"));
+        if !is_manifest && !is_database_shard {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+        if !metadata.file_type().is_file() {
+            continue;
+        }
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        files.push((
+            relative.to_string_lossy().replace('\\', "/"),
+            metadata.len(),
+            modified,
+        ));
+    }
+    files.sort();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    files.hash(&mut hasher);
+    Ok(format!("{:016x}", hasher.finish()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::model::{
+        DatabaseFieldRef, DatabasePageRequest, DatabaseQueryRequest, DatabaseQuerySource,
+        DatabaseQuerySpec, DatabaseSortSpec,
+    };
+    use crate::database::query::query_database;
     use crate::index::{open_connection, sync_vault};
     use serde_json::json;
     use std::fs;
@@ -1264,6 +1663,14 @@ mod tests {
                 ]
                 .map(|(id, state)| (id.to_owned(), state.to_owned()))
             );
+            update_database_values_incremental(&conn, &vault, source_id, &[row_id.to_owned()])
+                .unwrap();
+            let count: i64 = conn
+                .query_row("SELECT COUNT(*) FROM db_relation_edges", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 3);
             for (path, bytes) in &sources {
                 assert_eq!(fs::read(path).unwrap(), *bytes);
             }
@@ -1417,6 +1824,43 @@ mod tests {
     }
 
     #[test]
+    fn healthy_projection_can_be_reused_without_rereading_sources() {
+        let vault = temp_vault("cache");
+        let database = vault.join("Database");
+        fs::create_dir_all(&database).unwrap();
+        fs::write(
+            database.join("ambd.json"),
+            serde_json::to_vec_pretty(&manifest("01J00000000000000000000000", None)).unwrap(),
+        )
+        .unwrap();
+        let conn = open_connection(&vault).unwrap();
+        let report = rebuild_database_projection(&conn, &vault).unwrap();
+        assert_eq!(
+            cached_projection_version(&conn, &vault).unwrap(),
+            Some(crate::database::model::ProjectionVersion {
+                epoch: report.epoch,
+                seq: report.seq,
+            })
+        );
+        let mut changed_manifest = manifest("01J00000000000000000000000", None);
+        changed_manifest["name"] = json!("Changed");
+        fs::write(
+            database.join("ambd.json"),
+            serde_json::to_vec_pretty(&changed_manifest).unwrap(),
+        )
+        .unwrap();
+        assert!(cached_projection_version(&conn, &vault).unwrap().is_none());
+        conn.execute(
+            "UPDATE index_metadata SET value = ?1 WHERE key = 'database_projection_status'",
+            [STALE_READ_ONLY],
+        )
+        .unwrap();
+        assert!(cached_projection_version(&conn, &vault).unwrap().is_none());
+        drop(conn);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
     fn foreign_keys_and_projection_metadata_are_present() {
         let vault = temp_vault("schema");
         let conn = open_connection(&vault).unwrap();
@@ -1438,5 +1882,72 @@ mod tests {
         assert_eq!(version, "1");
         drop(conn);
         fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    #[ignore = "run through scripts/run-database-benchmark.mjs"]
+    fn database_fixture_benchmark_reports_rebuild_and_query_timings() {
+        let root = PathBuf::from(
+            std::env::var("AMBY_DB_BENCHMARK_ROOT")
+                .expect("AMBY_DB_BENCHMARK_ROOT must point to a disposable fixture"),
+        );
+        let database_id = std::env::var("AMBY_DB_BENCHMARK_DATABASE_ID")
+            .expect("AMBY_DB_BENCHMARK_DATABASE_ID must be set");
+        let connection = open_connection(&root).unwrap();
+        let sync_start = std::time::Instant::now();
+        sync_vault(&connection, &root).unwrap();
+        let sync_ms = sync_start.elapsed().as_secs_f64() * 1000.0;
+        let rebuild_start = std::time::Instant::now();
+        rebuild_database_projection(&connection, &root).unwrap();
+        let rebuild_ms = rebuild_start.elapsed().as_secs_f64() * 1000.0;
+        let request = DatabaseQueryRequest {
+            expected_generation: 1,
+            database_id: database_id.clone(),
+            search: None,
+            sorts: Some(vec![DatabaseSortSpec {
+                field: DatabaseFieldRef::System {
+                    field: "title".to_owned(),
+                },
+                direction: "asc".to_owned(),
+                nulls: "last".to_owned(),
+            }]),
+            filter: None,
+            source: DatabaseQuerySource::Inline {
+                spec: DatabaseQuerySpec {
+                    filter: None,
+                    sorts: Vec::new(),
+                },
+            },
+            page: DatabasePageRequest {
+                limit: 100,
+                cursor: None,
+            },
+        };
+        let query_start = std::time::Instant::now();
+        let result = query_database(&connection, &request).unwrap();
+        let query_ms = query_start.elapsed().as_secs_f64() * 1000.0;
+        let search_start = std::time::Instant::now();
+        let mut search_count = 0_u64;
+        for term in ["Алекс", "Unicode", "Character 000500"] {
+            let mut search_request = request.clone();
+            search_request.search = Some(term.to_owned());
+            search_count += query_database(&connection, &search_request)
+                .unwrap()
+                .total_count;
+        }
+        let search_ms = search_start.elapsed().as_secs_f64() * 1000.0;
+        println!(
+            "DB_BENCHMARK_JSON={}",
+            json!({
+                "databaseId": database_id,
+                "rowCount": result.total_count,
+                "firstPage": result.rows.len(),
+                "syncMs": sync_ms,
+                "rebuildMs": rebuild_ms,
+                "firstPageMs": query_ms,
+                "threeSearchesMs": search_ms,
+                "searchCountChecksum": search_count,
+            })
+        );
     }
 }

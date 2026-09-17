@@ -1,17 +1,24 @@
 use crate::database::assets::{ImportDatabaseAssetRequest, ImportedDatabaseAsset};
 use crate::database::discovery;
+use crate::database::events::DatabaseChangeKind;
 use crate::database::format::{DatabaseViewFile, FieldRef};
 use crate::database::model::{
-    DatabaseError, DatabaseFieldRef, DatabaseModuleState, DatabaseNoteContext,
-    DatabaseOptionSummary, DatabasePropertySummary, DatabaseQueryRequest, DatabaseQueryResult,
-    DatabaseRow, DatabaseSummary, DatabaseTemplateSummary, DatabaseViewSummary,
+    CreateDatabaseViewRequest, DatabaseAggregateRequest, DatabaseAggregateResult,
+    DatabaseChangedRequest, DatabaseError, DatabaseFieldRef, DatabaseModuleState,
+    DatabaseNoteContext, DatabaseOptionSummary, DatabasePropertySummary, DatabaseQueryRequest,
+    DatabaseQueryResult, DatabaseRow, DatabaseSummary, DatabaseTemplateSummary,
+    DatabaseViewDocument, DatabaseViewMutationResult, DatabaseViewRequest, DatabaseViewSummary,
+    DeleteDatabaseViewRequest, RenameDatabaseViewRequest, ReorderDatabaseViewsRequest,
+    UpdateDatabaseViewConfigRequest,
 };
 use crate::database::mutation_state::DatabaseMutationState;
 use crate::database::mutations::{
-    CreateDatabasePropertyRequest, CreateDatabaseRequest, CreatedDatabase, CreatedDatabaseProperty,
-    DatabaseValueBatchRequest, DatabaseValueBatchResult, DeleteDatabasePropertyRequest,
-    DeletedDatabaseProperty, RenameDatabasePropertyRequest, RenameDatabaseRequest, RenamedDatabase,
-    RenamedDatabaseProperty, ReorderDatabasePropertiesRequest, ReorderedDatabaseProperties,
+    ChangeDatabasePropertyTypeRequest, ChangedDatabasePropertyType, CreateDatabasePropertyRequest,
+    CreateDatabaseRequest, CreatedDatabase, CreatedDatabaseProperty, DatabaseValueBatchRequest,
+    DatabaseValueBatchResult, DeleteDatabasePropertyRequest, DeletedDatabaseProperty,
+    RenameDatabasePropertyRequest, RenameDatabaseRequest, RenamedDatabase, RenamedDatabaseProperty,
+    ReorderDatabasePropertiesRequest, ReorderedDatabaseProperties,
+    UpdateDatabaseRelationValueRequest, UpdateDatabaseRelationValueResult,
 };
 use crate::database::rows::{CreateDatabaseRowRequest, CreatedDatabaseRow};
 use crate::database::runtime_state::DatabaseRuntimeState;
@@ -29,6 +36,13 @@ fn active_generation(context: &VaultContext) -> Option<u64> {
         .expect("vault context poisoned")
         .as_ref()
         .map(|active| active.generation)
+}
+
+fn projection_error(message: String) -> DatabaseError {
+    DatabaseError::Failed {
+        code: "projectionRefreshFailed".to_owned(),
+        message,
+    }
 }
 
 #[tauri::command]
@@ -62,13 +76,128 @@ pub fn set_database_module_enabled(
 
     let active = context.conn.lock().expect("vault context poisoned");
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    runtime.set_enabled(actual_generation, true);
+    if let Some(projection) =
+        crate::database::projection::cached_projection_version(&active.connection, &active.root)
+            .map_err(|message| DatabaseError::Failed {
+                code: "projectionReadFailed".to_owned(),
+                message,
+            })?
+    {
+        return Ok(runtime.set_projection(actual_generation, Some(projection)));
+    }
     let report =
         crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
             .map_err(|message| DatabaseError::Failed {
                 code: "projectionRebuildFailed".to_owned(),
                 message,
             })?;
-    runtime.set_enabled(actual_generation, true);
+    Ok(runtime.set_projection(
+        actual_generation,
+        Some(crate::database::model::ProjectionVersion {
+            epoch: report.epoch,
+            seq: report.seq,
+        }),
+    ))
+}
+
+/// Refresh only the projection slice affected by a watcher event. A manifest,
+/// template, or unknown container change still takes the safe full rebuild
+/// path; record and view changes avoid rereading every row in the vault.
+#[tauri::command]
+#[specta::specta]
+pub fn refresh_database_change(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    change: DatabaseChangedRequest,
+) -> Result<DatabaseModuleState, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != change.generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    let state = runtime.state(Some(actual_generation));
+    if !state.enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let kind = match change.kind.as_str() {
+        "manifest" => DatabaseChangeKind::Manifest,
+        "record" => DatabaseChangeKind::Record,
+        "view" => DatabaseChangeKind::View,
+        "template" => DatabaseChangeKind::Template,
+        "note" => DatabaseChangeKind::Note,
+        "container" => DatabaseChangeKind::Container,
+        _ => {
+            return Err(DatabaseError::Failed {
+                code: "invalidDatabaseChange".to_owned(),
+                message: "Unknown database watcher change kind".to_owned(),
+            })
+        }
+    };
+    if matches!(kind, DatabaseChangeKind::Note) {
+        return Ok(state);
+    }
+
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let database_id = || {
+        active
+            .connection
+            .query_row(
+                "SELECT database_id FROM db_databases WHERE container_path = ?1",
+                [change.container_path.as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| projection_error(error.to_string()))
+    };
+    let report = match kind {
+        DatabaseChangeKind::Record => {
+            let note_id = std::path::Path::new(&change.path)
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .filter(|value| !value.is_empty());
+            match (database_id()?, note_id) {
+                (Some(database_id), Some(note_id)) => {
+                    crate::database::projection::update_database_values_incremental(
+                        &active.connection,
+                        &active.root,
+                        &database_id,
+                        &[note_id.to_owned()],
+                    )
+                    .map_err(projection_error)?
+                }
+                _ => crate::database::projection::rebuild_database_projection(
+                    &active.connection,
+                    &active.root,
+                )
+                .map_err(projection_error)?,
+            }
+        }
+        DatabaseChangeKind::View => match database_id()? {
+            Some(database_id) => crate::database::projection::refresh_database_views(
+                &active.connection,
+                &active.root,
+                &database_id,
+            )
+            .map_err(projection_error)?,
+            None => crate::database::projection::rebuild_database_projection(
+                &active.connection,
+                &active.root,
+            )
+            .map_err(projection_error)?,
+        },
+        DatabaseChangeKind::Manifest
+        | DatabaseChangeKind::Template
+        | DatabaseChangeKind::Container => {
+            crate::database::projection::rebuild_database_projection(
+                &active.connection,
+                &active.root,
+            )
+            .map_err(projection_error)?
+        }
+        DatabaseChangeKind::Note => unreachable!(),
+    };
     Ok(runtime.set_projection(
         actual_generation,
         Some(crate::database::model::ProjectionVersion {
@@ -215,6 +344,51 @@ pub fn create_database_property(
         }
     }
     Ok(created)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn change_database_property_type(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: ChangeDatabasePropertyTypeRequest,
+) -> Result<ChangedDatabasePropertyType, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let mut changed =
+        crate::database::mutations::change_database_property_type(&active.root, &watcher, &request)
+            .map_err(|message| DatabaseError::Failed {
+                code: "databasePropertyTypeChangeFailed".to_owned(),
+                message,
+            })?;
+    match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
+    {
+        Ok(report) => {
+            runtime.set_projection(
+                actual_generation,
+                Some(crate::database::model::ProjectionVersion {
+                    epoch: report.epoch,
+                    seq: report.seq,
+                }),
+            );
+        }
+        Err(error) => {
+            tracing::warn!(event = "database_projection_rebuild_failed", %error);
+            changed
+                .warnings
+                .push("Projection rebuild required".to_owned());
+        }
+    }
+    Ok(changed)
 }
 
 #[tauri::command]
@@ -433,8 +607,19 @@ pub fn apply_database_value_batch(
     result
         .warnings
         .retain(|warning| warning != "Projection rebuild required");
-    match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
-    {
+    let note_ids = request
+        .cells
+        .iter()
+        .map(|cell| cell.note_id.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    match crate::database::projection::update_database_values_incremental(
+        &active.connection,
+        &active.root,
+        &request.database_id,
+        &note_ids,
+    ) {
         Ok(report) => {
             runtime.set_projection(
                 actual_generation,
@@ -448,10 +633,49 @@ pub fn apply_database_value_batch(
             tracing::warn!(event = "database_projection_rebuild_failed", %error);
             result
                 .warnings
-                .push("Projection rebuild required".to_owned());
+                .push(format!("Incremental projection update required: {error}"));
         }
     }
     mutation_state.remember(actual_generation, request, result.clone());
+    Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn update_database_relation_value(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: UpdateDatabaseRelationValueRequest,
+) -> Result<UpdateDatabaseRelationValueResult, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let result = crate::database::mutations::update_database_relation_value(
+        &active.root,
+        &watcher,
+        &request,
+    )
+    .map_err(|message| DatabaseError::Failed {
+        code: "updateDatabaseRelationValueFailed".to_owned(),
+        message,
+    })?;
+
+    // Update incremental projection for the primary note
+    let _ = crate::database::projection::update_database_values_incremental(
+        &active.connection,
+        &active.root,
+        &request.database_id,
+        std::slice::from_ref(&request.note_id),
+    );
+
     Ok(result)
 }
 
@@ -622,6 +846,273 @@ pub fn resolve_database_yaml_conflict(
             }
             Err(error) => tracing::warn!(event = "database_projection_rebuild_failed", %error),
         }
+    }
+    Ok(result)
+}
+
+fn refresh_database_view_runtime(
+    runtime: &DatabaseRuntimeState,
+    generation: u64,
+    active: &crate::vault_context::ActiveVault,
+    database_id: &str,
+) -> Result<(), String> {
+    let report = crate::database::projection::refresh_database_views(
+        &active.connection,
+        &active.root,
+        database_id,
+    )?;
+    runtime.set_projection(
+        generation,
+        Some(crate::database::model::ProjectionVersion {
+            epoch: report.epoch,
+            seq: report.seq,
+        }),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_database_view(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    request: DatabaseViewRequest,
+) -> Result<DatabaseViewDocument, DatabaseError> {
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    crate::database::views::get_view(&active.root, &request).map_err(|message| {
+        DatabaseError::Failed {
+            code: "databaseViewReadFailed".to_owned(),
+            message,
+        }
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn create_database_view(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: CreateDatabaseViewRequest,
+) -> Result<DatabaseViewDocument, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let result = crate::database::views::create_view(&active.root, &watcher, &request).map_err(
+        |message| DatabaseError::Failed {
+            code: "databaseViewCreateFailed".to_owned(),
+            message,
+        },
+    )?;
+    if let Err(message) =
+        refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
+    {
+        tracing::warn!(event = "database_projection_rebuild_failed", %message);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn rename_database_view(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: RenameDatabaseViewRequest,
+) -> Result<DatabaseViewMutationResult, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let result = crate::database::views::rename_view(&active.root, &watcher, &request).map_err(
+        |message| DatabaseError::Failed {
+            code: "databaseViewRenameFailed".to_owned(),
+            message,
+        },
+    )?;
+    if let Err(message) =
+        refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
+    {
+        tracing::warn!(event = "database_projection_rebuild_failed", %message);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn update_database_view_config(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: UpdateDatabaseViewConfigRequest,
+) -> Result<DatabaseViewMutationResult, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let result = crate::database::views::update_view_config(&active.root, &watcher, &request)
+        .map_err(|message| DatabaseError::Failed {
+            code: "databaseViewUpdateFailed".to_owned(),
+            message,
+        })?;
+    if let Err(message) =
+        refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
+    {
+        tracing::warn!(event = "database_projection_rebuild_failed", %message);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn duplicate_database_view(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: DatabaseViewRequest,
+) -> Result<DatabaseViewDocument, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let result = crate::database::views::duplicate_view(&active.root, &watcher, &request).map_err(
+        |message| DatabaseError::Failed {
+            code: "databaseViewDuplicateFailed".to_owned(),
+            message,
+        },
+    )?;
+    if let Err(message) =
+        refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
+    {
+        tracing::warn!(event = "database_projection_rebuild_failed", %message);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn delete_database_view(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: DeleteDatabaseViewRequest,
+) -> Result<DatabaseViewMutationResult, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let result = crate::database::views::delete_view(&active.root, &watcher, &request).map_err(
+        |message| DatabaseError::Failed {
+            code: "databaseViewDeleteFailed".to_owned(),
+            message,
+        },
+    )?;
+    if let Err(message) =
+        refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
+    {
+        tracing::warn!(event = "database_projection_rebuild_failed", %message);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn reorder_database_views(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: ReorderDatabaseViewsRequest,
+) -> Result<DatabaseViewMutationResult, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let result = crate::database::views::reorder_views(&active.root, &watcher, &request).map_err(
+        |message| DatabaseError::Failed {
+            code: "databaseViewReorderFailed".to_owned(),
+            message,
+        },
+    )?;
+    if let Err(message) =
+        refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
+    {
+        tracing::warn!(event = "database_projection_rebuild_failed", %message);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn set_default_database_view(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: DatabaseViewRequest,
+) -> Result<DatabaseViewMutationResult, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let result = crate::database::views::set_default_view(&active.root, &watcher, &request)
+        .map_err(|message| DatabaseError::Failed {
+            code: "databaseViewDefaultFailed".to_owned(),
+            message,
+        })?;
+    if let Err(message) =
+        refresh_database_view_runtime(&runtime, actual_generation, active, &request.database_id)
+    {
+        tracing::warn!(event = "database_projection_rebuild_failed", %message);
     }
     Ok(result)
 }
@@ -939,4 +1430,23 @@ pub fn query_database(
     let active = context.conn.lock().expect("vault context poisoned");
     let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
     crate::database::query::query_database(&active.connection, &request).map_err(Into::into)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn aggregate_database(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    request: DatabaseAggregateRequest,
+) -> Result<DatabaseAggregateResult, DatabaseError> {
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    crate::database::query::aggregate_database(&active.connection, &request).map_err(Into::into)
 }

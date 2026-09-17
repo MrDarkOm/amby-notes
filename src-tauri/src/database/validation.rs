@@ -277,7 +277,10 @@ pub fn validate_view(
     validate_ulid(&mut report, &view.database_id, "databaseId");
     validate_ulid(&mut report, &view.view_id, "viewId");
     validate_name(&mut report, &view.name, "name");
-    if !matches!(view.layout.as_str(), "table" | "board" | "list" | "gallery") {
+    if !matches!(
+        view.layout.as_str(),
+        "table" | "board" | "list" | "gallery" | "chart"
+    ) {
         report.read_only_warning(
             ValidationCode::UnsupportedLayout,
             "layout",
@@ -739,6 +742,68 @@ fn validate_property(
             }
             if let Some(inverse) = &fields.config.inverse_property_id {
                 validate_ulid(report, inverse, &format!("{path}.config.inversePropertyId"));
+            }
+        }
+        PropertyDefinition::Formula(fields) => {
+            common!(fields, "formula");
+            if fields.config.version != 1 {
+                report.read_only_warning(
+                    ValidationCode::InvalidConfiguration,
+                    format!("{path}.config.version"),
+                    "unsupported formula version is retained read-only",
+                );
+            }
+            if fields.config.expression.trim().is_empty() {
+                report.error(
+                    ValidationCode::InvalidConfiguration,
+                    format!("{path}.config.expression"),
+                    "formula expression is required",
+                );
+            } else if let Err(error) = crate::database::formula::parse(&fields.config.expression) {
+                report.error(
+                    ValidationCode::InvalidConfiguration,
+                    format!("{path}.config.expression"),
+                    error.to_string(),
+                );
+            }
+            for (index, dependency) in fields.config.dependencies.iter().enumerate() {
+                validate_ulid(
+                    report,
+                    dependency,
+                    &format!("{path}.config.dependencies[{index}]"),
+                );
+            }
+        }
+        PropertyDefinition::Rollup(fields) => {
+            common!(fields, "rollup");
+            validate_ulid(
+                report,
+                &fields.config.relation_property_id,
+                &format!("{path}.config.relationPropertyId"),
+            );
+            validate_ulid(
+                report,
+                &fields.config.target_property_id,
+                &format!("{path}.config.targetPropertyId"),
+            );
+            if !matches!(
+                fields.config.aggregation.as_str(),
+                "count"
+                    | "countNonEmpty"
+                    | "sum"
+                    | "average"
+                    | "min"
+                    | "max"
+                    | "earliest"
+                    | "latest"
+                    | "unique"
+                    | "percentChecked"
+            ) {
+                report.error(
+                    ValidationCode::InvalidConfiguration,
+                    format!("{path}.config.aggregation"),
+                    "unknown rollup aggregation",
+                );
             }
         }
         PropertyDefinition::Opaque(_) => report.warning(
@@ -1519,6 +1584,13 @@ fn validate_layout_config(report: &mut ValidationReport, layout: &str, config: &
         "board" => &["groupPropertyId", "cardFields", "coverVisible"],
         "list" => &["secondaryFields", "indentation"],
         "gallery" => &["cardSize", "fieldList", "previewSource"],
+        "chart" => &[
+            "chartType",
+            "categoryField",
+            "measureField",
+            "aggregation",
+            "limit",
+        ],
         _ => return,
     };
     for key in object.keys() {

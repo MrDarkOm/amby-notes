@@ -5,6 +5,7 @@ import {
   getDatabaseModuleState,
   isTauri,
   listDatabases,
+  refreshDatabaseChange,
   rebuildDatabaseProjection,
   setDatabaseModuleEnabled,
   type DatabaseChangedPayload,
@@ -73,18 +74,60 @@ export function useDatabaseController({ enabled, vaultGeneration }: DatabaseCont
         setRuntime(runtime)
         await refreshCatalog(signal)
         if (signal.cancelled || !isTauri()) return undefined
-        return listen<DatabaseChangedPayload>("database:changed", () => {
-          void (async () => {
-            try {
-              const nextRuntime = await rebuildDatabaseProjection()
-              if (!signal.cancelled) setRuntime(nextRuntime)
-            } catch {
-              // The next catalog refresh still exposes diagnostics when a
-              // malformed source keeps the prior projection read-only.
+        let refreshTimer: ReturnType<typeof setTimeout> | null = null
+        let refreshInFlight = false
+        const pending = new Map<string, DatabaseChangedPayload>()
+        const scheduleRefresh = () => {
+          if (refreshTimer !== null || signal.cancelled) return
+          refreshTimer = setTimeout(() => {
+            refreshTimer = null
+            void flushChanges()
+          }, 100)
+        }
+        const flushChanges = async () => {
+          if (refreshInFlight || pending.size === 0 || signal.cancelled) return
+          refreshInFlight = true
+          const changes = [...pending.values()]
+          pending.clear()
+          try {
+            const requiresFullRebuild = changes.some(
+              (change) =>
+                change.requiresFullRebuild ||
+                change.kind === "manifest" ||
+                change.kind === "template" ||
+                change.kind === "container",
+            )
+            let nextRuntime = runtime
+            if (requiresFullRebuild) {
+              nextRuntime = await rebuildDatabaseProjection()
+            } else {
+              try {
+                for (const change of changes) {
+                  nextRuntime = await refreshDatabaseChange(change)
+                }
+              } catch {
+                // A deleted or malformed shard may no longer support an
+                // incremental update. Rebuild once to publish diagnostics.
+                nextRuntime = await rebuildDatabaseProjection()
+              }
             }
-            await refreshCatalog(signal)
-            if (!signal.cancelled) invalidateHosts()
-          })()
+            if (!signal.cancelled) setRuntime(nextRuntime)
+          } catch {
+            // The next catalog refresh still exposes diagnostics when a
+            // malformed source keeps the prior projection read-only.
+          } finally {
+            refreshInFlight = false
+            if (!signal.cancelled) {
+              await refreshCatalog(signal)
+              if (!signal.cancelled) invalidateHosts()
+              if (pending.size > 0) scheduleRefresh()
+            }
+          }
+        }
+        return listen<DatabaseChangedPayload>("database:changed", (event) => {
+          const key = `${event.payload.kind}:${event.payload.path}`
+          pending.set(key, event.payload)
+          scheduleRefresh()
         })
       } catch (error) {
         if (!signal.cancelled) setCatalogError(errorMessage(error))

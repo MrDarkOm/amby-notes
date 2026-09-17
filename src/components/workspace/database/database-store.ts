@@ -23,6 +23,7 @@ export interface DatabaseHostSession {
   diagnostics: DatabaseDiagnostic[]
   error: string | null
   nextCursor: string | null
+  totalCount: number | null
 }
 
 export interface DatabaseStoreState {
@@ -49,8 +50,9 @@ export function databaseHostKey(
   databaseId: string,
   viewId: string | null = null,
   hostId: string | null = null,
+  queryIdentity = "",
 ): string {
-  return `${kind}:${hostId ?? "default"}:${databaseId}:${viewId ?? "default"}`
+  return `${kind}:${hostId ?? "default"}:${databaseId}:${viewId ?? "default"}:${queryIdentity}`
 }
 
 export function emptyDatabaseHost(
@@ -59,9 +61,10 @@ export function emptyDatabaseHost(
   viewId: string | null = null,
   hostId: string | null = null,
   loadedInvalidationSeq = 0,
+  queryIdentity = "",
 ): DatabaseHostSession {
   return {
-    key: databaseHostKey(kind, databaseId, viewId, hostId),
+    key: databaseHostKey(kind, databaseId, viewId, hostId, queryIdentity),
     kind,
     databaseId,
     viewId,
@@ -72,6 +75,7 @@ export function emptyDatabaseHost(
     diagnostics: [],
     error: null,
     nextCursor: null,
+    totalCount: null,
   }
 }
 

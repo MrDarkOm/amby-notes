@@ -199,6 +199,11 @@
            preference (see use-settings-store.ts). */
     --app-font-scale: 1;
     --editor-font-size: 1.02rem;
+    /* Interface spacing scale; compact density sets this to 0.5 below. */
+    --app-density-spacing-scale: 1;
+    --app-density-padding-min: 0.25rem;
+    --app-density-gap-min: 0.25rem;
+    --app-density-margin-min: 0.125rem;
 
     /* ── Editor surface tokens ──────────────────────────────────────── */
     --editor-bg: var(--note-surface);
@@ -221,7 +226,7 @@
     --pre-fg: #18181b;
 
     /* Blockquote */
-    --blockquote-border-color: #14b8a6;
+    --blockquote-border-color: #0f766e;
     --blockquote-bg: rgba(20, 184, 166, 0.07);
     --blockquote-fg: #374151;
 
@@ -231,7 +236,7 @@
     --table-header-fg: #1f1f23;
     --table-border: #d4d4d8;
     --table-cell-border: #e4e4e7;
-    --table-row-even: #fafafa;
+    --table-row-even: #fbfbfb;
 
     /* Inline elements */
     --link-color: #7c3aed;
@@ -257,6 +262,9 @@
     --editor-text-purple: #7e22ce;
     --editor-text-pink: #be185d;
     --editor-text-gray: #6b7280;
+    --editor-text-teal: #0f766e;
+    --editor-text-emerald: #047857;
+    --editor-text-amber: #b45309;
 
     /* Tags & wikilinks */
     --tag-bg: rgba(168, 85, 247, 0.12);
@@ -413,6 +421,9 @@
     --editor-text-purple: #a855f7;
     --editor-text-pink: #f472b6;
     --editor-text-gray: #e5e7eb;
+    --editor-text-teal: #2dd4bf;
+    --editor-text-emerald: #34d399;
+    --editor-text-amber: #fbbf24;
 
     /* Tags & wikilinks */
     --tag-bg: rgba(168, 85, 247, 0.16);
@@ -492,19 +503,19 @@
     --ring: 199 89% 48%;
   }
   [data-accent="teal"] {
-    --primary: 173 80% 40%;
+    --primary: 173 84% 31%;
     --primary-foreground: 0 0% 100%;
-    --ring: 173 80% 40%;
+    --ring: 173 84% 31%;
   }
   [data-accent="emerald"] {
-    --primary: 160 84% 39%;
+    --primary: 160 84% 30%;
     --primary-foreground: 0 0% 100%;
-    --ring: 160 84% 39%;
+    --ring: 160 84% 30%;
   }
   [data-accent="amber"] {
-    --primary: 38 92% 50%;
-    --primary-foreground: 0 0% 10%;
-    --ring: 38 92% 50%;
+    --primary: 35 92% 34%;
+    --primary-foreground: 0 0% 100%;
+    --ring: 35 92% 34%;
   }
   [data-accent="rose"] {
     --primary: 350 89% 60%;
@@ -609,6 +620,34 @@
 .amby-editor-scroll::-webkit-scrollbar-thumb:hover {
   background: var(--scrollbar-thumb-hover);
   background-clip: content-box;
+}
+
+/* Database table scrollbar: clear visible track and accessible thumb for horizontal/vertical navigation */
+.amby-table-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.amby-table-scroll::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--scrollbar-thumb) 18%, transparent);
+  border-radius: 5px;
+}
+
+.amby-table-scroll::-webkit-scrollbar-thumb {
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 5px;
+  background: var(--scrollbar-thumb);
+}
+
+.amby-table-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+.amby-table-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb)
+    color-mix(in srgb, var(--scrollbar-thumb) 18%, transparent);
 }
 
 /* Markdown preview styles */
@@ -1009,6 +1048,18 @@
 
 .amby-tiptap .ProseMirror [data-amby-color="#e5e7eb"] {
   color: var(--editor-text-gray) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#f59e0b"] {
+  color: var(--editor-text-amber) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#14b8a6"] {
+  color: var(--editor-text-teal) !important;
+}
+
+.amby-tiptap .ProseMirror [data-amby-color="#10b981"] {
+  color: var(--editor-text-emerald) !important;
 }
 
 .amby-tiptap .ProseMirror a {
@@ -2734,25 +2785,25 @@ html[data-accent="sky"] {
   --tree-gradient-end: hsl(173 80% 40%);
 }
 html[data-accent="teal"] {
-  --primary: 173 80% 40%;
+  --primary: 173 84% 31%;
   --primary-foreground: 0 0% 100%;
-  --ring: 173 80% 40%;
-  --tree-gradient-start: hsl(173 80% 40%);
-  --tree-gradient-end: hsl(160 84% 39%);
+  --ring: 173 84% 31%;
+  --tree-gradient-start: hsl(173 84% 31%);
+  --tree-gradient-end: hsl(160 84% 30%);
 }
 html[data-accent="emerald"] {
-  --primary: 160 84% 39%;
+  --primary: 160 84% 30%;
   --primary-foreground: 0 0% 100%;
-  --ring: 160 84% 39%;
-  --tree-gradient-start: hsl(160 84% 39%);
-  --tree-gradient-end: hsl(38 92% 50%);
+  --ring: 160 84% 30%;
+  --tree-gradient-start: hsl(160 84% 30%);
+  --tree-gradient-end: hsl(35 92% 34%);
 }
 html[data-accent="amber"] {
-  --primary: 38 92% 50%;
-  --primary-foreground: 31 40% 12%;
-  --ring: 38 92% 50%;
-  --tree-gradient-start: hsl(38 92% 50%);
-  --tree-gradient-end: hsl(350 89% 60%);
+  --primary: 35 92% 34%;
+  --primary-foreground: 0 0% 100%;
+  --ring: 35 92% 34%;
+  --tree-gradient-start: hsl(35 92% 34%);
+  --tree-gradient-end: hsl(350 89% 50%);
 }
 html[data-accent="rose"] {
   --primary: 350 89% 60%;
@@ -2946,8 +2997,22 @@ html[data-font-scale] :where([class~="text-[13px]"]) {
   padding-block: 0.75rem;
 }
 
-html[data-density="compact"] .settings-row {
-  padding-block: 0.45rem;
+html[data-density="compact"] {
+  --app-density-spacing-scale: 0.5;
+}
+
+/* Inline indentation values are calculated from hierarchy depth in React and
+   therefore need an explicit compact override alongside generated utilities. */
+html[data-density="compact"] .amby-density-inline-padding-left {
+  padding-left: calc(
+    var(--amby-density-padding-left) * var(--app-density-spacing-scale, 0.5)
+  ) !important;
+}
+
+/* Tree indentation is a structural grid shared with branch guides and the
+   drop indicator, so keep its horizontal step aligned while compacting rows. */
+html[data-density="compact"] .amby-tree-row.amby-density-inline-padding-left {
+  padding-left: var(--amby-density-padding-left) !important;
 }
 
 html[data-density="compact"] [data-slot="tabs-trigger"] {
@@ -2955,8 +3020,8 @@ html[data-density="compact"] [data-slot="tabs-trigger"] {
 }
 
 html[data-density="compact"] .amby-activity-button {
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 2rem;
+  height: 2rem;
 }
 
 html[data-density="compact"] [role="treeitem"] {
@@ -2970,7 +3035,7 @@ html[data-density="compact"] .amby-tree-row {
 html[data-density="compact"] .amby-panel-host input,
 html[data-density="compact"] .amby-panel-host select,
 html[data-density="compact"] .amby-panel-host textarea {
-  min-height: 1.75rem;
+  min-height: 2rem;
 }
 
 .text-\[13px\] {
@@ -3100,4 +3165,376 @@ select {
 
 .settings-traffic-light-glyph {
   border-color: rgb(0 0 0 / 50%);
+}
+
+/* ── High-contrast light-theme icon and swatch overrides ──────────────────
+   Ensure teal, emerald, green, amber, ginger, and cyan icons and previews
+   remain sharp and readable against light surfaces without altering their
+   dark-mode vibrancy. */
+html:not(.dark) [data-amby-icon-color="#eab308"],
+html:not(.dark) [data-amby-icon-color="#f59e0b"],
+html:not(.dark) [data-amby-icon-color="#fbbf24"],
+html:not(.dark) [data-amby-icon-color="#facc15"] {
+  color: #b45309 !important;
+}
+
+html:not(.dark) span[data-amby-icon-color="#eab308"],
+html:not(.dark) button[data-amby-icon-color="#eab308"],
+html:not(.dark) span[data-amby-icon-color="#f59e0b"],
+html:not(.dark) button[data-amby-icon-color="#f59e0b"],
+html:not(.dark) span[data-amby-icon-color="#fbbf24"],
+html:not(.dark) button[data-amby-icon-color="#fbbf24"],
+html:not(.dark) span[data-amby-icon-color="#facc15"],
+html:not(.dark) button[data-amby-icon-color="#facc15"],
+html:not(.dark) [data-amby-color="#f59e0b"].amby-ctx-swatch,
+html:not(.dark) [data-amby-color="#eab308"].amby-ctx-swatch {
+  background: #b45309 !important;
+}
+
+html:not(.dark) [data-amby-icon-color="#f97316"],
+html:not(.dark) [data-amby-icon-color="#fb923c"] {
+  color: #c2410c !important;
+}
+
+html:not(.dark) span[data-amby-icon-color="#f97316"],
+html:not(.dark) button[data-amby-icon-color="#f97316"],
+html:not(.dark) span[data-amby-icon-color="#fb923c"],
+html:not(.dark) button[data-amby-icon-color="#fb923c"],
+html:not(.dark) [data-amby-color="#f97316"].amby-ctx-swatch {
+  background: #c2410c !important;
+}
+
+html:not(.dark) [data-amby-icon-color="#22c55e"],
+html:not(.dark) [data-amby-icon-color="#10b981"],
+html:not(.dark) [data-amby-icon-color="#4ade80"],
+html:not(.dark) [data-amby-icon-color="#34d399"] {
+  color: #15803d !important;
+}
+
+html:not(.dark) span[data-amby-icon-color="#22c55e"],
+html:not(.dark) button[data-amby-icon-color="#22c55e"],
+html:not(.dark) span[data-amby-icon-color="#10b981"],
+html:not(.dark) button[data-amby-icon-color="#10b981"],
+html:not(.dark) span[data-amby-icon-color="#4ade80"],
+html:not(.dark) button[data-amby-icon-color="#4ade80"],
+html:not(.dark) span[data-amby-icon-color="#34d399"],
+html:not(.dark) button[data-amby-icon-color="#34d399"],
+html:not(.dark) [data-amby-color="#22c55e"].amby-ctx-swatch,
+html:not(.dark) [data-amby-color="#10b981"].amby-ctx-swatch {
+  background: #15803d !important;
+}
+
+html:not(.dark) [data-amby-icon-color="#14b8a6"],
+html:not(.dark) [data-amby-icon-color="#06b6d4"],
+html:not(.dark) [data-amby-icon-color="#2dd4bf"],
+html:not(.dark) [data-amby-icon-color="#22d3ee"] {
+  color: #0e7490 !important;
+}
+
+html:not(.dark) span[data-amby-icon-color="#14b8a6"],
+html:not(.dark) button[data-amby-icon-color="#14b8a6"],
+html:not(.dark) span[data-amby-icon-color="#06b6d4"],
+html:not(.dark) button[data-amby-icon-color="#06b6d4"],
+html:not(.dark) span[data-amby-icon-color="#2dd4bf"],
+html:not(.dark) button[data-amby-icon-color="#2dd4bf"],
+html:not(.dark) span[data-amby-icon-color="#22d3ee"],
+html:not(.dark) button[data-amby-icon-color="#22d3ee"],
+html:not(.dark) [data-amby-color="#14b8a6"].amby-ctx-swatch,
+html:not(.dark) [data-amby-color="#06b6d4"].amby-ctx-swatch {
+  background: #0e7490 !important;
+}
+
+html:not(.dark) [data-amby-icon-color="#0ea5e9"],
+html:not(.dark) [data-amby-icon-color="#38bdf8"] {
+  color: #0369a1 !important;
+}
+
+html:not(.dark) span[data-amby-icon-color="#0ea5e9"],
+html:not(.dark) button[data-amby-icon-color="#0ea5e9"],
+html:not(.dark) span[data-amby-icon-color="#38bdf8"],
+html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
+  background: #0369a1 !important;
+}
+
+/* ==========================================================================
+   Sketch (Excalidraw) Workspace Styling
+   ========================================================================== */
+
+/* Hide native Excalidraw footer (zoom, undo/redo, help button) and help items */
+.amby-sketch-editor .excalidraw .layer-ui__wrapper__footer,
+.amby-sketch-editor .excalidraw .layer-ui__wrapper__footer-left,
+.amby-sketch-editor .excalidraw .layer-ui__wrapper__footer-right,
+.amby-sketch-editor .excalidraw .help-icon,
+.amby-sketch-editor .excalidraw [data-testid="help-button"],
+.amby-sketch-editor .excalidraw [data-testid="help-menu-item"] {
+  display: none !important;
+}
+
+/* Hide native Excalidraw top-right toolbar (library & collab triggers) */
+.amby-sketch-editor .excalidraw .layer-ui__wrapper__top-right {
+  display: none !important;
+}
+
+/* Relocate and compact native Excalidraw shapes/tools bar to match right Area Controls (8px bottom margin, 36px height) */
+.amby-sketch-editor .excalidraw .shapes-section {
+  position: absolute !important;
+  bottom: -0.5rem !important;
+  left: 0 !important;
+  top: auto !important;
+  transform: none !important;
+  z-index: 10 !important;
+}
+
+.amby-sketch-editor .excalidraw .shapes-section .Island {
+  padding: 0.25rem !important;
+  border-radius: 0.75rem !important;
+  border: 1px solid hsl(var(--border) / 0.8) !important;
+  background-color: hsl(var(--card) / 0.9) !important;
+  box-shadow:
+    0 4px 6px -1px rgb(0 0 0 / 0.1),
+    0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.amby-sketch-editor .excalidraw .shapes-section .App-toolbar {
+  width: auto !important;
+}
+
+.amby-sketch-editor .excalidraw .shapes-section .App-toolbar-content {
+  padding: 0 !important;
+  gap: 2px !important;
+  height: 1.75rem !important;
+  min-height: 1.75rem !important;
+}
+
+.amby-sketch-editor .excalidraw .shapes-section .ToolIcon {
+  margin: 0 !important;
+}
+
+.amby-sketch-editor .excalidraw .shapes-section .ToolIcon__icon {
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+  border-radius: 0.5rem !important;
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.amby-sketch-editor .excalidraw .shapes-section .ToolIcon__icon:hover {
+  background: hsl(var(--accent)) !important;
+  color: hsl(var(--accent-foreground)) !important;
+}
+
+.amby-sketch-editor
+  .excalidraw
+  .shapes-section
+  .ToolIcon
+  .ToolIcon_type_radio:checked
+  + .ToolIcon__icon,
+.amby-sketch-editor
+  .excalidraw
+  .shapes-section
+  .ToolIcon
+  .ToolIcon_type_checkbox:checked
+  + .ToolIcon__icon,
+.amby-sketch-editor
+  .excalidraw
+  .shapes-section
+  .ToolIcon.fillable
+  .ToolIcon_type_radio:checked
+  + .ToolIcon__icon,
+.amby-sketch-editor
+  .excalidraw
+  .shapes-section
+  .ToolIcon.fillable
+  .ToolIcon_type_checkbox:checked
+  + .ToolIcon__icon {
+  background: hsl(var(--accent)) !important;
+  color: hsl(var(--accent-foreground)) !important;
+}
+
+.amby-sketch-editor .excalidraw .shapes-section .ToolIcon__icon svg {
+  width: 0.875rem !important;
+  height: 0.875rem !important;
+}
+
+.amby-sketch-editor .excalidraw .shapes-section .ToolIcon__keybinding {
+  display: none !important;
+}
+
+.amby-sketch-editor .excalidraw .shapes-section .App-toolbar__divider {
+  height: 0.875rem !important;
+  margin: 0 2px !important;
+  background-color: hsl(var(--border) / 0.8) !important;
+}
+
+.amby-sketch-editor .excalidraw .shapes-section .App-toolbar__extra-tools-trigger {
+  width: 1.75rem !important;
+  height: 1.75rem !important;
+  border-radius: 0.5rem !important;
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.amby-sketch-editor .excalidraw .shapes-section .HintViewer {
+  display: none !important;
+}
+
+/* Hide internal lock in shapes toolbar */
+.amby-sketch-editor .excalidraw .ToolIcon__lock,
+.amby-sketch-editor .excalidraw .ToolIcon__lock + .App-toolbar__divider {
+  display: none !important;
+}
+
+.amby-sketch-editor .excalidraw .layer-ui__wrapper {
+  z-index: 15 !important;
+}
+
+/* Anchor native canvas actions / hamburger menu trigger at bottom-right */
+.amby-sketch-editor .excalidraw .App-menu_top__left > div:first-child {
+  position: absolute !important;
+  bottom: -0.5rem !important;
+  right: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  pointer-events: none !important;
+  z-index: 25 !important;
+}
+
+.amby-sketch-editor .excalidraw .App-menu_top__left .main-menu-trigger {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+.amby-sketch-editor .excalidraw .App-menu_top__left .dropdown-menu {
+  pointer-events: auto !important;
+  position: absolute !important;
+  bottom: 3.25rem !important;
+  right: 0 !important;
+  top: auto !important;
+  left: auto !important;
+  margin: 0 !important;
+  z-index: 50 !important;
+}
+
+.amby-sketch-editor .excalidraw .dropdown-menu .dropdown-menu-container {
+  background-color: hsl(var(--popover)) !important;
+  color: hsl(var(--popover-foreground)) !important;
+  border: 1px solid hsl(var(--border) / 0.8) !important;
+  border-radius: 0.75rem !important;
+  padding: 0.375rem !important;
+  box-shadow:
+    0 10px 15px -3px rgb(0 0 0 / 0.1),
+    0 4px 6px -4px rgb(0 0 0 / 0.1) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  min-width: 14rem !important;
+}
+
+.amby-sketch-editor .excalidraw .dropdown-menu .dropdown-menu-item {
+  border-radius: 0.5rem !important;
+  color: hsl(var(--popover-foreground)) !important;
+  padding: 0.375rem 0.5rem !important;
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  text-decoration: none !important;
+}
+
+.amby-sketch-editor .excalidraw .dropdown-menu .dropdown-menu-item svg {
+  width: 1rem !important;
+  height: 1rem !important;
+  display: block !important;
+}
+
+.amby-sketch-editor .excalidraw .dropdown-menu .dropdown-menu-item__text {
+  color: currentColor !important;
+}
+
+.amby-sketch-editor .excalidraw .dropdown-menu .dropdown-menu-item__shortcut {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.amby-sketch-editor .excalidraw .dropdown-menu .dropdown-menu-item:hover,
+.amby-sketch-editor .excalidraw .dropdown-menu.manual-hover .dropdown-menu-item--hovered {
+  background-color: hsl(var(--accent)) !important;
+  color: hsl(var(--accent-foreground)) !important;
+}
+
+.amby-sketch-editor .excalidraw .dropdown-menu .dropdown-menu-item--selected {
+  background-color: hsl(var(--accent)) !important;
+  color: hsl(var(--accent-foreground)) !important;
+}
+
+.amby-sketch-editor .excalidraw .dropdown-menu .dropdown-menu-group-title {
+  font-size: 0.6875rem !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: hsl(var(--muted-foreground)) !important;
+  padding: 0.25rem 0.5rem !important;
+  margin: 0.25rem 0 0.125rem !important;
+}
+
+.amby-sketch-editor .excalidraw .dropdown-menu hr,
+.amby-sketch-editor .excalidraw .dropdown-menu .dropdown-menu-separator {
+  border: none !important;
+  height: 1px !important;
+  background-color: hsl(var(--border) / 0.6) !important;
+  margin: 0.25rem 0 !important;
+}
+
+/* Excalidraw Library Sidebar - Floating card with insets */
+.amby-sketch-editor .excalidraw .sidebar {
+  top: 0.75rem !important;
+  right: 0.75rem !important;
+  bottom: 3.5rem !important;
+  border-radius: 0.75rem !important;
+  border: 1px solid hsl(var(--border) / 0.8) !important;
+  background-color: hsl(var(--card) / 0.95) !important;
+  color: hsl(var(--card-foreground)) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  box-shadow:
+    0 10px 15px -3px rgb(0 0 0 / 0.1),
+    0 4px 6px -4px rgb(0 0 0 / 0.1) !important;
+  z-index: 25 !important;
+  overflow: hidden !important;
+}
+
+.amby-sketch-editor .excalidraw .sidebar--docked {
+  box-shadow:
+    0 10px 15px -3px rgb(0 0 0 / 0.1),
+    0 4px 6px -4px rgb(0 0 0 / 0.1) !important;
+}
+
+.amby-sketch-editor .excalidraw .sidebar__header {
+  padding: 0.75rem 1rem !important;
+  border-bottom: 1px solid hsl(var(--border) / 0.6) !important;
+}
+
+.amby-sketch-editor .excalidraw .sidebar__header::after {
+  display: none !important;
+}
+
+.amby-sketch-editor .excalidraw .sidebar__dock {
+  display: none !important;
+}
+
+.amby-sketch-editor .excalidraw .sidebar__header__buttons button {
+  border-radius: 0.5rem !important;
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+.amby-sketch-editor .excalidraw .sidebar__header__buttons button:hover {
+  background-color: hsl(var(--accent)) !important;
+  color: hsl(var(--accent-foreground)) !important;
+}
+
+.amby-sketch-editor .excalidraw .sidebar .sidebar-tabs-root {
+  background: transparent !important;
+}
+
+.amby-sketch-editor .excalidraw .sidebar-trigger {
+  display: none !important;
 }

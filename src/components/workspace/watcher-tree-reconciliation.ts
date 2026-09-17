@@ -71,10 +71,31 @@ interface OpenDocumentLocation {
 }
 
 /** Folder events and root-level rescan notifications also cover open descendants. */
-export function watcherChangeAffectsDocument(documentPath: string, changedPath: string): boolean {
+export function watcherChangeAffectsDocument(
+  documentPath: string,
+  changedPath: string,
+  vaultPath?: string | null,
+): boolean {
   const document = normalizePath(documentPath)
   const changed = normalizePath(changedPath)
-  return document === changed || document.startsWith(`${changed}/`)
+  if (
+    document === changed ||
+    document.startsWith(`${changed}/`) ||
+    changed.startsWith(`${document}/`)
+  )
+    return true
+  if (changed.endsWith(`/${document}`)) return true
+  if (vaultPath) {
+    const normVault = normalizePath(vaultPath)
+    const fullDoc = document.startsWith(normVault) ? document : `${normVault}/${document}`
+    if (
+      fullDoc === changed ||
+      fullDoc.startsWith(`${changed}/`) ||
+      changed.startsWith(`${fullDoc}/`)
+    )
+      return true
+  }
+  return false
 }
 
 export type OpenDocumentTreeChange =
@@ -86,7 +107,15 @@ function indexFiles(
   target = new Map<string, TreeItem>(),
 ): Map<string, TreeItem> {
   for (const item of items) {
-    if (item.type === "file") target.set(item.id, item)
+    if (item.type !== "folder") {
+      target.set(item.id, item)
+      if (item.path) {
+        target.set(item.path, item)
+        if (item.type === "database") {
+          target.set(`database:${item.path}`, item)
+        }
+      }
+    }
     if (item.children) indexFiles(item.children, target)
   }
   return target
@@ -105,9 +134,12 @@ export function planOpenDocumentTreeChanges(
   const changes: OpenDocumentTreeChange[] = []
   for (const [fileId, document] of Object.entries(openDocs)) {
     const item = filesById.get(fileId)
-    if (!item || item.type !== "file") {
+    if (!item || item.type === "folder") {
       changes.push({ kind: "deleted", fileId })
-    } else if (item.path !== document.path || item.name !== document.title) {
+    } else if (
+      item.id === fileId &&
+      (item.path !== document.path || item.name !== document.title)
+    ) {
       changes.push({ kind: "relocated", fileId, path: item.path, title: item.name })
     }
   }

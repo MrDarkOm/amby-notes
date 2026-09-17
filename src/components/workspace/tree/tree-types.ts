@@ -4,21 +4,27 @@ import type { TreeReorderPosition } from "../tree-sort"
 
 export type { TreeItem }
 
-export type AttachableLayer = "canvas" | "database" | "sketch"
+export type AttachableLayer = "canvas" | "database" | "sketch" | "note"
 
 export interface NodeLayers {
   canvas: boolean
   database: boolean
   sketch: boolean
+  note: boolean
 }
 
 export const KNOWN_ICONS = new Set([
   "folder",
   "file",
   "supernote",
+  "supercanvas",
+  "supersketch",
+  "superdatabase",
   "page",
   "workspace",
   "canvas",
+  "sketch",
+  "database",
   "draft",
   "brain",
 ])
@@ -55,7 +61,13 @@ function pathParent(path: string): string {
 
 function isBundleMainPath(path: string): boolean {
   const name = pathName(path)
-  return name.endsWith(".md") && pathName(pathParent(path)) === name.slice(0, -3)
+  const parent = pathName(pathParent(path))
+  for (const ext of [".md", ".canvas", ".excalidraw"]) {
+    if (name.endsWith(ext) && parent === name.slice(0, -ext.length)) {
+      return true
+    }
+  }
+  return false
 }
 
 /** Reject self-drops and folder drops into their own descendant paths. */
@@ -91,6 +103,7 @@ export interface SidebarTreeProps {
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
+  onAttachSketch?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
@@ -164,6 +177,7 @@ export interface TreeNodeProps {
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
   onAttachCanvas?: (id: string) => void
+  onAttachSketch?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void

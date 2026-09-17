@@ -37,6 +37,11 @@ rename and move. The generic `id` field belongs to the user, including numbers,
 nulls, external strings such as `jira-123`, and collections. New assignments
 never replace or remove it. An explicit `amby-id` always takes precedence;
 an invalid value produces a diagnostic and never falls back to generic `id`.
+
+The optional Amby-owned `amby-title` field is a non-empty display-title
+override. Readers resolve titles as `amby-title`, then the first Markdown H1,
+then the filename. It does not replace the generic `title` field and does not
+require a filesystem rename.
 New notes are published with their `amby-id` in the first atomic no-replace
 write, so there is no temporary on-disk state that requires a second ID write.
 

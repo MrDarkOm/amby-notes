@@ -98,4 +98,68 @@ describe("useCanvasDocument lifecycle", () => {
     }
     expect(serialization.mock.calls.length).toBeLessThanOrEqual(1)
   })
+
+  it("does not publish when node selection changes", () => {
+    const onChange = vi.fn()
+    const { result } = renderHook(
+      () => useCanvasDocument({ value, onChange, wrapRef: { current: null } }),
+      { wrapper },
+    )
+    act(() => {
+      result.current.onNodesChange([{ id: "n1", type: "select", selected: true }])
+    })
+    act(() => vi.advanceTimersByTime(600))
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it("undoes and redoes adding a node", () => {
+    const onChange = vi.fn()
+    const { result } = renderHook(
+      () => useCanvasDocument({ value, onChange, wrapRef: { current: null } }),
+      { wrapper },
+    )
+    expect(result.current.canUndo).toBe(false)
+
+    act(() => {
+      result.current.addNode("text", { x: 50, y: 50 })
+    })
+    expect(result.current.nodes).toHaveLength(2)
+    expect(result.current.canUndo).toBe(true)
+
+    act(() => {
+      result.current.undo()
+    })
+    expect(result.current.nodes).toHaveLength(1)
+    expect(result.current.canUndo).toBe(false)
+    expect(result.current.canRedo).toBe(true)
+
+    act(() => {
+      result.current.redo()
+    })
+    expect(result.current.nodes).toHaveLength(2)
+    expect(result.current.canUndo).toBe(true)
+    expect(result.current.canRedo).toBe(false)
+  })
+
+  it("syncs external value changes into nodes and edges", () => {
+    const { result, rerender } = renderHook(
+      ({ val }) => useCanvasDocument({ value: val, onChange: vi.fn(), wrapRef: { current: null } }),
+      { wrapper, initialProps: { val: value } },
+    )
+    expect(result.current.nodes).toHaveLength(1)
+
+    const updated: CanvasFile = {
+      nodes: [
+        { id: "n1", type: "text", x: 0, y: 0, width: 240, height: 120, text: "original" },
+        { id: "n2", type: "text", x: 100, y: 100, width: 240, height: 120, text: "external node" },
+      ],
+      edges: [],
+    }
+    const updatedFlow = toReactFlow(updated)
+    const updatedValue = serializeCanvas(fromReactFlow(updatedFlow.nodes, updatedFlow.edges))
+
+    rerender({ val: updatedValue })
+    expect(result.current.nodes).toHaveLength(2)
+    expect(result.current.nodes[1].id).toBe("n2")
+  })
 })

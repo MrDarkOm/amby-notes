@@ -7,7 +7,7 @@ export interface BreadcrumbSegment {
 }
 
 export function stripMdExt(name: string): string {
-  return name.replace(/\.md$/iu, "")
+  return name.replace(/\.(md|canvas|excalidraw|json)$/iu, "")
 }
 
 export function relativeToVault(path: string, vault: string): string {
@@ -52,7 +52,7 @@ export function buildBreadcrumb(
     if (
       next &&
       item.type === "folder" &&
-      next.type === "file" &&
+      next.type !== "folder" &&
       stripMdExt(item.name) === stripMdExt(next.name)
     ) {
       continue

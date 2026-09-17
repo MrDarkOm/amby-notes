@@ -2,10 +2,11 @@ import type { DatabaseRow } from "@/lib/storage"
 
 interface DatabaseValueCellProps {
   row: DatabaseRow
+  noteTitles?: Record<string, string>
 }
 
-export function DatabaseValueCell({ row }: DatabaseValueCellProps) {
-  const values = parseValues(row.valuesJson)
+export function DatabaseValueCell({ row, noteTitles }: DatabaseValueCellProps) {
+  const values = parseValues(row.valuesJson, noteTitles)
   if (values.length === 0) return null
   return (
     <span className="mt-2 flex min-w-0 flex-wrap gap-1">
@@ -26,7 +27,7 @@ interface DisplayValue {
   text: string
 }
 
-function parseValues(valuesJson: string): DisplayValue[] {
+function parseValues(valuesJson: string, noteTitles?: Record<string, string>): DisplayValue[] {
   let values: unknown
   try {
     values = JSON.parse(valuesJson)
@@ -64,7 +65,10 @@ function parseValues(valuesJson: string): DisplayValue[] {
         return Array.isArray(typed.targetNoteIds)
           ? typed.targetNoteIds
               .filter((item): item is string => typeof item === "string")
-              .map((text) => ({ kind: typed.type as string, text }))
+              .map((id) => ({
+                kind: typed.type as string,
+                text: noteTitles?.[id] || id,
+              }))
           : []
       case "files":
         return Array.isArray(typed.items)

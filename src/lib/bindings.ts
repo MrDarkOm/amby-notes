@@ -26,6 +26,14 @@ async loadActiveVault() : Promise<Result<LoadVaultResult, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async reindexVault() : Promise<Result<LoadVaultResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reindex_vault") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async preflightVault(vaultPath: string) : Promise<Result<VaultPreflight, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("preflight_vault", { vaultPath }) };
@@ -338,6 +346,22 @@ async attachCanvasToNote(canvasPath: string) : Promise<Result<MutationOutcome, s
     else return { status: "error", error: e  as any };
 }
 },
+async createSketch(parentPath: string, name: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_sketch", { parentPath, name }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async attachSketchToNote(sketchPath: string) : Promise<Result<MutationOutcome, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("attach_sketch_to_note", { sketchPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async unlinkLayer(notePath: string, kind: string) : Promise<Result<MutationOutcome, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("unlink_layer", { notePath, kind }) };
@@ -487,6 +511,19 @@ async rebuildDatabaseProjection() : Promise<Result<DatabaseModuleState, Database
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Refresh only the projection slice affected by a watcher event. A manifest,
+ * template, or unknown container change still takes the safe full rebuild
+ * path; record and view changes avoid rereading every row in the vault.
+ */
+async refreshDatabaseChange(change: DatabaseChangedRequest) : Promise<Result<DatabaseModuleState, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("refresh_database_change", { change }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async createDatabase(request: CreateDatabaseRequest) : Promise<Result<CreatedDatabase, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_database", { request }) };
@@ -498,6 +535,14 @@ async createDatabase(request: CreateDatabaseRequest) : Promise<Result<CreatedDat
 async createDatabaseProperty(request: CreateDatabasePropertyRequest) : Promise<Result<CreatedDatabaseProperty, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_database_property", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async changeDatabasePropertyType(request: ChangeDatabasePropertyTypeRequest) : Promise<Result<ChangedDatabasePropertyType, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("change_database_property_type", { request }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -538,6 +583,14 @@ async renameDatabaseProperty(request: RenameDatabasePropertyRequest) : Promise<R
 async applyDatabaseValueBatch(request: DatabaseValueBatchRequest) : Promise<Result<DatabaseValueBatchResult, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("apply_database_value_batch", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateDatabaseRelationValue(request: UpdateDatabaseRelationValueRequest) : Promise<Result<UpdateDatabaseRelationValueResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_database_relation_value", { request }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -594,6 +647,78 @@ async getDatabaseNoteContext(noteId: string) : Promise<Result<DatabaseNoteContex
 async queryDatabase(request: DatabaseQueryRequest) : Promise<Result<DatabaseQueryResult, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("query_database", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async aggregateDatabase(request: DatabaseAggregateRequest) : Promise<Result<DatabaseAggregateResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("aggregate_database", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getDatabaseView(request: DatabaseViewRequest) : Promise<Result<DatabaseViewDocument, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_database_view", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createDatabaseView(request: CreateDatabaseViewRequest) : Promise<Result<DatabaseViewDocument, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_database_view", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async renameDatabaseView(request: RenameDatabaseViewRequest) : Promise<Result<DatabaseViewMutationResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rename_database_view", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateDatabaseViewConfig(request: UpdateDatabaseViewConfigRequest) : Promise<Result<DatabaseViewMutationResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_database_view_config", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async duplicateDatabaseView(request: DatabaseViewRequest) : Promise<Result<DatabaseViewDocument, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("duplicate_database_view", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteDatabaseView(request: DeleteDatabaseViewRequest) : Promise<Result<DatabaseViewMutationResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_database_view", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async reorderDatabaseViews(request: ReorderDatabaseViewsRequest) : Promise<Result<DatabaseViewMutationResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reorder_database_views", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setDefaultDatabaseView(request: DatabaseViewRequest) : Promise<Result<DatabaseViewMutationResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_default_database_view", { request }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -763,14 +888,21 @@ export type AiMessage = {
  * "user" | "assistant"
  */
 role: string; content: string }
-export type CreateDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; propertyType: string; beforePropertyId: string | null; options?: string[] }
+export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null }
+export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; warnings: string[] }
+export type CreateDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; propertyType: string; beforePropertyId: string | null; options?: string[]; formulaExpression?: string | null; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null }
 export type CreateDatabaseRequest = { expectedGeneration: number; mode: DatabaseCreateMode; parentPath: string | null; notePath: string | null; name: string }
 export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; title: string; template: DatabaseRowTemplate }
+export type CreateDatabaseViewRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; layout: string }
 export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string; notePath: string | null; warnings: string[] }
 export type CreatedDatabaseProperty = { databaseId: string; propertyId: string; name: string; propertyType: string; manifestRevision: string; warnings: string[] }
 export type CreatedDatabaseRow = { databaseId: string; noteId: string; title: string; notePath: string; recordPath: string; recordRevision: string; warnings: string[] }
 export type CredentialInfo = { exists: boolean; masked: string | null }
 export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }
+export type DatabaseAggregateGroup = { key: string; label: string; count: number; value: string | null }
+export type DatabaseAggregateRequest = { expectedGeneration: number; databaseId: string; source: DatabaseQuerySource; category: DatabaseFieldRef | null; measure: DatabaseFieldRef | null; aggregation: string; search: string | null; limit: number }
+export type DatabaseAggregateResult = { databaseId: string; groups: DatabaseAggregateGroup[]; totalCount: number; warnings: string[] }
+export type DatabaseChangedRequest = { kind: string; path: string; containerPath: string; generation: number; requiresFullRebuild: boolean }
 export type DatabaseCreateMode = "standalone" | "attached"
 export type DatabaseDiagnostic = { code: string; severity: string; path: string; message: string }
 export type DatabaseError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actual_generation: number } | { kind: "failed"; code: string; message: string }
@@ -782,8 +914,8 @@ export type DatabaseNoteRevision = { noteId: string; revision: string }
 export type DatabaseOptionSummary = { optionId: string; name: string; color: string }
 export type DatabasePageRequest = { limit: number; cursor: string | null }
 export type DatabasePropertySummary = { propertyId: string; name: string; propertyType: string; configJson: string; options: DatabaseOptionSummary[] }
-export type DatabaseQueryRequest = { expectedGeneration: number; databaseId: string; source: DatabaseQuerySource; page: DatabasePageRequest }
-export type DatabaseQueryResult = { database: DatabaseSummary; projection: ProjectionVersion; rows: DatabaseRow[]; nextCursor: string | null; diagnostics: DatabaseDiagnostic[] }
+export type DatabaseQueryRequest = { expectedGeneration: number; databaseId: string; search: string | null; sorts: DatabaseSortSpec[] | null; filter: DatabaseFilterNode | null; source: DatabaseQuerySource; page: DatabasePageRequest }
+export type DatabaseQueryResult = { database: DatabaseSummary; projection: ProjectionVersion; rows: DatabaseRow[]; nextCursor: string | null; diagnostics: DatabaseDiagnostic[]; totalCount: number }
 export type DatabaseQuerySource = { kind: "savedView"; view_id: string; expected_revision: string | null } | { kind: "inline"; spec: DatabaseQuerySpec }
 export type DatabaseQuerySpec = { filter: DatabaseFilterNode | null; sorts: DatabaseSortSpec[] }
 export type DatabaseRow = { noteId: string; title: string; relativePath: string; parentNoteId: string | null; depth: number; categoryPath: string[]; valuesJson: string; rowRevision: string }
@@ -798,6 +930,9 @@ export type DatabaseTemplateSummary = { templateId: string; name: string; revisi
 export type DatabaseValueBatchRequest = { expectedGeneration: number; databaseId: string; operationId: string; cells: DatabaseValueMutation[] }
 export type DatabaseValueBatchResult = { operationId: string; databaseId: string; revisions: DatabaseNoteRevision[]; warnings: string[] }
 export type DatabaseValueMutation = { noteId: string; propertyId: string; valueJson: string | null; expectedRevision: string }
+export type DatabaseViewDocument = { databaseId: string; viewId: string; title: string; layout: string; revision: string; configJson: string }
+export type DatabaseViewMutationResult = { databaseId: string; viewId: string; viewRevision: string; manifestRevision: string; warnings: string[] }
+export type DatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; expectedManifestRevision?: string | null }
 export type DatabaseViewSummary = { viewId: string; title: string; layout: string; revision: string; groupField: DatabaseFieldRef | null }
 export type DatabaseYamlConflict = { databaseId: string; noteId: string; propertyId: string; yamlKey: string; baseJson: string; shardJson: string; yamlJson: string; noteRevision: string; recordRevision: string }
 export type DatabaseYamlResolution = "shard" | "yaml" | "manual"
@@ -805,6 +940,7 @@ export type DatabaseYamlResolveRequest = { expectedGeneration: number; databaseI
 export type DatabaseYamlSyncRequest = { expectedGeneration: number; databaseId: string; noteId: string; expectedRecordRevision: string }
 export type DatabaseYamlSyncResult = { databaseId: string; noteId: string; noteRevision: string; recordRevision: string; changed: boolean; conflicts: DatabaseYamlConflict[]; warnings: string[] }
 export type DeleteDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string }
+export type DeleteDatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; expectedManifestRevision: string }
 export type DeletedDatabaseProperty = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 /**
@@ -843,7 +979,7 @@ export type LoadVaultResult = { generation: number; vaultPath: string; tree: Tre
  * recoverable warning rather than turning a completed mutation into an error.
  */
 export type MutationOutcome = { mutation: FsMutationResult; indexState: IndexState; warnings: OperationWarning[] }
-export type NoteLayers = { canvas: boolean; sketch: boolean; database: boolean }
+export type NoteLayers = { canvas: boolean; sketch: boolean; database: boolean; note: boolean }
 export type NoteMetadata = { created: number | null; modified: number | null; wordCount: number }
 export type NoteProperties = { hasFrontmatter: boolean; frontmatterStatus: FrontmatterStatus; bodyReadOnly: boolean; properties: FrontmatterProperty[]; parseError: string | null; customProperties: CustomProperty[] }
 /**
@@ -864,9 +1000,11 @@ export type RecoveryEntry = { version: number; vaultGeneration: number; document
 export type RefactorPreview = { notes: number; replacements: number }
 export type RenameDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; name: string }
 export type RenameDatabaseRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string }
+export type RenameDatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; name: string }
 export type RenamedDatabase = { databaseId: string; title: string; manifestRevision: string; warnings: string[] }
 export type RenamedDatabaseProperty = { databaseId: string; propertyId: string; name: string; manifestRevision: string; warnings: string[] }
 export type ReorderDatabasePropertiesRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; propertyIds: string[] }
+export type ReorderDatabaseViewsRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; viewIds: string[] }
 export type ReorderedDatabaseProperties = { databaseId: string; propertyIds: string[]; manifestRevision: string; warnings: string[] }
 export type RestoreDeletedNoteRequest = { expectedGeneration: number; noteId: string; path: string; content: string; sourceTemplate: string; originWindow: string }
 export type SearchResult = { note: IndexedNote; matchType: string; snippet: string | null; score: number }
@@ -876,6 +1014,9 @@ export type SyncReport = { inserted: number; updated: number; deleted: number; w
 export type TagEntry = { tag: string; notes: IndexedNote[] }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
+export type UpdateDatabaseRelationValueRequest = { expectedGeneration: number; databaseId: string; noteId: string; propertyId: string; targetNoteIds: string[] }
+export type UpdateDatabaseRelationValueResult = { databaseId: string; noteId: string; targetNoteIds: string[]; warnings: string[] }
+export type UpdateDatabaseViewConfigRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; configJson: string }
 export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
 /**
  * A save failure that callers can distinguish from transport and filesystem

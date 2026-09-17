@@ -3,19 +3,22 @@ import { motion } from "motion/react"
 import { MotionSpinner } from "@/lib/motion"
 import { motionTransitions } from "@/lib/motion-config"
 import {
+  AlignJustify,
   AlertTriangle,
   ArrowDown,
   ArrowDownUp,
   ArrowLeftToLine,
   ArrowRightToLine,
+  ArrowUpRight,
   ArrowUp,
   CalendarDays,
   Check,
   CheckSquare,
   ChevronRight,
+  CircleChevronDown,
+  CircleDashed,
   Eye,
   EyeOff,
-  Group,
   Hash,
   Info,
   Link2,
@@ -30,20 +33,17 @@ import {
   Repeat2,
   RotateCcw,
   Sigma,
-  SlidersHorizontal,
-  Sparkles,
+  Search,
   SquareArrowOutUpRight,
-  Tags,
   Trash2,
   Type,
-  Waypoints,
   WrapText,
   X,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import type { DatabasePropertySummary, DatabaseRow } from "@/lib/storage"
+import type { DatabasePropertySummary, DatabaseRow, DatabaseSummary } from "@/lib/storage"
 import { DatabaseCell } from "./database-cell"
 import { databaseCellText, readDatabaseCellValue } from "./database-cell-value"
 import { IconValue } from "../icon-value"
@@ -52,10 +52,8 @@ import { useViewStateStore } from "../use-view-state-store"
 import { databasePropertyIconKey } from "./property-icon"
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -67,8 +65,8 @@ const DEFAULT_ROW_HEIGHT = 52
 const WRAPPED_ROW_HEIGHT = 84
 const OVERSCAN = 8
 const MIN_PROPERTY_WIDTH = 56
-const MIN_TITLE_WIDTH = 180
-const ACTION_COLUMN_WIDTH = "2.75rem"
+const MIN_TITLE_WIDTH = 80
+const ACTION_COLUMN_WIDTH = "3.5rem"
 
 interface TableViewProps {
   databaseId: string
@@ -95,27 +93,50 @@ interface TableViewProps {
   onTitleColumnNameChange?: (name: string) => void
   onRenameRow?: (rowId: string, name: string) => Promise<void> | void
   onRenameProperty?: (propertyId: string, name: string) => Promise<void> | void
+  onChangePropertyType?: (propertyId: string, propertyType: string) => Promise<void> | void
+  onConfigureRelation?: (property: DatabasePropertySummary) => void
+  filterValues?: Record<string, string>
+  onFilterValuesChange?: (values: Record<string, string>) => void
+  sortValue?: { key: string; direction: "asc" | "desc" } | null
+  onSortValueChange?: (value: { key: string; direction: "asc" | "desc" } | null) => void
+  hiddenPropertyIds?: Set<string>
+  onHiddenPropertyIdsChange?: (hiddenPropertyIds: Set<string>) => void
+  relationOptionsByProperty?: Record<
+    string,
+    Array<{ noteId: string; title: string; icon?: string | null }>
+  >
+  onOpenNote?: (noteId: string) => void
+  databases?: DatabaseSummary[]
+  onCreateRelationRow?: (targetDatabaseId: string, title: string) => Promise<string | void>
 }
 
 function PropertyIcon({ type }: { type: string }) {
   const Icon =
-    type === "number"
-      ? Hash
-      : type === "checkbox"
-        ? CheckSquare
-        : type === "date"
-          ? CalendarDays
-          : type === "url"
-            ? Link2
-            : type === "select"
-              ? List
-              : type === "multiSelect" || type === "status"
-                ? Tags
-                : type === "relation"
-                  ? Waypoints
-                  : type === "files"
-                    ? Paperclip
-                    : Type
+    type === "text"
+      ? AlignJustify
+      : type === "number"
+        ? Hash
+        : type === "checkbox"
+          ? CheckSquare
+          : type === "date"
+            ? CalendarDays
+            : type === "url"
+              ? Link2
+              : type === "select"
+                ? CircleChevronDown
+                : type === "multiSelect"
+                  ? List
+                  : type === "status"
+                    ? CircleDashed
+                    : type === "relation"
+                      ? ArrowUpRight
+                      : type === "files"
+                        ? Paperclip
+                        : type === "formula"
+                          ? Sigma
+                          : type === "rollup"
+                            ? Search
+                            : Type
   return <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
 }
 
@@ -129,32 +150,14 @@ function defaultPropertyWidth(property: DatabasePropertySummary, rows: DatabaseR
   const longestWord = candidates
     .flatMap((candidate) => candidate.trim().split(/\s+/u))
     .reduce((max, word) => Math.max(max, word.length), 0)
-  return Math.min(100, Math.max(MIN_PROPERTY_WIDTH, Math.ceil(longestWord * 7.5) + 36))
-}
-
-function propertyCellDisplayText(row: DatabaseRow, property: DatabasePropertySummary) {
-  const value = readDatabaseCellValue(row.valuesJson, property.propertyId)
-  if (!value) return ""
-  if (property.propertyType === "checkbox") return value.checked === true ? "1" : "0"
-  if (property.propertyType === "select" || property.propertyType === "status") {
-    const option = property.options.find((candidate) => candidate.optionId === value.optionId)
-    return option?.name ?? ""
-  }
-  if (property.propertyType === "multiSelect") {
-    const ids = Array.isArray(value.optionIds) ? (value.optionIds as string[]) : []
-    return ids
-      .map((id) => property.options.find((candidate) => candidate.optionId === id)?.name ?? "")
-      .filter(Boolean)
-      .join(" ")
-  }
-  return databaseCellText(value, property.propertyType)
+  return Math.min(320, Math.max(160, Math.ceil(longestWord * 7.5) + 48))
 }
 
 function defaultTitleWidth(rows: DatabaseRow[]) {
   const longestWord = rows
     .flatMap((row) => row.title.trim().split(/\s+/u))
     .reduce((max, word) => Math.max(max, word.length), "Название".length)
-  return Math.min(280, Math.max(MIN_TITLE_WIDTH, Math.ceil(longestWord * 7.5) + 36))
+  return Math.min(360, Math.max(MIN_TITLE_WIDTH, Math.ceil(longestWord * 7.5) + 48))
 }
 
 export function TableView({
@@ -178,6 +181,18 @@ export function TableView({
   onTitleColumnNameChange,
   onRenameRow,
   onRenameProperty,
+  onChangePropertyType,
+  onConfigureRelation,
+  filterValues,
+  onFilterValuesChange,
+  sortValue,
+  onSortValueChange,
+  hiddenPropertyIds: propHiddenPropertyIds,
+  onHiddenPropertyIdsChange,
+  relationOptionsByProperty = {},
+  onOpenNote,
+  databases,
+  onCreateRelationRow,
 }: TableViewProps) {
   const { t } = useTranslation()
   const iconOverrides = useViewStateStore((state) => state.iconOverrides)
@@ -190,7 +205,27 @@ export function TableView({
     key: string
     direction: "asc" | "desc"
   } | null>(null)
-  const [hiddenPropertyIds, setHiddenPropertyIds] = React.useState<Set<string>>(new Set())
+  const [internalHiddenPropertyIds, setInternalHiddenPropertyIds] = React.useState<Set<string>>(
+    new Set(),
+  )
+  const hiddenPropertyIds = propHiddenPropertyIds ?? internalHiddenPropertyIds
+  const hiddenPropertyIdsRef = React.useRef(hiddenPropertyIds)
+  hiddenPropertyIdsRef.current = hiddenPropertyIds
+
+  const setHiddenPropertyIds = React.useCallback(
+    (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+      const current = hiddenPropertyIdsRef.current
+      const next = typeof updater === "function" ? updater(current) : updater
+      if (onHiddenPropertyIdsChange) {
+        hiddenPropertyIdsRef.current = next
+        onHiddenPropertyIdsChange(next)
+      } else {
+        hiddenPropertyIdsRef.current = next
+        setInternalHiddenPropertyIds(next)
+      }
+    },
+    [onHiddenPropertyIdsChange],
+  )
   const [wrappedPropertyIds, setWrappedPropertyIds] = React.useState<Set<string>>(new Set())
   const [frozenColumnKey, setFrozenColumnKey] = React.useState<string | null>(null)
   const initializedWidthKeys = React.useRef(new Set<string>())
@@ -199,6 +234,34 @@ export function TableView({
   const scrollTopRef = React.useRef(0)
   const rangeRafRef = React.useRef<number | null>(null)
   const nextPagePendingRef = React.useRef(false)
+  const lastPageTriggerRef = React.useRef(0)
+
+  const updateFilterValue = React.useCallback(
+    (key: string, value: string) => {
+      setPropertyFilters((current) => {
+        const next = { ...current }
+        if (value.trim()) next[key] = value
+        else delete next[key]
+        onFilterValuesChange?.(next)
+        return next
+      })
+    },
+    [onFilterValuesChange],
+  )
+  const updateSortValue = React.useCallback(
+    (value: { key: string; direction: "asc" | "desc" } | null) => {
+      setPropertySort(value)
+      onSortValueChange?.(value)
+    },
+    [onSortValueChange],
+  )
+
+  React.useEffect(() => {
+    if (filterValues) setPropertyFilters(filterValues)
+  }, [filterValues])
+  React.useEffect(() => {
+    if (sortValue !== undefined) setPropertySort(sortValue)
+  }, [sortValue])
 
   React.useEffect(() => {
     setColumnWidths((current) => {
@@ -237,15 +300,19 @@ export function TableView({
       const next = Object.fromEntries(
         Object.entries(current).filter(([key]) => key === "title" || available.has(key)),
       )
+      if (Object.keys(next).length !== Object.keys(current).length) onFilterValuesChange?.(next)
       return Object.keys(next).length === Object.keys(current).length ? current : next
     })
-    setPropertySort((current) =>
-      current && current.key !== "title" && !available.has(current.key) ? null : current,
-    )
+    setPropertySort((current) => {
+      const next =
+        current && current.key !== "title" && !available.has(current.key) ? null : current
+      if (next !== current) onSortValueChange?.(next)
+      return next
+    })
     setFrozenColumnKey((current) =>
       current && current !== "title" && !available.has(current) ? null : current,
     )
-  }, [properties])
+  }, [onFilterValuesChange, onSortValueChange, properties, setHiddenPropertyIds])
 
   React.useEffect(() => {
     const move = (event: PointerEvent) => {
@@ -285,34 +352,10 @@ export function TableView({
   const visibleProperties = properties.filter(
     (property) => !hiddenPropertyIds.has(property.propertyId),
   )
-  const hiddenProperties = properties.filter((property) =>
-    hiddenPropertyIds.has(property.propertyId),
-  )
-  const tableRows = React.useMemo(() => {
-    const propertyById = new Map(properties.map((property) => [property.propertyId, property]))
-    const cellText = (row: DatabaseRow, key: string) => {
-      if (key === "title") return row.title
-      const property = propertyById.get(key)
-      return property ? propertyCellDisplayText(row, property) : ""
-    }
-    const filtered = rows.filter((row) =>
-      Object.entries(propertyFilters).every(([key, query]) =>
-        cellText(row, key).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
-      ),
-    )
-    if (!propertySort) return filtered
-    return [...filtered].sort((left, right) => {
-      const leftValue = cellText(left, propertySort.key)
-      const rightValue = cellText(right, propertySort.key)
-      if (!leftValue && rightValue) return 1
-      if (leftValue && !rightValue) return -1
-      const comparison = leftValue.localeCompare(rightValue, undefined, {
-        numeric: true,
-        sensitivity: "base",
-      })
-      return propertySort.direction === "asc" ? comparison : -comparison
-    })
-  }, [properties, propertyFilters, propertySort, rows])
+  // The backend owns filtering and sorting. This array is intentionally a
+  // direct projection of the loaded page so large databases are never
+  // silently filtered or reordered only in the renderer.
+  const tableRows = rows
   const rowHeight = visibleProperties.some((property) =>
     wrappedPropertyIds.has(property.propertyId),
   )
@@ -370,8 +413,22 @@ export function TableView({
         `${columnWidths[property.propertyId] ?? defaultPropertyWidth(property, rows)}px`,
     ),
     ACTION_COLUMN_WIDTH,
-    ACTION_COLUMN_WIDTH,
   ].join(" ")
+  const totalTableWidth = React.useMemo(() => {
+    let total = titleColumnWidth
+    for (const property of visibleProperties) {
+      total += columnWidths[property.propertyId] ?? defaultPropertyWidth(property, rows)
+    }
+    total += 56
+    return total
+  }, [titleColumnWidth, visibleProperties, columnWidths, rows])
+  const tableWidthStyle = React.useMemo<React.CSSProperties>(
+    () => ({
+      width: "max-content",
+      minWidth: `max(100%, ${totalTableWidth}px)`,
+    }),
+    [totalTableWidth],
+  )
   const frozenThroughIndex =
     frozenColumnKey === "title"
       ? -1
@@ -386,11 +443,20 @@ export function TableView({
   const startResize = (event: React.PointerEvent, key: string) => {
     event.preventDefault()
     event.stopPropagation()
+    const currentWidth =
+      columnWidths[key] ??
+      (key === "title"
+        ? titleColumnWidth
+        : visibleProperties.find((p) => p.propertyId === key)
+          ? defaultPropertyWidth(
+              visibleProperties.find((p) => p.propertyId === key)!,
+              rows,
+            )
+          : MIN_PROPERTY_WIDTH)
     resizeRef.current = {
       key,
       startX: event.clientX,
-      startWidth:
-        columnWidths[key] ?? (key === "title" ? defaultTitleWidth(rows) : MIN_PROPERTY_WIDTH),
+      startWidth: currentWidth,
     }
     document.body.style.cursor = "col-resize"
     document.body.style.userSelect = "none"
@@ -400,13 +466,18 @@ export function TableView({
     const element = event.currentTarget
     scrollTopRef.current = element.scrollTop
     scheduleRangeUpdate()
+    const now = Date.now()
     if (
       hasNextPage &&
       !loading &&
       !nextPagePendingRef.current &&
-      element.scrollTop + element.clientHeight >= element.scrollHeight - 320
+      now - lastPageTriggerRef.current >= 350 &&
+      element.scrollHeight > element.clientHeight &&
+      element.scrollTop > 0 &&
+      element.scrollTop + element.clientHeight >= element.scrollHeight - 240
     ) {
       nextPagePendingRef.current = true
+      lastPageTriggerRef.current = now
       onLoadNextPage()
     }
   }
@@ -430,28 +501,56 @@ export function TableView({
     viewportRef.current?.scrollTo({ top: nextIndex * rowHeight, behavior: "auto" })
   }
 
+  React.useEffect(() => {
+    const element = viewportRef.current
+    if (!element) return
+
+    const handleWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaX) > 0) return
+
+      const canScrollHorizontally = element.scrollWidth > element.clientWidth + 1
+      if (!canScrollHorizontally) return
+
+      const canScrollVertically = element.scrollHeight > element.clientHeight + 1
+      const target = event.target as HTMLElement | null
+      const isOverHeader = Boolean(target?.closest('[role="row"]')?.classList.contains("sticky"))
+
+      if (event.shiftKey || !canScrollVertically || isOverHeader) {
+        if (event.deltaY !== 0) {
+          element.scrollLeft += event.deltaY
+          event.preventDefault()
+        }
+      }
+    }
+
+    element.addEventListener("wheel", handleWheel, { passive: false })
+    return () => {
+      element.removeEventListener("wheel", handleWheel)
+    }
+  }, [])
+
   return (
-    <div className="min-h-0 flex flex-1 flex-col overflow-hidden">
+    <div className="min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden">
       <div
         ref={viewportRef}
         role="grid"
         aria-rowcount={tableRows.length}
         aria-colcount={visibleProperties.length + 3}
         tabIndex={0}
-        className="min-h-0 flex-1 overflow-auto outline-none"
+        className="min-h-0 flex-1 overflow-x-auto overflow-y-auto outline-none amby-table-scroll"
         onScroll={handleScroll}
         onKeyDown={handleKeyDown}
       >
-        <div className="min-w-max">
+        <div style={tableWidthStyle}>
           <div
             role="row"
             className="sticky top-0 z-10 grid border-b border-slate-200 bg-white text-xs font-medium text-muted-foreground dark:border-border dark:bg-card"
-            style={{ gridTemplateColumns }}
+            style={{ gridTemplateColumns, ...tableWidthStyle }}
           >
             <div
               role="columnheader"
               className={cn(
-                "relative flex items-center justify-start gap-2 bg-white px-2 py-2 text-left dark:bg-card",
+                "relative flex h-full min-w-0 items-center justify-start bg-white p-0 text-left dark:bg-card",
                 hasFrozenColumns && "sticky left-0 z-20",
               )}
             >
@@ -468,16 +567,10 @@ export function TableView({
                   filterValue={propertyFilters.title ?? ""}
                   sortDirection={propertySort?.key === "title" ? propertySort.direction : null}
                   isFrozen={frozenColumnKey === "title"}
-                  onFilterChange={(value) =>
-                    setPropertyFilters((current) => {
-                      const next = { ...current }
-                      if (value.trim()) next.title = value
-                      else delete next.title
-                      return next
-                    })
-                  }
+                  canFilter
+                  onFilterChange={(value) => updateFilterValue("title", value)}
                   onSort={(direction) =>
-                    setPropertySort(direction ? { key: "title", direction } : null)
+                    updateSortValue(direction ? { key: "title", direction } : null)
                   }
                   onToggleFreeze={() =>
                     setFrozenColumnKey((current) => (current === "title" ? null : "title"))
@@ -487,15 +580,31 @@ export function TableView({
                   }
                 />
               ) : (
-                <>
-                  <Type className="size-4 shrink-0 text-muted-foreground" />
+                <div className="flex h-full min-w-0 w-full flex-1 cursor-default items-center gap-2 px-2 py-1.5">
+                  <Type className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate">{titleColumnName ?? t("databaseTable.title")}</span>
-                </>
+                </div>
               )}
               <span
-                className="absolute right-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-primary/60"
-                onPointerDown={(event) => startResize(event, "title")}
-              />
+                role="separator"
+                aria-orientation="vertical"
+                className="group/resizer absolute -right-1.5 top-0 z-30 flex h-full w-3 cursor-col-resize select-none items-center justify-center"
+                onPointerDown={(event) => {
+                  try {
+                    event.currentTarget.setPointerCapture(event.pointerId)
+                  } catch {
+                    // Ignore pointer capture errors in test/synthetic environments
+                  }
+                  startResize(event, "title")
+                }}
+                onPointerUp={(event) => {
+                  if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+                    event.currentTarget.releasePointerCapture(event.pointerId)
+                  }
+                }}
+              >
+                <span className="h-full w-px bg-slate-200 group-hover/resizer:w-1 group-hover/resizer:bg-primary dark:bg-border" />
+              </span>
             </div>
             {visibleProperties.map((property, propertyIndex) => {
               const frozen = hasFrozenColumns && propertyIndex <= frozenThroughIndex
@@ -504,8 +613,8 @@ export function TableView({
                   key={property.propertyId}
                   role="columnheader"
                   className={cn(
-                    "relative flex min-w-0 items-center gap-2 px-2 py-2",
-                    frozen && "sticky z-20 bg-white dark:bg-card",
+                    "relative flex h-full min-w-0 items-center bg-white p-0 dark:bg-card",
+                    frozen && "sticky z-20",
                   )}
                   style={
                     frozen ? { left: frozenLeftByProperty.get(property.propertyId) } : undefined
@@ -522,6 +631,17 @@ export function TableView({
                         setIcon(databasePropertyIconKey(databaseId, property.propertyId), icon)
                       }
                       onRename={(name) => onRenameProperty(property.propertyId, name)}
+                      onChangeType={
+                        onChangePropertyType
+                          ? (propertyType) =>
+                              onChangePropertyType(property.propertyId, propertyType)
+                          : undefined
+                      }
+                      onConfigureRelation={
+                        property.propertyType === "relation" && onConfigureRelation
+                          ? () => onConfigureRelation(property)
+                          : undefined
+                      }
                       filterValue={propertyFilters[property.propertyId] ?? ""}
                       sortDirection={
                         propertySort?.key === property.propertyId ? propertySort.direction : null
@@ -529,16 +649,23 @@ export function TableView({
                       isFrozen={frozenColumnKey === property.propertyId}
                       isWrapped={wrappedPropertyIds.has(property.propertyId)}
                       canWrap={property.propertyType === "text" || property.propertyType === "url"}
-                      onFilterChange={(value) =>
-                        setPropertyFilters((current) => {
-                          const next = { ...current }
-                          if (value.trim()) next[property.propertyId] = value
-                          else delete next[property.propertyId]
-                          return next
-                        })
+                      canFilter={
+                        property.propertyType === "text" || property.propertyType === "url"
                       }
-                      onSort={(direction) =>
-                        setPropertySort(direction ? { key: property.propertyId, direction } : null)
+                      onFilterChange={
+                        property.propertyType === "text" || property.propertyType === "url"
+                          ? (value) => updateFilterValue(property.propertyId, value)
+                          : undefined
+                      }
+                      onSort={
+                        ["text", "url", "number", "date", "checkbox", "select", "status"].includes(
+                          property.propertyType,
+                        )
+                          ? (direction) =>
+                              updateSortValue(
+                                direction ? { key: property.propertyId, direction } : null,
+                              )
+                          : undefined
                       }
                       onToggleFreeze={() =>
                         setFrozenColumnKey((current) =>
@@ -547,14 +674,8 @@ export function TableView({
                       }
                       onHide={() => {
                         setHiddenPropertyIds((current) => new Set(current).add(property.propertyId))
-                        setPropertyFilters((current) => {
-                          const next = { ...current }
-                          delete next[property.propertyId]
-                          return next
-                        })
-                        setPropertySort((current) =>
-                          current?.key === property.propertyId ? null : current,
-                        )
+                        updateFilterValue(property.propertyId, "")
+                        if (propertySort?.key === property.propertyId) updateSortValue(null)
                         setFrozenColumnKey((current) =>
                           current === property.propertyId ? null : current,
                         )
@@ -580,80 +701,154 @@ export function TableView({
                       }
                     />
                   ) : (
-                    <>
+                    <div className="flex h-full min-w-0 w-full flex-1 items-center gap-2 px-2 py-1.5">
                       <IconValue
                         value={
                           iconOverrides[databasePropertyIconKey(databaseId, property.propertyId)]
                         }
                         fallback={<PropertyIcon type={property.propertyType} />}
-                        className="size-3.5"
+                        className="size-3.5 shrink-0"
                       />
                       <span className="truncate">{property.name}</span>
-                    </>
+                    </div>
                   )}
                   <span
-                    className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/60"
-                    onPointerDown={(event) => startResize(event, property.propertyId)}
-                  />
+                    role="separator"
+                    aria-orientation="vertical"
+                    className="group/resizer absolute -right-1.5 top-0 z-30 flex h-full w-3 cursor-col-resize select-none items-center justify-center"
+                    onPointerDown={(event) => {
+                      try {
+                        event.currentTarget.setPointerCapture(event.pointerId)
+                      } catch {
+                        // Ignore pointer capture errors in test/synthetic environments
+                      }
+                      startResize(event, property.propertyId)
+                    }}
+                    onPointerUp={(event) => {
+                      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+                        event.currentTarget.releasePointerCapture(event.pointerId)
+                      }
+                    }}
+                  >
+                    <span className="h-full w-px bg-slate-200 group-hover/resizer:w-1 group-hover/resizer:bg-primary dark:bg-border" />
+                  </span>
                 </div>
               )
             })}
-            <div role="columnheader" className="flex items-center justify-center">
+            <div role="columnheader" className="flex items-center justify-center gap-0.5 px-1">
               <button
                 type="button"
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
                 title={t("databaseWorkspace.addProperty")}
                 aria-label={t("databaseWorkspace.addProperty")}
                 onClick={() => onAddProperty?.()}
               >
-                <Plus className="size-4" />
+                <Plus className="size-3.5" />
               </button>
-            </div>
-            <div role="columnheader" className="flex items-center justify-center">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                    title={t("databaseTable.columnActions")}
-                    aria-label={t("databaseTable.columnActions")}
+                    className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                    title={t("databaseWorkspace.propertyVisibility")}
+                    aria-label={t("databaseWorkspace.propertyVisibility")}
                   >
-                    <MoreHorizontal className="size-4" />
+                    <MoreHorizontal className="size-3.5" />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuItem disabled={!onAddProperty} onSelect={() => onAddProperty?.()}>
-                    <Plus className="size-4" />
-                    {t("databaseWorkspace.addProperty")}
-                  </DropdownMenuItem>
-                  {hiddenProperties.length > 0 && (
+                <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
+                  <div className="flex items-center justify-between px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                    <span>{t("databaseWorkspace.propertyVisibility")}</span>
+                    <span>
+                      {visibleProperties.length}/{properties.length}
+                    </span>
+                  </div>
+                  {properties.length > 1 && (
+                    <>
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault()
+                          setHiddenPropertyIds(new Set())
+                        }}
+                      >
+                        <Eye className="size-4" />
+                        {t("databaseWorkspace.showAllProperties")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault()
+                          setHiddenPropertyIds(new Set(properties.map((p) => p.propertyId)))
+                        }}
+                      >
+                        <EyeOff className="size-4" />
+                        {t("databaseWorkspace.hideAllProperties")}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  <DropdownMenuSeparator />
+                  {properties.map((property) => {
+                    const isVisible = !hiddenPropertyIds.has(property.propertyId)
+                    return (
+                      <DropdownMenuItem
+                        key={property.propertyId}
+                        onSelect={(e) => {
+                          e.preventDefault()
+                          setHiddenPropertyIds((current) => {
+                            const next = new Set(current)
+                            if (next.has(property.propertyId)) {
+                              next.delete(property.propertyId)
+                            } else {
+                              next.add(property.propertyId)
+                            }
+                            return next
+                          })
+                        }}
+                        className="flex items-center gap-2"
+                      >
+                        {isVisible ? (
+                          <Eye className="size-4 text-primary shrink-0" />
+                        ) : (
+                          <EyeOff className="size-4 text-muted-foreground shrink-0" />
+                        )}
+                        <span
+                          className={cn(
+                            "flex-1 truncate",
+                            !isVisible && "text-muted-foreground line-through opacity-75",
+                          )}
+                        >
+                          {property.name}
+                        </span>
+                      </DropdownMenuItem>
+                    )
+                  })}
+                  {onAddProperty && (
                     <>
                       <DropdownMenuSeparator />
-                      <DropdownMenuLabel>{t("databaseTable.hiddenProperties")}</DropdownMenuLabel>
-                      {hiddenProperties.map((property) => (
-                        <DropdownMenuCheckboxItem
-                          key={property.propertyId}
-                          checked={false}
-                          onCheckedChange={() =>
-                            setHiddenPropertyIds((current) => {
-                              const next = new Set(current)
-                              next.delete(property.propertyId)
-                              return next
-                            })
-                          }
-                        >
-                          <Eye className="size-4" />
-                          <span className="truncate">{property.name}</span>
-                        </DropdownMenuCheckboxItem>
-                      ))}
+                      <DropdownMenuItem onSelect={() => onAddProperty?.()}>
+                        <Plus className="size-4" />
+                        <span>{t("databaseWorkspace.addProperty")}</span>
+                      </DropdownMenuItem>
                     </>
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
           </div>
-          <div style={{ height: tableRows.length * rowHeight, position: "relative" }}>
-            <div style={{ position: "absolute", top: first * rowHeight, left: 0, right: 0 }}>
+          <div
+            style={{
+              height: tableRows.length * rowHeight,
+              position: "relative",
+              ...tableWidthStyle,
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                top: first * rowHeight,
+                left: 0,
+                ...tableWidthStyle,
+              }}
+            >
               {visibleRows.map((row, index) => (
                 <div
                   key={row.noteId}
@@ -661,17 +856,16 @@ export function TableView({
                   aria-rowindex={first + index + 2}
                   aria-selected={selectedNoteId === row.noteId}
                   className="grid border-b border-slate-200 text-sm dark:border-border/60"
-                  style={{ gridTemplateColumns, height: rowHeight }}
+                  style={{ gridTemplateColumns, height: rowHeight, ...tableWidthStyle }}
                 >
                   <motion.div
                     role="gridcell"
                     initial="rest"
                     whileHover="hover"
                     className={cn(
-                      "group relative flex items-center justify-start truncate border-r border-slate-200 bg-white px-2 py-2 pr-10 text-left font-medium hover:bg-slate-50 dark:border-border/60 dark:bg-background dark:hover:bg-accent/30",
+                      "group relative flex cursor-text items-center justify-start truncate border-r border-slate-200 bg-white px-2 py-2 text-left font-medium hover:bg-slate-50 dark:border-border/60 dark:bg-background dark:hover:bg-accent/30",
                       hasFrozenColumns && "sticky left-0 z-10",
                     )}
-                    style={{ paddingLeft: 8 + row.depth * 12 }}
                   >
                     <EditableRowTitle
                       value={row.title}
@@ -679,7 +873,7 @@ export function TableView({
                     />
                     <motion.button
                       type="button"
-                      className="absolute right-2 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-md bg-white/90 text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-background/90"
+                      className="absolute right-1 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-md bg-white/95 text-muted-foreground shadow-sm backdrop-blur-sm hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-background/95"
                       variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
                       whileFocus={{ opacity: 1 }}
                       transition={motionTransitions.fast}
@@ -697,10 +891,32 @@ export function TableView({
                   {visibleProperties.map((property, propertyIndex) => {
                     const cellKey = `${row.noteId}:${property.propertyId}`
                     const frozen = hasFrozenColumns && propertyIndex <= frozenThroughIndex
+                    const targetDbId =
+                      property.propertyType === "relation"
+                        ? (() => {
+                            try {
+                              return (
+                                (
+                                  JSON.parse(property.configJson) as {
+                                    targetDatabaseId?: string
+                                  }
+                                ).targetDatabaseId || ""
+                              )
+                            } catch {
+                              return ""
+                            }
+                          })()
+                        : ""
+                    const targetDbTitle = targetDbId
+                      ? databases?.find((d) => d.databaseId === targetDbId)?.title
+                      : undefined
+
                     return (
                       <div
-                        key={property.propertyId}
-                        role="gridcell"
+                        key={cellKey}
+                        data-cell-key={cellKey}
+                        data-row-id={row.noteId}
+                        data-property-id={property.propertyId}
                         className={cn(
                           "min-w-0 border-r border-slate-200 hover:bg-slate-50 dark:border-border/60 dark:hover:bg-accent/30",
                           frozen && "sticky z-10 bg-white dark:bg-background",
@@ -715,57 +931,64 @@ export function TableView({
                         <DatabaseCell
                           property={property}
                           valuesJson={row.valuesJson}
+                          relationOptions={relationOptionsByProperty[property.propertyId] ?? []}
                           wrap={wrappedPropertyIds.has(property.propertyId)}
                           pending={!onCellCommit || pendingCells.has(cellKey)}
                           error={cellErrors[cellKey]}
+                          targetDatabaseTitle={targetDbTitle}
                           onCommit={(valueJson) =>
                             onCellCommit?.(row, property, valueJson) ?? Promise.resolve()
+                          }
+                          onOpenNote={onOpenNote}
+                          onCreateRelationRow={
+                            onCreateRelationRow && targetDbId
+                              ? (title) => onCreateRelationRow(targetDbId, title)
+                              : undefined
                           }
                         />
                       </div>
                     )
                   })}
                   <div aria-hidden="true" />
-                  <div aria-hidden="true" />
                 </div>
               ))}
             </div>
           </div>
+          {onCreateRow && (
+            <div className="flex items-center px-2 py-1.5" style={tableWidthStyle}>
+              <button
+                type="button"
+                className="sticky left-2 z-10 inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-accent/50"
+                onClick={onCreateRow}
+              >
+                <Plus className="size-3.5" />
+                <span>{newPageLabel ?? t("databaseWorkspace.newPage")}</span>
+              </button>
+            </div>
+          )}
+          {loading && (
+            <div className="sticky left-0 flex items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
+              <MotionSpinner>
+                <Loader2 className="size-4" />
+              </MotionSpinner>
+              {t("databaseTable.loading")}
+            </div>
+          )}
+          {error && (
+            <div
+              role="alert"
+              className="sticky left-0 flex items-center justify-center gap-2 border-t border-border px-4 py-3 text-xs text-destructive"
+            >
+              <AlertTriangle className="size-4" />
+              <span>{error}</span>
+              <Button variant="ghost" size="sm" onClick={onRetry}>
+                <RotateCcw className="size-3.5" />
+                {t("databaseTable.retry")}
+              </Button>
+            </div>
+          )}
         </div>
       </div>
-      {onCreateRow && (
-        <div className="shrink-0 bg-white px-3 py-2 dark:bg-card">
-          <button
-            type="button"
-            className="inline-flex h-9 items-center gap-2 rounded-md px-2 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
-            onClick={onCreateRow}
-          >
-            <Plus className="size-3.5" />
-            {newPageLabel ?? t("databaseWorkspace.newPage")}
-          </button>
-        </div>
-      )}
-      {loading && (
-        <div className="flex shrink-0 items-center justify-center gap-2 py-3 text-xs text-muted-foreground">
-          <MotionSpinner>
-            <Loader2 className="size-4" />
-          </MotionSpinner>
-          {t("databaseTable.loading")}
-        </div>
-      )}
-      {error && (
-        <div
-          role="alert"
-          className="flex shrink-0 items-center justify-center gap-2 border-t border-border px-4 py-3 text-xs text-destructive"
-        >
-          <AlertTriangle className="size-4" />
-          <span>{error}</span>
-          <Button variant="ghost" size="sm" onClick={onRetry}>
-            <RotateCcw className="size-3.5" />
-            {t("databaseTable.retry")}
-          </Button>
-        </div>
-      )}
     </div>
   )
 }
@@ -776,8 +999,11 @@ export function PropertyHeaderMenu({
   iconValue,
   onIconChange,
   onRename,
+  onChangeType,
+  onConfigureRelation,
   filterValue = "",
   sortDirection = null,
+  canFilter = true,
   isFrozen = false,
   isWrapped = false,
   canWrap = false,
@@ -795,11 +1021,15 @@ export function PropertyHeaderMenu({
   iconValue?: string
   onIconChange?: (icon: string) => Promise<void> | void
   onRename: (name: string) => Promise<void> | void
+  onChangeType?: (propertyType: string) => Promise<void> | void
+  onConfigureRelation?: () => void
   filterValue?: string
   sortDirection?: "asc" | "desc" | null
+  canFilter?: boolean
   isFrozen?: boolean
   isWrapped?: boolean
   canWrap?: boolean
+  cursorText?: boolean
   onFilterChange?: (value: string) => void
   onSort?: (direction: "asc" | "desc" | null) => void
   onToggleFreeze?: () => void
@@ -859,15 +1089,19 @@ export function PropertyHeaderMenu({
       open={open}
       onOpenChange={(nextOpen) => {
         setOpen(nextOpen)
-        if (nextOpen) setDraft(property.name)
-        else setFilterEditorOpen(Boolean(filterValue))
+        if (nextOpen) {
+          setDraft(property.name)
+          focusName()
+        } else {
+          setFilterEditorOpen(Boolean(filterValue))
+        }
       }}
     >
       <DropdownMenuTrigger asChild>
         {trigger ?? (
           <button
             type="button"
-            className="flex min-w-0 items-center justify-start gap-2 rounded py-0.5 text-left text-xs font-medium text-muted-foreground hover:text-foreground"
+            className="flex h-full min-w-0 w-full flex-1 cursor-pointer items-center justify-start gap-2 rounded px-2 py-1.5 text-left text-xs font-medium text-muted-foreground hover:bg-slate-100 hover:text-foreground dark:hover:bg-accent/40"
             title={property.name}
             aria-label={property.name}
             onClick={(event) => event.stopPropagation()}
@@ -875,7 +1109,7 @@ export function PropertyHeaderMenu({
             <IconValue
               value={iconValue}
               fallback={<PropertyIcon type={property.propertyType} />}
-              className="size-3.5"
+              className="size-3.5 shrink-0"
             />
             <span className="truncate">{property.name}</span>
           </button>
@@ -955,28 +1189,52 @@ export function PropertyHeaderMenu({
           </div>
         </div>
 
-        <PropertyMenuItem
-          icon={<SlidersHorizontal />}
-          label={t("databaseTable.editProperty")}
-          chevron
-          onSelect={(event) => {
-            event.preventDefault()
-            focusName()
-          }}
-        />
-        <PropertyMenuItem
-          icon={<Repeat2 />}
-          label={t("databaseTable.changeType")}
-          chevron
-          disabled
-        />
-        <PropertyMenuItem
-          icon={<Sparkles />}
-          label={t("databaseTable.aiAutofill")}
-          badge={t("databaseTable.aiAutofillBadge")}
-          chevron
-          disabled
-        />
+        {onChangeType && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="h-9 gap-2.5 rounded-lg px-2 text-sm">
+              <Repeat2 />
+              <span className="truncate">{t("databaseTable.changeType")}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-56 rounded-xl p-1.5">
+              {[
+                "text",
+                "number",
+                "checkbox",
+                "date",
+                "url",
+                "select",
+                "multiSelect",
+                "status",
+                "formula",
+                "relation",
+              ].map((propertyType) => (
+                <DropdownMenuItem
+                  key={propertyType}
+                  disabled={propertyType === property.propertyType || busy}
+                  className="h-9 rounded-lg"
+                  onSelect={() => void onChangeType(propertyType)}
+                >
+                  <PropertyIcon type={propertyType} />
+                  <span className="flex-1 truncate">
+                    {t(`databaseWorkspace.propertyTypes.${propertyType}`)}
+                  </span>
+                  {propertyType === property.propertyType && <Check className="size-4" />}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+
+        {onConfigureRelation && (
+          <PropertyMenuItem
+            icon={<ArrowUpRight />}
+            label={t("databaseTable.configureRelation")}
+            onSelect={() => {
+              setOpen(false)
+              onConfigureRelation()
+            }}
+          />
+        )}
 
         <DropdownMenuSeparator className="my-1.5" />
 
@@ -984,7 +1242,7 @@ export function PropertyHeaderMenu({
           icon={<ListFilter />}
           label={t("databaseTable.filterProperty")}
           active={Boolean(filterValue)}
-          disabled={!onFilterChange}
+          disabled={!onFilterChange || !canFilter}
           onSelect={(event) => {
             event.preventDefault()
             setFilterEditorOpen(true)
@@ -1056,13 +1314,6 @@ export function PropertyHeaderMenu({
             </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
-        <PropertyMenuItem icon={<Group />} label={t("databaseTable.groupProperty")} disabled />
-        <PropertyMenuItem
-          icon={<Sigma />}
-          label={t("databaseTable.calculateProperty")}
-          chevron
-          disabled
-        />
         <PropertyMenuItem
           icon={isFrozen ? <PinOff /> : <Pin />}
           label={isFrozen ? t("databaseTable.unfreezeProperty") : t("databaseTable.freezeProperty")}
@@ -1192,7 +1443,7 @@ function EditableRowTitle({
       value={draft}
       readOnly={!editing || busy}
       aria-label={value}
-      className="h-8 min-w-0 w-full truncate bg-transparent p-0 text-left text-sm font-medium text-foreground outline-none"
+      className="h-8 min-w-0 w-full cursor-text truncate bg-transparent p-0 text-left text-sm font-medium text-foreground outline-none"
       onFocus={() => {
         if (!busy && onCommit) setEditing(true)
       }}

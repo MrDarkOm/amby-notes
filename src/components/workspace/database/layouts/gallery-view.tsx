@@ -46,20 +46,38 @@ export function GalleryView({
     overscan: 4,
   })
 
+  const nextPagePendingRef = React.useRef(false)
+  const lastPageTriggerRef = React.useRef(0)
+
+  React.useEffect(() => {
+    if (!loading) nextPagePendingRef.current = false
+  }, [loading])
+
   function handleScroll() {
     const element = parentRef.current
+    const now = Date.now()
     if (
       element &&
       hasNextPage &&
       !loading &&
-      element.scrollTop + element.clientHeight >= element.scrollHeight - 360
+      !nextPagePendingRef.current &&
+      now - lastPageTriggerRef.current >= 350 &&
+      element.scrollHeight > element.clientHeight &&
+      element.scrollTop > 0 &&
+      element.scrollTop + element.clientHeight >= element.scrollHeight - 240
     ) {
+      nextPagePendingRef.current = true
+      lastPageTriggerRef.current = now
       onLoadNextPage?.()
     }
   }
 
   return (
-    <div ref={parentRef} className="min-h-0 flex-1 overflow-auto p-4" onScroll={handleScroll}>
+    <div
+      ref={parentRef}
+      className="min-h-0 min-w-0 flex-1 overflow-auto p-4"
+      onScroll={handleScroll}
+    >
       <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const start = virtualRow.index * columnCount

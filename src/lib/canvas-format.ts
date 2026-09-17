@@ -110,6 +110,8 @@ export function serializeCanvas(file: CanvasFile): string {
   return JSON.stringify(file, null, 2) + "\n"
 }
 
+export const CANONICAL_EMPTY_CANVAS = '{\n  "nodes": [],\n  "edges": []\n}\n'
+
 /**
  * Accept only the part of the JSON Canvas format we can persist losslessly and
  * return its canonical serialized form. Unlike parseCanvas this is deliberately
@@ -126,6 +128,9 @@ export function validateAndSerializeCanvas(json: string): string {
     throw new Error("Canvas content must be a JSON object")
   }
   const file = data as Partial<CanvasFile> & Record<string, unknown>
+  if (Object.keys(file).length === 0) {
+    return serializeCanvas({ nodes: [], edges: [] })
+  }
   if (!Array.isArray(file.nodes) || !Array.isArray(file.edges)) {
     throw new Error("Canvas content must contain nodes and edges arrays")
   }
@@ -139,8 +144,9 @@ export function validateAndSerializeCanvas(json: string): string {
 
 let counter = 0
 export function newCanvasId(): string {
-  counter += 1
-  return `${Date.now().toString(16)}${counter.toString(16).padStart(3, "0")}`
+  counter = (counter + 1) & 0xffff
+  const rand = Math.random().toString(16).slice(2, 6)
+  return `${Date.now().toString(16)}${counter.toString(16).padStart(4, "0")}${rand}`
 }
 
 // ── Obsidian → XyFlow ─────────────────────────────────────────────────────────

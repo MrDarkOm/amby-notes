@@ -49,7 +49,19 @@ pub fn load_vault(
             loaded
         },
     )?;
-    runtime.reset_for_generation(Some(loaded.generation));
+    let active = context.conn.lock().unwrap();
+    if let Some(active) = active.as_ref() {
+        if let Ok(Some(projection)) =
+            crate::database::projection::cached_projection_version(&active.connection, &active.root)
+        {
+            runtime.set_enabled(loaded.generation, true);
+            runtime.set_projection(loaded.generation, Some(projection));
+        } else {
+            runtime.reset_for_generation(Some(loaded.generation));
+        }
+    } else {
+        runtime.reset_for_generation(Some(loaded.generation));
+    }
     Ok(loaded)
 }
 
@@ -65,7 +77,35 @@ pub fn load_active_vault(
     let active = context.conn.lock().unwrap();
     let active = active.as_ref().ok_or("No vault open")?;
     let loaded = active.refresh()?;
-    runtime.reset_for_generation(Some(loaded.generation));
+    if let Ok(Some(projection)) =
+        crate::database::projection::cached_projection_version(&active.connection, &active.root)
+    {
+        runtime.set_enabled(loaded.generation, true);
+        runtime.set_projection(loaded.generation, Some(projection));
+    } else {
+        runtime.reset_for_generation(Some(loaded.generation));
+    }
+    Ok(loaded)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn reindex_vault(
+    context: tauri::State<'_, vault_context::VaultContext>,
+    runtime: tauri::State<'_, crate::database::runtime_state::DatabaseRuntimeState>,
+) -> Result<vault_index::LoadVaultResult, String> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let active = context.conn.lock().unwrap();
+    let active = active.as_ref().ok_or("No vault open")?;
+    let loaded = active.reindex()?;
+    if let Ok(Some(projection)) =
+        crate::database::projection::cached_projection_version(&active.connection, &active.root)
+    {
+        runtime.set_enabled(loaded.generation, true);
+        runtime.set_projection(loaded.generation, Some(projection));
+    } else {
+        runtime.reset_for_generation(Some(loaded.generation));
+    }
     Ok(loaded)
 }
 

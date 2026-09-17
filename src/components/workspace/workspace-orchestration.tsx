@@ -13,19 +13,20 @@ import { ResizeHandle } from "./resize-handle"
 const GraphTabView = React.lazy(() =>
   import("./graph-tab-view").then((m) => ({ default: m.GraphTabView })),
 )
-const CanvasEditor = React.lazy(() =>
-  import("./canvas-editor").then((m) => ({ default: m.CanvasEditor })),
-)
 // The rich-text/source editor pulls in Tiptap, CodeMirror, and emoji-mart.
 // Keep those libraries out of the startup path until a document is rendered.
 const DocumentEditor = React.lazy(() =>
   import("./document-editor").then((m) => ({ default: m.DocumentEditor })),
 )
 const MemoizedDocumentEditor = React.memo(DocumentEditor)
+
+import { CANONICAL_EMPTY_CANVAS } from "@/lib/canvas-format"
+import { defaultSketchJson } from "@/lib/sketch-format"
+
 import type { ActionContext, PanelRenderProps } from "./panel-registry"
 import { buttonsForSide } from "./panel-definitions"
 import { usePresets } from "./use-presets"
-import { useDocStore } from "./use-doc-store"
+import { useDocStore, type Document } from "./use-doc-store"
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { useVaultStore } from "./use-vault-store"
 import type { DocumentEditorProps, DocumentViewMode } from "./document-editor"
@@ -34,25 +35,48 @@ import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
 import { SearchModal } from "./search-modal"
 import { SettingsDialog } from "./settings-dialog"
+import { HelpModal, type HelpContext } from "./help-modal"
+import {
+  exportDatabaseCsv,
+  exportDatabaseSqlite,
+  exportActiveLayerImage,
+} from "./editor/layer-export"
 import type { SettingsNavigationTarget } from "./settings-navigation"
 import { useSettingsStore } from "./use-settings-store"
 import { findWikiLinkItem } from "./wiki-links"
-import { applyTreePatch, planMutation } from "./workspace-mutations"
-import { useViewStateStore, type EditorLayer } from "./use-view-state-store"
+import { applyTreePatch, filterDeletedTabs, planMutation } from "./workspace-mutations"
+import {
+  useViewStateStore,
+  type EditorLayer,
+  getLayerViewMode,
+  isLayerLocked,
+} from "./use-view-state-store"
 import { useVaultData } from "./use-vault-data"
 import { useFileActions } from "./use-file-actions"
 import { useSidebarLayout } from "./use-sidebar-layout"
 import { useLayers } from "./use-layers"
 import { useTabActions } from "./use-tab-actions"
 import { canRenderSplit } from "./document-buffer-lifecycle"
-import { wsPathStem, canvasLayerPath, newTabKey } from "./workspace-tree-utils"
-import { recordLocalTreeMutation } from "./watcher-tree-reconciliation"
+import {
+  wsPathStem,
+  canvasLayerPath,
+  sketchLayerPath,
+  newTabKey,
+  formatModified,
+} from "./workspace-tree-utils"
+import {
+  recordLocalTreeMutation,
+  watcherChangeAffectsDocument,
+} from "./watcher-tree-reconciliation"
+import { flushAutosaveGeneration } from "./autosave/autosave-lifecycle"
+import { errorType, logger } from "@/lib/logger"
 import { WorkspacePicker } from "./workspace-picker"
 import { FolderView } from "./folder-view"
 import type { TreeItem } from "./sidebar-tree"
 import { DatabaseWorkspace } from "./database/database-workspace"
 import { useDatabaseController } from "./database/use-database-controller"
 import { useDatabaseStore } from "./database/database-store"
+import type { DatabaseSummary } from "@/lib/storage/database-types"
 import { discardRecoveryDraft, remapRecoveryDraft } from "@/lib/recovery-drafts"
 import {
   isTauri,
@@ -63,9 +87,11 @@ import {
   openInExplorer,
   exportTextFile,
   importTextFile,
+  rebuildDatabaseProjection,
   type FsMutationResult,
 } from "@/lib/storage"
 import { useCanvasWorkspace } from "./orchestration/use-canvas-workspace"
+import { useSketchWorkspace } from "./orchestration/use-sketch-workspace"
 import { usePropertyActions } from "./orchestration/use-property-actions"
 import { useVaultActions } from "./orchestration/use-vault-actions"
 import { WorkspaceLayout } from "./workspace-layout"
@@ -108,27 +134,6 @@ interface CachedDocumentEditorProps {
   onFocusCloseAllTabs?: () => void
   onToggleFocusMode: () => void
 }
-
-interface CachedTabContentProps {
-  content: React.ReactElement
-  visible: boolean
-  signature: readonly unknown[]
-}
-
-/** Keep a heavy non-document tab mounted and reuse its last visible render. */
-const CachedTabContent = React.memo(
-  function CachedTabContent({ content }: CachedTabContentProps) {
-    return content
-  },
-  (previous, next) => {
-    if (!next.visible) return true
-    if (!previous.visible) return false
-    return (
-      previous.signature.length === next.signature.length &&
-      previous.signature.every((value, index) => value === next.signature[index])
-    )
-  },
-)
 
 /**
  * Hidden tabs keep their editor state, but should not rerender when unrelated
@@ -227,6 +232,26 @@ const CachedDocumentEditor = React.memo(
   },
 )
 
+function createFallbackDocument(
+  fileId: string,
+  title: string,
+  path: string,
+  created?: number | string,
+  modified?: number | string,
+): Document {
+  return {
+    id: fileId,
+    title,
+    content: "",
+    created: typeof created === "number" ? formatModified(created) : (created ?? ""),
+    modified: typeof modified === "number" ? formatModified(modified) : (modified ?? ""),
+    wordCount: 0,
+    path,
+    revision: "",
+    source: "",
+  }
+}
+
 const ConnectedCachedDocumentEditor = React.memo(function ConnectedCachedDocumentEditor({
   editorProps,
   ...props
@@ -236,7 +261,7 @@ const ConnectedCachedDocumentEditor = React.memo(function ConnectedCachedDocumen
     documentId ? (state.openDocs[documentId] ?? null) : null,
   )
   const connectedProps = React.useMemo(
-    () => ({ ...editorProps, document }),
+    () => ({ ...editorProps, document: document ?? editorProps.document }),
     [document, editorProps],
   )
   return <CachedDocumentEditor editorProps={connectedProps} {...props} />
@@ -255,6 +280,44 @@ export function WorkspaceOrchestration() {
   const { setVaults } = useVaultStore.getState()
 
   const {
+    autosave: canvasAutosave,
+    autosaveKey: canvasAutosaveKey,
+    handleCanvasSave,
+    loadCanvasBuffer,
+    openCanvases,
+    reloadExternalCanvas,
+    setOpenCanvases,
+  } = useCanvasWorkspace(autosaveGeneration, t, recoveryScope)
+
+  const {
+    autosave: sketchAutosave,
+    autosaveKey: sketchAutosaveKey,
+    handleSketchSave,
+    loadSketchBuffer,
+    openSketches,
+    reloadExternalSketch,
+    setOpenSketches,
+  } = useSketchWorkspace(autosaveGeneration, t, recoveryScope)
+
+  const onExternalChange = React.useCallback(
+    async (changes: Array<{ kind: string; path: string }>) => {
+      for (const change of changes) {
+        for (const canvasPath of Object.keys(openCanvases)) {
+          if (watcherChangeAffectsDocument(canvasPath, change.path, vault)) {
+            await reloadExternalCanvas(canvasPath)
+          }
+        }
+        for (const sketchPath of Object.keys(openSketches)) {
+          if (watcherChangeAffectsDocument(sketchPath, change.path, vault)) {
+            await reloadExternalSketch(sketchPath)
+          }
+        }
+      }
+    },
+    [openCanvases, openSketches, reloadExternalCanvas, reloadExternalSketch, vault],
+  )
+
+  const {
     treeItems,
     setTreeItems,
     displayTreeItems,
@@ -263,7 +326,7 @@ export function WorkspaceOrchestration() {
     refreshTree,
     reloadVaultData,
     windowLabel,
-  } = useVaultData()
+  } = useVaultData({ onExternalChange })
 
   // Action is stable in zustand, so read it once without subscribing.
   const { applyMutation, patchDoc, markSaved, clearExternalConflict } = useDocStore.getState()
@@ -274,9 +337,19 @@ export function WorkspaceOrchestration() {
   // Subscribe only to whether the active document has been loaded. The editor
   // owns content updates; this small subscription fixes the startup race
   // without rerendering the whole workspace on every keystroke.
-  const activeDocumentLoaded = useDocStore((state) =>
-    activeTab ? Boolean(state.openDocs[activeTab.fileId]) : false,
-  )
+  const activeDocumentLoaded = useDocStore((state) => {
+    if (!activeTab) return false
+    if (
+      activeTab.kind === "canvas" ||
+      activeTab.kind === "sketch" ||
+      activeTab.kind === "database" ||
+      activeTab.fileId.endsWith(".canvas") ||
+      activeTab.fileId.endsWith(".excalidraw")
+    ) {
+      return true
+    }
+    return Boolean(state.openDocs[activeTab.fileId])
+  })
   // Document buffers are read imperatively here. Visible editors subscribe to
   // their own document below, so patchDoc cannot rerender the whole workspace.
   const openDocs = useDocStore.getState().openDocs
@@ -300,6 +373,21 @@ export function WorkspaceOrchestration() {
   const iconOverrides = useViewStateStore((s) => s.iconOverrides)
   const activeLayers = useViewStateStore((s) => s.activeLayers)
   const linkedLayersByDoc = useViewStateStore((s) => s.linkedLayersByDoc)
+
+  const currentHelpContext: HelpContext = React.useMemo(() => {
+    if (!activeTab) return "workspace"
+    if (activeTab.kind === "canvas") return "canvas"
+    if (activeTab.kind === "sketch") return "sketch"
+    if (activeTab.kind === "database") return "database"
+    if (activeTab.kind === "document") {
+      const layer = activeLayers[activeTab.fileId] ?? "editor"
+      if (layer === "canvas") return "canvas"
+      if (layer === "sketch") return "sketch"
+      if (layer === "database") return "database"
+      return "note"
+    }
+    return "workspace"
+  }, [activeTab, activeLayers])
   // Stable store actions (never change reference).
   const {
     toggleFavorite,
@@ -319,6 +407,7 @@ export function WorkspaceOrchestration() {
 
   const [quickOpenMode, setQuickOpenMode] = React.useState<"current" | "new" | null>(null)
   const [searchOpen, setSearchOpen] = React.useState(false)
+  const [isHelpOpen, setIsHelpOpen] = React.useState(false)
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [settingsTarget, setSettingsTarget] = React.useState<SettingsNavigationTarget | null>(null)
   const defaultViewMode = useSettingsStore((s) => s.prefs.editor.defaultViewMode)
@@ -397,17 +486,9 @@ export function WorkspaceOrchestration() {
     }
   }
 
-  const {
-    autosave: canvasAutosave,
-    autosaveKey: canvasAutosaveKey,
-    handleCanvasSave,
-    loadCanvasBuffer,
-    openCanvases,
-    setOpenCanvases,
-  } = useCanvasWorkspace(autosaveGeneration, t, recoveryScope)
-
   const selectedId =
-    activeTab && (activeTab.kind === "document" || activeTab.kind === "folder")
+    activeTab &&
+    (activeTab.kind === "document" || activeTab.kind === "folder" || activeTab.kind === "database")
       ? activeTab.fileId
       : ""
   const canGoBack = (activeTab?.historyIndex ?? 0) > 0
@@ -453,11 +534,63 @@ export function WorkspaceOrchestration() {
     }
   }
 
+  async function loadSketch(path: string) {
+    if (openSketches[path] === undefined) {
+      const content = await loadSketchBuffer(path)
+      setOpenSketches((p) => (p[path] !== undefined ? p : { ...p, [path]: content }))
+    }
+  }
+
   async function refreshVault() {
     try {
+      await flushAutosaveGeneration(useVaultStore.getState().generation)
+    } catch (e) {
+      logger.warn("refresh_vault.flush_failed", { errorType: errorType(e) })
+    }
+
+    try {
       await reloadVaultData()
-    } catch {
-      /* ignore */
+
+      const currentDocs = useDocStore.getState().openDocs
+      const unsavedIds = useDocStore.getState().unsavedFileIds
+      for (const [id, doc] of Object.entries(currentDocs)) {
+        if (!unsavedIds.has(id)) {
+          try {
+            if (vault && !doc.path.endsWith(".canvas") && !doc.path.endsWith(".excalidraw")) {
+              const note = await readNote(vault, id)
+              useDocStore.getState().patchDoc(id, {
+                content: note.content,
+                revision: note.revision,
+                source: note.source,
+              })
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      for (const path of Object.keys(openCanvases)) {
+        await reloadExternalCanvas(path)
+      }
+
+      for (const path of Object.keys(openSketches)) {
+        await reloadExternalSketch(path)
+      }
+
+      if (databasesEnabled) {
+        try {
+          await rebuildDatabaseProjection()
+          if (refreshDatabaseCatalog) {
+            await refreshDatabaseCatalog()
+          }
+          useDatabaseStore.getState().invalidateHosts()
+        } catch (e) {
+          logger.warn("refresh_vault.database_sync_failed", { errorType: errorType(e) })
+        }
+      }
+    } catch (error) {
+      logger.error("refresh_vault.failed", { errorType: errorType(error) })
     }
   }
 
@@ -466,6 +599,7 @@ export function WorkspaceOrchestration() {
     refreshVault,
     openSearch: () => setSearchOpen(true),
     openSettings,
+    openHelp: () => setIsHelpOpen(true),
   }
 
   const activityBarPresetProps = {
@@ -531,6 +665,7 @@ export function WorkspaceOrchestration() {
     const visit = (items: TreeItem[]) => {
       for (const item of items) {
         result.set(item.id, item)
+        if (item.path) result.set(item.path, item)
         if (item.children) visit(item.children)
       }
     }
@@ -596,14 +731,27 @@ export function WorkspaceOrchestration() {
       return next
     })
 
+    const deletedSketchPaths = new Set(result.deletedPaths)
+    setOpenSketches((previous) => {
+      const next: Record<string, string> = {}
+      for (const [path, json] of Object.entries(previous)) {
+        if (deletedSketchPaths.has(path)) {
+          sketchAutosave.discard(sketchAutosaveKey(path))
+          void discardRecoveryDraft(path, recoveryScope)
+          continue
+        }
+        const nextPath = remapFn(path)
+        if (nextPath !== path) {
+          sketchAutosave.remapKey(sketchAutosaveKey(path), sketchAutosaveKey(nextPath))
+          void remapRecoveryDraft(path, nextPath, "sketch", nextPath, recoveryScope)
+        }
+        next[nextPath] = json
+      }
+      return next
+    })
+
     setTabs((prev) => {
-      const next = prev
-        .filter((tab) => !deleted.has(tab.fileId) && !deletedCanvasPaths.has(tab.fileId))
-        .map((tab) => ({
-          ...tab,
-          fileId: tab.kind === "canvas" ? remapFn(tab.fileId) : tab.fileId,
-          history: tab.history.filter((path) => !deleted.has(path)).map((path) => path),
-        }))
+      const next = filterDeletedTabs(prev, deletedIds, openDocs, remapFn)
       if (next.length !== prev.length && activeTabKey) {
         const stillExists = next.find((tab) => tab.key === activeTabKey)
         if (!stillExists) setActiveTabKey(next[next.length - 1]?.key ?? "")
@@ -612,33 +760,113 @@ export function WorkspaceOrchestration() {
     })
   }
 
-  const currentDoc = activeDocumentLoaded && activeTab ? (openDocs[activeTab.fileId] ?? null) : null
+  const currentDoc = React.useMemo(() => {
+    if (!activeTab) return null
+    const existing = openDocs[activeTab.fileId] ?? null
+    if (existing) return existing
+    const isSpecialDoc =
+      activeTab.kind === "canvas" ||
+      activeTab.kind === "sketch" ||
+      activeTab.kind === "database" ||
+      activeTab.fileId.endsWith(".canvas") ||
+      activeTab.fileId.endsWith(".excalidraw")
+    if (isSpecialDoc) {
+      const treeItem = treeItemById.get(activeTab.fileId)
+      return createFallbackDocument(
+        activeTab.fileId,
+        activeTab.title,
+        treeItem?.path ?? activeTab.fileId,
+        treeItem?.created,
+        treeItem?.modified,
+      )
+    }
+    return activeDocumentLoaded ? (openDocs[activeTab.fileId] ?? null) : null
+  }, [activeDocumentLoaded, activeTab, openDocs, treeItemById])
   const currentDocId = currentDoc?.id ?? null
   const currentDocPath = currentDoc?.path ?? null
+  const currentDocDefaultLayer: EditorLayer =
+    activeTab?.kind === "canvas" || currentDocPath?.endsWith(".canvas")
+      ? "canvas"
+      : activeTab?.kind === "sketch" || currentDocPath?.endsWith(".excalidraw")
+        ? "sketch"
+        : activeTab?.kind === "database"
+          ? "database"
+          : "editor"
+
+  React.useEffect(() => {
+    if (!activeTab) return
+    const isSpecialDoc =
+      activeTab.kind === "canvas" ||
+      activeTab.kind === "sketch" ||
+      activeTab.kind === "database" ||
+      activeTab.fileId.endsWith(".canvas") ||
+      activeTab.fileId.endsWith(".excalidraw")
+    if (!isSpecialDoc) return
+    const docId = activeTab.fileId
+    const existing = useDocStore.getState().openDocs[docId]
+    if (!existing) {
+      const treeItem = treeItemById.get(docId)
+      const path = treeItem?.path ?? docId
+      const docObj = createFallbackDocument(
+        docId,
+        activeTab.title,
+        path,
+        treeItem?.created,
+        treeItem?.modified,
+      )
+      useDocStore.getState().setDoc(docId, docObj)
+      if (path && path !== docId) {
+        useDocStore.getState().setDoc(path, docObj)
+      }
+      const defaultLayer: EditorLayer =
+        activeTab.kind === "canvas" || path.endsWith(".canvas")
+          ? "canvas"
+          : activeTab.kind === "sketch" || path.endsWith(".excalidraw")
+            ? "sketch"
+            : activeTab.kind === "database"
+              ? "database"
+              : "editor"
+      if (!useViewStateStore.getState().activeLayers[docId]) {
+        useViewStateStore.getState().setActiveLayer(docId, defaultLayer)
+      }
+    }
+  }, [activeTab, treeItemById])
 
   const handleRestoreDeleted = React.useCallback(
     async (fileId: string) => {
       if (!vault) return
       const document = useDocStore.getState().openDocs[fileId]
       if (!document?.externallyDeleted) return
-      const conflict = useDocStore.getState().externalConflicts[fileId]
-      const outcome = await restoreDeletedNote(
-        vault,
-        fileId,
-        document.path,
-        document.content,
-        conflict?.sourceTemplate ?? document.source,
-        backendGeneration,
-        windowLabel,
-      )
-      patchDoc(fileId, {
-        revision: outcome.revision,
-        source: conflict?.sourceTemplate ?? document.source,
-        externallyDeleted: false,
-      })
-      markSaved(fileId)
-      clearExternalConflict(fileId)
-      await refreshTree(vault)
+      if (
+        fileId.startsWith("database:") ||
+        fileId.endsWith(".canvas") ||
+        fileId.endsWith(".excalidraw")
+      ) {
+        return
+      }
+      try {
+        const conflict = useDocStore.getState().externalConflicts[fileId]
+        const outcome = await restoreDeletedNote(
+          vault,
+          fileId,
+          document.path,
+          document.content,
+          conflict?.sourceTemplate ?? document.source,
+          backendGeneration,
+          windowLabel,
+        )
+        patchDoc(fileId, {
+          revision: outcome.revision,
+          source: conflict?.sourceTemplate ?? document.source,
+          externallyDeleted: false,
+        })
+        markSaved(fileId)
+        clearExternalConflict(fileId)
+        await refreshTree(vault)
+      } catch (error) {
+        logger.warn("document.restore_deleted_failed", { errorType: errorType(error) })
+        throw error
+      }
     },
     [
       backendGeneration,
@@ -682,6 +910,8 @@ export function WorkspaceOrchestration() {
     handleNewFolderIn,
     handleNewCanvasIn,
     handleAttachCanvasToNote,
+    handleNewSketchIn,
+    handleAttachSketchToNote,
     handleMoveItem,
     handleMergeFile,
     handleContentChange,
@@ -698,10 +928,13 @@ export function WorkspaceOrchestration() {
     applyMutationResult,
     loadCanvas,
     setOpenCanvases,
+    loadSketch,
+    setOpenSketches,
     setPendingRenameId,
     autosaveGeneration,
     backendGeneration,
     windowLabel,
+    refreshDatabaseCatalog,
   })
 
   const handleRenameDatabaseRow = React.useCallback(
@@ -790,13 +1023,47 @@ export function WorkspaceOrchestration() {
 
   const handleViewModeChange = (mode: DocumentViewMode) => {
     if (!currentDoc) return
-    setViewMode(currentDoc.id, mode)
+    const activeLayer = activeLayers[currentDoc.id] ?? "editor"
+    const key = `${currentDoc.id}:${activeLayer}`
+    setViewMode(key, mode)
+    if (activeLayer === "editor") setViewMode(currentDoc.id, mode)
+    if (mode === "read") {
+      if (!lockedFileIds.has(key)) toggleLock(key)
+      if (activeLayer === "editor" && !lockedFileIds.has(currentDoc.id)) toggleLock(currentDoc.id)
+    } else {
+      if (lockedFileIds.has(key)) toggleLock(key)
+      if (activeLayer === "editor" && lockedFileIds.has(currentDoc.id)) toggleLock(currentDoc.id)
+    }
   }
 
-  const handleToggleLock = () => {
+  const handleToggleLayerLock = React.useCallback((docId: string, layer: EditorLayer) => {
+    const key = `${docId}:${layer}`
+    const isCurrentlyLocked = isLayerLocked(
+      useViewStateStore.getState().lockedFileIds,
+      useViewStateStore.getState().viewModes,
+      docId,
+      layer,
+    )
+    const { toggleLock, setViewMode } = useViewStateStore.getState()
+    const currentLocked = useViewStateStore.getState().lockedFileIds
+    if (isCurrentlyLocked) {
+      if (currentLocked.has(key)) toggleLock(key)
+      if (currentLocked.has(docId)) toggleLock(docId)
+      setViewMode(key, "live")
+      if (layer === "editor") setViewMode(docId, "live")
+    } else {
+      if (!currentLocked.has(key)) toggleLock(key)
+      if (layer === "editor" && !currentLocked.has(docId)) toggleLock(docId)
+      setViewMode(key, "read")
+      if (layer === "editor") setViewMode(docId, "read")
+    }
+  }, [])
+
+  const handleToggleLock = React.useCallback(() => {
     if (!currentDoc) return
-    toggleLock(currentDoc.id)
-  }
+    const activeLayer = activeLayers[currentDoc.id] ?? "editor"
+    handleToggleLayerLock(currentDoc.id, activeLayer)
+  }, [activeLayers, currentDoc, handleToggleLayerLock])
 
   const handleHistoryRestored = React.useCallback(async () => {
     if (!vault) return
@@ -825,8 +1092,11 @@ export function WorkspaceOrchestration() {
   // Lazily load the canvas layer file when the canvas layer becomes active.
   React.useEffect(() => {
     if (!currentDocId || !currentDocPath) return
-    if ((activeLayers[currentDocId] ?? "editor") !== "canvas") return
-    const path = canvasLayerPath(currentDocPath)
+    const currentLayer = activeLayers[currentDocId] ?? currentDocDefaultLayer
+    if (currentLayer !== "canvas") return
+    const path = currentDocPath.endsWith(".canvas")
+      ? currentDocPath
+      : canvasLayerPath(currentDocPath)
     if (openCanvases[path] !== undefined) return
     let cancelled = false
     loadCanvasBuffer(path).then((content) => {
@@ -837,9 +1107,45 @@ export function WorkspaceOrchestration() {
     return () => {
       cancelled = true
     }
-  }, [currentDocId, currentDocPath, activeLayers, loadCanvasBuffer, openCanvases, setOpenCanvases])
+  }, [
+    currentDocId,
+    currentDocPath,
+    activeLayers,
+    currentDocDefaultLayer,
+    loadCanvasBuffer,
+    openCanvases,
+    setOpenCanvases,
+  ])
 
-  // Resolve an Obsidian vault-relative file ref to a tree item and open it.
+  // Lazily load the sketch layer file when the sketch layer becomes active.
+  React.useEffect(() => {
+    if (!currentDocId || !currentDocPath) return
+    const currentLayer = activeLayers[currentDocId] ?? currentDocDefaultLayer
+    if (currentLayer !== "sketch") return
+    const path = currentDocPath.endsWith(".excalidraw")
+      ? currentDocPath
+      : sketchLayerPath(currentDocPath)
+    if (openSketches[path] !== undefined) return
+    let cancelled = false
+    loadSketchBuffer(path).then((content) => {
+      if (!cancelled) {
+        setOpenSketches((prev) => (prev[path] !== undefined ? prev : { ...prev, [path]: content }))
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [
+    currentDocId,
+    currentDocPath,
+    activeLayers,
+    currentDocDefaultLayer,
+    loadSketchBuffer,
+    openSketches,
+    setOpenSketches,
+  ])
+
+  // Resolve an Obsidian vault-relative file ref to a tree item and open it in a new tab.
   const handleOpenCanvasNote = React.useCallback(
     (file: string) => {
       if (!file) return
@@ -862,9 +1168,9 @@ export function WorkspaceOrchestration() {
         return null
       }
       const target = find(treeItems)
-      if (target) handleSelect(target.id)
+      if (target) handleOpenInNewTab(target.id)
     },
-    [handleSelect, treeItems],
+    [handleOpenInNewTab, treeItems],
   )
 
   const {
@@ -929,8 +1235,10 @@ export function WorkspaceOrchestration() {
       onNewFile: handleNewFileIn,
       onNewFolder: handleNewFolderIn,
       onNewCanvas: handleNewCanvasIn,
+      onNewSketch: handleNewSketchIn,
       onNewDatabase: handleNewDatabase,
       onAttachCanvas: handleAttachCanvasToNote,
+      onAttachSketch: handleAttachSketchToNote,
       onOpenInNewTab: handleOpenInNewTab,
       onOpenInNewWindow: handleOpenInNewWindow,
       onCloneFile: handleCloneFile,
@@ -1011,8 +1319,10 @@ export function WorkspaceOrchestration() {
       handleNewFileIn,
       handleNewFolderIn,
       handleNewCanvasIn,
+      handleNewSketchIn,
       handleNewDatabase,
       handleAttachCanvasToNote,
+      handleAttachSketchToNote,
       handleOpenInNewTab,
       handleOpenInNewWindow,
       handleCloneFile,
@@ -1057,18 +1367,66 @@ export function WorkspaceOrchestration() {
   // functionality; a secondary (split) pane gets editing + view-mode + autosave,
   // with layer/canvas/history scoped to the primary to keep the split coherent.
   function paneEditorProps(tab: Tab | null, preserveLayer = false) {
-    const doc = tab ? (openDocs[tab.fileId] ?? null) : null
+    const rawDoc = tab ? (openDocs[tab.fileId] ?? null) : null
+    const isCanvasOrSketch =
+      tab?.kind === "canvas" ||
+      tab?.kind === "sketch" ||
+      tab?.kind === "database" ||
+      tab?.fileId.endsWith(".canvas") ||
+      tab?.fileId.endsWith(".excalidraw") ||
+      rawDoc?.path.endsWith(".canvas") ||
+      rawDoc?.path.endsWith(".excalidraw")
+    const treeItem = tab
+      ? (treeItemById.get(tab.fileId) ?? (rawDoc ? treeItemById.get(rawDoc.id) : null) ?? null)
+      : null
+    const doc: Document | null =
+      rawDoc ??
+      (isCanvasOrSketch && tab
+        ? createFallbackDocument(
+            tab.fileId,
+            tab.title,
+            treeItem?.path ?? tab.fileId,
+            treeItem?.created,
+            treeItem?.modified,
+          )
+        : null)
     const isPrimary = !!tab && tab.key === activeTabKey
-    const treeItem = doc ? (treeItemById.get(doc.id) ?? null) : null
-    const nestedNotes = (treeItem?.children ?? []).filter((item) => item.type === "file")
-    const attachedDatabase = doc
-      ? databases.find((database) => database.attachedNoteId === doc.id)
-      : undefined
+    const nestedNotes = (treeItem?.children ?? []).filter((item) => item.type !== "folder")
+    const foundDatabase = databases.find(
+      (database) =>
+        (doc && (database.attachedNoteId === doc.id || database.databaseId === doc.id)) ||
+        (tab && (database.databaseId === tab.fileId || database.attachedNoteId === tab.fileId)),
+    )
+    const attachedDatabase: DatabaseSummary | undefined =
+      foundDatabase ??
+      (tab?.kind === "database"
+        ? {
+            databaseId: tab.fileId,
+            title: tab.title,
+            icon: treeItem?.icon ?? null,
+            attachedNoteId: null,
+            manifestRevision: "0",
+            locked: false,
+            properties: [],
+            views: [],
+            templates: [],
+            diagnostics: [],
+          }
+        : undefined)
     // Keep a hidden database note's layer mounted while its tab is cached. This
     // avoids tearing down and rebuilding the database workspace on every tab
     // switch, while the visible secondary split remains editor-only.
     const canRenderLayer = isPrimary || preserveLayer
-    const pageLayer = canRenderLayer && doc ? (activeLayers[doc.id] ?? "editor") : "editor"
+    const defaultDocLayer =
+      tab?.kind === "canvas" || doc?.path.endsWith(".canvas")
+        ? "canvas"
+        : tab?.kind === "sketch" || doc?.path.endsWith(".excalidraw")
+          ? "sketch"
+          : tab?.kind === "database"
+            ? "database"
+            : "editor"
+    const pageLayer =
+      canRenderLayer && doc ? (activeLayers[doc.id] ?? defaultDocLayer) : defaultDocLayer
     const contentWidthKey =
       pageLayer === "database" && attachedDatabase
         ? databaseContentWidthKey(attachedDatabase.databaseId)
@@ -1122,11 +1480,25 @@ export function WorkspaceOrchestration() {
       activeLayer: pageLayer,
       onLayerChange: isPrimary ? handleLayerChange : async (_layer: EditorLayer) => {},
       onRestoreDeleted: doc ? () => handleRestoreDeleted(doc.id) : undefined,
-      viewMode: doc ? (viewModes[doc.id] ?? defaultViewMode) : defaultViewMode,
+      onCloseTab: tab ? () => handleTabClose(tab.key) : undefined,
+      viewMode: doc
+        ? getLayerViewMode(viewModes, doc.id, pageLayer, defaultViewMode)
+        : defaultViewMode,
       onViewModeChange: isPrimary
         ? handleViewModeChange
         : (mode: DocumentViewMode) => {
-            if (doc) setViewMode(doc.id, mode)
+            if (doc) {
+              const key = `${doc.id}:${pageLayer}`
+              setViewMode(key, mode)
+              if (pageLayer === "editor") setViewMode(doc.id, mode)
+              if (mode === "read") {
+                if (!lockedFileIds.has(key)) toggleLock(key)
+                if (pageLayer === "editor" && !lockedFileIds.has(doc.id)) toggleLock(doc.id)
+              } else {
+                if (lockedFileIds.has(key)) toggleLock(key)
+                if (pageLayer === "editor" && lockedFileIds.has(doc.id)) toggleLock(doc.id)
+              }
+            }
           },
       contentWidth: pageContentWidth,
       onContentWidthChange: contentWidthKey
@@ -1135,8 +1507,12 @@ export function WorkspaceOrchestration() {
       linkedLayers: isPrimary && doc ? (linkedLayersByDoc[doc.id] ?? EMPTY_LAYERS) : EMPTY_LAYERS,
       databasesEnabled,
       canCreateDatabaseLayer: DATABASE_LAYER_CREATION_AVAILABLE && databasesEnabled,
-      isLocked: doc ? lockedFileIds.has(doc.id) : false,
-      onToggleLock: isPrimary ? handleToggleLock : () => {},
+      isLocked: doc ? isLayerLocked(lockedFileIds, viewModes, doc.id, pageLayer) : false,
+      onToggleLock: isPrimary
+        ? handleToggleLock
+        : doc
+          ? () => handleToggleLayerLock(doc.id, pageLayer)
+          : () => {},
       isFavorite: doc ? favorites.has(doc.id) : false,
       onToggleFavorite: doc ? () => handleToggleFavorite(doc.id) : undefined,
       onOpenInNewTab: doc ? () => handleOpenInNewTab(doc.id) : undefined,
@@ -1160,12 +1536,46 @@ export function WorkspaceOrchestration() {
       onOpenItem: handleSelect,
       onUnlinkLayer: handleUnlinkLayer,
       onDeleteLayer: handleDeleteLayer,
-      canvasValue: isPrimary && doc ? (openCanvases[canvasLayerPath(doc.path)] ?? "{}") : "{}",
-      onCanvasChange: isPrimary
-        ? (json: string) => {
-            if (doc) handleCanvasSave(canvasLayerPath(doc.path), json)
-          }
-        : (_json: string) => {},
+      onExportCsv: () => {
+        void exportDatabaseCsv(attachedDatabase?.databaseId, attachedDatabase?.title || doc?.title)
+      },
+      onExportSqlite: () => {
+        void exportDatabaseSqlite(
+          attachedDatabase?.databaseId,
+          attachedDatabase?.title || doc?.title,
+        )
+      },
+      onExportImage: (format: "png" | "jpg") => {
+        if (pageLayer === "canvas" || pageLayer === "sketch") {
+          void exportActiveLayerImage(pageLayer, format, doc?.title || "canvas")
+        }
+      },
+      canvasValue:
+        isPrimary && doc
+          ? (openCanvases[doc.path.endsWith(".canvas") ? doc.path : canvasLayerPath(doc.path)] ??
+            openCanvases[doc.path] ??
+            CANONICAL_EMPTY_CANVAS)
+          : CANONICAL_EMPTY_CANVAS,
+      onCanvasChange:
+        isPrimary && doc
+          ? ((savePath) => (json: string) => {
+              handleCanvasSave(savePath, json)
+            })(doc.path.endsWith(".canvas") ? doc.path : canvasLayerPath(doc.path))
+          : (_json: string) => {},
+      sketchValue:
+        isPrimary && doc
+          ? (openSketches[
+              doc.path.endsWith(".excalidraw") ? doc.path : sketchLayerPath(doc.path)
+            ] ??
+            openSketches[doc.path] ??
+            defaultSketchJson())
+          : defaultSketchJson(),
+      onSketchChange:
+        isPrimary && doc
+          ? ((savePath) => (json: string) => {
+              handleSketchSave(savePath, json)
+            })(doc.path.endsWith(".excalidraw") ? doc.path : sketchLayerPath(doc.path))
+          : (_json: string) => {},
       onOpenCanvasNote: handleOpenCanvasNote,
       scrollPositionKey,
       scrollPosition: scrollPositionKey ? scrollPositionsRef.current[scrollPositionKey] : undefined,
@@ -1182,6 +1592,8 @@ export function WorkspaceOrchestration() {
             icon={treeItem?.icon ?? attachedDatabase.icon}
             hostKind="layer"
             hostId={doc.id}
+            isLocked={isLayerLocked(lockedFileIds, viewModes, doc.id, "database")}
+            onToggleLock={() => handleToggleLayerLock(doc.id, "database")}
             contentWidth={
               contentWidths[databaseContentWidthKey(attachedDatabase.databaseId)] ??
               defaultContentWidth
@@ -1195,11 +1607,15 @@ export function WorkspaceOrchestration() {
             onTitleColumnNameChange={(name) =>
               setDatabaseTitleLabel(databaseContentWidthKey(attachedDatabase.databaseId), name)
             }
+            onRenameTitle={(name) => {
+              if (tab) handleRenameDatabaseTab(tab.key, name)
+            }}
             onIconChange={(next) => handleSetIcon(doc.id, next)}
             onOpenInNewTab={() =>
               openDatabaseTab(attachedDatabase.databaseId, attachedDatabase.title, true)
             }
-            onOpenRowFullPage={(row) => handleSelect(row.noteId)}
+            onOpenNote={(id) => handleSelect(id)}
+            onOpenRowFullPage={(row) => handleSelect(row.noteId, row.title)}
             onRenameRow={handleRenameDatabaseRow}
             onLoadRowDocument={(row) => loadDoc(row.noteId, row.title)}
             onRowContentChange={handleContentChange}
@@ -1221,7 +1637,13 @@ export function WorkspaceOrchestration() {
     : null
   const showSplit = canRenderSplit(activeTab, secondaryTab)
   const documentTabs = React.useMemo(() => {
-    const openDocumentTabs = tabs.filter((tab) => tab.kind === "document")
+    const openDocumentTabs = tabs.filter(
+      (tab) =>
+        tab.kind === "document" ||
+        tab.kind === "canvas" ||
+        tab.kind === "sketch" ||
+        tab.kind === "database",
+    )
     const representativeByFileId = new Map<string, Tab>()
     for (const tab of openDocumentTabs) {
       const current = representativeByFileId.get(tab.fileId)
@@ -1234,7 +1656,6 @@ export function WorkspaceOrchestration() {
     // which forces style/layout work before the newly selected tab can paint.
     return openDocumentTabs.filter((tab) => representativeByFileId.get(tab.fileId) === tab)
   }, [activeTabKey, secondaryTabKey, showSplit, tabs])
-  const databaseTabs = React.useMemo(() => tabs.filter((tab) => tab.kind === "database"), [tabs])
 
   interface EditorPropsCacheEntry {
     props: DocumentEditorProps
@@ -1266,16 +1687,66 @@ export function WorkspaceOrchestration() {
     // Tiptap/CodeMirror then retain their parsed state and scroll offset when a
     // user returns to a tab instead of rebuilding a large document from Markdown.
     return (
-      <div className="relative flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 min-w-0 flex-1">
         {documentTabs.map((tab) => {
           const visible = tab.key === activeTabKey || (showSplit && tab.key === secondaryTabKey)
           const primary = tab.key === activeTabKey
-          const doc = openDocs[tab.fileId] ?? null
-          const treeItem = doc ? (treeItemById.get(doc.id) ?? null) : null
-          const attachedDatabase = doc
-            ? databases.find((database) => database.attachedNoteId === doc.id)
-            : undefined
-          const pageLayer = doc ? (activeLayers[doc.id] ?? "editor") : "editor"
+          const rawDoc = openDocs[tab.fileId] ?? null
+          const isCanvasOrSketch =
+            tab.kind === "canvas" ||
+            tab.kind === "sketch" ||
+            tab.kind === "database" ||
+            tab.fileId.endsWith(".canvas") ||
+            tab.fileId.endsWith(".excalidraw") ||
+            rawDoc?.path.endsWith(".canvas") ||
+            rawDoc?.path.endsWith(".excalidraw")
+          const treeItem = tab
+            ? (treeItemById.get(tab.fileId) ??
+              (rawDoc ? treeItemById.get(rawDoc.id) : null) ??
+              null)
+            : null
+          const doc: Document | null =
+            rawDoc ??
+            (isCanvasOrSketch
+              ? createFallbackDocument(
+                  tab.fileId,
+                  tab.title,
+                  treeItem?.path ?? tab.fileId,
+                  treeItem?.created,
+                  treeItem?.modified,
+                )
+              : null)
+          const foundDatabase = databases.find(
+            (database) =>
+              (doc && (database.attachedNoteId === doc.id || database.databaseId === doc.id)) ||
+              database.databaseId === tab.fileId ||
+              database.attachedNoteId === tab.fileId,
+          )
+          const attachedDatabase: DatabaseSummary | undefined =
+            foundDatabase ??
+            (tab.kind === "database"
+              ? {
+                  databaseId: tab.fileId,
+                  title: tab.title,
+                  icon: treeItem?.icon ?? null,
+                  attachedNoteId: null,
+                  manifestRevision: "0",
+                  locked: false,
+                  properties: [],
+                  views: [],
+                  templates: [],
+                  diagnostics: [],
+                }
+              : undefined)
+          const defaultDocLayer: EditorLayer =
+            tab.kind === "canvas" || doc?.path.endsWith(".canvas")
+              ? "canvas"
+              : tab.kind === "sketch" || doc?.path.endsWith(".excalidraw")
+                ? "sketch"
+                : tab.kind === "database"
+                  ? "database"
+                  : "editor"
+          const pageLayer = doc ? (activeLayers[doc.id] ?? defaultDocLayer) : defaultDocLayer
           const widthKey =
             pageLayer === "database" && attachedDatabase
               ? databaseContentWidthKey(attachedDatabase.databaseId)
@@ -1288,7 +1759,12 @@ export function WorkspaceOrchestration() {
             attachedDatabase,
             pageLayer,
             doc ? linkedLayersByDoc[doc.id] : undefined,
-            doc ? viewModes[doc.id] : undefined,
+            doc ? getLayerViewMode(viewModes, doc.id, pageLayer, defaultViewMode) : defaultViewMode,
+            doc ? isLayerLocked(lockedFileIds, viewModes, doc.id, pageLayer) : false,
+            doc ? isLayerLocked(lockedFileIds, viewModes, doc.id, "editor") : false,
+            doc ? isLayerLocked(lockedFileIds, viewModes, doc.id, "database") : false,
+            doc ? isLayerLocked(lockedFileIds, viewModes, doc.id, "canvas") : false,
+            doc ? isLayerLocked(lockedFileIds, viewModes, doc.id, "sketch") : false,
             contentWidths[widthKey],
             attachedDatabase
               ? databaseTitleLabels[databaseContentWidthKey(attachedDatabase.databaseId)]
@@ -1297,7 +1773,8 @@ export function WorkspaceOrchestration() {
             doc ? lockedFileIds.has(doc.id) : false,
             doc ? favorites.has(doc.id) : false,
             doc ? nestedNotesPlacements[doc.id] : undefined,
-            doc ? openCanvases[canvasLayerPath(doc.path)] : undefined,
+            doc ? (openCanvases[canvasLayerPath(doc.path)] ?? openCanvases[doc.path]) : undefined,
+            doc ? (openSketches[sketchLayerPath(doc.path)] ?? openSketches[doc.path]) : undefined,
             vault,
             databasesEnabled,
             defaultViewMode,
@@ -1355,72 +1832,9 @@ export function WorkspaceOrchestration() {
   }
 
   function renderCachedTabSurfaces(isFocusMode: boolean) {
-    const documentSurfaceVisible = activeTab?.kind !== "database"
     return (
       <div className="relative flex min-h-0 min-w-0 flex-1">
-        <div
-          aria-hidden={!documentSurfaceVisible}
-          className={
-            documentSurfaceVisible
-              ? "flex min-h-0 min-w-0 flex-1"
-              : "invisible pointer-events-none absolute inset-0 flex min-h-0 min-w-0 overflow-hidden"
-          }
-        >
-          {renderDocumentEditors(isFocusMode)}
-        </div>
-        {databaseTabs.map((tab) => {
-          const visible = activeTab?.kind === "database" && activeTab.key === tab.key
-          const icon = treeItemById.get(tab.fileId)?.icon ?? iconOverrides[tab.fileId]
-          const contentWidth =
-            contentWidths[databaseContentWidthKey(tab.fileId)] ?? defaultContentWidth
-          const titleColumnName = databaseTitleLabels[databaseContentWidthKey(tab.fileId)]
-          const content = (
-            <DatabaseWorkspace
-              databaseId={tab.fileId}
-              title={tab.title}
-              icon={icon}
-              hostId={tab.key}
-              contentWidth={contentWidth}
-              onContentWidthChange={(width) =>
-                setContentWidth(databaseContentWidthKey(tab.fileId), width)
-              }
-              onRenameTitle={(name) => handleRenameDatabaseTab(tab.key, name)}
-              onIconChange={(next) => handleSetIcon(tab.fileId, next)}
-              titleColumnName={titleColumnName}
-              onTitleColumnNameChange={(name) =>
-                setDatabaseTitleLabel(databaseContentWidthKey(tab.fileId), name)
-              }
-              onOpenInNewTab={() => openDatabaseTab(tab.fileId, tab.title, true)}
-              onOpenRowFullPage={(row) => handleSelect(row.noteId)}
-              onRenameRow={handleRenameDatabaseRow}
-              onLoadRowDocument={(row) => loadDoc(row.noteId, row.title)}
-              onRowContentChange={handleContentChange}
-              vault={vault ?? undefined}
-              onCatalogChanged={refreshDatabaseCatalog}
-              onRowCreated={async (row) => {
-                await refreshTree()
-                await loadDoc(row.noteId, row.title)
-              }}
-            />
-          )
-          return (
-            <div
-              key={tab.key}
-              aria-hidden={!visible}
-              className={
-                visible
-                  ? "flex min-h-0 min-w-0 flex-1"
-                  : "invisible pointer-events-none absolute inset-0 flex min-h-0 min-w-0 overflow-hidden"
-              }
-            >
-              <CachedTabContent
-                content={content}
-                visible={visible}
-                signature={[tab, icon, contentWidth, titleColumnName, vault]}
-              />
-            </div>
-          )
-        })}
+        {renderDocumentEditors(isFocusMode)}
       </div>
     )
   }
@@ -1476,17 +1890,6 @@ export function WorkspaceOrchestration() {
           <React.Suspense fallback={<LazyEditorFallback />}>
             <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
           </React.Suspense>
-        ) : activeTab?.kind === "canvas" ? (
-          <React.Suspense fallback={<LazyEditorFallback />}>
-            <CanvasEditor
-              key={activeTab.fileId}
-              value={openCanvases[activeTab.fileId] ?? "{}"}
-              onChange={(json) => handleCanvasSave(activeTab.fileId, json)}
-              vault={vault ?? null}
-              notePath={activeTab.fileId}
-              onOpenNote={handleOpenCanvasNote}
-            />
-          </React.Suspense>
         ) : activeFolder?.type === "folder" ? (
           <FolderView
             folder={activeFolder}
@@ -1520,6 +1923,7 @@ export function WorkspaceOrchestration() {
               {...activityBarPresetProps}
               {...activityDockProps("left")}
               autoHideReveal={focusShowLeft}
+              helpContext={currentHelpContext}
             />
             <div
               style={{ width: "var(--amby-left-panel-width, 300px)" }}
@@ -1553,6 +1957,7 @@ export function WorkspaceOrchestration() {
             {...activityBarPresetProps}
             {...activityDockProps("right")}
             autoHideReveal={focusShowRight}
+            helpContext={currentHelpContext}
           />
         </motion.div>
 
@@ -1583,6 +1988,11 @@ export function WorkspaceOrchestration() {
           navigationTarget={settingsTarget}
           activeModules={activeModules}
           onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
+        />
+        <HelpModal
+          open={isHelpOpen}
+          onOpenChange={setIsHelpOpen}
+          initialContext={currentHelpContext}
         />
         {deleteConfirmationDialog}
         {propertyMigrationDialog}
@@ -1644,6 +2054,7 @@ export function WorkspaceOrchestration() {
             draggingId={dnd.draggingId}
             {...activityBarPresetProps}
             {...activityDockProps("left")}
+            helpContext={currentHelpContext}
           />
         )}
 
@@ -1703,6 +2114,7 @@ export function WorkspaceOrchestration() {
                   draggingId={dnd.draggingId}
                   {...activityBarPresetProps}
                   {...activityDockProps("left")}
+                  helpContext={currentHelpContext}
                   autoHideReveal
                 />
                 <div
@@ -1728,17 +2140,6 @@ export function WorkspaceOrchestration() {
           {activeTab?.kind === "graph" ? (
             <React.Suspense fallback={<LazyEditorFallback />}>
               <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
-            </React.Suspense>
-          ) : activeTab?.kind === "canvas" ? (
-            <React.Suspense fallback={<LazyEditorFallback />}>
-              <CanvasEditor
-                key={activeTab.fileId}
-                value={openCanvases[activeTab.fileId] ?? "{}"}
-                onChange={(json) => handleCanvasSave(activeTab.fileId, json)}
-                vault={vault ?? null}
-                notePath={activeTab.fileId}
-                onOpenNote={handleOpenCanvasNote}
-              />
             </React.Suspense>
           ) : activeFolder?.type === "folder" ? (
             <FolderView
@@ -1794,6 +2195,7 @@ export function WorkspaceOrchestration() {
             draggingId={dnd.draggingId}
             {...activityBarPresetProps}
             {...activityDockProps("right")}
+            helpContext={currentHelpContext}
           />
         )}
 
@@ -1841,6 +2243,7 @@ export function WorkspaceOrchestration() {
                   {...activityBarPresetProps}
                   {...activityDockProps("right")}
                   autoHideReveal
+                  helpContext={currentHelpContext}
                 />
               </div>
             </div>
@@ -1875,6 +2278,11 @@ export function WorkspaceOrchestration() {
         navigationTarget={settingsTarget}
         activeModules={activeModules}
         onModuleEnabledChange={(id, enabled) => setModuleEnabled(id, enabled, { vault })}
+      />
+      <HelpModal
+        open={isHelpOpen}
+        onOpenChange={setIsHelpOpen}
+        initialContext={currentHelpContext}
       />
     </div>
   )
