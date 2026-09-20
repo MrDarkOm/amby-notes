@@ -5,7 +5,7 @@ use crate::{
 };
 use std::fs::{self, File, FileTimes};
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, UNIX_EPOCH};
 use ulid::Ulid;
 
@@ -304,14 +304,16 @@ fn incremental_stale_self_write_record_does_not_hide_same_stamp_external_edit() 
         .add_path(path.clone());
     context
         .with_active(|active| {
-            assert!(watcher::queue_external_changes(
-                Ok(event.clone()),
-                &vault.0,
-                &state.own_writes,
-                1,
-                &active.index_changes
-            )
-            .is_empty());
+            assert!(
+                watcher::queue_external_changes(
+                    Ok(event.clone()),
+                    &vault.0,
+                    &state.own_writes,
+                    1,
+                    &active.index_changes
+                )
+                .is_empty()
+            );
             assert_eq!(active.refresh()?.sync.updated, 0);
             write_at(&path, &source(&id, "dog"), 0);
             assert_eq!(

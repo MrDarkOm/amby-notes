@@ -653,7 +653,9 @@ pub fn move_item(
         Err(error) => {
             watcher_state.cancel_prepared_write(&prepared_move);
             if let Err(rollback_error) = rollback_move_item(&source_path, &target_path, &result) {
-                return Err(format!("Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"));
+                return Err(format!(
+                    "Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"
+                ));
             }
             return Err(format!(
                 "Reference update failed; move was rolled back: {error}"
@@ -808,7 +810,9 @@ pub fn rename_item(
         Err(error) => {
             watcher_state.cancel_prepared_write(&prepared_rename);
             if let Err(rollback_error) = rollback_rename_item(&path, &result) {
-                return Err(format!("Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"));
+                return Err(format!(
+                    "Reference update failed: {error}; filesystem rollback also failed: {rollback_error}"
+                ));
             }
             return Err(format!(
                 "Reference update failed; rename was rolled back: {error}"

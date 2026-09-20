@@ -44,6 +44,8 @@ import {
   type DatabaseChangedPayload,
   type UpdateDatabaseRelationValueRequest,
   type UpdateDatabaseRelationValueResult,
+  type DatabaseUndoRedoResult,
+  type DatabaseHistoryStatus,
 } from "./database-types"
 
 export interface DatabasePort {
@@ -87,6 +89,9 @@ export interface DatabasePort {
   reorderDatabaseViews(request: ReorderDatabaseViewsRequest): Promise<DatabaseViewMutationResult>
   setDefaultDatabaseView(request: DatabaseViewRequest): Promise<DatabaseViewMutationResult>
   aggregateDatabase(request: DatabaseAggregateRequest): Promise<DatabaseAggregateResult>
+  undoDatabaseMutation(databaseId: string): Promise<DatabaseUndoRedoResult>
+  redoDatabaseMutation(databaseId: string): Promise<DatabaseUndoRedoResult>
+  getDatabaseHistoryStatus(databaseId: string): Promise<DatabaseHistoryStatus>
 }
 
 /** Convert typed domain errors while keeping transport failures untouched. */

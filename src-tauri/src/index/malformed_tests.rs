@@ -59,14 +59,18 @@ fn malformed_frontmatter_stays_visible_and_searchable_without_source_changes() {
             .unwrap();
         assert_eq!(found, 5);
         for note in loaded.notes {
-            assert!(read_note(&conn, &vault.0, &note.id)
-                .unwrap()
-                .content
-                .contains("bodytoken"));
-            assert!(note_properties(&conn, &vault.0, &note.id)
-                .unwrap()
-                .parse_error
-                .is_some());
+            assert!(
+                read_note(&conn, &vault.0, &note.id)
+                    .unwrap()
+                    .content
+                    .contains("bodytoken")
+            );
+            assert!(
+                note_properties(&conn, &vault.0, &note.id)
+                    .unwrap()
+                    .parse_error
+                    .is_some()
+            );
             assert!(
                 !note_properties(&conn, &vault.0, &note.id)
                     .unwrap()
@@ -169,9 +173,11 @@ fn malformed_yaml_only_external_edit_rejects_stale_body_save() {
         Err(crate::model::WriteNoteError::RevisionConflict { .. })
     ));
     assert_eq!(fs::read_to_string(&path).unwrap(), external);
-    assert!(crate::history::list_snapshots(&vault.0, &path)
-        .unwrap()
-        .is_empty());
+    assert!(
+        crate::history::list_snapshots(&vault.0, &path)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]

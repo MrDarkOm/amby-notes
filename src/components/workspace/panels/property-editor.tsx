@@ -18,8 +18,9 @@ export interface PropertyEditorProps {
   property: CustomProperty | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSave: (property: CustomProperty) => Promise<void>
+  onSave: (property: CustomProperty, options?: { addToDatabase?: boolean }) => Promise<void>
   onDelete: (propertyId: string) => Promise<void>
+  databaseContext?: { databaseId: string; name?: string } | null
 }
 
 export function PropertyEditor({
@@ -28,6 +29,7 @@ export function PropertyEditor({
   onOpenChange,
   onSave,
   onDelete,
+  databaseContext,
 }: PropertyEditorProps) {
   const { t } = useTranslation()
   const [draft, setDraft] = React.useState<CustomProperty>({
@@ -41,6 +43,7 @@ export function PropertyEditor({
   const [emojiOpen, setEmojiOpen] = React.useState(false)
   const emojiRef = React.useRef<HTMLButtonElement>(null)
   const [saving, setSaving] = React.useState(false)
+  const [addToDatabase, setAddToDatabase] = React.useState(true)
 
   React.useEffect(() => {
     if (!open) return
@@ -55,6 +58,7 @@ export function PropertyEditor({
       },
     )
     setEmojiOpen(false)
+    setAddToDatabase(true)
   }, [open, property])
 
   const options = draft.settings
@@ -79,7 +83,7 @@ export function PropertyEditor({
     if (!draft.name.trim() || saving) return
     setSaving(true)
     try {
-      await onSave(draft)
+      await onSave(draft, { addToDatabase: Boolean(databaseContext && !draft.id && addToDatabase) })
       onOpenChange(false)
     } finally {
       setSaving(false)
@@ -215,6 +219,47 @@ export function PropertyEditor({
             />
           )}
         </label>
+        {databaseContext && !draft.id && (
+          <div className="rounded-lg border border-border bg-accent/30 p-2.5 space-y-2">
+            <div className="text-xs font-medium text-foreground">
+              {t("infoPanel.addToDatabaseQuestion")}
+            </div>
+            <div className="flex flex-col gap-2 text-xs">
+              <label className="flex items-start gap-2 cursor-pointer text-foreground">
+                <input
+                  type="radio"
+                  name="addToDatabase"
+                  checked={addToDatabase}
+                  onChange={() => setAddToDatabase(true)}
+                  className="mt-0.5 size-3.5 text-primary"
+                />
+                <span className="leading-tight">
+                  <span className="font-medium">{t("infoPanel.forEntireDatabase")}</span>
+                  <span className="block text-[10px] text-muted-foreground mt-0.5">
+                    {t("infoPanel.forEntireDatabaseDesc", {
+                      database: databaseContext.name || databaseContext.databaseId,
+                    })}
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer text-foreground">
+                <input
+                  type="radio"
+                  name="addToDatabase"
+                  checked={!addToDatabase}
+                  onChange={() => setAddToDatabase(false)}
+                  className="mt-0.5 size-3.5 text-primary"
+                />
+                <span className="leading-tight">
+                  <span className="font-medium">{t("infoPanel.onlyForThisNote")}</span>
+                  <span className="block text-[10px] text-muted-foreground mt-0.5">
+                    {t("infoPanel.onlyForThisNoteDesc")}
+                  </span>
+                </span>
+              </label>
+            </div>
+          </div>
+        )}
         <div className="flex items-center justify-between border-t border-border pt-3">
           {draft.id ? (
             <button

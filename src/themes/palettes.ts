@@ -135,3 +135,18 @@ export const OBSIDIAN_CANVAS_PRESET_COLORS: Record<string, string> = {
   "5": "#00bfbc",
   "6": "#7852ee",
 }
+
+export const SKETCH_UI_CARD_COLORS = {
+  dark: {
+    textCardStroke: "#ffffff",
+    textCardBackground: "#1e1e1e",
+    noteCardStroke: "#ffffff",
+    noteCardBackground: "#121212",
+  },
+  light: {
+    textCardStroke: "#1e1e1e",
+    textCardBackground: "#ffffff",
+    noteCardStroke: "#1e1e1e",
+    noteCardBackground: "#ffffff",
+  },
+} as const

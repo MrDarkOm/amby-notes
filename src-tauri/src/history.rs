@@ -820,13 +820,17 @@ mod tests {
         let note = vault.join("Note.md");
         fs::write(&note, "initial").unwrap();
 
-        assert!(snapshot_before_write(&vault, &note, b"first", "note-save")
-            .unwrap()
-            .is_some());
+        assert!(
+            snapshot_before_write(&vault, &note, b"first", "note-save")
+                .unwrap()
+                .is_some()
+        );
         fs::write(&note, "first").unwrap();
-        assert!(snapshot_before_write(&vault, &note, b"second", "note-save")
-            .unwrap()
-            .is_none());
+        assert!(
+            snapshot_before_write(&vault, &note, b"second", "note-save")
+                .unwrap()
+                .is_none()
+        );
         fs::write(&note, "second").unwrap();
 
         assert_eq!(fs::read_to_string(&note).unwrap(), "second");
@@ -847,25 +851,29 @@ mod tests {
                 .is_some()
         );
         fs::write(&note, "first").unwrap();
-        assert!(snapshot_before_write_at(
-            &vault,
-            &note,
-            b"second",
-            "note-save",
-            started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS - 1,
-        )
-        .unwrap()
-        .is_none());
+        assert!(
+            snapshot_before_write_at(
+                &vault,
+                &note,
+                b"second",
+                "note-save",
+                started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS - 1,
+            )
+            .unwrap()
+            .is_none()
+        );
         fs::write(&note, "second").unwrap();
-        assert!(snapshot_before_write_at(
-            &vault,
-            &note,
-            b"third",
-            "note-save",
-            started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS,
-        )
-        .unwrap()
-        .is_some());
+        assert!(
+            snapshot_before_write_at(
+                &vault,
+                &note,
+                b"third",
+                "note-save",
+                started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS,
+            )
+            .unwrap()
+            .is_some()
+        );
 
         assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
         fs::remove_dir_all(vault).unwrap();
@@ -889,15 +897,11 @@ mod tests {
         .unwrap();
         fs::write(&note, "future").unwrap();
 
-        assert!(snapshot_before_write_at(
-            &vault,
-            &note,
-            b"after rollback",
-            "note-save",
-            current_time,
-        )
-        .unwrap()
-        .is_some());
+        assert!(
+            snapshot_before_write_at(&vault, &note, b"after rollback", "note-save", current_time,)
+                .unwrap()
+                .is_some()
+        );
         assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
         fs::remove_dir_all(vault).unwrap();
     }
@@ -1173,14 +1177,16 @@ mod tests {
             .unwrap();
         fs::remove_file(snapshot_data_path(&history_root(&vault), &id)).unwrap();
 
-        assert!(cleanup_history(
-            &vault,
-            HistoryRetention {
-                max_snapshots_per_note: 0,
-                max_age_days: None,
-            },
-        )
-        .is_err());
+        assert!(
+            cleanup_history(
+                &vault,
+                HistoryRetention {
+                    max_snapshots_per_note: 0,
+                    max_age_days: None,
+                },
+            )
+            .is_err()
+        );
         assert_eq!(get_history_stats(&vault).unwrap().snapshot_count, 1);
         fs::remove_dir_all(vault).unwrap();
     }

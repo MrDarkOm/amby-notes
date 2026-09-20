@@ -12,7 +12,8 @@ use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
 
 use super::format::{
-    parse_manifest, parse_record, parse_template, parse_view, DatabaseManifest, FormatError,
+    DatabaseManifest, FormatError, PropertyDefinition, PropertyValue, parse_manifest, parse_record,
+    parse_template, parse_view,
 };
 use super::validation::{validate_manifest, validate_record};
 use crate::frontmatter;
@@ -85,108 +86,110 @@ pub fn manifest_path_for_container(container: &Path) -> PathBuf {
 
 const SERVICE_DIRECTORIES: &[&str] = &[".amby", ".obsidian", ".git", ".trash", "assets", ".ambd"];
 
-fn repair_or_create_default_view(views_dir: &Path, database_id: &str, view_id: &str) {
-    let view_path = views_dir.join(format!("{view_id}.json"));
-    if !view_path.is_file() {
-        let view_json = serde_json::json!({
-            "format": "amby-database-view",
-            "formatVersion": 1,
-            "databaseId": database_id,
-            "viewId": view_id,
-            "name": "Table",
-            "layout": "table",
-            "openMode": "sidePeek",
-            "subitemsMode": "nested",
-            "density": "default",
-            "fields": [{"field": {"kind": "system", "field": "title"}, "visible": true, "width": null, "frozen": true}],
-            "filter": null,
-            "sorts": [{"field": {"kind": "system", "field": "title"}, "direction": "asc", "nulls": "last"}],
-            "group": null,
-            "aggregates": []
-        });
-        if let Ok(bytes) = serde_json::to_vec_pretty(&view_json) {
-            let _ = frontmatter::atomic_write_bytes(&view_path, &bytes);
-        }
-    } else if let Ok(bytes) = fs::read(&view_path) {
-        if let Ok(mut val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-            let mut changed = false;
-            if val.get("format").and_then(|v| v.as_str()) != Some("amby-database-view") {
-                val["format"] = serde_json::Value::String("amby-database-view".to_string());
-                changed = true;
-            }
-            if val.get("formatVersion").and_then(|v| v.as_u64()) != Some(1) {
-                val["formatVersion"] = serde_json::json!(1);
-                changed = true;
-            }
-            if val.get("databaseId").and_then(|v| v.as_str()) != Some(database_id) {
-                val["databaseId"] = serde_json::Value::String(database_id.to_string());
-                changed = true;
-            }
-            if val.get("viewId").and_then(|v| v.as_str()) != Some(view_id) {
-                val["viewId"] = serde_json::Value::String(view_id.to_string());
-                changed = true;
-            }
-            if val
-                .get("name")
-                .and_then(|v| v.as_str())
-                .map(|s| s.trim())
-                .unwrap_or("")
-                .is_empty()
-            {
-                val["name"] = serde_json::Value::String("Table".to_string());
-                changed = true;
-            }
-            if val.get("layout").and_then(|v| v.as_str()).is_none() {
-                val["layout"] = serde_json::Value::String("table".to_string());
-                changed = true;
-            }
-            if val.get("openMode").and_then(|v| v.as_str()).is_none() {
-                val["openMode"] = serde_json::Value::String("sidePeek".to_string());
-                changed = true;
-            }
-            if val.get("subitemsMode").and_then(|v| v.as_str()).is_none() {
-                val["subitemsMode"] = serde_json::Value::String("nested".to_string());
-                changed = true;
-            }
-            if val.get("density").and_then(|v| v.as_str()).is_none() {
-                val["density"] = serde_json::Value::String("default".to_string());
-                changed = true;
-            }
-            let fields_empty = val
-                .get("fields")
-                .and_then(|v| v.as_array())
-                .is_none_or(|arr| arr.is_empty());
-            if fields_empty {
-                val["fields"] = serde_json::json!([{
-                    "field": {"kind": "system", "field": "title"},
-                    "visible": true,
-                    "width": null,
-                    "frozen": true
-                }]);
-                changed = true;
-            }
-            if val.get("sorts").and_then(|v| v.as_array()).is_none() {
-                val["sorts"] = serde_json::json!([]);
-                changed = true;
-            }
-            if changed {
-                if let Ok(new_bytes) = serde_json::to_vec_pretty(&val) {
-                    let _ = frontmatter::atomic_write_bytes(&view_path, &new_bytes);
-                }
-            }
-        }
+fn create_default_view_value(database_id: &str, view_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "format": "amby-database-view",
+        "formatVersion": 1,
+        "databaseId": database_id,
+        "viewId": view_id,
+        "name": "Table",
+        "layout": "table",
+        "openMode": "sidePeek",
+        "subitemsMode": "nested",
+        "density": "default",
+        "fields": [{"field": {"kind": "system", "field": "title"}, "visible": true, "width": null, "frozen": true}],
+        "filter": null,
+        "sorts": [{"field": {"kind": "system", "field": "title"}, "direction": "asc", "nulls": "last"}],
+        "group": null,
+        "aggregates": []
+    })
+}
+
+fn normalize_view_value(
+    mut val: serde_json::Value,
+    database_id: &str,
+    view_id: &str,
+) -> (serde_json::Value, bool) {
+    let mut changed = false;
+    if val.get("format").and_then(|v| v.as_str()) != Some("amby-database-view") {
+        val["format"] = serde_json::Value::String("amby-database-view".to_string());
+        changed = true;
     }
+    if val.get("formatVersion").and_then(|v| v.as_u64()) != Some(1) {
+        val["formatVersion"] = serde_json::json!(1);
+        changed = true;
+    }
+    if val.get("databaseId").and_then(|v| v.as_str()) != Some(database_id) {
+        val["databaseId"] = serde_json::Value::String(database_id.to_string());
+        changed = true;
+    }
+    if val.get("viewId").and_then(|v| v.as_str()) != Some(view_id) {
+        val["viewId"] = serde_json::Value::String(view_id.to_string());
+        changed = true;
+    }
+    if val
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .unwrap_or("")
+        .is_empty()
+    {
+        val["name"] = serde_json::Value::String("Table".to_string());
+        changed = true;
+    }
+    if val.get("layout").and_then(|v| v.as_str()).is_none() {
+        val["layout"] = serde_json::Value::String("table".to_string());
+        changed = true;
+    }
+    if val.get("openMode").and_then(|v| v.as_str()).is_none() {
+        val["openMode"] = serde_json::Value::String("sidePeek".to_string());
+        changed = true;
+    }
+    if val.get("subitemsMode").and_then(|v| v.as_str()).is_none() {
+        val["subitemsMode"] = serde_json::Value::String("nested".to_string());
+        changed = true;
+    }
+    if val.get("density").and_then(|v| v.as_str()).is_none() {
+        val["density"] = serde_json::Value::String("default".to_string());
+        changed = true;
+    }
+    let fields_empty = val
+        .get("fields")
+        .and_then(|v| v.as_array())
+        .is_none_or(|arr| arr.is_empty());
+    if fields_empty {
+        val["fields"] = serde_json::json!([{
+            "field": {"kind": "system", "field": "title"},
+            "visible": true,
+            "width": null,
+            "frozen": true
+        }]);
+        changed = true;
+    }
+    if val.get("sorts").and_then(|v| v.as_array()).is_none() {
+        val["sorts"] = serde_json::json!([]);
+        changed = true;
+    }
+    (val, changed)
 }
 
 fn repair_container_shards(
+    vault: &Path,
     dir: &Path,
     database_id: &str,
+    manifest_val: &mut serde_json::Value,
     view_order_ids: &mut Vec<String>,
 ) -> bool {
     let mut changed = false;
 
-    // 1. Repair and reconcile existing views in .ambd/views
+    // 1. Repair and reconcile existing views into manifest_val["views"]
     let views_dir = dir.join(".ambd").join("views");
+    let mut views_list: Vec<serde_json::Value> = manifest_val
+        .get("views")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
     if let Ok(entries) = fs::read_dir(&views_dir) {
         for entry in entries.filter_map(Result::ok) {
             let path = entry.path();
@@ -199,61 +202,191 @@ fn repair_container_shards(
             if ulid::Ulid::from_string(stem).is_err() {
                 continue;
             }
-            repair_or_create_default_view(&views_dir, database_id, stem);
-            if !view_order_ids.iter().any(|id| id == stem) {
-                view_order_ids.push(stem.to_string());
+            if let Ok(bytes) = fs::read(&path) {
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    let (normalized, _) = normalize_view_value(val, database_id, stem);
+                    if let Some(pos) = views_list
+                        .iter()
+                        .position(|v| v.get("viewId").and_then(|id| id.as_str()) == Some(stem))
+                    {
+                        views_list[pos] = normalized;
+                    } else {
+                        views_list.push(normalized);
+                    }
+                    if !view_order_ids.iter().any(|id| id == stem) {
+                        view_order_ids.push(stem.to_string());
+                    }
+                    changed = true;
+                }
+            }
+            let _ = fs::remove_file(&path);
+        }
+        let _ = fs::remove_dir(&views_dir);
+    }
+
+    for v in &mut views_list {
+        let view_id = v
+            .get("viewId")
+            .and_then(|id| id.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| ulid::Ulid::generate().to_string());
+        let (norm, v_changed) = normalize_view_value(v.clone(), database_id, &view_id);
+        if v_changed {
+            *v = norm;
+            changed = true;
+        }
+    }
+
+    for view_id in view_order_ids.iter() {
+        if !views_list
+            .iter()
+            .any(|v| v.get("viewId").and_then(|id| id.as_str()) == Some(view_id))
+        {
+            views_list.push(create_default_view_value(database_id, view_id));
+            changed = true;
+        }
+    }
+
+    if views_list.is_empty() {
+        let default_view_id = view_order_ids
+            .first()
+            .cloned()
+            .unwrap_or_else(|| ulid::Ulid::generate().to_string());
+        if !view_order_ids.contains(&default_view_id) {
+            view_order_ids.push(default_view_id.clone());
+        }
+        views_list.push(create_default_view_value(database_id, &default_view_id));
+        changed = true;
+    }
+
+    for view in &views_list {
+        if let Some(vid) = view.get("viewId").and_then(|v| v.as_str()) {
+            if !view_order_ids.iter().any(|id| id == vid) {
+                view_order_ids.push(vid.to_string());
                 changed = true;
             }
         }
     }
 
-    for view_id in view_order_ids.iter() {
-        repair_or_create_default_view(&views_dir, database_id, view_id);
+    let views_json = serde_json::json!(views_list);
+    if manifest_val.get("views") != Some(&views_json) {
+        manifest_val["views"] = views_json;
+        changed = true;
     }
 
-    // 2. Repair all records in .ambd/records
+    // 2. Migrate legacy records from .ambd/records into note frontmatter
     let records_dir = dir.join(".ambd").join("records");
-    if let Ok(entries) = fs::read_dir(&records_dir) {
-        for entry in entries.filter_map(Result::ok) {
-            let path = entry.path();
-            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
-                continue;
-            }
-            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                continue;
-            };
-            if let Ok(bytes) = fs::read(&path) {
-                if let Ok(mut val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                    let mut record_changed = false;
-                    if val.get("format").and_then(|v| v.as_str()) != Some("amby-database-record") {
-                        val["format"] =
-                            serde_json::Value::String("amby-database-record".to_string());
-                        record_changed = true;
-                    }
-                    if val.get("formatVersion").and_then(|v| v.as_u64()) != Some(1) {
-                        val["formatVersion"] = serde_json::json!(1);
-                        record_changed = true;
-                    }
-                    if val.get("databaseId").and_then(|v| v.as_str()) != Some(database_id) {
-                        val["databaseId"] = serde_json::Value::String(database_id.to_string());
-                        record_changed = true;
-                    }
-                    if val.get("noteId").and_then(|v| v.as_str()) != Some(stem) {
-                        val["noteId"] = serde_json::Value::String(stem.to_string());
-                        record_changed = true;
-                    }
-                    if !val.get("values").is_some_and(|v| v.is_object()) {
-                        val["values"] = serde_json::json!({});
-                        record_changed = true;
-                    }
-                    if record_changed {
-                        if let Ok(new_bytes) = serde_json::to_vec_pretty(&val) {
-                            let _ = frontmatter::atomic_write_bytes(&path, &new_bytes);
+    if records_dir.is_dir() {
+        let properties: Vec<PropertyDefinition> = manifest_val
+            .get("properties")
+            .and_then(|p| serde_json::from_value(p.clone()).ok())
+            .unwrap_or_default();
+
+        if let Ok(entries) = fs::read_dir(&records_dir) {
+            for entry in entries.filter_map(Result::ok) {
+                let path = entry.path();
+                if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json")
+                {
+                    continue;
+                }
+                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if let Ok(bytes) = fs::read(&path) {
+                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                        let note_path =
+                            crate::database::mutations::resolve_note_path_for_id(vault, dir, stem)
+                                .ok()
+                                .or_else(|| {
+                                    let candidate = dir.join(format!("{stem}.md"));
+                                    if candidate.is_file() {
+                                        Some(candidate)
+                                    } else {
+                                        None
+                                    }
+                                });
+                        if let Some(note_path) = note_path {
+                            if let Ok(mut content) = fs::read_to_string(&note_path) {
+                                let mut note_changed = false;
+                                if frontmatter::frontmatter_yaml_mapping(&content)
+                                    .ok()
+                                    .flatten()
+                                    .is_none()
+                                {
+                                    content = format!("---\namby-id: {stem}\n---\n{content}");
+                                    note_changed = true;
+                                } else if frontmatter::read_markdown(&note_path)
+                                    .ok()
+                                    .and_then(|p| p.id)
+                                    .as_deref()
+                                    != Some(stem)
+                                {
+                                    if let Ok(updated) = frontmatter::replace_yaml_binding_lossless(
+                                        &content,
+                                        "amby-id",
+                                        &serde_yaml::Value::String(stem.to_string()),
+                                    ) {
+                                        if updated != content {
+                                            content = updated;
+                                            note_changed = true;
+                                        }
+                                    }
+                                }
+                                if let Some(values_obj) =
+                                    val.get("values").and_then(|v| v.as_object())
+                                {
+                                    for (prop_id, val_json) in values_obj {
+                                        if let Some(prop_def) = properties
+                                            .iter()
+                                            .find(|p| p.id() == Some(prop_id.as_str()))
+                                        {
+                                            if let Some(prop_name) = prop_def
+                                                .frontmatter_key()
+                                                .or_else(|| prop_def.name())
+                                            {
+                                                if let Ok(prop_val) =
+                                                    serde_json::from_value::<PropertyValue>(
+                                                        val_json.clone(),
+                                                    )
+                                                {
+                                                    if let Some(fm_val) =
+                                                        super::format::property_value_to_frontmatter_value(
+                                                            &prop_val, prop_def,
+                                                        )
+                                                    {
+                                                        if let Ok(next) =
+                                                            frontmatter::replace_yaml_binding_lossless(
+                                                                &content,
+                                                                prop_name,
+                                                                &fm_val,
+                                                            )
+                                                        {
+                                                            if next != content {
+                                                                content = next;
+                                                                note_changed = true;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if note_changed {
+                                    let _ = frontmatter::atomic_write_bytes(
+                                        &note_path,
+                                        content.as_bytes(),
+                                    );
+                                }
+                            }
                         }
                     }
                 }
+                let _ = fs::remove_file(&path);
+                changed = true;
             }
         }
+        let _ = fs::remove_dir(&records_dir);
     }
 
     // 3. Repair all templates in .ambd/templates
@@ -298,6 +431,12 @@ fn repair_container_shards(
         }
     }
 
+    // 4. Do not remove .ambd/recovery: recovery data must be preserved.
+    let ambd_dir = dir.join(".ambd");
+    if ambd_dir.is_dir() {
+        let _ = fs::remove_dir(&ambd_dir); // Only succeeds if .ambd is truly empty
+    }
+
     changed
 }
 
@@ -308,6 +447,7 @@ fn repair_container_shards(
 /// 4. Sets `containerKind` to `"attached"` if `<container_name>.md` exists, else `"standalone"`.
 /// 5. Ensures `.ambd/views/` exists and has at least one valid view file matching `viewOrder`.
 /// 6. Migrates to `<container_name>.json` atomically and deletes stale `ambd.json`.
+#[allow(dead_code)]
 pub fn migrate_legacy_database_manifests(vault: &Path) -> Result<usize, String> {
     let mut count = 0;
     for entry in WalkDir::new(vault)
@@ -362,14 +502,21 @@ pub fn migrate_legacy_database_manifests(vault: &Path) -> Result<usize, String> 
             }
         }
 
-        // If an existing manifest parses cleanly and has no validation errors,
-        // it is already valid: do not rewrite it, but repair any existing shards on disk.
-        if let Some(ref bytes) = raw_manifest_bytes {
-            if let Ok(parsed) = parse_manifest(bytes) {
-                if validate_manifest(&parsed.value).errors.is_empty() {
-                    let mut view_order_ids = parsed.value.view_order.clone();
-                    repair_container_shards(dir, &parsed.value.database_id, &mut view_order_ids);
-                    continue;
+        let is_canonical_json = existing_manifest_path.as_ref() == Some(&named_json);
+        let has_legacy_shards =
+            ambd_dir.join("records").is_dir() || ambd_dir.join("views").is_dir();
+        if is_canonical_json
+            && !has_legacy_shards
+            && !named_database.is_file()
+            && !legacy_json.is_file()
+        {
+            if let Some(ref bytes) = raw_manifest_bytes {
+                if let Ok(parsed) = parse_manifest(bytes) {
+                    if validate_manifest(&parsed.value).errors.is_empty()
+                        && !parsed.value.views.is_empty()
+                    {
+                        continue;
+                    }
                 }
             }
         }
@@ -485,10 +632,6 @@ pub fn migrate_legacy_database_manifests(vault: &Path) -> Result<usize, String> 
             manifest_changed = true;
         }
 
-        // Ensure .ambd and .ambd/views directory
-        let views_dir = dir.join(".ambd").join("views");
-        let _ = fs::create_dir_all(&views_dir);
-
         // Normalize viewOrder and defaultViewId
         let mut view_order_ids: Vec<String> = value
             .get("viewOrder")
@@ -502,7 +645,8 @@ pub fn migrate_legacy_database_manifests(vault: &Path) -> Result<usize, String> 
             })
             .unwrap_or_default();
 
-        let shards_changed = repair_container_shards(dir, &database_id, &mut view_order_ids);
+        let shards_changed =
+            repair_container_shards(vault, dir, &database_id, &mut value, &mut view_order_ids);
         if shards_changed {
             manifest_changed = true;
         }
@@ -526,7 +670,7 @@ pub fn migrate_legacy_database_manifests(vault: &Path) -> Result<usize, String> 
             }
         }
 
-        let target_manifest_path = existing_manifest_path.unwrap_or_else(|| named_json.clone());
+        let target_manifest_path = named_json.clone();
         let needs_write = manifest_changed || !target_manifest_path.is_file();
         if needs_write {
             if let Ok(new_bytes) = serde_json::to_vec_pretty(&value) {
@@ -534,6 +678,12 @@ pub fn migrate_legacy_database_manifests(vault: &Path) -> Result<usize, String> 
                     count += 1;
                 }
             }
+        }
+        if named_database.is_file() {
+            let _ = fs::remove_file(&named_database);
+        }
+        if legacy_json.is_file() {
+            let _ = fs::remove_file(&legacy_json);
         }
     }
     Ok(count)
@@ -1371,6 +1521,10 @@ fn diagnose_missing_shards(
         ShardKind::Template => &manifest.value.template_order,
     };
     for id in expected {
+        if matches!(kind, ShardKind::View) && manifest.value.views.iter().any(|v| &v.view_id == id)
+        {
+            continue;
+        }
         let file = directory.join(format!("{id}.json"));
         if !file.is_file() {
             push_diagnostic(
@@ -1732,10 +1886,12 @@ mod tests {
         symlink(&outside, vault.join("Database/.ambd")).unwrap();
         let result = discover_vault(&vault).unwrap();
         assert!(has_code(&result, DiagnosticCode::SymlinkEscape));
-        assert!(result
-            .notes
-            .iter()
-            .all(|note| !note.relative_path.contains("Secret")));
+        assert!(
+            result
+                .notes
+                .iter()
+                .all(|note| !note.relative_path.contains("Secret"))
+        );
         fs::remove_dir_all(vault).unwrap();
         fs::remove_dir_all(outside).unwrap();
     }
@@ -1898,19 +2054,25 @@ mod tests {
 
         migrate_legacy_database_manifests(&vault).unwrap();
 
-        // Check view shard reconciled
-        let view_val: serde_json::Value = serde_json::from_slice(
-            &fs::read(db_dir.join(".ambd/views").join(format!("{view_id}.json"))).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(view_val["databaseId"], manifest_id);
+        // Check view is now inside PaLooVerse.json with reconciled databaseId
+        let manifest_val: serde_json::Value =
+            serde_json::from_slice(&fs::read(db_dir.join("PaLooVerse.json")).unwrap()).unwrap();
+        let views = manifest_val["views"].as_array().expect("views array");
+        assert_eq!(views.len(), 1);
+        assert_eq!(views[0]["viewId"], view_id);
+        assert_eq!(views[0]["databaseId"], manifest_id);
 
-        // Check record shard reconciled
-        let record_val: serde_json::Value = serde_json::from_slice(
-            &fs::read(db_dir.join(".ambd/records").join(format!("{note_id}.json"))).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(record_val["databaseId"], manifest_id);
+        // Check view and record shard dirs are deleted
+        assert!(!db_dir.join(".ambd/views").exists());
+        assert!(!db_dir.join(".ambd/records").exists());
+
+        // Check note frontmatter has note_id
+        let note_content = fs::read_to_string(db_dir.join("Row.md")).unwrap();
+        assert!(note_content.contains(note_id));
+
+        // Second migration run should be a no-op
+        let second_run = migrate_legacy_database_manifests(&vault).unwrap();
+        assert_eq!(second_run, 0);
 
         // Discovery should find zero errors
         let discovery = discover_vault(&vault).unwrap();

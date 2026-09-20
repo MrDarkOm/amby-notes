@@ -201,9 +201,11 @@ fn desktop_e2e_external_edit_delete_and_rename_refresh_the_index() {
                 index::search_notes(active, &active.root, "new searchable")?.len(),
                 1
             );
-            assert!(index::search_notes(active, &active.root, "old searchable")
-                .unwrap()
-                .is_empty());
+            assert!(
+                index::search_notes(active, &active.root, "old searchable")
+                    .unwrap()
+                    .is_empty()
+            );
             Ok(())
         })
         .unwrap();
@@ -431,5 +433,8 @@ fn desktop_e2e_large_vault_smoke_reports_scan_reopen_update_and_search() {
     reopened
         .with_active(|active| Ok(index::search_notes(active, &active.root, "updated-token")?))
         .unwrap();
-    eprintln!("desktop-e2e large-vault notes={count} initial_scan={initial_scan:?} reopen={reopen:?} one_file_update={one_file_update:?} search={:?}", search_started.elapsed());
+    eprintln!(
+        "desktop-e2e large-vault notes={count} initial_scan={initial_scan:?} reopen={reopen:?} one_file_update={one_file_update:?} search={:?}",
+        search_started.elapsed()
+    );
 }

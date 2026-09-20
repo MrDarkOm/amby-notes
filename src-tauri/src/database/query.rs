@@ -470,7 +470,7 @@ fn aggregate_field_plan(
                     return Err(QueryFailure::new(
                         "invalidAggregateField",
                         "unknown category field",
-                    ))
+                    ));
                 }
             };
             Ok((
@@ -507,7 +507,7 @@ fn aggregate_field_plan(
                     return Err(QueryFailure::new(
                         "invalidAggregateField",
                         "property cannot be a category",
-                    ))
+                    ));
                 }
             };
             let expression = format!(
@@ -698,7 +698,7 @@ fn sort_plan(
             return Err(QueryFailure::new(
                 "invalidSort",
                 "sort direction must be asc or desc",
-            ))
+            ));
         }
     };
     let nulls = match sort.nulls.as_str() {
@@ -708,7 +708,7 @@ fn sort_plan(
             return Err(QueryFailure::new(
                 "invalidSort",
                 "null placement must be first or last",
-            ))
+            ));
         }
     };
     let (expression, join_sql, property_id) = match &sort.field {
@@ -722,7 +722,7 @@ fn sort_plan(
                     return Err(QueryFailure::new(
                         "invalidSortField",
                         "unknown system sort field",
-                    ))
+                    ));
                 }
             };
             (expression.to_owned(), String::new(), None)
@@ -744,7 +744,7 @@ fn sort_plan(
                     return Err(QueryFailure::new(
                         "invalidSortField",
                         "property type does not support sorting",
-                    ))
+                    ));
                 }
             };
             let expression = if matches!(property_type.as_str(), "select" | "status") {
@@ -752,9 +752,13 @@ fn sort_plan(
             } else {
                 format!("{alias}.{column}")
             };
-            (expression,
-                format!("LEFT JOIN db_values {alias} ON {alias}.database_id = m.database_id AND {alias}.note_id = m.note_id AND {alias}.property_id = ?"),
-                Some(property_id.clone()))
+            (
+                expression,
+                format!(
+                    "LEFT JOIN db_values {alias} ON {alias}.database_id = m.database_id AND {alias}.note_id = m.note_id AND {alias}.property_id = ?"
+                ),
+                Some(property_id.clone()),
+            )
         }
     };
     Ok(SortPlan {
@@ -869,7 +873,7 @@ fn compile_system_condition(
             return Err(QueryFailure::new(
                 "invalidFilterField",
                 "unknown system filter field",
-            ))
+            ));
         }
     };
     match operator {
@@ -923,6 +927,7 @@ fn compile_property_condition(
         "text" | "url" => "text_value",
         "number" => "decimal_sort_key",
         "checkbox" => "bool_value",
+        "date" => "date_start_key",
         "select" | "status" => "option_id",
         _ => "canonical_json",
     };
@@ -955,6 +960,24 @@ fn compile_property_condition(
             }));
             Ok(format!("{exists} LIKE ? ESCAPE '\\')"))
         }
+        "contains" if matches!(property_type, "select" | "status") => {
+            bindings.push(Value::Text(property_id.to_owned()));
+            let operand = operand_string(operand)?;
+            bindings.push(Value::Text(operand));
+            Ok(format!("{exists} = ?)"))
+        }
+        "contains" if matches!(property_type, "multiSelect" | "multiselect") => {
+            bindings.push(Value::Text(property_id.to_owned()));
+            let operand = operand_string(operand)?;
+            bindings.push(Value::Text(operand));
+            Ok("EXISTS (SELECT 1 FROM db_value_options vo WHERE vo.database_id = m.database_id AND vo.note_id = m.note_id AND vo.property_id = ? AND vo.option_id = ?)".to_owned())
+        }
+        "contains" if property_type == "relation" => {
+            bindings.push(Value::Text(property_id.to_owned()));
+            let operand = operand_string(operand)?;
+            bindings.push(Value::Text(operand));
+            Ok("EXISTS (SELECT 1 FROM db_relation_edges re WHERE re.source_database_id = m.database_id AND re.source_note_id = m.note_id AND re.property_id = ? AND re.target_note_id = ?)".to_owned())
+        }
         "greaterThan" | "lessThan" if property_type == "number" => {
             let operand = operand_string(operand)?;
             let decimal = canonical_decimal(&operand).map_err(|_| {
@@ -971,6 +994,22 @@ fn compile_property_condition(
             let comparator = if operator == "greaterThan" { ">" } else { "<" };
             Ok(format!(
                 "EXISTS (SELECT 1 FROM db_values v WHERE v.database_id = m.database_id AND v.note_id = m.note_id AND v.property_id = ? AND v.decimal_sort_key {comparator} ?)"
+            ))
+        }
+        "greaterThan" | "lessThan" if property_type == "date" => {
+            let operand = operand_string(operand)?;
+            let (key, _) = super::projection::date_key(&operand);
+            let Some(key) = key else {
+                return Err(QueryFailure::new(
+                    "invalidOperand",
+                    "date operand is not valid date",
+                ));
+            };
+            bindings.push(Value::Text(property_id.to_owned()));
+            bindings.push(Value::Integer(key));
+            let comparator = if operator == "greaterThan" { ">" } else { "<" };
+            Ok(format!(
+                "EXISTS (SELECT 1 FROM db_values v WHERE v.database_id = m.database_id AND v.note_id = m.note_id AND v.property_id = ? AND v.date_start_key {comparator} ?)"
             ))
         }
         _ => Err(QueryFailure::new(
@@ -991,9 +1030,24 @@ fn property_operand(
                 QueryFailure::new("invalidOperand", "number operand is not exact decimal")
             }),
         "checkbox" => operand
-            .and_then(|value| value.as_bool())
+            .and_then(|value| match value {
+                JsonValue::Bool(b) => Some(b),
+                JsonValue::String(s) => match s.trim().to_lowercase().as_str() {
+                    "true" | "1" => Some(true),
+                    "false" | "0" => Some(false),
+                    _ => None,
+                },
+                JsonValue::Number(n) => n.as_i64().map(|v| v != 0),
+                _ => None,
+            })
             .map(|value| Value::Integer(value as i64))
             .ok_or_else(|| QueryFailure::new("invalidOperand", "checkbox operand must be boolean")),
+        "date" => {
+            let (key, _) = super::projection::date_key(&operand_string(operand)?);
+            key.map(Value::Integer).ok_or_else(|| {
+                QueryFailure::new("invalidOperand", "date operand is not valid date")
+            })
+        }
         _ => Ok(Value::Text(operand_string(operand)?)),
     }
 }
@@ -1773,5 +1827,169 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(error.code, "staleCursor");
+    }
+
+    #[test]
+    fn st09_date_multiselect_relation_filters() {
+        let conn = connection();
+
+        // 1. Test date filters
+        let (d1, _) = crate::database::projection::date_key("2026-01-01");
+        let (d2, _) = crate::database::projection::date_key("2026-06-01");
+        let (d3, _) = crate::database::projection::date_key("2026-12-01");
+        property(
+            &conn,
+            "date",
+            &[
+                Some(serde_json::json!({ "dateKey": d1.unwrap() })),
+                Some(serde_json::json!({ "dateKey": d2.unwrap() })),
+                Some(serde_json::json!({ "dateKey": d3.unwrap() })),
+            ],
+        );
+
+        for (operator, operand, expected) in [
+            ("equals", "2026-06-01", vec!["Beta"]),
+            ("notEquals", "2026-06-01", vec!["Alpha", "Gamma"]),
+            ("greaterThan", "2026-05-01", vec!["Beta", "Gamma"]),
+            ("lessThan", "2026-05-01", vec!["Alpha"]),
+        ] {
+            let req = request(
+                Some(DatabaseFilterNode::Condition {
+                    field: DatabaseFieldRef::Property {
+                        property_id: "date".to_owned(),
+                    },
+                    operator: operator.to_owned(),
+                    value: Some(serde_json::json!(operand).to_string()),
+                }),
+                DatabasePageRequest {
+                    limit: 10,
+                    cursor: None,
+                },
+            );
+            assert_eq!(all_pages(&conn, req), expected, "date operator {operator}");
+        }
+
+        // 2. Test multiselect filter (contains)
+        conn.execute(
+            "INSERT INTO db_properties (database_id, property_id, position, name, property_type, page_visibility, config_json) VALUES ('01J00000000000000000000000', 'tags', 1, 'tags', 'multiselect', 'alwaysShow', '{}')",
+            [],
+        ).unwrap();
+        // Alpha: opt_a, opt_b
+        // Beta: opt_b, opt_c
+        // Gamma: opt_c
+        for (note_id, opt_id) in [
+            ("01J00000000000000000000001", "opt_a"),
+            ("01J00000000000000000000001", "opt_b"),
+            ("01J00000000000000000000002", "opt_b"),
+            ("01J00000000000000000000002", "opt_c"),
+            ("01J00000000000000000000003", "opt_c"),
+        ] {
+            conn.execute(
+                "INSERT INTO db_values (database_id, note_id, property_id, value_type, canonical_json, source_revision) VALUES ('01J00000000000000000000000', ?1, 'tags', 'multiselect', '[]', 'record')",
+                params![note_id],
+            ).ok();
+            conn.execute(
+                "INSERT INTO db_value_options (database_id, note_id, property_id, option_id, position) VALUES ('01J00000000000000000000000', ?1, 'tags', ?2, 0)",
+                params![note_id, opt_id],
+            ).unwrap();
+        }
+
+        for (operand, expected) in [
+            ("opt_a", vec!["Alpha"]),
+            ("opt_b", vec!["Alpha", "Beta"]),
+            ("opt_c", vec!["Beta", "Gamma"]),
+        ] {
+            let req = request(
+                Some(DatabaseFilterNode::Condition {
+                    field: DatabaseFieldRef::Property {
+                        property_id: "tags".to_owned(),
+                    },
+                    operator: "contains".to_owned(),
+                    value: Some(serde_json::json!(operand).to_string()),
+                }),
+                DatabasePageRequest {
+                    limit: 10,
+                    cursor: None,
+                },
+            );
+            assert_eq!(
+                all_pages(&conn, req),
+                expected,
+                "multiselect contains {operand}"
+            );
+        }
+
+        // 3. Test relation filter (contains)
+        conn.execute(
+            "INSERT INTO db_properties (database_id, property_id, position, name, property_type, page_visibility, config_json) VALUES ('01J00000000000000000000000', 'rel', 2, 'rel', 'relation', 'alwaysShow', '{}')",
+            [],
+        ).unwrap();
+        // Alpha -> Beta (01J00000000000000000000002)
+        // Gamma -> Beta (01J00000000000000000000002)
+        for note_id in ["01J00000000000000000000001", "01J00000000000000000000003"] {
+            conn.execute(
+                "INSERT INTO db_values (database_id, note_id, property_id, value_type, canonical_json, source_revision) VALUES ('01J00000000000000000000000', ?1, 'rel', 'relation', '[]', 'record')",
+                params![note_id],
+            ).ok();
+            conn.execute(
+                "INSERT INTO db_relation_edges (source_database_id, source_note_id, property_id, target_note_id, position, target_state) VALUES ('01J00000000000000000000000', ?1, 'rel', '01J00000000000000000000002', 0, 'linked')",
+                params![note_id],
+            ).unwrap();
+        }
+
+        let req = request(
+            Some(DatabaseFilterNode::Condition {
+                field: DatabaseFieldRef::Property {
+                    property_id: "rel".to_owned(),
+                },
+                operator: "contains".to_owned(),
+                value: Some(serde_json::json!("01J00000000000000000000002").to_string()),
+            }),
+            DatabasePageRequest {
+                limit: 10,
+                cursor: None,
+            },
+        );
+        assert_eq!(
+            all_pages(&conn, req),
+            vec!["Alpha", "Gamma"],
+            "relation contains target"
+        );
+    }
+    #[test]
+    fn review_canonical_multi_select_filter_is_accepted() {
+        let mut bindings = Vec::new();
+        let result = compile_property_condition(
+            "multiSelect",
+            "p",
+            "contains",
+            Some(serde_json::json!("option-id")),
+            &mut bindings,
+        );
+        assert!(result.is_ok(), "canonical type rejected: {result:?}");
+    }
+    #[test]
+    fn review_checkbox_filter_sent_by_frontend_is_accepted() {
+        let mut bindings = Vec::new();
+        let result = compile_property_condition(
+            "checkbox",
+            "p",
+            "equals",
+            Some(serde_json::json!("true")),
+            &mut bindings,
+        );
+        assert!(result.is_ok(), "frontend operand rejected: {result:?}");
+    }
+    #[test]
+    fn review_select_filter_sent_by_frontend_is_accepted() {
+        let mut bindings = Vec::new();
+        let result = compile_property_condition(
+            "select",
+            "p",
+            "contains",
+            Some(serde_json::json!("option-id")),
+            &mut bindings,
+        );
+        assert!(result.is_ok(), "frontend operator rejected: {result:?}");
     }
 }

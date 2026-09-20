@@ -8,5 +8,10 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.{ts,tsx}"],
+    server: {
+      deps: {
+        inline: ["@excalidraw/excalidraw"],
+      },
+    },
   },
 })

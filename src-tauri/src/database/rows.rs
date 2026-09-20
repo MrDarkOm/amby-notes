@@ -5,10 +5,9 @@ use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use super::discovery::discover_vault;
-use super::format::{parse_manifest, parse_template, raw_revision, MAX_JSON_BYTES};
+use super::format::{PropertyValue, parse_manifest, parse_template};
 use crate::frontmatter::{self, AtomicCreateError};
 use crate::watcher::{self, WatcherState};
 
@@ -72,49 +71,52 @@ pub fn create_database_row(
     // managers, while the frontmatter ID remains the durable identity.
     let stem = safe_row_stem(title);
     let note_path = unique_row_path(&database.container_path, &stem)?;
-    let record_path = database
-        .container_path
-        .join(".ambd/records")
-        .join(format!("{note_id}.json"));
-    if note_path.exists() || record_path.exists() {
+    if note_path.exists() {
         return Err("A row with this title or ID already exists".to_owned());
     }
     let (template_body, template_values) = match &request.template {
-        DatabaseRowTemplate::Empty => (String::new(), json!({})),
+        DatabaseRowTemplate::Empty => (String::new(), std::collections::BTreeMap::new()),
         DatabaseRowTemplate::Default => load_default_template(&database, &request.database_id),
         DatabaseRowTemplate::Template { template_id } => {
             load_template(&database, &request.database_id, template_id)
         }
     };
     let encoded_title = serde_json::to_string(title).map_err(|error| error.to_string())?;
-    let note_bytes =
-        format!("---\namby-id: {note_id}\namby-title: {encoded_title}\n---\n{template_body}")
-            .into_bytes();
-    let record_bytes = json_bytes(&json!({
-        "format": "amby-database-record",
-        "formatVersion": 1,
-        "databaseId": request.database_id.clone(),
-        "noteId": note_id.clone(),
-        "values": template_values
-    }))?;
-    let prepared = watcher.prepare_write([
-        (&note_path, watcher::fingerprint_for_bytes(&note_bytes)),
-        (&record_path, watcher::fingerprint_for_bytes(&record_bytes)),
-    ]);
-    fs::create_dir_all(record_path.parent().ok_or("Record has no parent")?)
-        .map_err(|error| error.to_string())?;
-    let result = (|| {
-        write_new(&note_path, &note_bytes)?;
-        if let Err(error) = write_new(&record_path, &record_bytes) {
-            let _ = fs::remove_file(&note_path);
-            return Err(error);
+    let mut note_content =
+        format!("---\namby-id: {note_id}\namby-title: {encoded_title}\n---\n{template_body}");
+
+    if !template_values.is_empty() {
+        if let Ok(manifest_bytes) = fs::read(&database.manifest_path) {
+            if let Ok(manifest) = parse_manifest(&manifest_bytes) {
+                for (prop_id, prop_val) in &template_values {
+                    if let Some(prop_def) = manifest
+                        .value
+                        .properties
+                        .iter()
+                        .find(|p| p.id() == Some(prop_id.as_str()))
+                    {
+                        if let (Some(prop_name), Some(yaml_val)) = (
+                            prop_def.name(),
+                            super::format::property_value_to_frontmatter_value(prop_val, prop_def),
+                        ) {
+                            if let Ok(updated) = frontmatter::replace_yaml_binding_lossless(
+                                &note_content,
+                                prop_name,
+                                &yaml_val,
+                            ) {
+                                note_content = updated;
+                            }
+                        }
+                    }
+                }
+            }
         }
-        Ok(())
-    })();
-    if let Err(error) = result {
+    }
+    let note_bytes = note_content.into_bytes();
+    let prepared =
+        watcher.prepare_write([(&note_path, watcher::fingerprint_for_bytes(&note_bytes))]);
+    if let Err(error) = write_new(&note_path, &note_bytes) {
         watcher.cancel_prepared_write(&prepared);
-        let _ = fs::remove_file(&note_path);
-        let _ = fs::remove_file(&record_path);
         return Err(error);
     }
     watcher.confirm_prepared_write(&prepared);
@@ -123,8 +125,8 @@ pub fn create_database_row(
         note_id,
         title: title.to_owned(),
         note_path: note_path.to_string_lossy().to_string(),
-        record_path: record_path.to_string_lossy().to_string(),
-        record_revision: raw_revision(&record_bytes),
+        record_path: String::new(),
+        record_revision: String::new(),
         warnings: Vec::new(),
     })
 }
@@ -146,15 +148,15 @@ pub fn index_created_database_row(
 fn load_default_template(
     database: &super::discovery::DiscoveredDatabase,
     database_id: &str,
-) -> (String, serde_json::Value) {
+) -> (String, std::collections::BTreeMap<String, PropertyValue>) {
     let Ok(manifest_bytes) = fs::read(&database.manifest_path) else {
-        return (String::new(), json!({}));
+        return (String::new(), std::collections::BTreeMap::new());
     };
     let Ok(manifest) = parse_manifest(&manifest_bytes) else {
-        return (String::new(), json!({}));
+        return (String::new(), std::collections::BTreeMap::new());
     };
     let Some(template_id) = manifest.value.default_template_id else {
-        return (String::new(), json!({}));
+        return (String::new(), std::collections::BTreeMap::new());
     };
     load_template_file(database, database_id, &template_id)
 }
@@ -163,12 +165,12 @@ fn load_template(
     database: &super::discovery::DiscoveredDatabase,
     database_id: &str,
     template_id: &str,
-) -> (String, serde_json::Value) {
+) -> (String, std::collections::BTreeMap<String, PropertyValue>) {
     let Ok(manifest_bytes) = fs::read(&database.manifest_path) else {
-        return (String::new(), json!({}));
+        return (String::new(), std::collections::BTreeMap::new());
     };
     let Ok(manifest) = parse_manifest(&manifest_bytes) else {
-        return (String::new(), json!({}));
+        return (String::new(), std::collections::BTreeMap::new());
     };
     if manifest.value.database_id != database_id
         || !manifest
@@ -177,7 +179,7 @@ fn load_template(
             .iter()
             .any(|id| id == template_id)
     {
-        return (String::new(), json!({}));
+        return (String::new(), std::collections::BTreeMap::new());
     }
     load_template_file(database, database_id, template_id)
 }
@@ -186,22 +188,21 @@ fn load_template_file(
     database: &super::discovery::DiscoveredDatabase,
     database_id: &str,
     template_id: &str,
-) -> (String, serde_json::Value) {
+) -> (String, std::collections::BTreeMap<String, PropertyValue>) {
     let path = database
         .container_path
         .join(".ambd/templates")
         .join(format!("{template_id}.json"));
     let Ok(bytes) = fs::read(path) else {
-        return (String::new(), json!({}));
+        return (String::new(), std::collections::BTreeMap::new());
     };
     let Ok(template) = parse_template(&bytes) else {
-        return (String::new(), json!({}));
+        return (String::new(), std::collections::BTreeMap::new());
     };
     if template.value.database_id != database_id || template.value.template_id != template_id {
-        return (String::new(), json!({}));
+        return (String::new(), std::collections::BTreeMap::new());
     }
-    let values = serde_json::to_value(template.value.values).unwrap_or_else(|_| json!({}));
-    (template.value.body, values)
+    (template.value.body, template.value.values)
 }
 
 fn safe_row_stem(title: &str) -> String {
@@ -267,15 +268,6 @@ fn unique_row_path(container: &Path, stem: &str) -> Result<std::path::PathBuf, S
     Err("Could not find an available filename for the database row".to_owned())
 }
 
-fn json_bytes(value: &serde_json::Value) -> Result<Vec<u8>, String> {
-    let mut bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
-    bytes.push(b'\n');
-    if bytes.len() > MAX_JSON_BYTES {
-        return Err("Generated record JSON is too large".to_owned());
-    }
-    Ok(bytes)
-}
-
 fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     match frontmatter::atomic_write_bytes_new(path, bytes) {
         Ok(()) => Ok(()),
@@ -289,8 +281,15 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::mutations::{create_database, CreateDatabaseRequest, DatabaseCreateMode};
+    use crate::database::mutations::{CreateDatabaseRequest, DatabaseCreateMode, create_database};
+    use serde_json::json;
     use std::path::PathBuf;
+
+    fn json_bytes(value: &serde_json::Value) -> Result<Vec<u8>, String> {
+        let mut bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
+        bytes.push(b'\n');
+        Ok(bytes)
+    }
 
     fn temp_vault() -> PathBuf {
         let path = std::env::temp_dir().join(format!("amby-db-row-{}", ulid::Ulid::generate()));
@@ -326,10 +325,18 @@ mod tests {
         .unwrap();
         assert_eq!(row.note_id.len(), 26);
         assert!(Path::new(&row.note_path).is_file());
-        assert!(Path::new(&row.record_path).is_file());
-        assert!(String::from_utf8(fs::read(&row.note_path).unwrap())
-            .unwrap()
-            .contains(&row.note_id));
+        assert!(
+            !Path::new(&row.note_path)
+                .parent()
+                .unwrap()
+                .join(".ambd/records")
+                .exists()
+        );
+        assert!(
+            String::from_utf8(fs::read(&row.note_path).unwrap())
+                .unwrap()
+                .contains(&row.note_id)
+        );
         let _ = fs::remove_dir_all(vault);
     }
 
@@ -354,6 +361,13 @@ mod tests {
         let manifest_path = crate::database::discovery::manifest_path_for_container(&container);
         let mut manifest: serde_json::Value =
             serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["properties"] = json!([{
+            "type": "text",
+            "id": property_id.clone(),
+            "name": "Status",
+            "pageVisibility": "alwaysShow",
+            "config": { "multiline": false }
+        }]);
         manifest["templateOrder"] = json!([template_id.clone()]);
         manifest["defaultTemplateId"] = json!(template_id.clone());
         fs::write(&manifest_path, json_bytes(&manifest).unwrap()).unwrap();
@@ -388,9 +402,8 @@ mod tests {
         .unwrap();
         let note = String::from_utf8(fs::read(row.note_path).unwrap()).unwrap();
         assert!(note.ends_with("# Project\n"));
-        let record: serde_json::Value =
-            serde_json::from_slice(&fs::read(row.record_path).unwrap()).unwrap();
-        assert_eq!(record["values"][property_id]["value"], "todo");
+        assert!(note.contains("Status: todo"));
+        assert!(!container.join(".ambd/records").exists());
         let _ = fs::remove_dir_all(vault);
     }
 
@@ -420,7 +433,7 @@ mod tests {
             },
         )
         .unwrap();
-        let note = String::from_utf8(fs::read(row.note_path).unwrap()).unwrap();
+        let note = String::from_utf8(fs::read(&row.note_path).unwrap()).unwrap();
         assert_eq!(
             note,
             format!(
@@ -428,9 +441,13 @@ mod tests {
                 row.note_id
             )
         );
-        let record: serde_json::Value =
-            serde_json::from_slice(&fs::read(row.record_path).unwrap()).unwrap();
-        assert_eq!(record["values"], json!({}));
+        assert!(
+            !Path::new(&row.note_path)
+                .parent()
+                .unwrap()
+                .join(".ambd/records")
+                .exists()
+        );
         let _ = fs::remove_dir_all(vault);
     }
 
@@ -475,12 +492,16 @@ mod tests {
         assert_ne!(first.note_path, second.note_path);
         assert!(first.note_path.ends_with("Алекс.md"));
         assert!(second.note_path.ends_with("Алекс 2.md"));
-        assert!(String::from_utf8(fs::read(first.note_path).unwrap())
-            .unwrap()
-            .contains("amby-title: \"Алекс\""));
-        assert!(String::from_utf8(fs::read(second.note_path).unwrap())
-            .unwrap()
-            .contains("amby-title: \"Алекс\""));
+        assert!(
+            String::from_utf8(fs::read(first.note_path).unwrap())
+                .unwrap()
+                .contains("amby-title: \"Алекс\"")
+        );
+        assert!(
+            String::from_utf8(fs::read(second.note_path).unwrap())
+                .unwrap()
+                .contains("amby-title: \"Алекс\"")
+        );
         let _ = fs::remove_dir_all(vault);
     }
 

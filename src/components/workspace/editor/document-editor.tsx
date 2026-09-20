@@ -36,6 +36,7 @@ export interface DocumentEditorProps {
   document: Document | null
   onContentChange?: (content: string, sourceDocumentId: string) => void
   onContentDirty?: (sourceDocumentId: string) => void
+  onContentClean?: (sourceDocumentId: string) => void
   onRestoreDeleted?: () => void | Promise<void>
   onBack?: () => void
   onForward?: () => void
@@ -107,6 +108,7 @@ export function DocumentEditor({
   document,
   onContentChange,
   onContentDirty,
+  onContentClean,
   onRestoreDeleted,
   onBack,
   onForward,
@@ -294,6 +296,19 @@ export function DocumentEditor({
     if (!document || effectiveLocked) return
     onContentDirty?.(document.id)
   }, [document, effectiveLocked, onContentDirty])
+
+  const handleContentClean = React.useCallback(() => {
+    if (!document) return
+    onContentClean?.(document.id)
+  }, [document, onContentClean])
+
+  React.useEffect(() => {
+    const onManualSave = () => {
+      editorRef.current?.flush?.()
+    }
+    window.addEventListener("amby:manual-save", onManualSave)
+    return () => window.removeEventListener("amby:manual-save", onManualSave)
+  }, [])
 
   const handleEditorSelectionChange = React.useCallback((next: MarkdownSelection) => {
     editorSelectionRef.current = next
@@ -497,6 +512,7 @@ export function DocumentEditor({
           content={content}
           onContentChange={handleContentChange}
           onContentDirty={handleContentDirty}
+          onContentClean={handleContentClean}
           activeLayer={activeLayer}
           viewMode={effectiveViewMode}
           onViewModeChange={handleEditorViewModeChange}

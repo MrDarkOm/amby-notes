@@ -126,6 +126,13 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::database::delete_database_view,
         commands::database::reorder_database_views,
         commands::database::set_default_database_view,
+        commands::database::detect_database_migrations,
+        commands::database::preflight_database_migration,
+        commands::database::execute_database_migration,
+        commands::database::rollback_database_migration,
+        commands::database::undo_database_mutation,
+        commands::database::redo_database_mutation,
+        commands::database::get_database_history_status,
         commands::assets::open_in_explorer,
         commands::assets::import_asset,
         commands::assets::import_asset_bytes,
@@ -174,6 +181,7 @@ pub fn run() {
         .manage(ai::AiStreamState::default())
         .manage(database::runtime_state::DatabaseRuntimeState::default())
         .manage(database::mutation_state::DatabaseMutationState::default())
+        .manage(database::history::DatabaseHistoryState::default())
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
             #[cfg(target_os = "macos")]

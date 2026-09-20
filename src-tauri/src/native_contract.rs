@@ -3,8 +3,8 @@
 use std::{
     fs,
     sync::{
-        atomic::{AtomicI32, Ordering},
         Arc,
+        atomic::{AtomicI32, Ordering},
     },
     time::{Duration, Instant},
 };

@@ -1,4 +1,4 @@
-use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::DefaultHasher};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -145,7 +145,7 @@ pub fn path_fingerprint(path: &Path) -> PathFingerprint {
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return PathFingerprint::Missing
+            return PathFingerprint::Missing;
         }
         Err(_) => return PathFingerprint::Unavailable,
     };

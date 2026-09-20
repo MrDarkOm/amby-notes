@@ -7,10 +7,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::discovery::discover_vault;
-use super::format::{parse_manifest, parse_view, raw_revision, DatabaseManifest, DatabaseViewFile};
+use super::format::{
+    DatabaseManifest, DatabaseViewFile, matches_view_revision, parse_manifest, parse_view,
+    raw_revision, view_bytes, view_revision,
+};
 use super::model::{
     CreateDatabaseViewRequest, DatabaseViewDocument, DatabaseViewMutationResult,
     DatabaseViewRequest, DeleteDatabaseViewRequest, RenameDatabaseViewRequest,
@@ -124,7 +127,19 @@ pub fn get_view(
     vault: &Path,
     request: &DatabaseViewRequest,
 ) -> Result<DatabaseViewDocument, String> {
-    let (container, _, _) = read_manifest(vault, &request.database_id)?;
+    let (container, _, parsed_manifest) = read_manifest(vault, &request.database_id)?;
+    if let Some(view) = parsed_manifest
+        .value
+        .views
+        .iter()
+        .find(|v| v.view_id == request.view_id)
+    {
+        if !matches_view_revision(view, &request.expected_view_revision) {
+            return Err("View revision conflict".to_owned());
+        }
+        let bytes = view_bytes(view)?;
+        return document(&request.database_id, &bytes);
+    }
     let bytes =
         fs::read(view_path(&container, &request.view_id)).map_err(|error| error.to_string())?;
     let parsed = parse_view(&bytes).map_err(|error| error.to_string())?;
@@ -156,7 +171,7 @@ pub fn create_view(
         read_manifest(vault, &request.database_id)?;
     ensure_writable_manifest(&parsed_manifest, &request.expected_manifest_revision)?;
     let view_id = ulid::Ulid::generate().to_string();
-    let view = json!({
+    let view_json = json!({
         "format": "amby-database-view",
         "formatVersion": 1,
         "databaseId": request.database_id,
@@ -174,41 +189,24 @@ pub fn create_view(
         "aggregates": [],
         "layoutConfig": {}
     });
-    let view_bytes = json_bytes(&view)?;
-    let view = parse_view(&view_bytes).map_err(|error| error.to_string())?;
-    let report = validate_view(&view.value, Some(&parsed_manifest.value));
+    let view_file: DatabaseViewFile =
+        serde_json::from_value(view_json).map_err(|error| error.to_string())?;
+    let report = validate_view(&view_file, Some(&parsed_manifest.value));
     if !report.errors.is_empty() {
         return Err("View would make the database configuration invalid".to_owned());
     }
+    let view_bytes = view_bytes(&view_file)?;
     let mut manifest = parsed_manifest.value.clone();
     manifest.view_order.push(view_id.clone());
     if manifest.default_view_id.is_none() {
         manifest.default_view_id = Some(view_id.clone());
     }
+    manifest.views.push(view_file);
     let manifest_path = super::discovery::manifest_path_for_container(&container);
     let manifest_bytes =
         json_bytes(&serde_json::to_value(&manifest).map_err(|error| error.to_string())?)?;
     crate::history::snapshot_before_write(vault, &manifest_path, &manifest_bytes, "database-view")?;
-    let path = view_path(&container, &view_id);
-    fs::create_dir_all(path.parent().ok_or("View has no parent")?)
-        .map_err(|error| error.to_string())?;
-    let prepared = watcher.prepare_write([
-        (&path, watcher::fingerprint_for_bytes(&view_bytes)),
-        (
-            &manifest_path,
-            watcher::fingerprint_for_bytes(&manifest_bytes),
-        ),
-    ]);
-    if let Err(error) = publish_new(&path, &view_bytes) {
-        watcher.cancel_prepared_write(&prepared);
-        return Err(error);
-    }
-    if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path, &manifest_bytes) {
-        let _ = fs::remove_file(&path);
-        watcher.cancel_prepared_write(&prepared);
-        return Err(error);
-    }
-    watcher.confirm_prepared_write(&prepared);
+    publish_existing(watcher, &manifest_path, &manifest_bytes)?;
     document(&request.database_id, &view_bytes)
 }
 
@@ -221,10 +219,41 @@ pub fn rename_view(
     if name.is_empty() || name.contains(['/', '\\', '\n', '\r']) {
         return Err("View name is invalid".to_owned());
     }
-    let (container, _, manifest) = read_manifest(vault, &request.database_id)?;
-    if manifest.value.locked {
+    let (container, _, parsed_manifest) = read_manifest(vault, &request.database_id)?;
+    if parsed_manifest.value.locked {
         return Err("Database is locked".to_owned());
     }
+    let mut manifest = parsed_manifest.value.clone();
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
+
+    if let Some(pos) = manifest
+        .views
+        .iter()
+        .position(|v| v.view_id == request.view_id)
+    {
+        if !matches_view_revision(&manifest.views[pos], &request.expected_view_revision) {
+            return Err("View revision conflict".to_owned());
+        }
+        manifest.views[pos].name = name.to_owned();
+        let next_view_bytes = view_bytes(&manifest.views[pos])?;
+        let next_manifest_bytes =
+            json_bytes(&serde_json::to_value(&manifest).map_err(|e| e.to_string())?)?;
+        crate::history::snapshot_before_write(
+            vault,
+            &manifest_path,
+            &next_manifest_bytes,
+            "database-view",
+        )?;
+        publish_existing(watcher, &manifest_path, &next_manifest_bytes)?;
+        return Ok(DatabaseViewMutationResult {
+            database_id: request.database_id.clone(),
+            view_id: request.view_id.clone(),
+            view_revision: raw_revision(&next_view_bytes),
+            manifest_revision: raw_revision(&next_manifest_bytes),
+            warnings: Vec::new(),
+        });
+    }
+
     let path = view_path(&container, &request.view_id);
     let bytes = fs::read(&path).map_err(|error| error.to_string())?;
     let parsed = parse_view(&bytes).map_err(|error| error.to_string())?;
@@ -238,7 +267,7 @@ pub fn rename_view(
         database_id: request.database_id.clone(),
         view_id: request.view_id.clone(),
         view_revision: raw_revision(&next),
-        manifest_revision: manifest.revision,
+        manifest_revision: parsed_manifest.revision,
         warnings: Vec::new(),
     })
 }
@@ -248,31 +277,62 @@ pub fn update_view_config(
     watcher: &WatcherState,
     request: &UpdateDatabaseViewConfigRequest,
 ) -> Result<DatabaseViewMutationResult, String> {
-    let (container, _, manifest) = read_manifest(vault, &request.database_id)?;
-    if manifest.value.locked {
+    let (container, _, parsed_manifest) = read_manifest(vault, &request.database_id)?;
+    if parsed_manifest.value.locked {
         return Err("Database is locked".to_owned());
     }
-    let path = view_path(&container, &request.view_id);
-    let current = fs::read(&path).map_err(|error| error.to_string())?;
-    let parsed = parse_view(&current).map_err(|error| error.to_string())?;
-    ensure_writable_view(&parsed, &request.expected_view_revision)?;
     let next: DatabaseViewFile = serde_json::from_str(&request.config_json)
         .map_err(|error| format!("View config is invalid JSON: {error}"))?;
     if next.database_id != request.database_id || next.view_id != request.view_id {
         return Err("View config identity does not match the request".to_owned());
     }
-    let report = validate_view(&next, Some(&manifest.value));
+    let report = validate_view(&next, Some(&parsed_manifest.value));
     if !report.errors.is_empty() {
         return Err("View configuration is invalid".to_owned());
     }
-    let next = json_bytes(&serde_json::to_value(&next).map_err(|error| error.to_string())?)?;
-    crate::history::snapshot_before_write(vault, &path, &next, "database-view")?;
-    publish_existing(watcher, &path, &next)?;
+    let mut manifest = parsed_manifest.value.clone();
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
+
+    if let Some(pos) = manifest
+        .views
+        .iter()
+        .position(|v| v.view_id == request.view_id)
+    {
+        if !matches_view_revision(&manifest.views[pos], &request.expected_view_revision) {
+            return Err("View revision conflict".to_owned());
+        }
+        manifest.views[pos] = next.clone();
+        let next_view_bytes = view_bytes(&next)?;
+        let next_manifest_bytes =
+            json_bytes(&serde_json::to_value(&manifest).map_err(|e| e.to_string())?)?;
+        crate::history::snapshot_before_write(
+            vault,
+            &manifest_path,
+            &next_manifest_bytes,
+            "database-view",
+        )?;
+        publish_existing(watcher, &manifest_path, &next_manifest_bytes)?;
+        return Ok(DatabaseViewMutationResult {
+            database_id: request.database_id.clone(),
+            view_id: request.view_id.clone(),
+            view_revision: raw_revision(&next_view_bytes),
+            manifest_revision: raw_revision(&next_manifest_bytes),
+            warnings: Vec::new(),
+        });
+    }
+
+    let path = view_path(&container, &request.view_id);
+    let current = fs::read(&path).map_err(|error| error.to_string())?;
+    let parsed = parse_view(&current).map_err(|error| error.to_string())?;
+    ensure_writable_view(&parsed, &request.expected_view_revision)?;
+    let next_bytes = json_bytes(&serde_json::to_value(&next).map_err(|error| error.to_string())?)?;
+    crate::history::snapshot_before_write(vault, &path, &next_bytes, "database-view")?;
+    publish_existing(watcher, &path, &next_bytes)?;
     Ok(DatabaseViewMutationResult {
         database_id: request.database_id.clone(),
         view_id: request.view_id.clone(),
-        view_revision: raw_revision(&next),
-        manifest_revision: manifest.revision,
+        view_revision: raw_revision(&next_bytes),
+        manifest_revision: parsed_manifest.revision,
         warnings: Vec::new(),
     })
 }
@@ -288,20 +348,50 @@ pub fn duplicate_view(
         .as_deref()
         .unwrap_or(&manifest.revision);
     ensure_writable_manifest(&manifest, expected_manifest)?;
+    let new_id = ulid::Ulid::generate().to_string();
+    let mut next_manifest = manifest.value.clone();
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
+
+    if let Some(src_view) = next_manifest
+        .views
+        .iter()
+        .find(|v| v.view_id == request.view_id)
+    {
+        if !matches_view_revision(src_view, &request.expected_view_revision) {
+            return Err("View revision conflict".to_owned());
+        }
+        let mut dup_view = src_view.clone();
+        dup_view.view_id = new_id.clone();
+        dup_view.name = format!("{} copy", dup_view.name);
+        next_manifest.view_order.push(new_id.clone());
+        next_manifest.views.push(dup_view.clone());
+        let next_manifest_bytes =
+            json_bytes(&serde_json::to_value(&next_manifest).map_err(|e| e.to_string())?)?;
+        crate::history::snapshot_before_write(
+            vault,
+            &manifest_path,
+            &next_manifest_bytes,
+            "database-view",
+        )?;
+        publish_existing(watcher, &manifest_path, &next_manifest_bytes)?;
+        let dup_view_bytes = view_bytes(&dup_view)?;
+        return document(&request.database_id, &dup_view_bytes);
+    }
+
     let source_path = view_path(&container, &request.view_id);
     let source = fs::read(&source_path).map_err(|error| error.to_string())?;
     let parsed = parse_view(&source).map_err(|error| error.to_string())?;
     ensure_writable_view(&parsed, &request.expected_view_revision)?;
-    let new_id = ulid::Ulid::generate().to_string();
     let mut value = serde_json::to_value(parsed.value).map_err(|error| error.to_string())?;
     value["viewId"] = Value::String(new_id.clone());
     value["name"] = Value::String(format!("{} copy", value["name"].as_str().unwrap_or("View")));
     let next_view = json_bytes(&value)?;
-    let mut next_manifest = manifest.value.clone();
     next_manifest.view_order.push(new_id.clone());
+    if let Ok(dup_file) = serde_json::from_value::<DatabaseViewFile>(value) {
+        next_manifest.views.push(dup_file);
+    }
     let next_manifest =
         json_bytes(&serde_json::to_value(&next_manifest).map_err(|error| error.to_string())?)?;
-    let manifest_path = super::discovery::manifest_path_for_container(&container);
     let path = view_path(&container, &new_id);
     let prepared = watcher.prepare_write([
         (&path, watcher::fingerprint_for_bytes(&next_view)),
@@ -341,24 +431,64 @@ pub fn delete_view(
     {
         return Err("View was not found in the manifest".to_owned());
     }
+    let mut next_manifest = manifest.value.clone();
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
+
+    if let Some(pos) = next_manifest
+        .views
+        .iter()
+        .position(|v| v.view_id == request.view_id)
+    {
+        if !matches_view_revision(&next_manifest.views[pos], &request.expected_view_revision) {
+            return Err("View revision conflict".to_owned());
+        }
+        let view_rev = view_revision(&next_manifest.views[pos])?;
+        next_manifest.views.remove(pos);
+        next_manifest.view_order.retain(|id| id != &request.view_id);
+        if next_manifest.default_view_id.as_deref() == Some(request.view_id.as_str()) {
+            next_manifest.default_view_id = next_manifest.view_order.first().cloned();
+        }
+        let next_manifest_bytes =
+            json_bytes(&serde_json::to_value(&next_manifest).map_err(|e| e.to_string())?)?;
+        crate::history::snapshot_before_write(
+            vault,
+            &manifest_path,
+            &next_manifest_bytes,
+            "database-view",
+        )?;
+        publish_existing(watcher, &manifest_path, &next_manifest_bytes)?;
+        let path = view_path(&container, &request.view_id);
+        if path.is_file() {
+            let _ = fs::remove_file(&path);
+        }
+        return Ok(DatabaseViewMutationResult {
+            database_id: request.database_id.clone(),
+            view_id: request.view_id.clone(),
+            view_revision: view_rev,
+            manifest_revision: raw_revision(&next_manifest_bytes),
+            warnings: Vec::new(),
+        });
+    }
+
     let path = view_path(&container, &request.view_id);
     let current = fs::read(&path).map_err(|error| error.to_string())?;
     let parsed = parse_view(&current).map_err(|error| error.to_string())?;
     ensure_writable_view(&parsed, &request.expected_view_revision)?;
-    let mut next_manifest = manifest.value.clone();
     next_manifest.view_order.retain(|id| id != &request.view_id);
     if next_manifest.default_view_id.as_deref() == Some(request.view_id.as_str()) {
         next_manifest.default_view_id = next_manifest.view_order.first().cloned();
     }
-    let next_manifest =
+    let next_manifest_bytes =
         json_bytes(&serde_json::to_value(&next_manifest).map_err(|error| error.to_string())?)?;
-    let manifest_path = super::discovery::manifest_path_for_container(&container);
     crate::history::snapshot_before_write(vault, &path, &current, "database-view")?;
-    crate::history::snapshot_before_write(vault, &manifest_path, &next_manifest, "database-view")?;
-    frontmatter::atomic_write_bytes(&manifest_path, &next_manifest)?;
+    crate::history::snapshot_before_write(
+        vault,
+        &manifest_path,
+        &next_manifest_bytes,
+        "database-view",
+    )?;
+    frontmatter::atomic_write_bytes(&manifest_path, &next_manifest_bytes)?;
     if let Err(error) = fs::remove_file(&path) {
-        // The manifest still points to no deleted view only after this branch;
-        // restore it from the exact original bytes if the shard removal fails.
         let _ = frontmatter::atomic_write_bytes(&manifest_path, &original_manifest);
         return Err(error.to_string());
     }
@@ -367,7 +497,7 @@ pub fn delete_view(
         database_id: request.database_id.clone(),
         view_id: request.view_id.clone(),
         view_revision: parsed.revision,
-        manifest_revision: raw_revision(&next_manifest),
+        manifest_revision: raw_revision(&next_manifest_bytes),
         warnings: Vec::new(),
     })
 }
@@ -434,10 +564,21 @@ pub fn set_default_view(
     {
         return Err("View was not found in the manifest".to_owned());
     }
-    let view_bytes =
-        fs::read(view_path(&container, &request.view_id)).map_err(|error| error.to_string())?;
-    let view = parse_view(&view_bytes).map_err(|error| error.to_string())?;
-    ensure_writable_view(&view, &request.expected_view_revision)?;
+    if let Some(view) = manifest
+        .value
+        .views
+        .iter()
+        .find(|v| v.view_id == request.view_id)
+    {
+        if !matches_view_revision(view, &request.expected_view_revision) {
+            return Err("View revision conflict".to_owned());
+        }
+    } else {
+        let view_bytes =
+            fs::read(view_path(&container, &request.view_id)).map_err(|error| error.to_string())?;
+        let view = parse_view(&view_bytes).map_err(|error| error.to_string())?;
+        ensure_writable_view(&view, &request.expected_view_revision)?;
+    }
     let mut next = manifest.value.clone();
     next.default_view_id = Some(request.view_id.clone());
     let bytes = json_bytes(&serde_json::to_value(&next).map_err(|error| error.to_string())?)?;
@@ -456,7 +597,7 @@ pub fn set_default_view(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::mutations::{create_database, CreateDatabaseRequest, DatabaseCreateMode};
+    use crate::database::mutations::{CreateDatabaseRequest, DatabaseCreateMode, create_database};
 
     fn temp_vault(name: &str) -> PathBuf {
         let path =
@@ -506,7 +647,14 @@ mod tests {
         .unwrap();
         assert_eq!(second.title, "Cards");
         assert_eq!(second.layout, "gallery");
-        assert!(view_path(&container, &second.view_id).is_file());
+        let (_, _, parsed) = read_manifest(&vault, &created.database_id).unwrap();
+        assert!(
+            parsed
+                .value
+                .views
+                .iter()
+                .any(|v| v.view_id == second.view_id)
+        );
 
         let renamed = rename_view(
             &vault,
@@ -548,8 +696,76 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(!Path::new(&view_path(&container, &duplicated.view_id)).exists());
+        let (_, _, parsed_after) = read_manifest(&vault, &created.database_id).unwrap();
+        assert!(
+            !parsed_after
+                .value
+                .views
+                .iter()
+                .any(|v| v.view_id == duplicated.view_id)
+        );
         assert!(!deleted.manifest_revision.is_empty());
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn delete_view_accepts_sqlite_projection_revision_without_newline() {
+        let vault = temp_vault("del-rev");
+        let watcher = WatcherState::new();
+        let created = create_database(
+            &vault,
+            &watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "RevTest".to_owned(),
+            },
+        )
+        .unwrap();
+        let container = vault.join("RevTest");
+        let initial_manifest_revision = manifest_revision(&container);
+        let second = create_view(
+            &vault,
+            &watcher,
+            &CreateDatabaseViewRequest {
+                expected_generation: 1,
+                database_id: created.database_id.clone(),
+                expected_manifest_revision: initial_manifest_revision,
+                name: "Cards".to_owned(),
+                layout: "gallery".to_owned(),
+            },
+        )
+        .unwrap();
+
+        let (_, _, parsed) = read_manifest(&vault, &created.database_id).unwrap();
+        let view_obj = parsed
+            .value
+            .views
+            .iter()
+            .find(|v| v.view_id == second.view_id)
+            .unwrap();
+
+        // Calculate revision without trailing newline (legacy projection format)
+        let no_newline_bytes = serde_json::to_vec_pretty(view_obj).unwrap();
+        let legacy_revision = raw_revision(&no_newline_bytes);
+
+        // Deleting with this legacy revision must succeed without revision conflict
+        let current_manifest_rev = manifest_revision(&container);
+        let deleted = delete_view(
+            &vault,
+            &watcher,
+            &DeleteDatabaseViewRequest {
+                expected_generation: 1,
+                database_id: created.database_id.clone(),
+                view_id: second.view_id.clone(),
+                expected_view_revision: legacy_revision,
+                expected_manifest_revision: current_manifest_rev,
+            },
+        )
+        .unwrap();
+        assert_eq!(deleted.view_id, second.view_id);
         let _ = fs::remove_dir_all(vault);
     }
 }

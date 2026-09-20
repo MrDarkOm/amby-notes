@@ -64,6 +64,9 @@ import {
   syncDatabaseYaml,
   setDefaultDatabaseView,
   updateDatabaseViewConfig,
+  undoDatabaseMutation,
+  redoDatabaseMutation,
+  getDatabaseHistoryStatus,
   type DatabaseYamlConflict,
   type DatabaseYamlResolution,
   type DatabaseRow,
@@ -175,6 +178,8 @@ interface DatabaseWorkspaceProps {
   onOpenNote?: (noteId: string) => void
 }
 
+const EMPTY_PROPERTIES: DatabasePropertySummary[] = []
+
 export function DatabaseWorkspace({
   databaseId,
   title,
@@ -222,7 +227,9 @@ export function DatabaseWorkspace({
   const runtime = useDatabaseStore((state) => state.runtime)
   const catalogStatus = useDatabaseStore((state) => state.catalogStatus)
   const database = useDatabaseStore((state) =>
-    state.databases.find((candidate) => candidate.databaseId === databaseId),
+    state.databases.find(
+      (candidate) => candidate.databaseId === databaseId || candidate.attachedNoteId === databaseId,
+    ),
   )
   const databases = useDatabaseStore((state) => state.databases)
   const [selectedViewId, setSelectedViewId] = React.useState<string | null>(null)
@@ -280,12 +287,14 @@ export function DatabaseWorkspace({
   const actionsRef = React.useRef<HTMLDivElement>(null)
   const expandedActionsWidthRef = React.useRef<number>(320)
   const [isCompactToolbar, setIsCompactToolbar] = React.useState(false)
+  const isCompactToolbarRef = React.useRef(isCompactToolbar)
+  isCompactToolbarRef.current = isCompactToolbar
 
   const updateToolbarLayout = React.useCallback(() => {
     const container = toolbarContainerRef.current
     if (!container) return
 
-    if (!isCompactToolbar && actionsRef.current) {
+    if (!isCompactToolbarRef.current && actionsRef.current) {
       const currentWidth = actionsRef.current.offsetWidth
       if (currentWidth > 160) {
         expandedActionsWidthRef.current = currentWidth
@@ -294,21 +303,22 @@ export function DatabaseWorkspace({
 
     const containerWidth = container.clientWidth
     const measuredViewsWidth = viewsMeasureRef.current?.offsetWidth
+    const viewsCount = database?.views.length ?? 0
     const viewsNaturalWidth =
-      measuredViewsWidth && measuredViewsWidth > 0
-        ? measuredViewsWidth + 36
-        : database
-          ? database.views.length * 90 + 36
-          : 0
+      measuredViewsWidth && measuredViewsWidth > 0 ? measuredViewsWidth + 36 : viewsCount * 90 + 36
     const gap = 16
     const neededWidth = viewsNaturalWidth + expandedActionsWidthRef.current + gap
 
-    if (!isCompactToolbar && containerWidth < neededWidth) {
-      setIsCompactToolbar(true)
-    } else if (isCompactToolbar && containerWidth >= neededWidth + 24) {
-      setIsCompactToolbar(false)
-    }
-  }, [database, isCompactToolbar])
+    setIsCompactToolbar((prev) => {
+      if (!prev && containerWidth < neededWidth) {
+        return true
+      }
+      if (prev && containerWidth >= neededWidth + 24) {
+        return false
+      }
+      return prev
+    })
+  }, [database?.views.length])
 
   React.useEffect(() => {
     const container = toolbarContainerRef.current
@@ -325,7 +335,7 @@ export function DatabaseWorkspace({
     updateToolbarLayout()
 
     return () => observer.disconnect()
-  }, [database?.views, viewDisplayModes, updateToolbarLayout])
+  }, [database?.views.length, viewDisplayModes, updateToolbarLayout])
   const [propertyDialogOpen, setPropertyDialogOpen] = React.useState(false)
   const [propertyInsertBeforeId, setPropertyInsertBeforeId] = React.useState<string | undefined>()
   const [propertyName, setPropertyName] = React.useState("")
@@ -416,6 +426,16 @@ export function DatabaseWorkspace({
   )
 
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
+  const propertyTypes = React.useMemo(() => {
+    const map: Record<string, string> = { title: "text" }
+    if (database?.properties) {
+      for (const p of database.properties) {
+        map[p.propertyId] = p.propertyType
+      }
+    }
+    return map
+  }, [database?.properties])
+
   const {
     host: queriedHost,
     loadNextPage,
@@ -429,9 +449,90 @@ export function DatabaseWorkspace({
     hostId,
     search: searchQuery,
     filterValues,
+    propertyTypes,
     sortValue,
   })
   const activeHost = queriedHost
+
+  const [historyStatus, setHistoryStatus] = React.useState<{ canUndo: boolean; canRedo: boolean }>({
+    canUndo: false,
+    canRedo: false,
+  })
+
+  const refreshHistoryStatus = React.useCallback(async () => {
+    try {
+      const status = await getDatabaseHistoryStatus(databaseId)
+      setHistoryStatus({ canUndo: status.canUndo, canRedo: status.canRedo })
+    } catch {
+      // ignore
+    }
+  }, [databaseId])
+
+  React.useEffect(() => {
+    void refreshHistoryStatus()
+  }, [refreshHistoryStatus, database])
+
+  const handleUndo = React.useCallback(async () => {
+    if (!historyStatus.canUndo || isDatabaseLocked) return
+    try {
+      const result = await undoDatabaseMutation(databaseId)
+      setHistoryStatus({ canUndo: result.canUndo, canRedo: result.canRedo })
+      await retry()
+      if (onCatalogChanged) {
+        await onCatalogChanged()
+      }
+    } catch (err) {
+      console.error("Undo failed:", err)
+    }
+  }, [historyStatus.canUndo, isDatabaseLocked, databaseId, retry, onCatalogChanged])
+
+  const handleRedo = React.useCallback(async () => {
+    if (!historyStatus.canRedo || isDatabaseLocked) return
+    try {
+      const result = await redoDatabaseMutation(databaseId)
+      setHistoryStatus({ canUndo: result.canUndo, canRedo: result.canRedo })
+      await retry()
+      if (onCatalogChanged) {
+        await onCatalogChanged()
+      }
+    } catch (err) {
+      console.error("Redo failed:", err)
+    }
+  }, [historyStatus.canRedo, isDatabaseLocked, databaseId, retry, onCatalogChanged])
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+      ) {
+        return
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0
+      const modifier = isMac ? e.metaKey : e.ctrlKey
+
+      if (modifier && !e.altKey) {
+        if (e.key === "z" || e.key === "Z" || e.key === "я" || e.key === "Я") {
+          if (e.shiftKey) {
+            e.preventDefault()
+            void handleRedo()
+          } else {
+            e.preventDefault()
+            void handleUndo()
+          }
+        } else if (!isMac && (e.key === "y" || e.key === "Y")) {
+          e.preventDefault()
+          void handleRedo()
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [handleUndo, handleRedo])
+
   React.useEffect(() => setDatabaseTitle(title), [title])
   React.useEffect(() => setDatabaseIcon(normalizeDatabaseIcon(icon) ?? ""), [icon])
   React.useEffect(() => {
@@ -635,8 +736,10 @@ export function DatabaseWorkspace({
 
   const changeActiveViewLayout = React.useCallback(
     async (newLayout: "table" | "board" | "list" | "gallery" | "chart") => {
+      const targetDatabaseId = database?.databaseId ?? databaseId
+      const currentGeneration = vaultGeneration ?? useDatabaseStore.getState().vaultGeneration
       if (
-        vaultGeneration === null ||
+        currentGeneration === null ||
         !database?.manifestRevision ||
         isDatabaseLocked ||
         mutationBusy ||
@@ -648,16 +751,16 @@ export function DatabaseWorkspace({
       setMutationError(null)
       try {
         const doc = await getDatabaseView({
-          expectedGeneration: vaultGeneration,
-          databaseId,
+          expectedGeneration: currentGeneration,
+          databaseId: targetDatabaseId,
           viewId: activeView.viewId,
           expectedViewRevision: activeView.revision,
         })
         const config = JSON.parse(doc.configJson)
         config.layout = newLayout
         await updateDatabaseViewConfig({
-          expectedGeneration: vaultGeneration,
-          databaseId,
+          expectedGeneration: currentGeneration,
+          databaseId: targetDatabaseId,
           viewId: activeView.viewId,
           expectedViewRevision: doc.revision,
           configJson: JSON.stringify(config),
@@ -671,6 +774,7 @@ export function DatabaseWorkspace({
     },
     [
       activeView,
+      database?.databaseId,
       database?.manifestRevision,
       databaseId,
       isDatabaseLocked,
@@ -693,8 +797,10 @@ export function DatabaseWorkspace({
   }, [activeView, databaseId])
 
   const saveViewDialog = React.useCallback(async () => {
+    const targetDatabaseId = database?.databaseId ?? databaseId
+    const currentGeneration = vaultGeneration ?? useDatabaseStore.getState().vaultGeneration
     if (
-      vaultGeneration === null ||
+      currentGeneration === null ||
       !database?.manifestRevision ||
       isDatabaseLocked ||
       !viewName.trim() ||
@@ -706,8 +812,8 @@ export function DatabaseWorkspace({
     try {
       if (viewDialogMode === "create") {
         const created = await createDatabaseView({
-          expectedGeneration: vaultGeneration,
-          databaseId,
+          expectedGeneration: currentGeneration,
+          databaseId: targetDatabaseId,
           expectedManifestRevision: database.manifestRevision,
           name: viewName.trim(),
           layout: viewLayout,
@@ -719,8 +825,8 @@ export function DatabaseWorkspace({
         if (!current || !viewDialogViewId) return
         if (viewLayout !== current.layout) {
           const doc = await getDatabaseView({
-            expectedGeneration: vaultGeneration,
-            databaseId,
+            expectedGeneration: currentGeneration,
+            databaseId: targetDatabaseId,
             viewId: viewDialogViewId,
             expectedViewRevision: current.revision,
           })
@@ -728,16 +834,16 @@ export function DatabaseWorkspace({
           config.name = viewName.trim()
           config.layout = viewLayout
           await updateDatabaseViewConfig({
-            expectedGeneration: vaultGeneration,
-            databaseId,
+            expectedGeneration: currentGeneration,
+            databaseId: targetDatabaseId,
             viewId: viewDialogViewId,
             expectedViewRevision: doc.revision,
             configJson: JSON.stringify(config),
           })
         } else if (viewName.trim() !== current.title) {
           await renameDatabaseView({
-            expectedGeneration: vaultGeneration,
-            databaseId,
+            expectedGeneration: currentGeneration,
+            databaseId: targetDatabaseId,
             viewId: viewDialogViewId,
             expectedViewRevision: current.revision,
             name: viewName.trim(),
@@ -749,8 +855,8 @@ export function DatabaseWorkspace({
         const current = database.views.find((view) => view.viewId === viewDialogViewId)
         if (!current || !viewDialogViewId) return
         await renameDatabaseView({
-          expectedGeneration: vaultGeneration,
-          databaseId,
+          expectedGeneration: currentGeneration,
+          databaseId: targetDatabaseId,
           viewId: viewDialogViewId,
           expectedViewRevision: current.revision,
           name: viewName.trim(),
@@ -764,7 +870,9 @@ export function DatabaseWorkspace({
       setMutationBusy(false)
     }
   }, [
-    database,
+    database?.databaseId,
+    database?.manifestRevision,
+    database?.views,
     databaseId,
     isDatabaseLocked,
     mutationBusy,
@@ -778,8 +886,10 @@ export function DatabaseWorkspace({
 
   const mutateView = React.useCallback(
     async (action: "duplicate" | "delete" | "default", targetViewId: string) => {
+      const targetDatabaseId = database?.databaseId ?? databaseId
+      const currentGeneration = vaultGeneration ?? useDatabaseStore.getState().vaultGeneration
       if (
-        vaultGeneration === null ||
+        currentGeneration === null ||
         !database?.manifestRevision ||
         isDatabaseLocked ||
         mutationBusy
@@ -794,8 +904,8 @@ export function DatabaseWorkspace({
       try {
         if (action === "duplicate") {
           const duplicate = await duplicateDatabaseView({
-            expectedGeneration: vaultGeneration,
-            databaseId,
+            expectedGeneration: currentGeneration,
+            databaseId: targetDatabaseId,
             viewId: target.viewId,
             expectedViewRevision: target.revision,
             expectedManifestRevision: database.manifestRevision,
@@ -803,8 +913,8 @@ export function DatabaseWorkspace({
           await refreshDatabaseViews(duplicate.viewId)
         } else if (action === "default") {
           await setDefaultDatabaseView({
-            expectedGeneration: vaultGeneration,
-            databaseId,
+            expectedGeneration: currentGeneration,
+            databaseId: targetDatabaseId,
             viewId: target.viewId,
             expectedViewRevision: target.revision,
             expectedManifestRevision: database.manifestRevision,
@@ -812,8 +922,8 @@ export function DatabaseWorkspace({
           await refreshDatabaseViews(target.viewId)
         } else {
           await deleteDatabaseView({
-            expectedGeneration: vaultGeneration,
-            databaseId,
+            expectedGeneration: currentGeneration,
+            databaseId: targetDatabaseId,
             viewId: target.viewId,
             expectedViewRevision: target.revision,
             expectedManifestRevision: database.manifestRevision,
@@ -891,8 +1001,9 @@ export function DatabaseWorkspace({
   }, [databaseId, mutationBusy, onRowCreated, retry, rowTemplate, rowTitle, vaultGeneration])
 
   const createProperty = React.useCallback(async () => {
+    const currentGeneration = vaultGeneration ?? useDatabaseStore.getState().vaultGeneration
     if (
-      vaultGeneration === null ||
+      currentGeneration === null ||
       !database?.manifestRevision ||
       !propertyName.trim() ||
       mutationBusy
@@ -904,7 +1015,7 @@ export function DatabaseWorkspace({
       const isSelfRelation = relationTargetDatabaseId === databaseId
       const twoWay = isSelfRelation ? relationSelfDual : relationTwoWay
       const created = await createDatabaseProperty({
-        expectedGeneration: vaultGeneration,
+        expectedGeneration: currentGeneration,
         databaseId,
         expectedManifestRevision: database.manifestRevision,
         name: propertyName.trim(),
@@ -1127,6 +1238,7 @@ export function DatabaseWorkspace({
             })
             if (result.warnings.length) setMutationError(result.warnings.join("; "))
             await retry()
+            void refreshHistoryStatus()
           } else {
             const result = await applyDatabaseValueBatch({
               expectedGeneration: vaultGeneration,
@@ -1148,6 +1260,7 @@ export function DatabaseWorkspace({
             if (revision) revisionOverrides.current.set(row.noteId, revision)
             if (result.warnings.length) setMutationError(result.warnings.join("; "))
             await retry()
+            void refreshHistoryStatus()
           }
         })
         .catch(async (error) => {
@@ -1169,7 +1282,7 @@ export function DatabaseWorkspace({
       rowQueues.current.set(row.noteId, task)
       return task
     },
-    [databaseId, retry, vaultGeneration],
+    [databaseId, refreshHistoryStatus, retry, vaultGeneration],
   )
 
   const handleCreateRelationRow = React.useCallback(
@@ -1293,8 +1406,9 @@ export function DatabaseWorkspace({
         ],
       })
       retry()
+      void refreshHistoryStatus()
     },
-    [databaseId, retry, selectedView?.groupField, t, vaultGeneration],
+    [databaseId, refreshHistoryStatus, retry, selectedView?.groupField, t, vaultGeneration],
   )
 
   const chartCategory = React.useMemo(() => {
@@ -1888,6 +2002,23 @@ export function DatabaseWorkspace({
                           {t("databaseWorkspace.noProperties")}
                         </DropdownMenuItem>
                       )}
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        disabled={
+                          isDatabaseLocked ||
+                          (vaultGeneration === null &&
+                            useDatabaseStore.getState().vaultGeneration === null)
+                        }
+                        onSelect={() => {
+                          setMutationError(null)
+                          setPropertyInsertBeforeId(undefined)
+                          setRelationTargetDatabaseId(databaseId)
+                          setPropertyDialogOpen(true)
+                        }}
+                      >
+                        <Plus className="size-4" />
+                        <span>{t("databaseWorkspace.addProperty")}</span>
+                      </DropdownMenuItem>
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                 )}
@@ -2301,7 +2432,7 @@ export function DatabaseWorkspace({
                 <TableView
                   databaseId={databaseId}
                   rows={displayRows}
-                  properties={database?.properties ?? []}
+                  properties={database?.properties ?? EMPTY_PROPERTIES}
                   relationOptionsByProperty={relationOptionsByProperty}
                   databases={databases}
                   onOpenNote={handleOpenNote}
@@ -2355,7 +2486,7 @@ export function DatabaseWorkspace({
                   onRetry={retry}
                   onRowSelect={(row) => setSelectedRowId(row.noteId)}
                   onAddProperty={
-                    isDatabaseLocked || vaultGeneration === null
+                    isDatabaseLocked
                       ? undefined
                       : (beforePropertyId) => {
                           setMutationError(null)
@@ -2834,17 +2965,17 @@ export function DatabaseWorkspace({
               <div className="mx-0.5 h-3.5 w-px bg-border/80" />
               <ToolbarButton
                 title={t("docEditor.undo")}
-                disabled={true}
+                disabled={!historyStatus.canUndo}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {}}
+                onClick={handleUndo}
               >
                 <Undo2 className="size-3.5" />
               </ToolbarButton>
               <ToolbarButton
                 title={t("docEditor.redo")}
-                disabled={true}
+                disabled={!historyStatus.canRedo}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {}}
+                onClick={handleRedo}
               >
                 <Redo2 className="size-3.5" />
               </ToolbarButton>

@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use tauri::Manager;
 
 use crate::vault_context;
 use crate::vault_index;
@@ -59,8 +60,9 @@ pub fn load_vault(
         } else {
             runtime.reset_for_generation(Some(loaded.generation));
         }
-    } else {
-        runtime.reset_for_generation(Some(loaded.generation));
+    }
+    if let Some(history) = app.try_state::<crate::database::history::DatabaseHistoryState>() {
+        history.clear(None);
     }
     Ok(loaded)
 }

@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use ulid::Ulid;
 
 use super::identity::{
-    conflict_id, ensure_unique_identity, is_path_identity, opaque_id, OPAQUE_PREFIX,
-    OPAQUE_SOURCE_PREFIX,
+    OPAQUE_PREFIX, OPAQUE_SOURCE_PREFIX, conflict_id, ensure_unique_identity, is_path_identity,
+    opaque_id,
 };
 use super::links::{extract_links, resolve_links_for_note};
 use super::tags::extract_tags;
@@ -549,7 +549,7 @@ pub fn prepare_note_at_path_with_identities(
         let next = match frontmatter::body_with_id(&content, &id) {
             Ok(next) => next,
             Err(_) => {
-                return prepare_note_index(vault, &conflict_id(None, &rel_path), &parsed.body, path)
+                return prepare_note_index(vault, &conflict_id(None, &rel_path), &parsed.body, path);
             }
         };
         history::snapshot_before_write(vault, path, next.as_bytes(), "id-assignment")?;

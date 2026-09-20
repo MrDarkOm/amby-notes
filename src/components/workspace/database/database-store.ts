@@ -79,6 +79,28 @@ export function emptyDatabaseHost(
   }
 }
 
+const MAX_CACHED_HOSTS = 16
+
+export function pruneHosts(
+  hosts: Record<string, DatabaseHostSession>,
+  newSession: DatabaseHostSession,
+  maxHosts = MAX_CACHED_HOSTS,
+): Record<string, DatabaseHostSession> {
+  const keys = Object.keys(hosts)
+  if (keys.length < maxHosts || hosts[newSession.key]) {
+    return { ...hosts, [newSession.key]: newSession }
+  }
+
+  // Find candidate keys to evict (prefer idle/error, then ready, avoid loading)
+  const evictable = keys.filter((k) => hosts[k].status !== "loading")
+  const toEvict = evictable.length > 0 ? evictable[0] : keys[0]
+
+  const nextHosts = { ...hosts }
+  delete nextHosts[toEvict]
+  nextHosts[newSession.key] = newSession
+  return nextHosts
+}
+
 export const useDatabaseStore = create<DatabaseStoreState>((set) => ({
   vaultGeneration: null,
   runtime: null,
@@ -107,7 +129,7 @@ export const useDatabaseStore = create<DatabaseStoreState>((set) => ({
   setCatalogDisabled: () =>
     set({ catalogStatus: "disabled", databases: [], diagnostics: [], error: null }),
   invalidateHosts: () => set((state) => ({ invalidationSeq: state.invalidationSeq + 1 })),
-  setHost: (session) => set((state) => ({ hosts: { ...state.hosts, [session.key]: session } })),
+  setHost: (session) => set((state) => ({ hosts: pruneHosts(state.hosts, session) })),
 }))
 
 export const selectDatabaseHost = (key: string) => (state: DatabaseStoreState) => state.hosts[key]

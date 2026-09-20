@@ -4,25 +4,26 @@
 //! The transaction only replaces the db_* projection, so a durable-file error
 //! cannot turn into a destructive source-file write or a partial SQLite view.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::Value;
 use ulid::Ulid;
 
 use super::discovery::{
-    discover_vault, DiagnosticCode, DiagnosticSeverity, DiscoveredDatabase, DiscoveredNote,
-    DiscoveryDiagnostic, DiscoveryResult,
+    DiagnosticCode, DiagnosticSeverity, DiscoveredDatabase, DiscoveredNote, DiscoveryDiagnostic,
+    DiscoveryResult, discover_vault,
 };
 use super::format::{
-    parse_manifest, parse_record, parse_template, parse_view, DatabaseManifest, FileValue,
-    ParsedJson, PropertyDefinition, PropertyValue, RecordShard,
+    DatabaseManifest, FileValue, ParsedJson, PropertyDefinition, PropertyValue, RecordShard,
+    parse_manifest, parse_record, parse_template, parse_view, raw_revision, view_bytes,
 };
 use super::validation::canonical_decimal;
+use crate::frontmatter;
 use crate::index::schema::init_schema;
 
 const HEALTHY: &str = "healthy";
@@ -63,7 +64,6 @@ pub fn rebuild_database_projection(
     conn: &Connection,
     vault: &Path,
 ) -> Result<ProjectionReport, String> {
-    let _ = super::discovery::migrate_legacy_database_manifests(vault);
     init_schema(conn)?;
     let discovery = discover_vault(vault)?;
     let inputs = load_inputs(&discovery)?;
@@ -189,13 +189,76 @@ pub fn update_database_values_incremental(
         if ulid::Ulid::from_string(note_id).is_err() {
             return Err("noteId must be a canonical ULID".to_owned());
         }
-        let record_path = container
-            .join(".ambd/records")
-            .join(format!("{note_id}.json"));
-        let record = match fs::read(&record_path) {
-            Ok(bytes) => Some(parse_record(&bytes).map_err(|error| error.to_string())?),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => return Err(error.to_string()),
+        let note_path = super::mutations::resolve_note_path_for_id(vault, &container, note_id);
+        let record = match note_path {
+            Ok(ref path) => match fs::read(path) {
+                Ok(bytes) => {
+                    let revision = raw_revision(&bytes);
+                    let content = String::from_utf8(bytes.clone()).map_err(|e| e.to_string())?;
+                    let mut values = BTreeMap::new();
+                    if let Ok(Some(mapping)) = frontmatter::frontmatter_yaml_mapping(&content) {
+                        for property in &manifest.value.properties {
+                            let Some(prop_id) = property.id() else {
+                                continue;
+                            };
+                            if let Some(yaml_val) =
+                                super::format::resolve_property_yaml_value(&mapping, property)
+                            {
+                                if let Some(prop_val) =
+                                    super::format::frontmatter_value_to_property_value(
+                                        yaml_val, property,
+                                    )
+                                {
+                                    values.insert(prop_id.to_string(), prop_val);
+                                }
+                            }
+                        }
+                    }
+                    let legacy_record_path = container
+                        .join(".ambd/records")
+                        .join(format!("{note_id}.json"));
+                    if legacy_record_path.is_file() {
+                        if let Ok(shard_bytes) = fs::read(&legacy_record_path) {
+                            if let Ok(parsed_shard) = parse_record(&shard_bytes) {
+                                if parsed_shard.value.database_id == *database_id
+                                    && parsed_shard.value.note_id == *note_id
+                                {
+                                    for (k, v) in parsed_shard.value.values {
+                                        values.entry(k).or_insert(v);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let shard = RecordShard {
+                        format: "amby-database-record".to_string(),
+                        format_version: 1,
+                        database_id: database_id.to_string(),
+                        note_id: note_id.to_string(),
+                        values,
+                        yaml_sync_bases: BTreeMap::new(),
+                        extra: Default::default(),
+                    };
+                    Some(ParsedJson {
+                        value: shard,
+                        raw: bytes,
+                        revision,
+                        read_only: None,
+                    })
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                Err(error) => return Err(error.to_string()),
+            },
+            Err(_) => {
+                let record_path = container
+                    .join(".ambd/records")
+                    .join(format!("{note_id}.json"));
+                match fs::read(&record_path) {
+                    Ok(bytes) => Some(parse_record(&bytes).map_err(|error| error.to_string())?),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error.to_string()),
+                }
+            }
         };
         if let Some(record) = &record {
             if record.value.database_id != database_id || record.value.note_id != *note_id {
@@ -255,6 +318,9 @@ pub fn update_database_values_incremental(
             .map_err(|error| error.to_string())?;
         }
     }
+    let _ = super::formula::compute_formulas_for_notes(&tx, database_id, note_ids, &manifest.value);
+    let _ = super::formula::compute_rollups_for_notes(&tx, database_id, note_ids, &manifest.value);
+    let _ = super::formula::refresh_dependent_rollups(&tx, vault, note_ids);
     let seq = metadata_value(conn, "database_projection_seq")?
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(0)
@@ -297,13 +363,29 @@ pub fn refresh_database_views(
         .map_err(|error| error.to_string())?;
     let view_dir = container.join(".ambd/views");
     for (position, view_id) in manifest.value.view_order.iter().enumerate() {
-        let path = view_dir.join(format!("{view_id}.json"));
-        let Ok(bytes) = fs::read(path) else {
+        let view =
+            if let Some(view_file) = manifest.value.views.iter().find(|v| &v.view_id == view_id) {
+                let bytes = view_bytes(view_file).map_err(|e| e.to_string())?;
+                let revision = raw_revision(&bytes);
+                Some(ParsedJson {
+                    value: view_file.clone(),
+                    raw: bytes,
+                    revision,
+                    read_only: None,
+                })
+            } else {
+                let path = view_dir.join(format!("{view_id}.json"));
+                if let Ok(bytes) = fs::read(path) {
+                    parse_view(&bytes).ok()
+                } else {
+                    None
+                }
+            };
+
+        let Some(view) = view else {
             continue;
         };
-        let Ok(view) = parse_view(&bytes) else {
-            continue;
-        };
+
         insert_view(&tx, database_id, position, &view, &state)?;
     }
     let seq = metadata_value(conn, "database_projection_seq")?
@@ -434,7 +516,7 @@ fn load_inputs(discovery: &DiscoveryResult) -> Result<Vec<DatabaseInput>, String
     for database in &discovery.databases {
         let bytes = fs::read(&database.manifest_path).map_err(|error| error.to_string())?;
         let manifest = parse_manifest(&bytes).map_err(|error| error.to_string())?;
-        let records = load_records(database, &manifest.value)?;
+        let records = load_records(database, &manifest.value, &discovery.notes)?;
         inputs.push(DatabaseInput {
             database: database.clone(),
             manifest,
@@ -447,47 +529,138 @@ fn load_inputs(discovery: &DiscoveryResult) -> Result<Vec<DatabaseInput>, String
 fn load_records(
     database: &DiscoveredDatabase,
     manifest: &DatabaseManifest,
+    notes: &[DiscoveredNote],
 ) -> Result<Vec<ParsedJson<RecordShard>>, String> {
-    let directory = database.container_path.join(".ambd/records");
-    let Ok(entries) = fs::read_dir(directory) else {
-        return Ok(Vec::new());
-    };
-    let mut paths = entries
-        .filter_map(Result::ok)
-        .filter_map(|entry| {
-            let file_type = entry.file_type().ok()?;
-            let path = entry.path();
-            (file_type.is_file()
-                && path.extension().and_then(|extension| extension.to_str()) == Some("json"))
-            .then_some(path)
-        })
-        .collect::<Vec<_>>();
-    paths.sort();
-
     let mut records = Vec::new();
-    for path in paths {
-        let bytes = fs::read(&path).map_err(|error| error.to_string())?;
-        let parsed = match parse_record(&bytes) {
-            Ok(parsed) => parsed,
-            Err(_) => continue,
-        };
-        if parsed.value.database_id != manifest.database_id
-            || parsed.value.note_id
-                != path
-                    .file_stem()
-                    .and_then(|stem| stem.to_str())
-                    .unwrap_or_default()
-        {
+    let mut seen_note_ids = HashSet::new();
+
+    for note in notes
+        .iter()
+        .filter(|n| n.owner_database_id.as_deref() == Some(&manifest.database_id))
+    {
+        let Some(note_id) = note.note_id.as_deref() else {
             continue;
+        };
+        seen_note_ids.insert(note_id.to_string());
+        let Ok(bytes) = fs::read(&note.path) else {
+            continue;
+        };
+        let revision = raw_revision(&bytes);
+        let Ok(content) = String::from_utf8(bytes.clone()) else {
+            continue;
+        };
+
+        let mut values = BTreeMap::new();
+        if let Ok(Some(mapping)) = frontmatter::frontmatter_yaml_mapping(&content) {
+            for property in &manifest.properties {
+                let Some(prop_id) = property.id() else {
+                    continue;
+                };
+                if let Some(yaml_val) =
+                    super::format::resolve_property_yaml_value(&mapping, property)
+                {
+                    if let Some(prop_val) =
+                        super::format::frontmatter_value_to_property_value(yaml_val, property)
+                    {
+                        values.insert(prop_id.to_string(), prop_val);
+                    }
+                }
+            }
         }
-        if !super::validation::validate_record(&parsed.value, Some(manifest))
+
+        let mut yaml_sync_bases = BTreeMap::new();
+        let legacy_record_path = database
+            .container_path
+            .join(".ambd/records")
+            .join(format!("{note_id}.json"));
+        if legacy_record_path.is_file() {
+            if let Ok(shard_bytes) = fs::read(&legacy_record_path) {
+                if let Ok(parsed_shard) = parse_record(&shard_bytes) {
+                    if parsed_shard.value.database_id == manifest.database_id
+                        && parsed_shard.value.note_id == note_id
+                    {
+                        if !parsed_shard.value.yaml_sync_bases.is_empty() {
+                            yaml_sync_bases = parsed_shard.value.yaml_sync_bases;
+                            for (k, v) in parsed_shard.value.values {
+                                values.insert(k, v);
+                            }
+                        } else {
+                            for (k, v) in parsed_shard.value.values {
+                                values.entry(k).or_insert(v);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let record_shard = RecordShard {
+            format: "amby-database-record".to_string(),
+            format_version: 1,
+            database_id: manifest.database_id.clone(),
+            note_id: note_id.to_string(),
+            values,
+            yaml_sync_bases,
+            extra: Default::default(),
+        };
+
+        if !super::validation::validate_record(&record_shard, Some(manifest))
             .errors
             .is_empty()
         {
             continue;
         }
-        records.push(parsed);
+
+        records.push(ParsedJson {
+            value: record_shard,
+            raw: bytes,
+            revision,
+            read_only: None,
+        });
     }
+
+    let directory = database.container_path.join(".ambd/records");
+    if let Ok(entries) = fs::read_dir(directory) {
+        let mut paths = entries
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                let file_type = entry.file_type().ok()?;
+                let path = entry.path();
+                (file_type.is_file()
+                    && path.extension().and_then(|extension| extension.to_str()) == Some("json"))
+                .then_some(path)
+            })
+            .collect::<Vec<_>>();
+        paths.sort();
+
+        for path in paths {
+            let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+                continue;
+            };
+            if seen_note_ids.contains(stem) {
+                continue;
+            }
+            let bytes = match fs::read(&path) {
+                Ok(bytes) => bytes,
+                Err(_) => continue,
+            };
+            let parsed = match parse_record(&bytes) {
+                Ok(parsed) => parsed,
+                Err(_) => continue,
+            };
+            if parsed.value.database_id != manifest.database_id || parsed.value.note_id != stem {
+                continue;
+            }
+            if !super::validation::validate_record(&parsed.value, Some(manifest))
+                .errors
+                .is_empty()
+            {
+                continue;
+            }
+            records.push(parsed);
+        }
+    }
+
     Ok(records)
 }
 
@@ -571,6 +744,28 @@ fn replace_projection(
             insert_record_values(tx, input, record, &owner_by_note_id, &note_by_id)?;
             insert_yaml_conflicts(tx, input, record, note)?;
         }
+    }
+    for input in inputs {
+        let member_note_ids = discovery
+            .notes
+            .iter()
+            .filter(|note| {
+                note.owner_database_id.as_deref() == Some(input.manifest.value.database_id.as_str())
+            })
+            .filter_map(|note| note.note_id.clone())
+            .collect::<Vec<_>>();
+        let _ = super::formula::compute_formulas_for_notes(
+            tx,
+            &input.manifest.value.database_id,
+            &member_note_ids,
+            &input.manifest.value,
+        );
+        let _ = super::formula::compute_rollups_for_notes(
+            tx,
+            &input.manifest.value.database_id,
+            &member_note_ids,
+            &input.manifest.value,
+        );
     }
     replace_diagnostics(tx, &discovery.diagnostics)?;
     append_yaml_conflict_diagnostics(tx)?;
@@ -925,13 +1120,34 @@ fn insert_views_and_templates(
     let database_id = &input.manifest.value.database_id;
     let view_dir = input.database.container_path.join(".ambd/views");
     for (position, view_id) in input.manifest.value.view_order.iter().enumerate() {
-        let path = view_dir.join(format!("{view_id}.json"));
-        let Ok(bytes) = fs::read(path) else {
+        let view = if let Some(view_file) = input
+            .manifest
+            .value
+            .views
+            .iter()
+            .find(|v| &v.view_id == view_id)
+        {
+            let bytes = view_bytes(view_file).map_err(|e| e.to_string())?;
+            let revision = raw_revision(&bytes);
+            Some(ParsedJson {
+                value: view_file.clone(),
+                raw: bytes,
+                revision,
+                read_only: None,
+            })
+        } else {
+            let path = view_dir.join(format!("{view_id}.json"));
+            if let Ok(bytes) = fs::read(path) {
+                parse_view(&bytes).ok()
+            } else {
+                None
+            }
+        };
+
+        let Some(view) = view else {
             continue;
         };
-        let Ok(view) = parse_view(&bytes) else {
-            continue;
-        };
+
         insert_view(
             tx,
             database_id,
@@ -1231,7 +1447,7 @@ fn searchable_text(value: &PropertyValue) -> String {
     }
 }
 
-fn text_sort_key(value: &str) -> Vec<u8> {
+pub(crate) fn text_sort_key(value: &str) -> Vec<u8> {
     value.to_lowercase().into_bytes()
 }
 
@@ -1264,7 +1480,7 @@ pub(crate) fn decimal_sort_key(value: &str) -> Option<Vec<u8>> {
     Some(key)
 }
 
-fn date_key(value: &str) -> (Option<i64>, Option<&'static str>) {
+pub(crate) fn date_key(value: &str) -> (Option<i64>, Option<&'static str>) {
     if value.len() == 10
         && value.as_bytes().get(4) == Some(&b'-')
         && value.as_bytes().get(7) == Some(&b'-')
@@ -1949,5 +2165,130 @@ mod tests {
                 "searchCountChecksum": search_count,
             })
         );
+    }
+
+    #[test]
+    fn st07_rebuild_and_incremental_are_equivalent() {
+        let vault = temp_vault("equiv");
+        let db_dir = vault.join("Projects");
+        fs::create_dir_all(&db_dir).unwrap();
+
+        let db_id = ulid::Ulid::generate().to_string();
+        let prop_status_id = ulid::Ulid::generate().to_string();
+        let prop_priority_id = ulid::Ulid::generate().to_string();
+
+        let manifest_val = json!({
+            "format": "amby-database",
+            "formatVersion": 1,
+            "databaseId": db_id,
+            "name": "Projects",
+            "containerKind": "standalone",
+            "locked": false,
+            "membership": { "kind": "filesystem-descendants", "recursive": true },
+            "properties": [
+                {
+                    "type": "text",
+                    "id": prop_status_id,
+                    "name": "Status",
+                    "pageVisibility": "alwaysShow",
+                    "yamlBinding": { "key": "Status", "direction": "twoWay" },
+                    "config": { "multiline": false }
+                },
+                {
+                    "type": "number",
+                    "id": prop_priority_id,
+                    "name": "Priority",
+                    "pageVisibility": "alwaysShow",
+                    "yamlBinding": { "key": "Priority", "direction": "twoWay" },
+                    "config": { "format": "number", "currency": null }
+                }
+            ],
+            "views": [
+                {
+                    "format": "amby-database-view",
+                    "formatVersion": 1,
+                    "databaseId": db_id,
+                    "viewId": ulid::Ulid::generate().to_string(),
+                    "name": "Table",
+                    "layout": "table",
+                    "fields": [],
+                    "filter": null,
+                    "sorts": [],
+                    "group": null
+                }
+            ],
+            "templateOrder": []
+        });
+        fs::write(
+            db_dir.join("Projects.json"),
+            serde_json::to_vec_pretty(&manifest_val).unwrap(),
+        )
+        .unwrap();
+
+        let note1_id = ulid::Ulid::generate().to_string();
+        let note2_id = ulid::Ulid::generate().to_string();
+
+        fs::write(
+            db_dir.join("Note1.md"),
+            format!("---\namby-id: {note1_id}\nStatus: Active\nPriority: 10\n---\n# Note 1\n"),
+        )
+        .unwrap();
+        fs::write(
+            db_dir.join("Note2.md"),
+            format!("---\namby-id: {note2_id}\nStatus: Pending\nPriority: 5\n---\n# Note 2\n"),
+        )
+        .unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        sync_vault(&conn, &vault).unwrap();
+        rebuild_database_projection(&conn, &vault).unwrap();
+
+        // Now modify Note 2 in markdown frontmatter
+        fs::write(
+            db_dir.join("Note2.md"),
+            format!("---\namby-id: {note2_id}\nStatus: Completed\nPriority: 42\n---\n# Note 2\n"),
+        )
+        .unwrap();
+
+        // Incremental update
+        update_database_values_incremental(&conn, &vault, &db_id, &[note2_id.clone()]).unwrap();
+
+        // Capture state after incremental
+        let get_state =
+            |c: &Connection| -> Vec<(String, String, String, Option<String>, Option<String>)> {
+                let mut stmt = c.prepare(
+                "SELECT note_id, property_id, value_type, text_value, decimal_value FROM db_values ORDER BY note_id, property_id"
+            ).unwrap();
+                stmt.query_map([], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                })
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap()
+            };
+
+        let incremental_state = get_state(&conn);
+
+        // Now perform a full rebuild on a fresh connection
+        let fresh_conn = Connection::open_in_memory().unwrap();
+        init_schema(&fresh_conn).unwrap();
+        sync_vault(&fresh_conn, &vault).unwrap();
+        rebuild_database_projection(&fresh_conn, &vault).unwrap();
+
+        let rebuild_state = get_state(&fresh_conn);
+
+        assert_eq!(
+            incremental_state, rebuild_state,
+            "Incremental update and full rebuild must produce identical SQLite db_values rows"
+        );
+
+        let _ = fs::remove_dir_all(vault);
     }
 }

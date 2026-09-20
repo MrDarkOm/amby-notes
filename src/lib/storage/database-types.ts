@@ -477,3 +477,16 @@ export function databaseErrorMessage(error: DatabaseError): string {
   if (error.kind === "vaultNotOpen") return "No vault is open"
   return `Vault changed before database operation (generation ${error.actual_generation})`
 }
+
+export interface DatabaseUndoRedoResult {
+  databaseId: string
+  canUndo: boolean
+  canRedo: boolean
+  affectedNotes: string[]
+}
+
+export interface DatabaseHistoryStatus {
+  databaseId: string
+  canUndo: boolean
+  canRedo: boolean
+}

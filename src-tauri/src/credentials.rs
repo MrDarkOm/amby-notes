@@ -136,15 +136,19 @@ mod tests {
         // Constructing the macOS/Windows credential does not read or write a secret.
         // These references also prevent removing the required backend Cargo features.
         #[cfg(target_os = "macos")]
-        assert!(keyring::Entry::new(SERVICE_NAME, "backend-type-check")
-            .unwrap()
-            .get_credential()
-            .is::<keyring::macos::MacCredential>());
+        assert!(
+            keyring::Entry::new(SERVICE_NAME, "backend-type-check")
+                .unwrap()
+                .get_credential()
+                .is::<keyring::macos::MacCredential>()
+        );
         #[cfg(target_os = "windows")]
-        assert!(keyring::Entry::new(SERVICE_NAME, "backend-type-check")
-            .unwrap()
-            .get_credential()
-            .is::<keyring::windows::WinCredential>());
+        assert!(
+            keyring::Entry::new(SERVICE_NAME, "backend-type-check")
+                .unwrap()
+                .get_credential()
+                .is::<keyring::windows::WinCredential>()
+        );
         #[cfg(target_os = "linux")]
         assert_eq!(
             std::any::TypeId::of::<keyring::default::SsCredential>(),

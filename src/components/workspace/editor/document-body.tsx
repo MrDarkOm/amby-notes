@@ -38,6 +38,7 @@ export interface DocumentBodyProps {
   content: string
   onContentChange: (content: string) => void
   onContentDirty?: () => void
+  onContentClean?: () => void
   activeLayer: EditorLayer
   viewMode: DocumentViewMode
   onViewModeChange: (mode: DocumentViewMode) => void
@@ -85,6 +86,7 @@ export function DocumentBody({
   content,
   onContentChange,
   onContentDirty,
+  onContentClean,
   activeLayer,
   viewMode,
   onViewModeChange,
@@ -320,6 +322,7 @@ export function DocumentBody({
                 value={content}
                 onChange={onContentChange}
                 onContentDirty={onContentDirty}
+                onContentClean={onContentClean}
                 editorRef={editorRef}
                 editable={viewMode === "live" && !isLocked}
                 isReadOnly={viewMode === "read"}
@@ -434,6 +437,8 @@ export function DocumentBody({
               notePath={docPath}
               isLocked={sketchLocked}
               onToggleLock={onToggleLock}
+              treeItems={treeItems}
+              onOpenNote={onOpenCanvasNote}
             />
           </div>
         </div>

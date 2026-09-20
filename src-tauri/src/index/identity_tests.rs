@@ -160,10 +160,12 @@ fn external_canonical_ulid_is_only_a_candidate_in_full_and_incremental_scans() {
         let loaded = load_vault(&conn, &root).unwrap();
         assert_eq!(loaded.notes.len(), 1);
         assert_ne!(loaded.notes[0].id, id);
-        assert!(read_note(&conn, &root, &loaded.notes[0].id)
-            .unwrap()
-            .content
-            .contains("external body"));
+        assert!(
+            read_note(&conn, &root, &loaded.notes[0].id)
+                .unwrap()
+                .content
+                .contains("external body")
+        );
         assert_eq!(search_notes(&conn, &root, "searchable").unwrap().len(), 1);
         assert_ne!(
             super::note_index::prepare_note_at_path(&conn, &root, &path)
@@ -189,12 +191,14 @@ fn namespaced_identity_rollback_refuses_later_body_edits() {
         .unwrap()
         .replace("original", "user edited body");
     fs::write(&path, &edited).unwrap();
-    assert!(recover_id_migration(
-        &root,
-        &migration.journal_path,
-        IdMigrationRecoveryAction::Rollback
-    )
-    .is_err());
+    assert!(
+        recover_id_migration(
+            &root,
+            &migration.journal_path,
+            IdMigrationRecoveryAction::Rollback
+        )
+        .is_err()
+    );
     assert_eq!(fs::read_to_string(path).unwrap(), edited);
     fs::remove_dir_all(root).unwrap();
 }
@@ -349,12 +353,14 @@ fn namespaced_identity_resume_refuses_changes_after_backup() {
     assert!(apply_id_migration(&root).is_err());
     let pending = unfinished_id_migrations(&root).unwrap().pop().unwrap();
     fs::write(&path, "External edit after backup").unwrap();
-    assert!(recover_id_migration(
-        &root,
-        &pending.journal_path,
-        IdMigrationRecoveryAction::Resume
-    )
-    .is_err());
+    assert!(
+        recover_id_migration(
+            &root,
+            &pending.journal_path,
+            IdMigrationRecoveryAction::Resume
+        )
+        .is_err()
+    );
     assert_eq!(
         fs::read_to_string(path).unwrap(),
         "External edit after backup"

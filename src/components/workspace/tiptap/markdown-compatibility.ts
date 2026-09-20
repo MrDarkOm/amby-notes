@@ -18,9 +18,7 @@ export function restoreSourceFormatting(serialized: string, original: string): s
   if (hasLoneCr || (hasCrLf && hasLoneLf)) return serialized
   const leading = original.match(/^(?:\r?\n)+/)?.[0] ?? ""
   const trailing = original.match(/(?:\r?\n)+$/)?.[0] ?? ""
-  let body = serialized
-  if (leading) body = body.replace(/^(?:\r?\n)+/, "")
-  if (trailing) body = body.replace(/(?:\r?\n)+$/, "")
+  const body = serialized.replace(/^(?:\r?\n)+/, "").replace(/(?:\r?\n)+$/, "")
   return `${leading}${hasCrLf ? body.replace(/\n/g, "\r\n") : body}${trailing}`
 }
 

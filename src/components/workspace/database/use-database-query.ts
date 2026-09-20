@@ -26,6 +26,7 @@ interface UseDatabaseQueryOptions {
   hostId?: string | null
   search?: string
   filterValues?: Record<string, string>
+  propertyTypes?: Record<string, string>
   sortValue?: { key: string; direction: "asc" | "desc" } | null
 }
 
@@ -34,10 +35,12 @@ interface UseDatabaseQueryOptions {
 const inFlightQueries = new Map<string, Promise<void>>()
 const querySequences = new Map<string, number>()
 
-export function _clearInFlightQueriesForTesting() {
+export function clearInFlightQueries() {
   inFlightQueries.clear()
   querySequences.clear()
 }
+
+export const _clearInFlightQueriesForTesting = clearInFlightQueries
 
 export function useDatabaseQuery({
   databaseId,
@@ -48,6 +51,7 @@ export function useDatabaseQuery({
   hostId = null,
   search = "",
   filterValues = {},
+  propertyTypes,
   sortValue = null,
 }: UseDatabaseQueryOptions) {
   const normalizedFilters = React.useMemo(() => {
@@ -57,12 +61,13 @@ export function useDatabaseQuery({
   }, [filterValues])
 
   const queryIdentity = React.useMemo(() => {
-    const filterTokens = normalizedFilters.map(
-      ([filterKey, filterVal]) => `${filterKey}:${filterVal}`,
-    )
-    const sortToken = sortValue ? `${sortValue.key}:${sortValue.direction}` : ""
-    return [search.trim(), sortToken, ...filterTokens].filter(Boolean).join("|") || "raw"
-  }, [normalizedFilters, search, sortValue])
+    return JSON.stringify({
+      q: search.trim(),
+      s: sortValue ? { k: sortValue.key, d: sortValue.direction } : null,
+      f: normalizedFilters,
+      p: propertyTypes,
+    })
+  }, [normalizedFilters, propertyTypes, search, sortValue])
 
   const key = React.useMemo(
     () => databaseHostKey(hostKind, databaseId, viewId, hostId, queryIdentity),
@@ -106,14 +111,42 @@ export function useDatabaseQuery({
             ? {
                 kind: "group" as const,
                 operator: "and" as const,
-                children: normalizedFilters.map(([filterKey, filterVal]) => ({
-                  kind: "condition" as const,
-                  field: (filterKey === "title"
-                    ? { kind: "system", field: "title" }
-                    : { kind: "property", propertyId: filterKey }) as storage.DatabaseFieldRef,
-                  operator: "contains" as const,
-                  value: JSON.stringify(filterVal),
-                })),
+                children: normalizedFilters.map(([filterKey, filterVal]) => {
+                  const propType =
+                    propertyTypes?.[filterKey] ?? (filterKey === "title" ? "text" : undefined)
+                  let operator: "contains" | "equals" | "notEquals" | "greaterThan" | "lessThan" =
+                    "contains"
+                  let val = filterVal
+                  if (propType === "date" || propType === "number") {
+                    if (val.startsWith(">")) {
+                      operator = "greaterThan"
+                      val = val.slice(1).trim()
+                    } else if (val.startsWith("<")) {
+                      operator = "lessThan"
+                      val = val.slice(1).trim()
+                    } else if (val.startsWith("!=")) {
+                      operator = "notEquals"
+                      val = val.slice(2).trim()
+                    } else {
+                      operator = "equals"
+                      val = val.trim()
+                    }
+                  } else if (propType === "checkbox") {
+                    operator = "equals"
+                    val = val.trim()
+                  }
+                  return {
+                    kind: "condition" as const,
+                    field: (filterKey === "title"
+                      ? { kind: "system", field: "title" }
+                      : { kind: "property", propertyId: filterKey }) as storage.DatabaseFieldRef,
+                    operator,
+                    value:
+                      propType === "checkbox"
+                        ? JSON.stringify(val === "true" || val === "1")
+                        : JSON.stringify(val),
+                  }
+                }),
               }
             : undefined
 
@@ -168,7 +201,7 @@ export function useDatabaseQuery({
           setHost({
             ...latest,
             status: "ready",
-            loadedInvalidationSeq: state.invalidationSeq,
+            loadedInvalidationSeq: currentInvalidationSeq,
             rows,
             projection: result.projection,
             diagnostics: result.diagnostics,
@@ -191,7 +224,7 @@ export function useDatabaseQuery({
               ...latest,
               status: "error",
               error: messageOf(error),
-              loadedInvalidationSeq: state.invalidationSeq,
+              loadedInvalidationSeq: currentInvalidationSeq,
             })
           }
         } finally {
@@ -209,6 +242,7 @@ export function useDatabaseQuery({
       hostKind,
       key,
       normalizedFilters,
+      propertyTypes,
       queryIdentity,
       search,
       setHost,

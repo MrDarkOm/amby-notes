@@ -417,7 +417,7 @@ export function HeaderTabs({
       )}
 
       {/* Workspace switcher (left panel header column, only when panel open) */}
-      {isLeftSidebarOpen && isLeftDockPinned && (
+      {isLeftSidebarOpen && (
         <div
           className="flex shrink-0 items-center"
           style={{ width: leftPanelHeaderCssWidth }}
@@ -462,13 +462,7 @@ export function HeaderTabs({
       <div
         className={cn(
           "flex min-w-0 flex-1 items-center gap-1 overflow-hidden pr-1",
-          isMac
-            ? isLeftSidebarOpen && isLeftDockPinned
-              ? "pl-0"
-              : "pl-9"
-            : isLeftSidebarOpen
-              ? "pl-0"
-              : "pl-0",
+          isMac ? (isLeftSidebarOpen ? "pl-0" : "pl-9") : isLeftSidebarOpen ? "pl-0" : "pl-0",
         )}
       >
         <div className="flex h-full min-w-0 items-center gap-1 overflow-hidden">

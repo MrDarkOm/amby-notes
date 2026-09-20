@@ -8,6 +8,8 @@ import {
   type RecoveryScope,
 } from "@/lib/recovery-drafts"
 import { confirmAction, readFile, writeFile } from "@/lib/storage"
+import { useDocStore } from "../use-doc-store"
+import { sketchLayerPath } from "../workspace-tree-utils"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
 import { recoveryNeedsConfirmation, resolveRecoveryContent } from "../recovery-restore"
@@ -55,6 +57,17 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
             !pending.dirty
           ) {
             void discardRecoveryDraft(value.path, recoveryScope)
+            const docStore = useDocStore.getState()
+            docStore.markSaved(value.path)
+            for (const [docId, doc] of Object.entries(docStore.openDocs)) {
+              if (
+                doc.path === value.path ||
+                sketchLayerPath(doc.path) === value.path ||
+                doc.id === value.path
+              ) {
+                docStore.markSaved(docId)
+              }
+            }
           }
         },
         onSaveFailure: (_snapshot, error) => console.error("Failed to save sketch:", error),

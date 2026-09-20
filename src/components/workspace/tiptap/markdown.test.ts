@@ -67,6 +67,13 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(roundTripCheck("Text\n\n").ok).toBe(true)
   })
 
+  it("preserves content without trailing newlines without appending extraneous newlines", () => {
+    expect(restoreSourceFormatting("Фев\n\n", "Фев")).toBe("Фев")
+    expect(restoreSourceFormatting("Line\n\n", "Line")).toBe("Line")
+    expect(roundTripCheck("Фев").ok).toBe(true)
+    expect(roundTripCheck("Line").ok).toBe(true)
+  })
+
   it("keeps a new empty note empty instead of materialising a newline", () => {
     expect(roundTrip("")).toBe("")
     expect(roundTripCheck("")).toEqual({ ok: true, result: "" })

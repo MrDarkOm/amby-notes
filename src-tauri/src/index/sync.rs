@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -6,14 +6,14 @@ use std::path::{Path, PathBuf};
 use ulid::Ulid;
 use walkdir::WalkDir;
 
-use super::identity::{conflict_id, is_path_identity, opaque_id, CONFLICT_PREFIX};
+use super::identity::{CONFLICT_PREFIX, conflict_id, is_path_identity, opaque_id};
 use super::links::{extract_links, resolve_links};
-use super::note_index::{list_notes, IndexedNote};
+use super::note_index::{IndexedNote, list_notes};
 use super::tags::extract_tags;
 use crate::frontmatter;
 use crate::history;
 use crate::vault::scan::*;
-use crate::vault::tree::{build_tree, TreeItem};
+use crate::vault::tree::{TreeItem, build_tree};
 
 #[derive(Serialize, Clone, Debug, specta::Type)]
 #[serde(rename_all = "camelCase")]

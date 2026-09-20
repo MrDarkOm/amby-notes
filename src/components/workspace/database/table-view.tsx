@@ -649,11 +649,31 @@ export function TableView({
                       isFrozen={frozenColumnKey === property.propertyId}
                       isWrapped={wrappedPropertyIds.has(property.propertyId)}
                       canWrap={property.propertyType === "text" || property.propertyType === "url"}
-                      canFilter={
-                        property.propertyType === "text" || property.propertyType === "url"
-                      }
+                      canFilter={[
+                        "text",
+                        "url",
+                        "number",
+                        "date",
+                        "checkbox",
+                        "select",
+                        "status",
+                        "multiselect",
+                        "multiSelect",
+                        "relation",
+                      ].includes(property.propertyType)}
                       onFilterChange={
-                        property.propertyType === "text" || property.propertyType === "url"
+                        [
+                          "text",
+                          "url",
+                          "number",
+                          "date",
+                          "checkbox",
+                          "select",
+                          "status",
+                          "multiselect",
+                          "multiSelect",
+                          "relation",
+                        ].includes(property.propertyType)
                           ? (value) => updateFilterValue(property.propertyId, value)
                           : undefined
                       }

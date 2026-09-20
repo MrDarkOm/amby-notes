@@ -27,8 +27,8 @@ pub fn move_to_system_trash(vault: &Path, path: &Path) -> Result<FsMutationResul
 fn move_path(path: &Path) -> Result<(), String> {
     use std::ptr::{null, null_mut};
     use windows_sys::Win32::UI::Shell::{
-        SHFileOperationW, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FO_DELETE,
-        SHFILEOPSTRUCTW,
+        FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, SHFILEOPSTRUCTW,
+        SHFileOperationW,
     };
 
     let source = windows_shell_source(path);

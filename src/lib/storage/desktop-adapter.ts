@@ -49,6 +49,8 @@ import type {
   DatabaseChangedPayload,
   UpdateDatabaseRelationValueRequest,
   UpdateDatabaseRelationValueResult,
+  DatabaseUndoRedoResult,
+  DatabaseHistoryStatus,
 } from "./database-types"
 import type {
   CredentialInfo,
@@ -433,6 +435,18 @@ export class DesktopAdapter implements StoragePort {
 
   async setDefaultDatabaseView(request: DatabaseViewRequest): Promise<DatabaseViewMutationResult> {
     return unwrapDatabaseCommand(await commands.setDefaultDatabaseView(request))
+  }
+
+  async undoDatabaseMutation(databaseId: string): Promise<DatabaseUndoRedoResult> {
+    return unwrapDatabaseCommand(await commands.undoDatabaseMutation(databaseId))
+  }
+
+  async redoDatabaseMutation(databaseId: string): Promise<DatabaseUndoRedoResult> {
+    return unwrapDatabaseCommand(await commands.redoDatabaseMutation(databaseId))
+  }
+
+  async getDatabaseHistoryStatus(databaseId: string): Promise<DatabaseHistoryStatus> {
+    return unwrapDatabaseCommand(await commands.getDatabaseHistoryStatus(databaseId))
   }
 
   async openVault(): Promise<string | null> {

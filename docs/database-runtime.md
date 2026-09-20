@@ -22,7 +22,7 @@ Tauri commands / browser adapter
       │ validated domain requests
       ▼
 database domain service
-      ├── durable files: ambd.json + .ambd/*      source of truth
+      ├── durable files: Markdown frontmatter (note values), <DB>.json + .ambd/* (schema/views)
       └── .amby/notes.db                          rebuildable projection
 ```
 

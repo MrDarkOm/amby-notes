@@ -1,0 +1,569 @@
+--- a/src-tauri/src/database/format.rs
++++ b/src-tauri/src/database/format.rs
+@@ -2326,4 +2326,62 @@
+             None
+         );
+     }
+-}
++    #[test]
++    fn review_persisted_select_survives_option_rename() {
++        let opt1_id = "01J00000000000000000000001";
++        let opt2_id = "01J00000000000000000000002";
++        let mut select_def = PropertyDefinition::Select(PropertyFields {
++            id: "01J00000000000000000000003".into(),
++            name: "Status".into(),
++            page_visibility: "alwaysShow".into(),
++            yaml_binding: None,
++            config: SelectConfig {
++                options: vec![
++                    SelectOption {
++                        id: opt1_id.into(),
++                        name: "In Progress".into(),
++                        color: "#3b82f6".into(),
++                        extra: Default::default(),
++                    },
++                    SelectOption {
++                        id: opt2_id.into(),
++                        name: "Done".into(),
++                        color: "#22c55e".into(),
++                        extra: Default::default(),
++                    },
++                ],
++                extra: Default::default(),
++            },
++            extra: Default::default(),
++        });
++
++        // 1. Finding by name (case-insensitive) resolves to option id
++        assert_eq!(select_def.find_option_id("in progress"), Some(opt1_id));
++        assert_eq!(select_def.find_option_id("Done"), Some(opt2_id));
++
++        // 2. Finding by ID resolves to option id
++        assert_eq!(select_def.find_option_id(opt1_id), Some(opt1_id));
++
++        // 3. Serialization to YAML uses option name
++        let val = PropertyValue::Select {
++            option_id: opt1_id.into(),
++            extra: Default::default(),
++        };
++        let yaml_val = property_value_to_frontmatter_value(&val, &select_def).unwrap();
++        assert_eq!(yaml_val, serde_yaml::Value::String("In Progress".into()));
++
++        if let PropertyDefinition::Select(fields) = &mut select_def {
++            fields.config.options[0].name = "Doing".to_owned();
++        }
++        // 4. Deserialization from YAML with name resolves back to option id
++        let parsed = frontmatter_value_to_property_value(&yaml_val, &select_def).unwrap();
++        assert_eq!(parsed, val);
++
++        // 5. Deserialization from YAML with raw option ID also resolves to option id
++        let id_yaml = serde_yaml::Value::String(opt1_id.into());
++        let parsed_id = frontmatter_value_to_property_value(&id_yaml, &select_def).unwrap();
++        assert_eq!(parsed_id, val);
++    }
++
++
++}
+--- a/src-tauri/src/database/formula.rs
++++ b/src-tauri/src/database/formula.rs
+@@ -1656,4 +1656,125 @@
+         assert_eq!(cnt_type, "rollup");
+         assert_eq!(cnt_val, "2");
+     }
+-}
++    #[test]
++    fn review_numeric_formula_chain() {
++        use crate::index::schema::init_schema;
++        let mut conn = Connection::open_in_memory().unwrap();
++        init_schema(&conn).unwrap();
++
++        let db_id = "01J00000000000000000000000";
++        let note_id = "01J00000000000000000000001";
++        conn.execute(
++            "INSERT INTO db_databases (database_id, container_path, name, locked, format_version, manifest_revision, projection_state) VALUES (?1, 'Database', 'Database', 0, 1, 'manifest', 'healthy')",
++            params![db_id],
++        ).unwrap();
++
++        conn.execute(
++            "INSERT INTO notes (id, path, title, mtime, size, content, word_count, created_at, updated_at) VALUES (?1, 'note.md', 'Note', 0, 0, '', 0, 0, 0)",
++            params![note_id],
++        ).unwrap();
++        for (pid, ptype) in [("01J00000000000000000000011", "number"), ("01J00000000000000000000012", "number"), ("01J00000000000000000000013", "formula")] {
++            conn.execute(
++                "INSERT INTO db_properties (database_id, property_id, position, name, property_type, page_visibility, config_json) VALUES (?1, ?2, 0, ?2, ?3, 'alwaysShow', '{}')",
++                params![db_id, pid, ptype],
++            ).unwrap();
++        }
++
++        // Insert input values: price = 100, tax = 20
++        conn.execute(
++            "INSERT INTO db_values (database_id, note_id, property_id, value_type, decimal_value, canonical_json, source_revision) VALUES (?1, ?2, '01J00000000000000000000011', 'number', '100', '{\"type\":\"number\",\"decimal\":\"100\"}', 'rec')",
++            params![db_id, note_id],
++        ).unwrap();
++        conn.execute(
++            "INSERT INTO db_values (database_id, note_id, property_id, value_type, decimal_value, canonical_json, source_revision) VALUES (?1, ?2, '01J00000000000000000000012', 'number', '20', '{\"type\":\"number\",\"decimal\":\"20\"}', 'rec')",
++            params![db_id, note_id],
++        ).unwrap();
++
++        let mut manifest = format::DatabaseManifest {
++            database_id: db_id.to_owned(),
++            name: "Database".to_owned(),
++            icon: None,
++            cover: None,
++            locked: false,
++            membership: format::Membership {
++                kind: "folder".to_owned(),
++                recursive: false,
++                extra: Default::default(),
++            },
++            properties: vec![
++                format::PropertyDefinition::Number(format::PropertyFields {
++                    id: "01J00000000000000000000011".to_owned(),
++                    name: "Price".to_owned(),
++                    page_visibility: "alwaysShow".to_owned(),
++                    config: format::NumberConfig {
++                        format: "number".to_owned(),
++                        currency: None,
++                        extra: Default::default(),
++                    },
++                    yaml_binding: None,
++                    extra: Default::default(),
++                }),
++                format::PropertyDefinition::Number(format::PropertyFields {
++                    id: "01J00000000000000000000012".to_owned(),
++                    name: "Tax".to_owned(),
++                    page_visibility: "alwaysShow".to_owned(),
++                    config: format::NumberConfig {
++                        format: "number".to_owned(),
++                        currency: None,
++                        extra: Default::default(),
++                    },
++                    yaml_binding: None,
++                    extra: Default::default(),
++                }),
++                format::PropertyDefinition::Formula(format::PropertyFields {
++                    id: "01J00000000000000000000013".to_owned(),
++                    name: "Total".to_owned(),
++                    page_visibility: "alwaysShow".to_owned(),
++                    config: format::FormulaConfig {
++                        version: 1,
++                        expression: "Price + Tax".to_owned(),
++                        result_type: Some("number".to_owned()),
++                        dependencies: vec!["01J00000000000000000000011".to_owned(), "01J00000000000000000000012".to_owned()],
++                        extra: Default::default(),
++                    },
++                    yaml_binding: None,
++                    extra: Default::default(),
++                }),
++            ],
++            views: Vec::new(),
++            view_order: Vec::new(),
++            default_view_id: None,
++            template_order: Vec::new(),
++            default_template_id: None,
++            format: "amby-database".to_owned(),
++            format_version: 1,
++            extra: Default::default(),
++        };
++
++        let mut doubled = manifest.properties.last().unwrap().clone();
++        if let format::PropertyDefinition::Formula(fields) = &mut doubled {
++            fields.id = "01J00000000000000000000014".to_owned();
++            fields.name = "Doubled".to_owned();
++            fields.config.expression = "Total * 2".to_owned();
++            fields.config.dependencies = vec!["01J00000000000000000000013".to_owned()];
++        }
++        manifest.properties.push(doubled);
++        conn.execute("INSERT INTO db_properties (database_id, property_id, position, name, property_type, page_visibility, config_json) VALUES (?1, '01J00000000000000000000014', 3, 'Doubled', 'formula', 'alwaysShow', '{}')", params![db_id]).unwrap();
++        let tx = conn.transaction().unwrap();
++        compute_formulas_for_notes(&tx, db_id, &[note_id.to_owned()], &manifest).unwrap();
++        tx.commit().unwrap();
++
++        let (val_type, dec_val): (String, String) = conn.query_row(
++            "SELECT value_type, decimal_value FROM db_values WHERE database_id = ?1 AND note_id = ?2 AND property_id = '01J00000000000000000000013'",
++            params![db_id, note_id],
++            |row| Ok((row.get(0)?, row.get(1)?)),
++        ).unwrap();
++
++        assert_eq!(val_type, "formula");
++        assert_eq!(dec_val, "120");
++        let doubled: Result<String, _> = conn.query_row("SELECT decimal_value FROM db_values WHERE database_id = ?1 AND note_id = ?2 AND property_id = '01J00000000000000000000014'", params![db_id, note_id], |row| row.get(0));
++        assert_eq!(doubled.ok().as_deref(), Some("240"));
++    }
++
++
++}
+--- a/src-tauri/src/database/migration.rs
++++ b/src-tauri/src/database/migration.rs
+@@ -832,4 +832,264 @@
+ 
+         let _ = fs::remove_dir_all(vault);
+     }
+-}
++    #[test]
++    fn review_rollback_preserves_newer_user_edit() {
++        let vault = temp_vault();
++        let db_dir = vault.join("LegacyDB");
++        fs::create_dir_all(&db_dir).unwrap();
++
++        let db_id = ulid::Ulid::generate().to_string();
++        let manifest_json = serde_json::json!({
++            "format": "amby-database",
++            "formatVersion": 1,
++            "databaseId": db_id,
++            "name": "LegacyDB",
++            "containerKind": "standalone",
++            "locked": false,
++            "membership": { "kind": "filesystem-descendants", "recursive": true },
++            "properties": [
++                {
++                    "type": "text",
++                    "id": "01J00000000000000000000001",
++                    "name": "Status",
++                    "pageVisibility": "alwaysShow",
++                    "yamlBinding": { "key": "Status", "direction": "twoWay" },
++                    "config": { "multiline": false }
++                }
++            ],
++            "views": [],
++            "templateOrder": []
++        });
++        fs::write(
++            db_dir.join("LegacyDB.json"),
++            serde_json::to_vec_pretty(&manifest_json).unwrap(),
++        )
++        .unwrap();
++
++        let ambd_dir = db_dir.join(".ambd");
++        let records_dir = ambd_dir.join("records");
++        let views_dir = ambd_dir.join("views");
++        fs::create_dir_all(&records_dir).unwrap();
++        fs::create_dir_all(&views_dir).unwrap();
++
++        // Add a view shard
++        let view_id = ulid::Ulid::generate().to_string();
++        let view_json = serde_json::json!({
++            "format": "amby-database-view",
++            "formatVersion": 1,
++            "databaseId": db_id,
++            "viewId": view_id,
++            "name": "Table View",
++            "layout": "table",
++            "fields": [],
++            "filter": null,
++            "sorts": [],
++            "group": null
++        });
++        fs::write(
++            views_dir.join(format!("{view_id}.json")),
++            serde_json::to_vec_pretty(&view_json).unwrap(),
++        )
++        .unwrap();
++
++        // Add a note and matching record shard
++        let note_id = ulid::Ulid::generate().to_string();
++        let note_path = db_dir.join("Task1.md");
++        fs::write(
++            &note_path,
++            format!("---\namby-id: {note_id}\n---\n\nTask body\n"),
++        )
++        .unwrap();
++
++        let record_json = serde_json::json!({
++            "format": "amby-database-record",
++            "formatVersion": 1,
++            "databaseId": db_id,
++            "noteId": note_id,
++            "values": {
++                "01J00000000000000000000001": {
++                    "type": "text",
++                    "value": "In Progress"
++                }
++            },
++            "yamlSyncBases": {}
++        });
++        fs::write(
++            records_dir.join(format!("{note_id}.json")),
++            serde_json::to_vec_pretty(&record_json).unwrap(),
++        )
++        .unwrap();
++
++        // 1. Detection
++        let migrations = detect_migrations(&vault).unwrap();
++        assert_eq!(migrations.len(), 1);
++        assert!(migrations[0].needs_migration);
++        assert_eq!(migrations[0].record_shards_count, 1);
++        assert_eq!(migrations[0].view_shards_count, 1);
++
++        // 2. Preflight
++        let preflight = preflight_migration(&vault, &db_id).unwrap();
++        assert!(preflight.can_auto_migrate);
++        assert_eq!(preflight.record_shards_count, 1);
++        assert_eq!(preflight.view_shards_count, 1);
++
++        // 3. Execution
++        let watcher = WatcherState::new();
++        let result = execute_migration(&vault, &watcher, &db_id).unwrap();
++        assert_eq!(result.migrated_records, 1);
++        assert_eq!(result.migrated_views, 1);
++
++        // Verify note frontmatter has Status: In Progress
++        let note_after = fs::read_to_string(&note_path).unwrap();
++        assert!(
++            note_after.contains("Status: In Progress"),
++            "Note frontmatter should contain migrated status: {note_after}"
++        );
++
++        // Verify manifest contains the view
++        let manifest_after =
++            parse_manifest(&fs::read(db_dir.join("LegacyDB.json")).unwrap()).unwrap();
++        assert_eq!(manifest_after.value.views.len(), 1);
++        assert_eq!(manifest_after.value.views[0].name, "Table View");
++
++        // Verify backup exists
++        assert!(Path::new(&result.backup_dir).is_dir());
++        assert!(Path::new(&result.backup_dir).join("journal.json").is_file());
++
++        let newer = format!("{note_after}\nNEW USER CONTENT\n");
++        fs::write(&note_path, &newer).unwrap();
++        let rollback = rollback_migration(&vault, &watcher, &db_id, &result.migration_id);
++        assert_eq!(fs::read_to_string(&note_path).unwrap(), newer, "rollback must preserve post-migration edits (result: {rollback:?})");
++        let _ = fs::remove_dir_all(vault);
++    }
++
++    #[test]
++    fn review_completed_migration_is_not_pending_again() {
++        let vault = temp_vault();
++        let db_dir = vault.join("LegacyDB");
++        fs::create_dir_all(&db_dir).unwrap();
++
++        let db_id = ulid::Ulid::generate().to_string();
++        let manifest_json = serde_json::json!({
++            "format": "amby-database",
++            "formatVersion": 1,
++            "databaseId": db_id,
++            "name": "LegacyDB",
++            "containerKind": "standalone",
++            "locked": false,
++            "membership": { "kind": "filesystem-descendants", "recursive": true },
++            "properties": [
++                {
++                    "type": "text",
++                    "id": "01J00000000000000000000001",
++                    "name": "Status",
++                    "pageVisibility": "alwaysShow",
++                    "yamlBinding": { "key": "Status", "direction": "twoWay" },
++                    "config": { "multiline": false }
++                }
++            ],
++            "views": [],
++            "templateOrder": []
++        });
++        fs::write(
++            db_dir.join("LegacyDB.json"),
++            serde_json::to_vec_pretty(&manifest_json).unwrap(),
++        )
++        .unwrap();
++
++        let ambd_dir = db_dir.join(".ambd");
++        let records_dir = ambd_dir.join("records");
++        let views_dir = ambd_dir.join("views");
++        fs::create_dir_all(&records_dir).unwrap();
++        fs::create_dir_all(&views_dir).unwrap();
++
++        // Add a view shard
++        let view_id = ulid::Ulid::generate().to_string();
++        let view_json = serde_json::json!({
++            "format": "amby-database-view",
++            "formatVersion": 1,
++            "databaseId": db_id,
++            "viewId": view_id,
++            "name": "Table View",
++            "layout": "table",
++            "fields": [],
++            "filter": null,
++            "sorts": [],
++            "group": null
++        });
++        fs::write(
++            views_dir.join(format!("{view_id}.json")),
++            serde_json::to_vec_pretty(&view_json).unwrap(),
++        )
++        .unwrap();
++
++        // Add a note and matching record shard
++        let note_id = ulid::Ulid::generate().to_string();
++        let note_path = db_dir.join("Task1.md");
++        fs::write(
++            &note_path,
++            format!("---\namby-id: {note_id}\n---\n\nTask body\n"),
++        )
++        .unwrap();
++
++        let record_json = serde_json::json!({
++            "format": "amby-database-record",
++            "formatVersion": 1,
++            "databaseId": db_id,
++            "noteId": note_id,
++            "values": {
++                "01J00000000000000000000001": {
++                    "type": "text",
++                    "value": "In Progress"
++                }
++            },
++            "yamlSyncBases": {}
++        });
++        fs::write(
++            records_dir.join(format!("{note_id}.json")),
++            serde_json::to_vec_pretty(&record_json).unwrap(),
++        )
++        .unwrap();
++
++        // 1. Detection
++        let migrations = detect_migrations(&vault).unwrap();
++        assert_eq!(migrations.len(), 1);
++        assert!(migrations[0].needs_migration);
++        assert_eq!(migrations[0].record_shards_count, 1);
++        assert_eq!(migrations[0].view_shards_count, 1);
++
++        // 2. Preflight
++        let preflight = preflight_migration(&vault, &db_id).unwrap();
++        assert!(preflight.can_auto_migrate);
++        assert_eq!(preflight.record_shards_count, 1);
++        assert_eq!(preflight.view_shards_count, 1);
++
++        // 3. Execution
++        let watcher = WatcherState::new();
++        let result = execute_migration(&vault, &watcher, &db_id).unwrap();
++        assert_eq!(result.migrated_records, 1);
++        assert_eq!(result.migrated_views, 1);
++
++        // Verify note frontmatter has Status: In Progress
++        let note_after = fs::read_to_string(&note_path).unwrap();
++        assert!(
++            note_after.contains("Status: In Progress"),
++            "Note frontmatter should contain migrated status: {note_after}"
++        );
++
++        // Verify manifest contains the view
++        let manifest_after =
++            parse_manifest(&fs::read(db_dir.join("LegacyDB.json")).unwrap()).unwrap();
++        assert_eq!(manifest_after.value.views.len(), 1);
++        assert_eq!(manifest_after.value.views[0].name, "Table View");
++
++        // Verify backup exists
++        assert!(Path::new(&result.backup_dir).is_dir());
++        assert!(Path::new(&result.backup_dir).join("journal.json").is_file());
++
++        let pending = detect_migrations(&vault).unwrap();
++        assert!(!pending.iter().any(|m| m.needs_migration), "successful migration is still pending: {pending:?}");
++        let _ = fs::remove_dir_all(vault);
++    }
++
++}
+--- a/src-tauri/src/database/mutations.rs
++++ b/src-tauri/src/database/mutations.rs
+@@ -3596,4 +3596,75 @@
+ 
+         let _ = fs::remove_dir_all(vault);
+     }
+-}
++    #[test]
++    fn review_future_manifest_prevents_batch_write() {
++        let vault = temp_vault();
++        let watcher = WatcherState::new();
++        let created = create_database(
++            &vault,
++            &watcher,
++            &CreateDatabaseRequest {
++                expected_generation: 1,
++                mode: DatabaseCreateMode::Standalone,
++                parent_path: Some(vault.to_string_lossy().to_string()),
++                note_path: None,
++                name: "Projects".to_owned(),
++            },
++        )
++        .unwrap();
++        let property = create_database_property(
++            &vault,
++            &watcher,
++            &CreateDatabasePropertyRequest {
++                expected_generation: 1,
++                database_id: created.database_id.clone(),
++                expected_manifest_revision: created.manifest_revision,
++                name: "Summary".to_owned(),
++                property_type: "text".to_owned(),
++                before_property_id: None,
++                options: Vec::new(),
++                formula_expression: None,
++                ..Default::default()
++            },
++        )
++        .unwrap();
++        let row = crate::database::rows::create_database_row(
++            &vault,
++            &watcher,
++            &crate::database::rows::CreateDatabaseRowRequest {
++                expected_generation: 1,
++                database_id: created.database_id.clone(),
++                title: "First".to_owned(),
++                template: crate::database::rows::DatabaseRowTemplate::Default,
++            },
++        )
++        .unwrap();
++        let manifest_path =
++            crate::database::discovery::manifest_path_for_container(&vault.join("Projects"));
++        let mut locked_manifest: serde_json::Value =
++            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
++        locked_manifest["formatVersion"] = serde_json::json!(999);
++        fs::write(
++            &manifest_path,
++            serde_json::to_vec_pretty(&locked_manifest).unwrap(),
++        )
++        .unwrap();
++        let request = DatabaseValueBatchRequest {
++            expected_generation: 1,
++            database_id: created.database_id,
++            operation_id: format!("test-{}", ulid::Ulid::generate()),
++            cells: vec![DatabaseValueMutation {
++                note_id: row.note_id,
++                property_id: property.property_id,
++                value_json: Some(r#"{"type":"text","value":"done"}"#.to_owned()),
++                expected_revision: row.record_revision,
++            }],
++        };
++        let before = fs::read(&row.note_path).unwrap();
++        let result = apply_value_batch(&vault, &watcher, &request, None);
++        assert_eq!(fs::read(&row.note_path).unwrap(), before, "future-format database was changed: {result:?}");
++        assert!(result.is_err());
++        let _ = fs::remove_dir_all(vault);
++    }
++
++}
+--- a/src-tauri/src/database/query.rs
++++ b/src-tauri/src/database/query.rs
+@@ -1941,4 +1941,23 @@
+             "relation contains target"
+         );
+     }
+-}
++    #[test]
++    fn review_canonical_multi_select_filter_is_accepted() {
++        let mut bindings = Vec::new();
++        let result = compile_property_condition("multiSelect", "p", "contains", Some(serde_json::json!("option-id")), &mut bindings);
++        assert!(result.is_ok(), "canonical type rejected: {result:?}");
++    }
++    #[test]
++    fn review_checkbox_filter_sent_by_frontend_is_accepted() {
++        let mut bindings = Vec::new();
++        let result = compile_property_condition("checkbox", "p", "equals", Some(serde_json::json!("true")), &mut bindings);
++        assert!(result.is_ok(), "frontend operand rejected: {result:?}");
++    }
++    #[test]
++    fn review_select_filter_sent_by_frontend_is_accepted() {
++        let mut bindings = Vec::new();
++        let result = compile_property_condition("select", "p", "contains", Some(serde_json::json!("option-id")), &mut bindings);
++        assert!(result.is_ok(), "frontend operator rejected: {result:?}");
++    }
++
++}

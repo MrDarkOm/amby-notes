@@ -535,11 +535,17 @@ fn validate_header(report: &mut ValidationReport, format: &str, version: u64, pa
             format!("expected {expected}"),
         );
     }
-    if version != 1 {
+    if version == 0 {
         report.error(
             ValidationCode::InvalidFormat,
             format!("{path}.formatVersion"),
             "unsupported format version",
+        );
+    } else if version > 1 {
+        report.read_only_warning(
+            ValidationCode::InvalidFormat,
+            format!("{path}.formatVersion"),
+            "future format version, opened as read-only",
         );
     }
 }
@@ -631,7 +637,7 @@ fn validate_property(
             if let Some(binding) = &$fields.yaml_binding {
                 if binding.direction != "twoWay"
                     || binding.key.is_empty()
-                    || binding.key == "amby-id"
+                    || super::format::is_reserved_system_key(&binding.key)
                 {
                     report.error(
                         ValidationCode::InvalidBinding,
@@ -658,6 +664,8 @@ fn validate_property(
                         | "multiSelect"
                         | "status"
                         | "url"
+                        | "files"
+                        | "relation"
                 ) {
                     report.error(
                         ValidationCode::InvalidBinding,
@@ -1249,11 +1257,7 @@ fn parse_datetime(value: &str) -> Option<DateValue> {
                 return None;
             }
             let seconds = hours * 3600 + minutes * 60;
-            if *sign == b'-' {
-                -seconds
-            } else {
-                seconds
-            }
+            if *sign == b'-' { -seconds } else { seconds }
         }
         _ => return None,
     };
@@ -1607,7 +1611,10 @@ fn validate_layout_config(report: &mut ValidationReport, layout: &str, config: &
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::format::{parse_manifest, parse_record, DatabaseCover};
+    use crate::database::format::{
+        DatabaseCover, FilesConfig, PropertyFields, RelationConfig, YamlBinding, parse_manifest,
+        parse_record,
+    };
 
     fn manifest() -> DatabaseManifest {
         let raw = br#"{
@@ -1652,10 +1659,12 @@ mod tests {
           "values":{"01J00000000000000000000001":{"type":"number","decimal":"1e999999999999999999999"}}
         }"#).unwrap();
         let report = validate_record(&record.value, Some(&manifest()));
-        assert!(report
-            .errors
-            .iter()
-            .any(|issue| issue.code == ValidationCode::InvalidDecimal));
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|issue| issue.code == ValidationCode::InvalidDecimal)
+        );
     }
 
     #[test]
@@ -1671,10 +1680,12 @@ mod tests {
         });
         let view: DatabaseViewFile = serde_json::from_value(raw).unwrap();
         let report = validate_view(&view, Some(&value));
-        assert!(report
-            .errors
-            .iter()
-            .any(|issue| issue.code == ValidationCode::InvalidConfiguration));
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|issue| issue.code == ValidationCode::InvalidConfiguration)
+        );
     }
 
     #[test]
@@ -1685,10 +1696,12 @@ mod tests {
         let view: DatabaseViewFile = serde_json::from_value(raw).unwrap();
         let report = validate_view(&view, None);
         assert!(report.read_only);
-        assert!(report
-            .warnings
-            .iter()
-            .any(|issue| issue.code == ValidationCode::UnknownDiscriminant));
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|issue| issue.code == ValidationCode::UnknownDiscriminant)
+        );
     }
 
     #[test]
@@ -1704,5 +1717,113 @@ mod tests {
         let report = validate_view(&view, None);
         assert!(report.errors.is_empty());
         assert_eq!(report.warnings.len(), 3);
+    }
+
+    #[test]
+    fn future_format_version_is_read_only_warning() {
+        let raw = serde_json::json!({
+            "format": "amby-database",
+            "formatVersion": 2,
+            "databaseId": "01J00000000000000000000000",
+            "name": "Future DB",
+            "icon": null,
+            "cover": null,
+            "locked": false,
+            "membership": {
+                "kind": "filesystem-descendants",
+                "recursive": true
+            },
+            "properties": [],
+            "viewOrder": [],
+            "defaultViewId": null
+        });
+        let manifest: DatabaseManifest = serde_json::from_value(raw).unwrap();
+        let report = validate_manifest(&manifest);
+        assert!(report.errors.is_empty());
+        assert!(report.read_only);
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|w| w.code == ValidationCode::InvalidFormat)
+        );
+    }
+
+    #[test]
+    fn yaml_binding_rejects_reserved_system_keys() {
+        let mut value = manifest();
+        if let PropertyDefinition::Number(ref mut fields) = value.properties[0] {
+            fields.yaml_binding = Some(YamlBinding {
+                key: "amby-id".into(),
+                direction: "twoWay".into(),
+                extra: Default::default(),
+            });
+        }
+        let report = validate_manifest(&value);
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|e| e.code == ValidationCode::InvalidBinding)
+        );
+
+        if let PropertyDefinition::Number(ref mut fields) = value.properties[0] {
+            fields.yaml_binding = Some(YamlBinding {
+                key: "amby-title".into(),
+                direction: "twoWay".into(),
+                extra: Default::default(),
+            });
+        }
+        let report2 = validate_manifest(&value);
+        assert!(
+            report2
+                .errors
+                .iter()
+                .any(|e| e.code == ValidationCode::InvalidBinding)
+        );
+    }
+
+    #[test]
+    fn yaml_binding_allows_files_and_relation() {
+        let mut value = manifest();
+        value
+            .properties
+            .push(PropertyDefinition::Files(PropertyFields {
+                id: "01J00000000000000000000099".into(),
+                name: "Files".into(),
+                page_visibility: "alwaysShow".into(),
+                yaml_binding: Some(YamlBinding {
+                    key: "attachments".into(),
+                    direction: "twoWay".into(),
+                    extra: Default::default(),
+                }),
+                config: FilesConfig {
+                    media_only: false,
+                    max_items: None,
+                    extra: Default::default(),
+                },
+                extra: Default::default(),
+            }));
+        value
+            .properties
+            .push(PropertyDefinition::Relation(PropertyFields {
+                id: "01J00000000000000000000098".into(),
+                name: "Related".into(),
+                page_visibility: "alwaysShow".into(),
+                yaml_binding: Some(YamlBinding {
+                    key: "related".into(),
+                    direction: "twoWay".into(),
+                    extra: Default::default(),
+                }),
+                config: RelationConfig {
+                    target_database_id: "01J00000000000000000000000".into(),
+                    max_items: None,
+                    inverse_property_id: None,
+                    extra: Default::default(),
+                },
+                extra: Default::default(),
+            }));
+        let report = validate_manifest(&value);
+        assert!(report.is_valid());
     }
 }

@@ -36,9 +36,11 @@ mod tests {
         let loaded = load_vault(&conn, &vault).unwrap();
 
         assert_eq!(loaded.notes.len(), 1);
-        assert!(fs::read_to_string(note)
-            .unwrap()
-            .starts_with("---\namby-id: "));
+        assert!(
+            fs::read_to_string(note)
+                .unwrap()
+                .starts_with("---\namby-id: ")
+        );
         assert_eq!(loaded.tree[0].id, loaded.notes[0].id);
     }
 
@@ -61,9 +63,11 @@ mod tests {
         fs::rename(&target, &renamed).unwrap();
         apply_planned_wiki_rewrites(&vault, &plan).unwrap();
 
-        assert!(fs::read_to_string(&source)
-            .unwrap()
-            .contains("[[C#Heading|Readable]]"));
+        assert!(
+            fs::read_to_string(&source)
+                .unwrap()
+                .contains("[[C#Heading|Readable]]")
+        );
         drop(conn);
         fs::remove_dir_all(vault).unwrap();
     }
@@ -117,23 +121,29 @@ mod tests {
         let loaded = load_vault(&conn, &vault).unwrap();
 
         assert_eq!(loaded.notes.len(), 3);
-        assert!(fs::read_to_string(&user_managed)
-            .unwrap()
-            .ends_with("id: external-system\n---\nUser-managed"));
+        assert!(
+            fs::read_to_string(&user_managed)
+                .unwrap()
+                .ends_with("id: external-system\n---\nUser-managed")
+        );
         assert_eq!(
             fs::read_to_string(&duplicate).unwrap(),
             format!("---\namby-id: {id}\n---\nDuplicate")
         );
-        assert!(!loaded
-            .sync
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("not an Amby ULID")));
-        assert!(loaded
-            .sync
-            .warnings
-            .iter()
-            .any(|warning| warning.contains("duplicate Amby id")));
+        assert!(
+            !loaded
+                .sync
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("not an Amby ULID"))
+        );
+        assert!(
+            loaded
+                .sync
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("duplicate Amby id"))
+        );
     }
 
     #[test]
@@ -172,9 +182,11 @@ mod tests {
 
         let migration = apply_id_migration(&vault).unwrap();
         assert_eq!(migration.modified_paths, vec!["Untitled.md"]);
-        assert!(fs::read_to_string(&note)
-            .unwrap()
-            .starts_with("---\namby-id: "));
+        assert!(
+            fs::read_to_string(&note)
+                .unwrap()
+                .starts_with("---\namby-id: ")
+        );
         assert_eq!(
             fs::read_to_string(format!("{}/Untitled.md", migration.backup_path)).unwrap(),
             original
@@ -205,10 +217,12 @@ mod tests {
             crate::frontmatter::parse_markdown(&migrated_text).body,
             "Body\r\n"
         );
-        assert!(preflight_vault(&vault)
-            .unwrap()
-            .planned_id_writes
-            .is_empty());
+        assert!(
+            preflight_vault(&vault)
+                .unwrap()
+                .planned_id_writes
+                .is_empty()
+        );
 
         let conn = open_conn(&vault);
         load_vault(&conn, &vault).unwrap();
@@ -295,10 +309,12 @@ mod tests {
                 match operation {
                     "sync" => {
                         let report = sync_vault(&conn, &vault).unwrap();
-                        assert!(report
-                            .warnings
-                            .iter()
-                            .any(|warning| warning.contains("Note.md")));
+                        assert!(
+                            report
+                                .warnings
+                                .iter()
+                                .any(|warning| warning.contains("Note.md"))
+                        );
                     }
                     "incremental" => {
                         let prepared = prepare_note_at_path(&conn, &vault, &note).unwrap();
@@ -313,10 +329,12 @@ mod tests {
                         assert!(prepared.note_id.starts_with(prefix));
                     }
                     "migration" => {
-                        assert!(apply_id_migration(&vault)
-                            .unwrap()
-                            .modified_paths
-                            .is_empty());
+                        assert!(
+                            apply_id_migration(&vault)
+                                .unwrap()
+                                .modified_paths
+                                .is_empty()
+                        );
                     }
                     _ => unreachable!(),
                 }
@@ -375,14 +393,18 @@ mod tests {
             preflight_vault(&vault).unwrap().unfinished_migrations.len(),
             1
         );
-        assert!(recovery
-            .files
-            .iter()
-            .any(|file| file.status == IdMigrationFileStatus::BackupCreated));
-        assert!(crate::frontmatter::read_markdown(&first)
-            .unwrap()
-            .id
-            .is_some());
+        assert!(
+            recovery
+                .files
+                .iter()
+                .any(|file| file.status == IdMigrationFileStatus::BackupCreated)
+        );
+        assert!(
+            crate::frontmatter::read_markdown(&first)
+                .unwrap()
+                .id
+                .is_some()
+        );
 
         let resumed = recover_id_migration(
             &vault,
@@ -391,18 +413,24 @@ mod tests {
         )
         .unwrap();
         assert_eq!(resumed.status, IdMigrationStatus::Completed);
-        assert!(resumed
-            .files
-            .iter()
-            .all(|file| file.status == IdMigrationFileStatus::Applied));
-        assert!(crate::frontmatter::read_markdown(&first)
-            .unwrap()
-            .id
-            .is_some());
-        assert!(crate::frontmatter::read_markdown(&second)
-            .unwrap()
-            .id
-            .is_some());
+        assert!(
+            resumed
+                .files
+                .iter()
+                .all(|file| file.status == IdMigrationFileStatus::Applied)
+        );
+        assert!(
+            crate::frontmatter::read_markdown(&first)
+                .unwrap()
+                .id
+                .is_some()
+        );
+        assert!(
+            crate::frontmatter::read_markdown(&second)
+                .unwrap()
+                .id
+                .is_some()
+        );
         assert!(unfinished_id_migrations(&vault).unwrap().is_empty());
         fs::remove_dir_all(vault).unwrap();
     }
@@ -447,12 +475,14 @@ mod tests {
         let user_edit = "---\nid: external-system\n---\nUser edit\n";
         fs::write(&note, user_edit).unwrap();
 
-        assert!(recover_id_migration(
-            &vault,
-            &migration.journal_path,
-            IdMigrationRecoveryAction::Rollback,
-        )
-        .is_err());
+        assert!(
+            recover_id_migration(
+                &vault,
+                &migration.journal_path,
+                IdMigrationRecoveryAction::Rollback,
+            )
+            .is_err()
+        );
         assert_eq!(fs::read_to_string(&note).unwrap(), user_edit);
         fs::remove_dir_all(vault).unwrap();
     }
@@ -507,9 +537,11 @@ mod tests {
 
         let id = note_id_for_path(&conn, &vault, &note).unwrap().unwrap();
         assert!(!id.is_empty());
-        assert!(fs::read_to_string(&note)
-            .unwrap()
-            .starts_with("---\namby-id: "));
+        assert!(
+            fs::read_to_string(&note)
+                .unwrap()
+                .starts_with("---\namby-id: ")
+        );
         assert_eq!(list_notes(&conn, &vault).unwrap().len(), 1);
     }
 
@@ -569,11 +601,13 @@ mod tests {
 
         assert_eq!(deleted, vec![target_id]);
         assert!(note_id_for_path(&conn, &vault, &target).unwrap().is_none());
-        assert!(link_graph(&conn, &vault)
-            .unwrap()
-            .edges
-            .iter()
-            .any(|edge| edge.unresolved == Some(true)));
+        assert!(
+            link_graph(&conn, &vault)
+                .unwrap()
+                .edges
+                .iter()
+                .any(|edge| edge.unresolved == Some(true))
+        );
     }
 
     #[test]
@@ -744,11 +778,13 @@ mod tests {
         fs::write(vault.join("B.md"), "# B").unwrap();
         let conn = open_conn(&vault);
         load_vault(&conn, &vault).unwrap();
-        assert!(link_graph(&conn, &vault)
-            .unwrap()
-            .edges
-            .iter()
-            .all(|e| e.unresolved.is_none()));
+        assert!(
+            link_graph(&conn, &vault)
+                .unwrap()
+                .edges
+                .iter()
+                .all(|e| e.unresolved.is_none())
+        );
 
         fs::remove_file(vault.join("B.md")).unwrap();
         load_vault(&conn, &vault).unwrap();

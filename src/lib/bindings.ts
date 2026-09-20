@@ -724,6 +724,62 @@ async setDefaultDatabaseView(request: DatabaseViewRequest) : Promise<Result<Data
     else return { status: "error", error: e  as any };
 }
 },
+async detectDatabaseMigrations() : Promise<Result<DatabaseMigrationStatus[], DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("detect_database_migrations") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async preflightDatabaseMigration(databaseId: string) : Promise<Result<MigrationPreflightReport, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("preflight_database_migration", { databaseId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async executeDatabaseMigration(databaseId: string) : Promise<Result<MigrationResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("execute_database_migration", { databaseId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rollbackDatabaseMigration(databaseId: string, migrationId: string) : Promise<Result<null, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rollback_database_migration", { databaseId, migrationId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async undoDatabaseMutation(databaseId: string) : Promise<Result<DatabaseUndoRedoResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("undo_database_mutation", { databaseId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async redoDatabaseMutation(databaseId: string) : Promise<Result<DatabaseUndoRedoResult, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("redo_database_mutation", { databaseId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getDatabaseHistoryStatus(databaseId: string) : Promise<Result<DatabaseHistoryStatus, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_database_history_status", { databaseId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async openInExplorer(path: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("open_in_explorer", { path }) };
@@ -908,6 +964,8 @@ export type DatabaseDiagnostic = { code: string; severity: string; path: string;
 export type DatabaseError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actual_generation: number } | { kind: "failed"; code: string; message: string }
 export type DatabaseFieldRef = { kind: "system"; field: string } | { kind: "property"; property_id: string }
 export type DatabaseFilterNode = { kind: "group"; operator: string; children: DatabaseFilterNode[] } | { kind: "condition"; field: DatabaseFieldRef; operator: string; value: string | null }
+export type DatabaseHistoryStatus = { databaseId: string; canUndo: boolean; canRedo: boolean }
+export type DatabaseMigrationStatus = { databaseId: string; databaseName: string; containerPath: string; needsMigration: boolean; hasLegacyManifest: boolean; hasRecordShards: boolean; hasViewShards: boolean; recordShardsCount: number; viewShardsCount: number }
 export type DatabaseModuleState = { enabled: boolean; vaultGeneration: number | null; projection: ProjectionVersion | null }
 export type DatabaseNoteContext = { vaultGeneration: number; databaseId: string; databaseTitle: string; databaseIcon: string | null; manifestRevision: string; locked: boolean; properties: DatabasePropertySummary[]; row: DatabaseRow }
 export type DatabaseNoteRevision = { noteId: string; revision: string }
@@ -927,6 +985,7 @@ export type DatabaseSortSpec = { field: DatabaseFieldRef; direction: string; nul
  */
 export type DatabaseSummary = { databaseId: string; title: string; icon: string | null; attachedNoteId: string | null; manifestRevision: string; locked: boolean; properties: DatabasePropertySummary[]; views: DatabaseViewSummary[]; templates: DatabaseTemplateSummary[]; diagnostics: DatabaseDiagnostic[] }
 export type DatabaseTemplateSummary = { templateId: string; name: string; revision: string }
+export type DatabaseUndoRedoResult = { databaseId: string; canUndo: boolean; canRedo: boolean; affectedNotes: string[] }
 export type DatabaseValueBatchRequest = { expectedGeneration: number; databaseId: string; operationId: string; cells: DatabaseValueMutation[] }
 export type DatabaseValueBatchResult = { operationId: string; databaseId: string; revisions: DatabaseNoteRevision[]; warnings: string[] }
 export type DatabaseValueMutation = { noteId: string; propertyId: string; valueJson: string | null; expectedRevision: string }
@@ -974,6 +1033,9 @@ export type LinkGraph = { nodes: LinkGraphNode[]; edges: LinkGraphEdge[] }
 export type LinkGraphEdge = { source: string; target: string; label: string; unresolved?: boolean | null }
 export type LinkGraphNode = { id: string; label: string; unresolved?: boolean | null }
 export type LoadVaultResult = { generation: number; vaultPath: string; tree: TreeItem[]; notes: IndexedNote[]; sync: SyncReport }
+export type MigrationConflict = { kind: string; noteId: string | null; filePath: string; description: string; suggestedAction: string }
+export type MigrationPreflightReport = { databaseId: string; databaseName: string; containerPath: string; affectedFiles: string[]; recordShardsCount: number; viewShardsCount: number; conflicts: MigrationConflict[]; canAutoMigrate: boolean; formatVersion: number }
+export type MigrationResult = { migrationId: string; databaseId: string; backupDir: string; migratedRecords: number; migratedViews: number; warnings: string[] }
 /**
  * The filesystem result is authoritative. A cache failure is returned as a
  * recoverable warning rather than turning a completed mutation into an error.

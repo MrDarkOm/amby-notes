@@ -6,6 +6,8 @@ pub mod events;
 #[allow(dead_code)]
 pub mod format;
 pub mod formula;
+pub mod history;
+pub mod migration;
 pub mod model;
 pub mod mutation_state;
 pub mod mutations;

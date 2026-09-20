@@ -78,4 +78,25 @@ describe("findTabTreeItem", () => {
     ]
     expect(findTabTreeItem(prefixedItems, "01JDATABASEULID000000000001")).toBe(prefixedItems[0])
   })
+
+  it("finds a note by relative path, stem, or name", () => {
+    const tree: TreeItem[] = [
+      {
+        id: "01JNOTEULID000000000000001",
+        path: "/vault/Notes/Sub/Meeting.md",
+        name: "Meeting",
+        type: "file",
+      },
+      {
+        id: "01JNOTEULID000000000000002",
+        path: "/vault/Single.md",
+        name: "Single",
+        type: "file",
+      },
+    ]
+    expect(findTabTreeItem(tree, "Notes/Sub/Meeting.md")).toBe(tree[0])
+    expect(findTabTreeItem(tree, "Notes/Sub/Meeting")).toBe(tree[0])
+    expect(findTabTreeItem(tree, "Single.md")).toBe(tree[1])
+    expect(findTabTreeItem(tree, "Single")).toBe(tree[1])
+  })
 })

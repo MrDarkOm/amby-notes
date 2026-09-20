@@ -91,6 +91,8 @@ import type {
   DatabaseAggregateRequest,
   DatabaseAggregateResult,
   DatabaseChangedPayload,
+  DatabaseUndoRedoResult,
+  DatabaseHistoryStatus,
 } from "./database-types"
 import { DatabaseOperationError } from "./database-types"
 
@@ -510,6 +512,18 @@ export class WebAdapterCore implements StoragePort {
       "Database aggregation requires the desktop runtime",
       "unsupported",
     )
+  }
+
+  async undoDatabaseMutation(databaseId: string): Promise<DatabaseUndoRedoResult> {
+    return { databaseId, canUndo: false, canRedo: false, affectedNotes: [] }
+  }
+
+  async redoDatabaseMutation(databaseId: string): Promise<DatabaseUndoRedoResult> {
+    return { databaseId, canUndo: false, canRedo: false, affectedNotes: [] }
+  }
+
+  async getDatabaseHistoryStatus(databaseId: string): Promise<DatabaseHistoryStatus> {
+    return { databaseId, canUndo: false, canRedo: false }
   }
 
   async openVault(): Promise<string | null> {

@@ -3275,112 +3275,12 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   display: none !important;
 }
 
-/* Relocate and compact native Excalidraw shapes/tools bar to match right Area Controls (8px bottom margin, 36px height) */
-.amby-sketch-editor .excalidraw .shapes-section {
-  position: absolute !important;
-  bottom: -0.5rem !important;
-  left: 0 !important;
-  top: auto !important;
-  transform: none !important;
-  z-index: 10 !important;
-}
-
-.amby-sketch-editor .excalidraw .shapes-section .Island {
-  padding: 0.25rem !important;
-  border-radius: 0.75rem !important;
-  border: 1px solid hsl(var(--border) / 0.8) !important;
-  background-color: hsl(var(--card) / 0.9) !important;
-  box-shadow:
-    0 4px 6px -1px rgb(0 0 0 / 0.1),
-    0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
-  backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px) !important;
-}
-
-.amby-sketch-editor .excalidraw .shapes-section .App-toolbar {
-  width: auto !important;
-}
-
-.amby-sketch-editor .excalidraw .shapes-section .App-toolbar-content {
-  padding: 0 !important;
-  gap: 2px !important;
-  height: 1.75rem !important;
-  min-height: 1.75rem !important;
-}
-
-.amby-sketch-editor .excalidraw .shapes-section .ToolIcon {
-  margin: 0 !important;
-}
-
-.amby-sketch-editor .excalidraw .shapes-section .ToolIcon__icon {
-  width: 1.75rem !important;
-  height: 1.75rem !important;
-  border-radius: 0.5rem !important;
-  color: hsl(var(--muted-foreground)) !important;
-}
-
-.amby-sketch-editor .excalidraw .shapes-section .ToolIcon__icon:hover {
-  background: hsl(var(--accent)) !important;
-  color: hsl(var(--accent-foreground)) !important;
-}
-
-.amby-sketch-editor
-  .excalidraw
-  .shapes-section
-  .ToolIcon
-  .ToolIcon_type_radio:checked
-  + .ToolIcon__icon,
-.amby-sketch-editor
-  .excalidraw
-  .shapes-section
-  .ToolIcon
-  .ToolIcon_type_checkbox:checked
-  + .ToolIcon__icon,
-.amby-sketch-editor
-  .excalidraw
-  .shapes-section
-  .ToolIcon.fillable
-  .ToolIcon_type_radio:checked
-  + .ToolIcon__icon,
-.amby-sketch-editor
-  .excalidraw
-  .shapes-section
-  .ToolIcon.fillable
-  .ToolIcon_type_checkbox:checked
-  + .ToolIcon__icon {
-  background: hsl(var(--accent)) !important;
-  color: hsl(var(--accent-foreground)) !important;
-}
-
-.amby-sketch-editor .excalidraw .shapes-section .ToolIcon__icon svg {
-  width: 0.875rem !important;
-  height: 0.875rem !important;
-}
-
-.amby-sketch-editor .excalidraw .shapes-section .ToolIcon__keybinding {
-  display: none !important;
-}
-
-.amby-sketch-editor .excalidraw .shapes-section .App-toolbar__divider {
-  height: 0.875rem !important;
-  margin: 0 2px !important;
-  background-color: hsl(var(--border) / 0.8) !important;
-}
-
-.amby-sketch-editor .excalidraw .shapes-section .App-toolbar__extra-tools-trigger {
-  width: 1.75rem !important;
-  height: 1.75rem !important;
-  border-radius: 0.5rem !important;
-  color: hsl(var(--muted-foreground)) !important;
-}
-
-.amby-sketch-editor .excalidraw .shapes-section .HintViewer {
-  display: none !important;
-}
-
-/* Hide internal lock in shapes toolbar */
-.amby-sketch-editor .excalidraw .ToolIcon__lock,
-.amby-sketch-editor .excalidraw .ToolIcon__lock + .App-toolbar__divider {
+/* Completely hide Excalidraw native toolbars in all viewports and modes */
+.amby-sketch-editor .excalidraw .shapes-section,
+.amby-sketch-editor .excalidraw .App-toolbar,
+.amby-sketch-editor .excalidraw .App-toolbar-container,
+.amby-sketch-editor .excalidraw .App-toolbar--mobile,
+.amby-sketch-editor .excalidraw .App-mobile-menu {
   display: none !important;
 }
 
@@ -3537,4 +3437,65 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 
 .amby-sketch-editor .excalidraw .sidebar-trigger {
   display: none !important;
+}
+
+.amby-sketch-editor .excalidraw .excalidraw-hyperlinkContainer[data-amby-note="true"] {
+  background: hsl(var(--card)) !important;
+  border: 1px solid hsl(var(--border) / 0.8) !important;
+  border-radius: var(--radius-lg, 12px) !important;
+  padding: 4px 10px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.amby-sketch-editor
+  .excalidraw
+  .excalidraw-hyperlinkContainer[data-amby-note="true"]
+  .excalidraw-hyperlinkContainer-link {
+  color: hsl(var(--primary)) !important;
+  font-size: 0.8125rem !important;
+  font-weight: 500 !important;
+  max-width: 18rem !important;
+  text-decoration: none !important;
+}
+
+.amby-sketch-editor
+  .excalidraw
+  .excalidraw-hyperlinkContainer[data-amby-note="true"]
+  .excalidraw-hyperlinkContainer-link:hover {
+  text-decoration: underline !important;
+}
+
+.amby-sketch-editor
+  .excalidraw
+  .excalidraw-hyperlinkContainer[data-amby-note="true"]
+  .excalidraw-hyperlinkContainer__buttons
+  > button:not(.amby-sketch-browse-btn) {
+  display: none !important;
+}
+
+.amby-sketch-editor
+  .excalidraw
+  .excalidraw-hyperlinkContainer[data-amby-note="true"]
+  .amby-sketch-browse-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 3px 8px !important;
+  border-radius: var(--radius-md, 8px) !important;
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  background-color: hsl(var(--accent)) !important;
+  color: hsl(var(--accent-foreground)) !important;
+  border: none !important;
+  cursor: pointer !important;
+}
+
+.amby-sketch-editor
+  .excalidraw
+  .excalidraw-hyperlinkContainer[data-amby-note="true"]
+  .amby-sketch-browse-btn:hover {
+  background-color: hsl(var(--accent) / 0.8) !important;
 }

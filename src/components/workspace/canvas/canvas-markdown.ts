@@ -23,7 +23,7 @@ export function renderCardHtml(text: string): string {
   html = html.replace(
     /(^|\s)#([\p{L}\d/_-]+)/gu,
     (_m, pre: string, tag: string) =>
-      `${pre}<span class="text-amber-600 dark:text-amber-400">#${escapeHtml(tag)}</span>`,
+      `${pre}<span class="inline-flex items-center px-1.5 py-0.5 rounded-md bg-accent/60 text-accent-foreground text-xs font-medium my-0.5">#${escapeHtml(tag)}</span>`,
   )
   return html
 }

@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::discovery::discover_vault;
-use crate::bundle::{sanitize_ext, unique_name, MAX_ATTACHMENT_FILE_SIZE};
+use crate::bundle::{MAX_ATTACHMENT_FILE_SIZE, sanitize_ext, unique_name};
 use crate::frontmatter::{self, AtomicCreateError};
 use crate::paths;
 use crate::watcher::{self, WatcherState};
@@ -131,9 +131,9 @@ fn mime_type_for(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::mutations::{create_database, CreateDatabaseRequest, DatabaseCreateMode};
+    use crate::database::mutations::{CreateDatabaseRequest, DatabaseCreateMode, create_database};
     use crate::database::rows::{
-        create_database_row, CreateDatabaseRowRequest, DatabaseRowTemplate,
+        CreateDatabaseRowRequest, DatabaseRowTemplate, create_database_row,
     };
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -182,10 +182,12 @@ mod tests {
         )
         .unwrap();
         assert!(asset.relative_path.starts_with("assets/"));
-        assert!(vault
-            .join("Media/.ambd")
-            .join(&asset.relative_path)
-            .is_file());
+        assert!(
+            vault
+                .join("Media/.ambd")
+                .join(&asset.relative_path)
+                .is_file()
+        );
         let _ = std::fs::remove_dir_all(vault);
     }
 }

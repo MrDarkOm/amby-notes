@@ -362,16 +362,20 @@ fn moving_note_onto_note_creates_target_bundle() {
 
     assert!(vault.join("B").join("B.md").exists());
     assert!(vault.join("B").join("A.md").exists());
-    assert!(result
-        .path_changes
-        .iter()
-        .any(|change| change.old_path == path_string(&target)
-            && change.new_path == path_string(&vault.join("B").join("B.md"))));
-    assert!(result
-        .path_changes
-        .iter()
-        .any(|change| change.old_path == path_string(&source)
-            && change.new_path == path_string(&vault.join("B").join("A.md"))));
+    assert!(
+        result
+            .path_changes
+            .iter()
+            .any(|change| change.old_path == path_string(&target)
+                && change.new_path == path_string(&vault.join("B").join("B.md")))
+    );
+    assert!(
+        result
+            .path_changes
+            .iter()
+            .any(|change| change.old_path == path_string(&source)
+                && change.new_path == path_string(&vault.join("B").join("A.md")))
+    );
 }
 
 #[test]
@@ -661,16 +665,20 @@ fn preview_move_matches_bundle_conversion_paths() {
 
     let preview = preview_move_item(&source, &target).unwrap();
 
-    assert!(preview
-        .path_changes
-        .iter()
-        .any(|change| change.old_path == path_string(&source)
-            && change.new_path == path_string(&vault.join("B").join("A.md"))));
-    assert!(preview
-        .path_changes
-        .iter()
-        .any(|change| change.old_path == path_string(&target)
-            && change.new_path == path_string(&vault.join("B").join("B.md"))));
+    assert!(
+        preview
+            .path_changes
+            .iter()
+            .any(|change| change.old_path == path_string(&source)
+                && change.new_path == path_string(&vault.join("B").join("A.md")))
+    );
+    assert!(
+        preview
+            .path_changes
+            .iter()
+            .any(|change| change.old_path == path_string(&target)
+                && change.new_path == path_string(&vault.join("B").join("B.md")))
+    );
     assert!(source.exists());
     assert!(target.exists());
 }

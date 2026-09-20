@@ -285,7 +285,7 @@ pub(crate) fn replace_yaml_binding_lossless(
     if key.is_empty()
         || !key
             .chars()
-            .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_'))
+            .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_' | ' '))
     {
         return Err("YAML binding key is not a safe top-level key".to_owned());
     }
@@ -317,7 +317,9 @@ pub(crate) fn replace_yaml_binding_lossless(
         let matches_key = candidate
             .split_once(':')
             .is_some_and(|(candidate_key, remainder)| {
-                candidate_key == key && !remainder.trim_start().starts_with('#')
+                let candidate_clean = candidate_key.trim().trim_matches('"').trim_matches('\'');
+                (candidate_clean == key || candidate_clean.eq_ignore_ascii_case(key))
+                    && !remainder.trim_start().starts_with('#')
             });
         if matches_key {
             if found {
@@ -376,12 +378,26 @@ fn yaml_inline_value(value: &Value) -> Result<String, String> {
             .join(", ");
         return Ok(format!("[{rendered}]"));
     }
+    if let Value::Mapping(map) = value {
+        let rendered = map
+            .iter()
+            .map(|(k, v)| {
+                let k_str = yaml_inline_value(k)?;
+                let v_str = yaml_inline_value(v)?;
+                Ok::<String, String>(format!("{k_str}: {v_str}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        return Ok(format!("{{{rendered}}}"));
+    }
     let scalar = serde_yaml::to_string(value)
         .map_err(|error| error.to_string())?
         .trim()
         .to_owned();
     if scalar.is_empty() || scalar.contains(['\n', '\r']) {
-        return Err("YAML binding value must be a scalar or inline sequence".to_owned());
+        return Err(
+            "YAML binding value must be a scalar, inline sequence, or inline mapping".to_owned(),
+        );
     }
     Ok(scalar)
 }
@@ -393,7 +409,7 @@ pub(crate) fn remove_yaml_binding_lossless(content: &str, key: &str) -> Result<S
     if key.is_empty()
         || !key
             .chars()
-            .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_'))
+            .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_' | ' '))
     {
         return Err("YAML binding key is not a safe top-level key".to_owned());
     }
@@ -424,7 +440,9 @@ pub(crate) fn remove_yaml_binding_lossless(content: &str, key: &str) -> Result<S
         let matches_key = candidate
             .split_once(':')
             .is_some_and(|(candidate_key, remainder)| {
-                candidate_key == key && !remainder.trim_start().starts_with('#')
+                let candidate_clean = candidate_key.trim().trim_matches('"').trim_matches('\'');
+                (candidate_clean == key || candidate_clean.eq_ignore_ascii_case(key))
+                    && !remainder.trim_start().starts_with('#')
             });
         if matches_key {
             if found {
@@ -853,7 +871,7 @@ fn preserve_text_format(path: &Path, content: &str) -> Result<Vec<u8>, String> {
     let existing = match fs::read(path) {
         Ok(existing) => existing,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(content.as_bytes().to_vec())
+            return Ok(content.as_bytes().to_vec());
         }
         Err(err) => return Err(err.to_string()),
     };
@@ -1044,7 +1062,9 @@ mod tests {
 
     #[test]
     fn parses_crlf_frontmatter_without_treating_it_as_note_body() {
-        let parsed = parse_markdown("---\r\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\r\ntags:\r\n  - Finnish\r\n---\r\nHello\r\n");
+        let parsed = parse_markdown(
+            "---\r\namby-id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\r\ntags:\r\n  - Finnish\r\n---\r\nHello\r\n",
+        );
 
         assert_eq!(parsed.id.as_deref(), Some("01ARZ3NDEKTSV4RRFFQ69G5FAV"));
         assert_eq!(parsed.frontmatter_tags, vec!["Finnish"]);
@@ -1571,12 +1591,14 @@ mod tests {
         assert!(
             replace_yaml_binding_lossless(source, "status", &Value::String("a\nb".into())).is_err()
         );
-        assert!(replace_yaml_binding_lossless(
-            "---\nstatus: [\nBody",
-            "status",
-            &Value::String("done".into())
-        )
-        .is_err());
+        assert!(
+            replace_yaml_binding_lossless(
+                "---\nstatus: [\nBody",
+                "status",
+                &Value::String("done".into())
+            )
+            .is_err()
+        );
         let sequence = replace_yaml_binding_lossless(
             source,
             "labels",
@@ -1587,6 +1609,21 @@ mod tests {
         )
         .unwrap();
         assert!(sequence.contains("labels: [one, two]"));
+
+        let mut mapping = serde_yaml::Mapping::new();
+        mapping.insert(
+            Value::String("start".into()),
+            Value::String("2026-09-20".into()),
+        );
+        mapping.insert(
+            Value::String("end".into()),
+            Value::String("2026-09-21".into()),
+        );
+        let with_mapping =
+            replace_yaml_binding_lossless(source, "due", &Value::Mapping(mapping)).unwrap();
+        assert!(with_mapping.contains("due: {start: 2026-09-20, end: 2026-09-21}"));
+        let parsed = parse_markdown(&with_mapping);
+        assert_eq!(parsed.frontmatter_status, FrontmatterStatus::Valid);
     }
 
     #[test]

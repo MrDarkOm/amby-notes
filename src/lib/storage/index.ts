@@ -248,6 +248,12 @@ export const setDefaultDatabaseView = (request: DatabaseViewRequest) =>
   getAdapter().setDefaultDatabaseView(request)
 export const aggregateDatabase = (request: DatabaseAggregateRequest) =>
   getAdapter().aggregateDatabase(request)
+export const undoDatabaseMutation = (databaseId: string) =>
+  getAdapter().undoDatabaseMutation(databaseId)
+export const redoDatabaseMutation = (databaseId: string) =>
+  getAdapter().redoDatabaseMutation(databaseId)
+export const getDatabaseHistoryStatus = (databaseId: string) =>
+  getAdapter().getDatabaseHistoryStatus(databaseId)
 
 // Mutations & Canvas / Layers
 export const createFolder = (vaultPath: string, name: string): Promise<string> =>

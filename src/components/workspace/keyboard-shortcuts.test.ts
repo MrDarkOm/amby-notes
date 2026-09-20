@@ -57,6 +57,9 @@ describe("keyboard shortcuts", () => {
         false,
       ),
     ).toBe(true)
+    expect(matchesShortcut(keyEvent("s", "KeyS", { metaKey: true }), "Mod+S", true)).toBe(true)
+    expect(matchesShortcut(keyEvent("s", "KeyS", { ctrlKey: true }), "Mod+S", false)).toBe(true)
+    expect(matchesShortcut(keyEvent("s", "KeyS"), "Mod+S", true)).toBe(false)
   })
 
   it("fills missing persisted commands with defaults", () => {

@@ -267,6 +267,8 @@ const ConnectedCachedDocumentEditor = React.memo(function ConnectedCachedDocumen
   return <CachedDocumentEditor editorProps={connectedProps} {...props} />
 })
 
+export const AMBY_MANUAL_SAVE_EVENT = "amby:manual-save"
+
 export function WorkspaceOrchestration() {
   const { t } = useTranslation()
   const vault = useVaultStore((s) => s.vault)
@@ -977,10 +979,24 @@ export function WorkspaceOrchestration() {
   )
   const stableHandleCloseAllTabs = React.useCallback(() => handleCloseAllTabsRef.current(), [])
 
+  const handleManualSave = React.useCallback(async () => {
+    try {
+      window.dispatchEvent(new CustomEvent(AMBY_MANUAL_SAVE_EVENT))
+      await flushAutosaveGeneration(useVaultStore.getState().generation)
+    } catch (error) {
+      logger.error("manual_save.failed", { errorType: errorType(error) })
+    }
+  }, [])
+
   // Workspace-wide shortcuts deliberately leave plain typing alone. Native editing
   // shortcuts still belong to the focused editor; these only invoke app navigation.
   React.useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (matchesShortcut(event, shortcuts.save)) {
+        event.preventDefault()
+        void handleManualSave()
+        return
+      }
       if (event.defaultPrevented) return
 
       if (matchesShortcut(event, shortcuts.quickOpen)) {
@@ -1011,7 +1027,15 @@ export function WorkspaceOrchestration() {
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [handleBack, handleForward, handleNewFileIn, openSettings, shortcuts, toggleSidebar])
+  }, [
+    handleBack,
+    handleForward,
+    handleManualSave,
+    handleNewFileIn,
+    openSettings,
+    shortcuts,
+    toggleSidebar,
+  ])
 
   const { handleDeleteVault, handleMoveVault, handleOpenVault, handleRenameVault } =
     useVaultActions({
@@ -1193,17 +1217,33 @@ export function WorkspaceOrchestration() {
 
   const selectedDatabase = React.useMemo(() => {
     if (activeTab?.kind === "database") {
-      return databases.find((database) => database.databaseId === activeTab.fileId) ?? null
+      const treeItem = treeItemById.get(activeTab.fileId)
+      return (
+        databases.find(
+          (database) =>
+            database.databaseId === activeTab.fileId ||
+            database.attachedNoteId === activeTab.fileId ||
+            (treeItem?.id &&
+              (database.databaseId === treeItem.id || database.attachedNoteId === treeItem.id)) ||
+            (treeItem?.path &&
+              (database.databaseId === treeItem.path || database.attachedNoteId === treeItem.path)),
+        ) ?? null
+      )
     }
     if (
       activeTab?.kind === "document" &&
       currentDoc &&
       activeLayers[currentDoc.id] === "database"
     ) {
-      return databases.find((database) => database.attachedNoteId === currentDoc.id) ?? null
+      return (
+        databases.find(
+          (database) =>
+            database.attachedNoteId === currentDoc.id || database.databaseId === currentDoc.id,
+        ) ?? null
+      )
     }
     return null
-  }, [activeLayers, activeTab, currentDoc, databases])
+  }, [activeLayers, activeTab, currentDoc, databases, treeItemById])
 
   const headerTabs: HeaderTab[] = React.useMemo(
     () =>
@@ -1444,6 +1484,11 @@ export function WorkspaceOrchestration() {
       },
       onContentDirty: (sourceDocumentId: string) => {
         if (tab && sourceDocumentId === tab.fileId) handleContentDirty(tab.fileId)
+      },
+      onContentClean: (sourceDocumentId: string) => {
+        if (tab && sourceDocumentId === tab.fileId) {
+          useDocStore.getState().markSaved(tab.fileId)
+        }
       },
       onBack: isPrimary ? handleBack : () => {},
       onForward: isPrimary ? handleForward : () => {},
@@ -1720,7 +1765,12 @@ export function WorkspaceOrchestration() {
             (database) =>
               (doc && (database.attachedNoteId === doc.id || database.databaseId === doc.id)) ||
               database.databaseId === tab.fileId ||
-              database.attachedNoteId === tab.fileId,
+              database.attachedNoteId === tab.fileId ||
+              (treeItem?.id &&
+                (database.databaseId === treeItem.id || database.attachedNoteId === treeItem.id)) ||
+              (treeItem?.path &&
+                (database.databaseId === treeItem.path ||
+                  database.attachedNoteId === treeItem.path)),
           )
           const attachedDatabase: DatabaseSummary | undefined =
             foundDatabase ??

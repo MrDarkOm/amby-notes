@@ -28,6 +28,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   applyDatabaseValueBatch,
+  createDatabaseProperty,
   deleteDatabaseProperty,
   getDatabaseNoteContext,
   listDatabases,
@@ -1161,6 +1162,9 @@ export function InfoPanel({
   const [copied, setCopied] = React.useState(false)
   const [propertyEditorOpen, setPropertyEditorOpen] = React.useState(false)
   const [editingProperty, setEditingProperty] = React.useState<CustomProperty | null>(null)
+  const [databasePropertyEditorOpen, setDatabasePropertyEditorOpen] = React.useState(false)
+  const [editingDatabaseProperty, setEditingDatabaseProperty] =
+    React.useState<CustomProperty | null>(null)
   const [noteDatabaseContext, setNoteDatabaseContext] = React.useState<DatabaseNoteContext | null>(
     null,
   )
@@ -1172,6 +1176,7 @@ export function InfoPanel({
   >({})
   const [propertyOrderBusy, setPropertyOrderBusy] = React.useState(false)
   const [customPropertyOrderBusy, setCustomPropertyOrderBusy] = React.useState(false)
+  const databases = useDatabaseStore((state) => state.databases)
   const databaseInvalidationSeq = useDatabaseStore((state) => state.invalidationSeq)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
   const setDatabaseCatalog = useDatabaseStore((state) => state.setCatalog)
@@ -1199,6 +1204,28 @@ export function InfoPanel({
   const frontmatterKeySet = React.useMemo(
     () => new Set(frontmatterProperties.map((prop) => prop.key.trim().toLowerCase())),
     [frontmatterProperties],
+  )
+  const noteDatabasePropertyNamesSet = React.useMemo(() => {
+    const set = new Set<string>()
+    if (noteDatabaseContext) {
+      for (const prop of noteDatabaseContext.properties) {
+        set.add(prop.name.trim().toLowerCase())
+        set.add(prop.propertyId.trim().toLowerCase())
+      }
+    }
+    return set
+  }, [noteDatabaseContext])
+  const currentDatabaseName = React.useMemo(() => {
+    if (!noteDatabaseContext) return undefined
+    const found = databases.find((db) => db.databaseId === noteDatabaseContext.databaseId)
+    return found?.title || noteDatabaseContext.databaseId
+  }, [databases, noteDatabaseContext])
+  const nonDatabaseFrontmatterProperties = React.useMemo(
+    () =>
+      frontmatterProperties.filter(
+        (property) => !noteDatabasePropertyNamesSet.has(property.key.trim().toLowerCase()),
+      ),
+    [frontmatterProperties, noteDatabasePropertyNamesSet],
   )
 
   React.useEffect(() => {
@@ -1458,9 +1485,12 @@ export function InfoPanel({
   const visibleCustomProperties = React.useMemo(
     () =>
       customProperties.filter(
-        (property) => !frontmatterKeySet.has(property.name.trim().toLowerCase()),
+        (property) =>
+          !frontmatterKeySet.has(property.name.trim().toLowerCase()) &&
+          !noteDatabasePropertyNamesSet.has(property.name.trim().toLowerCase()) &&
+          !noteDatabasePropertyNamesSet.has(property.id.trim().toLowerCase()),
       ),
-    [customProperties, frontmatterKeySet],
+    [customProperties, frontmatterKeySet, noteDatabasePropertyNamesSet],
   )
   const customOrder = useMotionPropertyOrder(
     visibleCustomProperties.map((property) => property.id),
@@ -1486,9 +1516,23 @@ export function InfoPanel({
         <PanelHeader
           title={t("panels.info")}
           actions={
-            <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-              {databaseProperties.properties.length}
-            </span>
+            <>
+              <button
+                type="button"
+                className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                title={t("infoPanel.addProperty")}
+                disabled={Boolean(databaseProperties.locked) || databaseSchemaBusy}
+                onClick={() => {
+                  setEditingDatabaseProperty(null)
+                  setDatabasePropertyEditorOpen(true)
+                }}
+              >
+                <Plus className="size-3.5" />
+              </button>
+              <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+                {databaseProperties.properties.length}
+              </span>
+            </>
           }
         />
         <ScrollArea className="flex-1">
@@ -1550,6 +1594,21 @@ export function InfoPanel({
                 </div>
               )}
             </section>
+            {!databaseProperties.locked && (
+              <button
+                type="button"
+                className="flex items-center gap-2 px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                title={t("infoPanel.addProperty")}
+                disabled={databaseSchemaBusy}
+                onClick={() => {
+                  setEditingDatabaseProperty(null)
+                  setDatabasePropertyEditorOpen(true)
+                }}
+              >
+                <Plus className="size-3.5" />
+                {t("infoPanel.addProperty")}
+              </button>
+            )}
             <section className="overflow-hidden rounded-lg border border-border bg-background/30">
               <button
                 type="button"
@@ -1607,6 +1666,39 @@ export function InfoPanel({
             </section>
           </div>
         </ScrollArea>
+        <PropertyEditor
+          property={editingDatabaseProperty}
+          open={databasePropertyEditorOpen}
+          onOpenChange={(open) => {
+            setDatabasePropertyEditorOpen(open)
+            if (!open) setEditingDatabaseProperty(null)
+          }}
+          onSave={async (property) => {
+            if (!databaseProperties || vaultGeneration === null || databaseProperties.locked) return
+            setDatabaseSchemaBusy(true)
+            try {
+              const created = await createDatabaseProperty({
+                expectedGeneration: vaultGeneration,
+                databaseId: databaseProperties.id,
+                expectedManifestRevision: databaseProperties.manifestRevision,
+                name: property.name.trim(),
+                propertyType: property.propertyType,
+              })
+              if (property.icon) {
+                setIcon(
+                  databasePropertyIconKey(databaseProperties.id, created.propertyId),
+                  property.icon,
+                )
+              }
+              const catalog = await listDatabases()
+              setDatabaseCatalog(catalog)
+              invalidateDatabaseHosts()
+            } finally {
+              setDatabaseSchemaBusy(false)
+            }
+          }}
+          onDelete={async () => {}}
+        />
       </div>
     )
   }
@@ -1691,19 +1783,17 @@ export function InfoPanel({
         title={t("infoPanel.properties")}
         actions={
           <>
-            {!noteDatabaseContext && (
-              <button
-                type="button"
-                className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-                title={t("infoPanel.addProperty")}
-                disabled={Boolean(properties.frontmatter.parseError)}
-                onClick={openPropertyEditor}
-              >
-                <Plus className="size-3.5" />
-              </button>
-            )}
+            <button
+              type="button"
+              className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              title={t("infoPanel.addProperty")}
+              disabled={Boolean(properties.frontmatter.parseError)}
+              onClick={openPropertyEditor}
+            >
+              <Plus className="size-3.5" />
+            </button>
             <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] tabular-nums text-muted-foreground">
-              {frontmatterProperties.length +
+              {nonDatabaseFrontmatterProperties.length +
                 nonDuplicateCustomProperties.length +
                 (noteDatabaseContext?.properties.length ?? 0)}
             </span>
@@ -1720,7 +1810,7 @@ export function InfoPanel({
           <section>
             {(noteDatabaseContext?.properties.length ?? 0) +
               nonDuplicateCustomProperties.length +
-              frontmatterProperties.length >
+              nonDatabaseFrontmatterProperties.length >
             0 ? (
               <div className="space-y-0.5">
                 {noteDatabaseContext && orderedNoteDatabaseProperties.length > 0 && (
@@ -1780,9 +1870,9 @@ export function InfoPanel({
                     ))}
                   </Reorder.Group>
                 )}
-                {frontmatterProperties.length > 0 && (
+                {nonDatabaseFrontmatterProperties.length > 0 && (
                   <div role="list" className="space-y-0.5">
-                    {frontmatterProperties.map((property) => {
+                    {nonDatabaseFrontmatterProperties.map((property) => {
                       const matchedCustom = customProperties.find(
                         (cp) =>
                           cp.name.trim().toLowerCase() === property.key.trim().toLowerCase() ||
@@ -1921,18 +2011,16 @@ export function InfoPanel({
               </div>
             )}
           </section>
-          {!noteDatabaseContext && (
-            <button
-              type="button"
-              className="flex items-center gap-2 px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              title={t("infoPanel.addProperty")}
-              disabled={Boolean(properties.frontmatter.parseError)}
-              onClick={openPropertyEditor}
-            >
-              <Plus className="size-3.5" />
-              {t("infoPanel.addProperty")}
-            </button>
-          )}
+          <button
+            type="button"
+            className="flex items-center gap-2 px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            title={t("infoPanel.addProperty")}
+            disabled={Boolean(properties.frontmatter.parseError)}
+            onClick={openPropertyEditor}
+          >
+            <Plus className="size-3.5" />
+            {t("infoPanel.addProperty")}
+          </button>
           <section className="overflow-hidden rounded-lg border border-border bg-background/30">
             <button
               type="button"
@@ -1998,9 +2086,48 @@ export function InfoPanel({
         property={editingProperty}
         open={propertyEditorOpen}
         onOpenChange={setPropertyEditorOpen}
-        onSave={async (property) => {
+        databaseContext={
+          noteDatabaseContext && !noteDatabaseContext.locked
+            ? {
+                databaseId: noteDatabaseContext.databaseId,
+                name: currentDatabaseName || noteDatabaseContext.databaseId,
+              }
+            : null
+        }
+        onSave={async (property, options) => {
           if (editingProperty?.name && editingProperty.name !== property.name) {
             await onDeleteCustomProperty?.(editingProperty.name)
+          }
+          if (options?.addToDatabase && noteDatabaseContext && !noteDatabaseContext.locked) {
+            const existsInDb = noteDatabaseContext.properties.some(
+              (p) => p.name.trim().toLowerCase() === property.name.trim().toLowerCase(),
+            )
+            if (!existsInDb) {
+              try {
+                const created = await createDatabaseProperty({
+                  expectedGeneration: noteDatabaseContext.vaultGeneration,
+                  databaseId: noteDatabaseContext.databaseId,
+                  expectedManifestRevision: noteDatabaseContext.manifestRevision,
+                  name: property.name.trim(),
+                  propertyType: property.propertyType,
+                })
+                if (property.icon) {
+                  setIcon(
+                    databasePropertyIconKey(noteDatabaseContext.databaseId, created.propertyId),
+                    property.icon,
+                  )
+                }
+                const [refreshed, catalog] = await Promise.all([
+                  getDatabaseNoteContext(noteDatabaseContext.row.noteId),
+                  listDatabases(),
+                ])
+                setNoteDatabaseContext(refreshed)
+                setDatabaseCatalog(catalog)
+                invalidateDatabaseHosts()
+              } catch (err) {
+                console.error("Failed to create database property schema:", err)
+              }
+            }
           }
           await onUpsertCustomProperty?.(property)
         }}

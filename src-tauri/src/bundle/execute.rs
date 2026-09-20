@@ -107,8 +107,8 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
                     ) {
                         Ok(()) => format!("Could not rename bundle file: {error}"),
                         Err(rollback_error) => format!(
-                        "Could not rename bundle file: {error}; rollback failed: {rollback_error}"
-                    ),
+                            "Could not rename bundle file: {error}; rollback failed: {rollback_error}"
+                        ),
                     },
                 );
             }

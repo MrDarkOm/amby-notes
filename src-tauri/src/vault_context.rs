@@ -48,13 +48,11 @@ impl ActiveVault {
     }
 
     pub fn reindex(&self) -> Result<vault_index::LoadVaultResult, String> {
-        let _ = crate::database::discovery::migrate_legacy_database_manifests(&self.root);
         let _ = property_store::restore_cache(&self.connection, &self.root);
         let mut changed = HashSet::new();
         changed.insert(self.root.clone());
         self.index_changes.lock().unwrap().clear();
         let result = vault_index::load_vault_with_changes(self, &self.root, &changed);
-        let _ = property_store::sync_all_properties_to_markdown(&self.connection, &self.root);
         let _ =
             crate::database::projection::rebuild_database_projection(&self.connection, &self.root);
         result.map(|mut loaded| {
@@ -143,12 +141,10 @@ impl VaultContext {
                 recovery.journal_path
             ));
         }
-        let _ = crate::database::discovery::migrate_legacy_database_manifests(&root);
         let connection = vault_index::open_connection(&root)?;
         property_store::restore_cache(&connection, &root)?;
         let _ = crate::recovery::sweep_expired_recovery(&root);
         let loaded = vault_index::load_vault(&connection, &root)?;
-        let _ = property_store::sync_all_properties_to_markdown(&connection, &root);
         let _ = crate::database::projection::rebuild_database_projection(&connection, &root);
 
         Ok(PreparedVault {
@@ -249,9 +245,11 @@ mod tests {
 
         let broken = temp_dir("broken");
         fs::write(broken.join(".amby"), "not a directory").unwrap();
-        assert!(context
-            .activate(broken.to_str().unwrap(), |_| Ok(()), |_, _| ())
-            .is_err());
+        assert!(
+            context
+                .activate(broken.to_str().unwrap(), |_| Ok(()), |_, _| ())
+                .is_err()
+        );
 
         assert_eq!(context.root().unwrap(), original_root);
     }
@@ -266,13 +264,15 @@ mod tests {
         let original_root = context.root().unwrap();
         let second = temp_dir("scope-second");
 
-        assert!(context
-            .activate(
-                second.to_str().unwrap(),
-                |_| Err("scope rejected".to_string()),
-                |_, _| ()
-            )
-            .is_err());
+        assert!(
+            context
+                .activate(
+                    second.to_str().unwrap(),
+                    |_| Err("scope rejected".to_string()),
+                    |_, _| ()
+                )
+                .is_err()
+        );
 
         assert_eq!(context.root().unwrap(), original_root);
     }
@@ -289,13 +289,15 @@ mod tests {
             )
             .unwrap();
         let failed = temp_dir("generation-failed");
-        assert!(context
-            .activate(
-                failed.to_str().unwrap(),
-                |_| Err("scope rejected".to_string()),
-                |_, _| ()
-            )
-            .is_err());
+        assert!(
+            context
+                .activate(
+                    failed.to_str().unwrap(),
+                    |_| Err("scope rejected".to_string()),
+                    |_, _| ()
+                )
+                .is_err()
+        );
         let second = temp_dir("generation-second");
         let second_generation = context
             .activate(
@@ -431,5 +433,80 @@ mod tests {
         let reindexed = context.with_active(|active| active.reindex()).unwrap();
         assert_eq!(reindexed.notes.len(), 1);
         assert_eq!(reindexed.tree.len(), 1);
+    }
+
+    #[test]
+    fn open_and_reindex_do_not_mutate_legacy_database_or_recovery() {
+        let context = VaultContext::default();
+        let vault = temp_dir("legacy_db_open_reindex");
+        let db_dir = vault.join("MyDatabase");
+        fs::create_dir_all(db_dir.join(".ambd/views")).unwrap();
+        fs::create_dir_all(db_dir.join(".ambd/records")).unwrap();
+        let recovery_dir = db_dir.join(".ambd/recovery");
+        fs::create_dir_all(&recovery_dir).unwrap();
+
+        let manifest_bytes = br#"{
+  "format": "amby-database",
+  "formatVersion": 1,
+  "databaseId": "01J00000000000000000000001",
+  "name": "MyDatabase",
+  "locked": false,
+  "membership": {"kind": "filesystem-descendants", "recursive": true},
+  "properties": [],
+  "viewOrder": ["01J00000000000000000000002"],
+  "defaultViewId": "01J00000000000000000000002"
+}"#;
+        let view_bytes = br#"{
+  "format": "amby-database-view",
+  "formatVersion": 1,
+  "databaseId": "01J00000000000000000000001",
+  "viewId": "01J00000000000000000000002",
+  "name": "Table",
+  "layout": "table"
+}"#;
+        let record_bytes = br#"{
+  "format": "amby-database-record",
+  "formatVersion": 1,
+  "databaseId": "01J00000000000000000000001",
+  "noteId": "01J00000000000000000000003",
+  "values": {}
+}"#;
+        let recovery_bytes = b"durable recovery data to preserve";
+        let note_bytes =
+            b"---\namby-id: 01J00000000000000000000003\n---\n# My Note\nBody content\n";
+
+        let manifest_path = db_dir.join("ambd.json");
+        let view_path = db_dir.join(".ambd/views/01J00000000000000000000002.json");
+        let record_path = db_dir.join(".ambd/records/01J00000000000000000000003.json");
+        let recovery_file = recovery_dir.join("journal.json");
+        let note_path = db_dir.join("My Note.md");
+
+        fs::write(&manifest_path, manifest_bytes).unwrap();
+        fs::write(&view_path, view_bytes).unwrap();
+        fs::write(&record_path, record_bytes).unwrap();
+        fs::write(&recovery_file, recovery_bytes).unwrap();
+        fs::write(&note_path, note_bytes).unwrap();
+
+        // 1. Activate vault (prepare_activation)
+        context
+            .activate(vault.to_str().unwrap(), |_| Ok(()), |loaded, _| loaded)
+            .unwrap();
+
+        // Verify files are completely untouched after activation
+        assert_eq!(fs::read(&manifest_path).unwrap(), manifest_bytes);
+        assert_eq!(fs::read(&view_path).unwrap(), view_bytes);
+        assert_eq!(fs::read(&record_path).unwrap(), record_bytes);
+        assert_eq!(fs::read(&recovery_file).unwrap(), recovery_bytes);
+        assert_eq!(fs::read(&note_path).unwrap(), note_bytes);
+
+        // 2. Reindex vault
+        context.with_active(|active| active.reindex()).unwrap();
+
+        // Verify files are still completely untouched after reindex
+        assert_eq!(fs::read(&manifest_path).unwrap(), manifest_bytes);
+        assert_eq!(fs::read(&view_path).unwrap(), view_bytes);
+        assert_eq!(fs::read(&record_path).unwrap(), record_bytes);
+        assert_eq!(fs::read(&recovery_file).unwrap(), recovery_bytes);
+        assert_eq!(fs::read(&note_path).unwrap(), note_bytes);
     }
 }

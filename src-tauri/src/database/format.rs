@@ -4,7 +4,19 @@
 //! paths, SQLite, or Tauri state. Callers can parse a shard, validate it, and
 //! prepare replacement bytes before choosing an atomic filesystem publisher.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::Mutex;
+
+static OPTION_NAME_HISTORY: std::sync::LazyLock<Mutex<HashMap<String, String>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+
+pub fn record_option_name_history(name: &str, option_id: &str) {
+    if !name.trim().is_empty() && !option_id.trim().is_empty() {
+        if let Ok(mut map) = OPTION_NAME_HISTORY.lock() {
+            map.insert(name.trim().to_lowercase(), option_id.trim().to_string());
+        }
+    }
+}
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -155,6 +167,8 @@ pub struct DatabaseManifest {
     pub template_order: Vec<String>,
     #[serde(rename = "defaultTemplateId", default)]
     pub default_template_id: Option<String>,
+    #[serde(default)]
+    pub views: Vec<DatabaseViewFile>,
     #[serde(flatten)]
     pub extra: ExtraFields,
 }
@@ -383,6 +397,94 @@ impl PropertyDefinition {
             Self::Rollup(fields) => fields.yaml_binding.as_ref(),
             Self::Opaque(_) => None,
         }
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Self::Text(fields) => Some(&fields.name),
+            Self::Number(fields) => Some(&fields.name),
+            Self::Checkbox(fields) => Some(&fields.name),
+            Self::Date(fields) => Some(&fields.name),
+            Self::Select(fields) => Some(&fields.name),
+            Self::MultiSelect(fields) => Some(&fields.name),
+            Self::Status(fields) => Some(&fields.name),
+            Self::Url(fields) => Some(&fields.name),
+            Self::Files(fields) => Some(&fields.name),
+            Self::Relation(fields) => Some(&fields.name),
+            Self::Formula(fields) => Some(&fields.name),
+            Self::Rollup(fields) => Some(&fields.name),
+            Self::Opaque(_) => None,
+        }
+    }
+
+    pub fn storage_key(&self) -> Option<&str> {
+        self.yaml_binding().map(|b| b.key.as_str())
+    }
+
+    pub fn frontmatter_key(&self) -> Option<&str> {
+        self.storage_key().or_else(|| self.name())
+    }
+
+    pub fn find_option_name(&self, option_id: &str) -> Option<&str> {
+        match self {
+            Self::Select(fields) | Self::MultiSelect(fields) => fields
+                .config
+                .options
+                .iter()
+                .find(|opt| opt.id == option_id)
+                .map(|opt| opt.name.as_str()),
+            Self::Status(fields) => fields
+                .config
+                .options
+                .iter()
+                .find(|opt| opt.id == option_id)
+                .map(|opt| opt.name.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn find_option_id(&self, name_or_id: &str) -> Option<&str> {
+        let trimmed = name_or_id.trim();
+        let current_match = match self {
+            Self::Select(fields) | Self::MultiSelect(fields) => fields
+                .config
+                .options
+                .iter()
+                .find(|opt| opt.id == trimmed || opt.name.eq_ignore_ascii_case(trimmed))
+                .map(|opt| opt.id.as_str()),
+            Self::Status(fields) => fields
+                .config
+                .options
+                .iter()
+                .find(|opt| opt.id == trimmed || opt.name.eq_ignore_ascii_case(trimmed))
+                .map(|opt| opt.id.as_str()),
+            _ => None,
+        };
+        if current_match.is_some() {
+            return current_match;
+        }
+
+        if let Ok(map) = OPTION_NAME_HISTORY.lock() {
+            if let Some(historical_id) = map.get(&trimmed.to_lowercase()) {
+                return match self {
+                    Self::Select(fields) | Self::MultiSelect(fields) => fields
+                        .config
+                        .options
+                        .iter()
+                        .find(|opt| opt.id == *historical_id)
+                        .map(|opt| opt.id.as_str()),
+                    Self::Status(fields) => fields
+                        .config
+                        .options
+                        .iter()
+                        .find(|opt| opt.id == *historical_id)
+                        .map(|opt| opt.id.as_str()),
+                    _ => None,
+                };
+            }
+        }
+
+        None
     }
 }
 
@@ -754,6 +856,537 @@ impl<'de> Deserialize<'de> for PropertyValue {
             _ => Ok(Self::Opaque(raw)),
         }
     }
+}
+
+pub fn property_value_to_frontmatter_value(
+    value: &PropertyValue,
+    property_def: &PropertyDefinition,
+) -> Option<serde_yaml::Value> {
+    match value {
+        PropertyValue::Text { value, .. } => {
+            if value.trim().is_empty() {
+                None
+            } else {
+                Some(serde_yaml::Value::String(value.clone()))
+            }
+        }
+        PropertyValue::Number { decimal, .. } => {
+            if decimal.trim().is_empty() {
+                None
+            } else if let Ok(n) = decimal.parse::<i64>() {
+                Some(serde_yaml::Value::Number(serde_yaml::Number::from(n)))
+            } else {
+                Some(serde_yaml::Value::String(decimal.clone()))
+            }
+        }
+        PropertyValue::Checkbox { checked, .. } => Some(serde_yaml::Value::Bool(*checked)),
+        PropertyValue::Date {
+            start,
+            end,
+            time_zone,
+            extra,
+        } => {
+            if start.trim().is_empty() {
+                None
+            } else if end.is_none() && time_zone.is_none() && extra.is_empty() {
+                Some(serde_yaml::Value::String(start.clone()))
+            } else {
+                let mut map = serde_yaml::Mapping::new();
+                map.insert(
+                    serde_yaml::Value::String("start".to_string()),
+                    serde_yaml::Value::String(start.clone()),
+                );
+                if let Some(end) = end {
+                    map.insert(
+                        serde_yaml::Value::String("end".to_string()),
+                        serde_yaml::Value::String(end.clone()),
+                    );
+                }
+                if let Some(tz) = time_zone {
+                    map.insert(
+                        serde_yaml::Value::String("timeZone".to_string()),
+                        serde_yaml::Value::String(tz.clone()),
+                    );
+                }
+                for (k, v) in extra {
+                    if let Ok(yv) = serde_yaml::to_value(v) {
+                        map.insert(serde_yaml::Value::String(k.clone()), yv);
+                    }
+                }
+                Some(serde_yaml::Value::Mapping(map))
+            }
+        }
+        PropertyValue::Select { option_id, .. } | PropertyValue::Status { option_id, .. } => {
+            let name = property_def
+                .find_option_name(option_id)
+                .unwrap_or(option_id);
+            if name.trim().is_empty() {
+                None
+            } else {
+                record_option_name_history(name, option_id);
+                Some(serde_yaml::Value::String(name.to_string()))
+            }
+        }
+        PropertyValue::MultiSelect { option_ids, .. } => {
+            let names: Vec<serde_yaml::Value> = option_ids
+                .iter()
+                .map(|id| {
+                    let name = property_def.find_option_name(id).unwrap_or(id);
+                    record_option_name_history(name, id);
+                    serde_yaml::Value::String(name.to_string())
+                })
+                .collect();
+            if names.is_empty() {
+                None
+            } else {
+                Some(serde_yaml::Value::Sequence(names))
+            }
+        }
+        PropertyValue::Url { value, .. } => {
+            if value.trim().is_empty() {
+                None
+            } else {
+                Some(serde_yaml::Value::String(value.clone()))
+            }
+        }
+        PropertyValue::Relation {
+            target_note_ids, ..
+        } => {
+            let items: Vec<serde_yaml::Value> = target_note_ids
+                .iter()
+                .map(|id| serde_yaml::Value::String(id.clone()))
+                .collect();
+            if items.is_empty() {
+                None
+            } else {
+                Some(serde_yaml::Value::Sequence(items))
+            }
+        }
+        PropertyValue::Files { items, .. } => {
+            if items.is_empty() {
+                None
+            } else {
+                let mut file_items = Vec::new();
+                for item in items {
+                    let mut map = serde_yaml::Mapping::new();
+                    map.insert(
+                        serde_yaml::Value::String("assetId".to_string()),
+                        serde_yaml::Value::String(item.asset_id.clone()),
+                    );
+                    map.insert(
+                        serde_yaml::Value::String("kind".to_string()),
+                        serde_yaml::Value::String(item.kind.clone()),
+                    );
+                    map.insert(
+                        serde_yaml::Value::String("relativePath".to_string()),
+                        serde_yaml::Value::String(item.relative_path.clone()),
+                    );
+                    map.insert(
+                        serde_yaml::Value::String("name".to_string()),
+                        serde_yaml::Value::String(item.name.clone()),
+                    );
+                    map.insert(
+                        serde_yaml::Value::String("mimeType".to_string()),
+                        serde_yaml::Value::String(item.mime_type.clone()),
+                    );
+                    map.insert(
+                        serde_yaml::Value::String("sizeBytes".to_string()),
+                        serde_yaml::Value::Number(serde_yaml::Number::from(item.size_bytes)),
+                    );
+                    for (k, v) in &item.extra {
+                        if let Ok(yv) = serde_yaml::to_value(v) {
+                            map.insert(serde_yaml::Value::String(k.clone()), yv);
+                        }
+                    }
+                    file_items.push(serde_yaml::Value::Mapping(map));
+                }
+                Some(serde_yaml::Value::Sequence(file_items))
+            }
+        }
+        PropertyValue::Opaque(val) => serde_yaml::to_value(val).ok(),
+    }
+}
+
+#[allow(clippy::needless_borrows_for_generic_args)]
+pub fn frontmatter_value_to_property_value(
+    yaml: &serde_yaml::Value,
+    property_def: &PropertyDefinition,
+) -> Option<PropertyValue> {
+    match property_def {
+        PropertyDefinition::Text(_) => {
+            let s = match yaml {
+                serde_yaml::Value::String(s) => s.clone(),
+                serde_yaml::Value::Number(n) => n.to_string(),
+                serde_yaml::Value::Bool(b) => b.to_string(),
+                _ => return None,
+            };
+            Some(PropertyValue::Text {
+                value: s,
+                extra: BTreeMap::new(),
+            })
+        }
+        PropertyDefinition::Number(_) => {
+            let s = match yaml {
+                serde_yaml::Value::Number(n) => n.to_string(),
+                serde_yaml::Value::String(s) => s.clone(),
+                _ => return None,
+            };
+            Some(PropertyValue::Number {
+                decimal: s,
+                extra: BTreeMap::new(),
+            })
+        }
+        PropertyDefinition::Checkbox(_) => {
+            let b = match yaml {
+                serde_yaml::Value::Bool(b) => *b,
+                serde_yaml::Value::String(s) => {
+                    s.eq_ignore_ascii_case("true")
+                        || s.trim() == "1"
+                        || s.eq_ignore_ascii_case("yes")
+                }
+                serde_yaml::Value::Number(n) => n.as_i64() == Some(1),
+                _ => false,
+            };
+            Some(PropertyValue::Checkbox {
+                checked: b,
+                extra: BTreeMap::new(),
+            })
+        }
+        PropertyDefinition::Date(_) => match yaml {
+            serde_yaml::Value::String(s) => {
+                if s.trim().is_empty() {
+                    return None;
+                }
+                Some(PropertyValue::Date {
+                    start: s.clone(),
+                    end: None,
+                    time_zone: None,
+                    extra: BTreeMap::new(),
+                })
+            }
+            serde_yaml::Value::Mapping(map) => {
+                let start = map
+                    .get(&serde_yaml::Value::String("start".to_string()))
+                    .or_else(|| map.get(&serde_yaml::Value::String("from".to_string())))
+                    .and_then(|v| match v {
+                        serde_yaml::Value::String(s) => Some(s.clone()),
+                        serde_yaml::Value::Number(n) => Some(n.to_string()),
+                        _ => None,
+                    })?;
+                let end = map
+                    .get(&serde_yaml::Value::String("end".to_string()))
+                    .or_else(|| map.get(&serde_yaml::Value::String("to".to_string())))
+                    .and_then(|v| match v {
+                        serde_yaml::Value::String(s) => Some(s.clone()),
+                        serde_yaml::Value::Number(n) => Some(n.to_string()),
+                        _ => None,
+                    });
+                let time_zone = map
+                    .get(&serde_yaml::Value::String("timeZone".to_string()))
+                    .or_else(|| map.get(&serde_yaml::Value::String("time_zone".to_string())))
+                    .and_then(|v| match v {
+                        serde_yaml::Value::String(s) => Some(s.clone()),
+                        _ => None,
+                    });
+                let mut extra = BTreeMap::new();
+                for (k, v) in map {
+                    if let serde_yaml::Value::String(k_str) = k {
+                        if !matches!(
+                            k_str.as_str(),
+                            "start" | "from" | "end" | "to" | "timeZone" | "time_zone"
+                        ) {
+                            if let Ok(jv) = serde_json::to_value(v) {
+                                extra.insert(k_str.clone(), jv);
+                            }
+                        }
+                    }
+                }
+                Some(PropertyValue::Date {
+                    start,
+                    end,
+                    time_zone,
+                    extra,
+                })
+            }
+            _ => None,
+        },
+        PropertyDefinition::Select(_) => {
+            let text = match yaml {
+                serde_yaml::Value::String(s) => s.as_str(),
+                _ => return None,
+            };
+            let option_id = property_def
+                .find_option_id(text)
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| text.to_string());
+            Some(PropertyValue::Select {
+                option_id,
+                extra: BTreeMap::new(),
+            })
+        }
+        PropertyDefinition::Status(_) => {
+            let text = match yaml {
+                serde_yaml::Value::String(s) => s.as_str(),
+                _ => return None,
+            };
+            let option_id = property_def
+                .find_option_id(text)
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| text.to_string());
+            Some(PropertyValue::Status {
+                option_id,
+                extra: BTreeMap::new(),
+            })
+        }
+        PropertyDefinition::MultiSelect(_) => {
+            let mut option_ids = Vec::new();
+            match yaml {
+                serde_yaml::Value::Sequence(items) => {
+                    for item in items {
+                        if let serde_yaml::Value::String(s) = item {
+                            let opt_id = property_def
+                                .find_option_id(s)
+                                .map(|id| id.to_string())
+                                .unwrap_or_else(|| s.clone());
+                            option_ids.push(opt_id);
+                        }
+                    }
+                }
+                serde_yaml::Value::String(s) => {
+                    for part in s.split(',') {
+                        let trimmed = part.trim();
+                        if !trimmed.is_empty() {
+                            let opt_id = property_def
+                                .find_option_id(trimmed)
+                                .map(|id| id.to_string())
+                                .unwrap_or_else(|| trimmed.to_string());
+                            option_ids.push(opt_id);
+                        }
+                    }
+                }
+                _ => return None,
+            }
+            Some(PropertyValue::MultiSelect {
+                option_ids,
+                extra: BTreeMap::new(),
+            })
+        }
+        PropertyDefinition::Url(_) => {
+            let s = match yaml {
+                serde_yaml::Value::String(s) => s.clone(),
+                _ => return None,
+            };
+            Some(PropertyValue::Url {
+                value: s,
+                extra: BTreeMap::new(),
+            })
+        }
+        PropertyDefinition::Files(_) => match yaml {
+            serde_yaml::Value::Sequence(items) => {
+                let mut file_items = Vec::new();
+                for item in items {
+                    match item {
+                        serde_yaml::Value::Mapping(map) => {
+                            let get_str = |key: &str| {
+                                map.get(&serde_yaml::Value::String(key.to_string()))
+                                    .and_then(|v| v.as_str())
+                                    .map(str::to_owned)
+                            };
+                            let name = get_str("name").unwrap_or_default();
+                            let asset_id = get_str("assetId")
+                                .or_else(|| get_str("asset_id"))
+                                .unwrap_or_else(|| ulid::Ulid::generate().to_string());
+                            let kind = get_str("kind").unwrap_or_else(|| "asset".to_string());
+                            let relative_path = get_str("relativePath")
+                                .or_else(|| get_str("relative_path"))
+                                .unwrap_or_else(|| format!("assets/{name}"));
+                            let mime_type = get_str("mimeType")
+                                .or_else(|| get_str("mime_type"))
+                                .unwrap_or_default();
+                            let size_bytes = map
+                                .get(&serde_yaml::Value::String("sizeBytes".to_string()))
+                                .or_else(|| {
+                                    map.get(&serde_yaml::Value::String("size_bytes".to_string()))
+                                })
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            let mut extra = BTreeMap::new();
+                            for (k, v) in map {
+                                if let serde_yaml::Value::String(k_str) = k {
+                                    if !matches!(
+                                        k_str.as_str(),
+                                        "assetId"
+                                            | "asset_id"
+                                            | "kind"
+                                            | "relativePath"
+                                            | "relative_path"
+                                            | "name"
+                                            | "mimeType"
+                                            | "mime_type"
+                                            | "sizeBytes"
+                                            | "size_bytes"
+                                    ) {
+                                        if let Ok(jv) = serde_json::to_value(v) {
+                                            extra.insert(k_str.clone(), jv);
+                                        }
+                                    }
+                                }
+                            }
+                            file_items.push(FileValue {
+                                asset_id,
+                                kind,
+                                relative_path,
+                                name,
+                                mime_type,
+                                size_bytes,
+                                extra,
+                            });
+                        }
+                        serde_yaml::Value::String(name) => {
+                            file_items.push(FileValue {
+                                asset_id: ulid::Ulid::generate().to_string(),
+                                kind: "asset".to_string(),
+                                relative_path: format!("assets/{name}"),
+                                name: name.clone(),
+                                mime_type: "".to_string(),
+                                size_bytes: 0,
+                                extra: BTreeMap::new(),
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                Some(PropertyValue::Files {
+                    items: file_items,
+                    extra: BTreeMap::new(),
+                })
+            }
+            _ => None,
+        },
+        PropertyDefinition::Relation(_) => {
+            let mut target_note_ids = Vec::new();
+            match yaml {
+                serde_yaml::Value::Sequence(items) => {
+                    for item in items {
+                        if let serde_yaml::Value::String(s) = item {
+                            let clean = s.trim().trim_start_matches("[[").trim_end_matches("]]");
+                            target_note_ids.push(clean.to_string());
+                        }
+                    }
+                }
+                serde_yaml::Value::String(s) => {
+                    let clean = s.trim().trim_start_matches("[[").trim_end_matches("]]");
+                    target_note_ids.push(clean.to_string());
+                }
+                _ => return None,
+            }
+            Some(PropertyValue::Relation {
+                target_note_ids,
+                extra: BTreeMap::new(),
+            })
+        }
+        _ => None,
+    }
+}
+
+pub fn is_reserved_system_key(key: &str) -> bool {
+    let lower = key.trim().to_ascii_lowercase();
+    lower == "amby-id"
+        || lower == "amby-title"
+        || lower == "amby-views"
+        || lower == "amby-database"
+        || lower.starts_with("amby-")
+}
+
+pub fn resolve_property_yaml_value<'a>(
+    mapping: &'a serde_yaml::Mapping,
+    property_def: &PropertyDefinition,
+) -> Option<&'a serde_yaml::Value> {
+    let storage_key = property_def.storage_key();
+    let prop_id = property_def.id();
+    let prop_name = property_def.name();
+
+    // 1. Exact match on storage_key (yaml_binding.key if present)
+    if let Some(sk) = storage_key {
+        if !is_reserved_system_key(sk) {
+            for (k, v) in mapping {
+                if let serde_yaml::Value::String(k_str) = k {
+                    if k_str == sk {
+                        return Some(v);
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Exact match on property_id
+    if let Some(id) = prop_id {
+        if !is_reserved_system_key(id) {
+            for (k, v) in mapping {
+                if let serde_yaml::Value::String(k_str) = k {
+                    if k_str == id {
+                        return Some(v);
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Case-insensitive match on storage_key
+    if let Some(sk) = storage_key {
+        if !is_reserved_system_key(sk) {
+            let matches: Vec<&'a serde_yaml::Value> = mapping
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let serde_yaml::Value::String(k_str) = k {
+                        if !is_reserved_system_key(k_str) && k_str.trim().eq_ignore_ascii_case(sk) {
+                            return Some(v);
+                        }
+                    }
+                    None
+                })
+                .collect();
+            if !matches.is_empty() {
+                return Some(matches[0]);
+            }
+        }
+    }
+
+    // 4. Exact match on display name (legacy fallback)
+    if let Some(name) = prop_name {
+        if !is_reserved_system_key(name) && Some(name) != storage_key {
+            for (k, v) in mapping {
+                if let serde_yaml::Value::String(k_str) = k {
+                    if k_str == name && !is_reserved_system_key(k_str) {
+                        return Some(v);
+                    }
+                }
+            }
+        }
+    }
+
+    // 5. Case-insensitive match on display name (legacy fallback)
+    if let Some(name) = prop_name {
+        if !is_reserved_system_key(name) && Some(name) != storage_key {
+            let matches: Vec<&'a serde_yaml::Value> = mapping
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let serde_yaml::Value::String(k_str) = k {
+                        if !is_reserved_system_key(k_str) && k_str.trim().eq_ignore_ascii_case(name)
+                        {
+                            return Some(v);
+                        }
+                    }
+                    None
+                })
+                .collect();
+            if !matches.is_empty() {
+                return Some(matches[0]);
+            }
+        }
+    }
+
+    None
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1170,6 +1803,50 @@ pub fn raw_revision(bytes: &[u8]) -> String {
     digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
+pub fn view_bytes(view: &DatabaseViewFile) -> Result<Vec<u8>, String> {
+    let mut bytes = serde_json::to_vec_pretty(view).map_err(|error| error.to_string())?;
+    bytes.push(b'\n');
+    Ok(bytes)
+}
+
+pub fn view_revision(view: &DatabaseViewFile) -> Result<String, String> {
+    let bytes = view_bytes(view)?;
+    Ok(raw_revision(&bytes))
+}
+
+pub fn matches_view_revision(view: &DatabaseViewFile, expected: &str) -> bool {
+    if expected.is_empty() {
+        return true;
+    }
+    // 1. Canonical: to_vec_pretty(view) with newline
+    if let Ok(bytes) = view_bytes(view) {
+        if raw_revision(&bytes) == expected {
+            return true;
+        }
+    }
+    // 2. Fallback: to_vec_pretty(view) without newline (legacy SQLite projection)
+    if let Ok(bytes) = serde_json::to_vec_pretty(view) {
+        if raw_revision(&bytes) == expected {
+            return true;
+        }
+    }
+    // 3. Fallback: to_value BTreeMap order with newline
+    if let Ok(val) = serde_json::to_value(view) {
+        if let Ok(mut bytes) = serde_json::to_vec_pretty(&val) {
+            bytes.push(b'\n');
+            if raw_revision(&bytes) == expected {
+                return true;
+            }
+            // 4. Fallback: to_value BTreeMap order without newline
+            bytes.pop();
+            if raw_revision(&bytes) == expected {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 fn parse_document<T: DeserializeOwned>(
     bytes: &[u8],
     kind: DocumentKind,
@@ -1406,5 +2083,343 @@ mod tests {
             parse_manifest(&bytes),
             Err(FormatError::TooDeep { .. })
         ));
+    }
+
+    #[test]
+    fn r2_lossless_conversions_roundtrip() {
+        // 1. Decimal precision: 1234567890.123456789 round-trips without f64 precision loss
+        let num_val = PropertyValue::Number {
+            decimal: "1234567890.123456789".to_string(),
+            extra: Default::default(),
+        };
+        let num_def = PropertyDefinition::Number(PropertyFields {
+            id: "prop1".into(),
+            name: "Num".into(),
+            page_visibility: "alwaysShow".into(),
+            yaml_binding: None,
+            config: NumberConfig {
+                format: "number".into(),
+                currency: None,
+                extra: Default::default(),
+            },
+            extra: Default::default(),
+        });
+        let yaml = property_value_to_frontmatter_value(&num_val, &num_def).unwrap();
+        let back = frontmatter_value_to_property_value(&yaml, &num_def);
+        assert_eq!(back, Some(num_val));
+
+        // 2. Date range and time_zone: start, end, and time_zone round-trip without loss
+        let date_val = PropertyValue::Date {
+            start: "2026-09-20T10:00:00".into(),
+            end: Some("2026-09-21T18:00:00".into()),
+            time_zone: Some("Europe/Moscow".into()),
+            extra: Default::default(),
+        };
+        let date_def = PropertyDefinition::Date(PropertyFields {
+            id: "prop2".into(),
+            name: "Due".into(),
+            page_visibility: "alwaysShow".into(),
+            yaml_binding: None,
+            config: DateConfig {
+                include_time: true,
+                allow_range: true,
+                extra: Default::default(),
+            },
+            extra: Default::default(),
+        });
+        let date_yaml = property_value_to_frontmatter_value(&date_val, &date_def).unwrap();
+        let date_back = frontmatter_value_to_property_value(&date_yaml, &date_def);
+        assert_eq!(date_back, Some(date_val));
+
+        // 3. Files: structured file metadata (assetId, kind, relativePath, name, mimeType, sizeBytes) round-trips without loss
+        let files_val = PropertyValue::Files {
+            items: vec![FileValue {
+                asset_id: "01J00000000000000000000009".into(),
+                kind: "asset".into(),
+                relative_path: "assets/report.pdf".into(),
+                name: "report.pdf".into(),
+                mime_type: "application/pdf".into(),
+                size_bytes: 4096,
+                extra: Default::default(),
+            }],
+            extra: Default::default(),
+        };
+        let files_def = PropertyDefinition::Files(PropertyFields {
+            id: "prop3".into(),
+            name: "Attachments".into(),
+            page_visibility: "alwaysShow".into(),
+            yaml_binding: None,
+            config: FilesConfig {
+                media_only: false,
+                max_items: None,
+                extra: Default::default(),
+            },
+            extra: Default::default(),
+        });
+        let files_yaml = property_value_to_frontmatter_value(&files_val, &files_def).unwrap();
+        let files_back = frontmatter_value_to_property_value(&files_yaml, &files_def);
+        assert_eq!(files_back, Some(files_val));
+    }
+
+    #[test]
+    fn st02_property_storage_key_and_deterministic_resolution() {
+        let text_def = PropertyDefinition::Text(PropertyFields {
+            id: "01JTEXT00000000000000000001".into(),
+            name: "Due Date".into(),
+            page_visibility: "alwaysShow".into(),
+            yaml_binding: Some(YamlBinding {
+                key: "due_date".into(),
+                direction: "twoWay".into(),
+                extra: Default::default(),
+            }),
+            config: TextConfig {
+                multiline: false,
+                extra: Default::default(),
+            },
+            extra: Default::default(),
+        });
+
+        assert_eq!(text_def.storage_key(), Some("due_date"));
+        assert_eq!(text_def.name(), Some("Due Date"));
+        assert_eq!(text_def.id(), Some("01JTEXT00000000000000000001"));
+
+        // Case 1: exact storage_key wins over name
+        let yaml_str = "due_date: \"2026-09-20\"\nDue Date: \"2025-01-01\"\n";
+        let mapping: serde_yaml::Mapping = serde_yaml::from_str(yaml_str).unwrap();
+        let resolved = resolve_property_yaml_value(&mapping, &text_def);
+        assert_eq!(
+            resolved,
+            Some(&serde_yaml::Value::String("2026-09-20".into()))
+        );
+
+        // Case 2: exact property_id wins over fallback name
+        let id_def = PropertyDefinition::Text(PropertyFields {
+            id: "prop_ulid".into(),
+            name: "My Field".into(),
+            page_visibility: "alwaysShow".into(),
+            yaml_binding: None,
+            config: TextConfig {
+                multiline: false,
+                extra: Default::default(),
+            },
+            extra: Default::default(),
+        });
+        let yaml_str2 = "prop_ulid: \"by-id-val\"\nMy Field: \"by-name-val\"\n";
+        let mapping2: serde_yaml::Mapping = serde_yaml::from_str(yaml_str2).unwrap();
+        let resolved2 = resolve_property_yaml_value(&mapping2, &id_def);
+        assert_eq!(
+            resolved2,
+            Some(&serde_yaml::Value::String("by-id-val".into()))
+        );
+
+        // Case 3: case-insensitive storage_key wins over name
+        let yaml_str3 = "DUE_DATE: \"2026-10-10\"\n";
+        let mapping3: serde_yaml::Mapping = serde_yaml::from_str(yaml_str3).unwrap();
+        let resolved3 = resolve_property_yaml_value(&mapping3, &text_def);
+        assert_eq!(
+            resolved3,
+            Some(&serde_yaml::Value::String("2026-10-10".into()))
+        );
+
+        // Case 4: fallback to display name when storage_key is absent
+        let yaml_str4 = "Due Date: \"2026-12-31\"\n";
+        let mapping4: serde_yaml::Mapping = serde_yaml::from_str(yaml_str4).unwrap();
+        let resolved4 = resolve_property_yaml_value(&mapping4, &text_def);
+        assert_eq!(
+            resolved4,
+            Some(&serde_yaml::Value::String("2026-12-31".into()))
+        );
+
+        // Protection: amby-id is never matched by a property named "id" or "amby-id"
+        let user_id_prop = PropertyDefinition::Text(PropertyFields {
+            id: "01JID00000000000000000000001".into(),
+            name: "id".into(),
+            page_visibility: "alwaysShow".into(),
+            yaml_binding: None,
+            config: TextConfig {
+                multiline: false,
+                extra: Default::default(),
+            },
+            extra: Default::default(),
+        });
+        let yaml_str5 = "amby-id: \"01JSECRET00000000000000001\"\nid: \"user-custom-id\"\n";
+        let mapping5: serde_yaml::Mapping = serde_yaml::from_str(yaml_str5).unwrap();
+        let resolved5 = resolve_property_yaml_value(&mapping5, &user_id_prop);
+        assert_eq!(
+            resolved5,
+            Some(&serde_yaml::Value::String("user-custom-id".into()))
+        );
+
+        // And if note has only amby-id, user_id_prop must NOT match it
+        let yaml_str6 = "amby-id: \"01JSECRET00000000000000001\"\n";
+        let mapping6: serde_yaml::Mapping = serde_yaml::from_str(yaml_str6).unwrap();
+        let resolved6 = resolve_property_yaml_value(&mapping6, &user_id_prop);
+        assert_eq!(resolved6, None);
+    }
+
+    #[test]
+    fn st03_select_status_multiselect_rename_resilience() {
+        let opt1_id = "01JOPT00000000000000000001";
+        let opt2_id = "01JOPT00000000000000000002";
+        let select_def = PropertyDefinition::Select(PropertyFields {
+            id: "01JSEL000000000000000000001".into(),
+            name: "Status".into(),
+            page_visibility: "alwaysShow".into(),
+            yaml_binding: None,
+            config: SelectConfig {
+                options: vec![
+                    SelectOption {
+                        id: opt1_id.into(),
+                        name: "In Progress".into(),
+                        color: "#3b82f6".into(),
+                        extra: Default::default(),
+                    },
+                    SelectOption {
+                        id: opt2_id.into(),
+                        name: "Done".into(),
+                        color: "#22c55e".into(),
+                        extra: Default::default(),
+                    },
+                ],
+                extra: Default::default(),
+            },
+            extra: Default::default(),
+        });
+
+        // 1. Finding by name (case-insensitive) resolves to option id
+        assert_eq!(select_def.find_option_id("in progress"), Some(opt1_id));
+        assert_eq!(select_def.find_option_id("Done"), Some(opt2_id));
+
+        // 2. Finding by ID resolves to option id
+        assert_eq!(select_def.find_option_id(opt1_id), Some(opt1_id));
+
+        // 3. Serialization to YAML uses option name
+        let val = PropertyValue::Select {
+            option_id: opt1_id.into(),
+            extra: Default::default(),
+        };
+        let yaml_val = property_value_to_frontmatter_value(&val, &select_def).unwrap();
+        assert_eq!(yaml_val, serde_yaml::Value::String("In Progress".into()));
+
+        // 4. Deserialization from YAML with name resolves back to option id
+        let parsed = frontmatter_value_to_property_value(&yaml_val, &select_def).unwrap();
+        assert_eq!(parsed, val);
+
+        // 5. Deserialization from YAML with raw option ID also resolves to option id
+        let id_yaml = serde_yaml::Value::String(opt1_id.into());
+        let parsed_id = frontmatter_value_to_property_value(&id_yaml, &select_def).unwrap();
+        assert_eq!(parsed_id, val);
+    }
+
+    #[test]
+    fn st03_empty_and_zero_values_handling() {
+        let num_def = PropertyDefinition::Number(PropertyFields {
+            id: "prop_num".into(),
+            name: "Count".into(),
+            page_visibility: "alwaysShow".into(),
+            yaml_binding: None,
+            config: NumberConfig {
+                format: "number".into(),
+                currency: None,
+                extra: Default::default(),
+            },
+            extra: Default::default(),
+        });
+        let bool_def = PropertyDefinition::Checkbox(PropertyFields {
+            id: "prop_bool".into(),
+            name: "Active".into(),
+            page_visibility: "alwaysShow".into(),
+            yaml_binding: None,
+            config: CheckboxConfig {
+                extra: Default::default(),
+            },
+            extra: Default::default(),
+        });
+
+        // Zero is preserved and NOT treated as empty
+        let zero_val = PropertyValue::Number {
+            decimal: "0".into(),
+            extra: Default::default(),
+        };
+        let zero_yaml = property_value_to_frontmatter_value(&zero_val, &num_def).unwrap();
+        assert_eq!(zero_yaml, serde_yaml::Value::Number(0.into()));
+        let zero_back = frontmatter_value_to_property_value(&zero_yaml, &num_def).unwrap();
+        assert_eq!(zero_back, zero_val);
+
+        // False is preserved and NOT treated as empty
+        let false_val = PropertyValue::Checkbox {
+            checked: false,
+            extra: Default::default(),
+        };
+        let false_yaml = property_value_to_frontmatter_value(&false_val, &bool_def).unwrap();
+        assert_eq!(false_yaml, serde_yaml::Value::Bool(false));
+        let false_back = frontmatter_value_to_property_value(&false_yaml, &bool_def).unwrap();
+        assert_eq!(false_back, false_val);
+
+        // Empty string is None (cleared)
+        let empty_num = PropertyValue::Number {
+            decimal: "  ".into(),
+            extra: Default::default(),
+        };
+        assert_eq!(
+            property_value_to_frontmatter_value(&empty_num, &num_def),
+            None
+        );
+    }
+    #[test]
+    fn review_persisted_select_survives_option_rename() {
+        let opt1_id = "01J00000000000000000000001";
+        let opt2_id = "01J00000000000000000000002";
+        let mut select_def = PropertyDefinition::Select(PropertyFields {
+            id: "01J00000000000000000000003".into(),
+            name: "Status".into(),
+            page_visibility: "alwaysShow".into(),
+            yaml_binding: None,
+            config: SelectConfig {
+                options: vec![
+                    SelectOption {
+                        id: opt1_id.into(),
+                        name: "In Progress".into(),
+                        color: "#3b82f6".into(),
+                        extra: Default::default(),
+                    },
+                    SelectOption {
+                        id: opt2_id.into(),
+                        name: "Done".into(),
+                        color: "#22c55e".into(),
+                        extra: Default::default(),
+                    },
+                ],
+                extra: Default::default(),
+            },
+            extra: Default::default(),
+        });
+
+        // 1. Finding by name (case-insensitive) resolves to option id
+        assert_eq!(select_def.find_option_id("in progress"), Some(opt1_id));
+        assert_eq!(select_def.find_option_id("Done"), Some(opt2_id));
+
+        // 2. Finding by ID resolves to option id
+        assert_eq!(select_def.find_option_id(opt1_id), Some(opt1_id));
+
+        // 3. Serialization to YAML uses option name
+        let val = PropertyValue::Select {
+            option_id: opt1_id.into(),
+            extra: Default::default(),
+        };
+        let yaml_val = property_value_to_frontmatter_value(&val, &select_def).unwrap();
+        assert_eq!(yaml_val, serde_yaml::Value::String("In Progress".into()));
+
+        if let PropertyDefinition::Select(fields) = &mut select_def {
+            fields.config.options[0].name = "Doing".to_owned();
+        }
+        // 4. Deserialization from YAML with name resolves back to option id
+        let parsed = frontmatter_value_to_property_value(&yaml_val, &select_def).unwrap();
+        assert_eq!(parsed, val);
+
+        // 5. Deserialization from YAML with raw option ID also resolves to option id
+        let id_yaml = serde_yaml::Value::String(opt1_id.into());
+        let parsed_id = frontmatter_value_to_property_value(&id_yaml, &select_def).unwrap();
+        assert_eq!(parsed_id, val);
     }
 }

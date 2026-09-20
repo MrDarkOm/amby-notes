@@ -53,6 +53,7 @@ interface TiptapEditorProps {
   /** Read uses the same Tiptap instance but must not inherit Live layout styles. */
   isReadOnly?: boolean
   onContentDirty?: () => void
+  onContentClean?: () => void
 }
 
 interface MenuState {
@@ -91,11 +92,13 @@ export function TiptapEditor({
   onSelectionChange,
   isReadOnly = false,
   onContentDirty,
+  onContentClean,
 }: TiptapEditorProps) {
   const valueRef = React.useRef(value)
   const originalValueRef = React.useRef(value)
   const onChangeRef = React.useRef(onChange)
   const onContentDirtyRef = React.useRef(onContentDirty)
+  const onContentCleanRef = React.useRef(onContentClean)
   const onSelectionChangeRef = React.useRef(onSelectionChange)
   const restoredSelectionRef = React.useRef(false)
   const suppressSelectionMenuRef = React.useRef(false)
@@ -126,7 +129,10 @@ export function TiptapEditor({
     if (ed.isDestroyed) return
     const markdown = restoreSourceFormatting(docToMarkdown(ed.state.doc), originalValueRef.current)
     documentDirtyRef.current = false
-    if (markdown === valueRef.current) return
+    if (markdown === valueRef.current) {
+      onContentCleanRef.current?.()
+      return
+    }
     valueRef.current = markdown
     originalValueRef.current = markdown
     onChangeRef.current(markdown)
@@ -139,6 +145,10 @@ export function TiptapEditor({
   React.useEffect(() => {
     onContentDirtyRef.current = onContentDirty
   }, [onContentDirty])
+
+  React.useEffect(() => {
+    onContentCleanRef.current = onContentClean
+  }, [onContentClean])
 
   React.useEffect(() => {
     onSelectionChangeRef.current = onSelectionChange

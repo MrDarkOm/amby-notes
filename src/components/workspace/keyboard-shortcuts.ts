@@ -30,6 +30,11 @@ export const SHORTCUT_DEFINITIONS = [
     defaultBinding: "Mod+Comma",
   },
   {
+    id: "save",
+    labelKey: "settings.shortcuts.save",
+    defaultBinding: "Mod+S",
+  },
+  {
     id: "back",
     labelKey: "settings.shortcuts.back",
     defaultBinding: "Mod+BracketLeft",

@@ -16,7 +16,7 @@
 use futures_util::StreamExt;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -429,7 +429,9 @@ async fn stream_ollama(
                 {
                     if !delta.is_empty() {
                         if acc.len() + delta.len() > MAX_RESPONSE_BYTES {
-                            return Err(format!("Response stream exceeded maximum allowed size ({MAX_RESPONSE_BYTES} bytes)"));
+                            return Err(format!(
+                                "Response stream exceeded maximum allowed size ({MAX_RESPONSE_BYTES} bytes)"
+                            ));
                         }
                         acc.push_str(delta);
                         emit_token(app, stream_id, delta);
@@ -624,7 +626,9 @@ async fn stream_openai_like(
                 {
                     if !delta.is_empty() {
                         if acc.len() + delta.len() > MAX_RESPONSE_BYTES {
-                            return Err(format!("Response stream exceeded maximum allowed size ({MAX_RESPONSE_BYTES} bytes)"));
+                            return Err(format!(
+                                "Response stream exceeded maximum allowed size ({MAX_RESPONSE_BYTES} bytes)"
+                            ));
                         }
                         acc.push_str(delta);
                         emit_token(app, stream_id, delta);
@@ -817,7 +821,9 @@ async fn stream_anthropic(
                     {
                         if !delta.is_empty() {
                             if acc.len() + delta.len() > MAX_RESPONSE_BYTES {
-                                return Err(format!("Response stream exceeded maximum allowed size ({MAX_RESPONSE_BYTES} bytes)"));
+                                return Err(format!(
+                                    "Response stream exceeded maximum allowed size ({MAX_RESPONSE_BYTES} bytes)"
+                                ));
                             }
                             acc.push_str(delta);
                             emit_token(app, stream_id, delta);

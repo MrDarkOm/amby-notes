@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::Serialize;
 use std::path::Path;
 
@@ -224,7 +224,12 @@ mod tests {
     #[test]
     fn punctuation_unicode_and_syntax_matrix_reaches_fts_safely() {
         let conn = test_connection();
-        insert_note(&conn, "matrix", "Reference", "foo bar hello world node js snake_case C русский український 日本語 English AND OR NEAR café");
+        insert_note(
+            &conn,
+            "matrix",
+            "Reference",
+            "foo bar hello world node js snake_case C русский український 日本語 English AND OR NEAR café",
+        );
         for query in [
             "foo-bar",
             "foo/bar",

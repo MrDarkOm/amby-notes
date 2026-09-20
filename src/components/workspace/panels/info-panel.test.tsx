@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import "@/lib/i18n"
+import * as storage from "@/lib/storage"
 import type { DocumentProperties } from "../panel-registry"
 import { InfoPanel } from "./info-panel"
+import { PropertyEditor } from "./property-editor"
 
 afterEach(() => {
   cleanup()
@@ -323,5 +325,85 @@ describe("InfoPanel frontmatter properties", () => {
         value: "done",
       }),
     )
+  })
+
+  it("deduplicates database schema properties from frontmatter properties", async () => {
+    vi.spyOn(storage, "getDatabaseNoteContext").mockResolvedValue({
+      databaseId: "db-1",
+      databaseTitle: "Test DB",
+      databaseIcon: null,
+      locked: false,
+      vaultGeneration: 1,
+      manifestRevision: "rev-1",
+      row: {
+        noteId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        title: "Test Note",
+        relativePath: "Test Note.md",
+        parentNoteId: null,
+        depth: 0,
+        categoryPath: [],
+        valuesJson: JSON.stringify({ "prop-status": "in-progress" }),
+        rowRevision: "row-1",
+      },
+      properties: [
+        {
+          propertyId: "prop-status",
+          name: "status",
+          propertyType: "text",
+          configJson: "{}",
+          options: [],
+        },
+      ],
+    })
+
+    const { container } = render(
+      <InfoPanel
+        treeItems={[]}
+        selectedId="01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        vault="/test-vault"
+        onSelect={() => {}}
+        onOpenVault={() => {}}
+        properties={mockDocumentWithFrontmatter}
+      />,
+    )
+
+    await waitFor(() => {
+      const counter = container.querySelector(".tabular-nums")
+      expect(counter?.textContent).toBe("4")
+    })
+
+    const statusLabels = screen.getAllByText("status")
+    expect(statusLabels.length).toBe(1)
+  })
+
+  it("renders database scope question in PropertyEditor and saves with addToDatabase flag", async () => {
+    const onSave = vi.fn()
+    render(
+      <PropertyEditor
+        open={true}
+        property={null}
+        onOpenChange={() => {}}
+        onSave={onSave}
+        onDelete={async () => {}}
+        databaseContext={{ databaseId: "db-1", name: "My Database" }}
+      />,
+    )
+
+    expect(screen.getByText("Добавить это свойство для всей базы данных?")).not.toBeNull()
+    expect(screen.getByText("Для всей базы данных")).not.toBeNull()
+    expect(screen.getByText("Только для этой заметки")).not.toBeNull()
+
+    const nameInput = screen.getByPlaceholderText("Название свойства")
+    fireEvent.change(nameInput, { target: { value: "Local Prop" } })
+
+    const onlyNoteOption = screen.getByText("Только для этой заметки")
+    fireEvent.click(onlyNoteOption)
+
+    const saveButton = screen.getByRole("button", { name: "Сохранить" })
+    fireEvent.click(saveButton)
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: "Local Prop" }), {
+      addToDatabase: false,
+    })
   })
 })

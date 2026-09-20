@@ -9,6 +9,8 @@ import {
   type RecoveryScope,
 } from "@/lib/recovery-drafts"
 import { confirmAction, readFile, writeFile } from "@/lib/storage"
+import { useDocStore } from "../use-doc-store"
+import { canvasLayerPath } from "../workspace-tree-utils"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
 import { recoveryNeedsConfirmation, resolveRecoveryContent } from "../recovery-restore"
@@ -16,7 +18,7 @@ import { CanvasLoadDeduplicator } from "./canvas-load-dedup"
 
 type CanvasAutosavePayload = { path: string; json: string }
 
-/** Owns Canvas buffers and their recovery/autosave lifecycle. */
+/** Owns Obsidian .canvas buffers and their recovery/autosave lifecycle. */
 export function useCanvasWorkspace(generation: number, t: TFunction, recoveryScope: RecoveryScope) {
   // Canvas editing already owns a React Flow buffer below. Keep the latest
   // serialized values in a ref so each drag/text checkpoint does not re-render
@@ -59,6 +61,17 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
             !pending.dirty
           ) {
             void discardRecoveryDraft(value.path, recoveryScope)
+            const docStore = useDocStore.getState()
+            docStore.markSaved(value.path)
+            for (const [docId, doc] of Object.entries(docStore.openDocs)) {
+              if (
+                doc.path === value.path ||
+                canvasLayerPath(doc.path) === value.path ||
+                doc.id === value.path
+              ) {
+                docStore.markSaved(docId)
+              }
+            }
           }
         },
         onSaveFailure: (_snapshot, error) => console.error("Failed to save canvas:", error),

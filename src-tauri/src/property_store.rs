@@ -1,5 +1,5 @@
 use crate::{frontmatter, model::CustomProperty};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -100,6 +100,7 @@ pub fn restore_cache(conn: &Connection, vault: &Path) -> Result<(), String> {
 
 /// Syncs all properties stored in `.amby/properties.json` into their respective
 /// markdown files' YAML frontmatter if missing.
+#[allow(dead_code)]
 pub fn sync_all_properties_to_markdown(conn: &Connection, vault: &Path) -> Result<usize, String> {
     let file = read(vault)?;
     let mut updated_count = 0;
