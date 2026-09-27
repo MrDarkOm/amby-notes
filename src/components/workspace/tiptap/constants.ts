@@ -17,6 +17,7 @@ export interface EditorHandle {
   redo: () => void
   flush: () => void
   getMarkdownSelection: () => { from: number; to: number } | null
+  focus?: (position?: "start" | "end") => void
 }
 
 export function clamp(value: number, min: number, max: number) {

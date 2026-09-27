@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { newTabKey } from "./workspace-tree-utils"
+import { logger } from "@/lib/logger"
 
 export type TabKind = "document" | "folder" | "graph" | "canvas" | "database" | "sketch"
 
@@ -45,16 +46,47 @@ export const useTabsStore = create<TabsStore>((set) => ({
   activeTabKey: "",
   secondaryTabKey: null,
   setTabs: (updater) => set((s) => ({ tabs: resolve(updater, s.tabs) })),
-  setActiveTabKey: (updater) => set((s) => ({ activeTabKey: resolve(updater, s.activeTabKey) })),
+  setActiveTabKey: (updater) =>
+    set((s) => {
+      const nextKey = resolve(updater, s.activeTabKey)
+      if (nextKey !== s.activeTabKey) {
+        const nextTab = s.tabs.find((t) => t.key === nextKey)
+        logger.info("tab.switch", {
+          from: s.activeTabKey || undefined,
+          to: nextKey,
+          title: nextTab?.title,
+          fileId: nextTab?.fileId,
+          kind: nextTab?.kind,
+        })
+      }
+      return { activeTabKey: nextKey }
+    }),
   setSecondaryTabKey: (updater) =>
     set((s) => ({ secondaryTabKey: resolve(updater, s.secondaryTabKey) })),
-  openItem: (target, inNewTab = false) =>
-    set((state) => {
+  openItem: (target, inNewTab = false) => {
+    logger.info("tab.open_item", {
+      kind: target.kind,
+      fileId: target.fileId,
+      title: target.title,
+      inNewTab,
+    })
+    return set((state) => {
       const active = state.tabs.find((tab) => tab.key === state.activeTabKey)
       const matches = (tab: Tab) => tab.kind === target.kind && tab.fileId === target.fileId
       if (!inNewTab) {
         const existing = active && matches(active) ? active : state.tabs.find(matches)
-        if (existing) return { activeTabKey: existing.key }
+        if (existing) {
+          if (existing.key !== state.activeTabKey) {
+            logger.info("tab.switch", {
+              from: state.activeTabKey || undefined,
+              to: existing.key,
+              title: existing.title,
+              fileId: existing.fileId,
+              kind: existing.kind,
+            })
+          }
+          return { activeTabKey: existing.key }
+        }
         if (active) {
           const history = active.history.length
             ? active.history.slice(0, active.historyIndex + 1)
@@ -85,8 +117,14 @@ export const useTabsStore = create<TabsStore>((set) => ({
         historyIndex: 0,
       }
       return { tabs: [...state.tabs, tab], activeTabKey: tab.key }
-    }),
+    })
+  },
   openOrActivateSingletonTab: (tab) => {
+    logger.info("tab.open_singleton", {
+      kind: tab.kind,
+      fileId: tab.fileId,
+      title: tab.title,
+    })
     let activeKey = tab.key
     set((state) => {
       const existing = state.tabs.find(

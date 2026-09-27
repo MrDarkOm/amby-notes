@@ -11,6 +11,26 @@ export const AmbyImage = Image.extend({
         default: null as string | null,
         rendered: false,
       },
+      width: {
+        default: null as number | string | null,
+        parseHTML: (element) => element.getAttribute("width") || null,
+        renderHTML: (attributes) => {
+          if (!attributes.width) return {}
+          return { width: attributes.width }
+        },
+      },
+      height: {
+        default: null as number | string | null,
+        parseHTML: (element) => element.getAttribute("height") || null,
+        renderHTML: (attributes) => {
+          if (!attributes.height) return {}
+          return { height: attributes.height }
+        },
+      },
+      hasPipe: {
+        default: false,
+        rendered: false,
+      },
     }
   },
   addNodeView() {

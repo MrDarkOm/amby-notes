@@ -3,8 +3,8 @@
 use std::{
     fs,
     sync::{
-        Arc,
         atomic::{AtomicI32, Ordering},
+        Arc,
     },
     time::{Duration, Instant},
 };
@@ -30,9 +30,21 @@ fn run_native_ui(root: std::path::PathBuf) {
         .manage(NativeAppDataRoot(root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
         .manage(crate::watcher::WatcherState::new())
+        .manage(crate::database::runtime_state::DatabaseRuntimeState::default())
+        .manage(crate::database::mutation_state::DatabaseMutationState::default())
+        .manage(crate::database::history::DatabaseHistoryState::default())
         .manage(crate::ai::AiStreamState::default())
+        .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
         .setup(move |app| {
+            let debug = crate::logging::global_runtime();
+            debug.set_app(app.handle().clone());
+            debug
+                .configure_path(
+                    crate::commands::debug::log_file_path(app.handle())
+                        .map_err(std::io::Error::other)?,
+                )
+                .map_err(std::io::Error::other)?;
             tauri::WebviewWindowBuilder::new(
                 app,
                 "main",
@@ -68,9 +80,21 @@ pub fn run_native_contract() {
         .manage(NativeAppDataRoot(root.join(".app-data")))
         .manage(crate::vault_context::VaultContext::new())
         .manage(crate::watcher::WatcherState::new())
+        .manage(crate::database::runtime_state::DatabaseRuntimeState::default())
+        .manage(crate::database::mutation_state::DatabaseMutationState::default())
+        .manage(crate::database::history::DatabaseHistoryState::default())
         .manage(crate::ai::AiStreamState::default())
+        .manage(crate::logging::DebugState(crate::logging::global_runtime()))
         .invoke_handler(crate::specta_builder().invoke_handler())
         .setup(move |app| {
+            let debug = crate::logging::global_runtime();
+            debug.set_app(app.handle().clone());
+            debug
+                .configure_path(
+                    crate::commands::debug::log_file_path(app.handle())
+                        .map_err(std::io::Error::other)?,
+                )
+                .map_err(std::io::Error::other)?;
             let initialization = format!(
                 "window.__AMBY_NATIVE_TEST_ROOT__ = {};",
                 serde_json::to_string(&setup_root.to_string_lossy()).unwrap()

@@ -23,14 +23,20 @@ import { emitAutosaveConflictResolution } from "./autosave/conflict-events"
  */
 export function ExternalConflictDialog() {
   const { t } = useTranslation()
-  const conflict = useDocStore((s) => Object.values(s.externalConflicts)[0] ?? null)
+  const conflict = useDocStore((s) =>
+    s.activeConflictDialogFileId
+      ? (s.externalConflicts[s.activeConflictDialogFileId] ?? null)
+      : (Object.values(s.externalConflicts)[0] ?? null),
+  )
+  const closeConflictDialog = useDocStore((s) => s.closeConflictDialog)
   const vault = useVaultStore((s) => s.vault)
   const backendGeneration = useVaultStore((s) => s.backendGeneration)
   const [saving, setSaving] = React.useState(false)
   const [copyPath, setCopyPath] = React.useState<string | null>(null)
 
   if (!conflict) return null
-  const document = useDocStore.getState().openDocs[conflict.fileId]
+  const activeConflict = conflict
+  const document = useDocStore.getState().openDocs[activeConflict.fileId]
   if (!document) return null
   const { patchDoc, markSaved, markUnsaved, clearExternalConflict } = useDocStore.getState()
   const originWindow = isTauri() ? getCurrentWindow().label : "web"
@@ -39,39 +45,40 @@ export function ExternalConflictDialog() {
     setSaving(true)
     try {
       const content =
-        useDocStore.getState().openDocs[conflict.fileId]?.content ?? conflict.localContent
-      if (vault && conflict.externalContent === null) {
+        useDocStore.getState().openDocs[activeConflict.fileId]?.content ??
+        activeConflict.localContent
+      if (vault && activeConflict.externalContent === null) {
         const outcome = await restoreDeletedNote(
           vault,
-          conflict.fileId,
-          conflict.path,
+          activeConflict.fileId,
+          activeConflict.path,
           content,
-          conflict.sourceTemplate ?? document.source,
+          activeConflict.sourceTemplate ?? document.source,
           backendGeneration,
           originWindow,
         )
-        patchDoc(conflict.fileId, {
+        patchDoc(activeConflict.fileId, {
           revision: outcome.revision,
-          source: conflict.sourceTemplate ?? document.source,
+          source: activeConflict.sourceTemplate ?? document.source,
           externallyDeleted: false,
         })
       } else if (vault) {
         const outcome = await writeNote(
           vault,
-          conflict.fileId,
+          activeConflict.fileId,
           content,
           backendGeneration,
-          conflict.externalRevision ?? document.revision ?? "",
+          activeConflict.externalRevision ?? document.revision ?? "",
           originWindow,
         )
-        patchDoc(conflict.fileId, {
+        patchDoc(activeConflict.fileId, {
           revision: outcome.revision,
-          source: conflict.sourceTemplate ?? document.source,
+          source: activeConflict.sourceTemplate ?? document.source,
         })
-      } else await writeFile(conflict.path, content)
-      markSaved(conflict.fileId)
-      clearExternalConflict(conflict.fileId)
-      emitAutosaveConflictResolution(conflict.fileId, "discard")
+      } else await writeFile(activeConflict.path, content)
+      markSaved(activeConflict.fileId)
+      clearExternalConflict(activeConflict.fileId)
+      emitAutosaveConflictResolution(activeConflict.fileId, "discard")
     } catch (err) {
       logger.error("external_conflict.keep_local_failed", { errorType: errorType(err) })
     } finally {
@@ -80,36 +87,37 @@ export function ExternalConflictDialog() {
   }
 
   function acceptExternal() {
-    if (conflict.externalContent !== null) {
-      patchDoc(conflict.fileId, {
-        content: conflict.externalContent,
-        revision: conflict.externalRevision,
-        source: conflict.sourceTemplate ?? document.source,
+    if (activeConflict.externalContent !== null) {
+      patchDoc(activeConflict.fileId, {
+        content: activeConflict.externalContent,
+        revision: activeConflict.externalRevision,
+        source: activeConflict.sourceTemplate ?? document.source,
       })
-      markSaved(conflict.fileId)
+      markSaved(activeConflict.fileId)
     }
-    clearExternalConflict(conflict.fileId)
-    emitAutosaveConflictResolution(conflict.fileId, "discard")
+    clearExternalConflict(activeConflict.fileId)
+    emitAutosaveConflictResolution(activeConflict.fileId, "discard")
   }
 
   function mergeManually() {
-    if (conflict.externalContent === null) return
-    patchDoc(conflict.fileId, {
-      content: `<<<<<<< Local Amby\n${conflict.localContent}\n=======\n${conflict.externalContent}\n>>>>>>> External file\n`,
-      revision: conflict.externalRevision,
-      source: conflict.sourceTemplate ?? document.source,
+    if (activeConflict.externalContent === null) return
+    patchDoc(activeConflict.fileId, {
+      content: `<<<<<<< Local Amby\n${activeConflict.localContent}\n=======\n${activeConflict.externalContent}\n>>>>>>> External file\n`,
+      revision: activeConflict.externalRevision,
+      source: activeConflict.sourceTemplate ?? document.source,
     })
-    markUnsaved(conflict.fileId)
-    clearExternalConflict(conflict.fileId)
-    emitAutosaveConflictResolution(conflict.fileId, "resume")
+    markUnsaved(activeConflict.fileId)
+    clearExternalConflict(activeConflict.fileId)
+    emitAutosaveConflictResolution(activeConflict.fileId, "resume")
   }
 
   async function saveLocalCopy() {
     setSaving(true)
     try {
       const content =
-        useDocStore.getState().openDocs[conflict.fileId]?.content ?? conflict.localContent
-      const savedPath = await saveConflictCopy(conflict.path, content)
+        useDocStore.getState().openDocs[activeConflict.fileId]?.content ??
+        activeConflict.localContent
+      const savedPath = await saveConflictCopy(activeConflict.path, content)
       setCopyPath(savedPath)
     } catch (err) {
       logger.error("external_conflict.save_copy_failed", { errorType: errorType(err) })
@@ -118,10 +126,15 @@ export function ExternalConflictDialog() {
     }
   }
 
-  const deleted = conflict.externalContent === null
+  const deleted = activeConflict.externalContent === null
   return (
-    <Dialog open>
-      <DialogContent showCloseButton={false} className="max-w-4xl">
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) closeConflictDialog()
+      }}
+    >
+      <DialogContent showCloseButton className="max-w-4xl">
         <DialogHeader>
           <DialogTitle>{deleted ? t("conflict.deletedTitle") : t("conflict.title")}</DialogTitle>
           <DialogDescription>
@@ -135,7 +148,7 @@ export function ExternalConflictDialog() {
                 {t("conflict.localVersion")}
               </h3>
               <pre className="max-h-60 overflow-auto whitespace-pre-wrap p-3 text-xs">
-                {conflict.localContent}
+                {activeConflict.localContent}
               </pre>
             </section>
             <section className="min-w-0 rounded-md border">
@@ -143,7 +156,7 @@ export function ExternalConflictDialog() {
                 {t("conflict.externalVersion")}
               </h3>
               <pre className="max-h-60 overflow-auto whitespace-pre-wrap p-3 text-xs">
-                {conflict.externalContent}
+                {activeConflict.externalContent}
               </pre>
             </section>
           </div>

@@ -3,7 +3,12 @@ import { useDocStore } from "./use-doc-store"
 
 describe("useDocStore external conflicts", () => {
   beforeEach(() => {
-    useDocStore.setState({ openDocs: {}, unsavedFileIds: new Set(), externalConflicts: {} })
+    useDocStore.setState({
+      openDocs: {},
+      unsavedFileIds: new Set(),
+      externalConflicts: {},
+      activeConflictDialogFileId: null,
+    })
   })
 
   it("tracks a conflict independently from the dirty marker", () => {
@@ -177,5 +182,32 @@ describe("useDocStore external conflicts", () => {
     expect(state.openDocs["database:PaLooVerse"]).toBeUndefined()
     expect(state.openDocs["child-note"]).toBeUndefined()
     expect(state.openDocs["other-note"]).toBeDefined()
+  })
+
+  it("manages activeConflictDialogFileId when conflicts arrive, dismiss, or resolve", () => {
+    const store = useDocStore.getState()
+    expect(store.activeConflictDialogFileId).toBeNull()
+
+    store.setExternalConflict({
+      fileId: "doc-1",
+      path: "/vault/Doc1.md",
+      localContent: "loc1",
+      externalContent: "ext1",
+    })
+    expect(useDocStore.getState().activeConflictDialogFileId).toBe("doc-1")
+
+    // Dismiss dialog
+    useDocStore.getState().closeConflictDialog()
+    expect(useDocStore.getState().activeConflictDialogFileId).toBeNull()
+    expect(useDocStore.getState().externalConflicts["doc-1"]).toBeDefined()
+
+    // Re-open dialog for doc-1
+    useDocStore.getState().openConflictDialog("doc-1")
+    expect(useDocStore.getState().activeConflictDialogFileId).toBe("doc-1")
+
+    // Clear conflict
+    useDocStore.getState().clearExternalConflict("doc-1")
+    expect(useDocStore.getState().activeConflictDialogFileId).toBeNull()
+    expect(useDocStore.getState().externalConflicts["doc-1"]).toBeUndefined()
   })
 })

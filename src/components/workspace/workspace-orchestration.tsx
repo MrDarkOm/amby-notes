@@ -21,7 +21,6 @@ const DocumentEditor = React.lazy(() =>
 const MemoizedDocumentEditor = React.memo(DocumentEditor)
 
 import { CANONICAL_EMPTY_CANVAS } from "@/lib/canvas-format"
-import { defaultSketchJson } from "@/lib/sketch-format"
 
 import type { ActionContext, PanelRenderProps } from "./panel-registry"
 import { buttonsForSide } from "./panel-definitions"
@@ -36,6 +35,9 @@ import { QuickOpenModal } from "./quick-open-modal"
 import { SearchModal } from "./search-modal"
 import { SettingsDialog } from "./settings-dialog"
 import { HelpModal, type HelpContext } from "./help-modal"
+import { WorkspaceProfileModal } from "./modules/workspace-profile-modal"
+import { setPendingWorkspaceProfile } from "./app-config"
+import type { ProfileId } from "@/lib/modules"
 import {
   exportDatabaseCsv,
   exportDatabaseSqlite,
@@ -73,9 +75,13 @@ import { errorType, logger } from "@/lib/logger"
 import { WorkspacePicker } from "./workspace-picker"
 import { FolderView } from "./folder-view"
 import type { TreeItem } from "./sidebar-tree"
-import { DatabaseWorkspace } from "./database/database-workspace"
 import { useDatabaseController } from "./database/use-database-controller"
 import { useDatabaseStore } from "./database/database-store"
+import { ModuleRequiredFallback } from "./editor/module-required-fallback"
+
+const DatabaseWorkspace = React.lazy(() =>
+  import("./database/database-workspace").then((m) => ({ default: m.DatabaseWorkspace })),
+)
 import type { DatabaseSummary } from "@/lib/storage/database-types"
 import { discardRecoveryDraft, remapRecoveryDraft } from "@/lib/recovery-drafts"
 import {
@@ -88,6 +94,7 @@ import {
   exportTextFile,
   importTextFile,
   rebuildDatabaseProjection,
+  type DatabaseRow,
   type FsMutationResult,
 } from "@/lib/storage"
 import { useCanvasWorkspace } from "./orchestration/use-canvas-workspace"
@@ -199,6 +206,7 @@ const CachedDocumentEditor = React.memo(
     return (
       <div ref={editorRootRef} className="flex min-h-0 min-w-0 flex-1">
         <MemoizedDocumentEditor
+          key={editorProps.document?.id ?? "none"}
           {...editorProps}
           isFocusMode={controls.isFocusMode}
           isLocked={editorProps.isLocked}
@@ -239,7 +247,7 @@ function createFallbackDocument(
   created?: number | string,
   modified?: number | string,
 ): Document {
-  return {
+  const doc: Document = {
     id: fileId,
     title,
     content: "",
@@ -250,6 +258,14 @@ function createFallbackDocument(
     revision: "",
     source: "",
   }
+  const state = useDocStore.getState()
+  if (!state.openDocs[fileId]) {
+    state.setDoc(fileId, doc)
+    if (path && path !== fileId && !state.openDocs[path]) {
+      state.setDoc(path, doc)
+    }
+  }
+  return doc
 }
 
 const ConnectedCachedDocumentEditor = React.memo(function ConnectedCachedDocumentEditor({
@@ -454,7 +470,12 @@ export function WorkspaceOrchestration() {
     importPreset,
     exportPreset,
   } = usePresets(vault, experimental)
-  const databasesEnabled = activeModules.includes("databases")
+  const databasesEnabled =
+    activeModules.includes("databases") || activeModules.includes("amby.databases")
+  const canvasEnabled = activeModules.includes("canvas") || activeModules.includes("amby.canvas")
+  const sketchEnabled =
+    activeModules.includes("excalidraw") || activeModules.includes("amby.excalidraw")
+  const graphEnabled = activeModules.includes("graph") || activeModules.includes("amby.graph")
   const databases = useDatabaseStore((state) => state.databases)
   const { refreshCatalog: refreshDatabaseCatalog } = useDatabaseController({
     enabled: databasesEnabled,
@@ -947,6 +968,11 @@ export function WorkspaceOrchestration() {
     [handleRenameFile, refreshDatabaseCatalog],
   )
 
+  const handleLoadRowDocument = React.useCallback(
+    (row: DatabaseRow) => loadDoc(row.noteId, row.title),
+    [loadDoc],
+  )
+
   const { handleOpenInNewWindow } = useNoteWindows(treeItems)
 
   const handleTabUsageChanged = React.useCallback(() => {
@@ -1037,12 +1063,26 @@ export function WorkspaceOrchestration() {
     toggleSidebar,
   ])
 
+  const [pendingVaultPath, setPendingVaultPath] = React.useState<string | null>(null)
+
+  const handleConfirmProfile = React.useCallback(
+    async (profileId: ProfileId) => {
+      if (!pendingVaultPath) return
+      const target = pendingVaultPath
+      setPendingVaultPath(null)
+      setPendingWorkspaceProfile(profileId)
+      await loadVault(target)
+    },
+    [loadVault, pendingVaultPath],
+  )
+
   const { handleDeleteVault, handleMoveVault, handleOpenVault, handleRenameVault } =
     useVaultActions({
       loadVault,
       setVaults,
       vault,
       vaults,
+      onRequestProfileSelection: (path) => setPendingVaultPath(path),
     })
 
   const handleViewModeChange = (mode: DocumentViewMode) => {
@@ -1477,17 +1517,20 @@ export function WorkspaceOrchestration() {
     const scrollPositionKey = doc ? `${vault ?? "browser"}:${doc.id}` : undefined
     return {
       document: doc,
-      onContentChange: (content: string, sourceDocumentId: string) => {
-        if (tab && sourceDocumentId === tab.fileId) {
-          handleContentChange(tab.fileId, content)
+      onContentChange: (content: string, sourceDocumentId?: string) => {
+        const targetId = sourceDocumentId || tab?.fileId
+        if (targetId) {
+          handleContentChange(targetId, content)
         }
       },
-      onContentDirty: (sourceDocumentId: string) => {
-        if (tab && sourceDocumentId === tab.fileId) handleContentDirty(tab.fileId)
+      onContentDirty: (sourceDocumentId?: string) => {
+        const targetId = sourceDocumentId || tab?.fileId
+        if (targetId) handleContentDirty(targetId)
       },
-      onContentClean: (sourceDocumentId: string) => {
-        if (tab && sourceDocumentId === tab.fileId) {
-          useDocStore.getState().markSaved(tab.fileId)
+      onContentClean: (sourceDocumentId?: string) => {
+        const targetId = sourceDocumentId || tab?.fileId
+        if (targetId) {
+          useDocStore.getState().markSaved(targetId)
         }
       },
       onBack: isPrimary ? handleBack : () => {},
@@ -1549,7 +1592,7 @@ export function WorkspaceOrchestration() {
       onContentWidthChange: contentWidthKey
         ? (width: ContentWidth) => setContentWidth(contentWidthKey, width)
         : undefined,
-      linkedLayers: isPrimary && doc ? (linkedLayersByDoc[doc.id] ?? EMPTY_LAYERS) : EMPTY_LAYERS,
+      linkedLayers: doc ? (linkedLayersByDoc[doc.id] ?? EMPTY_LAYERS) : EMPTY_LAYERS,
       databasesEnabled,
       canCreateDatabaseLayer: DATABASE_LAYER_CREATION_AVAILABLE && databasesEnabled,
       isLocked: doc ? isLayerLocked(lockedFileIds, viewModes, doc.id, pageLayer) : false,
@@ -1595,32 +1638,30 @@ export function WorkspaceOrchestration() {
           void exportActiveLayerImage(pageLayer, format, doc?.title || "canvas")
         }
       },
-      canvasValue:
-        isPrimary && doc
-          ? (openCanvases[doc.path.endsWith(".canvas") ? doc.path : canvasLayerPath(doc.path)] ??
-            openCanvases[doc.path] ??
-            CANONICAL_EMPTY_CANVAS)
-          : CANONICAL_EMPTY_CANVAS,
-      onCanvasChange:
-        isPrimary && doc
-          ? ((savePath) => (json: string) => {
-              handleCanvasSave(savePath, json)
-            })(doc.path.endsWith(".canvas") ? doc.path : canvasLayerPath(doc.path))
-          : (_json: string) => {},
-      sketchValue:
-        isPrimary && doc
-          ? (openSketches[
-              doc.path.endsWith(".excalidraw") ? doc.path : sketchLayerPath(doc.path)
-            ] ??
-            openSketches[doc.path] ??
-            defaultSketchJson())
-          : defaultSketchJson(),
-      onSketchChange:
-        isPrimary && doc
-          ? ((savePath) => (json: string) => {
-              handleSketchSave(savePath, json)
-            })(doc.path.endsWith(".excalidraw") ? doc.path : sketchLayerPath(doc.path))
-          : (_json: string) => {},
+      canvasValue: doc
+        ? (openCanvases[doc.path.endsWith(".canvas") ? doc.path : canvasLayerPath(doc.path)] ??
+          openCanvases[doc.path] ??
+          CANONICAL_EMPTY_CANVAS)
+        : CANONICAL_EMPTY_CANVAS,
+      onCanvasChange: doc
+        ? ((savePath) => (json: string) => {
+            handleCanvasSave(savePath, json)
+          })(doc.path.endsWith(".canvas") ? doc.path : canvasLayerPath(doc.path))
+        : (_json: string) => {},
+      sketchValue: doc
+        ? (openSketches[doc.path.endsWith(".excalidraw") ? doc.path : sketchLayerPath(doc.path)] ??
+          openSketches[doc.path])
+        : undefined,
+      onSketchChange: doc
+        ? ((savePath) => (json: string) => {
+            handleSketchSave(savePath, json)
+          })(doc.path.endsWith(".excalidraw") ? doc.path : sketchLayerPath(doc.path))
+        : (_json: string) => {},
+      canvasEnabled,
+      sketchEnabled,
+      onEnableModule: (modId: string) => {
+        void setModuleEnabled(modId, true, { vault })
+      },
       onOpenCanvasNote: handleOpenCanvasNote,
       scrollPositionKey,
       scrollPosition: scrollPositionKey ? scrollPositionsRef.current[scrollPositionKey] : undefined,
@@ -1631,46 +1672,58 @@ export function WorkspaceOrchestration() {
         : undefined,
       databaseBody:
         canRenderLayer && doc && attachedDatabase ? (
-          <DatabaseWorkspace
-            databaseId={attachedDatabase.databaseId}
-            title={attachedDatabase.title}
-            icon={treeItem?.icon ?? attachedDatabase.icon}
-            hostKind="layer"
-            hostId={doc.id}
-            isLocked={isLayerLocked(lockedFileIds, viewModes, doc.id, "database")}
-            onToggleLock={() => handleToggleLayerLock(doc.id, "database")}
-            contentWidth={
-              contentWidths[databaseContentWidthKey(attachedDatabase.databaseId)] ??
-              defaultContentWidth
-            }
-            onContentWidthChange={(width: ContentWidth) =>
-              setContentWidth(databaseContentWidthKey(attachedDatabase.databaseId), width)
-            }
-            titleColumnName={
-              databaseTitleLabels[databaseContentWidthKey(attachedDatabase.databaseId)]
-            }
-            onTitleColumnNameChange={(name) =>
-              setDatabaseTitleLabel(databaseContentWidthKey(attachedDatabase.databaseId), name)
-            }
-            onRenameTitle={(name) => {
-              if (tab) handleRenameDatabaseTab(tab.key, name)
-            }}
-            onIconChange={(next) => handleSetIcon(doc.id, next)}
-            onOpenInNewTab={() =>
-              openDatabaseTab(attachedDatabase.databaseId, attachedDatabase.title, true)
-            }
-            onOpenNote={(id) => handleSelect(id)}
-            onOpenRowFullPage={(row) => handleSelect(row.noteId, row.title)}
-            onRenameRow={handleRenameDatabaseRow}
-            onLoadRowDocument={(row) => loadDoc(row.noteId, row.title)}
-            onRowContentChange={handleContentChange}
-            vault={vault ?? undefined}
-            onCatalogChanged={refreshDatabaseCatalog}
-            onRowCreated={async (row) => {
-              await refreshTree()
-              await loadDoc(row.noteId, row.title)
-            }}
-          />
+          databasesEnabled ? (
+            <React.Suspense fallback={<LazyEditorFallback />}>
+              <DatabaseWorkspace
+                databaseId={attachedDatabase.databaseId}
+                title={attachedDatabase.title}
+                icon={treeItem?.icon ?? attachedDatabase.icon}
+                hostKind="layer"
+                hostId={doc.id}
+                isLocked={isLayerLocked(lockedFileIds, viewModes, doc.id, "database")}
+                onToggleLock={() => handleToggleLayerLock(doc.id, "database")}
+                contentWidth={
+                  contentWidths[databaseContentWidthKey(attachedDatabase.databaseId)] ??
+                  defaultContentWidth
+                }
+                onContentWidthChange={(width: ContentWidth) =>
+                  setContentWidth(databaseContentWidthKey(attachedDatabase.databaseId), width)
+                }
+                titleColumnName={
+                  databaseTitleLabels[databaseContentWidthKey(attachedDatabase.databaseId)]
+                }
+                onTitleColumnNameChange={(name) =>
+                  setDatabaseTitleLabel(databaseContentWidthKey(attachedDatabase.databaseId), name)
+                }
+                onRenameTitle={(name) => {
+                  if (tab) handleRenameDatabaseTab(tab.key, name)
+                }}
+                onIconChange={(next) => handleSetIcon(doc.id, next)}
+                onOpenInNewTab={() =>
+                  openDatabaseTab(attachedDatabase.databaseId, attachedDatabase.title, true)
+                }
+                onOpenNote={(id) => handleSelect(id)}
+                onOpenRowFullPage={(row) => handleSelect(row.noteId, row.title)}
+                onRenameRow={handleRenameDatabaseRow}
+                onLoadRowDocument={handleLoadRowDocument}
+                onRowContentChange={handleContentChange}
+                vault={vault ?? undefined}
+                onCatalogChanged={refreshDatabaseCatalog}
+                onRowCreated={async (row) => {
+                  await refreshTree()
+                  await loadDoc(row.noteId, row.title)
+                }}
+              />
+            </React.Suspense>
+          ) : (
+            <ModuleRequiredFallback
+              moduleId="amby.databases"
+              moduleName={t("settings.modules.databases")}
+              onEnableModule={() => {
+                void setModuleEnabled("databases", true, { vault })
+              }}
+            />
+          )
         ) : undefined,
     }
   }
@@ -1709,7 +1762,7 @@ export function WorkspaceOrchestration() {
   }
   const editorPropsCacheRef = React.useRef(new Map<string, EditorPropsCacheEntry>())
   React.useEffect(() => {
-    const openKeys = new Set(documentTabs.map((tab) => tab.key))
+    const openKeys = new Set(documentTabs.map((tab) => `${tab.key}:${tab.fileId}`))
     for (const key of editorPropsCacheRef.current.keys()) {
       if (!openKeys.has(key)) editorPropsCacheRef.current.delete(key)
     }
@@ -1823,21 +1876,30 @@ export function WorkspaceOrchestration() {
             doc ? lockedFileIds.has(doc.id) : false,
             doc ? favorites.has(doc.id) : false,
             doc ? nestedNotesPlacements[doc.id] : undefined,
-            doc ? (openCanvases[canvasLayerPath(doc.path)] ?? openCanvases[doc.path]) : undefined,
-            doc ? (openSketches[sketchLayerPath(doc.path)] ?? openSketches[doc.path]) : undefined,
+            doc
+              ? (openCanvases[
+                  doc.path.endsWith(".canvas") ? doc.path : canvasLayerPath(doc.path)
+                ] ?? openCanvases[doc.path])
+              : undefined,
+            doc
+              ? (openSketches[
+                  doc.path.endsWith(".excalidraw") ? doc.path : sketchLayerPath(doc.path)
+                ] ?? openSketches[doc.path])
+              : undefined,
             vault,
             databasesEnabled,
             defaultViewMode,
             defaultContentWidth,
           ] as const
-          const cached = editorPropsCacheRef.current.get(tab.key)
+          const cacheKey = `${tab.key}:${tab.fileId}`
+          const cached = editorPropsCacheRef.current.get(cacheKey)
           const sameSignature =
             cached?.signature.length === signature.length &&
             cached.signature.every((value, index) => value === signature[index])
           const shouldRefresh = !cached || (visible && (!cached.wasVisible || !sameSignature))
           const props = shouldRefresh ? paneEditorProps(tab, !visible) : cached.props
           if (shouldRefresh) {
-            editorPropsCacheRef.current.set(tab.key, {
+            editorPropsCacheRef.current.set(cacheKey, {
               props,
               signature,
               wasVisible: visible || cached?.wasVisible === true,
@@ -1845,7 +1907,7 @@ export function WorkspaceOrchestration() {
           }
           return (
             <div
-              key={tab.key}
+              key={cacheKey}
               aria-hidden={!visible}
               className={
                 visible
@@ -1855,6 +1917,7 @@ export function WorkspaceOrchestration() {
             >
               <React.Suspense fallback={<LazyEditorFallback />}>
                 <ConnectedCachedDocumentEditor
+                  key={cacheKey}
                   editorProps={props}
                   visible={visible}
                   isFocusMode={isFocusMode}
@@ -1937,9 +2000,24 @@ export function WorkspaceOrchestration() {
         }}
       >
         {activeTab?.kind === "graph" ? (
-          <React.Suspense fallback={<LazyEditorFallback />}>
-            <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
-          </React.Suspense>
+          graphEnabled ? (
+            <React.Suspense fallback={<LazyEditorFallback />}>
+              <div
+                className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                style={{ boxShadow: "var(--note-surface-shadow)" }}
+              >
+                <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
+              </div>
+            </React.Suspense>
+          ) : (
+            <ModuleRequiredFallback
+              moduleId="amby.graph"
+              moduleName={t("settings.modules.graph")}
+              onEnableModule={() => {
+                void setModuleEnabled("graph", true, { vault })
+              }}
+            />
+          )
         ) : activeFolder?.type === "folder" ? (
           <FolderView
             folder={activeFolder}
@@ -2043,6 +2121,16 @@ export function WorkspaceOrchestration() {
           open={isHelpOpen}
           onOpenChange={setIsHelpOpen}
           initialContext={currentHelpContext}
+        />
+        <WorkspaceProfileModal
+          open={Boolean(pendingVaultPath)}
+          workspaceName={
+            pendingVaultPath
+              ? pendingVaultPath.replace(/\\/g, "/").split("/").filter(Boolean).pop() || undefined
+              : undefined
+          }
+          onConfirm={handleConfirmProfile}
+          onCancel={() => setPendingVaultPath(null)}
         />
         {deleteConfirmationDialog}
         {propertyMigrationDialog}
@@ -2188,9 +2276,24 @@ export function WorkspaceOrchestration() {
 
         <main className="flex flex-1 gap-0 overflow-hidden">
           {activeTab?.kind === "graph" ? (
-            <React.Suspense fallback={<LazyEditorFallback />}>
-              <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
-            </React.Suspense>
+            graphEnabled ? (
+              <React.Suspense fallback={<LazyEditorFallback />}>
+                <div
+                  className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                  style={{ boxShadow: "var(--note-surface-shadow)" }}
+                >
+                  <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
+                </div>
+              </React.Suspense>
+            ) : (
+              <ModuleRequiredFallback
+                moduleId="amby.graph"
+                moduleName={t("settings.modules.graph")}
+                onEnableModule={() => {
+                  void setModuleEnabled("graph", true, { vault })
+                }}
+              />
+            )
           ) : activeFolder?.type === "folder" ? (
             <FolderView
               folder={activeFolder}
@@ -2333,6 +2436,16 @@ export function WorkspaceOrchestration() {
         open={isHelpOpen}
         onOpenChange={setIsHelpOpen}
         initialContext={currentHelpContext}
+      />
+      <WorkspaceProfileModal
+        open={Boolean(pendingVaultPath)}
+        workspaceName={
+          pendingVaultPath
+            ? pendingVaultPath.replace(/\\/g, "/").split("/").filter(Boolean).pop() || undefined
+            : undefined
+        }
+        onConfirm={handleConfirmProfile}
+        onCancel={() => setPendingVaultPath(null)}
       />
     </div>
   )

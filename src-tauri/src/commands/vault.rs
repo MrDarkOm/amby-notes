@@ -14,6 +14,11 @@ pub fn grant_vault_scopes(app: &tauri::AppHandle, vault: &Path) -> Result<(), St
     app.asset_protocol_scope()
         .allow_directory(vault, true)
         .map_err(|error| error.to_string())?;
+    if let Ok(modules_dir) = crate::package_manager::modules_root(app) {
+        let _ = app
+            .asset_protocol_scope()
+            .allow_directory(&modules_dir, true);
+    }
     Ok(())
 }
 

@@ -346,6 +346,12 @@ pub fn create_database_property(
                 .push("Projection rebuild required".to_owned());
         }
     }
+    tracing::info!(
+        event = "create_database_property",
+        database_id = %request.database_id,
+        property_id = %created.property_id,
+        property_name = %created.name,
+    );
     Ok(created)
 }
 
@@ -391,6 +397,12 @@ pub fn change_database_property_type(
                 .push("Projection rebuild required".to_owned());
         }
     }
+    tracing::info!(
+        event = "change_database_property_type",
+        database_id = %request.database_id,
+        property_id = %request.property_id,
+        target_type = ?request.property_type,
+    );
     Ok(changed)
 }
 
@@ -436,6 +448,11 @@ pub fn delete_database_property(
                 .push("Projection rebuild required".to_owned());
         }
     };
+    tracing::info!(
+        event = "delete_database_property",
+        database_id = %request.database_id,
+        property_id = %request.property_id,
+    );
     Ok(deleted)
 }
 
@@ -570,6 +587,12 @@ pub fn rename_database_property(
                 .push("Projection rebuild required".to_owned());
         }
     }
+    tracing::info!(
+        event = "rename_database_property",
+        database_id = %request.database_id,
+        property_id = %request.property_id,
+        new_name = %request.name,
+    );
     Ok(renamed)
 }
 
@@ -645,6 +668,11 @@ pub fn apply_database_value_batch(
                 .push(format!("Incremental projection update required: {error}"));
         }
     }
+    tracing::info!(
+        event = "apply_database_value_batch",
+        database_id = %request.database_id,
+        updates_count = request.cells.len(),
+    );
     mutation_state.remember(actual_generation, request, result.clone());
     Ok(result)
 }
@@ -923,6 +951,12 @@ pub fn create_database_row(
                 .push("Projection rebuild required".to_owned());
         }
     }
+    tracing::info!(
+        event = "create_database_row",
+        database_id = %request.database_id,
+        title = %request.title,
+        row_id = %created.note_id,
+    );
     Ok(created)
 }
 

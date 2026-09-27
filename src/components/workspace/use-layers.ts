@@ -18,6 +18,7 @@ import { splitWebFrontmatter, webRevision } from "@/lib/storage/web-frontmatter"
 import { useDatabaseStore } from "./database/database-store"
 import { noteLayerPath, wsPathDir } from "./workspace-tree-utils"
 import { recordLocalTreePaths } from "./watcher-tree-reconciliation"
+import { flushEditorSerializations } from "./tiptap/editor-serialization-lifecycle"
 
 function patchDocBuffer(fileId: string, path: string | undefined, patch: Partial<Document>) {
   useDocStore.getState().patchDoc(fileId, patch)
@@ -154,6 +155,7 @@ export function useLayers({
   )
 
   const handleLayerChange = async (layer: EditorLayer) => {
+    flushEditorSerializations()
     const doc = currentDoc
     if (!doc) return
     if (layer === "database") {

@@ -322,6 +322,17 @@ export function SourceEditor({
       },
       flush: flushChange,
       getMarkdownSelection: () => selectionRef.current,
+      focus: (position?: "start" | "end") => {
+        const view = viewRef.current
+        if (view) {
+          const pos = position === "end" ? view.state.doc.length : 0
+          view.dispatch({
+            selection: { anchor: pos, head: pos },
+            scrollIntoView: true,
+          })
+          view.focus()
+        }
+      },
     }
     return () => {
       if ((editorRef as React.MutableRefObject<EditorHandle>).current) {

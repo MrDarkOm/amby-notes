@@ -9,6 +9,7 @@ pub mod sync;
 pub mod tags;
 
 pub use connection::*;
+pub use identity::*;
 pub use links::*;
 pub use note_index::*;
 pub use query::*;

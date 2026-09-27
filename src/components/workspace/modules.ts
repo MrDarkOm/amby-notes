@@ -129,6 +129,20 @@ export const MODULE_REGISTRY: ModuleDef[] = [
     manifest: { permissions: ["ui-panel", "read-notes", "write-notes"] },
     panels: ["ai"],
   },
+  {
+    id: "excalidraw",
+    labelKey: "settings.modules.excalidraw",
+    descriptionKey: "settings.modules.descriptions.excalidraw",
+    status: "ready",
+    manifest: { permissions: ["ui-panel", "read-notes", "write-notes"] },
+  },
+  {
+    id: "canvas",
+    labelKey: "settings.modules.canvas",
+    descriptionKey: "settings.modules.descriptions.canvas",
+    status: "beta",
+    manifest: { permissions: ["ui-panel", "read-notes", "write-notes"] },
+  },
 ]
 
 export const ALL_MODULE_IDS: string[] = MODULE_REGISTRY.map((m) => m.id)
@@ -138,7 +152,8 @@ export const READY_MODULE_IDS: string[] = MODULE_REGISTRY.filter(
 ).map((module) => module.id)
 
 export function findModule(id: string): ModuleDef | undefined {
-  return MODULE_REGISTRY.find((m) => m.id === id)
+  const short = id.startsWith("amby.") ? id.slice(5) : id
+  return MODULE_REGISTRY.find((m) => m.id === id || m.id === short || `amby.${m.id}` === id)
 }
 
 /**

@@ -1176,7 +1176,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  width: 24px;
   height: 1.7em;
   margin-top: 0;
   position: relative;
@@ -1193,7 +1193,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  width: 24px;
   height: 1.7em;
   font-size: 1.25rem;
   line-height: 1;
@@ -1218,22 +1218,87 @@
 .amby-callout-content-wrap {
   flex: 1 1 0;
   min-width: 0;
-  /* Native emoji sit optically above the text box. Lift the editable content
-     so the first text row stays centred against the emoji at every height. */
-  transform: translateY(-0.55em);
 }
 
-.amby-callout-content > :first-child {
+.amby-callout-anim {
+  min-width: 0;
+}
+
+.amby-tiptap .ProseMirror .amby-callout-node p,
+.amby-callout-node .amby-callout-content p {
   margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
 }
 
-.amby-callout-content > p {
-  margin-right: 0;
-  margin-bottom: 0;
-  margin-left: 0;
+.amby-tiptap .ProseMirror .amby-callout-node p + p,
+.amby-callout-node .amby-callout-content p + p {
+  margin-top: 0.4rem !important;
 }
-.amby-callout-content > p + p {
-  margin-top: 0.4rem;
+
+/* ── Callout folding ──────────────────────────────────────────────────────── */
+.amby-callout-fold-slot {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 1.7em;
+}
+
+.amby-callout-fold-slot.is-optional {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.amby-callout-node:hover .amby-callout-fold-slot.is-optional {
+  opacity: 0.5;
+  pointer-events: auto;
+}
+
+.amby-callout-node:hover .amby-callout-fold-slot.is-optional:hover {
+  opacity: 1;
+}
+
+.amby-callout-fold-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.amby-callout-node[data-foldable="true"] .amby-callout-fold-btn {
+  opacity: 0.85;
+}
+
+.amby-callout-fold-btn:hover {
+  background: var(--callout-emoji-hover-bg);
+  color: hsl(var(--foreground));
+  opacity: 1 !important;
+}
+
+.amby-callout-node.is-collapsed .amby-callout-content > :first-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.amby-callout-title {
+  font-size: 0.96rem;
+  line-height: 1.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 /* ── Block handles (Notion-style gutter controls) ────────────────────────────
@@ -2001,15 +2066,12 @@ body.amby-resizing-columns * {
   max-height: min(70vh, 720px);
   height: auto;
   object-fit: contain;
-  border-radius: 10px;
-  border: 1px solid var(--image-border, var(--border));
-  background: var(--surface-bg, var(--card));
-  box-shadow: var(--image-shadow);
+  border-radius: 8px;
+  background: transparent;
 }
 
 .amby-image-wrap.is-selected img {
-  border-color: var(--image-selected-border);
-  box-shadow: var(--image-selected-shadow);
+  outline: none;
 }
 
 .amby-image-wrap img.is-broken {
@@ -2038,6 +2100,114 @@ body.amby-resizing-columns * {
 .amby-image-wrap--right {
   display: block;
   text-align: right;
+}
+
+.amby-image-container {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+  border-radius: 8px;
+}
+
+.amby-image-resizer {
+  position: absolute;
+  z-index: 10;
+  opacity: 0;
+  user-select: none;
+  cursor: ew-resize;
+}
+
+.amby-image-wrap:hover .amby-image-resizer,
+.amby-image-wrap.is-selected .amby-image-resizer,
+.amby-image-wrap.is-resizing .amby-image-resizer {
+  opacity: 1;
+}
+
+.amby-image-resizer::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 48px;
+  cursor: ew-resize;
+}
+
+.amby-image-resizer--right {
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 36px;
+  border-radius: 9999px;
+  background: hsl(var(--foreground) / 0.35);
+  box-shadow:
+    0 0 0 1px hsl(var(--background) / 0.3),
+    0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.amby-image-resizer--left {
+  top: 50%;
+  left: 6px;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 36px;
+  border-radius: 9999px;
+  background: hsl(var(--foreground) / 0.35);
+  box-shadow:
+    0 0 0 1px hsl(var(--background) / 0.3),
+    0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.amby-image-resizer:hover,
+.amby-image-wrap.is-resizing .amby-image-resizer {
+  background: hsl(var(--primary));
+  box-shadow:
+    0 0 0 1px hsl(var(--background) / 0.4),
+    0 1px 6px rgba(0, 0, 0, 0.35);
+}
+
+.amby-image-size-badge {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  background: hsl(var(--card) / 0.9);
+  color: hsl(var(--foreground));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  z-index: 20;
+}
+
+.amby-ctx-size-preset-btn {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.amby-ctx-size-preset-btn:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.amby-ctx-size-preset-btn.is-active {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
 }
 
 /* ── emoji-mart custom element — CSS custom properties pierce shadow DOM ─────
@@ -3260,6 +3430,15 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
    Sketch (Excalidraw) Workspace Styling
    ========================================================================== */
 
+.amby-sketch-editor .excalidraw,
+.amby-sketch-editor .excalidraw .excalidraw-container,
+.amby-sketch-editor .excalidraw.theme--dark,
+.amby-sketch-editor .excalidraw.theme--dark .excalidraw-container {
+  --color-surface-lowest: var(--note-surface) !important;
+  --color-surface-low: var(--note-surface) !important;
+  background-color: var(--note-surface) !important;
+}
+
 /* Hide native Excalidraw footer (zoom, undo/redo, help button) and help items */
 .amby-sketch-editor .excalidraw .layer-ui__wrapper__footer,
 .amby-sketch-editor .excalidraw .layer-ui__wrapper__footer-left,
@@ -3498,4 +3677,531 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
   .excalidraw-hyperlinkContainer[data-amby-note="true"]
   .amby-sketch-browse-btn:hover {
   background-color: hsl(var(--accent) / 0.8) !important;
+}
+/* ── Debug workspace ─────────────────────────────────────────────────────── */
+.amby-debug-dialog {
+  --debug-surface: hsl(var(--card));
+  --debug-line: hsl(var(--border));
+  --debug-muted: hsl(var(--muted-foreground));
+  background: hsl(var(--background));
+  width: min(94vw, 1020px) !important;
+  max-width: 1020px !important;
+  height: min(88vh, 850px) !important;
+  max-height: 850px !important;
+}
+
+.amby-debug-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--debug-line);
+}
+
+.amby-debug-header p {
+  margin-top: 0.25rem;
+  color: var(--debug-muted);
+  font-size: 11px;
+}
+.amby-debug-tabs {
+  display: flex;
+  flex-direction: column;
+  padding: 0.5rem 1.25rem 1rem;
+}
+.amby-debug-tab-list {
+  width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  height: auto;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.25rem;
+  justify-content: stretch;
+  padding: 0.25rem;
+  background: hsl(var(--background));
+  border: 1px solid var(--debug-line);
+}
+.amby-debug-tab-list [role="tab"] {
+  display: flex;
+  min-width: 0;
+  height: auto;
+  min-height: 2.65rem;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.1rem;
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+  white-space: normal;
+}
+.amby-debug-tab-list [role="tab"] > span {
+  font-size: 11px;
+  line-height: 1.2;
+}
+.amby-debug-tab-list [role="tab"] > small {
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--debug-muted);
+  font-size: 9px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+}
+.amby-debug-pane {
+  overflow: auto;
+  padding: 1rem 0;
+}
+.amby-debug-pane[hidden] {
+  display: none !important;
+}
+.amby-debug-pane--logs {
+  overflow: hidden;
+}
+.amby-debug-disclosure {
+  margin-top: 0.55rem;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.5rem;
+  background: hsl(var(--card) / 0.45);
+}
+.amby-debug-disclosure > summary {
+  padding: 0.55rem 0.7rem;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  list-style-position: inside;
+}
+.amby-debug-disclosure > summary:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.amby-debug-disclosure > :not(summary) {
+  margin-right: 0.65rem;
+  margin-left: 0.65rem;
+}
+.amby-debug-status-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.15rem;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.65rem;
+  background: var(--debug-surface);
+}
+.amby-debug-status-banner.is-healthy {
+  border-color: hsl(142 55% 42% / 0.35);
+  background: hsl(142 55% 42% / 0.06);
+}
+.amby-debug-status-banner.is-error {
+  border-color: hsl(var(--destructive) / 0.35);
+  background: hsl(var(--destructive) / 0.06);
+}
+.amby-debug-action-card {
+  padding: 1rem 1.15rem;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.65rem;
+  background: var(--debug-surface);
+}
+.amby-debug-action-card:hover {
+  border-color: hsl(var(--primary) / 0.4);
+}
+.amby-debug-overview-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.65rem;
+  background: var(--debug-surface);
+}
+.amby-debug-overview-summary h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+.amby-debug-overview-summary p,
+.amby-debug-report-intro {
+  margin: 0.3rem 0 0;
+  color: var(--debug-muted);
+  font-size: 11px;
+}
+.amby-debug-overview-actions,
+.amby-debug-section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.amby-debug-section-toolbar {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-bottom: 0.6rem;
+}
+.amby-debug-section-toolbar h3 {
+  font-size: 13px;
+  font-weight: 600;
+}
+.amby-debug-section-toolbar p {
+  color: var(--debug-muted);
+  font-size: 10px;
+}
+.amby-debug-error-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.5rem;
+  color: hsl(var(--foreground));
+  font-size: 11px;
+}
+.amby-debug-error-filter input {
+  accent-color: hsl(var(--primary));
+}
+.amby-debug-advanced-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr));
+  gap: 0.45rem;
+  padding: 0 0 0.65rem;
+}
+.amby-debug-advanced-filters > select,
+.amby-debug-advanced-filters > label > input {
+  min-width: 0;
+  height: 2rem;
+  padding: 0 0.45rem;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.4rem;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-size: 11px;
+}
+.amby-debug-advanced-filters > label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  color: var(--debug-muted);
+  font-size: 10px;
+}
+.amby-debug-danger-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0 0.25rem;
+  border-top: 1px solid var(--debug-line);
+  color: var(--debug-muted);
+  font-size: 10px;
+}
+.amby-debug-danger-action > span {
+  max-width: 44rem;
+}
+.amby-debug-report-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0.65rem 0;
+  padding: 0;
+  list-style: none;
+}
+.amby-debug-report-steps > li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.55rem;
+  background: var(--debug-surface);
+}
+.amby-debug-report-steps > li.is-active {
+  border-color: hsl(var(--primary) / 0.6);
+}
+.amby-debug-report-steps > li.is-complete {
+  border-color: hsl(142 55% 42% / 0.5);
+}
+.amby-debug-report-steps strong {
+  font-size: 11px;
+}
+.amby-debug-report-steps p,
+.amby-debug-disclosure > p {
+  margin-top: 0.2rem;
+  color: var(--debug-muted);
+  font-size: 10px;
+}
+.amby-debug-counters,
+.amby-debug-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+  gap: 0.5rem;
+}
+.amby-debug-counters {
+  padding: 0.65rem 1.25rem;
+  border-bottom: 1px solid var(--debug-line);
+}
+.amby-debug-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 0.2rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.5rem;
+  background: var(--debug-surface);
+}
+.amby-debug-stat span {
+  color: var(--debug-muted);
+  font-size: 10px;
+}
+.amby-debug-stat strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.amby-debug-editor-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.8rem;
+  color: var(--debug-muted);
+  font-size: 11px;
+}
+.amby-debug-editor-reasons strong {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+.amby-debug-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: 0.75rem;
+}
+.amby-debug-card {
+  padding: 1rem;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.65rem;
+  background: var(--debug-surface);
+}
+.amby-debug-card h3,
+.amby-debug-section-title {
+  margin-bottom: 0.75rem;
+  font-size: 13px;
+  font-weight: 600;
+}
+.amby-debug-unavailable,
+.amby-debug-empty {
+  padding: 1.5rem;
+  color: var(--debug-muted);
+  text-align: center;
+  font-size: 12px;
+}
+.amby-debug-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 2fr) repeat(3, minmax(110px, 1fr));
+  gap: 0.45rem;
+  padding-bottom: 0.75rem;
+  flex: 0 0 auto;
+}
+.amby-debug-filters select,
+.amby-debug-filters label input {
+  min-width: 0;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.4rem;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-size: 11px;
+}
+.amby-debug-filters label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--debug-muted);
+  font-size: 10px;
+}
+.amby-debug-filters .amby-debug-checkbox {
+  grid-column: span 2;
+}
+.amby-debug-paused {
+  margin-bottom: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 0.4rem;
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+  font-size: 11px;
+}
+.amby-debug-event-list,
+.amby-debug-slow-list {
+  min-height: 80px;
+  min-width: 0;
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.5rem;
+  background: hsl(var(--background));
+}
+.amby-debug-event {
+  border-bottom: 1px solid var(--debug-line);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+.amby-debug-event.is-error {
+  border-left: 2px solid #ef4444;
+}
+.amby-debug-event.is-warn {
+  border-left: 2px solid #f59e0b;
+}
+.amby-debug-event-head {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  color: hsl(var(--foreground));
+  text-align: left;
+}
+.amby-debug-event-head > svg {
+  width: 12px;
+  height: 12px;
+  color: var(--debug-muted);
+}
+.amby-debug-event-head time,
+.amby-debug-source,
+.amby-debug-subsystem {
+  color: var(--debug-muted);
+}
+.amby-debug-event-head strong {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.amby-debug-level {
+  color: #60a5fa;
+  text-transform: uppercase;
+}
+.amby-debug-event.is-error .amby-debug-level {
+  color: #f87171;
+}
+.amby-debug-event.is-warn .amby-debug-level {
+  color: #fbbf24;
+}
+.amby-debug-repeat {
+  color: #f87171;
+}
+.amby-debug-event-details {
+  padding: 0.25rem 0.8rem 0.7rem 2rem;
+  color: var(--debug-muted);
+}
+.amby-debug-event-details pre,
+.amby-debug-report-preview {
+  max-height: 220px;
+  overflow: auto;
+  margin-top: 0.5rem;
+  padding: 0.65rem;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.4rem;
+  background: hsl(var(--background));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.amby-debug-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.65rem;
+}
+.amby-debug-report-actions > span {
+  color: var(--debug-muted);
+  font-size: 11px;
+}
+.amby-debug-description {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.8rem 0;
+  font-size: 11px;
+}
+.amby-debug-description textarea {
+  min-height: 64px;
+  resize: vertical;
+  padding: 0.5rem;
+  border: 1px solid var(--debug-line);
+  border-radius: 0.4rem;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+.amby-debug-report-preview {
+  flex: 1;
+  max-height: none;
+  min-height: 180px;
+  font-size: 10px;
+}
+.amby-debug-alert {
+  padding: 0.45rem 1.25rem;
+  background: hsl(0 72% 45% / 0.12);
+  color: #ef4444;
+  font-size: 11px;
+}
+.amby-debug-alert.is-success {
+  background: hsl(142 72% 35% / 0.12);
+  color: #22c55e;
+}
+.amby-debug-settings-error {
+  padding: 0.5rem 1rem;
+  color: #ef4444;
+  font-size: 11px;
+}
+.amby-debug-indicator-count {
+  min-width: 1rem;
+  padding: 0 0.2rem;
+  border-radius: 9999px;
+  background: hsl(var(--background) / 0.3);
+  text-align: center;
+  font-size: 9px;
+}
+
+@media (max-width: 760px) {
+  .amby-debug-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .amby-debug-tabs {
+    padding: 0.45rem 0.65rem 0.65rem;
+  }
+  .amby-debug-tab-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .amby-debug-tab-list [role="tab"] {
+    min-height: 2.35rem;
+  }
+  .amby-debug-filters {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .amby-debug-overview-summary,
+  .amby-debug-section-toolbar,
+  .amby-debug-report-steps > li {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .amby-debug-section-actions,
+  .amby-debug-overview-actions {
+    width: 100%;
+  }
+  .amby-debug-section-actions > button,
+  .amby-debug-overview-actions > button {
+    flex: 1 1 auto;
+  }
+  .amby-debug-event-list {
+    min-height: 60px;
+  }
 }

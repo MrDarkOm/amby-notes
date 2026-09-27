@@ -11,6 +11,16 @@ export interface AutosaveSnapshot<T> {
   key: AutosaveKey
   version: number
   value: T
+  /** Explicit correlation context, present only when diagnostics are attached. */
+  operationId?: string
+}
+
+export interface AutosaveDiagnostic {
+  key: AutosaveKey
+  operationId: string
+  phase: "started" | "succeeded" | "failed"
+  queueWaitMs: number
+  durationMs?: number
 }
 
 export interface AutosavePendingState {
@@ -35,6 +45,7 @@ export interface AutosaveCoordinatorOptions<T> {
   onSaveSuccess?(snapshot: AutosaveSnapshot<T>): void
   onSaveFailure?(snapshot: AutosaveSnapshot<T>, error: unknown): void
   timer?: AutosaveTimer
+  onDiagnostic?(event: AutosaveDiagnostic): void
 }
 
 interface BufferState<T> {
@@ -47,6 +58,7 @@ interface BufferState<T> {
   paused: boolean
   inFlight?: Promise<void>
   lastError?: unknown
+  queuedAt?: number
 }
 
 const browserTimer: AutosaveTimer = {
@@ -202,6 +214,7 @@ export class AutosaveCoordinator<T> {
     const id = keyId(key)
     const existing = this.states.get(id)
     if (existing) {
+      existing.queuedAt ??= performance.now()
       existing.version += 1
       existing.value = value
       existing.lastError = undefined
@@ -214,6 +227,7 @@ export class AutosaveCoordinator<T> {
       value,
       ready: false,
       paused: false,
+      queuedAt: performance.now(),
     }
     this.states.set(id, state)
     return state
@@ -227,10 +241,39 @@ export class AutosaveCoordinator<T> {
       version: state.version,
       value: state.value,
     }
-    const promise = Promise.resolve().then(() => this.options.save(snapshot))
+    if (this.options.onDiagnostic) {
+      try {
+        snapshot.operationId = crypto.randomUUID()
+      } catch {
+        /* Saving also works without diagnostics IDs. */
+      }
+    }
+    const queueWaitMs = Math.max(0, performance.now() - (state.queuedAt ?? performance.now()))
+    state.queuedAt = undefined
+    let started = performance.now()
+    const notify = (phase: AutosaveDiagnostic["phase"]) => {
+      if (!snapshot.operationId) return
+      try {
+        this.options.onDiagnostic?.({
+          key: copyKey(snapshot.key),
+          operationId: snapshot.operationId,
+          phase,
+          queueWaitMs,
+          ...(phase !== "started" ? { durationMs: Math.max(0, performance.now() - started) } : {}),
+        })
+      } catch {
+        /* Observability must never change the outcome of a user save. */
+      }
+    }
+    const promise = Promise.resolve().then(() => {
+      started = performance.now()
+      notify("started")
+      return this.options.save(snapshot)
+    })
     state.inFlight = promise
     void promise.then(
       () => {
+        notify("succeeded")
         if (!this.isCurrent(state)) return
         if (state.inFlight === promise) state.inFlight = undefined
         state.savedVersion = Math.max(state.savedVersion, snapshot.version)
@@ -239,6 +282,7 @@ export class AutosaveCoordinator<T> {
         this.startNext(state)
       },
       (error: unknown) => {
+        notify("failed")
         if (!this.isCurrent(state)) return
         if (state.inFlight === promise) state.inFlight = undefined
         if (snapshot.version === state.version) state.lastError = error

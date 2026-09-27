@@ -123,6 +123,15 @@ interface RecoveryQueueState {
 
 const recoveryQueue = new Map<string, RecoveryQueueState>()
 
+/** Counts only this renderer's active queue, without reading or exposing drafts. */
+export function inspectRecoveryQueue(scope?: RecoveryScope): { pending: number; failed: number } {
+  const states = [...recoveryQueue.values()].filter((state) => sameScope(state.scope, scope))
+  return {
+    pending: states.filter((state) => state.savedVersion < state.version).length,
+    failed: states.filter((state) => state.lastError !== undefined).length,
+  }
+}
+
 function clearRecoveryTimers(state: RecoveryQueueState) {
   if (state.timer) clearTimeout(state.timer)
   if (state.maxTimer) clearTimeout(state.maxTimer)

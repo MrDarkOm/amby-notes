@@ -106,6 +106,7 @@ export function useDatabaseQuery({
       setHost({ ...current, status: "loading", error: null })
 
       const promise = (async () => {
+        let shouldRefetchStale = false
         try {
           const filter = normalizedFilters.length
             ? {
@@ -209,16 +210,17 @@ export function useDatabaseQuery({
             nextCursor: result.nextCursor,
             totalCount: result.totalCount,
           })
+
+          if (useDatabaseStore.getState().invalidationSeq > currentInvalidationSeq) {
+            shouldRefetchStale = true
+          }
         } catch (error) {
           const state = useDatabaseStore.getState()
           if (state.vaultGeneration !== vaultGeneration) return
 
           if (cursor && isStaleCursor(error)) {
-            void loadPage(null, false)
-            return
-          }
-
-          if (querySequences.get(key) === requestSeq) {
+            shouldRefetchStale = true
+          } else if (querySequences.get(key) === requestSeq) {
             const latest = state.hosts[key] ?? current
             setHost({
               ...latest,
@@ -226,9 +228,16 @@ export function useDatabaseQuery({
               error: messageOf(error),
               loadedInvalidationSeq: currentInvalidationSeq,
             })
+            if (useDatabaseStore.getState().invalidationSeq > currentInvalidationSeq) {
+              shouldRefetchStale = true
+            }
           }
         } finally {
           inFlightQueries.delete(inFlightKey)
+        }
+
+        if (shouldRefetchStale) {
+          void loadPage(null, false)
         }
       })()
 

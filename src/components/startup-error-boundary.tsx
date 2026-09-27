@@ -39,8 +39,11 @@ export class StartupErrorBoundary extends Component<
     if (!error) return
 
     try {
-      await exportTextFile(startupDiagnosticReport(error), "amby-diagnostic-report.txt")
-      this.setState({ reportStatus: "saved" })
+      const saved = await exportTextFile(
+        startupDiagnosticReport(error),
+        "amby-diagnostic-report.json",
+      )
+      this.setState({ reportStatus: saved ? "saved" : "idle" })
     } catch {
       this.setState({ reportStatus: "failed" })
     }

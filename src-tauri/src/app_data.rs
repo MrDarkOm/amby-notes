@@ -19,7 +19,7 @@ use crate::paths;
 use crate::vault_context::VaultContext;
 
 /// Root of the global app-data area: `{local_data_dir}/Amby/notes`. Created if missing.
-fn app_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub fn app_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     #[cfg(feature = "native-contract")]
     {
         let root = app

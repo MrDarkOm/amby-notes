@@ -7,7 +7,7 @@ import { LogicalSize } from "@tauri-apps/api/dpi"
 import i18n from "@/lib/i18n"
 import { isTauri } from "@/lib/storage"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
-import { errorType, logger } from "@/lib/logger"
+import { errorType, logger, configureLogger } from "@/lib/logger"
 import {
   APP_FONT_FAMILY,
   APP_FONT_SCALE,
@@ -76,10 +76,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   hydrate: async () => {
     if (get().hydrated) return
     const s = await loadSettings()
+    if (s.prefs.debug) {
+      configureLogger(s.prefs.debug)
+    }
     set({ prefs: s.prefs, experimental: s.experimental, themes: s.themes, hydrated: true })
   },
   setPrefs: async (patch) => {
     const prefs = { ...get().prefs, ...patch }
+    if (prefs.debug) {
+      configureLogger(prefs.debug)
+    }
     set({ prefs, lastSaveError: null })
     try {
       await saveSettingsPatch({ prefs })
@@ -134,7 +140,12 @@ export function useApplyPreferences(): boolean {
     return adoptAsyncDisposer(
       listen<PreferencesChangedPayload>(PREFERENCES_CHANGED_EVENT, (event) => {
         const patch: Partial<Pick<SettingsStore, "prefs" | "experimental" | "themes">> = {}
-        if (event.payload.prefs) patch.prefs = event.payload.prefs
+        if (event.payload.prefs) {
+          patch.prefs = event.payload.prefs
+          if (event.payload.prefs.debug) {
+            configureLogger(event.payload.prefs.debug)
+          }
+        }
         if (event.payload.experimental) patch.experimental = event.payload.experimental
         if (event.payload.themes) patch.themes = event.payload.themes
         useSettingsStore.setState(patch)

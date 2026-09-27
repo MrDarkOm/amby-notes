@@ -8,7 +8,6 @@ use crate::frontmatter;
 use crate::model::*;
 use crate::paths;
 use crate::recycle_bin;
-use crate::system_recycle_bin;
 use crate::vault_context::VaultContext;
 use crate::vault_index;
 use crate::watcher::{self, PathFingerprint, WatcherState};
@@ -394,7 +393,14 @@ pub fn create_note(
         }
     };
     let vault = db.root()?;
-    Ok(sync_mutation_result(&db, &vault, result))
+    let outcome = sync_mutation_result(&db, &vault, result);
+    tracing::info!(
+        event = "create_note",
+        parent = %parent_path.display(),
+        name = %name,
+        primary_path = ?outcome.mutation.primary_path,
+    );
+    Ok(outcome)
 }
 
 #[tauri::command]
@@ -759,6 +765,7 @@ pub fn create_folder(
     match fs::create_dir_all(&path) {
         Ok(()) => {
             watcher_state.confirm_prepared_write(&prepared);
+            tracing::info!(event = "create_folder", path = %path.display());
             Ok(())
         }
         Err(error) => {
@@ -845,6 +852,11 @@ pub fn rename_item(
     if conn.generation != generation {
         return Err("Vault changed while applying rename".to_string());
     }
+    tracing::info!(
+        event = "rename_item",
+        path = %path.display(),
+        new_name = %new_name,
+    );
     Ok(outcome)
 }
 
@@ -868,7 +880,7 @@ pub fn delete_item(
             .map(|path| (path, PathFingerprint::Missing)),
     );
     let prepared = watcher_state.prepare_write(writes);
-    let result = match system_recycle_bin::move_to_system_trash(&vault, &path) {
+    let result = match recycle_bin::move_to_trash(&vault, &path) {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared);
             result
@@ -879,6 +891,7 @@ pub fn delete_item(
         }
     };
     let vault = db.root()?;
+    tracing::info!(event = "delete_item", path = %path.display());
     Ok(sync_mutation_result(&db, &vault, result))
 }
 

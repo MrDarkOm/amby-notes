@@ -23,6 +23,9 @@ import { useTabsStore } from "../use-tabs-store"
 import { useVaultStore } from "../use-vault-store"
 import { useViewStateStore, type EditorLayer } from "../use-view-state-store"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
+import { moduleHost } from "@/lib/modules/host"
+import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
+import { logger } from "@/lib/logger"
 
 type Params = Pick<
   UseFileActionsParams,
@@ -58,6 +61,7 @@ export function useDocumentLoading({
   if (!loadRegistryRef.current) loadRegistryRef.current = new InFlightDocumentLoads<Document>()
   const loadDoc = React.useCallback(
     (fileId: string, itemName: string): Promise<Document> => {
+      logger.info("doc.load", { fileId, name: itemName })
       const existing = useDocStore.getState().openDocs[fileId]
       if (existing) return Promise.resolve(existing)
       const scope = JSON.stringify([vault, backendGeneration])
@@ -75,16 +79,30 @@ export function useDocumentLoading({
           )
         }
         const item = findTabTreeItem(treeItems, fileId)
+        const effectivePath = item?.path ?? fileId.replace(/^(canvas|sketch|database):/u, "")
+        const dotIdx = effectivePath.lastIndexOf(".")
+        const fileExt = dotIdx !== -1 ? effectivePath.slice(dotIdx) : ""
+        const fileHandler = fileExt ? moduleHost.files.getHandler(fileExt) : undefined
         const isCanvas =
-          item?.type === "canvas" || fileId.endsWith(".canvas") || fileId.startsWith("canvas:")
+          fileHandler?.viewKind === "canvas" ||
+          item?.type === "canvas" ||
+          fileId.endsWith(".canvas") ||
+          fileId.startsWith("canvas:")
         const isSketch =
-          item?.type === "sketch" || fileId.endsWith(".excalidraw") || fileId.startsWith("sketch:")
+          fileHandler?.viewKind === "sketch" ||
+          item?.type === "sketch" ||
+          fileId.endsWith(".excalidraw") ||
+          fileId.startsWith("sketch:")
+        const isDatabase =
+          fileHandler?.viewKind === "database" ||
+          item?.type === "database" ||
+          fileId.startsWith("database:")
 
-        if (isCanvas || isSketch) {
-          const path = item?.path ?? fileId.replace(/^(canvas|sketch):/u, "")
+        if (isCanvas || isSketch || isDatabase) {
+          const path = effectivePath
           if (isCanvas) {
             await loadCanvas(path)
-          } else {
+          } else if (isSketch) {
             await loadSketch(path)
           }
           let noteContent = ""
@@ -111,7 +129,7 @@ export function useDocumentLoading({
             if (!revision) {
               const split = splitWebFrontmatter(source)
               noteContent = split ? split.body : source
-              if (!noteId) revision = webRevision(noteContent)
+              revision = webRevision(noteContent)
             }
           } catch {
             // No markdown layer yet
@@ -132,7 +150,13 @@ export function useDocumentLoading({
           if (path && path !== fileId) {
             setDoc(path, document)
           }
-          const targetLayer: EditorLayer = isCanvas ? "canvas" : "sketch"
+          const targetLayer: EditorLayer = isCanvas
+            ? "canvas"
+            : isSketch
+              ? "sketch"
+              : isDatabase
+                ? "database"
+                : "editor"
           if (!useViewStateStore.getState().activeLayers[fileId]) {
             useViewStateStore.getState().setActiveLayer(fileId, targetLayer)
           }
@@ -218,6 +242,7 @@ export function useDocumentLoading({
   )
   const openTreeItem = React.useCallback(
     async (fileId: string, inNewTab = false, displayTitle?: string) => {
+      flushEditorSerializations()
       const item = findTabTreeItem(treeItems, fileId)
       if (!item) return
       const request = ++selectionRequestRef.current
@@ -234,6 +259,11 @@ export function useDocumentLoading({
         initial.tabs.some((tab) => tab.kind === target.kind && tab.fileId === target.fileId) &&
         (target.kind === "database" || docExists)
       ) {
+        logger.info("tree.activate_tab", {
+          fileId: target.fileId,
+          title: target.title,
+          kind: target.kind,
+        })
         initial.setTabs((tabs) =>
           tabs.map((tab) =>
             tab.kind === target.kind && tab.fileId === target.fileId
@@ -247,10 +277,36 @@ export function useDocumentLoading({
         openItem(target)
         return
       }
+      logger.info("tree.open_file", {
+        fileId: target.fileId,
+        title: target.title,
+        kind: target.kind,
+        inNewTab,
+      })
       try {
+        const filePath = item.path ?? item.id
+        const dotIdx = filePath.lastIndexOf(".")
+        const fileExt = dotIdx !== -1 ? filePath.slice(dotIdx) : ""
+        const fileHandler = fileExt ? moduleHost.files.getHandler(fileExt) : undefined
+        if (fileHandler?.openDocument) {
+          const ctx = moduleHost.getModuleContext(fileHandler.moduleId) ?? {
+            moduleId: fileHandler.moduleId,
+            vault,
+            isSafeMode: moduleHost.safeMode.isEnabled(),
+          }
+          fileHandler.openDocument(filePath, ctx)
+        }
+
         if (item.type === "file") {
           await loadDoc(item.id, target.title)
-        } else if (item.type === "canvas" || item.type === "sketch") {
+        } else if (
+          item.type === "canvas" ||
+          item.type === "sketch" ||
+          item.type === "database" ||
+          fileHandler?.viewKind === "canvas" ||
+          fileHandler?.viewKind === "sketch" ||
+          fileHandler?.viewKind === "database"
+        ) {
           await loadDoc(target.fileId, target.title)
         }
       } catch (error) {
@@ -274,7 +330,10 @@ export function useDocumentLoading({
     [backendGeneration, loadDoc, openItem, releaseUnusedDocumentBuffers, treeItems, vault],
   )
   const handleSelect = React.useCallback(
-    (fileId: string, displayTitle?: string) => openTreeItem(fileId, false, displayTitle),
+    (fileId: string, displayTitle?: string) => {
+      logger.info("tree.select", { fileId, title: displayTitle })
+      return openTreeItem(fileId, false, displayTitle)
+    },
     [openTreeItem],
   )
   const handleOpenInNewTab = React.useCallback(
@@ -342,7 +401,7 @@ export function useDocumentLoading({
       if (!item) return
       try {
         if (item.type === "file") await loadDoc(item.id, item.name)
-        else if (item.type === "canvas" || item.type === "sketch") {
+        else if (item.type === "canvas" || item.type === "sketch" || item.type === "database") {
           await loadDoc(item.path, item.name)
         }
       } catch {

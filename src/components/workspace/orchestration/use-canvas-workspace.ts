@@ -9,6 +9,8 @@ import {
   type RecoveryScope,
 } from "@/lib/recovery-drafts"
 import { confirmAction, readFile, writeFile } from "@/lib/storage"
+import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
+import { logger, errorType } from "@/lib/logger"
 import { useDocStore } from "../use-doc-store"
 import { canvasLayerPath } from "../workspace-tree-utils"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
@@ -52,7 +54,8 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
       generation,
       coordinator: new AutosaveCoordinator<CanvasAutosavePayload>({
         delayMs: 500,
-        save: ({ value }) => writeFile(value.path, value.json),
+        onDiagnostic: recordAutosaveDiagnostic,
+        save: ({ value, operationId }) => writeFile(value.path, value.json, operationId),
         onSaveSuccess: ({ key, value }) => {
           const pending = autosaveRef.current?.coordinator.inspect(key)
           if (
@@ -74,7 +77,8 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
             }
           }
         },
-        onSaveFailure: (_snapshot, error) => console.error("Failed to save canvas:", error),
+        onSaveFailure: (_snapshot, error) =>
+          logger.error("canvas.save_failed", { errorType: errorType(error) }),
       }),
     }
   }
@@ -111,6 +115,7 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
           scheduleRecoveryDraft(path, resolved.content, "canvas", path, recoveryScope)
           autosave.enqueueImmediate(autosaveKey(path), { path, json: resolved.content })
         }
+        openCanvasesRef.current = { ...openCanvasesRef.current, [path]: resolved.content }
         return resolved.content
       }),
     [autosave, autosaveKey, generation, recoveryScope, t],
@@ -125,6 +130,7 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
         console.error("Refusing to save invalid canvas:", error)
         return
       }
+      if (openCanvasesRef.current[path] === normalized) return
       openCanvasesRef.current = { ...openCanvasesRef.current, [path]: normalized }
       scheduleRecoveryDraft(path, normalized, "canvas", path, recoveryScope)
       autosave.schedule(autosaveKey(path), { path, json: normalized })
@@ -164,6 +170,7 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
         cancel: () => autosave.cancelGeneration(generation),
         hasDirtyBuffers: () =>
           autosave.inspectAll().some((state) => state.key.generation === generation && state.dirty),
+        inspect: () => autosave.inspectAll(),
       }),
     [autosave, generation, recoveryScope],
   )

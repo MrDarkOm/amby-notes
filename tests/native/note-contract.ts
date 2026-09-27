@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event"
 import { NoteRevisionConflictError } from "../../src/lib/storage/types"
 import { StorageOperationError } from "../../src/lib/storage/operation-error"
 import { joinStoragePath } from "../../src/lib/storage/storage-path"
+import { settingsRepository } from "../../src/lib/storage"
 import type { StorageContractContext } from "../../src/lib/storage/storage-contract"
 
 function check(condition: unknown, message: string): asserts condition {
@@ -106,6 +107,31 @@ export const nativeNoteCases: Array<{
         }
         check(blocked, "Vault escape is blocked at the real command boundary")
       }
+    },
+  },
+  {
+    name: "native delete failure preserves note bytes and index visibility",
+    async run({ adapter, vaultPath }) {
+      const note = await adapter.createNote(vaultPath, vaultPath, "Delete Failure")
+      const original = await adapter.readFile(note.primaryPath!)
+      await settingsRepository.writeVaultRaw("trash", "blocker")
+
+      let failed = false
+      try {
+        await adapter.deleteItem(vaultPath, note.primaryPath!)
+      } catch {
+        failed = true
+      }
+      check(failed, "A non-directory trash root rejects deletion")
+      check(
+        (await adapter.readFile(note.primaryPath!)) === original,
+        "Failed deletion leaves original Markdown byte-for-byte intact",
+      )
+      const refreshed = await adapter.loadActiveVaultData()
+      check(
+        refreshed.notes.some((indexed) => indexed.id === note.primaryId),
+        "Failed deletion leaves the note visible in the index",
+      )
     },
   },
 ]

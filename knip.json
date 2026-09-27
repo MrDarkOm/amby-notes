@@ -4,6 +4,7 @@
   "ignoreIssues": {
     "src/lib/storage/index.ts": ["exports"],
     "src/lib/storage/database-types.ts": ["types"],
-    "src/themes/palettes.ts": ["exports"]
+    "src/themes/palettes.ts": ["exports"],
+    "src/lib/modules/**": ["exports", "types"]
   }
 }

@@ -1,5 +1,6 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
+import { logger } from "@/lib/logger"
 import { saveRecoveryDraft } from "@/lib/recovery-drafts"
 import {
   Dialog,
@@ -246,7 +247,9 @@ export function useDocumentMutations({
         setTabs((previous) =>
           previous.map((tab) => (tab.fileId === id ? { ...tab, title: newName } : tab)),
         )
+        logger.info("file.rename", { id, oldPath: path, newName, primaryPath: result.primaryPath })
       } catch (error) {
+        logger.error("file.rename_failed", { id, newName, error })
         console.error("Failed to rename:", error)
       } finally {
         finishLocalMutation?.()
@@ -384,6 +387,11 @@ export function useDocumentMutations({
         })
         recordLocalTreePaths(sourceEntries.map((entry) => entry.sourceRoot))
         finishLocalMutation()
+        logger.info("file.move", {
+          sources: sourceEntries.map((e) => e.sourcePath),
+          targetPath,
+          pathChangesCount: pathChanges.length,
+        })
 
         if (previousProperties?.customProperties.length && source) {
           const databaseContext = await getDatabaseNoteContext(source.id).catch(() => null)
@@ -405,6 +413,11 @@ export function useDocumentMutations({
           }
         }
       } catch (error) {
+        logger.error("file.move_failed", {
+          sources: sourceEntries.map((e) => e.sourcePath),
+          targetPath,
+          error,
+        })
         if (results.length) {
           await refreshTree()
         } else {

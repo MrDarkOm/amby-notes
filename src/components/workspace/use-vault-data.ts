@@ -46,7 +46,7 @@ import {
 
 import { emit, listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { errorType, logger } from "@/lib/logger"
+import { errorType, logger, flushLogs, beginOperation } from "@/lib/logger"
 import { cancelAutosaveGeneration, flushAutosaveGeneration } from "./autosave/autosave-lifecycle"
 import {
   activationMatchesCurrentVault,
@@ -380,6 +380,11 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
           logger.warn("window_close.autosave_flush_failed", { errorType: errorType(error) })
         } finally {
           try {
+            await flushLogs()
+          } catch {
+            // A logging failure must not reverse the completed document/recovery flush.
+          }
+          try {
             await getCurrentWindow().destroy()
           } catch (error) {
             // A transient native/permission failure must not make the still-open
@@ -506,10 +511,17 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         refreshTimer = setTimeout(() => void flushPendingChanges(), 50)
         return
       }
+      let operation: ReturnType<typeof beginOperation> | undefined
+      let failed = false
       try {
         const changes = filterLocalTreeWatcherChanges([...pending.values()])
         pending.clear()
         if (!changes.length) return
+        operation = beginOperation(
+          "watcher.process",
+          { count: changes.length },
+          { subsystem: "watcher" },
+        )
         const tree = await refreshTree(vault)
         if (!isCurrent()) return
         const openDocs = useDocStore.getState().openDocs
@@ -654,7 +666,11 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
           }
         }
       } catch (err) {
+        failed = true
+        operation?.fail(err)
         logger.warn("watcher.refresh_failed", { errorType: errorType(err) })
+      } finally {
+        if (!failed) operation?.succeed({ outcome: isCurrent() ? "success" : "cancelled" })
       }
     }
 
@@ -665,6 +681,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
           duringLocalMutation: hasActiveLocalTreeMutation(),
         }
         pending.set(`${change.kind}:${normalize(change.path)}`, change)
+        logger.debug("watcher.event_received", { count: pending.size })
         if (refreshTimer) clearTimeout(refreshTimer)
         refreshTimer = setTimeout(() => void flushPendingChanges(), 300)
       }),

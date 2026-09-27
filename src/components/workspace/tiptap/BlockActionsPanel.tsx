@@ -489,14 +489,73 @@ function CalloutContext({
       .run()
   }
 
+  function setFolding(mode: "none" | "expanded" | "collapsed") {
+    if (!node) return
+    const currentPrefix = String(node.attrs.headerPrefix ?? "")
+    let nextPrefix: string
+    let nextCollapsed: boolean | null
+    if (mode === "none") {
+      nextPrefix = currentPrefix.replace(/^[+-]/u, "").trimStart()
+      if (!nextPrefix.startsWith(" ")) nextPrefix = " " + nextPrefix
+      nextCollapsed = false
+    } else if (mode === "expanded") {
+      nextPrefix = currentPrefix.replace(/^[+-]?\s*/u, "+ ")
+      nextCollapsed = false
+    } else {
+      nextPrefix = currentPrefix.replace(/^[+-]?\s*/u, "- ")
+      nextCollapsed = true
+    }
+    const attrs: Record<string, unknown> = {
+      headerPrefix: nextPrefix,
+      headerSuffix: nextPrefix,
+      hasRawHeader: true,
+      isCollapsed: nextCollapsed,
+    }
+    editor.chain().focus().updateAttributes("callout", attrs).run()
+  }
+
+  const currentPrefix = String(node?.attrs.headerPrefix ?? "")
+  const currentFoldMode: "none" | "expanded" | "collapsed" = currentPrefix.startsWith("-")
+    ? "collapsed"
+    : currentPrefix.startsWith("+")
+      ? "expanded"
+      : "none"
+
   const showBg = matches("background") || matches("фон") || matches("color")
   const showText = matches("text color") || matches("color") || matches("текст")
   const showEmoji = matches("emoji") || matches("эмодзи") || matches(t("callout.changeEmoji"))
+  const showFolding =
+    matches("fold") ||
+    matches("collapse") ||
+    matches("сворач") ||
+    matches("раскрыт") ||
+    matches(t("callout.foldable"))
 
-  if (!showBg && !showText && !showEmoji) return null
+  if (!showBg && !showText && !showEmoji && !showFolding) return null
 
   return (
     <>
+      {showFolding && (
+        <>
+          <div className="amby-block-panel-section">{t("blockPanel.calloutFolding")}</div>
+          <div className="flex items-center gap-1.5 mb-2">
+            {[
+              { id: "none" as const, label: t("callout.foldNone") },
+              { id: "expanded" as const, label: t("callout.foldExpanded") },
+              { id: "collapsed" as const, label: t("callout.foldCollapsed") },
+            ].map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className={`amby-ctx-size-preset-btn ${currentFoldMode === option.id ? "is-active" : ""}`}
+                onClick={() => setFolding(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       {showBg && (
         <>
           <div className="amby-block-panel-section">{t("blockPanel.bgCallout")}</div>
@@ -684,14 +743,81 @@ function ImageContext({
     editor.chain().focus().updateAttributes("image", { align }).run()
   }
 
+  const widthInit = (node?.attrs.width as number | string | null) ?? null
+  const [widthInput, setWidthInput] = React.useState(widthInit ? String(widthInit) : "")
+
+  React.useEffect(() => {
+    setWidthInput(widthInit ? String(widthInit) : "")
+  }, [widthInit, nodePos])
+
+  function setWidth(nextWidth: number | null) {
+    editor.chain().focus().updateAttributes("image", { width: nextWidth }).run()
+  }
+
+  function commitWidth() {
+    const parsed = parseInt(widthInput.trim(), 10)
+    if (parsed > 0) {
+      setWidth(parsed)
+    } else if (widthInput.trim() === "") {
+      setWidth(null)
+    }
+  }
+
   const showReplace = matches("replace") || matches("заменить")
   const showAlt = matches("alt")
   const showAlign = matches("align") || matches("выравн")
+  const showSize = matches("size") || matches("размер") || matches("width") || matches("ширин")
 
-  if (!showReplace && !showAlt && !showAlign) return null
+  if (!showReplace && !showAlt && !showAlign && !showSize) return null
 
   return (
     <>
+      {showSize && (
+        <>
+          <div className="amby-block-panel-section">{t("blockPanel.imageSize")}</div>
+          <div className="flex items-center gap-1.5 mb-2">
+            {[
+              { label: "25%", width: 250 },
+              { label: "50%", width: 450 },
+              { label: "75%", width: 700 },
+              { label: t("blockPanel.imageWidthAuto"), width: null },
+            ].map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                className={`amby-ctx-size-preset-btn ${
+                  (preset.width === null && !node?.attrs.width) ||
+                  (preset.width !== null && Number(node?.attrs.width) === preset.width)
+                    ? "is-active"
+                    : ""
+                }`}
+                onClick={() => setWidth(preset.width)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              className="amby-ctx-text-input text-xs w-28"
+              value={widthInput}
+              onChange={(e) => setWidthInput(e.target.value)}
+              onBlur={commitWidth}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  commitWidth()
+                }
+              }}
+              placeholder={t("blockPanel.imageWidthPlaceholder")}
+              min={60}
+              max={2000}
+            />
+            <span className="text-xs text-muted-foreground">{"px"}</span>
+          </div>
+        </>
+      )}
       {showReplace && (
         <>
           <div className="amby-block-panel-section">{t("blockPanel.source")}</div>

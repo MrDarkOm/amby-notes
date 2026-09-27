@@ -1,31 +1,19 @@
 import {
   Archive,
-  Bookmark,
-  Database,
   FolderTree,
   HelpCircle,
-  History,
   Info,
   LayoutTemplate,
-  Link as LinkIcon,
-  Network,
   Paperclip,
   RefreshCw,
   Search,
   Settings,
-  Sparkles,
-  Tag,
 } from "lucide-react"
 
-import { AiPanel } from "./ai-panel"
 import {
-  FavoritesPanel,
   FilesPanel,
-  HistoryPanel,
   InfoPanel,
   AttachmentsPanel,
-  LinksPanel,
-  TagsPanel,
   type ActionDef,
   type ActivityButton,
   type ButtonDef,
@@ -34,8 +22,13 @@ import {
   type Side,
 } from "./panel-registry"
 import { ArchivePanel } from "./panels/archive-panel"
-import { DatabasesPanel } from "./panels/databases-panel"
+import { moduleHost } from "@/lib/modules/host"
 
+/**
+ * Core built-in panels that do not belong to optional modules.
+ * Modular panels (tags, favorites, databases, history, links, ai) are
+ * contributed exclusively through moduleHost.panels.
+ */
 export const PANEL_DEFS: PanelDef[] = [
   {
     id: "files",
@@ -43,27 +36,6 @@ export const PANEL_DEFS: PanelDef[] = [
     icon: FolderTree,
     kind: "view",
     render: (props) => <FilesPanel {...props} />,
-  },
-  {
-    id: "tags",
-    labelKey: "panels.tags",
-    icon: Tag,
-    kind: "view",
-    render: (props) => <TagsPanel {...props} />,
-  },
-  {
-    id: "favorites",
-    labelKey: "panels.favorites",
-    icon: Bookmark,
-    kind: "view",
-    render: (props) => <FavoritesPanel {...props} />,
-  },
-  {
-    id: "databases",
-    labelKey: "panels.databases",
-    icon: Database,
-    kind: "view",
-    render: (props) => <DatabasesPanel {...props} />,
   },
   {
     id: "archive",
@@ -86,29 +58,12 @@ export const PANEL_DEFS: PanelDef[] = [
     kind: "view",
     render: (props) => <AttachmentsPanel {...props} />,
   },
-  {
-    id: "history",
-    labelKey: "panels.history",
-    icon: History,
-    kind: "view",
-    render: (props) => <HistoryPanel {...props} />,
-  },
-  {
-    id: "links",
-    labelKey: "panels.links",
-    icon: LinkIcon,
-    kind: "view",
-    render: (props) => <LinksPanel {...props} />,
-  },
-  {
-    id: "ai",
-    labelKey: "panels.ai",
-    icon: Sparkles,
-    kind: "view",
-    render: (props) => <AiPanel {...props} />,
-  },
 ]
 
+/**
+ * Core built-in actions. Modular actions (e.g. network/graph)
+ * are contributed exclusively through moduleHost.commands.
+ */
 export const ACTION_DEFS: ActionDef[] = [
   {
     id: "search",
@@ -124,13 +79,6 @@ export const ACTION_DEFS: ActionDef[] = [
     kind: "action",
     persistent: true,
     invoke: (context) => context.refreshVault(),
-  },
-  {
-    id: "network",
-    labelKey: "actions.network",
-    icon: Network,
-    kind: "action",
-    invoke: (context) => context.openGraphTab(),
   },
   {
     id: "presets",
@@ -157,9 +105,17 @@ export const ACTION_DEFS: ActionDef[] = [
   },
 ]
 
+export function findPanelDef(panelId: PanelId | string): PanelDef | undefined {
+  return (
+    moduleHost.panels.getPanel(panelId) ??
+    PANEL_DEFS.find((definition) => definition.id === panelId)
+  )
+}
+
 export function findButtonDef(defId: string): ButtonDef | undefined {
   return (
-    PANEL_DEFS.find((definition) => definition.id === defId) ??
+    findPanelDef(defId) ??
+    moduleHost.commands.getCommand(defId) ??
     ACTION_DEFS.find((definition) => definition.id === defId)
   )
 }

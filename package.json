@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:modules": "node scripts/build-modules.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "lint": "eslint .",
@@ -33,7 +34,8 @@
     "verify": "npm run verify:full",
     "verify:fast": "npm run version:check && npm run typecheck && npm run lint && npm run test && npm run rust:check",
     "verify:full": "npm run version:check && npm run typecheck && npm run lint && npm run test && npm run format:check && npm run knip && npm run rust:fmt && npm run rust:clippy && npm run rust:test && npm run bindings:check",
-    "bindings:check": "cargo test --manifest-path src-tauri/Cargo.toml export_bindings && git diff --exit-code -- src/lib/bindings.ts",
+    "bindings:check": "node scripts/check-bindings.mjs",
+    "benchmark:debug": "node scripts/benchmark-debug.mjs",
     "version:check": "node scripts/check-version-sync.mjs",
     "audit:npm": "npm audit --omit=dev",
     "audit:rust": "bash scripts/audit-rust.sh",

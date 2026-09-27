@@ -192,9 +192,22 @@ const nodeSerializers: Record<
     }
   },
   image(state, node) {
+    let altPart = (node.attrs.alt as string | undefined) || ""
+    const width = node.attrs.width as number | string | null | undefined
+    const height = node.attrs.height as number | string | null | undefined
+    if (width) {
+      const sizeStr = height ? `${width}x${height}` : `${width}`
+      if (altPart) {
+        altPart = `${altPart}|${sizeStr}`
+      } else if (node.attrs.hasPipe) {
+        altPart = `|${sizeStr}`
+      } else {
+        altPart = sizeStr
+      }
+    }
     state.write(
       "![" +
-        state.esc(node.attrs.alt || "") +
+        state.esc(altPart) +
         "](" +
         String(node.attrs.src || "").replace(/[()]/g, "\\$&") +
         (node.attrs.title ? ' "' + String(node.attrs.title).replace(/"/g, '\\"') + '"' : "") +

@@ -3,6 +3,7 @@ import {
   AutosaveCoordinator,
   type AutosaveKey,
   type AutosaveSnapshot,
+  type AutosaveDiagnostic,
 } from "./autosave-coordinator"
 
 const markdownKey = (documentId: string, generation = 1): AutosaveKey => ({
@@ -35,6 +36,50 @@ async function settle() {
 afterEach(() => vi.useRealTimers())
 
 describe("AutosaveCoordinator", () => {
+  it("measures queue and save separately while preserving explicit correlation", async () => {
+    vi.useFakeTimers()
+    const pending = deferred()
+    const diagnostics: AutosaveDiagnostic[] = []
+    const save = vi.fn((_snapshot: AutosaveSnapshot<string>) => pending.promise)
+    const coordinator = new AutosaveCoordinator<string>({
+      delayMs: 100,
+      save,
+      onDiagnostic: (event) => diagnostics.push(event),
+    })
+    const key = markdownKey("private-document")
+    coordinator.schedule(key, "private content")
+    vi.advanceTimersByTime(100)
+    await settle()
+    const started = diagnostics[0]
+    expect(started).toMatchObject({ phase: "started", queueWaitMs: 100 })
+    expect(save.mock.calls[0][0]).toMatchObject({ operationId: started.operationId })
+    vi.advanceTimersByTime(40)
+    pending.resolve()
+    await settle()
+    expect(diagnostics[1]).toMatchObject({
+      phase: "succeeded",
+      durationMs: 40,
+      operationId: started.operationId,
+    })
+    expect(JSON.stringify(diagnostics)).not.toContain("private content")
+  })
+
+  it("a failing diagnostic observer cannot fail or retain a successful user save", async () => {
+    const save = vi.fn(async () => {})
+    const coordinator = new AutosaveCoordinator<string>({
+      delayMs: 1,
+      save,
+      onDiagnostic: () => {
+        throw new Error("observer failure")
+      },
+    })
+    const key = markdownKey("note")
+    coordinator.enqueueImmediate(key, "content")
+    await coordinator.flush(key)
+    expect(save).toHaveBeenCalledOnce()
+    expect(coordinator.inspect(key)).toMatchObject({ dirty: false, savedVersion: 1 })
+  })
+
   it("serializes versions for one key and keeps newer buffers dirty", async () => {
     vi.useFakeTimers()
     const first = deferred()

@@ -18,6 +18,7 @@ import {
 import { createDefaultSketch, serializeSketch } from "@/lib/sketch-format"
 import { loadWorkspaceConfig, saveWorkspaceConfigPatch } from "../app-config"
 import { DeleteConfirmationDialog } from "../delete-confirmation-dialog"
+import { logger } from "@/lib/logger"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useViewStateStore } from "../use-view-state-store"
@@ -217,6 +218,11 @@ export function useDocumentCrud({
               hasDirtyDocuments,
             )
       if (resolution === "cancel") return
+      logger.info("file.delete", {
+        count: targets.length,
+        targets: targets.map((target) => target.path),
+        mode: resolution,
+      })
       const finishLocalMutation = beginLocalTreeMutation()
       recordLocalTreePaths(targets.flatMap((target) => [target.path, target.root]))
       let failed = 0
@@ -370,6 +376,7 @@ export function useDocumentCrud({
           getNoteProperties(vault, id).catch(() => undefined),
         ])
         const actualTitle = result.primaryPath ? wsPathStem(result.primaryPath) : title
+        logger.info("file.create_note", { id, title: actualTitle, inNewTab })
         setDoc(id, {
           id,
           title: actualTitle,
@@ -390,6 +397,7 @@ export function useDocumentCrud({
         setPendingRenameId(id)
         void releaseUnusedDocumentBuffers()
       } catch (error) {
+        logger.error("file.create_note_failed", { error })
         setTreeItems((current) => removeTreeItem(current, optimisticId))
         console.error("Failed to create file:", error)
       } finally {
@@ -421,6 +429,7 @@ export function useDocumentCrud({
         const path = await createFolder(parent?.path ?? parentId ?? vault, title)
         recordLocalTreePaths([path])
         finishLocalMutation()
+        logger.info("file.create_folder", { path, title })
         const item = {
           id: `folder:${path}`,
           path,
@@ -443,6 +452,7 @@ export function useDocumentCrud({
           500,
         )
       } catch (error) {
+        logger.error("file.create_folder_failed", { title, error })
         console.error("Failed to create folder:", error)
       } finally {
         finishLocalMutation()
@@ -459,6 +469,7 @@ export function useDocumentCrud({
           findTreeItem(treeItems, parentId ?? "")?.path ?? parentId ?? null,
           t("defaults.untitled"),
         )
+        logger.info("file.create_canvas", { path })
         await refreshTree()
         setOpenCanvases((previous) => ({ ...previous, [path]: "{}\n" }))
         const title = wsPathStem(path)
@@ -476,6 +487,7 @@ export function useDocumentCrud({
         openItem({ kind: "canvas", fileId: path, title })
         void releaseUnusedDocumentBuffers()
       } catch (error) {
+        logger.error("file.create_canvas_failed", { error })
         console.error("Failed to create canvas:", error)
       }
     },
@@ -488,6 +500,7 @@ export function useDocumentCrud({
         findTreeItem(treeItems, canvasId)?.path ?? canvasId.replace(/^canvas:/u, "")
       try {
         const result = await attachCanvasToNote(vault, canvasPath)
+        logger.info("file.attach_canvas", { canvasPath, primaryPath: result.primaryPath })
         handleApplyMutation(result)
         await refreshTree()
         setTabs((previous) =>
@@ -506,6 +519,7 @@ export function useDocumentCrud({
         openItem({ kind: "document", fileId: id, title })
         void releaseUnusedDocumentBuffers()
       } catch (error) {
+        logger.error("file.attach_canvas_failed", { canvasId, error })
         console.error("Failed to attach canvas to note:", error)
       }
     },
@@ -530,6 +544,7 @@ export function useDocumentCrud({
           findTreeItem(treeItems, parentId ?? "")?.path ?? parentId ?? null,
           t("defaults.untitled"),
         )
+        logger.info("file.create_sketch", { path })
         await refreshTree()
         setOpenSketches((previous) => ({
           ...previous,
@@ -550,6 +565,7 @@ export function useDocumentCrud({
         openItem({ kind: "sketch", fileId: path, title })
         void releaseUnusedDocumentBuffers()
       } catch (error) {
+        logger.error("file.create_sketch_failed", { error })
         console.error("Failed to create sketch:", error)
       }
     },
@@ -562,6 +578,7 @@ export function useDocumentCrud({
         findTreeItem(treeItems, sketchId)?.path ?? sketchId.replace(/^sketch:/u, "")
       try {
         const result = await attachSketchToNote(vault, sketchPath)
+        logger.info("file.attach_sketch", { sketchPath, primaryPath: result.primaryPath })
         handleApplyMutation(result)
         await refreshTree()
         setTabs((previous) =>
@@ -580,6 +597,7 @@ export function useDocumentCrud({
         openItem({ kind: "document", fileId: id, title })
         void releaseUnusedDocumentBuffers()
       } catch (error) {
+        logger.error("file.attach_sketch_failed", { sketchId, error })
         console.error("Failed to attach sketch to note:", error)
       }
     },

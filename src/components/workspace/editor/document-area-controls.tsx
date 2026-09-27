@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next"
 import { Files, Lock, Maximize2, Redo2, Settings2, Undo2, Unlock } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { ToolbarButton } from "../canvas/canvas-toolbar"
+import { ToolbarButton } from "../common/toolbar-button"
 import type { DocumentViewMode } from "./use-document-view-mode"
 import type { ContentWidth } from "../app-config"
 import type { TreeItem } from "../sidebar-tree"
@@ -88,8 +88,6 @@ export function DocumentAreaControls({
             {isLocked ? <Lock className="size-3.5" /> : <Unlock className="size-3.5" />}
           </ToolbarButton>
         ) : null}
-
-        <div className="mx-0.5 h-3.5 w-px bg-border/80" />
 
         {/* Settings Popover */}
         <Popover>

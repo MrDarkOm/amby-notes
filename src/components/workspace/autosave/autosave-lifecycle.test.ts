@@ -3,6 +3,7 @@ import {
   cancelAutosaveGeneration,
   flushAutosaveGeneration,
   registerAutosaveLifecycle,
+  inspectAutosaveGeneration,
 } from "./autosave-lifecycle"
 import { AutosaveCoordinator, type AutosaveKey } from "./autosave-coordinator"
 import { registerEditorSerialization } from "../tiptap/editor-serialization-lifecycle"
@@ -13,6 +14,42 @@ describe("autosave lifecycle", () => {
   const unregister: Array<() => void> = []
 
   afterEach(() => unregister.splice(0).forEach((dispose) => dispose()))
+
+  it("inspects current queue counters without flushing or exposing document identity", () => {
+    const flush = vi.fn(async () => {})
+    unregister.push(
+      registerAutosaveLifecycle({
+        generation: 42,
+        flush,
+        cancel: vi.fn(),
+        hasDirtyBuffers: () => true,
+        inspect: () => [
+          {
+            key: { generation: 42, kind: "markdown", documentId: "/private/Secret.md" },
+            version: 3,
+            savedVersion: 1,
+            scheduled: true,
+            inFlight: false,
+            paused: true,
+            dirty: true,
+            lastError: new Error("private error"),
+          },
+        ],
+      }),
+    )
+    const result = inspectAutosaveGeneration(42)
+    expect(result).toEqual({
+      participants: 1,
+      scheduled: 1,
+      inFlight: 0,
+      paused: 1,
+      dirty: 1,
+      errors: 1,
+    })
+    expect(inspectAutosaveGeneration(41).participants).toBe(0)
+    expect(flush).not.toHaveBeenCalled()
+    expect(JSON.stringify(result)).not.toMatch(/private|Secret/)
+  })
 
   it("flushes only the active vault generation and reports unresolved saves", async () => {
     const activeFlush = vi.fn(async () => {})

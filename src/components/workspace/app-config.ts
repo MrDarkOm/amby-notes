@@ -36,6 +36,13 @@ import {
   normalizeShortcutBindings,
   type ShortcutBindings,
 } from "./keyboard-shortcuts"
+import {
+  applyProfileToWorkspace,
+  migrateWorkspaceModules,
+  type ProfileId,
+  type WorkspaceProfileState,
+} from "@/lib/modules"
+import type { DebugConfig } from "@/lib/debug/types"
 
 export const WORKSPACES_FILE = "workspaces.json"
 export const SETTINGS_FILE = "settings.json"
@@ -355,6 +362,15 @@ export interface UpdatePrefs {
   autoUpdate: boolean
 }
 
+export type LogLevelPref = DebugConfig["logLevel"]
+export type DebugPrefs = DebugConfig
+
+export const DEFAULT_DEBUG_PREFS: DebugPrefs = {
+  enabled: false,
+  logLevel: "info",
+  logToFile: false,
+}
+
 export interface DockPreferences {
   leftPinned: boolean
   rightPinned: boolean
@@ -387,6 +403,7 @@ export interface AppPreferences {
   editor: EditorPrefs
   startup: StartupPrefs
   updates: UpdatePrefs
+  debug: DebugPrefs
   docks: DockPreferences
   window: WindowPreferences
   shortcuts: ShortcutBindings
@@ -405,6 +422,7 @@ export const DEFAULT_PREFS: AppPreferences = {
   editor: { defaultViewMode: "live", contentWidth: "normal", autosaveMs: 500 },
   startup: { reopenLastVault: true, restoreSession: true },
   updates: { autoUpdate: true },
+  debug: { ...DEFAULT_DEBUG_PREFS },
   docks: { leftPinned: true, rightPinned: true },
   window: {
     width: 1280,
@@ -434,6 +452,7 @@ export function normalizeAppPreferences(
   const ed = (d.editor ?? {}) as Partial<EditorPrefs>
   const su = (d.startup ?? {}) as Partial<StartupPrefs>
   const up = (d.updates ?? {}) as Partial<UpdatePrefs>
+  const dbg = (d.debug ?? {}) as Partial<DebugPrefs>
   const dk = (d.docks ?? {}) as Partial<DockPreferences>
   const wi = (d.window ?? {}) as Partial<WindowPreferences>
   const storedTheme = d.theme ?? legacyTheme
@@ -479,6 +498,15 @@ export function normalizeAppPreferences(
     },
     updates: {
       autoUpdate: typeof up.autoUpdate === "boolean" ? up.autoUpdate : true,
+    },
+    debug: {
+      enabled: typeof dbg.enabled === "boolean" ? dbg.enabled : DEFAULT_DEBUG_PREFS.enabled,
+      logLevel: oneOf<LogLevelPref>(
+        dbg.logLevel,
+        ["debug", "info", "warn", "error"],
+        DEFAULT_DEBUG_PREFS.logLevel,
+      ),
+      logToFile: typeof dbg.logToFile === "boolean" ? dbg.logToFile : DEFAULT_DEBUG_PREFS.logToFile,
     },
     docks: {
       leftPinned: typeof dk.leftPinned === "boolean" ? dk.leftPinned : true,
@@ -694,24 +722,54 @@ export interface WorkspaceConfig {
     /** Keep destructive file-delete confirmation visible unless this workspace opts out. */
     confirmFileDelete: boolean
   }
+  profile?: WorkspaceProfileState
+  enabledModules?: string[]
+  moduleSettings?: Record<string, unknown>
+}
+
+let pendingWorkspaceProfile: ProfileId | null = null
+
+export function setPendingWorkspaceProfile(profile: ProfileId | null): void {
+  pendingWorkspaceProfile = profile
+}
+
+export function getPendingWorkspaceProfile(): ProfileId | null {
+  return pendingWorkspaceProfile
 }
 
 export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
   if (await vaultFileMissing(WORKSPACE_FILE)) {
     // Custom presets were a single global list pre-tier; each vault inherits a copy.
     const customPresets = parseLS<Preset[]>("amby:user-presets:v1", Array.isArray) ?? []
+    const requestedProfile = pendingWorkspaceProfile
+    pendingWorkspaceProfile = null
+
+    const baseConfig = requestedProfile
+      ? applyProfileToWorkspace(requestedProfile)
+      : (await migrateWorkspaceModules({ layout: EMPTY_LAYOUT })).config
+
+    const layout: LayoutConfig = {
+      ...EMPTY_LAYOUT,
+      activePresetId: baseConfig.profile.id === "minimal" ? "simple" : "standard",
+      activeModules: baseConfig.enabledModules,
+    }
+
     const cfg: WorkspaceConfig = {
       schemaVersion: WORKSPACE_SCHEMA_VERSION,
       theme: null,
       customPresets,
-      layout: EMPTY_LAYOUT,
+      layout,
       confirmations: { confirmFileDelete: true },
+      profile: baseConfig.profile,
+      enabledModules: baseConfig.enabledModules,
+      moduleSettings: baseConfig.moduleSettings,
     }
-    if (customPresets.length) await saveVaultJSON(WORKSPACE_FILE, cfg)
+    await saveVaultJSON(WORKSPACE_FILE, cfg)
     return cfg
   }
   const d = await loadVaultJSON<Partial<WorkspaceConfig>>(WORKSPACE_FILE, {})
-  return {
+  const { config, migrated } = await migrateWorkspaceModules(d as Record<string, unknown>)
+  const result: WorkspaceConfig = {
     schemaVersion: typeof d.schemaVersion === "number" ? d.schemaVersion : WORKSPACE_SCHEMA_VERSION,
     theme: typeof d.theme === "string" ? d.theme : null,
     customPresets: Array.isArray(d.customPresets) ? d.customPresets : [],
@@ -722,7 +780,18 @@ export async function loadWorkspaceConfig(): Promise<WorkspaceConfig> {
           ? d.confirmations.confirmFileDelete
           : true,
     },
+    profile: config.profile,
+    enabledModules: config.enabledModules,
+    moduleSettings: config.moduleSettings,
   }
+  if (migrated) {
+    try {
+      await saveVaultJSON(WORKSPACE_FILE, result)
+    } catch (err) {
+      console.warn("Failed to persist migrated workspace config:", err)
+    }
+  }
+  return result
 }
 
 export function saveWorkspaceConfigPatch(patch: Partial<WorkspaceConfig>): Promise<void> {

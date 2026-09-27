@@ -1,6 +1,8 @@
 pub mod assets;
 pub mod database;
+pub mod debug;
 pub mod history;
+pub mod modules;
 pub mod mutations;
 pub mod notes;
 pub mod vault;

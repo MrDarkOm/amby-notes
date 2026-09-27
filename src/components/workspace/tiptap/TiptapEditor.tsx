@@ -109,6 +109,7 @@ export function TiptapEditor({
   })
   const serializeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const documentDirtyRef = React.useRef(false)
+  const userInteractedRef = React.useRef(false)
   const [menu, setMenu] = React.useState<MenuState>({ open: false, left: 0, top: 0 })
   const [wikiLinkContext, setWikiLinkContext] = React.useState<WikiLinkContextDetail | null>(null)
   const [inlineUnlink, setInlineUnlink] = React.useState<InlineUnlinkState | null>(null)
@@ -191,7 +192,16 @@ export function TiptapEditor({
     editorProps: {
       attributes: { class: "amby-tiptap-prose" },
     },
-    onUpdate: ({ editor }) => {
+    onTransaction: ({ transaction }) => {
+      if (transaction.getMeta("uiEvent") || transaction.getMeta("pointer")) {
+        userInteractedRef.current = true
+      }
+    },
+    onUpdate: ({ editor, transaction }) => {
+      const isUserAction =
+        userInteractedRef.current ||
+        Boolean(transaction.getMeta("uiEvent") || transaction.getMeta("pointer"))
+      if (!isUserAction) return
       documentDirtyRef.current = true
       onContentDirtyRef.current?.()
       if (serializeTimerRef.current) clearTimeout(serializeTimerRef.current)
@@ -258,6 +268,7 @@ export function TiptapEditor({
   React.useEffect(() => {
     if (!editor || editor.isDestroyed) return
     if (value === valueRef.current) return
+    userInteractedRef.current = false
     documentDirtyRef.current = false
     if (serializeTimerRef.current) {
       clearTimeout(serializeTimerRef.current)
@@ -309,11 +320,24 @@ export function TiptapEditor({
   React.useEffect(() => {
     if (!editorRef || !editor) return
     ;(editorRef as React.MutableRefObject<EditorHandle>).current = {
-      undo: () => editor.chain().focus().undo().run(),
-      redo: () => editor.chain().focus().redo().run(),
+      undo: () => {
+        userInteractedRef.current = true
+        editor.chain().focus().undo().run()
+      },
+      redo: () => {
+        userInteractedRef.current = true
+        editor.chain().focus().redo().run()
+      },
       flush: () => flushSerialize(editor),
       getMarkdownSelection: () =>
         docSelectionToMarkdownSelection(editor.state.doc, valueRef.current, editor.state.selection),
+      focus: (position?: "start" | "end") => {
+        if (!editor || editor.isDestroyed || !editor.isEditable) return
+        editor
+          .chain()
+          .focus(position === "end" ? "end" : "start")
+          .run()
+      },
     }
   }, [editor, editorRef, flushSerialize])
 
@@ -481,6 +505,7 @@ export function TiptapEditor({
       setInlineUnlink(null)
       return
     }
+    userInteractedRef.current = true
     editor.view.dispatch(editor.state.tr.insertText(replacement, from, to))
     editor.view.focus()
     setInlineUnlink(null)
@@ -503,6 +528,21 @@ export function TiptapEditor({
     <div
       className="amby-tiptap relative min-h-[360px] pb-24"
       data-editor-readonly={isReadOnly ? "true" : "false"}
+      onKeyDownCapture={() => {
+        userInteractedRef.current = true
+      }}
+      onInputCapture={() => {
+        userInteractedRef.current = true
+      }}
+      onPasteCapture={() => {
+        userInteractedRef.current = true
+      }}
+      onCutCapture={() => {
+        userInteractedRef.current = true
+      }}
+      onDropCapture={() => {
+        userInteractedRef.current = true
+      }}
     >
       {editor && editable && menu.open && (
         <BubbleToolbar editor={editor} left={menu.left} top={menu.top} />

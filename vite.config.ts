@@ -37,8 +37,6 @@ const vendorChunks: Record<string, string[]> = {
   "vendor-markdown": ["markdown-it", "prosemirror-markdown"],
   "vendor-tauri": ["@tauri-apps/api"],
   "vendor-d3": ["d3-force"],
-  "vendor-xyflow": ["@xyflow/react"],
-  "vendor-excalidraw": ["@excalidraw/excalidraw"],
   "vendor-emoji-core": ["emoji-mart"],
   "vendor-emoji-data": ["@emoji-mart/data"],
 }
@@ -54,6 +52,19 @@ export default defineConfig(async () => ({
     // Keep a useful warning threshold while allowing the deliberately split
     // rich-editor vendor chunks.
     chunkSizeWarningLimit: 1800,
+    modulePreload: {
+      filter(url) {
+        if (
+          url.includes("vendor-excalidraw") ||
+          url.includes("vendor-xyflow") ||
+          url.includes("sketch-editor") ||
+          url.includes("canvas-editor")
+        ) {
+          return false
+        }
+        return true
+      },
+    },
     rollupOptions: {
       output: {
         manualChunks(id) {

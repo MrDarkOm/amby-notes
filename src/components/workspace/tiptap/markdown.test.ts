@@ -282,6 +282,20 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(roundTripCheck(callout)).toEqual({ ok: true, result: callout })
   })
 
+  it("preserves Obsidian image sizing variants and dimensions in round-trip", () => {
+    const images = [
+      "![Alt text|300](assets/photo.png)",
+      "![Alt text|300x200](assets/photo.png)",
+      "![|450](assets/photo.png)",
+      "![250](assets/photo.png)",
+      "![300x150](assets/photo.png)",
+      "![Alt with | pipe](assets/photo.png)",
+    ]
+    for (const img of images) {
+      expect(roundTripCheck(img)).toEqual({ ok: true, result: img })
+    }
+  })
+
   it("preserves a note with tags, wiki links, and separate callouts", () => {
     const note =
       "#Тег #привет\n\nПросто  для [[теста]]\n\n> [!NOTE] 😍\n> \n\n> [!NOTE] ☺️\n> asdsadasdsad\n\n[[Назуар]] [[Тестовая]]"

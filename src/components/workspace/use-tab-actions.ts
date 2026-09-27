@@ -1,6 +1,8 @@
 import { useTabsStore, type Tab } from "./use-tabs-store"
 import { findTabTreeItem, treeItemTabTarget } from "./tab-target"
 import type { TreeItem } from "./sidebar-tree"
+import { flushEditorSerializations } from "./tiptap/editor-serialization-lifecycle"
+import { logger } from "@/lib/logger"
 
 interface UseTabActionsParams {
   activeTab: Tab | null
@@ -37,6 +39,7 @@ export function useTabActions({
 
   function handleBack() {
     if (!activeTab || !canGoBack) return
+    flushEditorSerializations()
     const newIndex = activeTab.historyIndex - 1
     const prevFileId = activeTab.history[newIndex]
     const item = findTabTreeItem(treeItems, prevFileId)
@@ -52,6 +55,7 @@ export function useTabActions({
 
   function handleForward() {
     if (!activeTab || !canGoForward) return
+    flushEditorSerializations()
     const newIndex = activeTab.historyIndex + 1
     const nextFileId = activeTab.history[newIndex]
     const item = findTabTreeItem(treeItems, nextFileId)
@@ -65,10 +69,14 @@ export function useTabActions({
     onTabUsageChanged?.()
   }
 
-  const handleTabChange = (key: string) => setActiveTabKey(key)
+  const handleTabChange = (key: string) => {
+    flushEditorSerializations()
+    setActiveTabKey(key)
+  }
 
   // A second editable pane must always receive a different document buffer.
   function toggleSplit() {
+    logger.info("tab.toggle_split", { activeTabKey })
     setSecondaryTabKey((previous) => {
       if (previous) return null
       if (activeTab?.kind !== "document") return null
@@ -82,6 +90,14 @@ export function useTabActions({
   }
 
   const handleTabClose = (key: string) => {
+    flushEditorSerializations()
+    const closingTab = tabs.find((t) => t.key === key)
+    logger.info("tab.close", {
+      key,
+      title: closingTab?.title,
+      fileId: closingTab?.fileId,
+      kind: closingTab?.kind,
+    })
     // Keep a pending autosave alive when a tab closes. The open document buffer
     // remains available until the queued write finishes, and cancelling here
     // could discard the last edit made just before closing the tab.
@@ -96,6 +112,8 @@ export function useTabActions({
   }
 
   function handleCloseAllTabs() {
+    flushEditorSerializations()
+    logger.info("tab.close_all", { count: tabs.length })
     setTabs([])
     setActiveTabKey("")
     setSecondaryTabKey(null)

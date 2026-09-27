@@ -544,13 +544,13 @@ export function TableView({
         <div style={tableWidthStyle}>
           <div
             role="row"
-            className="sticky top-0 z-10 grid border-b border-slate-200 bg-white text-xs font-medium text-muted-foreground dark:border-border dark:bg-card"
+            className="sticky top-0 z-10 grid border-b border-border bg-[var(--note-surface)] text-xs font-medium text-muted-foreground"
             style={{ gridTemplateColumns, ...tableWidthStyle }}
           >
             <div
               role="columnheader"
               className={cn(
-                "relative flex h-full min-w-0 items-center justify-start bg-white p-0 text-left dark:bg-card",
+                "relative flex h-full min-w-0 items-center justify-start bg-[var(--note-surface)] p-0 text-left",
                 hasFrozenColumns && "sticky left-0 z-20",
               )}
             >
@@ -613,7 +613,7 @@ export function TableView({
                   key={property.propertyId}
                   role="columnheader"
                   className={cn(
-                    "relative flex h-full min-w-0 items-center bg-white p-0 dark:bg-card",
+                    "relative flex h-full min-w-0 items-center bg-[var(--note-surface)] p-0",
                     frozen && "sticky z-20",
                   )}
                   style={
@@ -883,7 +883,7 @@ export function TableView({
                     initial="rest"
                     whileHover="hover"
                     className={cn(
-                      "group relative flex cursor-text items-center justify-start truncate border-r border-slate-200 bg-white px-2 py-2 text-left font-medium hover:bg-slate-50 dark:border-border/60 dark:bg-background dark:hover:bg-accent/30",
+                      "group relative flex cursor-text items-center justify-start truncate border-r border-border/60 bg-[var(--note-surface)] px-2 py-2 text-left font-medium hover:bg-accent/30",
                       hasFrozenColumns && "sticky left-0 z-10",
                     )}
                   >
@@ -893,7 +893,7 @@ export function TableView({
                     />
                     <motion.button
                       type="button"
-                      className="absolute right-1 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-md bg-white/95 text-muted-foreground shadow-sm backdrop-blur-sm hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-background/95"
+                      className="absolute right-1 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-md bg-[var(--note-surface)]/95 text-muted-foreground shadow-sm backdrop-blur-sm hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
                       whileFocus={{ opacity: 1 }}
                       transition={motionTransitions.fast}
@@ -938,8 +938,8 @@ export function TableView({
                         data-row-id={row.noteId}
                         data-property-id={property.propertyId}
                         className={cn(
-                          "min-w-0 border-r border-slate-200 hover:bg-slate-50 dark:border-border/60 dark:hover:bg-accent/30",
-                          frozen && "sticky z-10 bg-white dark:bg-background",
+                          "min-w-0 border-r border-border/60 hover:bg-accent/30",
+                          frozen && "sticky z-10 bg-[var(--note-surface)]",
                         )}
                         style={
                           frozen

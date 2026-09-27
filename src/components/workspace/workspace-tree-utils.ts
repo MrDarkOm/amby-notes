@@ -241,3 +241,14 @@ export function formatModified(ts?: number): string {
 export function newTabKey(): string {
   return `tab-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
+
+/** Convert an absolute or full path into a relative vault path. */
+export function toRelativeVaultPath(path: string, vault?: string | null): string {
+  if (!path) return ""
+  const normPath = path.replace(/\\/g, "/")
+  const normVault = vault?.replace(/\\/g, "/").replace(/\/+$/, "")
+  if (normVault && (normPath === normVault || normPath.startsWith(`${normVault}/`))) {
+    return normPath.slice(normVault.length + 1)
+  }
+  return normPath
+}

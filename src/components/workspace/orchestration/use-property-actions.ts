@@ -1,5 +1,6 @@
 import * as React from "react"
 import type { TFunction } from "i18next"
+import { logger } from "@/lib/logger"
 import {
   deleteCustomProperty,
   getNoteProperties,
@@ -170,6 +171,12 @@ export function usePropertyActions({
       })
 
       const saved = await upsertCustomProperty(vault, noteId, property)
+      logger.info("property.upsert", {
+        noteId,
+        propertyId: saved.id,
+        name: saved.name,
+        propertyType: saved.propertyType,
+      })
       try {
         const refreshed = await getNoteProperties(vault, noteId)
         patchAllDocKeys(() => refreshed)
@@ -201,6 +208,7 @@ export function usePropertyActions({
       }))
 
       await deleteCustomProperty(vault, noteId, propertyId)
+      logger.info("property.delete", { noteId, propertyId })
       try {
         const refreshed = await getNoteProperties(vault, noteId)
         patchAllDocKeys(() => refreshed)
@@ -230,6 +238,7 @@ export function usePropertyActions({
       })
 
       await reorderCustomProperties(vault, noteId, propertyIds)
+      logger.info("property.reorder", { noteId, count: propertyIds.length })
       try {
         const refreshed = await getNoteProperties(vault, noteId)
         patchAllDocKeys(() => refreshed)

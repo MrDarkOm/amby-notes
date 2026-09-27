@@ -210,17 +210,17 @@ async purgeTrash(trashId: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async readNote(noteId: string) : Promise<Result<NoteReadOutcome, string>> {
+async readNote(noteId: string, operationId: string | null) : Promise<Result<NoteReadOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("read_note", { noteId }) };
+    return { status: "ok", data: await TAURI_INVOKE("read_note", { noteId, operationId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async writeNote(request: WriteNoteRequest) : Promise<Result<WriteNoteOutcome, WriteNoteError>> {
+async writeNote(request: WriteNoteRequest, operationId: string | null) : Promise<Result<WriteNoteOutcome, WriteNoteError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("write_note", { request }) };
+    return { status: "ok", data: await TAURI_INVOKE("write_note", { request, operationId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -907,6 +907,214 @@ async aiChat(config: AiConfig, messages: AiMessage[], system: string | null, str
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async stageModulePackage(stagingId: string, manifest: ModuleManifest, files: Partial<{ [key in string]: string }>) : Promise<Result<StagedPackageInfo, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("stage_module_package", { stagingId, manifest, files }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async downloadAndStageModulePackage(url: string) : Promise<Result<StagedPackageInfo, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("download_and_stage_module_package", { url }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async publishStagedModule(stagingId: string, moduleId: string, version: string) : Promise<Result<PublishModuleResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("publish_staged_module", { stagingId, moduleId, version }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async rollbackModule(moduleId: string) : Promise<Result<RollbackModuleResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("rollback_module", { moduleId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async uninstallModulePackage(moduleId: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("uninstall_module_package", { moduleId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listInstalledModulePackages() : Promise<Result<InstalledModuleInfo[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_installed_module_packages") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getModuleEntryPath(moduleId: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_module_entry_path", { moduleId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async verifyModuleSignature(publicKeyHex: string, messageHex: string, signatureStr: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("verify_module_signature", { publicKeyHex, messageHex, signatureStr }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getLogDirPath() : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_log_dir_path") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getLogFilePath() : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_log_file_path") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async openLogFolder() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_log_folder") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async readLogFile(maxBytes: number | null) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("read_log_file", { maxBytes }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearLogFile() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_log_file") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async appendLog(line: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("append_log", { line }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getRecentLogs() : Promise<Result<string[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_recent_logs") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setDebugModeEnabled(enabled: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_debug_mode_enabled", { enabled }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async openDevtools() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_devtools") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async toggleDevtools() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("toggle_devtools") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async isDevtoolsOpen() : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("is_devtools_open") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async configureDebug(config: DebugConfig) : Promise<Result<DebugBackendStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("configure_debug", { config }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getDebugStatus() : Promise<Result<DebugBackendStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_debug_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async appendDebugEvents(events: DebugEvent[]) : Promise<Result<DebugEvent[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("append_debug_events", { events }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getDebugEvents() : Promise<Result<DebugEvent[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_debug_events") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getDebugHistory() : Promise<Result<DebugEvent[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_debug_history") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearDebugLogs() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_debug_logs") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async flushDebugLogs() : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("flush_debug_logs") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -998,6 +1206,9 @@ export type DatabaseYamlResolution = "shard" | "yaml" | "manual"
 export type DatabaseYamlResolveRequest = { expectedGeneration: number; databaseId: string; noteId: string; propertyId: string; expectedNoteRevision: string; expectedRecordRevision: string; resolution: DatabaseYamlResolution; manualValueJson: string | null }
 export type DatabaseYamlSyncRequest = { expectedGeneration: number; databaseId: string; noteId: string; expectedRecordRevision: string }
 export type DatabaseYamlSyncResult = { databaseId: string; noteId: string; noteRevision: string; recordRevision: string; changed: boolean; conflicts: DatabaseYamlConflict[]; warnings: string[] }
+export type DebugBackendStatus = { config: DebugConfig; sessionId: string; buffered: number; dropped: number; pending: number; fileBytes: number; fileError: string | null; watcherRunning: boolean; indexReady: boolean; vaultOpen: boolean }
+export type DebugConfig = { enabled: boolean; logLevel: LogLevel; logToFile: boolean }
+export type DebugEvent = { id: string; timestamp: string; level: LogLevel; event: string; source: LogSource; metadata?: Partial<{ [key in string]: JsonValue }> | null; sessionId?: string | null; windowId?: string | null; operationId?: string | null; subsystem?: string | null; durationMs?: number | null; sequence?: number | null }
 export type DeleteDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string }
 export type DeleteDatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; expectedManifestRevision: string }
 export type DeletedDatabaseProperty = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
@@ -1028,14 +1239,20 @@ export type ImportedDatabaseAsset = { databaseId: string; noteId: string; assetI
  */
 export type IndexState = "healthy" | "degraded" | "rebuildRequired"
 export type IndexedNote = { id: string; path: string; title: string; modified: number | null; wordCount: number }
+export type InstalledModuleInfo = { moduleId: string; activeVersion: string; installedVersions: string[]; installPath: string; entryPath: string; sizeBytes: number }
+export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
 export type LayerResult = { notePath: string; layerPath: string; kind: string; pathChanges: PathChange[] }
 export type LinkGraph = { nodes: LinkGraphNode[]; edges: LinkGraphEdge[] }
 export type LinkGraphEdge = { source: string; target: string; label: string; unresolved?: boolean | null }
 export type LinkGraphNode = { id: string; label: string; unresolved?: boolean | null }
 export type LoadVaultResult = { generation: number; vaultPath: string; tree: TreeItem[]; notes: IndexedNote[]; sync: SyncReport }
+export type LogLevel = "debug" | "info" | "warn" | "error"
+export type LogSource = "frontend" | "backend"
 export type MigrationConflict = { kind: string; noteId: string | null; filePath: string; description: string; suggestedAction: string }
 export type MigrationPreflightReport = { databaseId: string; databaseName: string; containerPath: string; affectedFiles: string[]; recordShardsCount: number; viewShardsCount: number; conflicts: MigrationConflict[]; canAutoMigrate: boolean; formatVersion: number }
 export type MigrationResult = { migrationId: string; databaseId: string; backupDir: string; migratedRecords: number; migratedViews: number; warnings: string[] }
+export type ModuleManifest = { formatVersion: number; id: string; name: string; version: string; publisher: string; kind: string; minAppVersion: string; maxAppVersion: string | null; entry: string; permissions: string[]; checksums: Partial<{ [key in string]: string }>; signature: ModuleSignature; dependencies: Partial<{ [key in string]: string }> | null }
+export type ModuleSignature = { keyId: string; sig: string }
 /**
  * The filesystem result is authoritative. A cache failure is returned as a
  * recoverable warning rather than turning a completed mutation into an error.
@@ -1058,6 +1275,7 @@ export type PathChange = { oldPath: string; newPath: string }
  * projection yet, but the typed boundary is established now.
  */
 export type ProjectionVersion = { epoch: string; seq: number }
+export type PublishModuleResult = { success: boolean; moduleId: string; installedVersion: string; previousVersion: string | null; installPath: string }
 export type RecoveryEntry = { version: number; vaultGeneration: number; documentKind: string; id: string; pathHint: string; savedAtMs: number; content: string; contentHash: string }
 export type RefactorPreview = { notes: number; replacements: number }
 export type RenameDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; name: string }
@@ -1069,9 +1287,11 @@ export type ReorderDatabasePropertiesRequest = { expectedGeneration: number; dat
 export type ReorderDatabaseViewsRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; viewIds: string[] }
 export type ReorderedDatabaseProperties = { databaseId: string; propertyIds: string[]; manifestRevision: string; warnings: string[] }
 export type RestoreDeletedNoteRequest = { expectedGeneration: number; noteId: string; path: string; content: string; sourceTemplate: string; originWindow: string }
+export type RollbackModuleResult = { success: boolean; moduleId: string; rolledBackToVersion: string; previousVersion: string; activeInstallPath: string }
 export type SearchResult = { note: IndexedNote; matchType: string; snippet: string | null; score: number }
 export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }
 export type SnapshotText = { sourcePath: string; content: string }
+export type StagedPackageInfo = { stagingId: string; manifest: ModuleManifest; stagingPath: string }
 export type SyncReport = { inserted: number; updated: number; deleted: number; warnings: string[]; pathToId: Partial<{ [key in string]: string }> }
 export type TagEntry = { tag: string; notes: IndexedNote[] }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }

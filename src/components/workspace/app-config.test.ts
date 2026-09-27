@@ -313,4 +313,39 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     expect(savedRaw).not.toContain('"apiKey"')
     expect(savedRaw).toContain(model.credentialId)
   })
+
+  it("normalizes and round-trips debug preferences", async () => {
+    const defaultPrefs = normalizeAppPreferences({})
+    expect(defaultPrefs.debug).toEqual({
+      enabled: false,
+      logLevel: "info",
+      logToFile: false,
+    })
+
+    const customPrefs = normalizeAppPreferences({
+      debug: {
+        enabled: true,
+        logLevel: "debug",
+        logToFile: true,
+      },
+    })
+    expect(customPrefs.debug).toEqual({
+      enabled: true,
+      logLevel: "debug",
+      logToFile: true,
+    })
+
+    const invalidPrefs = normalizeAppPreferences({
+      debug: {
+        enabled: "yes" as unknown as boolean,
+        logLevel: "invalid" as unknown as "info",
+        logToFile: 123 as unknown as boolean,
+      },
+    })
+    expect(invalidPrefs.debug).toEqual({
+      enabled: false,
+      logLevel: "info",
+      logToFile: false,
+    })
+  })
 })

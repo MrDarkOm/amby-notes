@@ -201,11 +201,9 @@ fn desktop_e2e_external_edit_delete_and_rename_refresh_the_index() {
                 index::search_notes(active, &active.root, "new searchable")?.len(),
                 1
             );
-            assert!(
-                index::search_notes(active, &active.root, "old searchable")
-                    .unwrap()
-                    .is_empty()
-            );
+            assert!(index::search_notes(active, &active.root, "old searchable")
+                .unwrap()
+                .is_empty());
             Ok(())
         })
         .unwrap();

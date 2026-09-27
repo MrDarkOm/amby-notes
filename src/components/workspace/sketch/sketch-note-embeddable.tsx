@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next"
 import { FileText, FileX } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { readFile } from "@/lib/storage"
-import { pathStem, renderCardHtml, resolveVaultFilePath } from "../canvas/canvas-markdown"
+import { pathStem, renderCardHtml, resolveVaultFilePath } from "../common/card-markdown"
 import { useViewStateStore } from "../use-view-state-store"
 import { TreeIcon } from "../tree/tree-icons"
 

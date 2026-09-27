@@ -505,12 +505,16 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.readFile(path))
   }
 
-  async readNote(_vaultPath: string, noteId: string): Promise<NoteReadOutcome> {
+  async readNote(
+    _vaultPath: string,
+    noteId: string,
+    operationId?: string,
+  ): Promise<NoteReadOutcome> {
     // A file can arrive through the watcher after vault activation. Re-run the
     // safe identity migration before opening it so notes without amby-id become
     // editable immediately (malformed/conflicting files remain untouched).
     await unwrapCommand(commands.applyIdMigration(_vaultPath))
-    return unwrapCommand(commands.readNote(noteId))
+    return unwrapCommand(commands.readNote(noteId, operationId ?? null))
   }
 
   async writeFile(path: string, content: string): Promise<void> {
@@ -524,15 +528,19 @@ export class DesktopAdapter implements StoragePort {
     expectedGeneration: number | null,
     expectedRevision: string,
     originWindow: string,
+    operationId?: string,
   ): Promise<WriteNoteOutcome> {
     if (expectedGeneration === null) throw new Error("No active vault generation")
-    const result = await commands.writeNote({
-      expectedGeneration,
-      noteId,
-      content,
-      expectedRevision,
-      originWindow,
-    })
+    const result = await commands.writeNote(
+      {
+        expectedGeneration,
+        noteId,
+        content,
+        expectedRevision,
+        originWindow,
+      },
+      operationId ?? null,
+    )
     if (result.status === "error") {
       if (result.error.kind === "revisionConflict") {
         throw new NoteRevisionConflictError(result.error.actual_revision)

@@ -34,6 +34,9 @@ interface DocStore {
   openDocs: Record<string, Document>
   unsavedFileIds: Set<string>
   externalConflicts: Record<string, ExternalConflict>
+  activeConflictDialogFileId: string | null
+  openConflictDialog: (fileId: string) => void
+  closeConflictDialog: () => void
   /** Insert or replace an open document. */
   setDoc: (fileId: string, doc: Document) => void
   /** Patch fields of an already-open document (no-op if it isn't open). */
@@ -64,6 +67,10 @@ export const useDocStore = create<DocStore>((set) => ({
   openDocs: {},
   unsavedFileIds: new Set(),
   externalConflicts: {},
+  activeConflictDialogFileId: null,
+
+  openConflictDialog: (fileId) => set({ activeConflictDialogFileId: fileId }),
+  closeConflictDialog: () => set({ activeConflictDialogFileId: null }),
 
   setDoc: (fileId, doc) => set((s) => ({ openDocs: { ...s.openDocs, [fileId]: doc } })),
 
@@ -91,7 +98,13 @@ export const useDocStore = create<DocStore>((set) => ({
       return changed ? { openDocs } : {}
     }),
 
-  clearDocs: () => set({ openDocs: {}, unsavedFileIds: new Set(), externalConflicts: {} }),
+  clearDocs: () =>
+    set({
+      openDocs: {},
+      unsavedFileIds: new Set(),
+      externalConflicts: {},
+      activeConflictDialogFileId: null,
+    }),
 
   markUnsaved: (fileId) =>
     set((s) => {
@@ -115,13 +128,21 @@ export const useDocStore = create<DocStore>((set) => ({
     }),
 
   setExternalConflict: (conflict) =>
-    set((s) => ({ externalConflicts: { ...s.externalConflicts, [conflict.fileId]: conflict } })),
+    set((s) => ({
+      externalConflicts: { ...s.externalConflicts, [conflict.fileId]: conflict },
+      activeConflictDialogFileId: s.activeConflictDialogFileId ?? conflict.fileId,
+    })),
 
   clearExternalConflict: (fileId) =>
     set((s) => {
       if (!s.externalConflicts[fileId]) return {}
       const { [fileId]: _cleared, ...externalConflicts } = s.externalConflicts
-      return { externalConflicts }
+      const remainingKeys = Object.keys(externalConflicts)
+      const nextActiveId =
+        s.activeConflictDialogFileId === fileId
+          ? (remainingKeys[0] ?? null)
+          : s.activeConflictDialogFileId
+      return { externalConflicts, activeConflictDialogFileId: nextActiveId }
     }),
 
   dropDocs: (fileIds) =>

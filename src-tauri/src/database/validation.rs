@@ -1257,7 +1257,11 @@ fn parse_datetime(value: &str) -> Option<DateValue> {
                 return None;
             }
             let seconds = hours * 3600 + minutes * 60;
-            if *sign == b'-' { -seconds } else { seconds }
+            if *sign == b'-' {
+                -seconds
+            } else {
+                seconds
+            }
         }
         _ => return None,
     };
@@ -1612,8 +1616,8 @@ fn validate_layout_config(report: &mut ValidationReport, layout: &str, config: &
 mod tests {
     use super::*;
     use crate::database::format::{
-        DatabaseCover, FilesConfig, PropertyFields, RelationConfig, YamlBinding, parse_manifest,
-        parse_record,
+        parse_manifest, parse_record, DatabaseCover, FilesConfig, PropertyFields, RelationConfig,
+        YamlBinding,
     };
 
     fn manifest() -> DatabaseManifest {
@@ -1659,12 +1663,10 @@ mod tests {
           "values":{"01J00000000000000000000001":{"type":"number","decimal":"1e999999999999999999999"}}
         }"#).unwrap();
         let report = validate_record(&record.value, Some(&manifest()));
-        assert!(
-            report
-                .errors
-                .iter()
-                .any(|issue| issue.code == ValidationCode::InvalidDecimal)
-        );
+        assert!(report
+            .errors
+            .iter()
+            .any(|issue| issue.code == ValidationCode::InvalidDecimal));
     }
 
     #[test]
@@ -1680,12 +1682,10 @@ mod tests {
         });
         let view: DatabaseViewFile = serde_json::from_value(raw).unwrap();
         let report = validate_view(&view, Some(&value));
-        assert!(
-            report
-                .errors
-                .iter()
-                .any(|issue| issue.code == ValidationCode::InvalidConfiguration)
-        );
+        assert!(report
+            .errors
+            .iter()
+            .any(|issue| issue.code == ValidationCode::InvalidConfiguration));
     }
 
     #[test]
@@ -1696,12 +1696,10 @@ mod tests {
         let view: DatabaseViewFile = serde_json::from_value(raw).unwrap();
         let report = validate_view(&view, None);
         assert!(report.read_only);
-        assert!(
-            report
-                .warnings
-                .iter()
-                .any(|issue| issue.code == ValidationCode::UnknownDiscriminant)
-        );
+        assert!(report
+            .warnings
+            .iter()
+            .any(|issue| issue.code == ValidationCode::UnknownDiscriminant));
     }
 
     #[test]
@@ -1741,12 +1739,10 @@ mod tests {
         let report = validate_manifest(&manifest);
         assert!(report.errors.is_empty());
         assert!(report.read_only);
-        assert!(
-            report
-                .warnings
-                .iter()
-                .any(|w| w.code == ValidationCode::InvalidFormat)
-        );
+        assert!(report
+            .warnings
+            .iter()
+            .any(|w| w.code == ValidationCode::InvalidFormat));
     }
 
     #[test]
@@ -1760,12 +1756,10 @@ mod tests {
             });
         }
         let report = validate_manifest(&value);
-        assert!(
-            report
-                .errors
-                .iter()
-                .any(|e| e.code == ValidationCode::InvalidBinding)
-        );
+        assert!(report
+            .errors
+            .iter()
+            .any(|e| e.code == ValidationCode::InvalidBinding));
 
         if let PropertyDefinition::Number(ref mut fields) = value.properties[0] {
             fields.yaml_binding = Some(YamlBinding {
@@ -1775,12 +1769,10 @@ mod tests {
             });
         }
         let report2 = validate_manifest(&value);
-        assert!(
-            report2
-                .errors
-                .iter()
-                .any(|e| e.code == ValidationCode::InvalidBinding)
-        );
+        assert!(report2
+            .errors
+            .iter()
+            .any(|e| e.code == ValidationCode::InvalidBinding));
     }
 
     #[test]

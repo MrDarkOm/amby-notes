@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::format::{
-    PropertyDefinition, PropertyValue, RecordShard, YamlSyncBase, parse_manifest, parse_record,
-    prepare_json, raw_revision,
+    parse_manifest, parse_record, prepare_json, raw_revision, PropertyDefinition, PropertyValue,
+    RecordShard, YamlSyncBase,
 };
 use super::validation::{canonical_decimal, validate_record};
 use crate::frontmatter::{self, AtomicCreateError};

@@ -1,49 +1,26 @@
 import * as React from "react"
 import {
   ArrowDownUp,
-  BarChart3,
   Check,
   ChevronDown,
   Copy,
   Database,
   Eye,
-  EyeOff,
   FileText,
   Filter,
-  Kanban,
-  Layers,
-  LayoutGrid,
-  Link,
-  List,
-  Lock,
-  Maximize2,
-  Palette,
   Pencil,
   Plus,
-  Redo2,
   Search,
-  Settings2,
   SlidersHorizontal,
-  Table2,
   Trash2,
-  Undo2,
-  Unlock,
   X,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
 import { motionTransitions } from "@/lib/motion-config"
+import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import {
   applyDatabaseValueBatch,
@@ -83,7 +60,7 @@ import { BoardView, GalleryView, ListView } from "./layouts"
 import { ChartView } from "./chart-view"
 import { RelationConfigDialog } from "./relation-config-dialog"
 import type { DatabaseHostKind } from "./database-store"
-import { useDocStore, type Document } from "../use-doc-store"
+import type { Document } from "../use-doc-store"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { IconValue } from "../icon-value"
 import { normalizeDatabaseIcon } from "./database-icon"
@@ -101,56 +78,11 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { ToolbarButton } from "../canvas/canvas-toolbar"
-
-const PeekDocumentEditor = React.lazy(() =>
-  import("../document-editor").then((module) => ({ default: module.DocumentEditor })),
-)
-
-function getViewLayoutIcon(layout: string) {
-  switch (layout) {
-    case "board":
-      return Kanban
-    case "gallery":
-      return LayoutGrid
-    case "list":
-      return List
-    case "chart":
-      return BarChart3
-    default:
-      return Table2
-  }
-}
-
-function DatabaseToolbarButton({
-  icon,
-  label,
-  children,
-}: {
-  icon: React.ReactNode
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="size-8 p-0 text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground"
-          aria-label={label}
-          title={label}
-        >
-          {icon}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
-        {children}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
+import { DatabaseViewDialog, DatabaseRowDialog, DatabasePropertyDialog } from "./database-dialogs"
+import { PeekRowEditor } from "./database-peek-editor"
+import { DatabaseFloatingToolbar } from "./database-floating-toolbar"
+import { DatabaseToolbarButton, DatabaseSettingsMenuContent } from "./database-view-menu"
+import { getViewLayoutIcon } from "./database-layout-icons"
 
 interface DatabaseWorkspaceProps {
   databaseId: string
@@ -818,6 +750,12 @@ export function DatabaseWorkspace({
           name: viewName.trim(),
           layout: viewLayout,
         })
+        logger.info("database.create_view", {
+          databaseId: targetDatabaseId,
+          viewId: created.viewId,
+          name: viewName.trim(),
+          layout: viewLayout,
+        })
         setViewDialogOpen(false)
         await refreshDatabaseViews(created.viewId)
       } else if (viewDialogMode === "edit") {
@@ -840,12 +778,23 @@ export function DatabaseWorkspace({
             expectedViewRevision: doc.revision,
             configJson: JSON.stringify(config),
           })
+          logger.info("database.update_view_config", {
+            databaseId: targetDatabaseId,
+            viewId: viewDialogViewId,
+            name: viewName.trim(),
+            layout: viewLayout,
+          })
         } else if (viewName.trim() !== current.title) {
           await renameDatabaseView({
             expectedGeneration: currentGeneration,
             databaseId: targetDatabaseId,
             viewId: viewDialogViewId,
             expectedViewRevision: current.revision,
+            name: viewName.trim(),
+          })
+          logger.info("database.rename_view", {
+            databaseId: targetDatabaseId,
+            viewId: viewDialogViewId,
             name: viewName.trim(),
           })
         }
@@ -861,10 +810,20 @@ export function DatabaseWorkspace({
           expectedViewRevision: current.revision,
           name: viewName.trim(),
         })
+        logger.info("database.rename_view", {
+          databaseId: targetDatabaseId,
+          viewId: viewDialogViewId,
+          name: viewName.trim(),
+        })
         setViewDialogOpen(false)
         await refreshDatabaseViews(viewDialogViewId)
       }
     } catch (error) {
+      logger.error("database.view_action_failed", {
+        databaseId: targetDatabaseId,
+        viewDialogMode,
+        error,
+      })
       setMutationError(error instanceof Error ? error.message : String(error))
     } finally {
       setMutationBusy(false)
@@ -910,6 +869,11 @@ export function DatabaseWorkspace({
             expectedViewRevision: target.revision,
             expectedManifestRevision: database.manifestRevision,
           })
+          logger.info("database.duplicate_view", {
+            databaseId: targetDatabaseId,
+            viewId: target.viewId,
+            newViewId: duplicate.viewId,
+          })
           await refreshDatabaseViews(duplicate.viewId)
         } else if (action === "default") {
           await setDefaultDatabaseView({
@@ -918,6 +882,10 @@ export function DatabaseWorkspace({
             viewId: target.viewId,
             expectedViewRevision: target.revision,
             expectedManifestRevision: database.manifestRevision,
+          })
+          logger.info("database.set_default_view", {
+            databaseId: targetDatabaseId,
+            viewId: target.viewId,
           })
           await refreshDatabaseViews(target.viewId)
         } else {
@@ -928,10 +896,20 @@ export function DatabaseWorkspace({
             expectedViewRevision: target.revision,
             expectedManifestRevision: database.manifestRevision,
           })
+          logger.info("database.delete_view", {
+            databaseId: targetDatabaseId,
+            viewId: target.viewId,
+          })
           const fallback = database.views.find((view) => view.viewId !== target.viewId)?.viewId
           await refreshDatabaseViews(fallback)
         }
       } catch (error) {
+        logger.error("database.mutate_view_failed", {
+          databaseId: targetDatabaseId,
+          action,
+          targetViewId,
+          error,
+        })
         setMutationError(error instanceof Error ? error.message : String(error))
       } finally {
         setMutationBusy(false)
@@ -977,6 +955,12 @@ export function DatabaseWorkspace({
         title: rowTitle.trim(),
         template: rowTemplate,
       })
+      logger.info("database.create_row", {
+        databaseId,
+        noteId: created.noteId,
+        title: rowTitle.trim(),
+        template: rowTemplate.kind,
+      })
       setSelectedRowId(created.noteId)
       setRowTitle("")
       setRowDialogOpen(false)
@@ -994,6 +978,7 @@ export function DatabaseWorkspace({
       }
       setMutationError(notices.length ? notices.join("; ") : null)
     } catch (error) {
+      logger.error("database.create_row_failed", { databaseId, title: rowTitle.trim(), error })
       setMutationError(error instanceof Error ? error.message : String(error))
     } finally {
       setMutationBusy(false)
@@ -1032,6 +1017,12 @@ export function DatabaseWorkspace({
             : undefined,
         beforePropertyId: propertyInsertBeforeId,
       })
+      logger.info("database.create_property", {
+        databaseId,
+        propertyId: created.propertyId,
+        propertyName: propertyName.trim(),
+        propertyType,
+      })
       setPropertyName("")
       setPropertyType("text")
       setFormulaExpression("0")
@@ -1056,6 +1047,12 @@ export function DatabaseWorkspace({
       }
       setMutationError(notices.length ? notices.join("; ") : null)
     } catch (error) {
+      logger.error("database.create_property_failed", {
+        databaseId,
+        propertyName: propertyName.trim(),
+        propertyType,
+        error,
+      })
       setMutationError(error instanceof Error ? error.message : String(error))
     } finally {
       setMutationBusy(false)
@@ -1091,6 +1088,7 @@ export function DatabaseWorkspace({
           propertyId,
           expectedManifestRevision: database.manifestRevision,
         })
+        logger.info("database.delete_property", { databaseId, propertyId })
         const refreshResults = await Promise.allSettled([onCatalogChanged?.(), retry()])
         const refreshFailure = refreshResults.find(
           (result): result is PromiseRejectedResult => result.status === "rejected",
@@ -1105,6 +1103,7 @@ export function DatabaseWorkspace({
         }
         setMutationError(notices.length ? notices.join("; ") : null)
       } catch (error) {
+        logger.error("database.delete_property_failed", { databaseId, propertyId, error })
         setMutationError(error instanceof Error ? error.message : String(error))
       } finally {
         setMutationBusy(false)
@@ -1142,6 +1141,12 @@ export function DatabaseWorkspace({
           expectedManifestRevision: database.manifestRevision,
           name,
         })
+        logger.info("database.rename_property", {
+          databaseId,
+          propertyId,
+          oldName: property.name,
+          newName: name,
+        })
         const refreshResults = await Promise.allSettled([onCatalogChanged?.(), retry()])
         const refreshFailure = refreshResults.find(
           (result): result is PromiseRejectedResult => result.status === "rejected",
@@ -1156,6 +1161,12 @@ export function DatabaseWorkspace({
         }
         setMutationError(notices.length ? notices.join("; ") : null)
       } catch (error) {
+        logger.error("database.rename_property_failed", {
+          databaseId,
+          propertyId,
+          newName: name,
+          error,
+        })
         setMutationError(error instanceof Error ? error.message : String(error))
       }
     },
@@ -1183,6 +1194,12 @@ export function DatabaseWorkspace({
           propertyType: nextPropertyType,
           relationTargetDatabaseId: nextRelationTargetDatabaseId,
         })
+        logger.info("database.change_property_type", {
+          databaseId,
+          propertyId,
+          oldType: property.propertyType,
+          newType: nextPropertyType,
+        })
         const refreshResults = await Promise.allSettled([onCatalogChanged?.(), retry()])
         const refreshFailure = refreshResults.find(
           (result): result is PromiseRejectedResult => result.status === "rejected",
@@ -1197,6 +1214,12 @@ export function DatabaseWorkspace({
         }
         setMutationError(notices.length ? notices.join("; ") : null)
       } catch (error) {
+        logger.error("database.change_property_type_failed", {
+          databaseId,
+          propertyId,
+          newType: nextPropertyType,
+          error,
+        })
         setMutationError(error instanceof Error ? error.message : String(error))
       }
     },
@@ -1207,6 +1230,13 @@ export function DatabaseWorkspace({
     (row: DatabaseRow, property: DatabasePropertySummary, valueJson?: string) => {
       const cellKey = `${row.noteId}:${property.propertyId}`
       const prior = rowQueues.current.get(row.noteId) ?? Promise.resolve()
+      logger.info("database.commit_cell", {
+        databaseId,
+        noteId: row.noteId,
+        propertyId: property.propertyId,
+        propertyName: property.name,
+        propertyType: property.propertyType,
+      })
       setPendingCells((current) => new Set(current).add(cellKey))
       setCellErrors((current) => {
         const next = { ...current }
@@ -1264,6 +1294,12 @@ export function DatabaseWorkspace({
           }
         })
         .catch(async (error) => {
+          logger.error("database.commit_cell_failed", {
+            databaseId,
+            noteId: row.noteId,
+            propertyId: property.propertyId,
+            error,
+          })
           revisionOverrides.current.delete(row.noteId)
           setCellErrors((current) => ({
             ...current,
@@ -1297,9 +1333,19 @@ export function DatabaseWorkspace({
           title: rowTitleText.trim(),
           template: { kind: "empty" },
         })
+        logger.info("database.create_relation_row", {
+          targetDatabaseId,
+          noteId: created.noteId,
+          title: rowTitleText.trim(),
+        })
         await Promise.allSettled([onCatalogChanged?.(), retry()])
         return created.noteId
       } catch (error) {
+        logger.error("database.create_relation_row_failed", {
+          targetDatabaseId,
+          title: rowTitleText.trim(),
+          error,
+        })
         setMutationError(error instanceof Error ? error.message : String(error))
       } finally {
         setMutationBusy(false)
@@ -1318,6 +1364,11 @@ export function DatabaseWorkspace({
           databaseId,
           noteId: row.noteId,
           expectedRecordRevision: row.rowRevision,
+        })
+        logger.info("database.sync_yaml", {
+          databaseId,
+          noteId: row.noteId,
+          changed: result.changed,
         })
         setYamlSyncState({ rowId: row.noteId, busy: false, error: null, result })
         if (result.changed) retry()
@@ -1420,7 +1471,7 @@ export function DatabaseWorkspace({
 
   if (catalogStatus === "ready" && !database) {
     return (
-      <section className="relative flex min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center gap-3 overflow-hidden bg-white p-8 text-center text-muted-foreground dark:bg-background">
+      <section className="relative flex min-h-0 min-w-0 w-full flex-1 flex-col items-center justify-center gap-3 overflow-hidden bg-[var(--note-surface)] p-8 text-center text-muted-foreground">
         <Database className="size-10 stroke-1 text-muted-foreground/60" />
         <p className="text-sm font-medium">{t("databaseWorkspace.notFound")}</p>
       </section>
@@ -1428,7 +1479,7 @@ export function DatabaseWorkspace({
   }
 
   return (
-    <section className="relative flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-white text-slate-900 dark:bg-background dark:text-foreground">
+    <section className="relative flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-[var(--note-surface)] text-foreground">
       {/* Hidden measuring container to determine unconstrained width of all view tabs */}
       <div
         ref={viewsMeasureRef}
@@ -1815,379 +1866,38 @@ export function DatabaseWorkspace({
             <div />
           )}
           {(() => {
-            const ActiveViewLayoutIcon = activeView ? getViewLayoutIcon(activeView.layout) : Table2
-            const allProperties = database?.properties ?? []
-            const visiblePropertiesCount = allProperties.filter(
-              (prop) => !activeHiddenPropertyIds.has(prop.propertyId),
-            ).length
-
             const settingsMenuContent = (
-              <DropdownMenuContent align="end" className="w-60">
-                {/* 1. (Новая, Шаблоны, Поиск) - only in compact mode */}
-                {isCompactToolbar && (
-                  <>
-                    <DropdownMenuItem
-                      disabled={isDatabaseLocked || vaultGeneration === null}
-                      onSelect={() => openRowDialog({ kind: "default" })}
-                    >
-                      <Plus className="size-4" />
-                      <span className="flex-1">{t("databaseWorkspace.newPage")}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger
-                        disabled={isDatabaseLocked || vaultGeneration === null}
-                      >
-                        <FileText className="size-4" />
-                        <span className="flex-1">{t("databaseWorkspace.templates")}</span>
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="w-56">
-                        <DropdownMenuItem onSelect={() => openRowDialog({ kind: "default" })}>
-                          <Database className="size-4" />
-                          <span>{t("databaseWorkspace.defaultTemplate")}</span>
-                        </DropdownMenuItem>
-                        {database?.templates.map((template) => (
-                          <DropdownMenuItem
-                            key={template.templateId}
-                            onSelect={() =>
-                              openRowDialog({ kind: "template", templateId: template.templateId })
-                            }
-                          >
-                            <FileText className="size-4 shrink-0 text-primary" />
-                            <span className="truncate">{template.name}</span>
-                          </DropdownMenuItem>
-                        ))}
-                        {(!database || database.templates.length === 0) && (
-                          <DropdownMenuItem disabled>
-                            {t("databaseWorkspace.noTemplates")}
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onSelect={() => openRowDialog({ kind: "empty" })}>
-                          <Plus className="size-4" />
-                          <span>{t("databaseWorkspace.createTemplate")}</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                    <DropdownMenuItem onSelect={() => setSearchOpen((open) => !open)}>
-                      {searchOpen ? <X className="size-4" /> : <Search className="size-4" />}
-                      <span className="flex-1">
-                        {searchOpen
-                          ? t("databaseWorkspace.closeSearch")
-                          : t("databaseWorkspace.search")}
-                      </span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
-                )}
-
-                {/* 2. Иконка текущего представления и Название */}
-                {activeView && (
-                  <DropdownMenuItem
-                    onSelect={() => openRenameViewDialog(activeView)}
-                    className="flex items-center gap-2 font-medium"
-                  >
-                    <ActiveViewLayoutIcon className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="flex-1 truncate">{activeView.title}</span>
-                    <Pencil className="size-3 text-muted-foreground opacity-60 shrink-0" />
-                  </DropdownMenuItem>
-                )}
-
-                <DropdownMenuSeparator />
-
-                {/* 3. Тип текущего представления (Раскладка) */}
-                {activeView && (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <ActiveViewLayoutIcon className="size-4" />
-                      <span className="flex-1">{t("databaseWorkspace.layout")}</span>
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        {t(`databaseLayouts.${activeView.layout}`)}
-                      </span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-48">
-                      {(["table", "board", "list", "gallery", "chart"] as const).map((layout) => {
-                        const LayoutIcon = getViewLayoutIcon(layout)
-                        const isActive = activeView.layout === layout
-                        return (
-                          <DropdownMenuItem
-                            key={layout}
-                            disabled={isDatabaseLocked || vaultGeneration === null || mutationBusy}
-                            onSelect={() => void changeActiveViewLayout(layout)}
-                            className={cn(isActive && "font-medium")}
-                          >
-                            <LayoutIcon className="size-4 shrink-0" />
-                            <span className="flex-1 truncate">
-                              {t(`databaseLayouts.${layout}`)}
-                            </span>
-                            {isActive && <Check className="size-4 text-primary" />}
-                          </DropdownMenuItem>
-                        )
-                      })}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                )}
-
-                {/* 4. Видимые свойства */}
-                {activeView && (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <Eye className="size-4" />
-                      <span className="flex-1">{t("databaseWorkspace.propertyVisibility")}</span>
-                      <span className="ml-auto text-xs text-muted-foreground">
-                        {visiblePropertiesCount}
-                      </span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-56 max-h-80 overflow-y-auto">
-                      <div className="flex items-center justify-between px-2 py-1 text-xs font-medium text-muted-foreground">
-                        <span>{t("databaseWorkspace.propertyVisibility")}</span>
-                        <span>
-                          {visiblePropertiesCount}/{allProperties.length}
-                        </span>
-                      </div>
-                      {allProperties.length > 1 && (
-                        <>
-                          <DropdownMenuItem
-                            onSelect={(event) => {
-                              event.preventDefault()
-                              setViewHiddenPropertyIds(activeView.viewId, new Set())
-                            }}
-                          >
-                            <Eye className="size-4" />
-                            {t("databaseWorkspace.showAllProperties")}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={(event) => {
-                              event.preventDefault()
-                              setViewHiddenPropertyIds(
-                                activeView.viewId,
-                                new Set(allProperties.map((property) => property.propertyId)),
-                              )
-                            }}
-                          >
-                            <EyeOff className="size-4" />
-                            {t("databaseWorkspace.hideAllProperties")}
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                      <DropdownMenuSeparator />
-                      {allProperties.map((property) => {
-                        const isVisible = !activeHiddenPropertyIds.has(property.propertyId)
-                        return (
-                          <DropdownMenuItem
-                            key={property.propertyId}
-                            onSelect={(e) => {
-                              e.preventDefault()
-                              togglePropertyVisibility(property.propertyId)
-                            }}
-                            className="flex items-center gap-2"
-                          >
-                            {isVisible ? (
-                              <Eye className="size-4 text-primary shrink-0" />
-                            ) : (
-                              <EyeOff className="size-4 text-muted-foreground shrink-0" />
-                            )}
-                            <span
-                              className={cn(
-                                "flex-1 truncate",
-                                !isVisible && "text-muted-foreground line-through opacity-75",
-                              )}
-                            >
-                              {property.name}
-                            </span>
-                          </DropdownMenuItem>
-                        )
-                      })}
-                      {allProperties.length === 0 && (
-                        <DropdownMenuItem disabled>
-                          {t("databaseWorkspace.noProperties")}
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        disabled={
-                          isDatabaseLocked ||
-                          (vaultGeneration === null &&
-                            useDatabaseStore.getState().vaultGeneration === null)
-                        }
-                        onSelect={() => {
-                          setMutationError(null)
-                          setPropertyInsertBeforeId(undefined)
-                          setRelationTargetDatabaseId(databaseId)
-                          setPropertyDialogOpen(true)
-                        }}
-                      >
-                        <Plus className="size-4" />
-                        <span>{t("databaseWorkspace.addProperty")}</span>
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                )}
-
-                {/* 5. Фильтр */}
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <Filter className="size-4" />
-                    <span className="flex-1">{t("databaseWorkspace.filter")}</span>
-                    {Object.keys(filterValues).length > 0 && (
-                      <span className="ml-auto rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                        {Object.keys(filterValues).length}
-                      </span>
-                    )}
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-56">
-                    <DropdownMenuLabel>{t("databaseWorkspace.filter")}</DropdownMenuLabel>
-                    {Object.entries(filterValues).map(([key, value]) => {
-                      const property =
-                        key === "title"
-                          ? { name: titleColumnName ?? t("databaseTable.title") }
-                          : database?.properties.find((candidate) => candidate.propertyId === key)
-                      return (
-                        <DropdownMenuItem
-                          key={key}
-                          onSelect={() =>
-                            setFilterValues((current) => {
-                              const next = { ...current }
-                              delete next[key]
-                              return next
-                            })
-                          }
-                        >
-                          <span className="min-w-0 flex-1 truncate">{property?.name ?? key}</span>
-                          <span className="max-w-24 truncate text-muted-foreground">{value}</span>
-                          <X className="ml-1 size-3 text-muted-foreground" />
-                        </DropdownMenuItem>
-                      )
-                    })}
-                    {Object.keys(filterValues).length === 0 ? (
-                      <DropdownMenuItem disabled>
-                        {t("databaseWorkspace.noFilters")}
-                      </DropdownMenuItem>
-                    ) : (
-                      <DropdownMenuItem onSelect={() => setFilterValues({})}>
-                        {t("databaseTable.clearFilter")}
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-
-                {/* 6. Сортировка */}
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <ArrowDownUp className="size-4" />
-                    <span className="flex-1">{t("databaseWorkspace.sort")}</span>
-                    {sortValue && <span className="ml-auto text-xs text-primary">✓</span>}
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-56">
-                    <DropdownMenuLabel>{t("databaseWorkspace.sort")}</DropdownMenuLabel>
-                    <DropdownMenuItem
-                      onSelect={() => setSortValue({ key: "title", direction: "asc" })}
-                    >
-                      {t("databaseWorkspace.sortAscending")}
-                      {sortValue?.key === "title" && sortValue.direction === "asc" && (
-                        <span className="ml-auto text-primary">✓</span>
-                      )}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onSelect={() => setSortValue({ key: "title", direction: "desc" })}
-                    >
-                      {t("databaseWorkspace.sortDescending")}
-                      {sortValue?.key === "title" && sortValue.direction === "desc" && (
-                        <span className="ml-auto text-primary">✓</span>
-                      )}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled={!sortValue} onSelect={() => setSortValue(null)}>
-                      {t("databaseTable.clearSort")}
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-
-                {/* 7. Группировать (Заглушка) */}
-                <DropdownMenuItem disabled className="opacity-60 cursor-not-allowed">
-                  <Layers className="size-4" />
-                  <span className="flex-1">{t("databaseWorkspace.group")}</span>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {t("databaseWorkspace.comingSoon")}
-                  </span>
-                </DropdownMenuItem>
-
-                {/* 8. Цвета (Заглушка) */}
-                <DropdownMenuItem disabled className="opacity-60 cursor-not-allowed">
-                  <Palette className="size-4" />
-                  <span className="flex-1">{t("databaseWorkspace.conditionalColor")}</span>
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                    {t("databaseWorkspace.comingSoon")}
-                  </span>
-                </DropdownMenuItem>
-
-                <DropdownMenuSeparator />
-
-                {/* 9. Копировать ссылку на представление */}
-                {activeView && (
-                  <DropdownMenuItem onSelect={() => void copyLinkToView()}>
-                    {isLinkCopied ? (
-                      <>
-                        <Check className="size-4 text-primary" />
-                        <span className="flex-1 text-primary">
-                          {t("databaseWorkspace.linkCopied")}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <Link className="size-4" />
-                        <span>{t("databaseWorkspace.copyLinkToView")}</span>
-                      </>
-                    )}
-                  </DropdownMenuItem>
-                )}
-
-                {/* 10. Заблокировать базу (Заглушка) */}
-                <DropdownMenuItem
-                  onSelect={(e) => {
-                    e.preventDefault()
-                    handleToggleLock()
-                  }}
-                >
-                  {isDatabaseLocked ? (
-                    <>
-                      <Lock className="size-4 text-amber-600 dark:text-amber-500" />
-                      <span className="flex-1">{t("databaseWorkspace.unlockDatabase")}</span>
-                      <Check className="size-4 text-primary" />
-                    </>
-                  ) : (
-                    <>
-                      <Unlock className="size-4" />
-                      <span className="flex-1">{t("databaseWorkspace.lockDatabase")}</span>
-                    </>
-                  )}
-                </DropdownMenuItem>
-
-                {/* Duplicate / Delete view */}
-                {activeView && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      disabled={isDatabaseLocked || vaultGeneration === null || mutationBusy}
-                      onSelect={() => void mutateView("duplicate", activeView.viewId)}
-                    >
-                      <Copy className="size-4" />
-                      <span>{t("databaseWorkspace.duplicateView")}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-destructive focus:text-destructive"
-                      disabled={
-                        isDatabaseLocked ||
-                        vaultGeneration === null ||
-                        mutationBusy ||
-                        (database?.views.length ?? 0) <= 1
-                      }
-                      onSelect={() => void mutateView("delete", activeView.viewId)}
-                    >
-                      <Trash2 className="size-4" />
-                      <span>{t("databaseWorkspace.deleteView")}</span>
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
+              <DatabaseSettingsMenuContent
+                isCompactToolbar={isCompactToolbar}
+                isDatabaseLocked={isDatabaseLocked}
+                vaultGeneration={vaultGeneration}
+                activeView={activeView}
+                database={database}
+                mutationBusy={mutationBusy}
+                searchOpen={searchOpen}
+                isLinkCopied={isLinkCopied}
+                activeHiddenPropertyIds={activeHiddenPropertyIds}
+                filterValues={filterValues}
+                titleColumnName={titleColumnName}
+                sortValue={sortValue}
+                openRowDialog={openRowDialog}
+                onToggleSearch={() => setSearchOpen((open) => !open)}
+                openRenameViewDialog={openRenameViewDialog}
+                changeActiveViewLayout={changeActiveViewLayout}
+                setViewHiddenPropertyIds={setViewHiddenPropertyIds}
+                togglePropertyVisibility={togglePropertyVisibility}
+                onOpenAddProperty={() => {
+                  setMutationError(null)
+                  setPropertyInsertBeforeId(undefined)
+                  setRelationTargetDatabaseId(databaseId)
+                  setPropertyDialogOpen(true)
+                }}
+                setFilterValues={setFilterValues}
+                setSortValue={setSortValue}
+                copyLinkToView={copyLinkToView}
+                handleToggleLock={handleToggleLock}
+                mutateView={mutateView}
+              />
             )
 
             return (
@@ -2387,7 +2097,7 @@ export function DatabaseWorkspace({
         )}
         {activeHost?.rows.length || activeHost?.status === "loading" || activeHost?.error ? (
           <div className="flex min-h-0 min-w-0 flex-1 gap-4 px-0 pb-6 pt-2">
-            <div className="flex min-w-0 flex-1 overflow-hidden rounded-xl bg-white dark:bg-card">
+            <div className="flex min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--note-surface)]">
               {selectedView?.layout === "chart" && viewId ? (
                 <ChartView
                   databaseId={databaseId}
@@ -2590,278 +2300,61 @@ export function DatabaseWorkspace({
           </div>
         )}
       </div>
-      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {viewDialogMode === "create"
-                ? t("databaseWorkspace.viewCreate")
-                : viewDialogMode === "edit"
-                  ? t("databaseWorkspace.editView")
-                  : t("databaseWorkspace.renameView")}
-            </DialogTitle>
-            <DialogDescription>{t("databaseWorkspace.views")}</DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            value={viewName}
-            placeholder={t("databaseWorkspace.viewNamePlaceholder")}
-            aria-label={t("databaseWorkspace.viewName")}
-            onChange={(event) => setViewName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void saveViewDialog()
-            }}
-          />
-          {(viewDialogMode === "create" || viewDialogMode === "edit") && (
-            <label className="space-y-1 text-xs text-muted-foreground">
-              <span>{t("databaseWorkspace.viewLayout")}</span>
-              <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                value={viewLayout}
-                onChange={(event) =>
-                  setViewLayout(
-                    event.target.value as "table" | "board" | "list" | "gallery" | "chart",
-                  )
-                }
-              >
-                {(["table", "board", "list", "gallery", "chart"] as const).map((layout) => (
-                  <option key={layout} value={layout}>
-                    {t(`databaseLayouts.${layout}`)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {mutationError && <p className="text-xs text-destructive">{mutationError}</p>}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setViewDialogOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              disabled={!viewName.trim() || mutationBusy}
-              onClick={() => void saveViewDialog()}
-            >
-              {viewDialogMode === "create" ? t("common.create") : t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={rowDialogOpen} onOpenChange={setRowDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("databaseWorkspace.newPage")}</DialogTitle>
-            <DialogDescription>{t("databaseWorkspace.newPageDescription")}</DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            value={rowTitle}
-            placeholder={t("databaseWorkspace.pageTitle")}
-            aria-label={t("databaseWorkspace.pageTitle")}
-            onChange={(event) => setRowTitle(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void createRow()
-            }}
-          />
-          {mutationError && <p className="text-xs text-destructive">{mutationError}</p>}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRowDialogOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button disabled={!rowTitle.trim() || mutationBusy} onClick={() => void createRow()}>
-              {t("common.create")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
+      <DatabaseViewDialog
+        open={viewDialogOpen}
+        onOpenChange={setViewDialogOpen}
+        mode={viewDialogMode}
+        viewName={viewName}
+        onViewNameChange={setViewName}
+        viewLayout={viewLayout}
+        onViewLayoutChange={setViewLayout}
+        mutationBusy={mutationBusy}
+        mutationError={mutationError}
+        onSave={() => void saveViewDialog()}
+      />
+      <DatabaseRowDialog
+        open={rowDialogOpen}
+        onOpenChange={setRowDialogOpen}
+        rowTitle={rowTitle}
+        onRowTitleChange={setRowTitle}
+        mutationBusy={mutationBusy}
+        mutationError={mutationError}
+        onCreate={() => void createRow()}
+      />
+      <DatabasePropertyDialog
         open={propertyDialogOpen}
         onOpenChange={(open) => {
           setPropertyDialogOpen(open)
           if (!open) setPropertyInsertBeforeId(undefined)
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t("databaseWorkspace.addProperty")}</DialogTitle>
-            <DialogDescription>{t("databaseWorkspace.addPropertyDescription")}</DialogDescription>
-          </DialogHeader>
-          <Input
-            autoFocus
-            value={propertyName}
-            placeholder={t("databaseWorkspace.propertyName")}
-            aria-label={t("databaseWorkspace.propertyName")}
-            onChange={(event) => setPropertyName(event.target.value)}
-          />
-          <label className="space-y-1 text-xs text-muted-foreground">
-            <span>{t("databaseWorkspace.propertyType")}</span>
-            <select
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              value={propertyType}
-              onChange={(event) => setPropertyType(event.target.value)}
-            >
-              {[
-                "text",
-                "number",
-                "checkbox",
-                "date",
-                "url",
-                "select",
-                "multiSelect",
-                "status",
-                "formula",
-                "relation",
-              ].map((type) => (
-                <option key={type} value={type}>
-                  {t(`databaseWorkspace.propertyTypes.${type}`)}
-                </option>
-              ))}
-            </select>
-          </label>
-          {propertyType === "formula" && (
-            <label className="space-y-1 text-xs text-muted-foreground">
-              <span>{t("databaseWorkspace.formulaExpression")}</span>
-              <Input
-                value={formulaExpression}
-                placeholder={t("databaseWorkspace.formulaExpressionHint")}
-                aria-label={t("databaseWorkspace.formulaExpression")}
-                onChange={(event) => setFormulaExpression(event.target.value)}
-              />
-            </label>
-          )}
-          {propertyType === "relation" && (
-            <div className="space-y-3 pt-1">
-              <label className="space-y-1 text-xs text-muted-foreground block">
-                <span>{t("databaseWorkspace.relationTarget")}</span>
-                <select
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  value={relationTargetDatabaseId}
-                  onChange={(event) => {
-                    const nextId = event.target.value
-                    setRelationTargetDatabaseId(nextId)
-                    if (!relationInversePropertyName) {
-                      setRelationInversePropertyName(title || "Related")
-                    }
-                  }}
-                >
-                  {databases.map((candidate) => (
-                    <option key={candidate.databaseId} value={candidate.databaseId}>
-                      {candidate.title}{" "}
-                      {candidate.databaseId === databaseId
-                        ? `(${t("databaseWorkspace.relationSelfSingle")})`
-                        : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {/* Limit */}
-              <div className="space-y-1.5">
-                <span className="text-xs text-muted-foreground block">
-                  {t("databaseWorkspace.relationLimit")}
-                </span>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    className={`flex items-center justify-center rounded-md border px-3 py-1.5 text-xs ${
-                      relationMaxItems === null
-                        ? "border-primary bg-primary/10 text-primary font-semibold"
-                        : "border-input bg-background text-muted-foreground hover:bg-accent/50"
-                    }`}
-                    onClick={() => setRelationMaxItems(null)}
-                  >
-                    {t("databaseWorkspace.relationLimitNoLimit")}
-                  </button>
-                  <button
-                    type="button"
-                    className={`flex items-center justify-center rounded-md border px-3 py-1.5 text-xs ${
-                      relationMaxItems === 1
-                        ? "border-primary bg-primary/10 text-primary font-semibold"
-                        : "border-input bg-background text-muted-foreground hover:bg-accent/50"
-                    }`}
-                    onClick={() => setRelationMaxItems(1)}
-                  >
-                    {t("databaseWorkspace.relationLimitSingle")}
-                  </button>
-                </div>
-              </div>
-
-              {/* Two-way relation */}
-              {relationTargetDatabaseId === databaseId ? (
-                <div className="space-y-2 rounded-lg border border-border/80 bg-muted/20 p-2.5">
-                  <span className="text-xs font-medium text-foreground block">
-                    {t("databaseWorkspace.relationSelfDirection")}
-                  </span>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      className={`rounded-md border p-2 text-left text-xs ${
-                        relationSelfDual
-                          ? "border-primary bg-primary/10 text-primary font-semibold"
-                          : "border-input bg-background text-muted-foreground hover:bg-accent/50"
-                      }`}
-                      onClick={() => setRelationSelfDual(true)}
-                    >
-                      <div>{t("databaseWorkspace.relationSelfDual")}</div>
-                    </button>
-                    <button
-                      type="button"
-                      className={`rounded-md border p-2 text-left text-xs ${
-                        !relationSelfDual
-                          ? "border-primary bg-primary/10 text-primary font-semibold"
-                          : "border-input bg-background text-muted-foreground hover:bg-accent/50"
-                      }`}
-                      onClick={() => setRelationSelfDual(false)}
-                    >
-                      <div>{t("databaseWorkspace.relationSelfSingle")}</div>
-                    </button>
-                  </div>
-                  {relationSelfDual && (
-                    <label className="space-y-1 text-xs text-muted-foreground block pt-1">
-                      <span>{t("databaseWorkspace.relationTwoWayTargetName")}</span>
-                      <Input
-                        value={relationInversePropertyName}
-                        placeholder={t("databaseWorkspace.relationSelfDual")}
-                        onChange={(e) => setRelationInversePropertyName(e.target.value)}
-                      />
-                    </label>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-2 rounded-lg border border-border/80 bg-muted/20 p-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-foreground">
-                      {t("databaseWorkspace.relationTwoWay")}
-                    </span>
-                    <Switch checked={relationTwoWay} onCheckedChange={setRelationTwoWay} />
-                  </div>
-                  {relationTwoWay && (
-                    <label className="space-y-1 text-xs text-muted-foreground block pt-1">
-                      <span>{t("databaseWorkspace.relationTwoWayTargetName")}</span>
-                      <Input
-                        value={relationInversePropertyName}
-                        placeholder={title || t("databaseWorkspace.relationTarget")}
-                        onChange={(e) => setRelationInversePropertyName(e.target.value)}
-                      />
-                    </label>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-          {mutationError && <p className="text-xs text-destructive">{mutationError}</p>}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPropertyDialogOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              disabled={!propertyName.trim() || mutationBusy}
-              onClick={() => void createProperty()}
-            >
-              {t("common.create")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        propertyName={propertyName}
+        onPropertyNameChange={setPropertyName}
+        propertyType={propertyType}
+        onPropertyTypeChange={setPropertyType}
+        formulaExpression={formulaExpression}
+        onFormulaExpressionChange={setFormulaExpression}
+        relationTargetDatabaseId={relationTargetDatabaseId}
+        onRelationTargetDatabaseIdChange={(nextId) => {
+          setRelationTargetDatabaseId(nextId)
+          if (!relationInversePropertyName) {
+            setRelationInversePropertyName(title || "Related")
+          }
+        }}
+        relationMaxItems={relationMaxItems}
+        onRelationMaxItemsChange={setRelationMaxItems}
+        relationSelfDual={relationSelfDual}
+        onRelationSelfDualChange={setRelationSelfDual}
+        relationTwoWay={relationTwoWay}
+        onRelationTwoWayChange={setRelationTwoWay}
+        relationInversePropertyName={relationInversePropertyName}
+        onRelationInversePropertyNameChange={setRelationInversePropertyName}
+        currentDatabaseId={databaseId}
+        currentDatabaseTitle={title}
+        databases={databases}
+        mutationBusy={mutationBusy}
+        mutationError={mutationError}
+        onCreate={() => void createProperty()}
+      />
       <RelationConfigDialog
         open={Boolean(relationConfigProperty)}
         onOpenChange={(open) => {
@@ -2941,163 +2434,22 @@ export function DatabaseWorkspace({
         }}
       />
 
-      {/* Floating Area Controls widget (Notes & Canvas benchmark style) */}
-      <div className="pointer-events-none absolute bottom-2 right-4 z-10 select-none max-w-[calc(100%-2rem)]">
-        <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md">
-          {/* Statistics: Row count & Property count */}
-          <div className="flex items-center px-1.5 text-[11px] text-muted-foreground select-none">
-            <span>
-              {t("databaseWorkspace.rowsCount", {
-                count: activeHost?.totalCount ?? displayRows.length,
-              })}
-            </span>
-            <span className="mx-1.5 text-border/80">·</span>
-            <span>
-              {t("databaseWorkspace.propertiesCount", {
-                count: database?.properties.length ?? 0,
-              })}
-            </span>
-          </div>
-
-          {/* Undo & Redo (Only shown in edit mode) */}
-          {!isDatabaseLocked && (
-            <>
-              <div className="mx-0.5 h-3.5 w-px bg-border/80" />
-              <ToolbarButton
-                title={t("docEditor.undo")}
-                disabled={!historyStatus.canUndo}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={handleUndo}
-              >
-                <Undo2 className="size-3.5" />
-              </ToolbarButton>
-              <ToolbarButton
-                title={t("docEditor.redo")}
-                disabled={!historyStatus.canRedo}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={handleRedo}
-              >
-                <Redo2 className="size-3.5" />
-              </ToolbarButton>
-            </>
-          )}
-
-          <div className="mx-0.5 h-3.5 w-px bg-border/80" />
-
-          {/* Lock Toggle Button */}
-          <ToolbarButton
-            title={isDatabaseLocked ? t("docEditor.editMode") : t("docEditor.viewMode")}
-            active={isDatabaseLocked}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={handleToggleLock}
-          >
-            {isDatabaseLocked ? <Lock className="size-3.5" /> : <Unlock className="size-3.5" />}
-          </ToolbarButton>
-
-          {/* Settings Popover */}
-          {onContentWidthChange ? (
-            <>
-              <div className="mx-0.5 h-3.5 w-px bg-border/80" />
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    title={t("common.settings")}
-                    onMouseDown={(e) => e.preventDefault()}
-                    className="flex size-7 items-center justify-center rounded-lg text-foreground hover:bg-accent hover:text-accent-foreground select-none"
-                  >
-                    <Settings2 className="size-3.5" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  side="top"
-                  align="end"
-                  sideOffset={13}
-                  alignOffset={-5}
-                  className="w-64 rounded-xl border border-border/80 bg-popover/95 p-3 text-foreground shadow-lg backdrop-blur-md"
-                >
-                  <div className="flex flex-col gap-3">
-                    <span className="text-xs font-semibold text-foreground">
-                      {t("common.settings")}
-                    </span>
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1.5">
-                        <Maximize2 className="size-3 text-muted-foreground" />
-                        {t("settings.editor.contentWidth")}
-                      </span>
-                      <div className="grid grid-cols-3 gap-1 rounded-lg border border-border/70 bg-muted/40 p-0.5">
-                        {(["normal", "wide", "full"] as const).map((width) => (
-                          <button
-                            key={width}
-                            type="button"
-                            onClick={() => onContentWidthChange(width)}
-                            className={cn(
-                              "rounded-md py-1 text-center text-xs font-medium",
-                              contentWidth === width
-                                ? "bg-primary text-primary-foreground font-semibold shadow-xs"
-                                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                            )}
-                          >
-                            {width === "full" ? "100%" : t(`settings.editor.${width}`)}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </>
-          ) : null}
-        </div>
-      </div>
+      <DatabaseFloatingToolbar
+        rowCount={activeHost?.totalCount ?? displayRows.length}
+        propertyCount={database?.properties.length ?? 0}
+        isDatabaseLocked={isDatabaseLocked}
+        canUndo={historyStatus.canUndo}
+        canRedo={historyStatus.canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
+        onToggleLock={handleToggleLock}
+        contentWidth={contentWidth}
+        onContentWidthChange={onContentWidthChange}
+      />
     </section>
   )
 }
 
 function onCreateRowAvailable(locked: boolean | undefined, generation: number | null) {
   return !locked && generation !== null
-}
-
-interface PeekRowEditorProps {
-  row: DatabaseRow
-  vault?: string
-  onLoad: (row: DatabaseRow) => Promise<Document>
-  onContentChange?: (fileId: string, content: string) => void
-}
-
-function PeekRowEditor({ row, vault, onLoad, onContentChange }: PeekRowEditorProps) {
-  const { t } = useTranslation()
-  const document = useDocStore((state) => state.openDocs[row.noteId] ?? null)
-  const [error, setError] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    let cancelled = false
-    setError(null)
-    void onLoad(row).catch((loadError) => {
-      if (!cancelled) setError(loadError instanceof Error ? loadError.message : String(loadError))
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [onLoad, row])
-
-  if (error) return <p className="p-4 text-xs text-destructive">{error}</p>
-  if (!document) {
-    return <p className="p-4 text-xs text-muted-foreground">{t("databasePeek.loading")}</p>
-  }
-  return (
-    <React.Suspense
-      fallback={<p className="p-4 text-xs text-muted-foreground">{t("databasePeek.loading")}</p>}
-    >
-      <PeekDocumentEditor
-        document={document}
-        vault={vault}
-        hideNavigation
-        editorSurfaceOwner="databasePeek"
-        onContentChange={(content, sourceDocumentId) =>
-          onContentChange?.(sourceDocumentId, content)
-        }
-      />
-    </React.Suspense>
-  )
 }

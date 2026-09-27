@@ -413,6 +413,82 @@ fn is_autosave_snapshot(reason: &str) -> bool {
     matches!(reason, "note-save" | "file-save")
 }
 
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct VaultHistoryConfig {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default, rename = "maxCopies")]
+    pub max_copies: Option<u32>,
+    #[serde(default, rename = "maxAgeDays")]
+    pub max_age_days: Option<u32>,
+    #[serde(default, rename = "autoPrune")]
+    pub auto_prune: Option<bool>,
+}
+
+pub fn get_vault_history_config(vault: &Path) -> VaultHistoryConfig {
+    let config_path = vault.join(".amby").join("workspace.json");
+    let raw = match fs::read_to_string(&config_path) {
+        Ok(s) => s,
+        Err(_) => return VaultHistoryConfig::default(),
+    };
+    #[derive(Deserialize)]
+    struct WProfile {
+        id: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct WConfig {
+        #[serde(rename = "enabledModules")]
+        enabled_modules: Option<Vec<String>>,
+        profile: Option<WProfile>,
+        #[serde(rename = "moduleSettings")]
+        module_settings: Option<serde_json::Value>,
+        history: Option<VaultHistoryConfig>,
+    }
+    if let Ok(cfg) = serde_json::from_str::<WConfig>(&raw) {
+        let mut hist_cfg = cfg.history.unwrap_or_default();
+        if let Some(val) = cfg
+            .module_settings
+            .as_ref()
+            .and_then(|ms| ms.get("history"))
+        {
+            if let Ok(m_hist) = serde_json::from_value::<VaultHistoryConfig>(val.clone()) {
+                if m_hist.enabled.is_some() {
+                    hist_cfg.enabled = m_hist.enabled;
+                }
+                if m_hist.max_copies.is_some() {
+                    hist_cfg.max_copies = m_hist.max_copies;
+                }
+                if m_hist.max_age_days.is_some() {
+                    hist_cfg.max_age_days = m_hist.max_age_days;
+                }
+                if m_hist.auto_prune.is_some() {
+                    hist_cfg.auto_prune = m_hist.auto_prune;
+                }
+            }
+        }
+        if let Some(modules) = cfg.enabled_modules {
+            let active = modules
+                .iter()
+                .any(|m| m == "history" || m == "amby.history");
+            if !active {
+                hist_cfg.enabled = Some(false);
+            }
+        } else if let Some(profile) = cfg.profile {
+            if profile.id.as_deref() == Some("minimal") {
+                hist_cfg.enabled = Some(false);
+            }
+        }
+        return hist_cfg;
+    }
+    VaultHistoryConfig::default()
+}
+
+/// Check if history snapshots are enabled for this vault in .amby/workspace.json.
+pub fn is_history_enabled(vault: &Path) -> bool {
+    let cfg = get_vault_history_config(vault);
+    cfg.enabled.unwrap_or(true)
+}
+
 fn snapshot_before_write_at(
     vault: &Path,
     source: &Path,
@@ -420,6 +496,9 @@ fn snapshot_before_write_at(
     reason: &str,
     created_at_ms: u64,
 ) -> Result<Option<String>, String> {
+    if !is_history_enabled(vault) {
+        return Ok(None);
+    }
     let _lock = history_lock();
     let current = match fs::read(source) {
         Ok(current) => current,
@@ -455,7 +534,7 @@ fn snapshot_before_write_at(
     let metadata = SnapshotMetadata {
         version: 2,
         id: id.clone(),
-        source_path,
+        source_path: source_path.clone(),
         created_at_ms,
         reason: reason.to_string(),
         size_bytes: current.len() as u64,
@@ -495,6 +574,32 @@ fn snapshot_before_write_at(
     // removes it. Returning an error makes that otherwise invisible I/O fault
     // observable without making the snapshot unavailable.
     fs::remove_file(snapshot_journal_path(&root)).map_err(|error| error.to_string())?;
+
+    // Auto-prune older snapshots for this note when configured
+    let history_cfg = get_vault_history_config(vault);
+    if history_cfg.auto_prune.unwrap_or(false) {
+        let max_copies = history_cfg.max_copies.unwrap_or(20);
+        let retention = HistoryRetention {
+            max_snapshots_per_note: if max_copies == 0 {
+                u32::MAX
+            } else {
+                max_copies
+            },
+            max_age_days: if history_cfg.max_age_days == Some(0) {
+                None
+            } else {
+                history_cfg.max_age_days
+            },
+        };
+        let to_remove = cleanup_candidates(&manifest, &retention, created_at_ms)
+            .into_iter()
+            .filter(|s| s.source_path == source_path)
+            .collect::<Vec<_>>();
+        for candidate in to_remove {
+            let _ = cleanup_snapshot(&root, &mut manifest, &candidate);
+        }
+    }
+
     Ok(Some(id))
 }
 
@@ -820,17 +925,13 @@ mod tests {
         let note = vault.join("Note.md");
         fs::write(&note, "initial").unwrap();
 
-        assert!(
-            snapshot_before_write(&vault, &note, b"first", "note-save")
-                .unwrap()
-                .is_some()
-        );
+        assert!(snapshot_before_write(&vault, &note, b"first", "note-save")
+            .unwrap()
+            .is_some());
         fs::write(&note, "first").unwrap();
-        assert!(
-            snapshot_before_write(&vault, &note, b"second", "note-save")
-                .unwrap()
-                .is_none()
-        );
+        assert!(snapshot_before_write(&vault, &note, b"second", "note-save")
+            .unwrap()
+            .is_none());
         fs::write(&note, "second").unwrap();
 
         assert_eq!(fs::read_to_string(&note).unwrap(), "second");
@@ -851,29 +952,25 @@ mod tests {
                 .is_some()
         );
         fs::write(&note, "first").unwrap();
-        assert!(
-            snapshot_before_write_at(
-                &vault,
-                &note,
-                b"second",
-                "note-save",
-                started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS - 1,
-            )
-            .unwrap()
-            .is_none()
-        );
+        assert!(snapshot_before_write_at(
+            &vault,
+            &note,
+            b"second",
+            "note-save",
+            started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS - 1,
+        )
+        .unwrap()
+        .is_none());
         fs::write(&note, "second").unwrap();
-        assert!(
-            snapshot_before_write_at(
-                &vault,
-                &note,
-                b"third",
-                "note-save",
-                started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS,
-            )
-            .unwrap()
-            .is_some()
-        );
+        assert!(snapshot_before_write_at(
+            &vault,
+            &note,
+            b"third",
+            "note-save",
+            started_at + AUTOSAVE_SNAPSHOT_INTERVAL_MS,
+        )
+        .unwrap()
+        .is_some());
 
         assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
         fs::remove_dir_all(vault).unwrap();
@@ -897,11 +994,15 @@ mod tests {
         .unwrap();
         fs::write(&note, "future").unwrap();
 
-        assert!(
-            snapshot_before_write_at(&vault, &note, b"after rollback", "note-save", current_time,)
-                .unwrap()
-                .is_some()
-        );
+        assert!(snapshot_before_write_at(
+            &vault,
+            &note,
+            b"after rollback",
+            "note-save",
+            current_time,
+        )
+        .unwrap()
+        .is_some());
         assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
         fs::remove_dir_all(vault).unwrap();
     }
@@ -1177,16 +1278,14 @@ mod tests {
             .unwrap();
         fs::remove_file(snapshot_data_path(&history_root(&vault), &id)).unwrap();
 
-        assert!(
-            cleanup_history(
-                &vault,
-                HistoryRetention {
-                    max_snapshots_per_note: 0,
-                    max_age_days: None,
-                },
-            )
-            .is_err()
-        );
+        assert!(cleanup_history(
+            &vault,
+            HistoryRetention {
+                max_snapshots_per_note: 0,
+                max_age_days: None,
+            },
+        )
+        .is_err());
         assert_eq!(get_history_stats(&vault).unwrap().snapshot_count, 1);
         fs::remove_dir_all(vault).unwrap();
     }
@@ -1215,6 +1314,83 @@ mod tests {
         assert!(snapshot_data_path(&root, &id).is_file());
         assert_eq!(get_history_stats(&vault).unwrap().snapshot_count, 1);
         assert!(!cleanup_journal_path(&root).exists());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn test_disabled_history_skips_snapshot_creation() {
+        let vault = temp_vault();
+        let amby_dir = vault.join(".amby");
+        fs::create_dir_all(&amby_dir).unwrap();
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"enabledModules": ["amby.tags"]}"#,
+        )
+        .unwrap();
+
+        let note = vault.join("Note.md");
+        fs::write(&note, "original content").unwrap();
+
+        let res = snapshot_before_write(&vault, &note, b"new content", "edit").unwrap();
+        assert!(
+            res.is_none(),
+            "Snapshot must not be created when history is disabled"
+        );
+        assert!(
+            !history_root(&vault).exists(),
+            "History root directory must not exist"
+        );
+
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn test_disabled_history_in_minimal_profile_creates_no_snapshots() {
+        let vault = temp_vault();
+        let amby_dir = vault.join(".amby");
+        fs::create_dir_all(&amby_dir).unwrap();
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"profile": {"id": "minimal"}}"#,
+        )
+        .unwrap();
+
+        assert!(!is_history_enabled(&vault));
+
+        let note = vault.join("Note.md");
+        fs::write(&note, "original").unwrap();
+        let res = snapshot_before_write(&vault, &note, b"updated", "edit").unwrap();
+        assert!(res.is_none());
+
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn test_auto_prune_rotates_old_snapshots() {
+        let vault = temp_vault();
+        let amby_dir = vault.join(".amby");
+        fs::create_dir_all(&amby_dir).unwrap();
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"moduleSettings": {"history": {"autoPrune": true, "maxCopies": 2}}}"#,
+        )
+        .unwrap();
+
+        let note = vault.join("Note.md");
+        fs::write(&note, "v1").unwrap();
+        snapshot_before_write(&vault, &note, b"v2", "edit").unwrap();
+        fs::write(&note, "v2").unwrap();
+        snapshot_before_write(&vault, &note, b"v3", "edit").unwrap();
+        fs::write(&note, "v3").unwrap();
+        snapshot_before_write(&vault, &note, b"v4", "edit").unwrap();
+
+        let snapshots = list_snapshots(&vault, &note).unwrap();
+        assert_eq!(
+            snapshots.len(),
+            2,
+            "Auto-prune must keep exactly 2 snapshots"
+        );
+
         fs::remove_dir_all(vault).unwrap();
     }
 }

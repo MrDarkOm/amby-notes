@@ -12,14 +12,29 @@ import "@excalidraw/excalidraw/index.css"
 import { useTheme } from "next-themes"
 import { useTranslation } from "react-i18next"
 import {
+  ArrowUpRight,
+  ChevronUp,
+  Circle,
+  Diamond,
+  Eraser,
   FileText,
+  Frame,
+  Globe,
+  Hand,
+  Image as ImageIcon,
   Library,
   Lock,
   Maximize2,
+  Minus,
+  MousePointer2,
+  Pencil,
   Redo2,
   Search,
   Settings2,
+  Sparkles,
+  Square,
   StickyNote,
+  Type,
   Undo2,
   Unlock,
   ZoomIn,
@@ -28,14 +43,52 @@ import {
 import { cn } from "@/lib/utils"
 import { parseSketch, serializeSketch } from "@/lib/sketch-format"
 import { registerEditorSerialization } from "../tiptap/editor-serialization-lifecycle"
-import { ToolbarButton } from "../canvas/canvas-toolbar"
-import { CanvasNotePickerModal } from "../canvas/canvas-note-picker-modal"
-import { toRelativeVaultPath } from "../canvas/canvas-markdown"
-import { SKETCH_UI_CARD_COLORS } from "@/themes"
+import { ToolbarButton } from "../common/toolbar-button"
+import { NotePickerModal } from "../common/note-picker-modal"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { toRelativeVaultPath } from "../workspace-tree-utils"
+import { EXCALIDRAW_DEFAULT_BG, SKETCH_UI_CARD_COLORS } from "@/themes"
 import type { TreeItem } from "../tree/tree-types"
 import { SketchErrorBoundary } from "./sketch-error-boundary"
 import { SketchNoteEmbeddable } from "./sketch-note-embeddable"
 import { SketchToolbar, type SketchShapeType } from "./sketch-objects-toolbar"
+
+function getToolIcon(toolType: string, activeShape: SketchShapeType) {
+  switch (toolType) {
+    case "selection":
+      return MousePointer2
+    case "hand":
+      return Hand
+    case "rectangle":
+      return Square
+    case "diamond":
+      return Diamond
+    case "ellipse":
+      return Circle
+    case "arrow":
+      return ArrowUpRight
+    case "line":
+      return Minus
+    case "freedraw":
+      return Pencil
+    case "text":
+      return Type
+    case "image":
+      return ImageIcon
+    case "embeddable":
+      return Globe
+    case "frame":
+      return Frame
+    case "laser":
+      return Sparkles
+    case "eraser":
+      return Eraser
+    default:
+      if (activeShape === "diamond") return Diamond
+      if (activeShape === "ellipse") return Circle
+      return Square
+  }
+}
 
 export interface SketchEditorProps {
   value: string
@@ -70,6 +123,7 @@ interface ExcalidrawImperativeAPI {
   ) => void
   toggleSidebar: (opts: { name: string; tab?: string; force?: boolean }) => boolean
   setActiveTool: (tool: { type: string; [key: string]: unknown }) => void
+  refresh: () => void
 }
 
 export function SketchEditor({
@@ -101,6 +155,9 @@ export function SketchEditor({
 
   const [activeShape, setActiveShape] = React.useState<SketchShapeType>("rectangle")
   const [currentToolType, setCurrentToolType] = React.useState<string>("selection")
+  const [isToolsOpen, setIsToolsOpen] = React.useState(false)
+
+  const ActiveToolIcon = getToolIcon(currentToolType, activeShape)
 
   const syncHistoryRafRef = React.useRef<number | null>(null)
   const syncHistoryState = React.useCallback(() => {
@@ -125,6 +182,8 @@ export function SketchEditor({
   const lastInternalJsonRef = React.useRef(serializeSketch(parseSketch(value)))
   const isInitialMountRef = React.useRef(true)
   const isExternalSyncRef = React.useRef(false)
+  const userInteractedRef = React.useRef(false)
+  const isUserDirtyRef = React.useRef(false)
   const onChangeRef = React.useRef(onChange)
   onChangeRef.current = onChange
   const onLocalEditRef = React.useRef(onLocalEdit)
@@ -139,6 +198,11 @@ export function SketchEditor({
         ...safeAppState,
         theme: resolvedTheme === "dark" || theme === "dark" ? "dark" : "light",
         viewModeEnabled: Boolean(isLocked),
+        viewBackgroundColor:
+          safeAppState.viewBackgroundColor &&
+          safeAppState.viewBackgroundColor !== EXCALIDRAW_DEFAULT_BG
+            ? safeAppState.viewBackgroundColor
+            : "transparent",
       },
       files: parsed.files,
       scrollToContent: parsed.elements.length > 0,
@@ -155,6 +219,8 @@ export function SketchEditor({
     if (canonicalValue === lastInternalJsonRef.current) return
 
     isExternalSyncRef.current = true
+    userInteractedRef.current = false
+    isUserDirtyRef.current = false
     lastInternalJsonRef.current = canonicalValue
     const parsed = parseSketch(value)
     const { collaborators: _c, followedBy: _f, ...safeAppState } = parsed.appState
@@ -166,6 +232,9 @@ export function SketchEditor({
     if (parsed.files && Object.keys(parsed.files).length > 0) {
       api.addFiles(Object.values(parsed.files))
     }
+    requestAnimationFrame(() => {
+      api.refresh()
+    })
     queueMicrotask(() => {
       isExternalSyncRef.current = false
     })
@@ -181,6 +250,7 @@ export function SketchEditor({
   }, [isLocked, isApiReady])
 
   const flushSketch = React.useCallback(() => {
+    if (!isUserDirtyRef.current) return
     const api = excalidrawAPIRef.current
     if (!api) return
     const elements = api.getSceneElements()
@@ -193,6 +263,7 @@ export function SketchEditor({
     })
     if (serialized !== lastInternalJsonRef.current) {
       lastInternalJsonRef.current = serialized
+      isUserDirtyRef.current = false
       onChangeRef.current(serialized)
     }
   }, [])
@@ -221,8 +292,14 @@ export function SketchEditor({
         return
       }
 
+      if (!userInteractedRef.current) {
+        lastInternalJsonRef.current = serialized
+        return
+      }
+
       if (serialized !== lastInternalJsonRef.current) {
         lastInternalJsonRef.current = serialized
+        isUserDirtyRef.current = true
         onChangeRef.current(serialized)
         onLocalEditRef.current?.()
       }
@@ -394,6 +471,8 @@ export function SketchEditor({
       },
       commitToHistory: true,
     })
+    userInteractedRef.current = true
+    isUserDirtyRef.current = true
     onLocalEditRef.current?.()
     flushSketch()
   }, [flushSketch, isDark, t])
@@ -440,6 +519,8 @@ export function SketchEditor({
           elements: updatedElements,
           commitToHistory: true,
         })
+        userInteractedRef.current = true
+        isUserDirtyRef.current = true
         onLocalEditRef.current?.()
         flushSketch()
         return
@@ -495,6 +576,8 @@ export function SketchEditor({
         },
         commitToHistory: true,
       })
+      userInteractedRef.current = true
+      isUserDirtyRef.current = true
       onLocalEditRef.current?.()
       flushSketch()
     },
@@ -650,6 +733,13 @@ export function SketchEditor({
     return () => ro.disconnect()
   }, [])
 
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      excalidrawAPIRef.current?.refresh()
+    }, 60)
+    return () => clearTimeout(timer)
+  }, [])
+
   const isNarrow = containerWidth < 720
 
   const handleExcalidrawAPI = React.useCallback(
@@ -659,6 +749,9 @@ export function SketchEditor({
       excalidrawAPIRef.current = imperativeApi
       setIsApiReady(true)
       syncHistoryState()
+      requestAnimationFrame(() => {
+        imperativeApi.refresh()
+      })
     },
     [syncHistoryState],
   )
@@ -668,8 +761,14 @@ export function SketchEditor({
   return (
     <div
       ref={containerRef}
-      className="amby-sketch-editor relative h-full w-full overflow-hidden bg-transparent"
+      className="amby-sketch-editor relative h-full w-full overflow-hidden bg-[var(--note-surface)]"
       style={{ width: "100%", height: "100%", position: "relative" }}
+      onPointerDown={() => {
+        userInteractedRef.current = true
+      }}
+      onKeyDown={() => {
+        userInteractedRef.current = true
+      }}
     >
       <SketchErrorBoundary key={retryKey} onReset={handleReset}>
         <Excalidraw
@@ -729,33 +828,67 @@ export function SketchEditor({
 
       {/* Unified Toolbar Controls (Selection, Hand, Объект flyout, Стикер, Прикрепить заметку, Drawing tools, More tools) */}
       {!isLocked && (
-        <div
-          className={cn(
-            "absolute bottom-2 left-4 z-10 select-none",
-            isNarrow &&
-              "max-w-[calc(100%-2rem)] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+        <div className="absolute bottom-2 left-4 z-10 select-none">
+          {isNarrow ? (
+            <Popover open={isToolsOpen} onOpenChange={setIsToolsOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  title={t("sketch.tools")}
+                  aria-label={t("sketch.tools")}
+                  data-testid="sketch-collapsed-tools-trigger"
+                  className={cn(
+                    "flex h-9 items-center gap-1.5 rounded-xl border border-border/80 bg-card/90 px-2.5 text-foreground shadow-md backdrop-blur-md hover:bg-accent hover:text-accent-foreground select-none",
+                    isToolsOpen && "bg-accent text-accent-foreground font-medium",
+                  )}
+                >
+                  <ActiveToolIcon className="size-3.5" />
+                  <ChevronUp className="size-3 text-muted-foreground" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="start"
+                sideOffset={8}
+                className="w-auto border-0 bg-transparent p-0 shadow-none"
+              >
+                <SketchToolbar
+                  activeTool={currentToolType}
+                  activeShape={activeShape}
+                  onSelectTool={(tool) => {
+                    handleSelectTool(tool)
+                    setIsToolsOpen(false)
+                  }}
+                  onSelectShape={handleSelectShape}
+                  onAddTextCard={() => {
+                    handleAddTextCard()
+                    setIsToolsOpen(false)
+                  }}
+                  onAddNoteCard={() => {
+                    handleAddNoteCard()
+                    setIsToolsOpen(false)
+                  }}
+                  className="rounded-xl border border-border/80 bg-card/95 p-1 shadow-lg backdrop-blur-md"
+                />
+              </PopoverContent>
+            </Popover>
+          ) : (
+            <SketchToolbar
+              activeTool={currentToolType}
+              activeShape={activeShape}
+              onSelectTool={handleSelectTool}
+              onSelectShape={handleSelectShape}
+              onAddTextCard={handleAddTextCard}
+              onAddNoteCard={handleAddNoteCard}
+              className="rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md"
+            />
           )}
-        >
-          <SketchToolbar
-            activeTool={currentToolType}
-            activeShape={activeShape}
-            onSelectTool={handleSelectTool}
-            onSelectShape={handleSelectShape}
-            onAddTextCard={handleAddTextCard}
-            onAddNoteCard={handleAddNoteCard}
-            className="rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md"
-          />
         </div>
       )}
 
       {/* Floating Library Button (Size & position matching Canvas Minimap) */}
       {!isLibraryOpen && !isMenuOpen && (
-        <div
-          className={cn(
-            "absolute z-10 select-none",
-            isNarrow ? "bottom-22 right-4" : "bottom-14 right-4",
-          )}
-        >
+        <div className="absolute bottom-14 right-4 z-10 select-none">
           <button
             type="button"
             title={t("sketch.showLibrary")}
@@ -768,12 +901,7 @@ export function SketchEditor({
       )}
 
       {/* Area Controls (Identical to Canvas Toolbar) */}
-      <div
-        className={cn(
-          "absolute z-10 flex items-center select-none",
-          isNarrow ? "bottom-12 right-4" : "bottom-2 right-4",
-        )}
-      >
+      <div className="absolute bottom-2 right-4 z-10 flex items-center select-none">
         <div className="flex items-center gap-0.5 rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md">
           <ToolbarButton title={t("canvas.zoomOut")} onClick={handleZoomOut}>
             <ZoomOut className="size-3.5" />
@@ -830,7 +958,7 @@ export function SketchEditor({
       </div>
 
       {/* Vault Note Picker Modal */}
-      <CanvasNotePickerModal
+      <NotePickerModal
         open={notePickerOpen}
         onOpenChange={handleNotePickerOpenChange}
         treeItems={treeItems ?? []}

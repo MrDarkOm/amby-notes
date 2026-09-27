@@ -1,6 +1,7 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
 import { errorType, logger } from "@/lib/logger"
+import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
 import {
   discardRecoveryDraft,
   readRecoveryDraft,
@@ -61,8 +62,13 @@ export function useMarkdownAutosave({
   if (!autosaveRef.current) {
     autosaveRef.current = new AutosaveCoordinator<MarkdownAutosavePayload>({
       delayMs: useSettingsStore.getState().prefs.editor.autosaveMs,
+      onDiagnostic: recordAutosaveDiagnostic,
       save: async (snapshot) => {
         if (snapshot.key.generation !== generationRef.current) return
+        logger.debug("autosave.start", {
+          fileId: snapshot.value.fileId,
+          path: snapshot.value.path,
+        })
         if (useDocStore.getState().externalConflicts[snapshot.value.fileId]) {
           autosaveRef.current?.pause(snapshot.key)
           throw new AutosaveConflictPausedError()
@@ -110,6 +116,7 @@ export function useMarkdownAutosave({
             snapshot.value.backendGeneration,
             expectedRevision,
             windowLabel,
+            snapshot.operationId,
           )
           const updatedProperties = await getNoteProperties(activeVault, noteId).catch(() => null)
           useDocStore.getState().patchDoc(snapshot.value.fileId, {
@@ -135,6 +142,10 @@ export function useMarkdownAutosave({
       },
       onSaveSuccess: (snapshot) => {
         if (snapshot.key.generation !== generationRef.current) return
+        logger.info("autosave.success", {
+          fileId: snapshot.value.fileId,
+          path: snapshot.value.path,
+        })
         const current = useDocStore.getState().openDocs[snapshot.value.fileId]
         if (
           !current ||
@@ -179,6 +190,7 @@ export function useMarkdownAutosave({
           autosave
             .inspectAll()
             .some((state) => state.key.generation === autosaveGeneration && state.dirty),
+        inspect: () => autosave.inspectAll(),
       }),
     [autosave, autosaveGeneration, recoveryScope],
   )
@@ -234,6 +246,7 @@ export function useMarkdownAutosave({
       const document = useDocStore.getState().openDocs[fileId]
       if (!document || document.id !== fileId)
         return logger.error("autosave.rejected_document_mismatch", { fileId })
+      if (document.content === content) return
       useDocStore.getState().patchDoc(fileId, { content })
       useDocStore.getState().markUnsaved(fileId)
       if (document.path)

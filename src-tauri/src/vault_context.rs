@@ -144,6 +144,7 @@ impl VaultContext {
         let connection = vault_index::open_connection(&root)?;
         property_store::restore_cache(&connection, &root)?;
         let _ = crate::recovery::sweep_expired_recovery(&root);
+        let _ = crate::database::mutations::recover_pending_batches(&root);
         let loaded = vault_index::load_vault(&connection, &root)?;
         let _ = crate::database::projection::rebuild_database_projection(&connection, &root);
 
@@ -245,11 +246,9 @@ mod tests {
 
         let broken = temp_dir("broken");
         fs::write(broken.join(".amby"), "not a directory").unwrap();
-        assert!(
-            context
-                .activate(broken.to_str().unwrap(), |_| Ok(()), |_, _| ())
-                .is_err()
-        );
+        assert!(context
+            .activate(broken.to_str().unwrap(), |_| Ok(()), |_, _| ())
+            .is_err());
 
         assert_eq!(context.root().unwrap(), original_root);
     }
@@ -264,15 +263,13 @@ mod tests {
         let original_root = context.root().unwrap();
         let second = temp_dir("scope-second");
 
-        assert!(
-            context
-                .activate(
-                    second.to_str().unwrap(),
-                    |_| Err("scope rejected".to_string()),
-                    |_, _| ()
-                )
-                .is_err()
-        );
+        assert!(context
+            .activate(
+                second.to_str().unwrap(),
+                |_| Err("scope rejected".to_string()),
+                |_, _| ()
+            )
+            .is_err());
 
         assert_eq!(context.root().unwrap(), original_root);
     }
@@ -289,15 +286,13 @@ mod tests {
             )
             .unwrap();
         let failed = temp_dir("generation-failed");
-        assert!(
-            context
-                .activate(
-                    failed.to_str().unwrap(),
-                    |_| Err("scope rejected".to_string()),
-                    |_, _| ()
-                )
-                .is_err()
-        );
+        assert!(context
+            .activate(
+                failed.to_str().unwrap(),
+                |_| Err("scope rejected".to_string()),
+                |_, _| ()
+            )
+            .is_err());
         let second = temp_dir("generation-second");
         let second_generation = context
             .activate(

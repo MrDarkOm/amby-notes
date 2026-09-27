@@ -2,8 +2,8 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import type { PanelId, PanelRenderProps, Side } from "./panel-registry"
-import { PANEL_DEFS } from "./panel-definitions"
+import type { PanelDef, PanelId, PanelRenderProps, Side } from "./panel-registry"
+import { findPanelDef } from "./panel-definitions"
 
 interface PanelHostProps {
   side: Side
@@ -13,7 +13,7 @@ interface PanelHostProps {
 }
 
 interface PanelSlotProps {
-  definition: (typeof PANEL_DEFS)[number]
+  definition: PanelDef
   props: PanelRenderProps
   active: boolean
 }
@@ -51,7 +51,9 @@ export function PanelHost({ side, activeId, props, flush = false }: PanelHostPro
 
   const visibleIds = new Set(visitedIds)
   if (activeId) visibleIds.add(activeId)
-  const cachedDefs = PANEL_DEFS.filter((definition) => visibleIds.has(definition.id))
+  const cachedDefs = Array.from(visibleIds)
+    .map((id) => findPanelDef(id))
+    .filter((definition): definition is PanelDef => Boolean(definition))
   return (
     <div
       className={`amby-panel-shell mt-0 min-h-0 rounded-xl ${

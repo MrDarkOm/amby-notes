@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-modules
 build/
 src-tauri/target/
 dist-ssr

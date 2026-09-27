@@ -7,12 +7,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::discovery::discover_vault;
 use super::format::{
-    DatabaseManifest, DatabaseViewFile, matches_view_revision, parse_manifest, parse_view,
-    raw_revision, view_bytes, view_revision,
+    matches_view_revision, parse_manifest, parse_view, raw_revision, view_bytes, view_revision,
+    DatabaseManifest, DatabaseViewFile,
 };
 use super::model::{
     CreateDatabaseViewRequest, DatabaseViewDocument, DatabaseViewMutationResult,
@@ -597,7 +597,7 @@ pub fn set_default_view(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::mutations::{CreateDatabaseRequest, DatabaseCreateMode, create_database};
+    use crate::database::mutations::{create_database, CreateDatabaseRequest, DatabaseCreateMode};
 
     fn temp_vault(name: &str) -> PathBuf {
         let path =
@@ -648,13 +648,11 @@ mod tests {
         assert_eq!(second.title, "Cards");
         assert_eq!(second.layout, "gallery");
         let (_, _, parsed) = read_manifest(&vault, &created.database_id).unwrap();
-        assert!(
-            parsed
-                .value
-                .views
-                .iter()
-                .any(|v| v.view_id == second.view_id)
-        );
+        assert!(parsed
+            .value
+            .views
+            .iter()
+            .any(|v| v.view_id == second.view_id));
 
         let renamed = rename_view(
             &vault,
@@ -697,13 +695,11 @@ mod tests {
         )
         .unwrap();
         let (_, _, parsed_after) = read_manifest(&vault, &created.database_id).unwrap();
-        assert!(
-            !parsed_after
-                .value
-                .views
-                .iter()
-                .any(|v| v.view_id == duplicated.view_id)
-        );
+        assert!(!parsed_after
+            .value
+            .views
+            .iter()
+            .any(|v| v.view_id == duplicated.view_id));
         assert!(!deleted.manifest_revision.is_empty());
         let _ = fs::remove_dir_all(vault);
     }

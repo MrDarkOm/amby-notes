@@ -18,6 +18,7 @@ import { NotePdfExport, NotePdfExportDialog, type PdfExportOptions } from "./not
 import { noteEditingPolicy } from "./note-editing-policy"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
 import { Button } from "@/components/ui/button"
+import { useDocStore } from "../use-doc-store"
 import { editorSurfaceLeases, type EditorSurface } from "../database/peek/editor-surface-lease"
 import type { ContentWidth } from "../app-config"
 
@@ -92,10 +93,13 @@ export interface DocumentEditorProps {
   onUnlinkLayer?: (layer: LayerKind) => void
   onDeleteLayer?: (layer: LayerKind) => void
   canvasValue?: string
+  canvasEnabled?: boolean
   onCanvasChange?: (json: string) => void
   onOpenCanvasNote?: (file: string) => void
   sketchValue?: string
+  sketchEnabled?: boolean
   onSketchChange?: (json: string) => void
+  onEnableModule?: (moduleId: string) => void
   databaseBody?: React.ReactNode
   editorSurfaceOwner?: EditorSurface
   scrollPositionKey?: string
@@ -164,10 +168,13 @@ export function DocumentEditor({
   onUnlinkLayer,
   onDeleteLayer,
   canvasValue,
+  canvasEnabled = true,
   onCanvasChange,
   onOpenCanvasNote,
   sketchValue,
+  sketchEnabled = true,
   onSketchChange,
+  onEnableModule,
   databaseBody,
   editorSurfaceOwner = "document",
   scrollPositionKey,
@@ -439,6 +446,38 @@ export function DocumentEditor({
     </div>
   ) : null
 
+  const externalConflict = useDocStore((s) =>
+    document?.id ? s.externalConflicts[document.id] : undefined,
+  )
+  const openConflictDialog = useDocStore((s) => s.openConflictDialog)
+
+  const conflictBanner =
+    externalConflict && !document?.externallyDeleted ? (
+      <div
+        role="alert"
+        className="flex shrink-0 items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-950 dark:text-amber-100"
+      >
+        <AlertTriangle className="size-4 shrink-0 text-amber-600 dark:text-amber-300" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium">{t("conflict.pausedAutosaveBannerTitle")}</p>
+          <p className="text-xs text-amber-900/75 dark:text-amber-100/75">
+            {t("conflict.pausedAutosaveBannerDescription")}
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            if (document?.id) openConflictDialog(document.id)
+          }}
+          className="shrink-0 border-amber-500/40 bg-transparent text-amber-950 hover:bg-amber-500/15 dark:text-amber-100"
+        >
+          {t("conflict.resolveConflict")}
+        </Button>
+      </div>
+    ) : null
+
   const pdfExportDialog = document ? (
     <NotePdfExportDialog
       open={pdfExportDialogOpen}
@@ -499,6 +538,7 @@ export function DocumentEditor({
       >
         {headerElement}
         {deletedBanner}
+        {conflictBanner}
         {editingPolicy.warningKey && (
           <p role="status" className="px-4 py-2 text-xs text-muted-foreground">
             {t(editingPolicy.warningKey)}
@@ -537,10 +577,13 @@ export function DocumentEditor({
           vault={vault}
           treeItems={treeItems}
           canvasValue={canvasValue}
+          canvasEnabled={canvasEnabled}
           onCanvasChange={onCanvasChange}
           onOpenCanvasNote={onOpenCanvasNote}
           sketchValue={sketchValue}
+          sketchEnabled={sketchEnabled}
           onSketchChange={onSketchChange}
+          onEnableModule={onEnableModule}
           databaseBody={databaseBody}
           editorSelection={editorSelection}
           onEditorSelectionChange={handleEditorSelectionChange}

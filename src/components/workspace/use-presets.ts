@@ -14,6 +14,7 @@ import {
 import { transitionModuleLifecycle } from "./module-lifecycle"
 import {
   BUILTIN_PRESETS,
+  DEFAULT_PRESET_ID,
   getPreset,
   parsePresetFile,
   serializePreset,
@@ -30,6 +31,14 @@ import {
   type LayoutConfig,
   type PanelScope,
 } from "./app-config"
+import {
+  toCanonicalModuleId,
+  toShortModuleId,
+  moduleHost,
+  getInstalledModuleIds,
+  isModuleInstalled,
+  STANDARD_MODULES,
+} from "@/lib/modules"
 
 export interface ImportResult {
   ok: boolean
@@ -167,18 +176,29 @@ export function usePresets(
     let cancelled = false
     hydratedRef.current = false
     ;(async () => {
-      const userP = hasVault ? (await loadWorkspaceConfig()).customPresets : []
+      const wsConfig = hasVault ? await loadWorkspaceConfig() : null
+      const userP = wsConfig?.customPresets ?? []
       const layout = await loadLayout(panelScope, hasVault)
       if (cancelled) return
       const all = [...BUILTIN_PRESETS, ...userP]
-      const preset =
-        all.find((p) => p.id === layout.activePresetId) ?? getPreset(layout.activePresetId)
-      const storedModules = (
-        Array.isArray(layout.activeModules) ? layout.activeModules : preset.activeModules
-      ).filter((id): id is string => typeof id === "string" && availableIds.includes(id))
+      const activeId =
+        layout.activePresetId ?? wsConfig?.layout?.activePresetId ?? DEFAULT_PRESET_ID
+      const preset = all.find((p) => p.id === activeId) ?? getPreset(activeId)
+      const rawStored =
+        activeId === "standard"
+          ? STANDARD_MODULES.map(toShortModuleId)
+          : activeId === "minimal" || activeId === "simple"
+            ? []
+            : (wsConfig?.enabledModules ??
+              (Array.isArray(layout.activeModules) ? layout.activeModules : preset.activeModules))
+      const installedSet = await getInstalledModuleIds()
+      const storedModules = rawStored
+        .filter((id) => installedSet.has(toCanonicalModuleId(id)))
+        .map((id) => (id.startsWith("amby.") ? id.slice(5) : id))
+        .filter((id): id is string => typeof id === "string" && availableIds.includes(id))
       setUserPresets(userP)
       presetsRef.current = all
-      setActivePresetId(layout.activePresetId ?? preset.id)
+      setActivePresetId(activeId)
       activeModulesRef.current = storedModules
       setActiveModules(storedModules)
       setActivityButtons(
@@ -187,6 +207,7 @@ export function usePresets(
           : visibleLayout({ ...preset, activeModules: storedModules }),
       )
       setActiveBySide(sanitizeSide(layout.activeBySide ?? preset.activeBySide))
+      await moduleHost.syncWithWorkspace(storedModules, vault)
       hydratedRef.current = true
     })()
     return () => {
@@ -194,7 +215,7 @@ export function usePresets(
     }
   }, [availableIds, vault, panelScope, hasVault])
 
-  // Persist the working layout to whichever tier panelScope selects.
+  // Persist the working layout to whichever tier panelScope selects, and keep enabledModules in workspace.json.
   React.useEffect(() => {
     if (!hydratedRef.current) return
     saveLayout(panelScope, hasVault, {
@@ -203,6 +224,11 @@ export function usePresets(
       buttons: activityButtons,
       activeBySide,
     } satisfies LayoutConfig)
+    if (hasVault) {
+      saveWorkspaceConfigPatch({
+        enabledModules: activeModules.map(toCanonicalModuleId),
+      })
+    }
   }, [activePresetId, activeModules, activityButtons, activeBySide, panelScope, hasVault])
 
   const setPanelScope = React.useCallback((scope: PanelScope) => {
@@ -235,9 +261,12 @@ export function usePresets(
   // Apply a resolved preset to live state, running the module lifecycle diff.
   const applyPreset = React.useCallback(
     async (next: Preset, ctx: ModuleContext): Promise<boolean> => {
+      const installedSet = await getInstalledModuleIds()
       const supportedNext = {
         ...next,
-        activeModules: next.activeModules.filter((id) => isModuleAvailable(id, experimental)),
+        activeModules: next.activeModules
+          .filter((id) => installedSet.has(toCanonicalModuleId(id)))
+          .filter((id) => isModuleAvailable(id, experimental)),
       }
       const prev = { ...resolve(presetIdRef.current), activeModules: activeModulesRef.current }
       if (
@@ -260,9 +289,15 @@ export function usePresets(
       setActiveModules(supportedNext.activeModules)
       setActivityButtons(visibleLayout(supportedNext))
       setActiveBySide(supportedNext.activeBySide)
+      if (hasVault) {
+        saveWorkspaceConfigPatch({
+          enabledModules: supportedNext.activeModules.map(toCanonicalModuleId),
+        })
+      }
+      await moduleHost.syncWithWorkspace(supportedNext.activeModules, ctx.vault)
       return true
     },
-    [experimental, resolve],
+    [experimental, hasVault, resolve],
   )
 
   const switchPreset = React.useCallback(
@@ -274,6 +309,10 @@ export function usePresets(
     async (id: string, enabled: boolean, ctx: ModuleContext): Promise<boolean> => {
       const module = findModule(id)
       if (!module || (enabled && !isModuleAvailable(id, experimental))) return false
+      if (enabled && !(await isModuleInstalled(id))) {
+        console.warn(`Module "${id}" is not installed and cannot be enabled.`)
+        return false
+      }
       const prevModules = activeModulesRef.current
       const wasEnabled = prevModules.includes(id)
       if (wasEnabled === enabled) return true
@@ -290,6 +329,12 @@ export function usePresets(
       const nextPreset = { ...resolve(presetIdRef.current), activeModules: nextModules }
       activeModulesRef.current = nextModules
       setActiveModules(nextModules)
+      if (hasVault) {
+        saveWorkspaceConfigPatch({
+          enabledModules: nextModules.map(toCanonicalModuleId),
+        })
+      }
+      await moduleHost.syncWithWorkspace(nextModules, ctx.vault)
       setActivityButtons((current) => {
         if (!enabled) return current.filter((button) => !moduleDefIds.has(button.defId))
 
@@ -313,7 +358,7 @@ export function usePresets(
       }))
       return true
     },
-    [experimental, resolve],
+    [experimental, hasVault, resolve],
   )
 
   const importPreset = React.useCallback(

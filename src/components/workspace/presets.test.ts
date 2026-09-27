@@ -34,6 +34,12 @@ describe("preset activity zones", () => {
     expect(STANDARD_PRESET.activeModules).not.toContain("databases")
   })
 
+  it("keeps the beta canvas module available without enabling it in the standard preset", () => {
+    expect(isModuleAvailable("canvas")).toBe(true)
+    expect(availableModuleIds()).toContain("canvas")
+    expect(STANDARD_PRESET.activeModules).not.toContain("canvas")
+  })
+
   it("does not expose unimplemented notification action, exposes help", () => {
     const ids = ACTION_DEFS.map((action) => action.id)
     expect(ids).not.toContain("notifications")

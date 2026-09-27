@@ -30,12 +30,26 @@ export function collectDocumentBufferUsage(
   }
 
   for (const tab of tabs) {
-    if (tab.kind === "document") add(tab.fileId, "tabRefs")
+    if (
+      tab.kind === "document" ||
+      tab.kind === "canvas" ||
+      tab.kind === "sketch" ||
+      tab.kind === "database"
+    ) {
+      add(tab.fileId, "tabRefs")
+    }
   }
   for (const key of [activeTabKey, secondaryTabKey]) {
     if (!key) continue
     const tab = tabs.find((item) => item.key === key)
-    if (tab?.kind === "document") add(tab.fileId, "paneRefs")
+    if (
+      tab?.kind === "document" ||
+      tab?.kind === "canvas" ||
+      tab?.kind === "sketch" ||
+      tab?.kind === "database"
+    ) {
+      add(tab.fileId, "paneRefs")
+    }
   }
   return usage
 }
@@ -54,7 +68,7 @@ export function selectEvictableDocumentIds({
   const usage = collectDocumentBufferUsage(tabs, activeTabKey, secondaryTabKey)
   return Object.entries(openDocs)
     .filter(([fileId, document]) => {
-      const refs = usage.get(fileId)
+      const refs = usage.get(fileId) ?? (document.path ? usage.get(document.path) : undefined)
       return (
         !refs &&
         !unsavedFileIds.has(fileId) &&

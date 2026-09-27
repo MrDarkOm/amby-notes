@@ -107,10 +107,23 @@ pub fn save_conflict_copy(
 pub fn read_note(
     db: tauri::State<'_, VaultContext>,
     note_id: String,
+    operation_id: Option<String>,
 ) -> Result<NoteReadOutcome, String> {
+    let telemetry =
+        crate::logging::OperationGuard::begin("note.read", operation_id, note_id.clone());
+    let operation_span = tracing::error_span!("note_read", operation_id = tracing::field::Empty);
+    if let Some(operation_id) = telemetry.operation_id() {
+        operation_span.record("operation_id", operation_id);
+    }
+    let _operation_span = operation_span.enter();
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    vault_index::read_note(conn, &conn.root, &note_id)
+    tracing::debug!(event = "read_note", note_id = %note_id);
+    let result = vault_index::read_note(conn, &conn.root, &note_id);
+    if result.is_ok() {
+        telemetry.succeed();
+    }
+    result
 }
 
 #[tauri::command]
@@ -120,14 +133,21 @@ pub fn write_note(
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     request: WriteNoteRequest,
+    operation_id: Option<String>,
 ) -> Result<WriteNoteOutcome, WriteNoteError> {
     use tauri::Emitter;
+    let telemetry =
+        crate::logging::OperationGuard::begin("note.write", operation_id, request.note_id.clone());
+    let operation_span = tracing::error_span!("note_write", operation_id = tracing::field::Empty);
+    if let Some(operation_id) = telemetry.operation_id() {
+        operation_span.record("operation_id", operation_id);
+    }
+    let _operation_span = operation_span.enter();
 
     // A renderer can finish an autosave after another window activated a new
     // vault. Bind this write to the caller's active generation so it fails
     // safely instead of resolving the same note ID in the new backend context.
-    let _mutation_guard = db.mutation_gate.lock().unwrap();
-    let (vault_root, generation, destination, prepared_note, prepared_write) = {
+    let (vault_root, generation, destination) = {
         let conn_guard = db.conn.lock().unwrap();
         let conn = conn_guard
             .as_ref()
@@ -137,28 +157,32 @@ pub fn write_note(
         }
         let destination = vault_index::note_metadata(conn, &conn.root, &request.note_id)
             .map_err(WriteNoteError::failed)?;
-        let prepared_note = vault_index::prepare_note_write(
-            conn,
-            &conn.root,
-            &request.note_id,
-            &request.content,
-            &request.expected_revision,
-        )?;
-        let expected = watcher::fingerprint_for_bytes(&prepared_note.persisted_bytes);
-        let prepared_write = watcher_state.prepare_write([(&prepared_note.path, expected)]);
-        (
-            conn.root.clone(),
-            conn.generation,
-            destination,
-            prepared_note,
-            prepared_write,
-        )
+        if !request.note_id.starts_with(vault_index::OPAQUE_PREFIX) {
+            vault_index::ensure_unique_identity(conn, &request.note_id)
+                .map_err(WriteNoteError::failed)?;
+        }
+        (conn.root.clone(), conn.generation, destination)
     };
+
+    // Prepare note write from path outside the SQLite connection lock to avoid blocking queries
+    let prepared_note = vault_index::prepare_note_write_from_path(
+        &vault_root,
+        std::path::Path::new(&destination.path),
+        &request.note_id,
+        &request.content,
+        &request.expected_revision,
+    )?;
+
+    let expected = watcher::fingerprint_for_bytes(&prepared_note.persisted_bytes);
+    let prepared_write = watcher_state.prepare_write([(&prepared_note.path, expected)]);
     let prepared_index_data = (
         prepared_note.frontmatter_tags.clone(),
         prepared_note.links.clone(),
     );
-    let (path, body, revision) =
+
+    // Commit file write and history snapshot under mutation_gate, dropping it immediately after
+    let (path, body, revision) = {
+        let _mutation_guard = db.mutation_gate.lock().unwrap();
         match vault_index::commit_prepared_note_write(&vault_root, prepared_note) {
             Ok(written) => {
                 watcher_state.confirm_prepared_write(&prepared_write);
@@ -168,7 +192,8 @@ pub fn write_note(
                 watcher_state.cancel_prepared_write(&prepared_write);
                 return Err(error);
             }
-        };
+        }
+    };
     let index_result = {
         let conn_guard = db.conn.lock().unwrap();
         let conn = conn_guard
@@ -209,13 +234,20 @@ pub fn write_note(
     if let Err(error) = app.emit(
         "amby:note-written",
         NoteWrittenPayload {
-            note_id: request.note_id,
-            revision,
+            note_id: request.note_id.clone(),
+            revision: revision.clone(),
             origin_window: request.origin_window,
         },
     ) {
         tracing::warn!(event = "note_write_event_failed", error = %error);
     }
+    tracing::info!(
+        event = "write_note",
+        note_id = %request.note_id,
+        path = %outcome.path,
+        revision = %outcome.revision,
+    );
+    telemetry.succeed();
     Ok(outcome)
 }
 
@@ -413,7 +445,20 @@ pub fn upsert_custom_property(
     let _mutation_guard = db.mutation_gate.lock().unwrap();
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    property_store::upsert(conn, &conn.root, &note_id, property)
+    let name = property.name.clone();
+    let prop_type = property.property_type.clone();
+    let prop_id = property.id.clone();
+    let res = property_store::upsert(conn, &conn.root, &note_id, property);
+    if res.is_ok() {
+        tracing::info!(
+            event = "upsert_custom_property",
+            note_id = %note_id,
+            property_id = %prop_id,
+            name = %name,
+            property_type = %prop_type,
+        );
+    }
+    res
 }
 
 #[tauri::command]
@@ -426,7 +471,15 @@ pub fn delete_custom_property(
     let _mutation_guard = db.mutation_gate.lock().unwrap();
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    property_store::delete(conn, &conn.root, &note_id, &property_id)
+    let res = property_store::delete(conn, &conn.root, &note_id, &property_id);
+    if res.is_ok() {
+        tracing::info!(
+            event = "delete_custom_property",
+            note_id = %note_id,
+            property_id = %property_id,
+        );
+    }
+    res
 }
 
 #[tauri::command]
@@ -439,7 +492,16 @@ pub fn reorder_custom_properties(
     let _mutation_guard = db.mutation_gate.lock().unwrap();
     let conn_guard = db.conn.lock().unwrap();
     let conn = conn_guard.as_ref().ok_or("No vault open")?;
-    property_store::reorder(conn, &conn.root, &note_id, &property_ids)
+    let count = property_ids.len();
+    let res = property_store::reorder(conn, &conn.root, &note_id, &property_ids);
+    if res.is_ok() {
+        tracing::info!(
+            event = "reorder_custom_properties",
+            note_id = %note_id,
+            count = count,
+        );
+    }
+    res
 }
 
 #[tauri::command]

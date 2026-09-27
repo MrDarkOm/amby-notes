@@ -5,6 +5,8 @@ import { MutationsRepository } from "./mutations-repository"
 import { AssetsRepository } from "./assets-repository"
 import { HistoryRepository } from "./history-repository"
 import { SettingsRepository } from "./settings-repository"
+import { configureDebugRepositoryRuntime } from "./debug-repository"
+import { logger, traceOperation } from "../logger"
 import type { StoragePort } from "./port"
 import type {
   CreateDatabaseRequest,
@@ -71,9 +73,12 @@ export * from "./mutations-repository"
 export * from "./assets-repository"
 export * from "./history-repository"
 export * from "./settings-repository"
+export * from "./debug-repository"
 
 export const isTauri = (): boolean =>
   typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+
+configureDebugRepositoryRuntime({ isNative: isTauri })
 
 let adapterInstance: StoragePort | null = null
 
@@ -101,14 +106,15 @@ export const settingsRepository = new SettingsRepository(getAdapter)
 // Vault & Notes
 export const openVault = (): Promise<string | null> => notesRepository.openVault()
 export const startVaultWatcher = (vaultPath: string): Promise<void> =>
-  notesRepository.startVaultWatcher(vaultPath)
-export const stopVaultWatcher = (): Promise<void> => notesRepository.stopVaultWatcher()
+  traceOperation("watcher.start", {}, () => notesRepository.startVaultWatcher(vaultPath))
+export const stopVaultWatcher = (): Promise<void> =>
+  traceOperation("watcher.stop", {}, () => notesRepository.stopVaultWatcher())
 export const loadVaultData = (vaultPath: string): Promise<LoadVaultResult> =>
-  notesRepository.loadVaultData(vaultPath)
+  traceOperation("index.load", {}, () => notesRepository.loadVaultData(vaultPath))
 export const loadActiveVaultData = (): Promise<LoadVaultResult> =>
-  notesRepository.loadActiveVaultData()
+  traceOperation("index.refresh", {}, () => notesRepository.loadActiveVaultData())
 export const reindexActiveVaultData = (): Promise<LoadVaultResult> =>
-  notesRepository.reindexActiveVaultData()
+  traceOperation("index.rebuild", {}, () => notesRepository.reindexActiveVaultData())
 export const preflightVault = (vaultPath: string): Promise<VaultPreflight> =>
   notesRepository.preflightVault(vaultPath)
 export const applyIdMigration = (vaultPath: string): Promise<void> =>
@@ -119,13 +125,19 @@ export const recoverIdMigration = (
   action: IdMigrationRecoveryAction,
 ): Promise<IdMigrationRecovery> =>
   notesRepository.recoverIdMigration(vaultPath, journalPath, action)
-export const readFile = (path: string): Promise<string> => notesRepository.readFile(path)
+export const readFile = (path: string): Promise<string> =>
+  traceOperation("storage.read_file", {}, () => notesRepository.readFile(path))
 export const searchNotes = (query: string): Promise<SearchResult[]> =>
-  notesRepository.searchNotes(query)
-export const readNote = (vaultPath: string, noteId: string): Promise<NoteReadOutcome> =>
-  notesRepository.readNote(vaultPath, noteId)
-export const writeFile = (path: string, content: string): Promise<void> =>
-  notesRepository.writeFile(path, content)
+  traceOperation("search.notes", {}, () => notesRepository.searchNotes(query))
+export const readNote = (vaultPath: string, noteId: string): Promise<NoteReadOutcome> => {
+  return traceOperation("storage.read_note", { noteId }, (operationId) =>
+    notesRepository.readNote(vaultPath, noteId, operationId),
+  )
+}
+export const writeFile = (path: string, content: string, operationId?: string): Promise<void> =>
+  traceOperation("storage.write_file", {}, () => notesRepository.writeFile(path, content), {
+    operationId,
+  })
 export const writeNote = (
   vaultPath: string,
   noteId: string,
@@ -133,15 +145,24 @@ export const writeNote = (
   expectedGeneration: number | null,
   expectedRevision: string,
   originWindow: string,
-): Promise<WriteNoteOutcome> =>
-  notesRepository.writeNote(
-    vaultPath,
-    noteId,
-    content,
-    expectedGeneration,
-    expectedRevision,
-    originWindow,
+  operationId?: string,
+): Promise<WriteNoteOutcome> => {
+  return traceOperation(
+    "storage.write_note",
+    { noteId },
+    (id) =>
+      notesRepository.writeNote(
+        vaultPath,
+        noteId,
+        content,
+        expectedGeneration,
+        expectedRevision,
+        originWindow,
+        id,
+      ),
+    { operationId },
   )
+}
 export const restoreDeletedNote = (
   vaultPath: string,
   noteId: string,
@@ -166,7 +187,10 @@ export const createNote = (
   vaultPath: string,
   parentPath: string,
   name: string,
-): Promise<FsMutationResult> => notesRepository.createNote(vaultPath, parentPath, name)
+): Promise<FsMutationResult> => {
+  logger.info("storage.create_note", { parentPath, name })
+  return notesRepository.createNote(vaultPath, parentPath, name)
+}
 export const getNoteMetadata = (vaultPath: string, noteId: string): Promise<FileMetadata> =>
   notesRepository.getNoteMetadata(vaultPath, noteId)
 export const getNoteProperties = (vaultPath: string, noteId: string): Promise<NoteProperties> =>
@@ -175,17 +199,31 @@ export const upsertCustomProperty = (
   vaultPath: string,
   noteId: string,
   property: CustomProperty,
-): Promise<CustomProperty> => notesRepository.upsertCustomProperty(vaultPath, noteId, property)
+): Promise<CustomProperty> => {
+  logger.info("storage.upsert_custom_property", {
+    noteId,
+    propertyId: property.id,
+    name: property.name,
+    propertyType: property.propertyType,
+  })
+  return notesRepository.upsertCustomProperty(vaultPath, noteId, property)
+}
 export const deleteCustomProperty = (
   vaultPath: string,
   noteId: string,
   propertyId: string,
-): Promise<void> => notesRepository.deleteCustomProperty(vaultPath, noteId, propertyId)
+): Promise<void> => {
+  logger.info("storage.delete_custom_property", { noteId, propertyId })
+  return notesRepository.deleteCustomProperty(vaultPath, noteId, propertyId)
+}
 export const reorderCustomProperties = (
   vaultPath: string,
   noteId: string,
   propertyIds: string[],
-): Promise<void> => notesRepository.reorderCustomProperties(vaultPath, noteId, propertyIds)
+): Promise<void> => {
+  logger.info("storage.reorder_custom_properties", { noteId, count: propertyIds.length })
+  return notesRepository.reorderCustomProperties(vaultPath, noteId, propertyIds)
+}
 export const backupCustomProperties = (vaultPath: string, noteId: string): Promise<string> =>
   notesRepository.backupCustomProperties(vaultPath, noteId)
 export const getLinkGraph = (vaultPath: string): Promise<LinkGraph> =>
@@ -197,57 +235,135 @@ export const listTags = (vaultPath: string): Promise<VaultTagEntry[]> =>
 export const getDatabaseModuleState = () => getAdapter().getDatabaseModuleState()
 export const setDatabaseModuleEnabled = (enabled: boolean, expectedGeneration: number) =>
   getAdapter().setDatabaseModuleEnabled(enabled, expectedGeneration)
-export const rebuildDatabaseProjection = () => getAdapter().rebuildDatabaseProjection()
+export const rebuildDatabaseProjection = () =>
+  traceOperation("database.rebuild", {}, () => getAdapter().rebuildDatabaseProjection())
 export const refreshDatabaseChange = (change: DatabaseChangedPayload) =>
-  getAdapter().refreshDatabaseChange(change)
-export const createDatabase = (request: CreateDatabaseRequest) =>
-  getAdapter().createDatabase(request)
-export const createDatabaseProperty = (request: CreateDatabasePropertyRequest) =>
-  getAdapter().createDatabaseProperty(request)
-export const changeDatabasePropertyType = (request: ChangeDatabasePropertyTypeRequest) =>
-  getAdapter().changeDatabasePropertyType(request)
-export const deleteDatabaseProperty = (request: DeleteDatabasePropertyRequest) =>
-  getAdapter().deleteDatabaseProperty(request)
-export const renameDatabaseProperty = (request: RenameDatabasePropertyRequest) =>
-  getAdapter().renameDatabaseProperty(request)
+  traceOperation("database.refresh", {}, () => getAdapter().refreshDatabaseChange(change))
+export const createDatabase = (request: CreateDatabaseRequest) => {
+  logger.info("storage.create_database", {
+    name: request.name,
+    parentPath: request.parentPath,
+    mode: request.mode,
+  })
+  return getAdapter().createDatabase(request)
+}
+export const createDatabaseProperty = (request: CreateDatabasePropertyRequest) => {
+  logger.info("storage.create_database_property", {
+    databaseId: request.databaseId,
+    name: request.name,
+    propertyType: request.propertyType,
+  })
+  return getAdapter().createDatabaseProperty(request)
+}
+export const changeDatabasePropertyType = (request: ChangeDatabasePropertyTypeRequest) => {
+  logger.info("storage.change_database_property_type", {
+    databaseId: request.databaseId,
+    propertyId: request.propertyId,
+    propertyType: request.propertyType,
+  })
+  return getAdapter().changeDatabasePropertyType(request)
+}
+export const deleteDatabaseProperty = (request: DeleteDatabasePropertyRequest) => {
+  logger.info("storage.delete_database_property", {
+    databaseId: request.databaseId,
+    propertyId: request.propertyId,
+  })
+  return getAdapter().deleteDatabaseProperty(request)
+}
+export const renameDatabaseProperty = (request: RenameDatabasePropertyRequest) => {
+  logger.info("storage.rename_database_property", {
+    databaseId: request.databaseId,
+    propertyId: request.propertyId,
+    name: request.name,
+  })
+  return getAdapter().renameDatabaseProperty(request)
+}
 export const renameDatabase = (request: RenameDatabaseRequest) =>
   getAdapter().renameDatabase(request)
-export const applyDatabaseValueBatch = (request: DatabaseValueBatchRequest) =>
-  getAdapter().applyDatabaseValueBatch(request)
-export const updateDatabaseRelationValue = (request: UpdateDatabaseRelationValueRequest) =>
-  getAdapter().updateDatabaseRelationValue(request)
-export const createDatabaseRow = (request: CreateDatabaseRowRequest) =>
-  getAdapter().createDatabaseRow(request)
+export const applyDatabaseValueBatch = (request: DatabaseValueBatchRequest) => {
+  logger.info("storage.apply_database_value_batch", {
+    databaseId: request.databaseId,
+    updatesCount: request.cells.length,
+  })
+  return traceOperation(
+    "database.write_batch",
+    { databaseId: request.databaseId, count: request.cells.length },
+    () => getAdapter().applyDatabaseValueBatch(request),
+    { operationId: request.operationId },
+  )
+}
+export const updateDatabaseRelationValue = (request: UpdateDatabaseRelationValueRequest) => {
+  logger.info("storage.update_database_relation_value", {
+    databaseId: request.databaseId,
+    noteId: request.noteId,
+  })
+  return getAdapter().updateDatabaseRelationValue(request)
+}
+export const createDatabaseRow = (request: CreateDatabaseRowRequest) => {
+  logger.info("storage.create_database_row", {
+    databaseId: request.databaseId,
+    title: request.title,
+  })
+  return getAdapter().createDatabaseRow(request)
+}
 export const importDatabaseAsset = (request: ImportDatabaseAssetRequest) =>
   getAdapter().importDatabaseAsset(request)
 export const syncDatabaseYaml = (request: DatabaseYamlSyncRequest) =>
-  getAdapter().syncDatabaseYaml(request)
+  traceOperation("database.sync_yaml", { databaseId: request.databaseId }, () =>
+    getAdapter().syncDatabaseYaml(request),
+  )
 export const resolveDatabaseYamlConflict = (request: DatabaseYamlResolveRequest) =>
   getAdapter().resolveDatabaseYamlConflict(request)
 export const listDatabases = () => getAdapter().listDatabases()
 export const getDatabaseNoteContext = (noteId: string) =>
   getAdapter().getDatabaseNoteContext(noteId)
-export const reorderDatabaseProperties = (request: ReorderDatabasePropertiesRequest) =>
-  getAdapter().reorderDatabaseProperties(request)
-export const queryDatabase = (request: DatabaseQueryRequest) => getAdapter().queryDatabase(request)
+export const reorderDatabaseProperties = (request: ReorderDatabasePropertiesRequest) => {
+  logger.info("storage.reorder_database_properties", {
+    databaseId: request.databaseId,
+    count: request.propertyIds.length,
+  })
+  return getAdapter().reorderDatabaseProperties(request)
+}
+export const queryDatabase = (request: DatabaseQueryRequest) =>
+  traceOperation("database.query", { databaseId: request.databaseId }, () =>
+    getAdapter().queryDatabase(request),
+  )
 export const getDatabaseView = (request: DatabaseViewRequest) =>
   getAdapter().getDatabaseView(request)
-export const createDatabaseView = (request: CreateDatabaseViewRequest) =>
-  getAdapter().createDatabaseView(request)
-export const renameDatabaseView = (request: RenameDatabaseViewRequest) =>
-  getAdapter().renameDatabaseView(request)
+export const createDatabaseView = (request: CreateDatabaseViewRequest) => {
+  logger.info("storage.create_database_view", {
+    databaseId: request.databaseId,
+    name: request.name,
+  })
+  return getAdapter().createDatabaseView(request)
+}
+export const renameDatabaseView = (request: RenameDatabaseViewRequest) => {
+  logger.info("storage.rename_database_view", {
+    databaseId: request.databaseId,
+    viewId: request.viewId,
+    name: request.name,
+  })
+  return getAdapter().renameDatabaseView(request)
+}
 export const updateDatabaseViewConfig = (request: UpdateDatabaseViewConfigRequest) =>
   getAdapter().updateDatabaseViewConfig(request)
 export const duplicateDatabaseView = (request: DatabaseViewRequest) =>
   getAdapter().duplicateDatabaseView(request)
-export const deleteDatabaseView = (request: DeleteDatabaseViewRequest) =>
-  getAdapter().deleteDatabaseView(request)
+export const deleteDatabaseView = (request: DeleteDatabaseViewRequest) => {
+  logger.info("storage.delete_database_view", {
+    databaseId: request.databaseId,
+    viewId: request.viewId,
+  })
+  return getAdapter().deleteDatabaseView(request)
+}
 export const reorderDatabaseViews = (request: ReorderDatabaseViewsRequest) =>
   getAdapter().reorderDatabaseViews(request)
 export const setDefaultDatabaseView = (request: DatabaseViewRequest) =>
   getAdapter().setDefaultDatabaseView(request)
 export const aggregateDatabase = (request: DatabaseAggregateRequest) =>
-  getAdapter().aggregateDatabase(request)
+  traceOperation("database.aggregate", { databaseId: request.databaseId }, () =>
+    getAdapter().aggregateDatabase(request),
+  )
 export const undoDatabaseMutation = (databaseId: string) =>
   getAdapter().undoDatabaseMutation(databaseId)
 export const redoDatabaseMutation = (databaseId: string) =>

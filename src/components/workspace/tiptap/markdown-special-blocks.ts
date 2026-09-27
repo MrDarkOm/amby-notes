@@ -147,6 +147,7 @@ export function detectCallouts(state: StateCore) {
     calloutOpen.attrSet("headerContentInBody", headerContentInBody ? "true" : "false")
     calloutOpen.attrSet("headerBodyTight", headerBodyTight ? "true" : "false")
     calloutOpen.attrSet("hasRawHeader", "true")
+    calloutOpen.attrSet("isCollapsed", headerPrefix.startsWith("-") ? "true" : "false")
     out.push(calloutOpen)
     if (skipFirstPara) {
       for (let index = firstParaOpen; index <= firstParaClose; index++)

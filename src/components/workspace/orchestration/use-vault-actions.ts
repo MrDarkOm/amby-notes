@@ -9,10 +9,17 @@ type UseVaultActionsParams = {
   setVaults: (vaults: VaultRecord[]) => void
   vault: string | null
   vaults: VaultRecord[]
+  onRequestProfileSelection?: (path: string) => void
 }
 
 /** Keeps workspace-picker mutations at the vault boundary. */
-export function useVaultActions({ loadVault, setVaults, vault, vaults }: UseVaultActionsParams) {
+export function useVaultActions({
+  loadVault,
+  setVaults,
+  vault,
+  vaults,
+  onRequestProfileSelection,
+}: UseVaultActionsParams) {
   const handleRenameVault = React.useCallback(
     (id: string, name: string) => {
       setVaults(vaults.map((record) => (record.id === id ? { ...record, name } : record)))
@@ -46,8 +53,14 @@ export function useVaultActions({ loadVault, setVaults, vault, vaults }: UseVaul
 
   const handleOpenVault = React.useCallback(async () => {
     const path = await openVault()
-    if (path) await loadVault(path)
-  }, [loadVault])
+    if (!path) return
+    const isKnown = vaults.some((v) => v.path === path)
+    if (!isKnown && onRequestProfileSelection) {
+      onRequestProfileSelection(path)
+    } else {
+      await loadVault(path)
+    }
+  }, [loadVault, onRequestProfileSelection, vaults])
 
   return { handleDeleteVault, handleMoveVault, handleOpenVault, handleRenameVault }
 }

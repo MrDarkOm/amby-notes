@@ -49,7 +49,7 @@ export interface StoragePort extends DatabasePort {
 
   // Notes & Text Files
   readFile(path: string): Promise<string>
-  readNote(vaultPath: string, noteId: string): Promise<NoteReadOutcome>
+  readNote(vaultPath: string, noteId: string, operationId?: string): Promise<NoteReadOutcome>
   writeFile(path: string, content: string): Promise<void>
   writeNote(
     vaultPath: string,
@@ -58,6 +58,7 @@ export interface StoragePort extends DatabasePort {
     expectedGeneration: number | null,
     expectedRevision: string,
     originWindow: string,
+    operationId?: string,
   ): Promise<WriteNoteOutcome>
   restoreDeletedNote(
     vaultPath: string,

@@ -13,8 +13,15 @@ import {
 } from "@/components/ui/context-menu"
 import { SourceEditor } from "../source-editor"
 import { TiptapEditor } from "../tiptap/TiptapEditor"
-import { CanvasEditor } from "../canvas-editor"
-import { SketchEditor } from "../sketch-editor"
+import { ModuleRequiredFallback } from "./module-required-fallback"
+
+const LazyCanvasEditor = React.lazy(() =>
+  import("../canvas-editor").then((m) => ({ default: m.CanvasEditor })),
+)
+
+const LazySketchEditor = React.lazy(() =>
+  import("../sketch-editor").then((m) => ({ default: m.SketchEditor })),
+)
 import type { EditorHandle } from "../tiptap/constants"
 import type { MarkdownSelection } from "../tiptap/markdown-selection"
 import { IconValue } from "../icon-value"
@@ -26,6 +33,7 @@ import { DocumentAreaControls } from "./document-area-controls"
 import { LAYER_OPTIONS, type DocumentViewMode, type EditorLayer } from "./use-document-view-mode"
 import { useViewStateStore, isLayerLocked } from "../use-view-state-store"
 import { EDITOR_CONTENT_WIDTH } from "@/lib/themes"
+import { MotionSpinner } from "@/lib/motion"
 import type { ContentWidth } from "../app-config"
 import { CANONICAL_EMPTY_CANVAS } from "@/lib/canvas-format"
 import { defaultSketchJson } from "@/lib/sketch-format"
@@ -62,10 +70,13 @@ export interface DocumentBodyProps {
   fetchTransclusion?: (target: string) => Promise<string | null>
   vault?: string
   canvasValue?: string
+  canvasEnabled?: boolean
   onCanvasChange?: (json: string) => void
   onOpenCanvasNote?: (file: string) => void
   sketchValue?: string
+  sketchEnabled?: boolean
   onSketchChange?: (json: string) => void
+  onEnableModule?: (moduleId: string) => void
   databaseBody?: React.ReactNode
   editorSelection: MarkdownSelection | null
   onEditorSelectionChange: (selection: MarkdownSelection) => void
@@ -110,10 +121,13 @@ export function DocumentBody({
   fetchTransclusion,
   vault,
   canvasValue,
+  canvasEnabled = true,
   onCanvasChange,
   onOpenCanvasNote,
   sketchValue,
+  sketchEnabled = true,
   onSketchChange,
+  onEnableModule,
   databaseBody,
   editorSelection,
   onEditorSelectionChange,
@@ -294,6 +308,12 @@ export function DocumentBody({
               onEditingTitleChange={onEditingTitleChange}
               onRenameTitle={onRenameTitle}
               onFileIconChange={onFileIconChange}
+              onSubmit={() => {
+                requestAnimationFrame(() => {
+                  if (scrollRef.current) scrollRef.current.scrollTop = 0
+                  editorRef.current?.focus?.("start")
+                })
+              }}
             />
 
             {nestedNotesPlacement === "top" && nestedNotesBar ? (
@@ -401,24 +421,41 @@ export function DocumentBody({
           }
         >
           <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            <CanvasEditor
-              key={`${docId}:canvas`}
-              value={canvasValue ?? CANONICAL_EMPTY_CANVAS}
-              onChange={(json) => onCanvasChange?.(json)}
-              onLocalEdit={onContentDirty}
-              vault={vault ?? null}
-              notePath={docPath}
-              onOpenNote={onOpenCanvasNote}
-              treeItems={treeItems}
-              isLocked={canvasLocked}
-              onToggleLock={onToggleLock}
-            />
+            {canvasEnabled ? (
+              <React.Suspense
+                fallback={
+                  <div className="flex h-full w-full items-center justify-center">
+                    <MotionSpinner />
+                  </div>
+                }
+              >
+                <LazyCanvasEditor
+                  key={`${docId}:canvas`}
+                  value={canvasValue ?? CANONICAL_EMPTY_CANVAS}
+                  onChange={(json) => onCanvasChange?.(json)}
+                  onLocalEdit={onContentDirty}
+                  vault={vault ?? null}
+                  notePath={docPath}
+                  onOpenNote={onOpenCanvasNote}
+                  treeItems={treeItems}
+                  isLocked={canvasLocked}
+                  onToggleLock={onToggleLock}
+                />
+              </React.Suspense>
+            ) : (
+              <ModuleRequiredFallback
+                moduleId="amby.canvas"
+                moduleName="Canvas"
+                rawContent={canvasValue ?? CANONICAL_EMPTY_CANVAS}
+                onEnableModule={() => onEnableModule?.("amby.canvas")}
+              />
+            )}
           </div>
         </div>
       )}
 
       {/* Sketch Layer */}
-      {visitedLayers.has("sketch") && (
+      {(visitedLayers.has("sketch") || activeLayer === "sketch") && (
         <div
           aria-hidden={activeLayer !== "sketch"}
           className={
@@ -428,18 +465,41 @@ export function DocumentBody({
           }
         >
           <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            <SketchEditor
-              key={`${docId}:sketch`}
-              value={sketchValue ?? defaultSketchJson()}
-              onChange={(json) => onSketchChange?.(json)}
-              onLocalEdit={onContentDirty}
-              vault={vault ?? null}
-              notePath={docPath}
-              isLocked={sketchLocked}
-              onToggleLock={onToggleLock}
-              treeItems={treeItems}
-              onOpenNote={onOpenCanvasNote}
-            />
+            {sketchEnabled ? (
+              <React.Suspense
+                fallback={
+                  <div className="flex h-full w-full items-center justify-center">
+                    <MotionSpinner />
+                  </div>
+                }
+              >
+                {sketchValue === undefined ? (
+                  <div className="flex h-full w-full items-center justify-center">
+                    <MotionSpinner />
+                  </div>
+                ) : (
+                  <LazySketchEditor
+                    key={`${docId}:sketch`}
+                    value={sketchValue}
+                    onChange={(json) => onSketchChange?.(json)}
+                    onLocalEdit={onContentDirty}
+                    vault={vault ?? null}
+                    notePath={docPath}
+                    isLocked={sketchLocked}
+                    onToggleLock={onToggleLock}
+                    treeItems={treeItems}
+                    onOpenNote={onOpenCanvasNote}
+                  />
+                )}
+              </React.Suspense>
+            ) : (
+              <ModuleRequiredFallback
+                moduleId="amby.excalidraw"
+                moduleName="Excalidraw"
+                rawContent={sketchValue ?? defaultSketchJson()}
+                onEnableModule={() => onEnableModule?.("amby.excalidraw")}
+              />
+            )}
           </div>
         </div>
       )}

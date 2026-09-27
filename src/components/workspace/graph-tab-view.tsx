@@ -296,7 +296,7 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
     return (
       <div
         ref={containerRef}
-        className="flex h-full w-full flex-col items-center justify-center gap-3 bg-background px-6 text-center"
+        className="flex h-full w-full flex-col items-center justify-center gap-3 bg-transparent px-6 text-center"
       >
         <Network className="size-12 text-muted-foreground" />
         <p className="text-[14px] text-muted-foreground">{t("graph.noLinks")}</p>
@@ -306,7 +306,7 @@ export function GraphTabView({ graph, selectedId, onSelect }: GraphTabViewProps)
   }
 
   return (
-    <div ref={containerRef} className="flex h-full w-full flex-col bg-background">
+    <div ref={containerRef} className="flex h-full w-full flex-col bg-transparent">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2">
         <div>
           <p className="text-[13px] font-medium text-foreground">{t("graph.title")}</p>

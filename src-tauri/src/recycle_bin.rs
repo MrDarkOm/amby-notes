@@ -306,4 +306,38 @@ mod tests {
         );
         fs::remove_dir_all(vault).unwrap();
     }
+
+    #[test]
+    fn trash_root_failure_keeps_the_source_intact() {
+        let vault = std::env::temp_dir().join(format!("amby-trash-failure-{}", Ulid::generate()));
+        fs::create_dir_all(vault.join(".amby")).unwrap();
+        let source = vault.join("Note.md");
+        fs::write(&source, "precious content").unwrap();
+        fs::write(root(&vault), "blocks trash directory creation").unwrap();
+
+        assert!(move_to_trash(&vault, &source).is_err());
+        assert_eq!(fs::read_to_string(&source).unwrap(), "precious content");
+        assert!(root(&vault).is_file());
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn restore_collision_keeps_both_original_and_trashed_bytes() {
+        let vault = std::env::temp_dir().join(format!("amby-trash-collision-{}", Ulid::generate()));
+        fs::create_dir_all(&vault).unwrap();
+        let source = vault.join("Note.md");
+        fs::write(&source, "original bytes").unwrap();
+        move_to_trash(&vault, &source).unwrap();
+        let entry = list(&vault).pop().unwrap();
+        fs::write(&source, "new external bytes").unwrap();
+
+        assert!(restore(&vault, &entry.id).is_err());
+        assert_eq!(fs::read_to_string(&source).unwrap(), "new external bytes");
+        assert_eq!(
+            fs::read_to_string(root(&vault).join(&entry.id).join("Note.md")).unwrap(),
+            "original bytes"
+        );
+        assert_eq!(list(&vault).len(), 1);
+        fs::remove_dir_all(vault).unwrap();
+    }
 }

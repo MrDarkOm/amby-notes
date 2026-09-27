@@ -79,10 +79,10 @@ export function validatePreset(raw: unknown): Preset | null {
       typeof (b as ActivityButton).defId === "string" &&
       !!findButtonDef((b as ActivityButton).defId),
   )
-  const known = new Set(ALL_MODULE_IDS)
-  const activeModules = (r.activeModules as unknown[]).filter(
-    (m): m is string => typeof m === "string" && known.has(m),
-  )
+  const known = new Set<string>([...ALL_MODULE_IDS, ...ALL_MODULE_IDS.map((id) => `amby.${id}`)])
+  const activeModules = (r.activeModules as unknown[])
+    .filter((m): m is string => typeof m === "string" && known.has(m))
+    .map((m) => (m.startsWith("amby.") ? m.slice(5) : m))
   const side = (r.activeBySide ?? {}) as Record<string, PanelId | null>
   return {
     id: r.id,

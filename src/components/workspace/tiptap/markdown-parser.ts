@@ -15,6 +15,7 @@ const parserTokens: { [token: string]: ParseSpec } = {
       headerContentInBody: tok.attrGet("headerContentInBody") === "true",
       headerBodyTight: tok.attrGet("headerBodyTight") === "true",
       hasRawHeader: tok.attrGet("hasRawHeader") === "true",
+      isCollapsed: tok.attrGet("isCollapsed") === "true",
     }),
   },
   column_set: {
@@ -48,11 +49,42 @@ const parserTokens: { [token: string]: ParseSpec } = {
   hr: { node: "horizontalRule" },
   image: {
     node: "image",
-    getAttrs: (tok) => ({
-      src: tok.attrGet("src"),
-      title: tok.attrGet("title") || null,
-      alt: tok.children?.[0]?.content || null,
-    }),
+    getAttrs: (tok) => {
+      const rawAlt = tok.children?.[0]?.content || ""
+      const pipeMatch = /^(.*?)(?:\|(\d+)(?:x(\d+))?)?$/s.exec(rawAlt)
+      if (pipeMatch && (pipeMatch[2] !== undefined || rawAlt.startsWith("|"))) {
+        const alt = pipeMatch[1] ?? ""
+        const width = pipeMatch[2] ? Number(pipeMatch[2]) : null
+        const height = pipeMatch[3] ? Number(pipeMatch[3]) : null
+        return {
+          src: tok.attrGet("src"),
+          title: tok.attrGet("title") || null,
+          alt: alt || null,
+          width,
+          height,
+          hasPipe: true,
+        }
+      }
+      const pureSizeMatch = /^(\d+)(?:x(\d+))?$/.exec(rawAlt)
+      if (pureSizeMatch) {
+        return {
+          src: tok.attrGet("src"),
+          title: tok.attrGet("title") || null,
+          alt: null,
+          width: Number(pureSizeMatch[1]),
+          height: pureSizeMatch[2] ? Number(pureSizeMatch[2]) : null,
+          hasPipe: false,
+        }
+      }
+      return {
+        src: tok.attrGet("src"),
+        title: tok.attrGet("title") || null,
+        alt: rawAlt || null,
+        width: null,
+        height: null,
+        hasPipe: false,
+      }
+    },
   },
   hardbreak: { node: "hardBreak" },
   table: {

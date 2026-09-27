@@ -19,7 +19,7 @@ Amby Notes is a local-first Tauri 2 desktop knowledge workspace with a React 19,
 - `src/themes/` owns application CSS, built-in themes, palettes, portable theme validation, and appearance preferences.
 - `src-tauri/src/` is split by backend responsibility: `lib.rs` registers Tauri commands, while `bundle.rs`, `frontmatter.rs`, `history.rs`, `recycle_bin.rs`, `vault_index.rs`, `property_store.rs`, `paths.rs`, `app_data.rs`, `ai.rs`, and `model.rs` implement domain behavior.
 - `docs/` records executable product contracts, especially `vault-format.md`, `markdown-compatibility.md`, `themes-and-localization.md`, and `engineering.md`.
-- `updates.md` is the public, cumulative change log. Keep release-engineering instructions in `docs/update-system.md`; do not mix operational secrets or internal release steps into the public change log.
+- `updates/` is the public, cumulative change log directory containing per-version release notes (e.g. `updates/upd_<version>.md`) and unreleased changes (`updates/upd_next.md`). Keep release-engineering instructions in `docs/update-system.md`; do not mix operational secrets or internal release steps into the public change log.
 - `public/` stores static web assets. `dist/` and `src-tauri/target/` are generated output and must not be committed.
 
 ## Development and Verification Commands
@@ -54,7 +54,7 @@ Folder selection opens a `folder` workspace tab rendered by `folder-view.tsx`; d
 
 Rendered tags and wiki links may expose editor-only controls such as unlink-on-hover, but the resulting mutation must replace the mark/node with ordinary text without changing the visible label. Keep these controls out of serialized Markdown and preserve normal click navigation outside the control.
 
-The repository has legacy Prettier and Rustfmt drift. Do not perform unrelated repository-wide formatting. Format touched frontend files with Prettier and touched Rust files with Rustfmt. Lefthook runs ESLint fixes and Prettier on staged frontend files.
+The repository has been normalized to consistent Prettier and Rustfmt standards (with revisions tracked in `.git-blame-ignore-revs`). Maintain clean formatting: format touched frontend files with Prettier and touched Rust files with Rustfmt. `npm run format:check` and `npm run rust:fmt` are enforced as clean gates. Lefthook runs ESLint fixes and Prettier on staged frontend files.
 
 ## Localization and Themes
 
@@ -99,12 +99,12 @@ Pull requests should include a concise summary, risk or data-format impact, veri
 
 ## Public Change Log and Cumulative Releases
 
-`updates.md` is mandatory release data, not an optional summary. Update it in the same working batch as every code, UI, configuration, documentation, dependency, security, reliability, performance, or developer-workflow change.
+The `updates/` directory contains mandatory release data, not an optional summary. Release notes for each version are stored in their own file (`updates/upd_<version>.md`), and unreleased changes accumulate in `updates/upd_next.md`. Update `updates/upd_next.md` in the same working batch as every code, UI, configuration, documentation, dependency, security, reliability, performance, or developer-workflow change.
 
-- Add new entries under `## Следующая версия` while work accumulates. Do not change the application version during ordinary implementation, fixes, reviews, test retries, or intermediate checkpoints.
+- Add new entries to `updates/upd_next.md` while work accumulates. Do not change the application version during ordinary implementation, fixes, reviews, test retries, or intermediate checkpoints.
 - Write concise, polished Russian release notes that can be shown directly to users. Describe the visible benefit or corrected behavior, group entries under headings such as `Новое`, `Улучшения`, `Исправления`, `Безопасность`, and `Для разработчиков`, and avoid raw commit hashes, temporary debugging details, or claims that were not verified.
 - Keep one entry per meaningful outcome rather than one entry per edited file. Preserve already accumulated entries and revise them when later work changes the final behavior.
-- Treat an explicit user request to **commit and push the accumulated changes** as the signal to finalize the cumulative release. Immediately before that release commit, review the complete diff, curate `updates.md`, and increment the patch version exactly once: for example `0.1.0` → `0.1.1`, then the next cumulative release `0.1.1` → `0.1.2`.
+- Treat an explicit user request to **commit and push the accumulated changes** as the signal to finalize the cumulative release. Immediately before that release commit, review the complete diff, curate the notes in `updates/upd_next.md`, move them into a new versioned file `updates/upd_<version>.md` (e.g. `updates/upd_0.1.5.md`) with the release date, recreate a fresh `updates/upd_next.md` for future work, and increment the patch version exactly once: for example `0.1.0` → `0.1.1`, then the next cumulative release `0.1.1` → `0.1.2`. Release notes for GitHub Releases and in-app updater announcements are sourced directly from `updates/upd_<version>.md`.
 - Apply the finalized version atomically to `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`. Never increment major or minor versions unless the user explicitly requests it. Never increment again because a check, commit, or push must be retried.
-- Move the accumulated notes into a dated `## <version> — YYYY-MM-DD` section and leave a fresh `## Следующая версия` section at the top for future work. Run `npm run version:check`, `npm run verify`, and `npm run build` before committing. Include native packaging verification when the accumulated changes affect desktop behavior.
+- Run `npm run version:check`, `npm run verify`, and `npm run build` before committing. Include native packaging verification when the accumulated changes affect desktop behavior.
 - Commit and push only after all required checks pass, unless the user explicitly accepts a named failure. A branch push does not by itself authorize creating or pushing a Git tag, publishing a GitHub Release, or promoting between `dev`, `beta`, and `main`; obtain an explicit release/tag/promotion instruction for those actions.

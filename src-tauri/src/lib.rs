@@ -7,7 +7,9 @@ mod database;
 mod frontmatter;
 mod history;
 pub mod index;
+pub mod logging;
 mod model;
+pub mod package_manager;
 mod paths;
 mod property_store;
 mod recovery;
@@ -30,6 +32,7 @@ mod security_integration_test;
 #[cfg(test)]
 mod desktop_e2e_tests;
 
+use logging::DebugState;
 use state::*;
 use watcher::WatcherState;
 
@@ -149,6 +152,32 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         credentials::inspect_ai_credential,
         ai::cancel_ai_request,
         ai::ai_chat,
+        commands::modules::stage_module_package,
+        commands::modules::download_and_stage_module_package,
+        commands::modules::publish_staged_module,
+        commands::modules::rollback_module,
+        commands::modules::uninstall_module_package,
+        commands::modules::list_installed_module_packages,
+        commands::modules::get_module_entry_path,
+        commands::modules::verify_module_signature,
+        commands::debug::get_log_dir_path,
+        commands::debug::get_log_file_path,
+        commands::debug::open_log_folder,
+        commands::debug::read_log_file,
+        commands::debug::clear_log_file,
+        commands::debug::append_log,
+        commands::debug::get_recent_logs,
+        commands::debug::set_debug_mode_enabled,
+        commands::debug::open_devtools,
+        commands::debug::toggle_devtools,
+        commands::debug::is_devtools_open,
+        commands::debug::configure_debug,
+        commands::debug::get_debug_status,
+        commands::debug::append_debug_events,
+        commands::debug::get_debug_events,
+        commands::debug::get_debug_history,
+        commands::debug::clear_debug_logs,
+        commands::debug::flush_debug_logs,
     ])
 }
 
@@ -182,10 +211,32 @@ pub fn run() {
         .manage(database::runtime_state::DatabaseRuntimeState::default())
         .manage(database::mutation_state::DatabaseMutationState::default())
         .manage(database::history::DatabaseHistoryState::default())
+        .manage(DebugState(logging::global_runtime()))
         .invoke_handler(builder.invoke_handler())
         .setup(|app| {
+            let debug = logging::global_runtime();
+            debug.set_app(app.handle().clone());
+            // Merely remember the path; the opt-in writer creates files only
+            // after the user enables persistent diagnostics.
+            match commands::debug::log_file_path(app.handle()) {
+                Ok(log_path) => {
+                    if let Err(error) = debug.configure_path(log_path) {
+                        debug.set_file_error(error);
+                    }
+                }
+                Err(_) => debug.set_file_error("AppDataUnavailable"),
+            }
+
             #[cfg(target_os = "macos")]
             set_macos_application_icon();
+
+            if let Ok(modules_dir) = package_manager::modules_root(app.handle()) {
+                use tauri::Manager;
+                let _ = app
+                    .handle()
+                    .asset_protocol_scope()
+                    .allow_directory(&modules_dir, true);
+            }
 
             // Tauri creates this window from the configuration before calling
             // `setup`. Keeping creation declarative avoids a dev-only window
@@ -202,15 +253,19 @@ pub fn run() {
 #[cfg(test)]
 mod specta_export {
     /// Regenerates src/lib/bindings.ts headlessly (`cargo test`), without
-    /// launching the app.
+    /// launching the app. Tests may set AMBY_BINDINGS_OUTPUT to compare a
+    /// temporary export without overwriting the checked-in binding file.
     #[test]
     fn export_bindings() {
+        let output = std::env::var_os("AMBY_BINDINGS_OUTPUT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| "../src/lib/bindings.ts".into());
         super::specta_builder()
             .export(
                 specta_typescript::Typescript::default()
                     .bigint(specta_typescript::BigIntExportBehavior::Number)
                     .header("// @ts-nocheck\n"),
-                "../src/lib/bindings.ts",
+                output,
             )
             .expect("failed to export typescript bindings");
     }

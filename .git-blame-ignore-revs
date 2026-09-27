@@ -1,0 +1,7 @@
+# Git blame ignore revisions
+# Format: commit hash followed by optional comment
+# Configure git to use this file:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Repository-wide formatting normalizations (Prettier & Rustfmt):
+# (Add the commit hash here when committed)

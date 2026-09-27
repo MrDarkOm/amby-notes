@@ -1,4 +1,5 @@
 import { create } from "zustand"
+import { logger } from "@/lib/logger"
 import type { DocumentViewMode } from "./document-editor"
 import type { ContentWidth } from "./app-config"
 import type { NoteLayers } from "@/lib/storage"
@@ -142,14 +143,22 @@ function createViewStateStore() {
     toggleFavorite: (id) =>
       set((s) => {
         const next = new Set(s.favorites)
+        const isFav = !next.has(id)
         if (next.has(id)) next.delete(id)
         else next.add(id)
+        logger.info("file.toggle_favorite", { fileId: id, favorited: isFav })
         return { favorites: next }
       }),
 
-    setIcon: (id, icon) => set((s) => ({ iconOverrides: { ...s.iconOverrides, [id]: icon } })),
+    setIcon: (id, icon) => {
+      logger.info("file.set_icon", { fileId: id, icon })
+      return set((s) => ({ iconOverrides: { ...s.iconOverrides, [id]: icon } }))
+    },
 
-    setViewMode: (id, mode) => set((s) => ({ viewModes: { ...s.viewModes, [id]: mode } })),
+    setViewMode: (id, mode) => {
+      logger.info("editor.view_mode", { fileId: id, mode })
+      return set((s) => ({ viewModes: { ...s.viewModes, [id]: mode } }))
+    },
 
     setContentWidth: (id, width) =>
       set((s) => ({ contentWidths: { ...(s.contentWidths ?? {}), [id]: width } })),
@@ -167,13 +176,17 @@ function createViewStateStore() {
     toggleLock: (id) =>
       set((s) => {
         const next = new Set(s.lockedFileIds)
+        const locked = !next.has(id)
         if (next.has(id)) next.delete(id)
         else next.add(id)
+        logger.info("editor.toggle_lock", { fileId: id, locked })
         return { lockedFileIds: next }
       }),
 
-    setActiveLayer: (id, layer) =>
-      set((s) => ({ activeLayers: { ...s.activeLayers, [id]: layer } })),
+    setActiveLayer: (id, layer) => {
+      logger.info("layer.switch", { fileId: id, layer })
+      return set((s) => ({ activeLayers: { ...s.activeLayers, [id]: layer } }))
+    },
 
     setLinkedLayers: (id, layers) =>
       set((s) => ({ linkedLayersByDoc: { ...s.linkedLayersByDoc, [id]: layers } })),

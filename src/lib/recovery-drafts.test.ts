@@ -7,6 +7,7 @@ import {
   scheduleRecoveryDraft,
   flushRecoveryDraft,
   saveRecoveryDraft,
+  inspectRecoveryQueue,
 } from "./recovery-drafts"
 import { commands, type RecoveryEntry } from "@/lib/bindings"
 
@@ -32,6 +33,29 @@ describe("recovery drafts", () => {
   })
 
   describe("web / localStorage fallback", () => {
+    it("inspects pending recovery counters without persisting or exposing draft data", async () => {
+      vi.useFakeTimers()
+      const scope = { vault: "/private-vault", generation: 91 }
+      const setItem = vi.spyOn(localStorage, "setItem")
+      scheduleRecoveryDraft(
+        "private-id",
+        "private-content",
+        "markdown",
+        "/private/Secret.md",
+        scope,
+      )
+      setItem.mockClear()
+      const result = inspectRecoveryQueue(scope)
+      expect(result).toEqual({ pending: 1, failed: 0 })
+      expect(inspectRecoveryQueue({ vault: "/other", generation: 92 })).toEqual({
+        pending: 0,
+        failed: 0,
+      })
+      expect(setItem).not.toHaveBeenCalled()
+      expect(JSON.stringify(result)).not.toContain("private")
+      await discardRecoveryDraft("private-id", scope)
+      vi.useRealTimers()
+    })
     it("coalesces rapid edits while preserving the latest snapshot", async () => {
       vi.useFakeTimers()
       const setItem = vi.spyOn(localStorage, "setItem")

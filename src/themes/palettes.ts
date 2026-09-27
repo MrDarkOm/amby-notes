@@ -150,3 +150,5 @@ export const SKETCH_UI_CARD_COLORS = {
     noteCardBackground: "#ffffff",
   },
 } as const
+
+export const EXCALIDRAW_DEFAULT_BG = "#ffffff"

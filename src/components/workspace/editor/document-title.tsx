@@ -18,6 +18,7 @@ export interface DocumentTitleProps {
   onEditingTitleChange: (editing: boolean) => void
   onRenameTitle?: (newName: string) => void
   onFileIconChange?: (icon: string) => void
+  onSubmit?: () => void
 }
 
 export function DocumentTitle({
@@ -27,6 +28,7 @@ export function DocumentTitle({
   onEditingTitleChange,
   onRenameTitle,
   onFileIconChange,
+  onSubmit,
 }: DocumentTitleProps) {
   const { t } = useTranslation()
   const [titleValue, setTitleValue] = React.useState(title)
@@ -56,7 +58,12 @@ export function DocumentTitle({
   }
 
   function handleTitleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") commitTitleRename()
+    if (e.key === "Enter") {
+      e.preventDefault()
+      commitTitleRename()
+      titleInputRef.current?.blur()
+      onSubmit?.()
+    }
     if (e.key === "Escape") {
       setTitleValue(title)
       onEditingTitleChange(false)

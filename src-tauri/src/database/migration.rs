@@ -206,18 +206,22 @@ pub fn preflight_migration(
         if let Ok(entries) = fs::read_dir(&views_dir) {
             for entry in entries.filter_map(Result::ok) {
                 let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                    view_shards_count += 1;
+                if path.is_file() {
                     affected_files.push(path.to_string_lossy().to_string());
-                    if let Ok(bytes) = fs::read(&path) {
-                        if parse_view(&bytes).is_err() {
-                            conflicts.push(MigrationConflict {
-                                kind: "invalidViewShard".to_string(),
-                                note_id: None,
-                                file_path: path.to_string_lossy().to_string(),
-                                description: "View shard JSON is invalid or corrupted".to_string(),
-                                suggested_action: "Repair or backup view shard file".to_string(),
-                            });
+                    if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                        view_shards_count += 1;
+                        if let Ok(bytes) = fs::read(&path) {
+                            if parse_view(&bytes).is_err() {
+                                conflicts.push(MigrationConflict {
+                                    kind: "invalidViewShard".to_string(),
+                                    note_id: None,
+                                    file_path: path.to_string_lossy().to_string(),
+                                    description: "View shard JSON is invalid or corrupted"
+                                        .to_string(),
+                                    suggested_action: "Repair or backup view shard file"
+                                        .to_string(),
+                                });
+                            }
                         }
                     }
                 }
@@ -234,27 +238,33 @@ pub fn preflight_migration(
         if let Ok(entries) = fs::read_dir(&records_dir) {
             for entry in entries.filter_map(Result::ok) {
                 let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                    record_shards_count += 1;
+                if path.is_file() {
                     affected_files.push(path.to_string_lossy().to_string());
-                    let stem = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if let Ok(bytes) = fs::read(&path) {
-                        match parse_record(&bytes) {
-                            Ok(shard) => {
-                                record_shards.insert(stem, shard.value);
-                            }
-                            Err(e) => {
-                                conflicts.push(MigrationConflict {
-                                    kind: "corruptedRecordShard".to_string(),
-                                    note_id: Some(stem.clone()),
-                                    file_path: path.to_string_lossy().to_string(),
-                                    description: format!("Record shard could not be parsed: {e}"),
-                                    suggested_action: "Examine corrupted shard file in .ambd/records/".to_string(),
-                                });
+                    if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                        record_shards_count += 1;
+                        let stem = path
+                            .file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if let Ok(bytes) = fs::read(&path) {
+                            match parse_record(&bytes) {
+                                Ok(shard) => {
+                                    record_shards.insert(stem, shard.value);
+                                }
+                                Err(e) => {
+                                    conflicts.push(MigrationConflict {
+                                        kind: "corruptedRecordShard".to_string(),
+                                        note_id: Some(stem.clone()),
+                                        file_path: path.to_string_lossy().to_string(),
+                                        description: format!(
+                                            "Record shard could not be parsed: {e}"
+                                        ),
+                                        suggested_action:
+                                            "Examine corrupted shard file in .ambd/records/"
+                                                .to_string(),
+                                    });
+                                }
                             }
                         }
                     }
@@ -542,14 +552,23 @@ pub fn execute_migration(
     }
 
     // Step 4: Write canonical manifest (ensure <Name>.json)
-    let canonical_manifest_path = super::discovery::manifest_path_for_container(&container);
+    let container_name = container
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "database".to_string());
+    let canonical_manifest_path = container.join(format!("{container_name}.json"));
     let mut manifest_bytes_to_write =
         serde_json::to_vec_pretty(&manifest_val).map_err(|e| e.to_string())?;
     manifest_bytes_to_write.push(b'\n');
+    let orig_manifest_bytes = if canonical_manifest_path.is_file() {
+        fs::read(&canonical_manifest_path).unwrap_or_default()
+    } else {
+        manifest_bytes.clone()
+    };
     planned_writes.push((
         canonical_manifest_path.clone(),
         manifest_bytes_to_write,
-        manifest_bytes,
+        orig_manifest_bytes,
     ));
 
     for (path, new_bytes, _) in &planned_writes {
@@ -562,6 +581,7 @@ pub fn execute_migration(
             .post_migration_hashes
             .insert(rel, sha256_hex(new_bytes));
     }
+    write_journal(&journal)?;
 
     // Execute planned writes with rollback on failure
     let mut written_paths = Vec::new();
@@ -710,11 +730,32 @@ pub fn rollback_migration(
                         target_file.display()
                     ));
                 }
+            } else {
+                // Target file was NOT modified by migration.
+                // Do not restore it from backup so post-migration user edits are preserved!
+                continue;
             }
         }
 
         let bytes = fs::read(backup_file).map_err(|e| e.to_string())?;
         restored_files.push((target_file, bytes));
+    }
+
+    // Clean up any files created by migration that were not present in backup
+    for rel_str in journal.post_migration_hashes.keys() {
+        let backup_file = backup_dir.join(rel_str);
+        if !backup_file.is_file() {
+            let target_file = container.join(rel_str);
+            if target_file.is_file() {
+                let current_bytes = fs::read(&target_file).map_err(|e| e.to_string())?;
+                let current_hash = sha256_hex(&current_bytes);
+                if let Some(expected_post_hash) = journal.post_migration_hashes.get(rel_str) {
+                    if &current_hash == expected_post_hash {
+                        let _ = fs::remove_file(&target_file);
+                    }
+                }
+            }
+        }
     }
 
     let write = watcher.prepare_write(
@@ -745,414 +786,5 @@ pub fn rollback_migration(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn temp_vault() -> PathBuf {
-        let path =
-            std::env::temp_dir().join(format!("amby-migration-test-{}", ulid::Ulid::generate()));
-        fs::create_dir_all(&path).unwrap();
-        path
-    }
-
-    #[test]
-    fn st05_migration_preflight_detects_legacy_shards_and_conflicts() {
-        let vault = temp_vault();
-        let db_dir = vault.join("LegacyDB");
-        fs::create_dir_all(&db_dir).unwrap();
-
-        let db_id = ulid::Ulid::generate().to_string();
-        let manifest_json = serde_json::json!({
-            "format": "amby-database",
-            "formatVersion": 1,
-            "databaseId": db_id,
-            "name": "LegacyDB",
-            "containerKind": "standalone",
-            "locked": false,
-            "membership": { "kind": "filesystem-descendants", "recursive": true },
-            "properties": [
-                {
-                    "type": "text",
-                    "id": "01J00000000000000000000001",
-                    "name": "Status",
-                    "pageVisibility": "alwaysShow",
-                    "yamlBinding": { "key": "Status", "direction": "twoWay" },
-                    "config": { "multiline": false }
-                }
-            ],
-            "views": [],
-            "templateOrder": []
-        });
-        fs::write(
-            db_dir.join("LegacyDB.json"),
-            serde_json::to_vec_pretty(&manifest_json).unwrap(),
-        )
-        .unwrap();
-
-        let ambd_dir = db_dir.join(".ambd");
-        let records_dir = ambd_dir.join("records");
-        let views_dir = ambd_dir.join("views");
-        fs::create_dir_all(&records_dir).unwrap();
-        fs::create_dir_all(&views_dir).unwrap();
-
-        // Add a view shard
-        let view_id = ulid::Ulid::generate().to_string();
-        let view_json = serde_json::json!({
-            "format": "amby-database-view",
-            "formatVersion": 1,
-            "databaseId": db_id,
-            "viewId": view_id,
-            "name": "Table View",
-            "layout": "table",
-            "fields": [],
-            "filter": null,
-            "sorts": [],
-            "group": null
-        });
-        fs::write(
-            views_dir.join(format!("{view_id}.json")),
-            serde_json::to_vec_pretty(&view_json).unwrap(),
-        )
-        .unwrap();
-
-        // Add a note and matching record shard
-        let note_id = ulid::Ulid::generate().to_string();
-        let note_path = db_dir.join("Task1.md");
-        fs::write(
-            &note_path,
-            format!("---\namby-id: {note_id}\n---\n\nTask body\n"),
-        )
-        .unwrap();
-
-        let record_json = serde_json::json!({
-            "format": "amby-database-record",
-            "formatVersion": 1,
-            "databaseId": db_id,
-            "noteId": note_id,
-            "values": {
-                "01J00000000000000000000001": {
-                    "type": "text",
-                    "value": "In Progress"
-                }
-            },
-            "yamlSyncBases": {}
-        });
-        fs::write(
-            records_dir.join(format!("{note_id}.json")),
-            serde_json::to_vec_pretty(&record_json).unwrap(),
-        )
-        .unwrap();
-
-        // 1. Detection
-        let migrations = detect_migrations(&vault).unwrap();
-        assert_eq!(migrations.len(), 1);
-        assert!(migrations[0].needs_migration);
-        assert_eq!(migrations[0].record_shards_count, 1);
-        assert_eq!(migrations[0].view_shards_count, 1);
-
-        // 2. Preflight
-        let preflight = preflight_migration(&vault, &db_id).unwrap();
-        assert!(preflight.can_auto_migrate);
-        assert_eq!(preflight.record_shards_count, 1);
-        assert_eq!(preflight.view_shards_count, 1);
-
-        // 3. Execution
-        let watcher = WatcherState::new();
-        let result = execute_migration(&vault, &watcher, &db_id).unwrap();
-        assert_eq!(result.migrated_records, 1);
-        assert_eq!(result.migrated_views, 1);
-
-        // Verify note frontmatter has Status: In Progress
-        let note_after = fs::read_to_string(&note_path).unwrap();
-        assert!(
-            note_after.contains("Status: In Progress"),
-            "Note frontmatter should contain migrated status: {note_after}"
-        );
-
-        // Verify manifest contains the view
-        let manifest_after =
-            parse_manifest(&fs::read(db_dir.join("LegacyDB.json")).unwrap()).unwrap();
-        assert_eq!(manifest_after.value.views.len(), 1);
-        assert_eq!(manifest_after.value.views[0].name, "Table View");
-
-        // Verify backup exists
-        assert!(Path::new(&result.backup_dir).is_dir());
-        assert!(Path::new(&result.backup_dir).join("journal.json").is_file());
-
-        // 4. Rollback
-        rollback_migration(&vault, &watcher, &db_id, &result.migration_id).unwrap();
-        let note_rolled_back = fs::read_to_string(&note_path).unwrap();
-        assert!(
-            !note_rolled_back.contains("Status: In Progress"),
-            "Note should be rolled back"
-        );
-
-        let _ = fs::remove_dir_all(vault);
-    }
-    #[test]
-    fn review_rollback_preserves_newer_user_edit() {
-        let vault = temp_vault();
-        let db_dir = vault.join("LegacyDB");
-        fs::create_dir_all(&db_dir).unwrap();
-
-        let db_id = ulid::Ulid::generate().to_string();
-        let manifest_json = serde_json::json!({
-            "format": "amby-database",
-            "formatVersion": 1,
-            "databaseId": db_id,
-            "name": "LegacyDB",
-            "containerKind": "standalone",
-            "locked": false,
-            "membership": { "kind": "filesystem-descendants", "recursive": true },
-            "properties": [
-                {
-                    "type": "text",
-                    "id": "01J00000000000000000000001",
-                    "name": "Status",
-                    "pageVisibility": "alwaysShow",
-                    "yamlBinding": { "key": "Status", "direction": "twoWay" },
-                    "config": { "multiline": false }
-                }
-            ],
-            "views": [],
-            "templateOrder": []
-        });
-        fs::write(
-            db_dir.join("LegacyDB.json"),
-            serde_json::to_vec_pretty(&manifest_json).unwrap(),
-        )
-        .unwrap();
-
-        let ambd_dir = db_dir.join(".ambd");
-        let records_dir = ambd_dir.join("records");
-        let views_dir = ambd_dir.join("views");
-        fs::create_dir_all(&records_dir).unwrap();
-        fs::create_dir_all(&views_dir).unwrap();
-
-        // Add a view shard
-        let view_id = ulid::Ulid::generate().to_string();
-        let view_json = serde_json::json!({
-            "format": "amby-database-view",
-            "formatVersion": 1,
-            "databaseId": db_id,
-            "viewId": view_id,
-            "name": "Table View",
-            "layout": "table",
-            "fields": [],
-            "filter": null,
-            "sorts": [],
-            "group": null
-        });
-        fs::write(
-            views_dir.join(format!("{view_id}.json")),
-            serde_json::to_vec_pretty(&view_json).unwrap(),
-        )
-        .unwrap();
-
-        // Add a note and matching record shard
-        let note_id = ulid::Ulid::generate().to_string();
-        let note_path = db_dir.join("Task1.md");
-        fs::write(
-            &note_path,
-            format!("---\namby-id: {note_id}\n---\n\nTask body\n"),
-        )
-        .unwrap();
-
-        let record_json = serde_json::json!({
-            "format": "amby-database-record",
-            "formatVersion": 1,
-            "databaseId": db_id,
-            "noteId": note_id,
-            "values": {
-                "01J00000000000000000000001": {
-                    "type": "text",
-                    "value": "In Progress"
-                }
-            },
-            "yamlSyncBases": {}
-        });
-        fs::write(
-            records_dir.join(format!("{note_id}.json")),
-            serde_json::to_vec_pretty(&record_json).unwrap(),
-        )
-        .unwrap();
-
-        // 1. Detection
-        let migrations = detect_migrations(&vault).unwrap();
-        assert_eq!(migrations.len(), 1);
-        assert!(migrations[0].needs_migration);
-        assert_eq!(migrations[0].record_shards_count, 1);
-        assert_eq!(migrations[0].view_shards_count, 1);
-
-        // 2. Preflight
-        let preflight = preflight_migration(&vault, &db_id).unwrap();
-        assert!(preflight.can_auto_migrate);
-        assert_eq!(preflight.record_shards_count, 1);
-        assert_eq!(preflight.view_shards_count, 1);
-
-        // 3. Execution
-        let watcher = WatcherState::new();
-        let result = execute_migration(&vault, &watcher, &db_id).unwrap();
-        assert_eq!(result.migrated_records, 1);
-        assert_eq!(result.migrated_views, 1);
-
-        // Verify note frontmatter has Status: In Progress
-        let note_after = fs::read_to_string(&note_path).unwrap();
-        assert!(
-            note_after.contains("Status: In Progress"),
-            "Note frontmatter should contain migrated status: {note_after}"
-        );
-
-        // Verify manifest contains the view
-        let manifest_after =
-            parse_manifest(&fs::read(db_dir.join("LegacyDB.json")).unwrap()).unwrap();
-        assert_eq!(manifest_after.value.views.len(), 1);
-        assert_eq!(manifest_after.value.views[0].name, "Table View");
-
-        // Verify backup exists
-        assert!(Path::new(&result.backup_dir).is_dir());
-        assert!(Path::new(&result.backup_dir).join("journal.json").is_file());
-
-        let newer = format!("{note_after}\nNEW USER CONTENT\n");
-        fs::write(&note_path, &newer).unwrap();
-        let rollback = rollback_migration(&vault, &watcher, &db_id, &result.migration_id);
-        assert_eq!(
-            fs::read_to_string(&note_path).unwrap(),
-            newer,
-            "rollback must preserve post-migration edits (result: {rollback:?})"
-        );
-        let _ = fs::remove_dir_all(vault);
-    }
-
-    #[test]
-    fn review_completed_migration_is_not_pending_again() {
-        let vault = temp_vault();
-        let db_dir = vault.join("LegacyDB");
-        fs::create_dir_all(&db_dir).unwrap();
-
-        let db_id = ulid::Ulid::generate().to_string();
-        let manifest_json = serde_json::json!({
-            "format": "amby-database",
-            "formatVersion": 1,
-            "databaseId": db_id,
-            "name": "LegacyDB",
-            "containerKind": "standalone",
-            "locked": false,
-            "membership": { "kind": "filesystem-descendants", "recursive": true },
-            "properties": [
-                {
-                    "type": "text",
-                    "id": "01J00000000000000000000001",
-                    "name": "Status",
-                    "pageVisibility": "alwaysShow",
-                    "yamlBinding": { "key": "Status", "direction": "twoWay" },
-                    "config": { "multiline": false }
-                }
-            ],
-            "views": [],
-            "templateOrder": []
-        });
-        fs::write(
-            db_dir.join("LegacyDB.json"),
-            serde_json::to_vec_pretty(&manifest_json).unwrap(),
-        )
-        .unwrap();
-
-        let ambd_dir = db_dir.join(".ambd");
-        let records_dir = ambd_dir.join("records");
-        let views_dir = ambd_dir.join("views");
-        fs::create_dir_all(&records_dir).unwrap();
-        fs::create_dir_all(&views_dir).unwrap();
-
-        // Add a view shard
-        let view_id = ulid::Ulid::generate().to_string();
-        let view_json = serde_json::json!({
-            "format": "amby-database-view",
-            "formatVersion": 1,
-            "databaseId": db_id,
-            "viewId": view_id,
-            "name": "Table View",
-            "layout": "table",
-            "fields": [],
-            "filter": null,
-            "sorts": [],
-            "group": null
-        });
-        fs::write(
-            views_dir.join(format!("{view_id}.json")),
-            serde_json::to_vec_pretty(&view_json).unwrap(),
-        )
-        .unwrap();
-
-        // Add a note and matching record shard
-        let note_id = ulid::Ulid::generate().to_string();
-        let note_path = db_dir.join("Task1.md");
-        fs::write(
-            &note_path,
-            format!("---\namby-id: {note_id}\n---\n\nTask body\n"),
-        )
-        .unwrap();
-
-        let record_json = serde_json::json!({
-            "format": "amby-database-record",
-            "formatVersion": 1,
-            "databaseId": db_id,
-            "noteId": note_id,
-            "values": {
-                "01J00000000000000000000001": {
-                    "type": "text",
-                    "value": "In Progress"
-                }
-            },
-            "yamlSyncBases": {}
-        });
-        fs::write(
-            records_dir.join(format!("{note_id}.json")),
-            serde_json::to_vec_pretty(&record_json).unwrap(),
-        )
-        .unwrap();
-
-        // 1. Detection
-        let migrations = detect_migrations(&vault).unwrap();
-        assert_eq!(migrations.len(), 1);
-        assert!(migrations[0].needs_migration);
-        assert_eq!(migrations[0].record_shards_count, 1);
-        assert_eq!(migrations[0].view_shards_count, 1);
-
-        // 2. Preflight
-        let preflight = preflight_migration(&vault, &db_id).unwrap();
-        assert!(preflight.can_auto_migrate);
-        assert_eq!(preflight.record_shards_count, 1);
-        assert_eq!(preflight.view_shards_count, 1);
-
-        // 3. Execution
-        let watcher = WatcherState::new();
-        let result = execute_migration(&vault, &watcher, &db_id).unwrap();
-        assert_eq!(result.migrated_records, 1);
-        assert_eq!(result.migrated_views, 1);
-
-        // Verify note frontmatter has Status: In Progress
-        let note_after = fs::read_to_string(&note_path).unwrap();
-        assert!(
-            note_after.contains("Status: In Progress"),
-            "Note frontmatter should contain migrated status: {note_after}"
-        );
-
-        // Verify manifest contains the view
-        let manifest_after =
-            parse_manifest(&fs::read(db_dir.join("LegacyDB.json")).unwrap()).unwrap();
-        assert_eq!(manifest_after.value.views.len(), 1);
-        assert_eq!(manifest_after.value.views[0].name, "Table View");
-
-        // Verify backup exists
-        assert!(Path::new(&result.backup_dir).is_dir());
-        assert!(Path::new(&result.backup_dir).join("journal.json").is_file());
-
-        let pending = detect_migrations(&vault).unwrap();
-        assert!(
-            !pending.iter().any(|m| m.needs_migration),
-            "successful migration is still pending: {pending:?}"
-        );
-        let _ = fs::remove_dir_all(vault);
-    }
-}
+#[path = "migration_test.rs"]
+mod tests;

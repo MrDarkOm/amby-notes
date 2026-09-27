@@ -7,7 +7,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::discovery::discover_vault;
-use super::format::{PropertyValue, parse_manifest, parse_template};
+use super::format::{parse_manifest, parse_template, PropertyValue};
 use crate::frontmatter::{self, AtomicCreateError};
 use crate::watcher::{self, WatcherState};
 
@@ -281,7 +281,7 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::database::mutations::{CreateDatabaseRequest, DatabaseCreateMode, create_database};
+    use crate::database::mutations::{create_database, CreateDatabaseRequest, DatabaseCreateMode};
     use serde_json::json;
     use std::path::PathBuf;
 
@@ -325,18 +325,14 @@ mod tests {
         .unwrap();
         assert_eq!(row.note_id.len(), 26);
         assert!(Path::new(&row.note_path).is_file());
-        assert!(
-            !Path::new(&row.note_path)
-                .parent()
-                .unwrap()
-                .join(".ambd/records")
-                .exists()
-        );
-        assert!(
-            String::from_utf8(fs::read(&row.note_path).unwrap())
-                .unwrap()
-                .contains(&row.note_id)
-        );
+        assert!(!Path::new(&row.note_path)
+            .parent()
+            .unwrap()
+            .join(".ambd/records")
+            .exists());
+        assert!(String::from_utf8(fs::read(&row.note_path).unwrap())
+            .unwrap()
+            .contains(&row.note_id));
         let _ = fs::remove_dir_all(vault);
     }
 
@@ -441,13 +437,11 @@ mod tests {
                 row.note_id
             )
         );
-        assert!(
-            !Path::new(&row.note_path)
-                .parent()
-                .unwrap()
-                .join(".ambd/records")
-                .exists()
-        );
+        assert!(!Path::new(&row.note_path)
+            .parent()
+            .unwrap()
+            .join(".ambd/records")
+            .exists());
         let _ = fs::remove_dir_all(vault);
     }
 
@@ -492,16 +486,12 @@ mod tests {
         assert_ne!(first.note_path, second.note_path);
         assert!(first.note_path.ends_with("Алекс.md"));
         assert!(second.note_path.ends_with("Алекс 2.md"));
-        assert!(
-            String::from_utf8(fs::read(first.note_path).unwrap())
-                .unwrap()
-                .contains("amby-title: \"Алекс\"")
-        );
-        assert!(
-            String::from_utf8(fs::read(second.note_path).unwrap())
-                .unwrap()
-                .contains("amby-title: \"Алекс\"")
-        );
+        assert!(String::from_utf8(fs::read(first.note_path).unwrap())
+            .unwrap()
+            .contains("amby-title: \"Алекс\""));
+        assert!(String::from_utf8(fs::read(second.note_path).unwrap())
+            .unwrap()
+            .contains("amby-title: \"Алекс\""));
         let _ = fs::remove_dir_all(vault);
     }
 

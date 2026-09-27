@@ -37,6 +37,7 @@ export const CalloutNode = Node.create({
       headerContentInBody: { default: false },
       headerBodyTight: { default: false },
       hasRawHeader: { default: false },
+      isCollapsed: { default: null as boolean | null },
     }
   },
 
@@ -55,6 +56,7 @@ export const CalloutNode = Node.create({
             headerContentInBody: div.getAttribute("data-header-content-in-body") === "true",
             headerBodyTight: div.getAttribute("data-header-body-tight") === "true",
             hasRawHeader: div.getAttribute("data-has-raw-header") === "true",
+            isCollapsed: div.getAttribute("data-collapsed") === "true",
           }
         },
       },
@@ -68,6 +70,7 @@ export const CalloutNode = Node.create({
       "data-emoji": node.attrs.emoji,
     }
     if (node.attrs.bgColor) extras["data-bg"] = node.attrs.bgColor
+    if (node.attrs.isCollapsed) extras["data-collapsed"] = "true"
     if (node.attrs.hasRawHeader) {
       extras["data-header-suffix"] = node.attrs.headerSuffix
       extras["data-header-prefix"] = node.attrs.headerPrefix

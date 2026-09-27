@@ -1,10 +1,18 @@
 import type { TreeItem } from "./sidebar-tree"
 import type { TabTarget } from "./use-tabs-store"
 import { findTreeItem } from "./workspace-tree-utils"
+import { moduleHost } from "@/lib/modules/host"
 
 export function treeItemTabTarget(item: TreeItem): TabTarget {
+  const filePath = item.path ?? item.id
+  const dotIndex = filePath.lastIndexOf(".")
+  const ext = dotIndex !== -1 ? filePath.slice(dotIndex) : ""
+  const handler = ext ? moduleHost.files.getHandler(ext) : undefined
+  const kind =
+    (handler?.viewKind as TabTarget["kind"]) ?? (item.type === "file" ? "document" : item.type)
+
   return {
-    kind: item.type === "file" ? "document" : item.type,
+    kind,
     fileId: item.type === "canvas" || item.type === "sketch" ? item.path : item.id,
     title: item.name,
   }

@@ -303,4 +303,100 @@ describe("useDatabaseQuery", () => {
     })
     expect(result.current.host?.error).toBeNull()
   })
+
+  it("refetches when invalidationSeq advances while query is in-flight", async () => {
+    let resolveFirstQuery!: (value: storage.DatabaseQueryResult) => void
+    const firstPromise = new Promise<storage.DatabaseQueryResult>((resolve) => {
+      resolveFirstQuery = resolve
+    })
+
+    const initialRows: storage.DatabaseRow[] = [
+      {
+        noteId: "note-1",
+        title: "Old Row",
+        relativePath: "note-1.md",
+        parentNoteId: null,
+        depth: 0,
+        categoryPath: [],
+        valuesJson: "{}",
+        rowRevision: "r1",
+      },
+    ]
+
+    const updatedRows: storage.DatabaseRow[] = [
+      {
+        noteId: "note-1",
+        title: "Updated Row",
+        relativePath: "note-1.md",
+        parentNoteId: null,
+        depth: 0,
+        categoryPath: [],
+        valuesJson: "{}",
+        rowRevision: "r2",
+      },
+    ]
+
+    const querySpy = vi.spyOn(storage, "queryDatabase")
+    querySpy.mockReturnValueOnce(firstPromise).mockResolvedValueOnce({
+      database: {
+        databaseId: "db-1",
+        title: "Test DB",
+        icon: null,
+        attachedNoteId: null,
+        manifestRevision: "rev-2",
+        locked: false,
+        properties: [],
+        views: [],
+        templates: [],
+        diagnostics: [],
+      },
+      projection: { epoch: "ep-1", seq: 2 },
+      rows: updatedRows,
+      nextCursor: null,
+      diagnostics: [],
+      totalCount: 1,
+    })
+
+    const { result } = renderHook(() =>
+      useDatabaseQuery({
+        databaseId: "db-1",
+        vaultGeneration: 1,
+        enabled: true,
+      }),
+    )
+
+    // Advance invalidation sequence while first query is in flight
+    act(() => {
+      useDatabaseStore.getState().invalidateHosts()
+    })
+
+    // Now resolve the first query (which had stale data from seq 1)
+    await act(async () => {
+      resolveFirstQuery({
+        database: {
+          databaseId: "db-1",
+          title: "Test DB",
+          icon: null,
+          attachedNoteId: null,
+          manifestRevision: "rev-1",
+          locked: false,
+          properties: [],
+          views: [],
+          templates: [],
+          diagnostics: [],
+        },
+        projection: { epoch: "ep-1", seq: 1 },
+        rows: initialRows,
+        nextCursor: null,
+        diagnostics: [],
+        totalCount: 1,
+      })
+    })
+
+    // The hook should automatically have detected that invalidationSeq advanced and refetched
+    await vi.waitFor(() => {
+      expect(result.current.host?.rows[0]?.title).toBe("Updated Row")
+    })
+    expect(querySpy).toHaveBeenCalledTimes(2)
+  })
 })

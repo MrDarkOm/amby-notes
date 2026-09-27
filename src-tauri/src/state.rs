@@ -3,14 +3,7 @@ use std::error::Error;
 pub const MAIN_WINDOW_LABEL: &str = "main";
 
 pub fn init_logging() {
-    use tracing_subscriber::EnvFilter;
-
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(true)
-        .try_init()
-        .ok();
+    crate::logging::init_logging();
 }
 
 /// Bring the one application window back to the foreground. This is used at
@@ -56,7 +49,7 @@ pub fn set_macos_application_icon() {
 
     let marker = unsafe { MainThreadMarker::new_unchecked() };
     let application = NSApplication::sharedApplication(marker);
-    let data = NSData::with_bytes(include_bytes!("../icons/icon.png"));
+    let data = NSData::with_bytes(include_bytes!("../icons/icon-macos.png"));
     if let Some(icon) = NSImage::initWithData(NSImage::alloc(), &data) {
         unsafe { application.setApplicationIconImage(Some(&icon)) };
     }

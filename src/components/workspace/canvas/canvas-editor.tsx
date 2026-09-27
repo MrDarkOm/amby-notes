@@ -421,7 +421,7 @@ function CanvasEditorInner({
           onPaneContextMenu={(e) => openMenu(e as React.MouseEvent, "pane")}
           onNodeContextMenu={(e, n) => openMenu(e, "node", n.id)}
           onEdgeContextMenu={(e, ed) => openMenu(e, "edge", ed.id)}
-          className="bg-background"
+          className="bg-[var(--note-surface)]"
         >
           {bgVariant !== "none" ? (
             <Background

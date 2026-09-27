@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { type ActivityButton, type ButtonDef, type PanelId, type Side } from "./panel-registry"
-import { ACTION_DEFS, PANEL_DEFS, buttonsForSide } from "./panel-definitions"
+import { findButtonDef, buttonsForSide } from "./panel-definitions"
 import {
   settingsLabelKeyForActivityButton,
   settingsTargetForActivityButton,
@@ -59,7 +59,7 @@ interface ActivityBarProps {
 type ActivityZone = "view" | "action"
 
 function findDef(defId: string): ButtonDef | undefined {
-  return PANEL_DEFS.find((def) => def.id === defId) ?? ACTION_DEFS.find((def) => def.id === defId)
+  return findButtonDef(defId)
 }
 
 export function ActivityBar({

@@ -230,13 +230,14 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
         },
       })
 
-      const note = await notesRepository.readNote("/vault", "note-ulid-1")
+      const operationId = "3af6d8de-25c1-4aac-bf5b-3be96da037f0"
+      const note = await notesRepository.readNote("/vault", "note-ulid-1", operationId)
       expect(note).toEqual({
         content: "desktop note content",
         revision: "revision-1",
         source: "---\nid: note-ulid-1\n---\ndesktop note content",
       })
-      expect(readSpy).toHaveBeenCalledWith("note-ulid-1")
+      expect(readSpy).toHaveBeenCalledWith("note-ulid-1", operationId)
 
       const writeSpy = vi.spyOn(commands, "writeNote").mockResolvedValue({
         status: "ok",
@@ -255,14 +256,18 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
         5,
         "revision-1",
         "main",
+        operationId,
       )
-      expect(writeSpy).toHaveBeenCalledWith({
-        expectedGeneration: 5,
-        noteId: "note-ulid-1",
-        content: "new content",
-        expectedRevision: "revision-1",
-        originWindow: "main",
-      })
+      expect(writeSpy).toHaveBeenCalledWith(
+        {
+          expectedGeneration: 5,
+          noteId: "note-ulid-1",
+          content: "new content",
+          expectedRevision: "revision-1",
+          originWindow: "main",
+        },
+        operationId,
+      )
     })
 
     it("preserves the typed stale-revision conflict from the IPC command", async () => {

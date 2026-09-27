@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use ulid::Ulid;
 
 use super::identity::{
-    OPAQUE_PREFIX, OPAQUE_SOURCE_PREFIX, conflict_id, ensure_unique_identity, is_path_identity,
-    opaque_id,
+    conflict_id, ensure_unique_identity, is_path_identity, opaque_id, OPAQUE_PREFIX,
+    OPAQUE_SOURCE_PREFIX,
 };
 use super::links::{extract_links, resolve_links_for_note};
 use super::tags::extract_tags;
@@ -339,19 +339,15 @@ pub fn apply_prepared_note_index(
     Ok(())
 }
 
-pub fn prepare_note_write(
-    conn: &Connection,
+pub fn prepare_note_write_from_path(
     vault: &Path,
+    path: &Path,
     note_id: &str,
     content: &str,
     expected_revision: &str,
 ) -> Result<PreparedNoteWrite, WriteNoteError> {
     let opaque = note_id.starts_with(OPAQUE_PREFIX);
-    if !opaque {
-        ensure_unique_identity(conn, note_id).map_err(WriteNoteError::failed)?;
-    }
-    let note = note_by_id(conn, vault, note_id).map_err(WriteNoteError::failed)?;
-    let path = PathBuf::from(&note.path);
+    let path = path.to_path_buf();
     let current =
         fs::read_to_string(&path).map_err(|error| WriteNoteError::failed(error.to_string()))?;
     let current_body = frontmatter::parse_markdown(&current).body;
@@ -381,6 +377,22 @@ pub fn prepare_note_write(
         persisted_bytes,
         preserve_opaque_bytes: opaque,
     })
+}
+
+pub fn prepare_note_write(
+    conn: &Connection,
+    vault: &Path,
+    note_id: &str,
+    content: &str,
+    expected_revision: &str,
+) -> Result<PreparedNoteWrite, WriteNoteError> {
+    let opaque = note_id.starts_with(OPAQUE_PREFIX);
+    if !opaque {
+        ensure_unique_identity(conn, note_id).map_err(WriteNoteError::failed)?;
+    }
+    let note = note_by_id(conn, vault, note_id).map_err(WriteNoteError::failed)?;
+    let path = PathBuf::from(&note.path);
+    prepare_note_write_from_path(vault, &path, note_id, content, expected_revision)
 }
 
 /// Validate the cache key against the current path and malformed envelope before
@@ -549,7 +561,12 @@ pub fn prepare_note_at_path_with_identities(
         let next = match frontmatter::body_with_id(&content, &id) {
             Ok(next) => next,
             Err(_) => {
-                return prepare_note_index(vault, &conflict_id(None, &rel_path), &parsed.body, path);
+                return prepare_note_index(
+                    vault,
+                    &conflict_id(None, &rel_path),
+                    &parsed.body,
+                    path,
+                );
             }
         };
         history::snapshot_before_write(vault, path, next.as_bytes(), "id-assignment")?;
