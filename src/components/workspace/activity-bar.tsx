@@ -227,14 +227,14 @@ export function ActivityBar({
           if (def.id !== "presets") onActivate(def.id)
         }}
         className={cn(
-          "amby-activity-button flex size-8 items-center justify-center rounded-md text-muted-foreground",
+          "amby-activity-button relative flex size-8 items-center justify-center rounded-md border text-muted-foreground",
           isActive
-            ? "text-muted-foreground"
-            : "hover:bg-[var(--note-surface)] hover:text-muted-foreground hover:shadow-sm",
+            ? "border-border/70 bg-[var(--note-surface)] text-foreground shadow-inner font-medium"
+            : "border-transparent hover:border-border/40 hover:bg-[var(--note-surface)] hover:text-foreground hover:shadow-xs",
         )}
-        whileHover={isActive ? undefined : { scale: 1.04 }}
-        whileTap={{ scale: 0.96 }}
-        transition={motionTransitions.default}
+        whileHover={{ scale: 1.04 }}
+        whileTap={{ scale: 0.88, y: 1 }}
+        transition={motionTransitions.fast}
       >
         <Icon className="size-4" />
       </motion.button>

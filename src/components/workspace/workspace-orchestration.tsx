@@ -21,6 +21,7 @@ const DocumentEditor = React.lazy(() =>
 const MemoizedDocumentEditor = React.memo(DocumentEditor)
 
 import { CANONICAL_EMPTY_CANVAS } from "@/lib/canvas-format"
+import { defaultSketchJson } from "@/lib/sketch-format"
 
 import type { ActionContext, PanelRenderProps } from "./panel-registry"
 import { buttonsForSide } from "./panel-definitions"
@@ -390,6 +391,7 @@ export function WorkspaceOrchestration() {
   const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
   const iconOverrides = useViewStateStore((s) => s.iconOverrides)
   const activeLayers = useViewStateStore((s) => s.activeLayers)
+  const primaryLayers = useViewStateStore((s) => s.primaryLayers)
   const linkedLayersByDoc = useViewStateStore((s) => s.linkedLayersByDoc)
 
   const currentHelpContext: HelpContext = React.useMemo(() => {
@@ -808,13 +810,15 @@ export function WorkspaceOrchestration() {
   const currentDocId = currentDoc?.id ?? null
   const currentDocPath = currentDoc?.path ?? null
   const currentDocDefaultLayer: EditorLayer =
-    activeTab?.kind === "canvas" || currentDocPath?.endsWith(".canvas")
+    (currentDocId ? useViewStateStore.getState().primaryLayers[currentDocId] : undefined) ??
+    (currentDocPath ? useViewStateStore.getState().primaryLayers[currentDocPath] : undefined) ??
+    (activeTab?.kind === "canvas" || currentDocPath?.endsWith(".canvas")
       ? "canvas"
       : activeTab?.kind === "sketch" || currentDocPath?.endsWith(".excalidraw")
         ? "sketch"
         : activeTab?.kind === "database"
           ? "database"
-          : "editor"
+          : "editor")
 
   React.useEffect(() => {
     if (!activeTab) return
@@ -842,13 +846,15 @@ export function WorkspaceOrchestration() {
         useDocStore.getState().setDoc(path, docObj)
       }
       const defaultLayer: EditorLayer =
-        activeTab.kind === "canvas" || path.endsWith(".canvas")
+        useViewStateStore.getState().primaryLayers[docId] ??
+        (path ? useViewStateStore.getState().primaryLayers[path] : undefined) ??
+        (activeTab.kind === "canvas" || path.endsWith(".canvas")
           ? "canvas"
           : activeTab.kind === "sketch" || path.endsWith(".excalidraw")
             ? "sketch"
             : activeTab.kind === "database"
               ? "database"
-              : "editor"
+              : "editor")
       if (!useViewStateStore.getState().activeLayers[docId]) {
         useViewStateStore.getState().setActiveLayer(docId, defaultLayer)
       }
@@ -945,7 +951,7 @@ export function WorkspaceOrchestration() {
     propertyMigrationDialog,
   } = useFileActions({
     vault,
-    treeItems,
+    treeItems: displayTreeItems,
     setTreeItems,
     refreshTree,
     applyMutationResult,
@@ -1333,6 +1339,8 @@ export function WorkspaceOrchestration() {
       linkedLayersByDoc,
       canCreateDatabaseLayer: DATABASE_LAYER_CREATION_AVAILABLE && databasesEnabled,
       databaseRuntimeEnabled: databasesEnabled,
+      canvasEnabled,
+      sketchEnabled,
       onOpenDatabase: openDatabaseTab,
       properties: currentProperties,
       attachments,
@@ -1422,6 +1430,8 @@ export function WorkspaceOrchestration() {
       activeTab?.fileId,
       activeTab?.title,
       databasesEnabled,
+      canvasEnabled,
+      sketchEnabled,
       openDatabaseTab,
       handleUpsertCustomProperty,
       handleDeleteCustomProperty,
@@ -1497,16 +1507,37 @@ export function WorkspaceOrchestration() {
     // avoids tearing down and rebuilding the database workspace on every tab
     // switch, while the visible secondary split remains editor-only.
     const canRenderLayer = isPrimary || preserveLayer
-    const defaultDocLayer =
-      tab?.kind === "canvas" || doc?.path.endsWith(".canvas")
+    const resolvedPrimaryLayer =
+      (doc?.id ? primaryLayers[doc.id] : undefined) ??
+      (doc?.path ? primaryLayers[doc.path] : undefined) ??
+      (tab?.fileId ? primaryLayers[tab.fileId] : undefined) ??
+      (treeItem?.id ? primaryLayers[treeItem.id] : undefined) ??
+      (treeItem?.path ? primaryLayers[treeItem.path] : undefined) ??
+      (attachedDatabase?.databaseId ? primaryLayers[attachedDatabase.databaseId] : undefined) ??
+      (attachedDatabase?.attachedNoteId
+        ? primaryLayers[attachedDatabase.attachedNoteId]
+        : undefined)
+
+    const defaultDocLayer: EditorLayer =
+      resolvedPrimaryLayer ??
+      (tab?.kind === "canvas" || doc?.path.endsWith(".canvas")
         ? "canvas"
         : tab?.kind === "sketch" || doc?.path.endsWith(".excalidraw")
           ? "sketch"
           : tab?.kind === "database"
             ? "database"
-            : "editor"
+            : "editor")
+
+    const resolvedActiveLayer =
+      (doc?.id ? activeLayers[doc.id] : undefined) ??
+      (doc?.path ? activeLayers[doc.path] : undefined) ??
+      (tab?.fileId ? activeLayers[tab.fileId] : undefined) ??
+      (treeItem?.id ? activeLayers[treeItem.id] : undefined) ??
+      (attachedDatabase?.databaseId ? activeLayers[attachedDatabase.databaseId] : undefined) ??
+      (attachedDatabase?.attachedNoteId ? activeLayers[attachedDatabase.attachedNoteId] : undefined)
+
     const pageLayer =
-      canRenderLayer && doc ? (activeLayers[doc.id] ?? defaultDocLayer) : defaultDocLayer
+      canRenderLayer && doc ? (resolvedActiveLayer ?? defaultDocLayer) : defaultDocLayer
     const contentWidthKey =
       pageLayer === "database" && attachedDatabase
         ? databaseContentWidthKey(attachedDatabase.databaseId)
@@ -1650,8 +1681,9 @@ export function WorkspaceOrchestration() {
         : (_json: string) => {},
       sketchValue: doc
         ? (openSketches[doc.path.endsWith(".excalidraw") ? doc.path : sketchLayerPath(doc.path)] ??
-          openSketches[doc.path])
-        : undefined,
+          openSketches[doc.path] ??
+          defaultSketchJson())
+        : defaultSketchJson(),
       onSketchChange: doc
         ? ((savePath) => (json: string) => {
             handleSketchSave(savePath, json)
@@ -1841,15 +1873,42 @@ export function WorkspaceOrchestration() {
                   diagnostics: [],
                 }
               : undefined)
+          const resolvedPrimaryLayer =
+            (doc?.id ? primaryLayers[doc.id] : undefined) ??
+            (doc?.path ? primaryLayers[doc.path] : undefined) ??
+            (tab.fileId ? primaryLayers[tab.fileId] : undefined) ??
+            (treeItem?.id ? primaryLayers[treeItem.id] : undefined) ??
+            (treeItem?.path ? primaryLayers[treeItem.path] : undefined) ??
+            (attachedDatabase?.databaseId
+              ? primaryLayers[attachedDatabase.databaseId]
+              : undefined) ??
+            (attachedDatabase?.attachedNoteId
+              ? primaryLayers[attachedDatabase.attachedNoteId]
+              : undefined)
+
           const defaultDocLayer: EditorLayer =
-            tab.kind === "canvas" || doc?.path.endsWith(".canvas")
+            resolvedPrimaryLayer ??
+            (tab.kind === "canvas" || doc?.path.endsWith(".canvas")
               ? "canvas"
               : tab.kind === "sketch" || doc?.path.endsWith(".excalidraw")
                 ? "sketch"
                 : tab.kind === "database"
                   ? "database"
-                  : "editor"
-          const pageLayer = doc ? (activeLayers[doc.id] ?? defaultDocLayer) : defaultDocLayer
+                  : "editor")
+
+          const resolvedActiveLayer =
+            (doc?.id ? activeLayers[doc.id] : undefined) ??
+            (doc?.path ? activeLayers[doc.path] : undefined) ??
+            (tab.fileId ? activeLayers[tab.fileId] : undefined) ??
+            (treeItem?.id ? activeLayers[treeItem.id] : undefined) ??
+            (attachedDatabase?.databaseId
+              ? activeLayers[attachedDatabase.databaseId]
+              : undefined) ??
+            (attachedDatabase?.attachedNoteId
+              ? activeLayers[attachedDatabase.attachedNoteId]
+              : undefined)
+
+          const pageLayer = doc ? (resolvedActiveLayer ?? defaultDocLayer) : defaultDocLayer
           const widthKey =
             pageLayer === "database" && attachedDatabase
               ? databaseContentWidthKey(attachedDatabase.databaseId)
@@ -1861,6 +1920,8 @@ export function WorkspaceOrchestration() {
             treeItem,
             attachedDatabase,
             pageLayer,
+            resolvedPrimaryLayer,
+            resolvedActiveLayer,
             doc ? linkedLayersByDoc[doc.id] : undefined,
             doc ? getLayerViewMode(viewModes, doc.id, pageLayer, defaultViewMode) : defaultViewMode,
             doc ? isLayerLocked(lockedFileIds, viewModes, doc.id, pageLayer) : false,
@@ -1884,8 +1945,10 @@ export function WorkspaceOrchestration() {
             doc
               ? (openSketches[
                   doc.path.endsWith(".excalidraw") ? doc.path : sketchLayerPath(doc.path)
-                ] ?? openSketches[doc.path])
-              : undefined,
+                ] ??
+                openSketches[doc.path] ??
+                defaultSketchJson())
+              : defaultSketchJson(),
             vault,
             databasesEnabled,
             defaultViewMode,

@@ -233,7 +233,11 @@ export function SketchEditor({
       api.addFiles(Object.values(parsed.files))
     }
     requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("resize"))
       api.refresh()
+      if (parsed.elements.length > 0) {
+        api.scrollToContent(undefined, { fitToViewport: true, animate: false })
+      }
     })
     queueMicrotask(() => {
       isExternalSyncRef.current = false
@@ -726,7 +730,12 @@ export function SketchEditor({
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const width = Math.round(entry.contentRect.width)
-        setContainerWidth((prev) => (Math.abs(prev - width) > 2 ? width : prev))
+        const height = Math.round(entry.contentRect.height)
+        if (width > 0 && height > 0) {
+          setContainerWidth((prev) => (Math.abs(prev - width) > 2 ? width : prev))
+          window.dispatchEvent(new Event("resize"))
+          excalidrawAPIRef.current?.refresh()
+        }
       }
     })
     ro.observe(containerRef.current)
@@ -734,10 +743,16 @@ export function SketchEditor({
   }, [])
 
   React.useEffect(() => {
-    const timer = setTimeout(() => {
+    const triggerRefresh = () => {
+      window.dispatchEvent(new Event("resize"))
       excalidrawAPIRef.current?.refresh()
-    }, 60)
-    return () => clearTimeout(timer)
+    }
+    const timer1 = setTimeout(triggerRefresh, 60)
+    const timer2 = setTimeout(triggerRefresh, 200)
+    return () => {
+      clearTimeout(timer1)
+      clearTimeout(timer2)
+    }
   }, [])
 
   const isNarrow = containerWidth < 720
@@ -750,7 +765,12 @@ export function SketchEditor({
       setIsApiReady(true)
       syncHistoryState()
       requestAnimationFrame(() => {
+        window.dispatchEvent(new Event("resize"))
         imperativeApi.refresh()
+        const elements = imperativeApi.getSceneElements()
+        if (elements && elements.length > 0) {
+          imperativeApi.scrollToContent(undefined, { fitToViewport: true, animate: false })
+        }
       })
     },
     [syncHistoryState],

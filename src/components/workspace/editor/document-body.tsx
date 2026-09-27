@@ -2,7 +2,15 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Check, EyeOff, FileText, PanelBottom, PanelTop, SquareArrowOutUpRight } from "lucide-react"
+import {
+  Check,
+  EyeOff,
+  FileText,
+  Loader2,
+  PanelBottom,
+  PanelTop,
+  SquareArrowOutUpRight,
+} from "lucide-react"
 
 import {
   ContextMenu,
@@ -425,7 +433,9 @@ export function DocumentBody({
               <React.Suspense
                 fallback={
                   <div className="flex h-full w-full items-center justify-center">
-                    <MotionSpinner />
+                    <MotionSpinner>
+                      <Loader2 className="size-6 text-muted-foreground" />
+                    </MotionSpinner>
                   </div>
                 }
               >
@@ -469,28 +479,24 @@ export function DocumentBody({
               <React.Suspense
                 fallback={
                   <div className="flex h-full w-full items-center justify-center">
-                    <MotionSpinner />
+                    <MotionSpinner>
+                      <Loader2 className="size-6 text-muted-foreground" />
+                    </MotionSpinner>
                   </div>
                 }
               >
-                {sketchValue === undefined ? (
-                  <div className="flex h-full w-full items-center justify-center">
-                    <MotionSpinner />
-                  </div>
-                ) : (
-                  <LazySketchEditor
-                    key={`${docId}:sketch`}
-                    value={sketchValue}
-                    onChange={(json) => onSketchChange?.(json)}
-                    onLocalEdit={onContentDirty}
-                    vault={vault ?? null}
-                    notePath={docPath}
-                    isLocked={sketchLocked}
-                    onToggleLock={onToggleLock}
-                    treeItems={treeItems}
-                    onOpenNote={onOpenCanvasNote}
-                  />
-                )}
+                <LazySketchEditor
+                  key={`${docId}:sketch`}
+                  value={sketchValue ?? defaultSketchJson()}
+                  onChange={(json) => onSketchChange?.(json)}
+                  onLocalEdit={onContentDirty}
+                  vault={vault ?? null}
+                  notePath={docPath}
+                  isLocked={sketchLocked}
+                  onToggleLock={onToggleLock}
+                  treeItems={treeItems}
+                  onOpenNote={onOpenCanvasNote}
+                />
               </React.Suspense>
             ) : (
               <ModuleRequiredFallback

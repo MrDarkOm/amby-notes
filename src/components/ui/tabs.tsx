@@ -47,12 +47,18 @@ function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPr
   )
 }
 
+const MotionTabsContent = motion.create(TabsPrimitive.Content)
+
 function TabsContent({ className, ...props }: React.ComponentProps<typeof TabsPrimitive.Content>) {
   return (
-    <TabsPrimitive.Content
+    <MotionTabsContent
       data-slot="tabs-content"
       className={cn("flex-1 outline-none", className)}
-      {...props}
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+      {...(props as React.ComponentProps<typeof MotionTabsContent>)}
     />
   )
 }

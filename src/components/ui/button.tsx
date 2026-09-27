@@ -54,7 +54,7 @@ function Button({
     ...props,
   }
   const interaction = {
-    whileTap: { scale: 0.98 },
+    whileTap: { scale: 0.96 },
     transition: motionTransitions.fast,
   }
 

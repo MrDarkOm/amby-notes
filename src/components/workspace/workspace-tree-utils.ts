@@ -201,20 +201,110 @@ export function updateInTree(
 }
 
 /**
- * Return a new tree with icon overrides applied at every level.
+ * Find the configured primary layer for a tree item across its ID, path, and layer aliases.
+ */
+export function getPrimaryLayerForItem(
+  item: TreeItem,
+  primaryLayers?: Record<string, string>,
+): string | undefined {
+  if (!primaryLayers) return undefined
+
+  const strippedId = item.id.replace(/^(database|canvas|sketch):/u, "")
+  const strippedPath = item.path ? item.path.replace(/^(database|canvas|sketch):/u, "") : undefined
+
+  const candidates: Array<string | undefined> = [
+    item.id,
+    item.path,
+    strippedId,
+    strippedPath,
+    item.path ? item.path.replace(/\.[^.]+$/u, "") : undefined,
+    strippedPath ? strippedPath.replace(/\.[^.]+$/u, "") : undefined,
+    item.id.replace(/\.[^.]+$/u, ""),
+    strippedId.replace(/\.[^.]+$/u, ""),
+    `database:${item.id}`,
+    `database:${strippedId}`,
+    item.path ? `database:${item.path}` : undefined,
+    strippedPath ? `database:${strippedPath}` : undefined,
+    `canvas:${item.id}`,
+    `canvas:${strippedId}`,
+    item.path ? `canvas:${item.path}` : undefined,
+    `sketch:${item.id}`,
+    `sketch:${strippedId}`,
+    item.path ? `sketch:${item.path}` : undefined,
+  ]
+
+  if (item.path) {
+    candidates.push(noteLayerPath(item.path))
+    candidates.push(canvasLayerPath(item.path))
+    candidates.push(sketchLayerPath(item.path))
+    const parentDir = wsPathDir(item.path)
+    if (parentDir && wsPathBase(parentDir) === wsPathStem(item.path)) {
+      candidates.push(parentDir)
+      candidates.push(`database:${parentDir}`)
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (candidate && primaryLayers[candidate]) {
+      return primaryLayers[candidate]
+    }
+  }
+  return undefined
+}
+
+/**
+ * Return a new tree with icon overrides and primary layer types/icons applied at every level.
  * If an id has an entry in `overrides`, its icon is replaced.
+ * If an item matches an entry in `primaryLayers`, its type and icon reflect that primary layer.
  */
 export function applyIconOverrides(
   items: TreeItem[],
   overrides: Record<string, string>,
+  primaryLayers?: Record<string, string>,
 ): TreeItem[] {
   let changed = false
   const next = items.map((item) => {
-    const icon = overrides[item.id] ?? item.icon
-    const children = item.children ? applyIconOverrides(item.children, overrides) : undefined
-    if (icon === item.icon && children === item.children) return item
+    let nextItem = item
+    if (primaryLayers && item.type !== "folder") {
+      const primary = getPrimaryLayerForItem(item, primaryLayers)
+      if (primary) {
+        const hasChildren = Boolean(item.children && item.children.length > 0)
+        const isContainer =
+          hasChildren ||
+          Boolean(item.icon?.startsWith("super")) ||
+          isSuperNoteItem({ path: item.path, type: "file" }) ||
+          isSuperCanvasItem({ path: item.path, type: "canvas" }) ||
+          isSuperSketchItem({ path: item.path, type: "sketch" })
+
+        let resolvedType = item.type
+        let resolvedIcon = item.icon
+        if (primary === "editor") {
+          resolvedType = "file"
+          resolvedIcon = isContainer ? "supernote" : "file"
+        } else if (primary === "database") {
+          resolvedType = "database"
+          resolvedIcon = isContainer ? "superdatabase" : "database"
+        } else if (primary === "canvas") {
+          resolvedType = "canvas"
+          resolvedIcon = isContainer ? "supercanvas" : "canvas"
+        } else if (primary === "sketch") {
+          resolvedType = "sketch"
+          resolvedIcon = isContainer ? "supersketch" : "sketch"
+        }
+
+        if (resolvedType !== item.type || (resolvedIcon !== item.icon && !overrides[item.id])) {
+          changed = true
+          nextItem = { ...nextItem, type: resolvedType, icon: resolvedIcon }
+        }
+      }
+    }
+    const icon = overrides[nextItem.id] ?? nextItem.icon
+    const children = nextItem.children
+      ? applyIconOverrides(nextItem.children, overrides, primaryLayers)
+      : undefined
+    if (icon === nextItem.icon && children === nextItem.children && nextItem === item) return item
     changed = true
-    return { ...item, icon, children }
+    return { ...nextItem, icon, children }
   })
   return changed ? next : items
 }

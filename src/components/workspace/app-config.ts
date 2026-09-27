@@ -820,6 +820,8 @@ export interface SessionFile {
   activeFileId: string
   favorites: string[]
   viewModes: Record<string, string>
+  /** Per-page primary layer chosen by the user. */
+  primaryLayers?: Record<string, string>
   /** Per-page content width overrides; database pages use database:<id> keys. */
   contentWidths?: Record<string, string>
   /** Custom title-column labels for database pages, keyed by database:<id>. */
@@ -846,6 +848,7 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
       activeFileId: typeof t?.activeFileId === "string" ? t!.activeFileId : "",
       favorites: parseLS<string[]>(`amby:favorites:${vaultPath}`, Array.isArray) ?? [],
       viewModes: parseLS<Record<string, string>>(`amby:view-modes:${vaultPath}`, isRecord) ?? {},
+      primaryLayers: {},
       contentWidths: {},
       databaseTitleLabels: {},
       nestedNotesPlacements: {},
@@ -871,6 +874,7 @@ export async function loadSession(vaultPath: string): Promise<SessionFile> {
     activeFileId: typeof d.activeFileId === "string" ? d.activeFileId : "",
     favorites: Array.isArray(d.favorites) ? d.favorites : [],
     viewModes: isRecord(d.viewModes) ? d.viewModes : {},
+    primaryLayers: isRecord(d.primaryLayers) ? d.primaryLayers : {},
     contentWidths: isRecord(d.contentWidths) ? d.contentWidths : {},
     databaseTitleLabels: isRecord(d.databaseTitleLabels) ? d.databaseTitleLabels : {},
     nestedNotesPlacements: isRecord(d.nestedNotesPlacements) ? d.nestedNotesPlacements : {},

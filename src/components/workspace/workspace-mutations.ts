@@ -136,6 +136,7 @@ export function applySessionRemap(
   icons: Record<string, string>
   favorites: string[]
   viewModes: Record<string, string>
+  primaryLayers: Record<string, string>
   contentWidths: Record<string, string>
   databaseTitleLabels: Record<string, string>
   nestedNotesPlacements: Record<string, string>
@@ -164,6 +165,11 @@ export function applySessionRemap(
   for (const [id, mode] of Object.entries(session.viewModes)) {
     const nextId = remap(id)
     if (allIds.has(nextId)) viewModes[nextId] = mode
+  }
+
+  const primaryLayers: Record<string, string> = {}
+  for (const [id, layer] of Object.entries(session.primaryLayers ?? {})) {
+    primaryLayers[remap(id)] = layer
   }
 
   const nestedNotesPlacements: Record<string, string> = {}
@@ -199,6 +205,7 @@ export function applySessionRemap(
     icons,
     favorites,
     viewModes,
+    primaryLayers,
     contentWidths,
     databaseTitleLabels,
     nestedNotesPlacements,

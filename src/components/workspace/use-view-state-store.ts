@@ -56,6 +56,8 @@ interface ViewStateStore {
   iconOverrides: Record<string, string>
   /** Currently active layer per open document (defaults to "editor"). */
   activeLayers: Record<string, EditorLayer>
+  /** Per-file primary/default layer chosen by the user (opened by default). */
+  primaryLayers: Record<string, EditorLayer>
   /** Cached layer presence for open documents (canvas / sketch / database). */
   linkedLayersByDoc: Record<string, NoteLayers>
 
@@ -69,6 +71,7 @@ interface ViewStateStore {
   setNestedNotesPlacement: (id: string, placement: NestedNotesPlacement) => void
   toggleLock: (id: string) => void
   setActiveLayer: (id: string, layer: EditorLayer) => void
+  setPrimaryLayer: (id: string, layer: EditorLayer) => void
   setLinkedLayers: (id: string, layers: NoteLayers) => void
 
   // ── Bulk operations ─────────────────────────────────────────────────────────
@@ -88,6 +91,7 @@ interface ViewStateStore {
     icons: Record<string, string>
     favorites: string[]
     viewModes: Record<string, string>
+    primaryLayers?: Record<string, string>
     contentWidths?: Record<string, string>
     databaseTitleLabels?: Record<string, string>
     nestedNotesPlacements?: Record<string, string>
@@ -138,6 +142,7 @@ function createViewStateStore() {
     lockedFileIds: new Set(),
     iconOverrides: {},
     activeLayers: {},
+    primaryLayers: {},
     linkedLayersByDoc: {},
 
     toggleFavorite: (id) =>
@@ -188,6 +193,11 @@ function createViewStateStore() {
       return set((s) => ({ activeLayers: { ...s.activeLayers, [id]: layer } }))
     },
 
+    setPrimaryLayer: (id, layer) => {
+      logger.info("layer.set_primary", { fileId: id, layer })
+      return set((s) => ({ primaryLayers: { ...s.primaryLayers, [id]: layer } }))
+    },
+
     setLinkedLayers: (id, layers) =>
       set((s) => ({ linkedLayersByDoc: { ...s.linkedLayersByDoc, [id]: layers } })),
 
@@ -223,6 +233,10 @@ function createViewStateStore() {
         for (const [id, layer] of Object.entries(s.activeLayers))
           if (!isDeleted(id)) activeLayers[id] = layer
 
+        const primaryLayers: Record<string, EditorLayer> = {}
+        for (const [id, layer] of Object.entries(s.primaryLayers))
+          if (!isDeleted(id)) primaryLayers[id] = layer
+
         const viewModes: Record<string, DocumentViewMode> = {}
         for (const [id, mode] of Object.entries(s.viewModes))
           if (!isDeleted(id)) viewModes[id] = mode
@@ -247,6 +261,7 @@ function createViewStateStore() {
           lockedFileIds,
           iconOverrides,
           activeLayers,
+          primaryLayers,
           viewModes,
           contentWidths,
           databaseTitleLabels,
@@ -258,17 +273,33 @@ function createViewStateStore() {
       icons,
       favorites,
       viewModes,
+      primaryLayers = {},
       contentWidths = {},
       databaseTitleLabels = {},
       nestedNotesPlacements = {},
       lockedFileIds,
       closedTreeIds = [],
+    }: {
+      icons: Record<string, string>
+      favorites: string[]
+      viewModes: Record<string, string>
+      primaryLayers?: Record<string, string>
+      contentWidths?: Record<string, string>
+      databaseTitleLabels?: Record<string, string>
+      nestedNotesPlacements?: Record<string, string>
+      lockedFileIds: string[]
+      closedTreeIds?: string[]
     }) =>
       set({
         closedTreeIds: new Set(closedTreeIds),
         iconOverrides: icons,
         favorites: new Set(favorites),
         viewModes: viewModes as Record<string, DocumentViewMode>,
+        primaryLayers: Object.fromEntries(
+          Object.entries(primaryLayers).filter((entry): entry is [string, EditorLayer] =>
+            ["editor", "canvas", "sketch", "database"].includes(entry[1]),
+          ),
+        ),
         contentWidths: Object.fromEntries(
           Object.entries(contentWidths).filter((entry): entry is [string, ContentWidth] =>
             ["normal", "wide", "full"].includes(entry[1]),
@@ -322,6 +353,14 @@ if (import.meta.env.DEV) {
       setDatabaseTitleLabel: (id, label) =>
         useViewStateStore.setState((state) => ({
           databaseTitleLabels: { ...(state.databaseTitleLabels ?? {}), [id]: label },
+        })),
+    })
+  }
+  if (typeof current.setPrimaryLayer !== "function") {
+    useViewStateStore.setState({
+      setPrimaryLayer: (id, layer) =>
+        useViewStateStore.setState((state) => ({
+          primaryLayers: { ...(state.primaryLayers ?? {}), [id]: layer },
         })),
     })
   }

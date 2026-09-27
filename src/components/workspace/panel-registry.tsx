@@ -118,6 +118,8 @@ export interface PanelRenderProps {
   canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, NodeLayers>
   databaseRuntimeEnabled?: boolean
+  canvasEnabled?: boolean
+  sketchEnabled?: boolean
   onOpenDatabase?: (databaseId: string, title: string, inNewTab?: boolean) => void
 
   // Right side

@@ -306,4 +306,31 @@ describe("applyIconOverrides", () => {
     expect(result[0]).not.toBe(items[0])
     expect(result[1]).toBe(items[1])
   })
+
+  it("updates database container to note when primary layer is editor", () => {
+    const dbItem: TreeItem = {
+      id: "database:PaLooVerse",
+      path: "/vault/PaLooVerse",
+      name: "PaLooVerse",
+      type: "database",
+      icon: "superdatabase",
+      children: [file("child")],
+    }
+    const result = applyIconOverrides([dbItem], {}, { PaLooVerse: "editor" })
+    expect(result[0].type).toBe("file")
+    expect(result[0].icon).toBe("supernote")
+  })
+
+  it("updates note to database when primary layer is database", () => {
+    const noteItem: TreeItem = {
+      id: "note-1",
+      path: "/vault/MyNote.md",
+      name: "MyNote",
+      type: "file",
+      icon: "file",
+    }
+    const result = applyIconOverrides([noteItem], {}, { "note-1": "database" })
+    expect(result[0].type).toBe("database")
+    expect(result[0].icon).toBe("database")
+  })
 })

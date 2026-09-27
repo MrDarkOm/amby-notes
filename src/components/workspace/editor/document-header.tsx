@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
 import {
@@ -23,6 +23,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { TabsMenu, type HeaderTab } from "../header-tabs"
 import type { TreeItem } from "../sidebar-tree"
+import { useTabsStore, type TabKind } from "../use-tabs-store"
+import { useViewStateStore } from "../use-view-state-store"
+import { useDatabaseStore } from "../database/database-store"
+import { findTabTreeItem } from "../tab-target"
 import { DocumentBreadcrumbs } from "./document-breadcrumbs"
 import { DocumentActionsDropdown, LayerButton, type LayerKind } from "./document-actions"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
@@ -55,6 +59,8 @@ export interface DocumentHeaderProps {
   onLayerChange?: (layer: EditorLayer) => void
   linkedLayers?: { note?: boolean; canvas: boolean; sketch: boolean; database: boolean }
   databasesEnabled?: boolean
+  canvasEnabled?: boolean
+  sketchEnabled?: boolean
   canCreateDatabaseLayer?: boolean
   onUnlinkLayer?: (layer: LayerKind) => void
   onDeleteLayer?: (layer: LayerKind) => void
@@ -109,6 +115,8 @@ export function DocumentHeader({
   onLayerChange,
   linkedLayers,
   databasesEnabled = false,
+  canvasEnabled = true,
+  sketchEnabled = true,
   canCreateDatabaseLayer = false,
   onUnlinkLayer,
   onDeleteLayer,
@@ -160,10 +168,90 @@ export function DocumentHeader({
   const isNarrow = headerWidth < 420
   const isUltraNarrow = headerWidth < 340
   const isTiny = headerWidth < 250
-  const showNoteButton =
+  const primaryLayers = useViewStateStore((s) => s.primaryLayers)
+  const setPrimaryLayer = useViewStateStore((s) => s.setPrimaryLayer)
+  const setActiveLayer = useViewStateStore((s) => s.setActiveLayer)
+
+  const hasNote = Boolean(
     activeLayer === "editor" ||
     linkedLayers?.note ||
-    (!linkedLayers?.canvas && !linkedLayers?.sketch && !linkedLayers?.database)
+    (!linkedLayers?.canvas && !linkedLayers?.sketch && !linkedLayers?.database),
+  )
+  const hasDatabase = Boolean(
+    databasesEnabled && (linkedLayers?.database || activeLayer === "database"),
+  )
+  const hasCanvas = Boolean(canvasEnabled && (linkedLayers?.canvas || activeLayer === "canvas"))
+  const hasSketch = Boolean(sketchEnabled && (linkedLayers?.sketch || activeLayer === "sketch"))
+
+  const totalLayersCount =
+    (hasNote ? 1 : 0) + (hasDatabase ? 1 : 0) + (hasCanvas ? 1 : 0) + (hasSketch ? 1 : 0)
+
+  const showNoteButton = hasNote
+
+  const currentItem = useMemo(() => {
+    if (!treeItems) return null
+    return (
+      (docId ? findTabTreeItem(treeItems, docId) : null) ??
+      (docPath ? findTabTreeItem(treeItems, docPath) : null)
+    )
+  }, [treeItems, docId, docPath])
+
+  const attachedDatabase = useMemo(() => {
+    const databases = useDatabaseStore.getState().databases
+    return databases.find(
+      (d) =>
+        (docId && (d.databaseId === docId || d.attachedNoteId === docId)) ||
+        (docPath && (d.databaseId === docPath || d.attachedNoteId === docPath)) ||
+        (currentItem &&
+          (d.databaseId === currentItem.id ||
+            d.attachedNoteId === currentItem.id ||
+            d.databaseId === currentItem.path ||
+            d.attachedNoteId === currentItem.path)),
+    )
+  }, [docId, docPath, currentItem])
+
+  const primaryLayer =
+    (docId ? primaryLayers[docId] : undefined) ??
+    (docPath ? primaryLayers[docPath] : undefined) ??
+    (currentItem?.id ? primaryLayers[currentItem.id] : undefined) ??
+    (currentItem?.path ? primaryLayers[currentItem.path] : undefined) ??
+    (attachedDatabase?.databaseId ? primaryLayers[attachedDatabase.databaseId] : undefined) ??
+    (attachedDatabase?.attachedNoteId ? primaryLayers[attachedDatabase.attachedNoteId] : undefined)
+
+  const handleSetPrimaryLayer = (layer: EditorLayer) => {
+    const keysToSet = new Set<string>()
+    if (docId) keysToSet.add(docId)
+    if (docPath) keysToSet.add(docPath)
+    if (currentItem?.id) keysToSet.add(currentItem.id)
+    if (currentItem?.path) keysToSet.add(currentItem.path)
+    if (attachedDatabase?.databaseId) keysToSet.add(attachedDatabase.databaseId)
+    if (attachedDatabase?.attachedNoteId) keysToSet.add(attachedDatabase.attachedNoteId)
+
+    for (const key of Array.from(keysToSet)) {
+      const stripped = key.replace(/^(database|canvas|sketch):/u, "")
+      if (stripped) keysToSet.add(stripped)
+    }
+
+    for (const key of keysToSet) {
+      setPrimaryLayer(key, layer)
+      setActiveLayer(key, layer)
+    }
+
+    const targetKind: TabKind = layer === "editor" ? "document" : layer
+    useTabsStore.getState().setTabs((prevTabs) =>
+      prevTabs.map((t) => {
+        const matches =
+          keysToSet.has(t.fileId) ||
+          keysToSet.has(t.fileId.replace(/^(database|canvas|sketch):/u, ""))
+        if (matches && t.kind !== targetKind) {
+          return { ...t, kind: targetKind }
+        }
+        return t
+      }),
+    )
+
+    onLayerChange?.(layer)
+  }
 
   if (hideNavigation) return null
 
@@ -264,6 +352,7 @@ export function DocumentHeader({
         transition={motionTransitions.default}
       >
         {hasDocument &&
+          totalLayersCount > 1 &&
           (isUltraNarrow ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -314,7 +403,7 @@ export function DocumentHeader({
                     {activeLayer === "database" && <Check className="size-3.5 text-primary" />}
                   </DropdownMenuItem>
                 )}
-                {linkedLayers?.canvas && (
+                {canvasEnabled && (linkedLayers?.canvas || activeLayer === "canvas") && (
                   <DropdownMenuItem
                     className={cn(
                       "flex items-center gap-2",
@@ -327,7 +416,7 @@ export function DocumentHeader({
                     {activeLayer === "canvas" && <Check className="size-3.5 text-primary" />}
                   </DropdownMenuItem>
                 )}
-                {linkedLayers?.sketch && (
+                {sketchEnabled && (linkedLayers?.sketch || activeLayer === "sketch") && (
                   <DropdownMenuItem
                     className={cn(
                       "flex items-center gap-2",
@@ -343,21 +432,33 @@ export function DocumentHeader({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <div className="mr-1 flex items-center gap-0.5 rounded-lg border border-border/70 bg-muted/50 p-0.5 shadow-2xs">
+            <div className="mr-1 flex items-center gap-0.5 rounded-lg border border-border/60 bg-muted/40 p-0.5 shadow-2xs">
               {showNoteButton && (
-                <button
+                <motion.button
                   type="button"
                   title={t("docEditor.markdownEditor")}
                   onClick={() => onLayerChange?.("editor")}
                   className={cn(
-                    "flex size-7 items-center justify-center rounded-md",
+                    "relative flex size-7 items-center justify-center rounded-md text-sm select-none cursor-pointer",
                     activeLayer === "editor"
-                      ? "bg-primary text-primary-foreground shadow-xs font-semibold"
-                      : "bg-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                      ? "text-foreground font-medium"
+                      : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
                   )}
+                  whileHover={activeLayer === "editor" ? undefined : { scale: 1.05 }}
+                  whileTap={{ scale: 0.92 }}
+                  transition={motionTransitions.fast}
                 >
-                  <FileText className="size-3.5" />
-                </button>
+                  {activeLayer === "editor" && (
+                    <motion.div
+                      layoutId="activeDocumentLayerPill"
+                      className="absolute inset-0 rounded-md bg-[var(--note-surface)] shadow-xs border border-border/80"
+                      transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center justify-center">
+                    <FileText className="size-3.5" />
+                  </span>
+                </motion.button>
               )}
               {databasesEnabled && (linkedLayers?.database || activeLayer === "database") && (
                 <LayerButton
@@ -370,7 +471,7 @@ export function DocumentHeader({
                   onDelete={onDeleteLayer}
                 />
               )}
-              {linkedLayers?.canvas && (
+              {canvasEnabled && (linkedLayers?.canvas || activeLayer === "canvas") && (
                 <LayerButton
                   layer="canvas"
                   title={t("docEditor.canvasLayer")}
@@ -381,7 +482,7 @@ export function DocumentHeader({
                   onDelete={onDeleteLayer}
                 />
               )}
-              {linkedLayers?.sketch && (
+              {sketchEnabled && (linkedLayers?.sketch || activeLayer === "sketch") && (
                 <LayerButton
                   layer="sketch"
                   title={t("docEditor.sketchLayer")}
@@ -395,21 +496,35 @@ export function DocumentHeader({
             </div>
           ))}
         {!isTiny && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className={`size-7 hover:bg-accent ${isFocusMode ? "text-foreground" : "text-muted-foreground hover:text-white"}`}
+          <motion.button
+            type="button"
+            className={cn(
+              "flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              isFocusMode && "bg-accent/60 text-foreground font-medium",
+            )}
             onClick={onToggleFocusMode}
             title={isFocusMode ? t("docEditor.focusModeExit") : t("docEditor.focusModeEnter")}
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.92 }}
+            transition={motionTransitions.fast}
           >
             {isFocusMode ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
-          </Button>
+          </motion.button>
         )}
         <DocumentActionsDropdown
           open={moreActionsOpen}
           onOpenChange={onMoreActionsOpenChange}
           hasDocument={hasDocument}
           activeLayer={activeLayer}
+          onLayerChange={onLayerChange}
+          onUnlinkLayer={onUnlinkLayer}
+          onDeleteLayer={onDeleteLayer}
+          docPath={docPath}
+          primaryLayer={primaryLayer}
+          onSetPrimaryLayer={handleSetPrimaryLayer}
+          databasesEnabled={databasesEnabled}
+          canvasEnabled={canvasEnabled}
+          sketchEnabled={sketchEnabled}
           isLocked={isLocked}
           onToggleLock={onToggleLock}
           viewMode={viewMode}

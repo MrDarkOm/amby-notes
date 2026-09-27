@@ -72,6 +72,8 @@ export const TreeNode = React.memo(
     onAttachLayer,
     canCreateDatabaseLayer = false,
     linkedLayersByDoc,
+    canvasEnabled = true,
+    sketchEnabled = true,
   }: TreeNodeProps) {
     const { t } = useTranslation()
     const [pendingAttach, setPendingAttach] = React.useState<AttachableLayer | null>(null)
@@ -215,9 +217,15 @@ export const TreeNode = React.memo(
     const defaultIcon = item.type === "folder" ? "folder" : "file"
     const layers = linkedLayersByDoc?.[item.id]
     const noteAvailable = (item.type === "canvas" || item.type === "sketch") && !layers?.note
-    const canvasAvailable = item.type !== "canvas" && item.type !== "folder" && !layers?.canvas
-    const databaseAvailable = canCreateDatabaseLayer && item.type !== "folder" && !layers?.database
-    const sketchAvailable = item.type !== "sketch" && item.type !== "folder" && !layers?.sketch
+    const canvasAvailable = Boolean(
+      canvasEnabled && item.type !== "canvas" && item.type !== "folder" && !layers?.canvas,
+    )
+    const databaseAvailable = Boolean(
+      canCreateDatabaseLayer && item.type !== "folder" && !layers?.database,
+    )
+    const sketchAvailable = Boolean(
+      sketchEnabled && item.type !== "sketch" && item.type !== "folder" && !layers?.sketch,
+    )
     const canAttach =
       (item.type === "canvas" && !!onAttachCanvas) ||
       (item.type === "sketch" && !!onAttachSketch) ||
@@ -495,12 +503,15 @@ export const TreeNode = React.memo(
     const folderIconNode = hasChildren ? (
       <span className="amby-tree-folder-icon relative inline-flex size-4 shrink-0 items-center justify-center">
         <TreeItemIcon item={item} className={mainIconClassName} />
-        <button
+        <motion.button
           type="button"
           className="amby-tree-folder-toggle absolute inset-0 z-10 flex size-4 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           aria-label={isOpen ? t("tree.collapse") : t("tree.expand")}
           title={isOpen ? t("tree.collapse") : t("tree.expand")}
           onPointerDown={(event) => event.stopPropagation()}
+          whileHover={{ scale: 1.15 }}
+          whileTap={{ scale: 0.85 }}
+          transition={motionTransitions.fast}
           onClick={(event) => {
             event.stopPropagation()
             onToggleOpen(item.id)
@@ -514,7 +525,7 @@ export const TreeNode = React.memo(
           >
             <ChevronRight className="size-3" />
           </motion.span>
-        </button>
+        </motion.button>
       </span>
     ) : null
 
@@ -568,7 +579,7 @@ export const TreeNode = React.memo(
                       {statusNode}
                     </div>
                   ) : (
-                    <button
+                    <motion.button
                       type="button"
                       draggable={false}
                       data-tree-item-id={item.id}
@@ -582,11 +593,13 @@ export const TreeNode = React.memo(
                       onClick={(event) => onSelect(item.id, event)}
                       onDoubleClick={handleDoubleClick}
                       className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                      whileTap={{ scale: 0.985 }}
+                      transition={motionTransitions.fast}
                       {...selectedAttr}
                     >
                       {nameNode}
                       {statusNode}
-                    </button>
+                    </motion.button>
                   )}
                 </div>
               </ContextMenuTrigger>
@@ -633,7 +646,7 @@ export const TreeNode = React.memo(
                   {statusNode}
                 </div>
               ) : (
-                <button
+                <motion.button
                   draggable={false}
                   data-tree-item-id={item.id}
                   role="treeitem"
@@ -651,12 +664,14 @@ export const TreeNode = React.memo(
                       "--amby-density-padding-left": `${paddingLeft}px`,
                     } as React.CSSProperties
                   }
+                  whileTap={{ scale: 0.985 }}
+                  transition={motionTransitions.fast}
                   {...selectedAttr}
                 >
                   <TreeItemIcon item={item} className={mainIconClassName} />
                   {nameNode}
                   {statusNode}
-                </button>
+                </motion.button>
               )}
             </div>
           </ContextMenuTrigger>
@@ -695,5 +710,7 @@ export const TreeNode = React.memo(
     prev.onToggleFavorite === next.onToggleFavorite &&
     prev.linkedLayersByDoc === next.linkedLayersByDoc &&
     prev.onAttachLayer === next.onAttachLayer &&
-    prev.canCreateDatabaseLayer === next.canCreateDatabaseLayer,
+    prev.canCreateDatabaseLayer === next.canCreateDatabaseLayer &&
+    prev.canvasEnabled === next.canvasEnabled &&
+    prev.sketchEnabled === next.sketchEnabled,
 )

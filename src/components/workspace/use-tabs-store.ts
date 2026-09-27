@@ -72,7 +72,15 @@ export const useTabsStore = create<TabsStore>((set) => ({
     })
     return set((state) => {
       const active = state.tabs.find((tab) => tab.key === state.activeTabKey)
-      const matches = (tab: Tab) => tab.kind === target.kind && tab.fileId === target.fileId
+      const matches = (tab: Tab) =>
+        (tab.kind === target.kind && tab.fileId === target.fileId) ||
+        (tab.fileId.replace(/^(database|canvas|sketch):/u, "") ===
+          target.fileId.replace(/^(database|canvas|sketch):/u, "") &&
+          tab.fileId.length > 0 &&
+          target.fileId.length > 0 &&
+          (tab.kind === target.kind ||
+            ((tab.kind === "document" || tab.kind === "database") &&
+              (target.kind === "document" || target.kind === "database"))))
       if (!inNewTab) {
         const existing = active && matches(active) ? active : state.tabs.find(matches)
         if (existing) {
@@ -82,10 +90,20 @@ export const useTabsStore = create<TabsStore>((set) => ({
               to: existing.key,
               title: existing.title,
               fileId: existing.fileId,
-              kind: existing.kind,
+              kind: target.kind,
             })
           }
-          return { activeTabKey: existing.key }
+          const needsUpdate = existing.kind !== target.kind || existing.title !== target.title
+          return {
+            ...(needsUpdate
+              ? {
+                  tabs: state.tabs.map((t) =>
+                    t.key === existing.key ? { ...t, kind: target.kind, title: target.title } : t,
+                  ),
+                }
+              : {}),
+            activeTabKey: existing.key,
+          }
         }
         if (active) {
           const history = active.history.length

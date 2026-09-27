@@ -363,6 +363,8 @@ export function DocumentEditor({
       onLayerChange={onLayerChange}
       linkedLayers={linkedLayers}
       databasesEnabled={databasesEnabled}
+      canvasEnabled={canvasEnabled}
+      sketchEnabled={sketchEnabled}
       canCreateDatabaseLayer={canCreateDatabaseLayer}
       onUnlinkLayer={onUnlinkLayer}
       onDeleteLayer={onDeleteLayer}

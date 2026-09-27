@@ -10,7 +10,13 @@ import {
   readNote,
   writeNote,
 } from "@/lib/storage"
-import { formatModified, findTreeItem, noteLayerPath } from "../workspace-tree-utils"
+import {
+  formatModified,
+  findTreeItem,
+  noteLayerPath,
+  canvasLayerPath,
+  sketchLayerPath,
+} from "../workspace-tree-utils"
 import { splitWebFrontmatter, webRevision } from "@/lib/storage/web-frontmatter"
 import { findTabTreeItem, treeItemTabTarget } from "../tab-target"
 import {
@@ -19,7 +25,7 @@ import {
   StaleDocumentLoadError,
 } from "../markdown-recovery-load"
 import { useDocStore, type Document } from "../use-doc-store"
-import { useTabsStore } from "../use-tabs-store"
+import { useTabsStore, type Tab } from "../use-tabs-store"
 import { useVaultStore } from "../use-vault-store"
 import { useViewStateStore, type EditorLayer } from "../use-view-state-store"
 import type { MarkdownAutosaveActions, UseFileActionsParams } from "./types"
@@ -97,13 +103,19 @@ export function useDocumentLoading({
           fileHandler?.viewKind === "database" ||
           item?.type === "database" ||
           fileId.startsWith("database:")
+        const isContainer =
+          !effectivePath.endsWith(".md") &&
+          !effectivePath.endsWith(".canvas") &&
+          !effectivePath.endsWith(".excalidraw")
 
-        if (isCanvas || isSketch || isDatabase) {
+        if (isCanvas || isSketch || isDatabase || isContainer) {
           const path = effectivePath
           if (isCanvas) {
-            await loadCanvas(path)
+            const canvasPath = path.endsWith(".canvas") ? path : canvasLayerPath(path)
+            await loadCanvas(canvasPath)
           } else if (isSketch) {
-            await loadSketch(path)
+            const sketchPath = path.endsWith(".excalidraw") ? path : sketchLayerPath(path)
+            await loadSketch(sketchPath)
           }
           let noteContent = ""
           let noteSource = ""
@@ -150,18 +162,22 @@ export function useDocumentLoading({
           if (path && path !== fileId) {
             setDoc(path, document)
           }
-          const targetLayer: EditorLayer = isCanvas
-            ? "canvas"
-            : isSketch
-              ? "sketch"
-              : isDatabase
-                ? "database"
-                : "editor"
-          if (!useViewStateStore.getState().activeLayers[fileId]) {
-            useViewStateStore.getState().setActiveLayer(fileId, targetLayer)
-          }
-          if (path && !useViewStateStore.getState().activeLayers[path]) {
-            useViewStateStore.getState().setActiveLayer(path, targetLayer)
+          const primaryLayer =
+            useViewStateStore.getState().primaryLayers[fileId] ??
+            (path ? useViewStateStore.getState().primaryLayers[path] : undefined)
+          const targetLayer: EditorLayer =
+            primaryLayer ??
+            (isCanvas ? "canvas" : isSketch ? "sketch" : isDatabase ? "database" : "editor")
+          if (primaryLayer) {
+            useViewStateStore.getState().setActiveLayer(fileId, primaryLayer)
+            if (path) useViewStateStore.getState().setActiveLayer(path, primaryLayer)
+          } else {
+            if (!useViewStateStore.getState().activeLayers[fileId]) {
+              useViewStateStore.getState().setActiveLayer(fileId, targetLayer)
+            }
+            if (path && !useViewStateStore.getState().activeLayers[path]) {
+              useViewStateStore.getState().setActiveLayer(path, targetLayer)
+            }
           }
           return document
         }
@@ -223,6 +239,15 @@ export function useDocumentLoading({
             discardRecoveryDraft(path, recoveryScope),
           ])
         }
+        const notePrimaryLayer =
+          useViewStateStore.getState().primaryLayers[fileId] ??
+          useViewStateStore.getState().primaryLayers[path]
+        if (notePrimaryLayer) {
+          useViewStateStore.getState().setActiveLayer(fileId, notePrimaryLayer)
+          if (path) {
+            useViewStateStore.getState().setActiveLayer(path, notePrimaryLayer)
+          }
+        }
         return document
       })
     },
@@ -249,16 +274,31 @@ export function useDocumentLoading({
       const initial = useTabsStore.getState()
       const initialTab = initial.tabs.find((tab) => tab.key === initial.activeTabKey)
       const target = { ...treeItemTabTarget(item), title: displayTitle ?? item.name }
+      const primary =
+        useViewStateStore.getState().primaryLayers[target.fileId] ??
+        useViewStateStore.getState().primaryLayers[item.id] ??
+        (item.path ? useViewStateStore.getState().primaryLayers[item.path] : undefined)
+      if (primary) {
+        useViewStateStore.getState().setActiveLayer(target.fileId, primary)
+        useViewStateStore.getState().setActiveLayer(item.id, primary)
+        if (item.path) useViewStateStore.getState().setActiveLayer(item.path, primary)
+      }
       const docExists = Boolean(
         useDocStore.getState().openDocs[target.fileId] ??
         (item.path ? useDocStore.getState().openDocs[item.path] : null),
       )
-      // Existing tabs already own their buffers. Activate them immediately if loaded.
-      if (
-        !inNewTab &&
-        initial.tabs.some((tab) => tab.kind === target.kind && tab.fileId === target.fileId) &&
-        (target.kind === "database" || docExists)
-      ) {
+      const tabMatches = (tab: Tab) =>
+        (tab.fileId === target.fileId ||
+          tab.fileId.replace(/^(database|canvas|sketch):/u, "") ===
+            target.fileId.replace(/^(database|canvas|sketch):/u, "")) &&
+        (tab.kind === target.kind ||
+          (tab.fileId.replace(/^(database|canvas|sketch):/u, "") ===
+            target.fileId.replace(/^(database|canvas|sketch):/u, "") &&
+            (tab.kind === "document" || tab.kind === "database") &&
+            (target.kind === "document" || target.kind === "database")))
+
+      const existingTab = !inNewTab ? initial.tabs.find(tabMatches) : undefined
+      if (existingTab && (target.kind === "database" || docExists)) {
         logger.info("tree.activate_tab", {
           fileId: target.fileId,
           title: target.title,
@@ -266,15 +306,13 @@ export function useDocumentLoading({
         })
         initial.setTabs((tabs) =>
           tabs.map((tab) =>
-            tab.kind === target.kind && tab.fileId === target.fileId
-              ? { ...tab, title: target.title }
-              : tab,
+            tab.key === existingTab.key ? { ...tab, kind: target.kind, title: target.title } : tab,
           ),
         )
         if (target.kind !== "database") {
           useDocStore.getState().patchDoc(fileId, { title: target.title })
         }
-        openItem(target)
+        openItem({ ...target, fileId: existingTab.fileId, kind: target.kind })
         return
       }
       logger.info("tree.open_file", {

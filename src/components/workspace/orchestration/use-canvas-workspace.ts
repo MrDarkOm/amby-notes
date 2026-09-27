@@ -115,10 +115,10 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
           scheduleRecoveryDraft(path, resolved.content, "canvas", path, recoveryScope)
           autosave.enqueueImmediate(autosaveKey(path), { path, json: resolved.content })
         }
-        openCanvasesRef.current = { ...openCanvasesRef.current, [path]: resolved.content }
+        setOpenCanvases((prev) => ({ ...prev, [path]: resolved.content }))
         return resolved.content
       }),
-    [autosave, autosaveKey, generation, recoveryScope, t],
+    [autosave, autosaveKey, generation, recoveryScope, setOpenCanvases, t],
   )
 
   const handleCanvasSave = React.useCallback(

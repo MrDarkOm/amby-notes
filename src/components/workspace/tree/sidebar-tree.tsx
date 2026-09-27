@@ -45,6 +45,8 @@ export function SidebarTree({
   onAttachLayer,
   canCreateDatabaseLayer,
   linkedLayersByDoc,
+  canvasEnabled,
+  sketchEnabled,
   findActiveKey,
 }: SidebarTreeProps) {
   const { t } = useTranslation()
@@ -310,6 +312,8 @@ export function SidebarTree({
                   onAttachLayer={onAttachLayer}
                   canCreateDatabaseLayer={canCreateDatabaseLayer}
                   linkedLayersByDoc={linkedLayersByDoc}
+                  canvasEnabled={canvasEnabled}
+                  sketchEnabled={sketchEnabled}
                 />
                 {ptrDrag?.targetId === row.item.id &&
                   ptrDrag.dropPosition !== null &&

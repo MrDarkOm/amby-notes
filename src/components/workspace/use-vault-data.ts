@@ -113,6 +113,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
   const nestedNotesPlacements = useViewStateStore((s) => s.nestedNotesPlacements)
   const lockedFileIds = useViewStateStore((s) => s.lockedFileIds)
   const iconOverrides = useViewStateStore((s) => s.iconOverrides)
+  const primaryLayers = useViewStateStore((s) => s.primaryLayers)
   const closedTreeIds = useViewStateStore((s) => s.closedTreeIds)
   const { hydrateFromSession } = useViewStateStore.getState()
 
@@ -266,6 +267,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         icons: remapped.icons,
         favorites: remapped.favorites,
         viewModes: remapped.viewModes,
+        primaryLayers: remapped.primaryLayers,
         contentWidths: remapped.contentWidths,
         databaseTitleLabels: remapped.databaseTitleLabels,
         nestedNotesPlacements: remapped.nestedNotesPlacements,
@@ -448,6 +450,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
         activeFileId: active?.fileId ?? entries[0]?.fileId ?? "",
         favorites: [...favorites],
         viewModes,
+        primaryLayers,
         contentWidths,
         databaseTitleLabels,
         nestedNotesPlacements,
@@ -463,6 +466,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     activeTabKey,
     favorites,
     viewModes,
+    primaryLayers,
     contentWidths,
     databaseTitleLabels,
     nestedNotesPlacements,
@@ -801,8 +805,8 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
   // ── Derived ─────────────────────────────────────────────────────────────────
 
   const displayTreeItems = React.useMemo(
-    () => applyIconOverrides(treeItems, iconOverrides),
-    [treeItems, iconOverrides],
+    () => applyIconOverrides(treeItems, iconOverrides, primaryLayers),
+    [treeItems, iconOverrides, primaryLayers],
   )
 
   return {

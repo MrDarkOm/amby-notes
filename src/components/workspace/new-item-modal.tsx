@@ -13,6 +13,8 @@ interface NewItemModalProps {
   onCreateSketch: () => void
   onCreateDatabase?: () => void
   canCreateDatabase?: boolean
+  canvasEnabled?: boolean
+  sketchEnabled?: boolean
 }
 
 export function NewItemModal({
@@ -24,6 +26,8 @@ export function NewItemModal({
   onCreateSketch,
   onCreateDatabase,
   canCreateDatabase = false,
+  canvasEnabled = true,
+  sketchEnabled = true,
 }: NewItemModalProps) {
   const { t } = useTranslation()
   return (
@@ -62,25 +66,31 @@ export function NewItemModal({
           </button>
 
           <button
+            type="button"
+            disabled={!canvasEnabled}
             onClick={() => {
+              if (!canvasEnabled) return
               onClose()
               onCreateCanvas()
             }}
             title={t("newItem.canvas")}
             aria-label={t("newItem.canvas")}
-            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center hover:border-border hover:bg-accent"
+            className={`flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center ${canvasEnabled ? "hover:border-border hover:bg-accent" : "cursor-not-allowed opacity-50"}`}
           >
             <LayoutGrid className="size-5 text-foreground" />
           </button>
 
           <button
+            type="button"
+            disabled={!sketchEnabled}
             onClick={() => {
+              if (!sketchEnabled) return
               onClose()
               onCreateSketch()
             }}
             title={t("newItem.sketch")}
             aria-label={t("newItem.sketch")}
-            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center hover:border-border hover:bg-accent"
+            className={`flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center ${sketchEnabled ? "hover:border-border hover:bg-accent" : "cursor-not-allowed opacity-50"}`}
           >
             <PenLine className="size-5 text-foreground" />
           </button>

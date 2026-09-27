@@ -158,6 +158,8 @@ export function FilesPanel(props: PanelRenderProps) {
     databaseRuntimeEnabled,
     linkedLayersByDoc,
     workspaceSwitcher,
+    canvasEnabled = true,
+    sketchEnabled = true,
   } = props
   const canCreateDatabase = Boolean(databaseRuntimeEnabled ?? canCreateDatabaseLayer)
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
@@ -362,6 +364,8 @@ export function FilesPanel(props: PanelRenderProps) {
                   onAttachLayer={onAttachLayer}
                   canCreateDatabaseLayer={canCreateDatabaseLayer}
                   linkedLayersByDoc={linkedLayersByDoc}
+                  canvasEnabled={canvasEnabled}
+                  sketchEnabled={sketchEnabled}
                   findActiveKey={findActiveKey}
                 />
               )}
@@ -401,26 +405,30 @@ export function FilesPanel(props: PanelRenderProps) {
             <FolderPlus className="size-3.5 text-muted-foreground" />
             {t("filesPanel.newFolder")}
           </ContextMenuItem>
-          <ContextMenuItem
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-            onSelect={() => {
-              if (!vault) onOpenVault()
-              else onNewCanvas?.(null)
-            }}
-          >
-            <LayoutGrid className="size-3.5 text-muted-foreground" />
-            {t("filesPanel.newCanvas")}
-          </ContextMenuItem>
-          <ContextMenuItem
-            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-            onSelect={() => {
-              if (!vault) onOpenVault()
-              else onNewSketch?.(null)
-            }}
-          >
-            <PenLine className="size-3.5 text-muted-foreground" />
-            {t("filesPanel.newSketch")}
-          </ContextMenuItem>
+          {canvasEnabled && (
+            <ContextMenuItem
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+              onSelect={() => {
+                if (!vault) onOpenVault()
+                else onNewCanvas?.(null)
+              }}
+            >
+              <LayoutGrid className="size-3.5 text-muted-foreground" />
+              {t("filesPanel.newCanvas")}
+            </ContextMenuItem>
+          )}
+          {sketchEnabled && (
+            <ContextMenuItem
+              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+              onSelect={() => {
+                if (!vault) onOpenVault()
+                else onNewSketch?.(null)
+              }}
+            >
+              <PenLine className="size-3.5 text-muted-foreground" />
+              {t("filesPanel.newSketch")}
+            </ContextMenuItem>
+          )}
           <ContextMenuItem
             disabled={!canCreateDatabase}
             className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white disabled:opacity-50"
@@ -441,6 +449,8 @@ export function FilesPanel(props: PanelRenderProps) {
         onCreateSketch={() => onNewSketch?.(null)}
         onCreateDatabase={handleNewDatabaseClick}
         canCreateDatabase={canCreateDatabase}
+        canvasEnabled={canvasEnabled}
+        sketchEnabled={sketchEnabled}
       />
 
       <Dialog open={databaseDialogOpen} onOpenChange={setDatabaseDialogOpen}>

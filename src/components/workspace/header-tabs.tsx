@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { motion } from "motion/react"
+import { AnimatePresence, motion } from "motion/react"
 import {
   Columns2,
   ChevronDown,
@@ -198,6 +198,99 @@ function handleDragStart(e: React.MouseEvent) {
   }
 }
 
+interface TabItemProps {
+  tab: HeaderTab
+  isSelected: boolean
+  isUnsaved?: boolean
+  showDivider?: boolean
+  onTabChange: (key: string) => void
+  onTabClose: (key: string) => void
+}
+
+function TabItem({
+  tab,
+  isSelected,
+  isUnsaved,
+  showDivider,
+  onTabChange,
+  onTabClose,
+}: TabItemProps) {
+  const { t } = useTranslation()
+  const [isHovered, setIsHovered] = React.useState(false)
+
+  return (
+    <motion.div
+      key={tab.key}
+      layout="position"
+      initial={{ opacity: 0, scale: 0.9, y: -2 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.12 } }}
+      transition={motionTransitions.reorder}
+      onClick={() => onTabChange(tab.key)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onMouseDown={(e) => {
+        if (e.button === 1) {
+          e.preventDefault()
+          onTabClose(tab.key)
+        }
+      }}
+      title={tab.title}
+      className={cn(
+        "group relative flex w-48 shrink min-w-10 cursor-pointer items-center justify-between self-center rounded-lg border px-2.5 text-sm select-none",
+        isSelected
+          ? "h-9 text-foreground border-transparent"
+          : "h-8 text-muted-foreground border-transparent hover:bg-accent/40 hover:text-foreground",
+      )}
+    >
+      {isSelected && (
+        <motion.div
+          layoutId="activeHeaderTabPill"
+          className="absolute inset-0 rounded-lg bg-[var(--note-surface)] shadow-xs border border-border/80"
+          transition={{ type: "spring", stiffness: 500, damping: 38 }}
+        />
+      )}
+      {showDivider && !isHovered && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-[2.5px] inset-y-0 my-auto h-3.5 w-px bg-border/60 rounded-full"
+        />
+      )}
+      <div className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden pr-1">
+        {isUnsaved && <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />}
+        {tabEmoji(tab.icon) && (
+          <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
+            <IconValue value={tab.icon} className="size-4" />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+      </div>
+      <motion.button
+        type="button"
+        title={t("tabs.closeTab")}
+        aria-label={t("tabs.closeTab")}
+        onClick={(e) => {
+          e.stopPropagation()
+          onTabClose(tab.key)
+        }}
+        className="relative z-10 flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        whileHover={{ scale: 1.15 }}
+        whileTap={{ scale: 0.9 }}
+        animate={{
+          opacity: isSelected ? 1 : isHovered ? 1 : 0,
+          scale: isSelected ? 1 : isHovered ? 1 : 0.8,
+        }}
+        transition={motionTransitions.fast}
+        style={{
+          pointerEvents: isSelected || isHovered ? "auto" : "none",
+        }}
+      >
+        <X className="size-3.5" />
+      </motion.button>
+    </motion.div>
+  )
+}
+
 export function HeaderTabs({
   tabs,
   activeTabKey,
@@ -318,18 +411,22 @@ export function HeaderTabs({
   }
 
   const leftSidebarToggle = withVisibilityMenu(
-    <button
+    <motion.button
+      type="button"
       onClick={onToggleLeftSidebar}
       onMouseDown={(e) => e.stopPropagation()}
       title={isLeftSidebarOpen ? t("tabs.closeLeftSidebar") : t("tabs.openLeftSidebar")}
       className={HEADER_ICON_BTN}
+      whileHover={{ scale: 1.08 }}
+      whileTap={{ scale: 0.92 }}
+      transition={motionTransitions.fast}
     >
       {isLeftSidebarOpen ? (
         <PanelLeftClose className="size-4" />
       ) : (
         <PanelLeftOpen className="size-4 text-foreground" />
       )}
-    </button>,
+    </motion.button>,
     "left",
     isLeftSidebarOpen,
     isLeftDockPinned,
@@ -338,18 +435,22 @@ export function HeaderTabs({
   )
 
   const rightSidebarToggle = withVisibilityMenu(
-    <button
+    <motion.button
+      type="button"
       onClick={onToggleRightSidebar}
       onMouseDown={(e) => e.stopPropagation()}
       title={isRightSidebarOpen ? t("tabs.closeRightSidebar") : t("tabs.openRightSidebar")}
       className={HEADER_ICON_BTN}
+      whileHover={{ scale: 1.08 }}
+      whileTap={{ scale: 0.92 }}
+      transition={motionTransitions.fast}
     >
       {isRightSidebarOpen ? (
         <PanelRightClose className="size-4" />
       ) : (
         <PanelRightOpen className="size-4 text-foreground" />
       )}
-    </button>,
+    </motion.button>,
     "right",
     isRightSidebarOpen,
     isRightDockPinned,
@@ -363,22 +464,32 @@ export function HeaderTabs({
       style={{ right: rightHeaderInsetCss }}
     >
       {onToggleSplit && (
-        <button
+        <motion.button
           type="button"
           title={t("tabs.splitEditor")}
           aria-label={t("tabs.splitEditor")}
           aria-pressed={isSplit}
           onClick={onToggleSplit}
           className={cn(HEADER_ICON_BTN, isSplit && "bg-accent text-foreground")}
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.92 }}
+          transition={motionTransitions.fast}
         >
           <Columns2 className="size-4" />
-        </button>
+        </motion.button>
       )}
       <TabsMenu
         trigger={
-          <button title={t("tabs.tabMenu")} className={HEADER_ICON_BTN}>
+          <motion.button
+            type="button"
+            title={t("tabs.tabMenu")}
+            className={HEADER_ICON_BTN}
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.92 }}
+            transition={motionTransitions.fast}
+          >
             <ChevronDown className="size-4" />
-          </button>
+          </motion.button>
         }
         tabs={tabs}
         activeTabKey={activeTabKey}
@@ -435,10 +546,14 @@ export function HeaderTabs({
                 onMove={onMoveVault}
                 onOpenInExplorer={onOpenVaultInExplorer}
               >
-                <button
+                <motion.button
+                  type="button"
                   title={t("vaultPicker.vaults")}
                   className="flex min-w-0 items-center gap-2 rounded px-2 py-1 text-left outline-none hover:bg-accent"
                   onMouseDown={(e) => e.stopPropagation()}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  transition={motionTransitions.fast}
                 >
                   <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 leading-tight">
@@ -450,7 +565,7 @@ export function HeaderTabs({
                     </span>
                   </span>
                   <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-                </button>
+                </motion.button>
               </WorkspacePicker>
             )}
           </div>
@@ -465,57 +580,40 @@ export function HeaderTabs({
           isMac ? (isLeftSidebarOpen ? "pl-0" : "pl-9") : isLeftSidebarOpen ? "pl-0" : "pl-0",
         )}
       >
-        <div className="flex h-full min-w-0 items-center gap-1 overflow-hidden">
-          {tabs.map((tab) => (
-            <motion.div
-              key={tab.key}
-              initial={false}
-              animate={activeTabKey === tab.key ? "selected" : "rest"}
-              whileHover="hover"
-              transition={motionTransitions.reorder}
-              onClick={() => onTabChange(tab.key)}
-              onMouseDown={(e) => {
-                if (e.button === 1) {
-                  e.preventDefault()
-                  onTabClose(tab.key)
-                }
-              }}
-              className={cn(
-                "group relative flex h-8 min-w-0 max-w-52 cursor-pointer items-center gap-2 self-center rounded-lg border border-border/80 px-3 text-sm",
-                activeTabKey === tab.key
-                  ? "bg-[var(--note-surface)] text-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-              )}
-            >
-              {unsavedFileIds?.has(tab.fileId) && (
-                <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />
-              )}
-              {tabEmoji(tab.icon) && (
-                <span className="flex size-4 items-center justify-center" aria-hidden="true">
-                  <IconValue value={tab.icon} className="size-4" />
-                </span>
-              )}
-              <span className="min-w-0 flex-1 truncate">{tab.title}</span>
-              <motion.button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onTabClose(tab.key)
-                }}
-                className={cn(
-                  "flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                )}
-                variants={{ rest: { opacity: 0 }, hover: { opacity: 1 }, selected: { opacity: 1 } }}
-                transition={motionTransitions.fast}
-              >
-                <X className="size-3.5" />
-              </motion.button>
-            </motion.div>
-          ))}
+        <div className="flex h-full min-w-0 max-w-full items-center gap-1 overflow-hidden shrink">
+          <AnimatePresence initial={false} mode="popLayout">
+            {tabs.map((tab, index) => {
+              const isSelected = activeTabKey === tab.key
+              const nextTab = tabs[index + 1]
+              const isNextSelected = nextTab && activeTabKey === nextTab.key
+              const showDivider = !isSelected && index < tabs.length - 1 && !isNextSelected
+
+              return (
+                <TabItem
+                  key={tab.key}
+                  tab={tab}
+                  isSelected={isSelected}
+                  isUnsaved={unsavedFileIds?.has(tab.fileId)}
+                  showDivider={showDivider}
+                  onTabChange={onTabChange}
+                  onTabClose={onTabClose}
+                />
+              )
+            })}
+          </AnimatePresence>
         </div>
 
-        <button title={t("tabs.newTab")} onClick={onOpenPlusModal} className={HEADER_ICON_BTN}>
+        <motion.button
+          type="button"
+          title={t("tabs.newTab")}
+          onClick={onOpenPlusModal}
+          className={HEADER_ICON_BTN}
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.92 }}
+          transition={motionTransitions.fast}
+        >
           <Plus className="size-4" />
-        </button>
+        </motion.button>
 
         <div className="h-full flex-1 cursor-default" onMouseDown={handleEmptySpaceMouseDown} />
       </div>

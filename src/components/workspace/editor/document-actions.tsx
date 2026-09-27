@@ -4,6 +4,8 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
   Archive,
+  ArrowLeftRight,
+  Check,
   Code2,
   Copy,
   Database,
@@ -15,22 +17,26 @@ import {
   FolderInput,
   FolderOpen,
   GitMerge,
+  Layers,
   LayoutGrid,
-  Link as LinkIcon,
   Maximize2,
   MoreVertical,
   PanelBottom,
   PanelTop,
   PenLine,
+  Plus,
   Search,
   SquareArrowOutUpRight,
   Star,
   Trash2,
+  Unlink,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { motion } from "motion/react"
+import { motionTransitions } from "@/lib/motion-config"
 import { cn } from "@/lib/utils"
 import {
   ContextMenu,
@@ -76,19 +82,29 @@ export function LayerButton({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <button
+        <motion.button
           type="button"
           title={title}
           onClick={onActivate}
           className={cn(
-            "flex size-7 items-center justify-center rounded-md",
+            "relative flex size-7 items-center justify-center rounded-md text-sm select-none cursor-pointer",
             active
-              ? "bg-primary text-primary-foreground shadow-xs font-semibold"
-              : "bg-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+              ? "text-foreground font-medium"
+              : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
           )}
+          whileHover={active ? undefined : { scale: 1.05 }}
+          whileTap={{ scale: 0.92 }}
+          transition={motionTransitions.fast}
         >
-          {icon}
-        </button>
+          {active && (
+            <motion.div
+              layoutId="activeDocumentLayerPill"
+              className="absolute inset-0 rounded-md bg-[var(--note-surface)] shadow-xs border border-border/80"
+              transition={{ type: "spring", stiffness: 500, damping: 38 }}
+            />
+          )}
+          <span className="relative z-10 flex items-center justify-center">{icon}</span>
+        </motion.button>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-48">
         <ContextMenuItem onSelect={() => onUnlink?.(layer)}>
@@ -404,6 +420,13 @@ export function DocumentActionsDropdown({
   onOpenChange,
   hasDocument,
   activeLayer,
+  onLayerChange,
+  onUnlinkLayer,
+  onDeleteLayer,
+  docPath,
+  primaryLayer,
+  onSetPrimaryLayer,
+  databasesEnabled = false,
   isLocked,
   onToggleLock,
   viewMode,
@@ -415,6 +438,8 @@ export function DocumentActionsDropdown({
   onNestedNotesPlacementChange,
   linkedLayers,
   canCreateDatabaseLayer = false,
+  canvasEnabled = true,
+  sketchEnabled = true,
   onRequestAttachLayer,
   isFavorite,
   onToggleFavorite,
@@ -434,6 +459,15 @@ export function DocumentActionsDropdown({
   onOpenChange: (open: boolean) => void
   hasDocument: boolean
   activeLayer: EditorLayer
+  onLayerChange?: (layer: EditorLayer) => void
+  onUnlinkLayer?: (layer: LayerKind) => void
+  onDeleteLayer?: (layer: LayerKind) => void
+  docPath?: string
+  primaryLayer?: EditorLayer
+  onSetPrimaryLayer?: (layer: EditorLayer) => void
+  databasesEnabled?: boolean
+  canvasEnabled?: boolean
+  sketchEnabled?: boolean
   isLocked: boolean
   onToggleLock?: () => void
   viewMode: DocumentViewMode
@@ -461,6 +495,80 @@ export function DocumentActionsDropdown({
   onDeleteFile?: (mode?: "archive") => void
 }) {
   const { t } = useTranslation()
+
+  const hasNote = Boolean(
+    linkedLayers?.note ||
+    activeLayer === "editor" ||
+    (!linkedLayers?.canvas && !linkedLayers?.sketch && !linkedLayers?.database),
+  )
+  const hasDatabase = Boolean(
+    databasesEnabled && (linkedLayers?.database || activeLayer === "database"),
+  )
+  const hasCanvas = Boolean(canvasEnabled && (linkedLayers?.canvas || activeLayer === "canvas"))
+  const hasSketch = Boolean(sketchEnabled && (linkedLayers?.sketch || activeLayer === "sketch"))
+
+  const totalLayersCount =
+    (hasNote ? 1 : 0) + (hasDatabase ? 1 : 0) + (hasCanvas ? 1 : 0) + (hasSketch ? 1 : 0)
+
+  const canAttachNote = !hasNote
+  const canAttachDatabase = canCreateDatabaseLayer && !hasDatabase
+  const canAttachCanvas = Boolean(canvasEnabled && !hasCanvas)
+  const canAttachSketch = Boolean(sketchEnabled && !hasSketch)
+  const hasAttachableLayers =
+    canAttachNote || canAttachDatabase || canAttachCanvas || canAttachSketch
+
+  const naturalDefaultLayer: EditorLayer = docPath?.endsWith(".canvas")
+    ? "canvas"
+    : docPath?.endsWith(".excalidraw")
+      ? "sketch"
+      : docPath?.endsWith(".json")
+        ? "database"
+        : "editor"
+  const effectivePrimaryLayer = primaryLayer ?? naturalDefaultLayer
+
+  const detachableLayers: Array<{
+    kind: LayerKind
+    Icon: React.ComponentType<{ className?: string }>
+    deleteLabel: string
+    detachLabel: string
+  }> = []
+
+  if (totalLayersCount > 1) {
+    if (linkedLayers?.database) {
+      detachableLayers.push({
+        kind: "database",
+        Icon: Database,
+        deleteLabel: t("docEditor.deleteDatabase"),
+        detachLabel: t("docEditor.detachDatabase"),
+      })
+    }
+    if (linkedLayers?.canvas) {
+      detachableLayers.push({
+        kind: "canvas",
+        Icon: LayoutGrid,
+        deleteLabel: t("docEditor.deleteCanvas"),
+        detachLabel: t("docEditor.detachCanvas"),
+      })
+    }
+    if (linkedLayers?.sketch) {
+      detachableLayers.push({
+        kind: "sketch",
+        Icon: PenLine,
+        deleteLabel: t("docEditor.deleteSketch"),
+        detachLabel: t("docEditor.detachSketch"),
+      })
+    }
+    if (linkedLayers?.note && docPath && !docPath.endsWith(".md")) {
+      detachableLayers.push({
+        kind: "note",
+        Icon: FileText,
+        deleteLabel: t("docEditor.deleteNote"),
+        detachLabel: t("docEditor.detachNote"),
+      })
+    }
+  }
+
+  const hasLayerActions = totalLayersCount > 1 || hasAttachableLayers
 
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -547,7 +655,7 @@ export function DocumentActionsDropdown({
         )}
         <DropdownMenuSeparator className="bg-accent" />
 
-        {nestedNotes.length > 0 && (
+        {activeLayer === "editor" && nestedNotes.length > 0 && (
           <>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
@@ -578,48 +686,206 @@ export function DocumentActionsDropdown({
           </>
         )}
 
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
-            <LinkIcon className="size-3.5 text-muted-foreground" />
-            {t("docEditor.attach")}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-52 border-border bg-popover text-foreground">
-            <DropdownMenuItem
-              disabled={linkedLayers?.note}
-              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-              onSelect={() => onRequestAttachLayer("editor")}
-            >
-              <FileText className="size-3.5 text-muted-foreground" />
-              {t("docEditor.attachNote")}
-            </DropdownMenuItem>
-            {canCreateDatabaseLayer && (
-              <DropdownMenuItem
-                disabled={linkedLayers?.database}
-                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                onSelect={() => onRequestAttachLayer("database")}
-              >
-                <Database className="size-3.5 text-muted-foreground" />
-                {t("docEditor.attachDatabase")}
-              </DropdownMenuItem>
+        {hasLayerActions && (
+          <>
+            {totalLayersCount > 1 && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+                  <Layers className="size-3.5 text-muted-foreground" />
+                  {t("docEditor.primaryLayer")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-48 border-border bg-popover text-foreground">
+                  {hasNote && (
+                    <DropdownMenuItem
+                      disabled={!hasDocument}
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onSetPrimaryLayer?.("editor")}
+                    >
+                      <FileText className="size-3.5 text-muted-foreground" />
+                      <span className="flex-1">{t("docEditor.markdownEditor")}</span>
+                      {effectivePrimaryLayer === "editor" && (
+                        <Check className="size-3.5 text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                  )}
+                  {hasDatabase && (
+                    <DropdownMenuItem
+                      disabled={!hasDocument}
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onSetPrimaryLayer?.("database")}
+                    >
+                      <Database className="size-3.5 text-muted-foreground" />
+                      <span className="flex-1">{t("docEditor.databaseLayer")}</span>
+                      {effectivePrimaryLayer === "database" && (
+                        <Check className="size-3.5 text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                  )}
+                  {hasCanvas && (
+                    <DropdownMenuItem
+                      disabled={!hasDocument}
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onSetPrimaryLayer?.("canvas")}
+                    >
+                      <LayoutGrid className="size-3.5 text-muted-foreground" />
+                      <span className="flex-1">{t("docEditor.canvasLayer")}</span>
+                      {effectivePrimaryLayer === "canvas" && (
+                        <Check className="size-3.5 text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                  )}
+                  {hasSketch && (
+                    <DropdownMenuItem
+                      disabled={!hasDocument}
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onSetPrimaryLayer?.("sketch")}
+                    >
+                      <PenLine className="size-3.5 text-muted-foreground" />
+                      <span className="flex-1">{t("docEditor.sketchLayer")}</span>
+                      {effectivePrimaryLayer === "sketch" && (
+                        <Check className="size-3.5 text-primary" />
+                      )}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             )}
-            <DropdownMenuItem
-              disabled={linkedLayers?.canvas}
-              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-              onSelect={() => onRequestAttachLayer("canvas")}
-            >
-              <LayoutGrid className="size-3.5 text-muted-foreground" />
-              {t("docEditor.attachCanvas")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={linkedLayers?.sketch}
-              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-              onSelect={() => onRequestAttachLayer("sketch")}
-            >
-              <PenLine className="size-3.5 text-muted-foreground" />
-              {t("docEditor.attachSketch")}
-            </DropdownMenuItem>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+
+            {totalLayersCount > 1 && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+                  <ArrowLeftRight className="size-3.5 text-muted-foreground" />
+                  {t("docEditor.switchLayer")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-48 border-border bg-popover text-foreground">
+                  {hasNote && (
+                    <DropdownMenuItem
+                      disabled={!hasDocument}
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onLayerChange?.("editor")}
+                    >
+                      <FileText className="size-3.5 text-muted-foreground" />
+                      <span className="flex-1">{t("docEditor.markdownEditor")}</span>
+                      {activeLayer === "editor" && <Check className="size-3.5 text-primary" />}
+                    </DropdownMenuItem>
+                  )}
+                  {hasDatabase && (
+                    <DropdownMenuItem
+                      disabled={!hasDocument}
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onLayerChange?.("database")}
+                    >
+                      <Database className="size-3.5 text-muted-foreground" />
+                      <span className="flex-1">{t("docEditor.databaseLayer")}</span>
+                      {activeLayer === "database" && <Check className="size-3.5 text-primary" />}
+                    </DropdownMenuItem>
+                  )}
+                  {hasCanvas && (
+                    <DropdownMenuItem
+                      disabled={!hasDocument}
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onLayerChange?.("canvas")}
+                    >
+                      <LayoutGrid className="size-3.5 text-muted-foreground" />
+                      <span className="flex-1">{t("docEditor.canvasLayer")}</span>
+                      {activeLayer === "canvas" && <Check className="size-3.5 text-primary" />}
+                    </DropdownMenuItem>
+                  )}
+                  {hasSketch && (
+                    <DropdownMenuItem
+                      disabled={!hasDocument}
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onLayerChange?.("sketch")}
+                    >
+                      <PenLine className="size-3.5 text-muted-foreground" />
+                      <span className="flex-1">{t("docEditor.sketchLayer")}</span>
+                      {activeLayer === "sketch" && <Check className="size-3.5 text-primary" />}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+
+            {hasAttachableLayers && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+                  <Plus className="size-3.5 text-muted-foreground" />
+                  {t("docEditor.addLayer")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-52 border-border bg-popover text-foreground">
+                  {canAttachNote && (
+                    <DropdownMenuItem
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onRequestAttachLayer("editor")}
+                    >
+                      <FileText className="size-3.5 text-muted-foreground" />
+                      {t("docEditor.markdownEditor")}
+                    </DropdownMenuItem>
+                  )}
+                  {canAttachDatabase && (
+                    <DropdownMenuItem
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onRequestAttachLayer("database")}
+                    >
+                      <Database className="size-3.5 text-muted-foreground" />
+                      {t("docEditor.databaseLayer")}
+                    </DropdownMenuItem>
+                  )}
+                  {canAttachCanvas && (
+                    <DropdownMenuItem
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onRequestAttachLayer("canvas")}
+                    >
+                      <LayoutGrid className="size-3.5 text-muted-foreground" />
+                      {t("docEditor.canvasLayer")}
+                    </DropdownMenuItem>
+                  )}
+                  {canAttachSketch && (
+                    <DropdownMenuItem
+                      className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => onRequestAttachLayer("sketch")}
+                    >
+                      <PenLine className="size-3.5 text-muted-foreground" />
+                      {t("docEditor.sketchLayer")}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+
+            {totalLayersCount > 1 && detachableLayers.length > 0 && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white data-[state=open]:bg-accent">
+                  <Unlink className="size-3.5 text-muted-foreground" />
+                  {t("docEditor.removeLayer")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-56 border-border bg-popover text-foreground">
+                  {detachableLayers.map((layer, index) => (
+                    <React.Fragment key={layer.kind}>
+                      {index > 0 && <DropdownMenuSeparator className="bg-accent" />}
+                      <DropdownMenuItem
+                        className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
+                        onSelect={() => onDeleteLayer?.(layer.kind)}
+                      >
+                        <layer.Icon className="size-3.5 text-red-400" />
+                        <span>{layer.deleteLabel}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                        onSelect={() => onUnlinkLayer?.(layer.kind)}
+                      >
+                        <layer.Icon className="size-3.5 text-muted-foreground" />
+                        <span>{layer.detachLabel}</span>
+                      </DropdownMenuItem>
+                    </React.Fragment>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+
+            <DropdownMenuSeparator className="bg-accent" />
+          </>
+        )}
         <DropdownMenuItem
           disabled={!hasDocument || !onToggleFavorite}
           className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"

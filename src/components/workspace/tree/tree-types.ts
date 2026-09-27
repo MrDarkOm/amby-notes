@@ -122,6 +122,8 @@ export interface SidebarTreeProps {
   onAttachLayer?: (id: string, layer: AttachableLayer) => void
   canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, NodeLayers>
+  canvasEnabled?: boolean
+  sketchEnabled?: boolean
   /** Increment to scroll the currently selected item into view. */
   findActiveKey?: number
 }
@@ -192,4 +194,6 @@ export interface TreeNodeProps {
   onAttachLayer?: (id: string, layer: AttachableLayer) => void
   canCreateDatabaseLayer?: boolean
   linkedLayersByDoc?: Record<string, NodeLayers>
+  canvasEnabled?: boolean
+  sketchEnabled?: boolean
 }

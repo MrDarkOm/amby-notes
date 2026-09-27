@@ -111,10 +111,10 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
           scheduleRecoveryDraft(path, resolved.content, "sketch", path, recoveryScope)
           autosave.enqueueImmediate(autosaveKey(path), { path, json: resolved.content })
         }
-        openSketchesRef.current = { ...openSketchesRef.current, [path]: resolved.content }
+        setOpenSketches((prev) => ({ ...prev, [path]: resolved.content }))
         return resolved.content
       }),
-    [autosave, autosaveKey, generation, recoveryScope, t],
+    [autosave, autosaveKey, generation, recoveryScope, setOpenSketches, t],
   )
 
   const handleSketchSave = React.useCallback(
