@@ -47,7 +47,12 @@ import {
 import { emit, listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { errorType, logger, flushLogs, beginOperation } from "@/lib/logger"
-import { cancelAutosaveGeneration, flushAutosaveGeneration } from "./autosave/autosave-lifecycle"
+import {
+  cancelAutosaveGeneration,
+  flushAutosaveGeneration,
+  waitForInFlightAutosave,
+} from "./autosave/autosave-lifecycle"
+import { isUnchangedNoteRevision } from "./external-note-reconciliation"
 import {
   activationMatchesCurrentVault,
   MAIN_WINDOW_LABEL,
@@ -608,7 +613,16 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
             if (activeConflict?.externalContent === null && !findTreeItem(tree, id)) continue
             try {
               const noteIdToRead = doc.noteId ?? id
+              const autosaveKey = {
+                generation: useVaultStore.getState().generation,
+                kind: "markdown" as const,
+                documentId: id,
+              }
+              await waitForInFlightAutosave(autosaveKey)
+              if (!isCurrent()) return
+              const revisionBeforeRead = useDocStore.getState().openDocs[id]?.revision
               const note = await readNote(vault, noteIdToRead)
+              await waitForInFlightAutosave(autosaveKey)
               if (!isCurrent()) return
               const latest = useDocStore.getState().openDocs[id]
               if (!latest) continue
@@ -634,7 +648,12 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
                 }
                 continue
               }
-              if (note.content === latest.content && note.revision === latest.revision) continue
+              if (isUnchangedNoteRevision(note.revision, latest.revision, revisionBeforeRead)) {
+                if (note.revision === latest.revision && note.source !== latest.source) {
+                  patchDoc(id, { source: note.source })
+                }
+                continue
+              }
               if (useDocStore.getState().unsavedFileIds.has(id)) {
                 setExternalConflict({
                   fileId: id,
@@ -729,6 +748,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
             if (note.revision !== revision) return
             const latest = useDocStore.getState().openDocs[noteId]
             if (!latest) return
+            if (isUnchangedNoteRevision(note.revision, latest.revision, undefined)) return
             if (useDocStore.getState().unsavedFileIds.has(noteId)) {
               setExternalConflict({
                 fileId: noteId,

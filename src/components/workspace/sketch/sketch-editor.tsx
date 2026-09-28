@@ -179,7 +179,9 @@ export function SketchEditor({
   }, [])
 
   // Align with canonical serialization initially so mount events don't mark as dirty
-  const lastInternalJsonRef = React.useRef(serializeSketch(parseSketch(value)))
+  const [initialSketch] = React.useState(() => parseSketch(value))
+  const [initialCanonicalJson] = React.useState(() => serializeSketch(initialSketch))
+  const lastInternalJsonRef = React.useRef(initialCanonicalJson)
   const isInitialMountRef = React.useRef(true)
   const isExternalSyncRef = React.useRef(false)
   const userInteractedRef = React.useRef(false)
@@ -190,7 +192,7 @@ export function SketchEditor({
   onLocalEditRef.current = onLocalEdit
 
   const initialData = React.useMemo(() => {
-    const parsed = parseSketch(value)
+    const parsed = retryKey === 0 ? initialSketch : parseSketch(value)
     const { collaborators: _c, followedBy: _f, ...safeAppState } = parsed.appState
     return {
       elements: parsed.elements,
@@ -233,7 +235,6 @@ export function SketchEditor({
       api.addFiles(Object.values(parsed.files))
     }
     requestAnimationFrame(() => {
-      window.dispatchEvent(new Event("resize"))
       api.refresh()
       if (parsed.elements.length > 0) {
         api.scrollToContent(undefined, { fitToViewport: true, animate: false })
@@ -727,31 +728,31 @@ export function SketchEditor({
 
   React.useEffect(() => {
     if (!containerRef.current) return
+    let refreshFrame: number | null = null
+    let lastWidth = 0
+    let lastHeight = 0
     const ro = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const width = Math.round(entry.contentRect.width)
         const height = Math.round(entry.contentRect.height)
+        if (width === lastWidth && height === lastHeight) continue
+        lastWidth = width
+        lastHeight = height
         if (width > 0 && height > 0) {
           setContainerWidth((prev) => (Math.abs(prev - width) > 2 ? width : prev))
-          window.dispatchEvent(new Event("resize"))
-          excalidrawAPIRef.current?.refresh()
+          if (refreshFrame === null) {
+            refreshFrame = requestAnimationFrame(() => {
+              refreshFrame = null
+              if (lastWidth > 0 && lastHeight > 0) excalidrawAPIRef.current?.refresh()
+            })
+          }
         }
       }
     })
     ro.observe(containerRef.current)
-    return () => ro.disconnect()
-  }, [])
-
-  React.useEffect(() => {
-    const triggerRefresh = () => {
-      window.dispatchEvent(new Event("resize"))
-      excalidrawAPIRef.current?.refresh()
-    }
-    const timer1 = setTimeout(triggerRefresh, 60)
-    const timer2 = setTimeout(triggerRefresh, 200)
     return () => {
-      clearTimeout(timer1)
-      clearTimeout(timer2)
+      ro.disconnect()
+      if (refreshFrame !== null) cancelAnimationFrame(refreshFrame)
     }
   }, [])
 
@@ -765,7 +766,6 @@ export function SketchEditor({
       setIsApiReady(true)
       syncHistoryState()
       requestAnimationFrame(() => {
-        window.dispatchEvent(new Event("resize"))
         imperativeApi.refresh()
         const elements = imperativeApi.getSceneElements()
         if (elements && elements.length > 0) {

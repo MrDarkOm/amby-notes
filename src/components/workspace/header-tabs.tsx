@@ -577,7 +577,13 @@ export function HeaderTabs({
       <div
         className={cn(
           "flex min-w-0 flex-1 items-center gap-1 overflow-hidden pr-1",
-          isMac ? (isLeftSidebarOpen ? "pl-0" : "pl-9") : isLeftSidebarOpen ? "pl-0" : "pl-0",
+          isMac
+            ? isLeftSidebarOpen && isLeftDockPinned
+              ? "pl-0"
+              : "pl-9"
+            : isLeftSidebarOpen
+              ? "pl-0"
+              : "pl-0",
         )}
       >
         <div className="flex h-full min-w-0 max-w-full items-center gap-1 overflow-hidden shrink">

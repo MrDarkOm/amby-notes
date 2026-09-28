@@ -10,7 +10,15 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { errorType, logger } from "@/lib/logger"
-import { isTauri, restoreDeletedNote, saveConflictCopy, writeFile, writeNote } from "@/lib/storage"
+import {
+  isTauri,
+  NoteRevisionConflictError,
+  readNote,
+  restoreDeletedNote,
+  saveConflictCopy,
+  writeFile,
+  writeNote,
+} from "@/lib/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useDocStore } from "./use-doc-store"
 import { useVaultStore } from "./use-vault-store"
@@ -26,23 +34,30 @@ export function ExternalConflictDialog() {
   const conflict = useDocStore((s) =>
     s.activeConflictDialogFileId
       ? (s.externalConflicts[s.activeConflictDialogFileId] ?? null)
-      : (Object.values(s.externalConflicts)[0] ?? null),
+      : null,
   )
+  const currentDocument = useDocStore((s) => (conflict ? s.openDocs[conflict.fileId] : undefined))
   const closeConflictDialog = useDocStore((s) => s.closeConflictDialog)
   const vault = useVaultStore((s) => s.vault)
   const backendGeneration = useVaultStore((s) => s.backendGeneration)
   const [saving, setSaving] = React.useState(false)
   const [copyPath, setCopyPath] = React.useState<string | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
 
-  if (!conflict) return null
+  React.useEffect(() => {
+    setCopyPath(null)
+    setError(null)
+  }, [conflict?.fileId])
+
+  if (!conflict || !currentDocument) return null
+  const document = currentDocument
   const activeConflict = conflict
-  const document = useDocStore.getState().openDocs[activeConflict.fileId]
-  if (!document) return null
   const { patchDoc, markSaved, markUnsaved, clearExternalConflict } = useDocStore.getState()
   const originWindow = isTauri() ? getCurrentWindow().label : "web"
 
   async function keepLocal() {
     setSaving(true)
+    setError(null)
     try {
       const content =
         useDocStore.getState().openDocs[activeConflict.fileId]?.content ??
@@ -50,7 +65,7 @@ export function ExternalConflictDialog() {
       if (vault && activeConflict.externalContent === null) {
         const outcome = await restoreDeletedNote(
           vault,
-          activeConflict.fileId,
+          document.noteId ?? activeConflict.fileId,
           activeConflict.path,
           content,
           activeConflict.sourceTemplate ?? document.source,
@@ -65,7 +80,7 @@ export function ExternalConflictDialog() {
       } else if (vault) {
         const outcome = await writeNote(
           vault,
-          activeConflict.fileId,
+          document.noteId ?? activeConflict.fileId,
           content,
           backendGeneration,
           activeConflict.externalRevision ?? document.revision ?? "",
@@ -76,11 +91,30 @@ export function ExternalConflictDialog() {
           source: activeConflict.sourceTemplate ?? document.source,
         })
       } else await writeFile(activeConflict.path, content)
-      markSaved(activeConflict.fileId)
+      const hasNewerEdits =
+        useDocStore.getState().openDocs[activeConflict.fileId]?.content !== content
+      if (!hasNewerEdits) markSaved(activeConflict.fileId)
       clearExternalConflict(activeConflict.fileId)
-      emitAutosaveConflictResolution(activeConflict.fileId, "discard")
+      emitAutosaveConflictResolution(activeConflict.fileId, hasNewerEdits ? "resume" : "discard")
     } catch (err) {
       logger.error("external_conflict.keep_local_failed", { errorType: errorType(err) })
+      setError(t("conflict.saveFailed"))
+      if (vault && err instanceof NoteRevisionConflictError) {
+        try {
+          const external = await readNote(vault, document.noteId ?? activeConflict.fileId)
+          useDocStore.getState().setExternalConflict({
+            ...activeConflict,
+            localContent:
+              useDocStore.getState().openDocs[activeConflict.fileId]?.content ?? document.content,
+            externalContent: external.content,
+            externalRevision: external.revision,
+            sourceTemplate: external.source,
+          })
+          setError(t("conflict.changedAgain"))
+        } catch {
+          // Keep both versions and the error visible when rereading fails.
+        }
+      }
     } finally {
       setSaving(false)
     }
@@ -102,7 +136,7 @@ export function ExternalConflictDialog() {
   function mergeManually() {
     if (activeConflict.externalContent === null) return
     patchDoc(activeConflict.fileId, {
-      content: `<<<<<<< Local Amby\n${activeConflict.localContent}\n=======\n${activeConflict.externalContent}\n>>>>>>> External file\n`,
+      content: `<<<<<<< Local Amby\n${document.content}\n=======\n${activeConflict.externalContent}\n>>>>>>> External file\n`,
       revision: activeConflict.externalRevision,
       source: activeConflict.sourceTemplate ?? document.source,
     })
@@ -113,6 +147,7 @@ export function ExternalConflictDialog() {
 
   async function saveLocalCopy() {
     setSaving(true)
+    setError(null)
     try {
       const content =
         useDocStore.getState().openDocs[activeConflict.fileId]?.content ??
@@ -121,6 +156,7 @@ export function ExternalConflictDialog() {
       setCopyPath(savedPath)
     } catch (err) {
       logger.error("external_conflict.save_copy_failed", { errorType: errorType(err) })
+      setError(t("conflict.copyFailed"))
     } finally {
       setSaving(false)
     }
@@ -131,10 +167,13 @@ export function ExternalConflictDialog() {
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) closeConflictDialog()
+        if (!open && !saving) closeConflictDialog()
       }}
     >
-      <DialogContent showCloseButton className="max-w-4xl">
+      <DialogContent
+        showCloseButton={!saving}
+        className="max-h-[calc(100vh-3rem)] overflow-y-auto sm:max-w-3xl"
+      >
         <DialogHeader>
           <DialogTitle>{deleted ? t("conflict.deletedTitle") : t("conflict.title")}</DialogTitle>
           <DialogDescription>
@@ -142,52 +181,94 @@ export function ExternalConflictDialog() {
           </DialogDescription>
         </DialogHeader>
         {!deleted && (
-          <div className="grid max-h-80 grid-cols-1 gap-3 overflow-hidden md:grid-cols-2">
-            <section className="min-w-0 rounded-md border">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <section className="flex min-w-0 flex-col rounded-md border">
               <h3 className="border-b px-3 py-2 text-sm font-medium">
                 {t("conflict.localVersion")}
               </h3>
-              <pre className="max-h-60 overflow-auto whitespace-pre-wrap p-3 text-xs">
-                {activeConflict.localContent}
+              <pre className="max-h-60 min-h-24 flex-1 overflow-auto whitespace-pre-wrap p-3 text-xs">
+                {document.content}
               </pre>
+              <div className="space-y-2 border-t p-3">
+                <Button className="w-full" onClick={keepLocal} disabled={saving}>
+                  {saving ? t("conflict.saving") : t("conflict.saveLocal")}
+                </Button>
+                <p className="text-xs text-muted-foreground">{t("conflict.saveLocalHint")}</p>
+              </div>
             </section>
-            <section className="min-w-0 rounded-md border">
+            <section className="flex min-w-0 flex-col rounded-md border">
               <h3 className="border-b px-3 py-2 text-sm font-medium">
                 {t("conflict.externalVersion")}
               </h3>
-              <pre className="max-h-60 overflow-auto whitespace-pre-wrap p-3 text-xs">
+              <pre className="max-h-60 min-h-24 flex-1 overflow-auto whitespace-pre-wrap p-3 text-xs">
                 {activeConflict.externalContent}
               </pre>
+              <div className="space-y-2 border-t p-3">
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={acceptExternal}
+                  disabled={saving}
+                >
+                  {t("conflict.acceptExternal")}
+                </Button>
+                <p className="text-xs text-muted-foreground">{t("conflict.acceptExternalHint")}</p>
+              </div>
             </section>
           </div>
         )}
+        {!deleted && (
+          <details className="rounded-md border p-3">
+            <summary className="cursor-pointer text-sm font-medium">
+              {t("conflict.otherOptions")}
+            </summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={saveLocalCopy}
+                  disabled={saving}
+                >
+                  {t("conflict.saveCopy")}
+                </Button>
+                <p className="text-xs text-muted-foreground">{t("conflict.saveCopyHint")}</p>
+              </div>
+              <div className="space-y-2">
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={mergeManually}
+                  disabled={saving}
+                >
+                  {t("conflict.merge")}
+                </Button>
+                <p className="text-xs text-muted-foreground">{t("conflict.mergeHint")}</p>
+              </div>
+            </div>
+          </details>
+        )}
         {copyPath && (
-          <p className="text-sm text-muted-foreground">
+          <p role="status" className="text-sm text-muted-foreground">
             {t("conflict.localCopySaved", { path: copyPath })}
           </p>
         )}
-        <DialogFooter className="flex-wrap">
-          {!deleted && (
-            <Button variant="outline" onClick={mergeManually} disabled={saving}>
-              {t("conflict.merge")}
+        {error && (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        )}
+        {deleted && (
+          <DialogFooter>
+            <Button variant="outline" onClick={acceptExternal} disabled={saving}>
+              {t("conflict.keepOpen")}
             </Button>
-          )}
-          <Button variant="outline" onClick={acceptExternal} disabled={saving}>
-            {deleted ? t("conflict.keepOpen") : t("conflict.acceptExternal")}
-          </Button>
-          {!deleted && (
-            <Button variant="outline" onClick={saveLocalCopy} disabled={saving}>
-              {t("conflict.saveCopy")}
+            <Button onClick={keepLocal} disabled={saving}>
+              {saving ? t("conflict.saving") : t("conflict.restoreLocal")}
             </Button>
-          )}
-          <Button onClick={keepLocal} disabled={saving}>
-            {saving
-              ? t("conflict.saving")
-              : deleted
-                ? t("conflict.restoreLocal")
-                : t("conflict.saveLocal")}
-          </Button>
-        </DialogFooter>
+          </DialogFooter>
+        )}
+        <p className="text-xs text-muted-foreground">{t("conflict.dismissHint")}</p>
       </DialogContent>
     </Dialog>
   )

@@ -8,6 +8,7 @@ use crate::frontmatter;
 use crate::model::*;
 use crate::paths;
 use crate::recycle_bin;
+use crate::system_recycle_bin;
 use crate::vault_context::VaultContext;
 use crate::vault_index;
 use crate::watcher::{self, PathFingerprint, WatcherState};
@@ -880,7 +881,7 @@ pub fn delete_item(
             .map(|path| (path, PathFingerprint::Missing)),
     );
     let prepared = watcher_state.prepare_write(writes);
-    let result = match recycle_bin::move_to_trash(&vault, &path) {
+    let result = match system_recycle_bin::move_to_system_trash(&vault, &path) {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared);
             result
@@ -891,7 +892,6 @@ pub fn delete_item(
         }
     };
     let vault = db.root()?;
-    tracing::info!(event = "delete_item", path = %path.display());
     Ok(sync_mutation_result(&db, &vault, result))
 }
 

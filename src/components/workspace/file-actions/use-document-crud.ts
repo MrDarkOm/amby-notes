@@ -228,6 +228,9 @@ export function useDocumentCrud({
       let failed = 0
       try {
         for (const target of targets) {
+          const targetDocuments = affected.filter(
+            (document) => document.id === target.id || isPathInside(document.path, target.root),
+          )
           try {
             const result =
               resolution === "archive"
@@ -236,6 +239,25 @@ export function useDocumentCrud({
             handleApplyMutation(result)
             if (resolution === "archive") {
               window.dispatchEvent(new Event("amby:archive-changed"))
+            }
+            for (const document of targetDocuments) {
+              autosave.discard(autosaveKey(document.id))
+              useDocStore.getState().clearExternalConflict(document.id)
+              if (
+                resolution === "keep_recovery" ||
+                (resolution === "archive" && hasDirtyDocuments)
+              ) {
+                void saveRecoveryDraft(
+                  document.id,
+                  document.content,
+                  "markdown",
+                  document.path,
+                  recoveryScope,
+                )
+              } else {
+                void discardRecoveryDraft(document.id, recoveryScope)
+                void discardRecoveryDraft(document.path, recoveryScope)
+              }
             }
           } catch (error) {
             failed += 1

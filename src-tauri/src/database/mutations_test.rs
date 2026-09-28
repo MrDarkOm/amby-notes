@@ -1174,7 +1174,10 @@ fn creates_standalone_database_with_named_json_file() {
 
 #[test]
 fn st04_batch_write_failure_rolls_back_first_file() {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    #[cfg(windows)]
+    use std::os::windows::fs::OpenOptionsExt;
 
     let vault = temp_vault();
     let watcher = WatcherState::new();
@@ -1218,9 +1221,18 @@ fn st04_batch_write_failure_rolls_back_first_file() {
     let note2_orig = format!("---\namby-id: {note2_id}\nStatus: Old2\n---\n\nBody 2\n");
     fs::write(&note2_path, &note2_orig).unwrap();
 
-    // Make sub_dir read-only so write to note2 will fail
+    // Unix denies creation of the replacement file. Windows permits reads
+    // but denies replacing an open file without FILE_SHARE_DELETE.
+    #[cfg(unix)]
     let orig_perms = fs::metadata(&sub_dir).unwrap().permissions();
+    #[cfg(unix)]
     fs::set_permissions(&sub_dir, fs::Permissions::from_mode(0o555)).unwrap();
+    #[cfg(windows)]
+    let locked_note = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1) // FILE_SHARE_READ
+        .open(&note2_path)
+        .unwrap();
 
     let batch_req = DatabaseValueBatchRequest {
         expected_generation: 1,
@@ -1266,9 +1278,13 @@ fn st04_batch_write_failure_rolls_back_first_file() {
         note1_after, note1_orig,
         "Note 1 must be rolled back to original content after batch failure"
     );
+    assert_eq!(fs::read_to_string(&note2_path).unwrap(), note2_orig);
 
     // Restore permissions for cleanup
+    #[cfg(unix)]
     fs::set_permissions(&sub_dir, orig_perms).unwrap();
+    #[cfg(windows)]
+    drop(locked_note);
     let _ = fs::remove_dir_all(vault);
 }
 

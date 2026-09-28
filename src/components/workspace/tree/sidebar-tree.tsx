@@ -161,10 +161,18 @@ export function SidebarTree({
     // frame is essential for nested creation: focusing the parent row after
     // the input mounts would blur it and immediately commit the default name.
     if (!keyboardFocusId || editingId) return
+    const ownsFocus = () => {
+      const active = document.activeElement
+      return !active || active === document.body || scrollRef.current?.contains(active)
+    }
+    // Saved metadata replaces flatRows too. Only restore a row's focus while
+    // the tree owns it; an editor or another panel may now be receiving input.
+    if (!ownsFocus()) return
     const index = flatRows.findIndex((row) => row.item.id === keyboardFocusId)
     if (index === -1) return
     virtualizer.scrollToIndex(index, { align: "auto" })
     const frame = requestAnimationFrame(() => {
+      if (!ownsFocus()) return
       const row = Array.from(
         scrollRef.current?.querySelectorAll<HTMLElement>("[data-tree-item-id]") ?? [],
       ).find((element) => element.dataset.treeItemId === keyboardFocusId)

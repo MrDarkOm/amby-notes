@@ -2955,25 +2955,25 @@ html[data-accent="sky"] {
   --tree-gradient-end: hsl(173 80% 40%);
 }
 html[data-accent="teal"] {
-  --primary: 173 84% 31%;
+  --primary: 173 80% 40%;
   --primary-foreground: 0 0% 100%;
-  --ring: 173 84% 31%;
-  --tree-gradient-start: hsl(173 84% 31%);
-  --tree-gradient-end: hsl(160 84% 30%);
+  --ring: 173 80% 40%;
+  --tree-gradient-start: hsl(173 80% 40%);
+  --tree-gradient-end: hsl(160 84% 39%);
 }
 html[data-accent="emerald"] {
-  --primary: 160 84% 30%;
+  --primary: 160 84% 39%;
   --primary-foreground: 0 0% 100%;
-  --ring: 160 84% 30%;
-  --tree-gradient-start: hsl(160 84% 30%);
-  --tree-gradient-end: hsl(35 92% 34%);
+  --ring: 160 84% 39%;
+  --tree-gradient-start: hsl(160 84% 39%);
+  --tree-gradient-end: hsl(38 92% 50%);
 }
 html[data-accent="amber"] {
-  --primary: 35 92% 34%;
-  --primary-foreground: 0 0% 100%;
-  --ring: 35 92% 34%;
-  --tree-gradient-start: hsl(35 92% 34%);
-  --tree-gradient-end: hsl(350 89% 50%);
+  --primary: 38 92% 50%;
+  --primary-foreground: 31 40% 12%;
+  --ring: 38 92% 50%;
+  --tree-gradient-start: hsl(38 92% 50%);
+  --tree-gradient-end: hsl(350 89% 60%);
 }
 html[data-accent="rose"] {
   --primary: 350 89% 60%;

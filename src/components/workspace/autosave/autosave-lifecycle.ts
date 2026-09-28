@@ -1,7 +1,7 @@
 import { flushAllRecoveryDrafts } from "@/lib/recovery-drafts"
 import type { RecoveryScope } from "@/lib/recovery-drafts"
 import { flushEditorSerializations } from "../tiptap/editor-serialization-lifecycle"
-import type { AutosavePendingState } from "./autosave-coordinator"
+import type { AutosaveKey, AutosavePendingState } from "./autosave-coordinator"
 
 /** Coordinates editor-owned autosave queues at vault lifecycle boundaries. */
 export interface AutosaveLifecycleParticipant {
@@ -12,6 +12,8 @@ export interface AutosaveLifecycleParticipant {
   hasDirtyBuffers(): boolean
   /** Read-only inspection; never flushes editor state or accesses note contents. */
   inspect?(): AutosavePendingState[]
+  /** Wait for active transports only; never flush queued edits. */
+  waitForInFlight?(key: AutosaveKey): Promise<void>
 }
 
 export interface AutosaveFlushResult {
@@ -20,6 +22,14 @@ export interface AutosaveFlushResult {
 }
 
 const participants = new Set<AutosaveLifecycleParticipant>()
+
+export async function waitForInFlightAutosave(key: AutosaveKey): Promise<void> {
+  await Promise.all(
+    [...participants]
+      .filter((participant) => participant.generation === key.generation)
+      .map((participant) => participant.waitForInFlight?.(key)),
+  )
+}
 
 export function inspectAutosaveGeneration(generation: number) {
   const current = [...participants].filter((participant) => participant.generation === generation)

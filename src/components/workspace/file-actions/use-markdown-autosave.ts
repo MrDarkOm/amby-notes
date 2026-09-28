@@ -118,9 +118,13 @@ export function useMarkdownAutosave({
             windowLabel,
             snapshot.operationId,
           )
+          // Publish the CAS baseline as soon as the filesystem write completes.
+          // Property loading must not leave watcher reads using an older revision.
+          if (snapshot.key.generation !== generationRef.current) return
+          useDocStore.getState().patchDoc(snapshot.value.fileId, { revision: outcome.revision })
           const updatedProperties = await getNoteProperties(activeVault, noteId).catch(() => null)
+          if (snapshot.key.generation !== generationRef.current) return
           useDocStore.getState().patchDoc(snapshot.value.fileId, {
-            revision: outcome.revision,
             ...(updatedProperties ? { noteProperties: updatedProperties } : {}),
           })
         } catch (error) {
@@ -191,6 +195,7 @@ export function useMarkdownAutosave({
             .inspectAll()
             .some((state) => state.key.generation === autosaveGeneration && state.dirty),
         inspect: () => autosave.inspectAll(),
+        waitForInFlight: (key) => autosave.waitForInFlight(key),
       }),
     [autosave, autosaveGeneration, recoveryScope],
   )

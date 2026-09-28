@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 
-import { act, renderHook } from "@testing-library/react"
+import { act, cleanup, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useMarkdownAutosave } from "./use-markdown-autosave"
+import * as storage from "@/lib/storage"
 
 describe("useMarkdownAutosave", () => {
   beforeEach(() => {
@@ -15,11 +16,69 @@ describe("useMarkdownAutosave", () => {
   })
 
   afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
     useDocStore.setState({
       openDocs: {},
       unsavedFileIds: new Set(),
       externalConflicts: {},
     })
+  })
+
+  it("publishes a successful save revision before slow property loading completes", async () => {
+    const doc: Document = {
+      id: "note-1",
+      title: "Note",
+      path: "/vault/Note.md",
+      content: "saved",
+      source: "saved",
+      revision: "before",
+      created: "",
+      modified: "",
+      wordCount: 1,
+    }
+    useDocStore.getState().setDoc(doc.id, doc)
+    vi.spyOn(storage, "writeNote").mockResolvedValue({
+      path: doc.path,
+      revision: "after",
+      indexState: "healthy",
+      warnings: [],
+    })
+    let finishProperties!: () => void
+    vi.spyOn(storage, "getNoteProperties").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishProperties = () =>
+            resolve({ hasFrontmatter: false, properties: [], customProperties: [] })
+        }),
+    )
+    const { result } = renderHook(() =>
+      useMarkdownAutosave({
+        vault: "/vault",
+        autosaveGeneration: 1,
+        backendGeneration: 1,
+        windowLabel: "main",
+        applyMutationResult: vi.fn(),
+      }),
+    )
+    act(() => result.current.handleContentChange(doc.id, "new text"))
+    let saving!: Promise<void>
+    act(() => {
+      saving = result.current.autosave.flush(result.current.autosaveKey(doc.id))
+    })
+    await vi.waitFor(() => expect(useDocStore.getState().openDocs[doc.id].revision).toBe("after"))
+    expect(result.current.autosave.inspect(result.current.autosaveKey(doc.id))?.inFlight).toBe(true)
+    act(() => result.current.handleContentChange(doc.id, "newer unsaved text"))
+    expect(useDocStore.getState().unsavedFileIds.has(doc.id)).toBe(true)
+    // Finish only the first save, leaving the newer edit queued.
+    result.current.autosave.pause(result.current.autosaveKey(doc.id))
+    await act(async () => {
+      finishProperties()
+      await saving
+    })
+    expect(useDocStore.getState().openDocs[doc.id].content).toBe("newer unsaved text")
+    expect(useDocStore.getState().unsavedFileIds.has(doc.id)).toBe(true)
+    result.current.autosave.cancelGeneration(1)
   })
 
   it("does not mark document unsaved or schedule autosave when content is identical", () => {

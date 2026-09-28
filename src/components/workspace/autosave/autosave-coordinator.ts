@@ -132,6 +132,17 @@ export class AutosaveCoordinator<T> {
     await Promise.all([...this.states.values()].map((state) => this.flush(state.key)))
   }
 
+  /** Observe writes already running without starting a queued edit or retry. */
+  async waitForInFlight(key: AutosaveKey): Promise<void> {
+    while (true) {
+      const inFlight = this.states.get(keyId(key))?.inFlight
+      if (!inFlight) return
+      // Failure is handled by the save owner. Watcher reconciliation still
+      // needs to read the disk after the failed transport has settled.
+      await inFlight.catch(() => {})
+    }
+  }
+
   cancelGeneration(generation: number): void {
     for (const [id, state] of this.states) {
       if (state.key.generation !== generation) continue

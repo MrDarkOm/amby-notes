@@ -4,6 +4,7 @@ import {
   flushAutosaveGeneration,
   registerAutosaveLifecycle,
   inspectAutosaveGeneration,
+  waitForInFlightAutosave,
 } from "./autosave-lifecycle"
 import { AutosaveCoordinator, type AutosaveKey } from "./autosave-coordinator"
 import { registerEditorSerialization } from "../tiptap/editor-serialization-lifecycle"
@@ -14,6 +15,31 @@ describe("autosave lifecycle", () => {
   const unregister: Array<() => void> = []
 
   afterEach(() => unregister.splice(0).forEach((dispose) => dispose()))
+
+  it("observes only in-flight transports in the selected generation without flushing", async () => {
+    const flush = vi.fn(async () => {})
+    const activeWait = vi.fn(async () => {})
+    const staleWait = vi.fn(async () => {})
+    for (const [generation, waitForInFlight] of [
+      [42, activeWait],
+      [41, staleWait],
+    ] as const) {
+      unregister.push(
+        registerAutosaveLifecycle({
+          generation,
+          flush,
+          cancel: vi.fn(),
+          hasDirtyBuffers: () => true,
+          waitForInFlight,
+        }),
+      )
+    }
+    const key = { generation: 42, kind: "markdown" as const, documentId: "note" }
+    await waitForInFlightAutosave(key)
+    expect(activeWait).toHaveBeenCalledWith(key)
+    expect(staleWait).not.toHaveBeenCalled()
+    expect(flush).not.toHaveBeenCalled()
+  })
 
   it("inspects current queue counters without flushing or exposing document identity", () => {
     const flush = vi.fn(async () => {})

@@ -163,7 +163,8 @@ export const TreeNode = React.memo(
       if (!isSelected) onContextMenuSelect?.(item.id)
     }
 
-    const folderCounts = item.type === "folder" ? countFolderContents(item) : undefined
+    const folderCounts =
+      item.type === "folder" || hasChildren ? countFolderContents(item) : undefined
     const folderContentsTooltip = folderCounts
       ? t("tree.folderContents", {
           files: folderCounts.notes,
@@ -623,6 +624,7 @@ export const TreeNode = React.memo(
               data-tree-reorder-target-path={item.path}
               data-tree-move-target={canReceiveMove ? item.id : undefined}
               className={cn(isDragTarget && "rounded bg-accent ring-1 ring-inset ring-ring")}
+              title={folderContentsTooltip}
               onContextMenu={handleContextMenu}
             >
               {isEditing ? (

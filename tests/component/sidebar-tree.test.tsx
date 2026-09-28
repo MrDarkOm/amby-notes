@@ -47,6 +47,42 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe("sidebar tree interactions", () => {
+  it("keeps editor focus when saved metadata refreshes the tree", async () => {
+    const props = { items, selectedId: "leaf", onSelect: vi.fn() }
+    const view = render(
+      <>
+        <SidebarTree {...props} />
+        <textarea aria-label="Editor fixture" />
+      </>,
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    const editor = screen.getByRole("textbox", { name: "Editor fixture" })
+    editor.focus()
+    view.rerender(
+      <>
+        <SidebarTree {...props} items={structuredClone(items)} />
+        <textarea aria-label="Editor fixture" />
+      </>,
+    )
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    expect(document.activeElement).toBe(editor)
+  })
+
+  it("still moves focus between tree rows with the keyboard", async () => {
+    render(<SidebarTree items={items} selectedId="leaf" onSelect={vi.fn()} />)
+    const leaf = screen.getByRole("treeitem", { name: "Leaf" })
+    leaf.focus()
+    fireEvent.keyDown(leaf, { key: "ArrowUp" })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 60))
+    })
+    expect(document.activeElement).toBe(screen.getByRole("treeitem", { name: "Child" }))
+  })
+
   it.each(["Leaf", "Parent", "Projects"])(
     "creates a note inside the context-menu target %s",
     async (name) => {

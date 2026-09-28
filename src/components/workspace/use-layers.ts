@@ -243,6 +243,17 @@ export function useLayers({
       return
     }
     try {
+      // Switching an existing layer is a view change. Only missing layers need
+      // filesystem mutations and a vault tree refresh.
+      let linkedLayers = useViewStateStore.getState().linkedLayersByDoc[doc.id]
+      if (!linkedLayers) {
+        linkedLayers = await noteLayers(doc.path)
+        setLinkedLayers(doc.id, linkedLayers)
+      }
+      if (linkedLayers[layer]) {
+        setActiveLayer(doc.id, layer)
+        return
+      }
       const result = await createLayer(doc.path, layer)
       recordLocalTreePaths([
         result.notePath,

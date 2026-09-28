@@ -201,6 +201,15 @@ describe("useDocStore external conflicts", () => {
     expect(useDocStore.getState().activeConflictDialogFileId).toBeNull()
     expect(useDocStore.getState().externalConflicts["doc-1"]).toBeDefined()
 
+    // Further events update the comparison without reopening a dismissed dialog.
+    useDocStore.getState().setExternalConflict({
+      fileId: "doc-1",
+      path: "/vault/Doc1.md",
+      localContent: "newer local draft",
+      externalContent: "newer external version",
+    })
+    expect(useDocStore.getState().activeConflictDialogFileId).toBeNull()
+
     // Re-open dialog for doc-1
     useDocStore.getState().openConflictDialog("doc-1")
     expect(useDocStore.getState().activeConflictDialogFileId).toBe("doc-1")

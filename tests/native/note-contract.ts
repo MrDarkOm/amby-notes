@@ -4,6 +4,8 @@ import { StorageOperationError } from "../../src/lib/storage/operation-error"
 import { joinStoragePath } from "../../src/lib/storage/storage-path"
 import { settingsRepository } from "../../src/lib/storage"
 import type { StorageContractContext } from "../../src/lib/storage/storage-contract"
+import { AutosaveCoordinator } from "../../src/components/workspace/autosave/autosave-coordinator"
+import { isUnchangedNoteRevision } from "../../src/components/workspace/external-note-reconciliation"
 
 function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -13,6 +15,52 @@ export const nativeNoteCases: Array<{
   name: string
   run: (context: StorageContractContext) => Promise<void>
 }> = [
+  {
+    name: "rapid native typing and deletion keep saved revisions distinct from external edits",
+    async run({ adapter, vaultPath }) {
+      const created = await adapter.createNote(vaultPath, vaultPath, "Rapid Editing")
+      const id = created.primaryId!
+      const loaded = await adapter.loadActiveVaultData()
+      let revision = (await adapter.readNote(vaultPath, id)).revision
+      const key = { generation: loaded.generation, kind: "markdown" as const, documentId: id }
+      const coordinator = new AutosaveCoordinator<string>({
+        delayMs: 500,
+        save: async (snapshot) => {
+          const saved = await adapter.writeNote(
+            vaultPath,
+            id,
+            snapshot.value,
+            loaded.generation,
+            revision,
+            "main",
+          )
+          revision = saved.revision
+        },
+      })
+      const text = "# Заметка\n\nБыстрый ввод 日本語"
+      for (const length of [4, 10, text.length, 10, 4, 0]) {
+        const content = text.slice(0, length)
+        coordinator.enqueueImmediate(key, content)
+        await coordinator.waitForInFlight(key)
+        const disk = await adapter.readNote(vaultPath, id)
+        check(disk.content === content, "Native save keeps the latest typed/deleted content")
+        check(
+          isUnchangedNoteRevision(disk.revision, revision, revision),
+          "A delayed watcher read of our own save is unchanged even with a newer editor draft",
+        )
+        check(!coordinator.inspect(key)?.dirty, "Native save completes without a CAS conflict")
+      }
+      await adapter.writeFile(
+        created.primaryPath!,
+        `---\namby-id: ${id}\n---\nChanged in another app\n`,
+      )
+      const external = await adapter.readNote(vaultPath, id)
+      check(
+        !isUnchangedNoteRevision(external.revision, revision, revision),
+        "A real external edit remains a conflict",
+      )
+    },
+  },
   {
     name: "native note save emits a real event and survives vault reactivation",
     async run({ adapter, vaultPath }) {

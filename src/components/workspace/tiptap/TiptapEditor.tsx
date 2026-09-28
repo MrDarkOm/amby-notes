@@ -175,6 +175,10 @@ export function TiptapEditor({
   // markdownToDoc(value) inline to useEditor made every parent render parse a
   // large note again, including a simple tab activation.
   const [initialContent] = React.useState(() => markdownToDoc(value))
+  // useEditor compares option references on every React render. An inline
+  // editorProps object reapplies DOM props and editor state even when only
+  // autosave metadata changed. Leave the focused editor DOM untouched.
+  const editorProps = React.useMemo(() => ({ attributes: { class: "amby-tiptap-prose" } }), [])
 
   const closeMenu = React.useCallback(() => {
     setMenu((prev) => (prev.open ? { ...prev, open: false } : prev))
@@ -189,9 +193,7 @@ export function TiptapEditor({
       // effect below still handles vault/note changes for a mounted editor.
       setAssetContext(editor, { vaultPath: vaultPath ?? "", notePath: notePath ?? "" })
     },
-    editorProps: {
-      attributes: { class: "amby-tiptap-prose" },
-    },
+    editorProps,
     onTransaction: ({ transaction }) => {
       if (transaction.getMeta("uiEvent") || transaction.getMeta("pointer")) {
         userInteractedRef.current = true

@@ -130,7 +130,9 @@ export const useDocStore = create<DocStore>((set) => ({
   setExternalConflict: (conflict) =>
     set((s) => ({
       externalConflicts: { ...s.externalConflicts, [conflict.fileId]: conflict },
-      activeConflictDialogFileId: s.activeConflictDialogFileId ?? conflict.fileId,
+      activeConflictDialogFileId:
+        s.activeConflictDialogFileId ??
+        (s.externalConflicts[conflict.fileId] ? null : conflict.fileId),
     })),
 
   clearExternalConflict: (fileId) =>

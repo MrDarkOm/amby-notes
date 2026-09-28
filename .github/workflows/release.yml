@@ -25,7 +25,8 @@ jobs:
             rust-targets: x86_64-apple-darwin
           - name: Linux x64
             platform: ubuntu-22.04
-            args: --config src-tauri/tauri.release.conf.json
+            # AppImage updates require no package-manager authorization dialog.
+            args: --config src-tauri/tauri.release.conf.json --bundles appimage
             rust-targets: ""
           - name: Windows x64
             platform: windows-latest

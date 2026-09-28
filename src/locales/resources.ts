@@ -528,7 +528,7 @@ const ru = {
     },
     updates: {
       autoUpdate: "Автообновление",
-      autoUpdateHint: "Проверять при запуске и предлагать установку новой версии",
+      autoUpdateHint: "При запуске устанавливать новую версию и перезапускаться без уведомлений",
       currentVersion: "Текущая версия",
       check: "Проверка обновлений",
       checkAction: "Проверить",
@@ -543,8 +543,6 @@ const ru = {
       installing: "Установка обновления…",
       restarting: "Перезапуск приложения…",
       error: "Не удалось проверить или установить обновление. Повторите попытку позже.",
-      autoInstallPrompt:
-        "Доступна версия Amby {{version}}. Установить её сейчас? Приложение будет перезапущено.",
     },
     data: {
       location: "Папка настроек",
@@ -1199,16 +1197,30 @@ const ru = {
     deletedDescription: "Вкладка остаётся открытой. Сохранение локальной версии восстановит файл.",
     description:
       "Файл был изменён в другой программе, пока в Amby оставались несохранённые правки.",
-    localVersion: "Локальная версия",
-    externalVersion: "Внешняя версия",
+    localVersion: "В Amby — несохранённые правки",
+    externalVersion: "В файле на диске",
     localCopySaved: "Локальная копия сохранена: {{path}}",
     merge: "Объединить вручную",
     keepOpen: "Оставить вкладку открытой",
-    acceptExternal: "Принять внешнюю",
-    saveCopy: "Сохранить копию",
+    acceptExternal: "Загрузить текст с диска",
+    acceptExternalHint:
+      "Заменит текст в этой вкладке. Несохранённые правки из Amby будут потеряны.",
+    saveCopy: "Сохранить правки отдельным файлом",
+    saveCopyHint:
+      "Создаст копию текста из Amby рядом с исходным файлом. Конфликт останется открытым.",
     saving: "Сохранение…",
     restoreLocal: "Восстановить локальную",
-    saveLocal: "Сохранить локальную",
+    saveLocal: "Сохранить текст из Amby",
+    saveLocalHint: "Заменит текст исходного файла на диске правками из Amby.",
+    otherOptions: "Другие варианты",
+    mergeHint:
+      "Поместит обе версии в заметку с разделителями. Отредактируйте текст, чтобы объединить правки.",
+    dismissHint:
+      "Можно закрыть окно и решить позже. Правки останутся в Amby, автосохранение будет приостановлено.",
+    saveFailed:
+      "Не удалось сохранить текст. Обе версии сохранены в окне конфликта. Попробуйте ещё раз.",
+    copyFailed: "Не удалось создать копию. Попробуйте ещё раз.",
+    changedAgain: "Файл снова изменился. Версия с диска обновлена — сравните её перед сохранением.",
   },
   tagsPanel: {
     search: "Поиск тегов",
@@ -2437,7 +2449,7 @@ const en: typeof ru = {
     },
     updates: {
       autoUpdate: "Automatic updates",
-      autoUpdateHint: "Check at startup and offer to install a new version",
+      autoUpdateHint: "Install a new version at startup and restart without notifications",
       currentVersion: "Current version",
       check: "Check for updates",
       checkAction: "Check now",
@@ -2452,7 +2464,6 @@ const en: typeof ru = {
       installing: "Installing update…",
       restarting: "Restarting the app…",
       error: "Could not check for or install the update. Try again later.",
-      autoInstallPrompt: "Amby {{version}} is available. Install it now? The app will restart.",
     },
     data: {
       location: "Settings folder",
@@ -3104,16 +3115,29 @@ const en: typeof ru = {
     title: "External conflict detected",
     deletedDescription: "The tab remains open. Saving the local version will restore the file.",
     description: "The file changed in another app while Amby had unsaved edits.",
-    localVersion: "Local version",
-    externalVersion: "External version",
+    localVersion: "In Amby — unsaved edits",
+    externalVersion: "In the file on disk",
     localCopySaved: "Local copy saved: {{path}}",
     merge: "Merge manually",
     keepOpen: "Keep tab open",
-    acceptExternal: "Accept external",
-    saveCopy: "Save copy",
+    acceptExternal: "Load text from disk",
+    acceptExternalHint: "Replaces the text in this tab. Unsaved edits in Amby will be lost.",
+    saveCopy: "Save edits as a separate file",
+    saveCopyHint:
+      "Creates a copy of the Amby text next to the original file. The conflict stays open.",
     saving: "Saving…",
     restoreLocal: "Restore local",
-    saveLocal: "Save local",
+    saveLocal: "Save text from Amby",
+    saveLocalHint: "Replaces the text in the original file on disk with the edits from Amby.",
+    otherOptions: "Other options",
+    mergeHint:
+      "Puts both versions in the note with separators. Edit the text to combine the changes.",
+    dismissHint:
+      "You can close this dialog and decide later. Your edits stay in Amby and autosave stays paused.",
+    saveFailed: "Could not save the text. Both versions remain in the conflict dialog. Try again.",
+    copyFailed: "Could not create a copy. Try again.",
+    changedAgain:
+      "The file changed again. The disk version was refreshed — compare it before saving.",
   },
   tagsPanel: {
     search: "Search tags",

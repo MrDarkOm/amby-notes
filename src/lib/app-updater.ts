@@ -1,11 +1,14 @@
 import type { DownloadEvent, Update } from "@tauri-apps/plugin-updater"
+import { getCurrentWindow } from "@tauri-apps/api/window"
 import packageJson from "../../package.json"
-import i18n from "@/lib/i18n"
 import { errorType, logger } from "@/lib/logger"
-import { confirmAction, isTauri } from "@/lib/storage"
+import { isTauri } from "@/lib/storage"
 
 const CHECK_TIMEOUT_MS = 30_000
+const STARTUP_CHECK_TIMEOUT_MS = 5_000
 const DOWNLOAD_TIMEOUT_MS = 10 * 60_000
+
+export type StartupUpdateResult = "ready" | "restarting"
 
 export type UpdateInstallProgress =
   | { phase: "downloading"; percent: number | null }
@@ -78,36 +81,47 @@ function wrapUpdate(update: Update): AvailableAppUpdate {
   }
 }
 
-export async function checkForAppUpdate(): Promise<AvailableAppUpdate | null> {
+export async function checkForAppUpdate(
+  timeoutMs = CHECK_TIMEOUT_MS,
+): Promise<AvailableAppUpdate | null> {
   if (!isAppUpdaterAvailable()) return null
   const { check } = await import("@tauri-apps/plugin-updater")
-  const update = await check({ timeout: CHECK_TIMEOUT_MS })
+  const update = await check({ timeout: timeoutMs })
   return update ? wrapUpdate(update) : null
 }
 
-let automaticCheckStarted = false
+let automaticUpdateTask: Promise<StartupUpdateResult> | null = null
 
 /**
- * Checks once per main-window launch. Installation always requires a user
- * confirmation because the Windows updater exits the app during installation.
+ * Shared startup task: StrictMode and repeated subscriptions must await the
+ * same check/install rather than opening the workspace while it is running.
+ * The update endpoint request itself checks connectivity (including DNS/TLS);
+ * no unrelated ping service or unreliable navigator.onLine hint is needed.
  */
-export async function runAutomaticAppUpdate(): Promise<void> {
-  if (automaticCheckStarted || import.meta.env.DEV || !isAppUpdaterAvailable()) return
-  automaticCheckStarted = true
+export function runAutomaticAppUpdate(): Promise<StartupUpdateResult> {
+  if (import.meta.env.DEV || !isAppUpdaterAvailable()) return Promise.resolve("ready")
+  automaticUpdateTask ??= installStartupUpdate()
+  return automaticUpdateTask
+}
 
+async function installStartupUpdate(): Promise<StartupUpdateResult> {
   let update: AvailableAppUpdate | null = null
   try {
-    update = await checkForAppUpdate()
-    if (!update) return
-
-    const accepted = await confirmAction(
-      i18n.t("settings.updates.autoInstallPrompt", { version: update.version }),
-    )
-    if (!accepted) return
+    if (getCurrentWindow().label !== "main") return "ready"
+    const { getBundleType } = await import("@tauri-apps/api/app")
+    const bundleType = await getBundleType()
+    // Linux package installs invoke pkexec/GUI sudo inside the native updater.
+    // Keep those explicit in settings; portable AppImage updates stay silent.
+    if (bundleType === "deb" || bundleType === "rpm") return "ready"
+    update = await checkForAppUpdate(STARTUP_CHECK_TIMEOUT_MS)
+    if (!update) return "ready"
 
     await update.install()
+    // Keep the old workspace unopened while the process is being replaced.
+    return "restarting"
   } catch (error) {
     logger.warn("updater.automatic_update_failed", { errorType: errorType(error) })
+    return "ready"
   } finally {
     await update?.close().catch(() => {})
   }

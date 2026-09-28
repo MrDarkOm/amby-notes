@@ -12,7 +12,7 @@ import { StandaloneSettingsWindow } from "./components/workspace/settings-dialog
 import { MotionConfig } from "motion/react"
 import { MotionPulse } from "./lib/motion"
 import { motionTransitions } from "./lib/motion-config"
-import { runAutomaticAppUpdate } from "./lib/app-updater"
+import { runAutomaticAppUpdate, type StartupUpdateResult } from "./lib/app-updater"
 
 const isSettingsWindow = new URLSearchParams(window.location.search).get("ambyView") === "settings"
 
@@ -20,13 +20,24 @@ function PreferencesGate() {
   const preferencesReady = useApplyPreferences()
   const windowStateReady = useWindowStatePersistence(!isSettingsWindow)
   const autoUpdate = useSettingsStore((state) => state.prefs.updates.autoUpdate)
+  const startupUpdateRef = React.useRef<Promise<StartupUpdateResult> | null>(null)
+  const [startupUpdateReady, setStartupUpdateReady] = React.useState(isSettingsWindow)
 
   React.useEffect(() => {
-    if (!preferencesReady || isSettingsWindow || !autoUpdate) return
-    void runAutomaticAppUpdate()
+    if (!preferencesReady || isSettingsWindow) return
+    // Snapshot the hydrated preference once. Enabling automatic updates while
+    // notes are open takes effect on the next launch, avoiding a surprise exit.
+    startupUpdateRef.current ??= autoUpdate ? runAutomaticAppUpdate() : Promise.resolve("ready")
+    let cancelled = false
+    void startupUpdateRef.current.then((result) => {
+      if (!cancelled && result === "ready") setStartupUpdateReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [autoUpdate, preferencesReady])
 
-  if (!preferencesReady || !windowStateReady) {
+  if (!preferencesReady || !windowStateReady || !startupUpdateReady) {
     return (
       <main
         aria-busy="true"

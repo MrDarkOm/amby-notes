@@ -36,6 +36,51 @@ async function settle() {
 afterEach(() => vi.useRealTimers())
 
 describe("AutosaveCoordinator", () => {
+  it("waits for an active write without flushing the newer queued edit", async () => {
+    vi.useFakeTimers()
+    const pending = deferred()
+    const save = vi.fn(() => pending.promise)
+    const coordinator = new AutosaveCoordinator<string>({ delayMs: 500, save })
+    const key = markdownKey("note")
+    coordinator.enqueueImmediate(key, "first")
+    await settle()
+    coordinator.schedule(key, "newer draft")
+    const finished = vi.fn()
+    const waiting = coordinator.waitForInFlight(key).then(finished)
+    await settle()
+    expect(finished).not.toHaveBeenCalled()
+    pending.resolve()
+    await waiting
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(coordinator.inspect(key)).toMatchObject({
+      dirty: true,
+      scheduled: true,
+      inFlight: false,
+    })
+  })
+
+  it("does not start a pending save or retry a failed write while waiting for watcher reads", async () => {
+    vi.useFakeTimers()
+    const failure = new Error("write failed")
+    const pending = deferred()
+    const onSaveFailure = vi.fn()
+    const save = vi.fn(() => pending.promise)
+    const coordinator = new AutosaveCoordinator<string>({ delayMs: 500, save, onSaveFailure })
+    const key = markdownKey("note")
+    coordinator.schedule(key, "draft")
+    await coordinator.waitForInFlight(key)
+    expect(save).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(500)
+    await settle()
+    const waiting = coordinator.waitForInFlight(key)
+    pending.reject(failure)
+    await waiting
+    expect(onSaveFailure).toHaveBeenCalledWith(expect.anything(), failure)
+    await coordinator.waitForInFlight(key)
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(coordinator.inspect(key)).toMatchObject({ dirty: true, lastError: failure })
+  })
+
   it("measures queue and save separately while preserving explicit correlation", async () => {
     vi.useFakeTimers()
     const pending = deferred()

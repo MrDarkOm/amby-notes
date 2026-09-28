@@ -238,6 +238,15 @@ can preserve the local text before
 accepting an external version. An externally deleted open document is never closed silently; its
 local version can be restored by an explicit save.
 
+Renderer reconciliation waits for already-running autosaves without flushing
+queued edits. It compares disk revisions with the saved baseline rather than
+newer dirty editor text, and ignores a read of the baseline captured before a
+local save completed. A genuinely different revision still pauses autosave.
+The conflict dialog may be dismissed without resolving the conflict: local
+edits and recovery drafts remain, autosave stays paused, and the note's warning
+banner can reopen the comparison. Further events update a dismissed conflict
+without reopening it automatically.
+
 Deletion is classified after the coalesced tree refresh by the stable note ID,
 not only by the platform-specific raw watcher event (`remove` versus `rename`).
 While a Markdown buffer is open, Amby retains its last complete source as an
@@ -276,10 +285,16 @@ restores or completes an interrupted operation before history is used again.
 This history is application metadata; the Markdown vault remains the source of
 truth.
 
-Deletes made through Amby are moves to `.amby/trash/`, including Canvas,
-Excalidraw, and database layers. They remain restorable from the History panel
-and are never delegated solely to an OS recycle bin that may be emptied outside
-the app.
+The explicit Delete action moves a note, folder, or complete bundle to the
+operating system's trash; restoration uses that system's trash interface.
+Amby does not keep a second vault-local copy for this action. A failed system
+trash operation is reported rather than silently deleting the item permanently.
+
+Archive remains a separate action that moves items to `.amby/trash/`, including
+Canvas, Excalidraw, and database layers, and can be restored inside Amby. After
+a successful delete/archive, queued saves for affected open documents are
+discarded so they cannot recreate the removed files. Unsaved editor text is
+retained in recovery drafts when the chosen resolution requires it.
 
 ## Recovery journal
 
