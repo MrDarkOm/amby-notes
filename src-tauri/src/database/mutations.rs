@@ -2124,10 +2124,7 @@ fn resolve_note_path_for_id_optional(
             let file_name = e.file_name().to_string_lossy();
             if e.file_type().is_dir() {
                 // Do not descend into service directories
-                if matches!(
-                    file_name.as_ref(),
-                    ".amby" | ".obsidian" | ".git" | ".trash" | "assets" | ".ambd"
-                ) {
+                if crate::vault::scan::is_service_directory(file_name.as_ref()) {
                     return false;
                 }
                 // Do not descend into nested database containers

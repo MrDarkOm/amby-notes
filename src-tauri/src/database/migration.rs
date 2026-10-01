@@ -407,7 +407,7 @@ pub fn execute_migration(
     let journal_path = backup_dir.join("journal.json");
     let write_journal = |journal: &MigrationJournal| -> Result<(), String> {
         let bytes = serde_json::to_vec_pretty(journal).map_err(|e| e.to_string())?;
-        fs::write(&journal_path, bytes).map_err(|e| e.to_string())
+        crate::frontmatter::atomic_write_bytes(&journal_path, &bytes)
     };
     write_journal(&journal)?;
 
@@ -777,10 +777,12 @@ pub fn rollback_migration(
         details: format!("Restored {} files from backup", restored_files.len()),
         success: true,
     });
-    let _ = fs::write(
+    if let Err(error) = crate::frontmatter::atomic_write_bytes(
         &journal_path,
-        serde_json::to_vec_pretty(&journal).unwrap_or_default(),
-    );
+        &serde_json::to_vec_pretty(&journal).unwrap_or_default(),
+    ) {
+        tracing::warn!(event = "migration_journal_write_failed", error = %error);
+    }
 
     Ok(())
 }

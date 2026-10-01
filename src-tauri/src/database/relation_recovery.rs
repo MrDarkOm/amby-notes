@@ -154,12 +154,9 @@ fn validate_journal(journal: &RelationRecoveryJournal, path: &Path) -> Result<()
                 .extension()
                 .and_then(|ext| ext.to_str())
                 != Some("md")
-            || components.iter().any(|part| {
-                matches!(
-                    *part,
-                    ".amby" | ".obsidian" | ".git" | ".trash" | ".ambd" | "assets"
-                )
-            })
+            || components
+                .iter()
+                .any(|part| crate::vault::scan::is_service_directory(*part))
             || step.backup_path != format!("{RECOVERY_ROOT}/{}/{index}.bin", journal.operation_id)
             || !records.insert(step.record_path.as_str())
             || !note_ids.insert(step.note_id.as_str())

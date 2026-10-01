@@ -84,15 +84,26 @@ pub fn is_database_dir(dir: &Path) -> bool {
     dir.is_dir() && crate::database::discovery::find_manifest_path(dir).is_some()
 }
 
+/// Directories that never contain user notes: Amby's own data, other tools'
+/// metadata, the trash and attachments. Every traversal (index, link refactor,
+/// migration, database discovery) shares this list so they cannot drift apart.
+pub const RESERVED_DIRECTORIES: &[&str] = &[".amby", ".obsidian", ".git", ".trash", "assets"];
+
+/// Like [`RESERVED_DIRECTORIES`] plus a database's own `.ambd` service folder.
+pub fn is_reserved_directory(name: &str) -> bool {
+    RESERVED_DIRECTORIES.contains(&name)
+}
+
+pub fn is_service_directory(name: &str) -> bool {
+    name == ".ambd" || is_reserved_directory(name)
+}
+
 pub fn should_descend(entry: &DirEntry) -> bool {
     if is_hidden(entry) {
         return false;
     }
     let name = entry.file_name().to_string_lossy();
-    !matches!(
-        name.as_ref(),
-        ".amby" | ".obsidian" | ".git" | ".trash" | "assets"
-    )
+    !is_reserved_directory(name.as_ref())
 }
 
 pub struct FileStamp {

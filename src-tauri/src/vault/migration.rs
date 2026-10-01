@@ -319,10 +319,7 @@ fn is_reserved_migration_source(path: &str) -> bool {
         let std::path::Component::Normal(name) = component else {
             return true;
         };
-        matches!(
-            name.to_string_lossy().as_ref(),
-            ".amby" | ".obsidian" | ".git" | ".trash" | "assets"
-        )
+        crate::vault::scan::is_reserved_directory(name.to_string_lossy().as_ref())
     })
 }
 

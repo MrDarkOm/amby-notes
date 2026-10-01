@@ -210,12 +210,9 @@ fn journal_bytes(journal: &SchemaRecoveryJournal) -> Result<Vec<u8>, String> {
 fn manifest_path_shape(relative: &str) -> Result<(), String> {
     let components = relative_components(relative)?;
     if components.len() < 2
-        || components.iter().any(|part| {
-            matches!(
-                *part,
-                ".amby" | ".obsidian" | ".git" | ".trash" | "assets" | ".ambd"
-            )
-        })
+        || components
+            .iter()
+            .any(|part| crate::vault::scan::is_service_directory(*part))
     {
         return Err("Invalid Relation schema manifest path".to_owned());
     }

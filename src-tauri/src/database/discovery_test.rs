@@ -163,7 +163,7 @@ fn duplicate_ids_titles_and_excluded_service_directories_are_visible() {
     write_manifest(&vault.join("Two"), OUTER_ID, "Same");
     write_note(&vault.join("One/A.md"), FIRST_NOTE_ID, "Same note");
     write_note(&vault.join("One/B.md"), FIRST_NOTE_ID, "Same note");
-    for directory in SERVICE_DIRECTORIES {
+    for directory in [".amby", ".obsidian", ".git", ".trash", "assets", ".ambd"] {
         let hidden = vault.join(directory).join("Hidden.md");
         if let Some(parent) = hidden.parent() {
             fs::create_dir_all(parent).unwrap();

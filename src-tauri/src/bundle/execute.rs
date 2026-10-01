@@ -122,21 +122,7 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
         } else {
             new_dir.join("ambd.json")
         };
-        if manifest_path.is_file() {
-            if let Ok(bytes) = std::fs::read(&manifest_path) {
-                if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                    if let Some(obj) = value.as_object_mut() {
-                        obj.insert(
-                            "name".to_string(),
-                            serde_json::Value::String(trimmed.to_string()),
-                        );
-                        if let Ok(pretty) = serde_json::to_vec_pretty(&value) {
-                            let _ = std::fs::write(&manifest_path, pretty);
-                        }
-                    }
-                }
-            }
-        }
+        rewrite_manifest_name(&manifest_path, trimmed)?;
 
         Ok(FsMutationResult {
             primary_id: None,
@@ -193,21 +179,7 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
         } else {
             new_path.join("ambd.json")
         };
-        if manifest_path.is_file() {
-            if let Ok(bytes) = std::fs::read(&manifest_path) {
-                if let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                    if let Some(obj) = value.as_object_mut() {
-                        obj.insert(
-                            "name".to_string(),
-                            serde_json::Value::String(trimmed.to_string()),
-                        );
-                        if let Ok(pretty) = serde_json::to_vec_pretty(&value) {
-                            let _ = std::fs::write(&manifest_path, pretty);
-                        }
-                    }
-                }
-            }
-        }
+        rewrite_manifest_name(&manifest_path, trimmed)?;
         Ok(FsMutationResult {
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
@@ -304,3 +276,31 @@ fn move_item_to_dir(source_path: &Path, target_dir: &Path) -> Result<FsMutationR
 }
 
 // ── Assets ────────────────────────────────────────────────────────────────
+
+/// Updates the display `name` of a renamed database manifest. A manifest that
+/// cannot be parsed is left untouched (preserved, not repaired). The write is
+/// atomic so a crash can never leave a truncated manifest, and a failure is
+/// reported: the folder rename already happened, so the caller must not claim
+/// a clean success.
+pub(super) fn rewrite_manifest_name(manifest_path: &Path, name: &str) -> Result<(), String> {
+    if !manifest_path.is_file() {
+        return Ok(());
+    }
+    let Ok(bytes) = std::fs::read(manifest_path) else {
+        return Ok(());
+    };
+    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return Ok(());
+    };
+    let Some(object) = value.as_object_mut() else {
+        return Ok(());
+    };
+    object.insert(
+        "name".to_string(),
+        serde_json::Value::String(name.to_string()),
+    );
+    let pretty = serde_json::to_vec_pretty(&value).map_err(|error| error.to_string())?;
+    crate::frontmatter::atomic_write_bytes(manifest_path, &pretty).map_err(|error| {
+        format!("Renamed, but could not update the database manifest name: {error}")
+    })
+}

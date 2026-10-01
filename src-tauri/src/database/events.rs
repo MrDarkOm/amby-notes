@@ -47,12 +47,10 @@ pub fn classify_path(vault: &Path, path: &Path, generation: u64) -> Option<Datab
         .components()
         .filter_map(|component| component.as_os_str().to_str())
         .collect::<Vec<_>>();
-    if components.iter().any(|component| {
-        matches!(
-            *component,
-            ".amby" | ".obsidian" | ".git" | ".trash" | "assets"
-        )
-    }) {
+    if components
+        .iter()
+        .any(|component| crate::vault::scan::is_reserved_directory(*component))
+    {
         return None;
     }
     let normalized = components.join("/");

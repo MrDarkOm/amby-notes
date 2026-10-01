@@ -86,7 +86,10 @@ pub(crate) fn create_layer_impl(note_path: &Path, kind: &str) -> Result<LayerRes
                 if value.get("containerKind").is_none() {
                     value["containerKind"] = serde_json::Value::String("standalone".to_string());
                     if let Ok(new_bytes) = serde_json::to_vec_pretty(&value) {
-                        let _ = fs::write(&main_note, new_bytes);
+                        if let Err(error) = frontmatter::atomic_write_bytes(&main_note, &new_bytes)
+                        {
+                            tracing::warn!(event = "database_container_kind_write_failed", error = %error);
+                        }
                     }
                 }
             }

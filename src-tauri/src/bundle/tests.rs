@@ -762,3 +762,35 @@ fn canvas_bundle_child_note_and_layers() {
     assert!(note_layer_path.exists());
     assert!(note_layer_path.ends_with("Architecture/Architecture.md"));
 }
+
+#[test]
+fn manifest_name_rewrite_is_atomic_and_preserves_unparseable_manifests() {
+    use super::execute::rewrite_manifest_name;
+    let dir = std::env::temp_dir().join(format!("amby-manifest-name-{}", ulid::Ulid::generate()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let manifest = dir.join("Db.json");
+
+    std::fs::write(&manifest, br#"{"name":"Old","other":1}"#).unwrap();
+    rewrite_manifest_name(&manifest, "New").unwrap();
+    let value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    assert_eq!(value["name"], "New");
+    assert_eq!(value["other"], 1);
+
+    // A failed publication reports the error and leaves the old bytes intact.
+    let before = std::fs::read(&manifest).unwrap();
+    crate::frontmatter::inject_nth_atomic_write_failure(1, false);
+    let error = rewrite_manifest_name(&manifest, "Newer").unwrap_err();
+    crate::frontmatter::clear_atomic_write_failure();
+    assert!(
+        error.contains("could not update the database manifest name"),
+        "{error}"
+    );
+    assert_eq!(std::fs::read(&manifest).unwrap(), before);
+
+    // Unparseable manifests are preserved byte-for-byte, not repaired.
+    std::fs::write(&manifest, b"{ broken").unwrap();
+    rewrite_manifest_name(&manifest, "X").unwrap();
+    assert_eq!(std::fs::read(&manifest).unwrap(), b"{ broken");
+    std::fs::remove_dir_all(&dir).ok();
+}

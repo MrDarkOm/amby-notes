@@ -1712,10 +1712,10 @@ fn database_source_stamp(vault: &Path) -> Result<String, String> {
         let path = entry.path();
         if entry.file_type().is_dir() {
             if path.components().any(|component| {
-                matches!(
-                    component.as_os_str().to_str(),
-                    Some(".amby" | ".obsidian" | ".git" | ".trash" | "assets")
-                )
+                component
+                    .as_os_str()
+                    .to_str()
+                    .is_some_and(crate::vault::scan::is_reserved_directory)
             }) {
                 walker.skip_current_dir();
             }
@@ -1726,10 +1726,10 @@ fn database_source_stamp(vault: &Path) -> Result<String, String> {
             .map_err(|error| error.to_string())?;
         let components = relative.components().collect::<Vec<_>>();
         if components.iter().any(|component| {
-            matches!(
-                component.as_os_str().to_str(),
-                Some(".amby" | ".obsidian" | ".git" | ".trash" | "assets")
-            )
+            component
+                .as_os_str()
+                .to_str()
+                .is_some_and(crate::vault::scan::is_reserved_directory)
         }) {
             continue;
         }

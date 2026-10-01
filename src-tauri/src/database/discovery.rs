@@ -84,8 +84,6 @@ pub fn manifest_path_for_container(container: &Path) -> PathBuf {
     }
 }
 
-const SERVICE_DIRECTORIES: &[&str] = &[".amby", ".obsidian", ".git", ".trash", "assets", ".ambd"];
-
 fn create_default_view_value(database_id: &str, view_id: &str) -> serde_json::Value {
     serde_json::json!({
         "format": "amby-database-view",
@@ -458,7 +456,7 @@ pub fn migrate_legacy_database_manifests(vault: &Path) -> Result<usize, String> 
                 return true;
             }
             let name = e.file_name().to_string_lossy();
-            !SERVICE_DIRECTORIES.contains(&name.as_ref())
+            !crate::vault::scan::is_service_directory(name.as_ref())
         })
         .filter_map(Result::ok)
     {
@@ -1615,7 +1613,7 @@ fn should_visit(entry: &DirEntry) -> bool {
         return true;
     }
     let name = entry.file_name().to_string_lossy();
-    !name.starts_with('.') && !SERVICE_DIRECTORIES.contains(&name.as_ref())
+    !name.starts_with('.') && !crate::vault::scan::is_service_directory(name.as_ref())
 }
 
 fn is_regular_file(path: &Path) -> bool {
