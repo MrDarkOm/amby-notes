@@ -1,9 +1,13 @@
 # ИИ-агент Amby: приёмка и доказательства
 
 Статус: спецификация проверок; результаты реализации ещё не получены.  
-Дата: 2026-09-24. Версия: 1.
+Дата: 2026-09-30. Версия: 2.
 
 [Архитектура](./ai-harness-plan.md) · [Пакеты и оркестрация](./ai-harness-orchestration.md)
+
+Подробные основания проверок: [контракт](../ai-harness.md),
+[формат состояния](../ai-state-format.md), [каталог](../ai-action-catalog.md).
+Статусы всех новых сценариев — `notRun`; документация не является evidence PASS.
 
 ## 1. Уровни проверки
 
@@ -175,6 +179,31 @@ G3 разрешает один live adapter как промежуточный р
 доступной совместимой модели. Остальные models имеют capability status и не
 считаются автоматически проверенными. Нет credentials/ОС — соответствующий
 пункт остаётся BLOCKED; функционально готовые независимые пакеты можно принять.
+
+### 8.1 Уточнённые варианты второй редакции
+
+Ниже закреплены дополнительные обязательные варианты существующих Q-семейств.
+Они не заменяют основные сценарии. H-01 переносит IDs в исполняемый manifest;
+до реализации каждый имеет статус `notRun`.
+
+| Вариант                 | Что доказать                                                                                                                                               | Gate; уровень                            |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `Q02.legacyBypass`      | Модель/плагин не может обойти policy через legacy IPC, поддельный actor или raw storage; privileged UI channel не делегируется tool output                 | G2 executor, G3 runtime, G7 plugin; I, N |
+| `Q06.mixedJournal`      | Global setting effect workspace run виден без раскрытия приватных соседних events; query после revoke фильтрует backlog и projection                       | G4; I, N                                 |
+| `Q08.expiredBarrier`    | Timeout/закрытие второго окна не разрешает затереть dirty buffer; snapshot агента следует после согласованного пользовательского save                      | G2; I, N, V                              |
+| `Q09.orphanRecords`     | Intent без event и receipt без event обнаруживаются после restart; нет blind retry или удаления recovery как мусора                                        | G2; I, N                                 |
+| `Q09.auditDisclosure`   | Отказ записи audit останавливает новый read disclosure/provider request; сбой после публикации остаётся recoverable, не failedBeforePublish                | G3; I, N                                 |
+| `Q10.corruptRecovery`   | Подмена target/backup paths, chain gap и неизвестный version не вызывают data writes; запись не восстанавливается из недоверенного указателя без проверки  | G2; I, N                                 |
+| `Q13.providerDuplicate` | Новый provider tool-call ID при transport replay не создаёт новую operation; отличие arguments при прежнем operation ID даёт idempotencyConflict           | G3; I, L                                 |
+| `Q15.sharedSidecar`     | Field undo note property/settings сохраняет соседние изменения в общем физическом JSON; whole-file snapshot не даёт права затирать их                      | G4; I, N                                 |
+| `Q16.undoDependencies`  | Новая пользовательская связь/строка блокирует удаление созданного объекта; partial undo сохраняет точный остаток graph effects                             | G4; I, N                                 |
+| `Q19.provenanceForget`  | User forget учитывает payloads, summaries, embeddings, skills, proposals и plugin artifacts; обычная очистка индекса не удаляет durable данные             | G6 для learning, G7 для plugins; I, N    |
+| `Q29.reviewedPlan`      | Preview с заранее резервируемыми IDs применяет точные content/schema/scene bytes; новый model-generated content не проходит по старому plan digest         | G3 для note, G4 для composite; I, N      |
+| `Q31.trashDistinction`  | Internal archive восстанавливается в Amby; system trash обозначен manualExternal и не выдаётся за автоматический undo; layer archive не вызывает OS delete | G4; I, N, V                              |
+| `Q38.boardAdapters`     | Общие board commands сохраняют исходный `.canvas`/`.excalidraw`; drawing-only action отвергается для Canvas, unknown envelope переживает patch/undo        | G4; U, I, N                              |
+| `Q41.typedSettings`     | Patch только allowlisted keys, не raw JSON; prefs.fontFamily принимает лишь поддерживаемые families; global effect виден пользователю                      | G4; U, I, N, V                           |
+| `Q55.staleCandidate`    | Изменившийся base/candidate/corpus digest аннулирует promotion; scope-derived skill не попадает в global library автоматически                             | G6; I                                    |
+| `Q65.artifactBinding`   | Смена source/dependency lock/compiler/artifact permissions сбрасывает approval; backend publication и frontend registry согласуются после restart          | G7; I, N                                 |
 
 ## 9. Протокол оценки навыков
 

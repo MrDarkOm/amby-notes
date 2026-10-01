@@ -43,3 +43,12 @@ describe("note editing with frontmatter diagnostics", () => {
     expect(noteEditingPolicy()).toEqual({ readOnly: false, sourceOnly: false, warningKey: null })
   })
 })
+
+it("does not mislabel closed malformed YAML as unterminated when Markdown is lossy", () => {
+  expect(
+    noteEditingPolicy(
+      { ...properties, frontmatterStatus: "invalid", bodyReadOnly: false },
+      { ok: false },
+    ).warningKey,
+  ).toBe("workspace.invalidFrontmatter")
+})

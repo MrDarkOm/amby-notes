@@ -31,6 +31,11 @@ export interface DatabaseSummary {
   diagnostics: DatabaseDiagnostic[]
 }
 
+export interface DatabaseManifestRevision {
+  databaseId: string
+  revision: string
+}
+
 export interface DatabasePropertySummary {
   propertyId: string
   name: string
@@ -167,6 +172,8 @@ export interface CreateDatabasePropertyRequest {
   expectedGeneration: number
   databaseId: string
   expectedManifestRevision: string
+  operationId?: string
+  expectedTargetManifestRevision?: string
   name: string
   propertyType: string
   beforePropertyId?: string
@@ -198,6 +205,9 @@ export interface CreatedDatabaseProperty {
   name: string
   propertyType: string
   manifestRevision: string
+  operationId?: string | null
+  inversePropertyId?: string | null
+  manifestRevisions: DatabaseManifestRevision[]
   warnings: string[]
 }
 
@@ -211,6 +221,8 @@ export interface ChangeDatabasePropertyTypeRequest {
   relationMaxItems?: number | null
   relationTwoWay?: boolean
   relationInversePropertyName?: string
+  operationId?: string
+  expectedRelatedManifestRevisions?: DatabaseManifestRevision[]
 }
 
 export interface ChangedDatabasePropertyType {
@@ -218,21 +230,34 @@ export interface ChangedDatabasePropertyType {
   propertyId: string
   propertyType: string
   manifestRevision: string
+  operationId?: string | null
+  inversePropertyId?: string | null
+  manifestRevisions: DatabaseManifestRevision[]
   warnings: string[]
 }
 
 export interface UpdateDatabaseRelationValueRequest {
   expectedGeneration: number
+  operationId: string
   databaseId: string
   noteId: string
   propertyId: string
   targetNoteIds: string[]
+  expectedRevision: string
+}
+
+export interface DatabaseAffectedNote {
+  databaseId: string
+  noteId: string
 }
 
 export interface UpdateDatabaseRelationValueResult {
+  operationId: string
   databaseId: string
   noteId: string
   targetNoteIds: string[]
+  affectedNotes: DatabaseAffectedNote[]
+  revisions: DatabaseNoteRevision[]
   warnings: string[]
 }
 

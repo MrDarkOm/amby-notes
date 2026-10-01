@@ -7,7 +7,7 @@
 #![allow(dead_code)]
 
 use crate::database::format;
-use rusqlite::{params, Transaction};
+use rusqlite::{params, OptionalExtension, Transaction};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::Path;
@@ -15,6 +15,8 @@ use std::path::Path;
 const MAX_TOKENS: usize = 4096;
 const MAX_DEPTH: usize = 64;
 const MAX_SCALE: u32 = 18;
+const MAX_EXPRESSION_BYTES: usize = 1_000_000;
+const MAX_DECIMAL_DIGITS: usize = 39;
 
 type ProjectedValueRow = (
     String,
@@ -44,6 +46,17 @@ impl Decimal {
             Some(b'+') => (false, &raw[1..]),
             _ => (false, raw),
         };
+        if digits
+            .chars()
+            .filter(|character| character.is_ascii_digit())
+            .count()
+            > MAX_DECIMAL_DIGITS
+        {
+            return Err(FormulaError::new(
+                "invalidNumber",
+                "number has too many digits",
+            ));
+        }
         let mut parts = digits.split('.');
         let whole = parts.next().unwrap_or_default();
         let fraction = parts.next().unwrap_or_default();
@@ -60,14 +73,25 @@ impl Decimal {
         }
         let scale = fraction.len() as u32;
         let digits = format!("{whole}{fraction}");
-        let mut coefficient = digits
-            .parse::<i128>()
+        let magnitude = digits
+            .parse::<u128>()
             .map_err(|_| FormulaError::new("invalidNumber", "number is out of range"))?;
-        if negative {
-            coefficient = coefficient
-                .checked_neg()
-                .ok_or_else(|| FormulaError::new("invalidNumber", "number is out of range"))?;
-        }
+        let coefficient = if negative {
+            let min_magnitude = (i128::MAX as u128) + 1;
+            if magnitude > min_magnitude {
+                return Err(FormulaError::new("invalidNumber", "number is out of range"));
+            }
+            if magnitude == min_magnitude {
+                i128::MIN
+            } else {
+                -(magnitude as i128)
+            }
+        } else {
+            if magnitude > i128::MAX as u128 {
+                return Err(FormulaError::new("invalidNumber", "number is out of range"));
+            }
+            magnitude as i128
+        };
         Ok(Self::new(coefficient, scale))
     }
 
@@ -87,11 +111,11 @@ impl Decimal {
         let scale = self.scale.max(other.scale);
         let left = self
             .coefficient
-            .checked_mul(10_i128.pow(scale - self.scale))
+            .checked_mul(checked_power_of_ten(scale - self.scale)?)
             .ok_or_else(|| FormulaError::new("numberOverflow", "decimal operation overflowed"))?;
         let right = other
             .coefficient
-            .checked_mul(10_i128.pow(scale - other.scale))
+            .checked_mul(checked_power_of_ten(scale - other.scale)?)
             .ok_or_else(|| FormulaError::new("numberOverflow", "decimal operation overflowed"))?;
         Ok((left, right, scale))
     }
@@ -115,7 +139,10 @@ impl Decimal {
             .coefficient
             .checked_mul(other.coefficient)
             .ok_or_else(|| FormulaError::new("numberOverflow", "decimal operation overflowed"))?;
-        let scale = self.scale + other.scale;
+        let scale = self
+            .scale
+            .checked_add(other.scale)
+            .ok_or_else(|| FormulaError::new("numberPrecision", "decimal scale overflowed"))?;
         if scale > MAX_SCALE {
             return Err(FormulaError::new(
                 "numberPrecision",
@@ -132,11 +159,22 @@ impl Decimal {
         // If the division is exact, normalize it before applying the output
         // scale. This avoids an unnecessary 10^36 intermediate for values
         // such as 1 / 0.000000000000000001.
-        if self.coefficient % other.coefficient == 0 {
-            let quotient = self.coefficient / other.coefficient;
+        let Some(remainder) = self.coefficient.checked_rem(other.coefficient) else {
+            return Err(FormulaError::new(
+                "numberOverflow",
+                "decimal operation overflowed",
+            ));
+        };
+        if remainder == 0 {
+            let quotient = self
+                .coefficient
+                .checked_div(other.coefficient)
+                .ok_or_else(|| {
+                    FormulaError::new("numberOverflow", "decimal operation overflowed")
+                })?;
             if other.scale >= self.scale {
                 let coefficient = quotient
-                    .checked_mul(10_i128.pow(other.scale - self.scale))
+                    .checked_mul(checked_power_of_ten(other.scale - self.scale)?)
                     .ok_or_else(|| {
                         FormulaError::new("numberOverflow", "decimal operation overflowed")
                     })?;
@@ -151,15 +189,24 @@ impl Decimal {
             .saturating_sub(self.scale);
         let numerator = self
             .coefficient
-            .checked_mul(10_i128.pow(shift))
+            .checked_mul(checked_power_of_ten(shift)?)
             .ok_or_else(|| FormulaError::new("numberOverflow", "decimal operation overflowed"))?;
-        Ok(Self::new(numerator / other.coefficient, MAX_SCALE))
+        let quotient = numerator
+            .checked_div(other.coefficient)
+            .ok_or_else(|| FormulaError::new("numberOverflow", "decimal operation overflowed"))?;
+        Ok(Self::new(quotient, MAX_SCALE))
     }
 
     pub fn cmp(&self, other: &Self) -> Result<std::cmp::Ordering, FormulaError> {
         let (left, right, _) = self.align(other)?;
         Ok(left.cmp(&right))
     }
+}
+
+fn checked_power_of_ten(exponent: u32) -> Result<i128, FormulaError> {
+    10_i128
+        .checked_pow(exponent)
+        .ok_or_else(|| FormulaError::new("numberOverflow", "decimal scale exceeds supported range"))
 }
 
 impl fmt::Display for Decimal {
@@ -262,6 +309,12 @@ enum Token {
 }
 
 fn tokenize(expression: &str) -> Result<Vec<Token>, FormulaError> {
+    if expression.len() > MAX_EXPRESSION_BYTES {
+        return Err(FormulaError::new(
+            "inputTooLarge",
+            "formula expression is too large",
+        ));
+    }
     let mut result = Vec::new();
     let mut chars = expression.chars().peekable();
     while let Some(character) = chars.next() {
@@ -846,7 +899,105 @@ pub fn topological_formula_order<'a>(
     Ok(order)
 }
 
+// A failed computation invalidates all derived cells of this kind on the
+// affected note. Other notes still compute, and the failure has a durable cache
+// diagnostic. No source Markdown or record shard is changed here.
 pub fn compute_formulas_for_notes(
+    tx: &Transaction<'_>,
+    database_id: &str,
+    note_ids: &[String],
+    manifest: &format::DatabaseManifest,
+) -> Result<(), String> {
+    compute_note_values(
+        tx,
+        database_id,
+        note_ids,
+        manifest,
+        "formula",
+        compute_formula_values,
+    )
+}
+
+pub fn compute_rollups_for_notes(
+    tx: &Transaction<'_>,
+    database_id: &str,
+    note_ids: &[String],
+    manifest: &format::DatabaseManifest,
+) -> Result<(), String> {
+    compute_note_values(
+        tx,
+        database_id,
+        note_ids,
+        manifest,
+        "rollup",
+        compute_rollup_values,
+    )
+}
+
+type ComputeValues =
+    fn(&Transaction<'_>, &str, &[String], &format::DatabaseManifest) -> Result<(), String>;
+
+fn compute_note_values(
+    tx: &Transaction<'_>,
+    database_id: &str,
+    note_ids: &[String],
+    manifest: &format::DatabaseManifest,
+    kind: &str,
+    compute: ComputeValues,
+) -> Result<(), String> {
+    for note_id in note_ids {
+        let diagnostic_id = format!("computed:{kind}:{database_id}:{note_id}");
+        tx.execute(
+            "DELETE FROM db_diagnostics WHERE diagnostic_id = ?1",
+            [&diagnostic_id],
+        )
+        .map_err(|error| error.to_string())?;
+        tx.execute(
+            "DELETE FROM db_values WHERE database_id = ?1 AND note_id = ?2 AND value_type = ?3",
+            params![database_id, note_id, kind],
+        )
+        .map_err(|error| error.to_string())?;
+        tx.execute_batch("SAVEPOINT amby_computed_note")
+            .map_err(|error| error.to_string())?;
+        match compute(tx, database_id, std::slice::from_ref(note_id), manifest) {
+            Ok(()) => tx
+                .execute_batch("RELEASE amby_computed_note")
+                .map_err(|error| error.to_string())?,
+            Err(message) => {
+                tx.execute_batch("ROLLBACK TO amby_computed_note; RELEASE amby_computed_note")
+                    .map_err(|error| error.to_string())?;
+                record_computed_failure(tx, kind, database_id, note_id, &message)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// Drops the derived cells of one kind for a note and stores the deterministic
+// diagnostic that marks them as failed. Callers must not leave the previous
+// computed value in place: a stale number would be published as healthy.
+fn record_computed_failure(
+    tx: &Transaction<'_>,
+    kind: &str,
+    database_id: &str,
+    note_id: &str,
+    message: &str,
+) -> Result<(), String> {
+    let diagnostic_id = format!("computed:{kind}:{database_id}:{note_id}");
+    tx.execute(
+        "DELETE FROM db_values WHERE database_id = ?1 AND note_id = ?2 AND value_type = ?3",
+        params![database_id, note_id, kind],
+    )
+    .map_err(|error| error.to_string())?;
+    tx.execute(
+        "INSERT OR REPLACE INTO db_diagnostics (diagnostic_id, scope_kind, scope_key, code, severity, details_json, first_seen_at, last_seen_at) VALUES (?1, 'database', ?2, ?3, 'error', ?4, strftime('%s','now'), strftime('%s','now'))",
+        params![diagnostic_id, database_id, format!("{kind}Error"), serde_json::json!({"path": database_id, "noteId": note_id, "message": message}).to_string()],
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+fn compute_formula_values(
     tx: &Transaction<'_>,
     database_id: &str,
     note_ids: &[String],
@@ -938,7 +1089,12 @@ pub fn compute_formulas_for_notes(
                 }
             }
 
-            let evaluated = evaluate(expression, &prop_values).unwrap_or(FormulaValue::Null);
+            let evaluated = evaluate(expression, &prop_values).map_err(|error| {
+                format!(
+                    "formula {formula_id} for note {note_id}: {}: {}",
+                    error.code, error.message
+                )
+            })?;
             let (
                 canonical_json,
                 text_val,
@@ -1046,7 +1202,7 @@ pub fn compute_formulas_for_notes(
     Ok(())
 }
 
-pub fn compute_rollups_for_notes(
+fn compute_rollup_values(
     tx: &Transaction<'_>,
     database_id: &str,
     note_ids: &[String],
@@ -1069,6 +1225,20 @@ pub fn compute_rollups_for_notes(
 
     for note_id in note_ids {
         for &(rollup_id, rel_id, target_prop_id, aggregation) in &rollups {
+            let target_database_id = manifest
+                .properties
+                .iter()
+                .find_map(|property| match property {
+                    format::PropertyDefinition::Relation(fields) if fields.id == rel_id => {
+                        Some(fields.config.target_database_id.as_str())
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| format!("rollup {rollup_id}: missingRelation: {rel_id}"))?;
+            let target_kind: String = tx.query_row(
+                "SELECT property_type FROM db_properties WHERE database_id = ?1 AND property_id = ?2",
+                params![target_database_id, target_prop_id], |row| row.get(0),
+            ).map_err(|error| format!("rollup {rollup_id}: missingTargetProperty: {error}"))?;
             let mut target_note_ids = Vec::new();
             {
                 let mut stmt = tx
@@ -1087,13 +1257,26 @@ pub fn compute_rollups_for_notes(
 
             let mut target_values = Vec::new();
             for tid in &target_note_ids {
+                let failed = if matches!(target_kind.as_str(), "formula" | "rollup") {
+                    tx.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM db_diagnostics WHERE diagnostic_id = ?1)",
+                        [format!("computed:{target_kind}:{target_database_id}:{tid}")],
+                        |row| row.get::<_, bool>(0),
+                    )
+                    .map_err(|error| error.to_string())?
+                } else {
+                    false
+                };
+                if failed {
+                    return Err(format!("rollup {rollup_id} for note {note_id}: dependencyError: target note {tid} has failed computed values"));
+                }
                 let mut stmt = tx
                     .prepare_cached(
-                        "SELECT value_type, text_value, decimal_value, bool_value, date_start FROM db_values WHERE note_id = ?1 AND property_id = ?2",
+                        "SELECT value_type, text_value, decimal_value, bool_value, date_start FROM db_values WHERE note_id = ?1 AND property_id = ?2 AND database_id = ?3",
                     )
                     .map_err(|e| e.to_string())?;
                 let mut rows = stmt
-                    .query(params![tid, target_prop_id])
+                    .query(params![tid, target_prop_id, target_database_id])
                     .map_err(|e| e.to_string())?;
                 if let Some(row) = rows.next().map_err(|e| e.to_string())? {
                     let vtype: String = row.get(0).map_err(|e| e.to_string())?;
@@ -1165,16 +1348,28 @@ pub fn compute_rollups_for_notes(
                     let mut count = 0;
                     for (_, _, d, _, _) in &target_values {
                         if let Some(d_str) = d {
-                            if let Ok(parsed) = Decimal::parse(d_str) {
-                                if let Ok(s) = sum.add(&parsed) {
-                                    sum = s;
-                                    count += 1;
-                                }
-                            }
+                            let parsed = Decimal::parse(d_str).map_err(|error| {
+                                format!(
+                                    "rollup {rollup_id} for note {note_id}: {}: {}",
+                                    error.code, error.message
+                                )
+                            })?;
+                            sum = sum.add(&parsed).map_err(|error| {
+                                format!(
+                                    "rollup {rollup_id} for note {note_id}: {}: {}",
+                                    error.code, error.message
+                                )
+                            })?;
+                            count += 1;
                         }
                     }
                     if aggregation == "avg" && count > 0 {
-                        let avg = sum.div(&Decimal::from_i64(count)).unwrap_or(sum);
+                        let avg = sum.div(&Decimal::from_i64(count)).map_err(|error| {
+                            format!(
+                                "rollup {rollup_id} for note {note_id}: {}: {}",
+                                error.code, error.message
+                            )
+                        })?;
                         let dec_str = avg.to_string();
                         let key = super::projection::decimal_sort_key(&dec_str);
                         (
@@ -1207,17 +1402,25 @@ pub fn compute_rollups_for_notes(
                     let mut best_dec: Option<Decimal> = None;
                     for (_, _, d, _, _) in &target_values {
                         if let Some(d_str) = d {
-                            if let Ok(parsed) = Decimal::parse(d_str) {
-                                match &best_dec {
-                                    None => best_dec = Some(parsed),
-                                    Some(curr) => {
-                                        if let Ok(ord) = parsed.cmp(curr) {
-                                            if (is_max && ord == std::cmp::Ordering::Greater)
-                                                || (!is_max && ord == std::cmp::Ordering::Less)
-                                            {
-                                                best_dec = Some(parsed);
-                                            }
-                                        }
+                            let parsed = Decimal::parse(d_str).map_err(|error| {
+                                format!(
+                                    "rollup {rollup_id} for note {note_id}: {}: {}",
+                                    error.code, error.message
+                                )
+                            })?;
+                            match &best_dec {
+                                None => best_dec = Some(parsed),
+                                Some(curr) => {
+                                    let ord = parsed.cmp(curr).map_err(|error| {
+                                        format!(
+                                            "rollup {rollup_id} for note {note_id}: {}: {}",
+                                            error.code, error.message
+                                        )
+                                    })?;
+                                    if (is_max && ord == std::cmp::Ordering::Greater)
+                                        || (!is_max && ord == std::cmp::Ordering::Less)
+                                    {
+                                        best_dec = Some(parsed);
                                     }
                                 }
                             }
@@ -1318,25 +1521,51 @@ pub fn refresh_dependent_rollups(
     }
 
     for (s_db, s_notes) in sources_by_db {
-        let container_path: Result<String, _> = tx.query_row(
-            "SELECT container_path FROM db_databases WHERE database_id = ?1",
-            [&s_db],
-            |row| row.get(0),
-        );
-        if let Ok(c_path) = container_path {
-            if let Ok(container) = crate::paths::confine(vault, &vault.join(&c_path)) {
-                let m_path = super::discovery::manifest_path_for_container(&container);
-                if let Ok(bytes) = std::fs::read(&m_path) {
-                    if let Ok(parsed) = crate::database::format::parse_manifest(&bytes) {
-                        let note_vec: Vec<String> = s_notes.into_iter().collect();
-                        let _ = compute_rollups_for_notes(tx, &s_db, &note_vec, &parsed.value);
-                    }
+        let note_vec: Vec<String> = s_notes.into_iter().collect();
+        let container_path: Option<String> = tx
+            .query_row(
+                "SELECT container_path FROM db_databases WHERE database_id = ?1",
+                [&s_db],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        // Edges of a database that is no longer registered have nothing to refresh.
+        let Some(container_path) = container_path else {
+            continue;
+        };
+        match load_source_manifest(vault, &s_db, &container_path) {
+            Ok(manifest) => compute_rollups_for_notes(tx, &s_db, &note_vec, &manifest)?,
+            Err(message) => {
+                // The source manifest is unusable, so its rollups cannot be
+                // recomputed. Clear them and publish a diagnostic instead of
+                // keeping values that no longer match the targets.
+                for note_id in &note_vec {
+                    record_computed_failure(tx, "rollup", &s_db, note_id, &message)?;
                 }
             }
         }
     }
 
     Ok(())
+}
+
+fn load_source_manifest(
+    vault: &Path,
+    database_id: &str,
+    container_path: &str,
+) -> Result<format::DatabaseManifest, String> {
+    let container = crate::paths::confine(vault, &vault.join(container_path))
+        .map_err(|e| format!("sourceManifestUnavailable: {e}"))?;
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
+    let bytes =
+        std::fs::read(&manifest_path).map_err(|e| format!("sourceManifestUnavailable: {e}"))?;
+    let parsed = crate::database::format::parse_manifest(&bytes)
+        .map_err(|e| format!("sourceManifestInvalid: {e}"))?;
+    if parsed.value.database_id != database_id {
+        return Err("sourceManifestInvalid: database identity mismatch".to_owned());
+    }
+    Ok(parsed.value)
 }
 
 #[cfg(test)]

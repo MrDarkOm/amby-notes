@@ -38,6 +38,43 @@ pub struct ProjectionReport {
     pub diagnostics: usize,
 }
 
+#[derive(Default)]
+pub struct RelationProjectionReport {
+    pub projection: Option<ProjectionReport>,
+    pub warnings: Vec<String>,
+}
+
+/// Refresh every successfully written side of a relation, including removed
+/// targets. Durable writes have already succeeded; projection failures are
+/// reported separately and must not turn into another source-file mutation.
+pub fn update_relation_values_incremental(
+    conn: &Connection,
+    vault: &Path,
+    affected_notes: &[super::mutations::DatabaseAffectedNote],
+) -> RelationProjectionReport {
+    let mut notes_by_database: BTreeMap<&str, std::collections::BTreeSet<String>> = BTreeMap::new();
+    for note in affected_notes {
+        notes_by_database
+            .entry(&note.database_id)
+            .or_default()
+            .insert(note.note_id.clone());
+    }
+    let mut result = RelationProjectionReport::default();
+    for (database_id, note_ids) in notes_by_database {
+        let note_ids = note_ids.into_iter().collect::<Vec<_>>();
+        match update_database_values_incremental(conn, vault, database_id, &note_ids) {
+            Ok(report) => result.projection = Some(report),
+            Err(error) => {
+                tracing::warn!(event = "database_projection_rebuild_failed", database_id, %error);
+                result.warnings.push(format!(
+                    "Incremental projection update required for database {database_id}: {error}"
+                ));
+            }
+        }
+    }
+    result
+}
+
 struct DatabaseInput {
     database: DiscoveredDatabase,
     manifest: ParsedJson<DatabaseManifest>,
@@ -118,7 +155,9 @@ pub fn rebuild_database_projection(
         state: state.to_owned(),
         epoch,
         seq: 0,
-        diagnostics: discovery.diagnostics.len(),
+        diagnostics: conn
+            .query_row("SELECT COUNT(*) FROM db_diagnostics", [], |row| row.get(0))
+            .map_err(|error| error.to_string())?,
     })
 }
 
@@ -318,24 +357,9 @@ pub fn update_database_values_incremental(
             .map_err(|error| error.to_string())?;
         }
     }
-    if let Err(formula_err) =
-        super::formula::compute_formulas_for_notes(&tx, database_id, note_ids, &manifest.value)
-    {
-        let _ = tx.execute(
-            "INSERT INTO db_diagnostics (diagnostic_id, scope_kind, scope_key, code, severity, details_json, first_seen_at, last_seen_at) VALUES (?1, 'database', ?2, 'formulaError', 'error', ?3, strftime('%s','now'), strftime('%s','now'))",
-            params![
-                Ulid::generate().to_string(),
-                database_id,
-                serde_json::json!({
-                    "path": database_id,
-                    "message": formula_err,
-                })
-                .to_string(),
-            ],
-        );
-    }
-    let _ = super::formula::compute_rollups_for_notes(&tx, database_id, note_ids, &manifest.value);
-    let _ = super::formula::refresh_dependent_rollups(&tx, vault, note_ids);
+    super::formula::compute_formulas_for_notes(&tx, database_id, note_ids, &manifest.value)?;
+    super::formula::compute_rollups_for_notes(&tx, database_id, note_ids, &manifest.value)?;
+    super::formula::refresh_dependent_rollups(&tx, vault, note_ids)?;
     let seq = metadata_value(conn, "database_projection_seq")?
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(0)
@@ -422,7 +446,9 @@ fn projection_report(conn: &Connection) -> Result<ProjectionReport, String> {
         seq: metadata_value(conn, "database_projection_seq")?
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(0),
-        diagnostics: 0,
+        diagnostics: conn
+            .query_row("SELECT COUNT(*) FROM db_diagnostics", [], |row| row.get(0))
+            .map_err(|error| error.to_string())?,
     })
 }
 
@@ -760,45 +786,35 @@ fn replace_projection(
             insert_yaml_conflicts(tx, input, record, note)?;
         }
     }
-    let mut formula_errors: Vec<(String, String)> = Vec::new();
-    for input in inputs {
-        let member_note_ids = discovery
-            .notes
-            .iter()
-            .filter(|note| {
-                note.owner_database_id.as_deref() == Some(input.manifest.value.database_id.as_str())
-            })
-            .filter_map(|note| note.note_id.clone())
-            .collect::<Vec<_>>();
-        if let Err(formula_err) = super::formula::compute_formulas_for_notes(
-            tx,
-            &input.manifest.value.database_id,
-            &member_note_ids,
-            &input.manifest.value,
-        ) {
-            formula_errors.push((input.manifest.value.database_id.clone(), formula_err));
-        }
-        let _ = super::formula::compute_rollups_for_notes(
-            tx,
-            &input.manifest.value.database_id,
-            &member_note_ids,
-            &input.manifest.value,
-        );
-    }
     replace_diagnostics(tx, &discovery.diagnostics)?;
-    for (db_id, err_msg) in formula_errors {
-        let _ = tx.execute(
-            "INSERT INTO db_diagnostics (diagnostic_id, scope_kind, scope_key, code, severity, details_json, first_seen_at, last_seen_at) VALUES (?1, 'database', ?2, 'formulaError', 'error', ?3, strftime('%s','now'), strftime('%s','now'))",
-            params![
-                Ulid::generate().to_string(),
-                db_id,
-                serde_json::json!({
-                    "path": db_id,
-                    "message": err_msg,
+    // Compute every database's formulas before any rollup can read them.
+    for kind in ["formula", "rollup"] {
+        for input in inputs {
+            let member_note_ids = discovery
+                .notes
+                .iter()
+                .filter(|note| {
+                    note.owner_database_id.as_deref()
+                        == Some(input.manifest.value.database_id.as_str())
                 })
-                .to_string(),
-            ],
-        );
+                .filter_map(|note| note.note_id.clone())
+                .collect::<Vec<_>>();
+            if kind == "formula" {
+                super::formula::compute_formulas_for_notes(
+                    tx,
+                    &input.manifest.value.database_id,
+                    &member_note_ids,
+                    &input.manifest.value,
+                )?;
+            } else {
+                super::formula::compute_rollups_for_notes(
+                    tx,
+                    &input.manifest.value.database_id,
+                    &member_note_ids,
+                    &input.manifest.value,
+                )?;
+            }
+        }
     }
     append_yaml_conflict_diagnostics(tx)?;
     Ok(())

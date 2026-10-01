@@ -24,6 +24,21 @@ Those directories, along with `.amby/`, are excluded from the note index.
   property values, and a completed outcome marker so recovery remains possible.
 - `recovery/` — versioned crash-recovery journal for editor and canvas drafts
   that have not reached the filesystem yet, keyed by stable note ID or canvas path.
+- `recovery/database_relations/` — durable version-1 Relation journals and raw
+  backups for cross-database writes. Completed outcomes remain available for
+  operation-ID replay. Pending operations are fully validated and conditionally
+  rolled back before the vault index loads; conflicting external edits, missing
+  files, corrupt backups or unsafe paths block activation and retain recovery
+  data. This namespace is excluded from editor draft TTL/quota cleanup and must
+  not be discarded with SQLite. See [Relations](database-format.md#relations).
+- `recovery/database_relation_schemas/` — separate durable version-1 journals
+  for reciprocal Relation property creation and version-2 journals for existing
+  Relation configuration/type changes, with raw manifest backups. They use
+  the same retention and conflict policy as Relation value journals; self-pairs
+  change a single manifest. Activation preflights both namespaces before any
+  restore. Completed IDs replay the original property IDs without another write.
+  Configuration changes may affect up to three manifests and preserve the old
+  inverse property when disconnecting a pair. Version-1 remains readable.
 - future versioned, documented metadata files.
 
 The directory is application metadata, not an Obsidian configuration directory.
@@ -139,6 +154,26 @@ mapping plus the new ID before writing any bytes.
 ID assignment uses the atomic raw-byte writer, with the existing history
 snapshot or migration backup. The body editor's dominant-line-ending conversion
 does not run for this metadata-only operation.
+
+### Lossless YAML property bindings
+
+Database property bindings update only an exact, case-sensitive top-level YAML
+key. The splice scanner accepts mapping entries at column zero and leaves
+nested mappings, block scalar contents, comments, anchors, quotes, key order,
+the BOM, and the existing line-ending style untouched. The result is parsed
+again and its mapping is compared with the expected mapping before the caller
+may publish any bytes.
+
+Single-line flow collections are supported when their delimiters are balanced
+and they contain no anchors, aliases or tags outside quoted text. This includes
+the inline lists generated for relation properties. Root flow mappings, anchors,
+aliases, block scalars, multiline values and duplicate keys are not guessed or
+reserialized: the operation returns a safe error without producing a replacement. Malformed YAML, non-mapping roots, and
+ambiguous key syntax follow the same rule. New property values may use the
+lossless inline scalar/collection representation emitted by the property
+serializer. Removing a property with a multiline or complex value is refused
+because deleting only its header could attach its continuation lines to a
+different key.
 
 ### ID migration recovery
 

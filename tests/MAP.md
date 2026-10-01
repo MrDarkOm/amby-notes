@@ -1,0 +1,38 @@
+# Verification map
+
+[vitest.config.ts](../vitest.config.ts) includes both `src/**/*.test.{ts,tsx}` and
+`tests/**/*.test.{ts,tsx}`. Default environment is Node; component files opt into
+`happy-dom`. Check an existing nearby test before choosing a harness.
+
+| Change                               | Verification owner                                                                                                                                                                                            |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pure logic, stores, parsers, queues  | Colocated tests beside the implementation in `src/`                                                                                                                                                           |
+| React interactions and lifecycle     | [component/](component/), plus colocated `*.test.tsx`                                                                                                                                                         |
+| Markdown syntax                      | [markdown.test.ts](../src/components/workspace/tiptap/markdown.test.ts), [rich-editor fixtures](../src/components/workspace/tiptap/fixtures/), [shared indexing corpus](fixtures/markdown-compatibility.json) |
+| Vault identity / source preservation | [compatibility-vault/](fixtures/compatibility-vault/), [Rust compatibility tests](../src-tauri/src/index/compatibility_fixtures_test.rs)                                                                      |
+| Package version agreement            | [package-versions.json](fixtures/package-versions.json), frontend validator and Rust package-manager tests                                                                                                    |
+| Native persistence contract          | [native/storage-contract.ts](native/storage-contract.ts), [native/note-contract.ts](native/note-contract.ts), [native_contract.rs](../src-tauri/src/native_contract.rs)                                       |
+| Native debug contract                | [native/debug-contract.ts](native/debug-contract.ts)                                                                                                                                                          |
+| Filesystem success/failure/rollback  | Rust tests beside services and [desktop_e2e_tests.rs](../src-tauri/src/desktop_e2e_tests.rs)                                                                                                                  |
+
+Focused iteration: `npm run test -- <test-path>` or
+`npm run rust:test -- <test-filter>`. For completion run `npm run verify` and
+`npm run build`; Rust/desktop changes have the additional requirements in
+[AGENTS.md](../AGENTS.md). Passing tests in an isolated area are not proof that
+the integrated application passes.
+
+For real desktop testing consult [native-storage-contract.md](../docs/native-storage-contract.md)
+and [native-ui-smoke.md](../docs/native-ui-smoke.md) before running the matching
+`test:storage:live` / `test:native:ui` scripts. These need the native environment;
+browser fallback and happy-dom do not establish watcher, WebView, dialog or OS
+filesystem behavior. Use disposable fixture vaults, not personal notes.
+
+Preserve fixture BOM/CRLF bytes. Add meaningful acceptance and rejection/failure
+cases for format and persistence changes; avoid tests that just mirror code.
+Do not add tests solely for a reversible copy or layout adjustment.
+
+Relation command/projection acceptance also runs through
+[native/database-contract.ts](native/database-contract.ts): link, unlink and
+replacement across two databases must update inverse queries before rebuild.
+[projection_test.rs](../src-tauri/src/database/projection_test.rs) covers inverse Rollup, self-relation deduplication,
+projection failure warnings and source-byte preservation without a watcher.

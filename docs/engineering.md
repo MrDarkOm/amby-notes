@@ -2,15 +2,34 @@
 
 ## Required checks
 
-Run `npm run verify` before requesting review. It performs TypeScript checking,
-ESLint, Vitest, and `cargo check`. Run `npm run rust:test` after Rust changes.
-The CI workflow also runs strict Clippy and checks that generated IPC bindings
-match `src/lib/bindings.ts`.
+Run `npm run verify` before requesting review. The full gate checks version
+consistency, TypeScript, ESLint, Vitest, Prettier, Knip, Rustfmt, strict Clippy,
+Rust tests, and generated IPC bindings. `npm run verify:fast` is a development
+feedback loop, not a replacement for the full gate. The full gate already runs
+`npm run rust:test`; do not repeat it on an unchanged tree without a reason.
 
-The repository currently has pre-existing Prettier and Rustfmt drift. CI reports
-it in a non-blocking job until a dedicated formatting-only change establishes a
-clean baseline. Do not add new drift: format touched frontend files with
-Prettier and touched Rust files with Rustfmt.
+Run `npm run build` after every completed implementation batch, including
+documentation changes. Record the command, result, and source state. Storage,
+IPC, permissions, plugins, and packaging changes also require focused native
+checks; a browser fallback test does not validate the Tauri path. Run npm and
+Rust security audits separately so failure of one does not skip the other.
+
+Formatting is a required clean gate. Format touched frontend files with Prettier
+and touched Rust files with Rustfmt. Component tests can opt into Happy DOM;
+they complement, rather than replace, packaged WebView and native IPC checks.
+
+## Parallel implementation
+
+Assign one writer per file for each work batch. Coordinate shared dependency
+manifests, lockfiles, command types, bindings, localization, release notes, and CI
+centrally. Use isolated checkouts when tasks cannot have disjoint ownership.
+Preserve unrelated working changes and review the combined diff before testing.
+
+A task is verified only after its changes are integrated and checked with the
+other changes in the batch. A passing isolated test or an author's completion
+message is not evidence that the integrated application passes. Keep an explicit
+record of failed and unavailable checks; do not convert them to success by
+weakening assertions, permissions, or CSP.
 
 ## Generated bindings
 
@@ -39,3 +58,15 @@ and commit the resulting generated binding update in the same change.
   enables it and acknowledges any migration.
 - Remove a flag only after the feature is stable and its migration/rollback
   behavior is documented.
+
+### Package version contract
+
+Both IPC validation and frontend validation use standard SemVer libraries (`semver` in Rust and npm), with the shared corpus in `tests/fixtures/package-versions.json`. Versions are complete, unprefixed, at most 128 ASCII characters; numeric core and prerelease identifiers cannot exceed JavaScript's safe integer bound. Build metadata does not affect precedence. A bare dependency version retains the legacy meaning `>=version`. Explicit requirements accept `*`, or complete versions prefixed by `^`, `~`, `=`, `<`, `<=`, `>`, `>=`, joined by single spaces for intersection. Partial versions, OR, hyphen ranges, commas and whitespace normalization are rejected consistently. Prereleases follow the libraries' comparator-set rules; a stable lower bound does not automatically admit prereleases.
+
+The backend validates app bounds and installed direct dependencies before publication, recovery, rollback and entry resolution. Module signatures and execution isolation remain separate contracts; version validation is not a permission grant.
+
+### Formula failure contract
+
+Formula arithmetic uses checked bounded decimals. Overflow, division by zero and invalid expressions produce diagnostics. During projection, each note's formula or rollup values are computed within a savepoint. A failure discards that note's values of the affected computed kind and records a deterministic diagnostic; other notes continue. A successful retry removes that diagnostic. Rollups refuse a failed formula or rollup target in the referenced database; unrelated diagnostics do not block ordinary numeric values. Source Markdown and record shards are never changed by this cache computation.
+
+A `healthy` projection means the published cache matches the current source and may include explicit computation diagnostics. It does not promise every formula succeeds. Such diagnostics do not make source properties read-only, so users can correct inputs. Projection reports count the actual stored diagnostics. SQL publication failures still propagate for transaction rollback.

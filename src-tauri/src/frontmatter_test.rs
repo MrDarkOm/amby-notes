@@ -570,6 +570,161 @@ fn yaml_binding_splice_refuses_multiline_values_and_malformed_envelopes() {
 }
 
 #[test]
+fn yaml_binding_splice_changes_only_the_exact_top_level_key() {
+    let source = concat!(
+        "---\n",
+        "Status: old\n",
+        "nested:\n",
+        "  Status: nested\n",
+        "literal: |\n",
+        "  Status: literal\n",
+        "  status: literal-case\n",
+        "status: before  # preserve this comment\n",
+        "---\n",
+        "Body",
+    );
+
+    let next =
+        replace_yaml_binding_lossless(source, "status", &Value::String("done".into())).unwrap();
+
+    assert_eq!(
+        next,
+        concat!(
+            "---\n",
+            "Status: old\n",
+            "nested:\n",
+            "  Status: nested\n",
+            "literal: |\n",
+            "  Status: literal\n",
+            "  status: literal-case\n",
+            "status: done  # preserve this comment\n",
+            "---\n",
+            "Body",
+        )
+    );
+    let mapping = frontmatter_yaml_mapping(&next).unwrap().unwrap();
+    assert_eq!(
+        mapping[&Value::String("Status".into())],
+        Value::String("old".into())
+    );
+    assert_eq!(
+        mapping[&Value::String("status".into())],
+        Value::String("done".into())
+    );
+}
+
+#[test]
+fn yaml_binding_removal_keeps_nested_mapping_and_block_scalar_bytes() {
+    let source = concat!(
+        "---\n",
+        "status: old\n",
+        "nested:\n",
+        "  status: nested\n",
+        "description: |\n",
+        "  status: literal\n",
+        "other: keep\n",
+        "---\n",
+        "Body",
+    );
+    let next = remove_yaml_binding_lossless(source, "status").unwrap();
+    assert_eq!(
+        next,
+        concat!(
+            "---\n",
+            "nested:\n",
+            "  status: nested\n",
+            "description: |\n",
+            "  status: literal\n",
+            "other: keep\n",
+            "---\n",
+            "Body",
+        )
+    );
+}
+
+#[test]
+fn yaml_binding_splice_respects_quoted_key_semantics_and_case() {
+    let source = "---\n'Status': upper\n\"status\": lower\n---\nBody";
+    let next =
+        replace_yaml_binding_lossless(source, "status", &Value::String("done".into())).unwrap();
+
+    assert_eq!(next, "---\n'Status': upper\n\"status\": done\n---\nBody");
+}
+
+#[test]
+fn yaml_binding_splice_rejects_ambiguous_duplicate_top_level_keys_before_mutation() {
+    let source = "---\nstatus: first\n\"status\": second\n---\nBody";
+    let result = replace_yaml_binding_lossless(source, "status", &Value::String("done".into()));
+    assert!(result.is_err());
+
+    let result = remove_yaml_binding_lossless(source, "status");
+    assert!(result.is_err());
+}
+
+#[test]
+fn yaml_binding_splice_preserves_bom_crlf_and_block_scalar_bytes_exactly() {
+    let source = concat!(
+        "\u{feff}---\r\n",
+        "# keep\r\n",
+        "status: old\r\n",
+        "description: |\r\n",
+        "  status: untouched\r\n",
+        "  keep: this\r\n",
+        "---\r\n",
+        "Body\r\n",
+    );
+    let next =
+        replace_yaml_binding_lossless(source, "status", &Value::String("new".into())).unwrap();
+    assert_eq!(
+        next,
+        concat!(
+            "\u{feff}---\r\n",
+            "# keep\r\n",
+            "status: new\r\n",
+            "description: |\r\n",
+            "  status: untouched\r\n",
+            "  keep: this\r\n",
+            "---\r\n",
+            "Body\r\n",
+        )
+    );
+}
+
+#[test]
+fn yaml_binding_splice_refuses_removing_multiline_or_anchored_values() {
+    let block = "---\nstatus: |\n  first\n  second\nother: keep\n---\nBody";
+    assert!(remove_yaml_binding_lossless(block, "status").is_err());
+    assert!(replace_yaml_binding_lossless(block, "status", &Value::String("done".into())).is_err());
+
+    let anchored = "---\nstatus: &saved old\nother: keep\n---\nBody";
+    assert!(
+        replace_yaml_binding_lossless(anchored, "status", &Value::String("done".into())).is_err()
+    );
+}
+
+#[test]
+fn yaml_binding_splice_scans_escaped_quoted_keys_without_touching_them() {
+    let source = "---\n'it''s': keep\n\"a\\\"b\": also-keep\nstatus: old\n---\nBody";
+    let next =
+        replace_yaml_binding_lossless(source, "status", &Value::String("done".into())).unwrap();
+    assert_eq!(
+        next,
+        "---\n'it''s': keep\n\"a\\\"b\": also-keep\nstatus: done\n---\nBody"
+    );
+}
+
+#[test]
+fn yaml_binding_splice_rejects_flow_root_and_complex_top_level_keys() {
+    for source in [
+        "---\n{status: old}\n---\nBody",
+        "---\n? [status]\n: old\n---\nBody",
+    ] {
+        let result = replace_yaml_binding_lossless(source, "status", &Value::String("done".into()));
+        assert!(result.is_err(), "{source}");
+    }
+}
+
+#[test]
 fn upsert_and_remove_frontmatter_property_handles_types_and_missing_envelope() {
     let note_id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
     // 1. Without initial frontmatter envelope
@@ -632,4 +787,63 @@ fn test_rename_with_retry_fails_when_non_retryable() {
     });
     assert!(result.is_err());
     assert_eq!(count, 1);
+}
+
+#[test]
+fn yaml_binding_splice_updates_and_removes_inline_relations_without_changing_neighbors() {
+    let source = "\u{feff}---\r\nProject: [one, two] # keep\r\nnested:\r\n  Project: untouched\r\n---\r\nBody\r\n";
+    let next = replace_yaml_binding_lossless(
+        source,
+        "Project",
+        &Value::Sequence(vec![Value::String("three".into())]),
+    )
+    .unwrap();
+    assert_eq!(next, source.replace("[one, two]", "[three]"));
+    let removed = remove_yaml_binding_lossless(&next, "Project").unwrap();
+    assert_eq!(
+        removed,
+        "\u{feff}---\r\nnested:\r\n  Project: untouched\r\n---\r\nBody\r\n"
+    );
+    let mapping = "---\nmetadata: {label: 'it''s # fine', ids: [one, two]} # trailing\nother: untouched\n---\nBody";
+    assert_eq!(
+        replace_yaml_binding_lossless(mapping, "metadata", &Value::String("done".into())).unwrap(),
+        "---\nmetadata: done # trailing\nother: untouched\n---\nBody"
+    );
+    for value in [
+        "[&anchor one]",
+        "[*anchor]",
+        "[!!str one]",
+        "[one,\n  two]",
+        "|",
+    ] {
+        let source = format!("---\nanchor: &anchor old\nProject: {value}\n---\nBody");
+        assert!(
+            replace_yaml_binding_lossless(&source, "Project", &Value::Sequence(vec![])).is_err(),
+            "{value}"
+        );
+        assert!(
+            remove_yaml_binding_lossless(&source, "Project").is_err(),
+            "{value}"
+        );
+    }
+    let plain = "---\nstatus: ready!\n  # indented comment\n---\nBody";
+    assert_eq!(
+        replace_yaml_binding_lossless(plain, "status", &Value::String("done".into())).unwrap(),
+        plain.replace("ready!", "done")
+    );
+}
+
+#[test]
+fn yaml_plain_apostrophes_do_not_hide_comments_or_flow_anchors() {
+    for value in ["Bob's note", "ready 'now", "ready \"now", "plain [text"] {
+        let source = format!("---\nBob's: keep\nstatus: {value} # preserve\n---\nBody");
+        let expected = "---\nBob's: keep\nstatus: done # preserve\n---\nBody";
+        assert_eq!(
+            replace_yaml_binding_lossless(&source, "status", &Value::String("done".into()))
+                .unwrap(),
+            expected
+        );
+    }
+    let flow = "---\nstatus: [Bob's, &saved keep, Sam's] # preserve\n---\nBody";
+    assert!(replace_yaml_binding_lossless(flow, "status", &Value::String("done".into())).is_err());
 }

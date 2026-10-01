@@ -567,3 +567,774 @@ fn st07_rebuild_and_incremental_are_equivalent() {
 
     let _ = fs::remove_dir_all(vault);
 }
+
+#[test]
+fn computation_diagnostics_survive_full_and_incremental_projection() {
+    let vault = temp_vault("computed-diagnostics");
+    let database = vault.join("Computed");
+    fs::create_dir_all(database.join(".ambd/records")).unwrap();
+    let database_id = "01J00000000000000000000040";
+    let broken_note_id = "01J00000000000000000000041";
+    let healthy_note_id = "01J00000000000000000000042";
+    let minimum_id = "01J00000000000000000000044";
+    let divisor_id = "01J00000000000000000000045";
+    let quotient_id = "01J00000000000000000000046";
+    let manifest = json!({
+        "format": "amby-database",
+        "formatVersion": 1,
+        "databaseId": database_id,
+        "name": "Computed",
+        "containerKind": "standalone",
+        "locked": false,
+        "membership": {"kind": "filesystem-descendants", "recursive": true},
+        "properties": [
+            {
+                "type": "number", "id": minimum_id, "name": "Minimum",
+                "pageVisibility": "alwaysShow", "yamlBinding": null,
+                "config": {"format": "number", "currency": null}
+            },
+            {
+                "type": "number", "id": divisor_id, "name": "Divisor",
+                "pageVisibility": "alwaysShow", "yamlBinding": null,
+                "config": {"format": "number", "currency": null}
+            },
+            {
+                "type": "formula", "id": quotient_id, "name": "Quotient",
+                "pageVisibility": "alwaysShow", "yamlBinding": null,
+                "config": {
+                    "version": 1, "expression": "Minimum / Divisor",
+                    "resultType": "number", "dependencies": [minimum_id, divisor_id]
+                }
+            }
+        ],
+        "viewOrder": [], "defaultViewId": null, "templateOrder": [],
+        "defaultTemplateId": null
+    });
+    fs::write(
+        database.join("ambd.json"),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    for (note_id, title) in [(broken_note_id, "Broken"), (healthy_note_id, "Healthy")] {
+        fs::write(
+            database.join(format!("{title}.md")),
+            format!("---\namby-id: {note_id}\n---\n# {title}\n"),
+        )
+        .unwrap();
+    }
+    write_projection_number_record(
+        &database,
+        database_id,
+        broken_note_id,
+        minimum_id,
+        divisor_id,
+        "-170141183460469231731687303715884105728",
+        "-1",
+    );
+    write_projection_number_record(
+        &database,
+        database_id,
+        healthy_note_id,
+        minimum_id,
+        divisor_id,
+        "10",
+        "-2",
+    );
+
+    let conn = Connection::open_in_memory().unwrap();
+    init_schema(&conn).unwrap();
+    sync_vault(&conn, &vault).unwrap();
+    let full = rebuild_database_projection(&conn, &vault).unwrap();
+    assert!(full.published);
+    assert_eq!(full.state, HEALTHY);
+    assert_eq!(full.diagnostics, 1);
+    assert_eq!(
+        projection_diagnostic_count(&conn, database_id, broken_note_id),
+        1
+    );
+    assert_eq!(
+        projection_value(&conn, database_id, healthy_note_id, quotient_id),
+        Some("-5".to_owned())
+    );
+    assert_eq!(
+        projection_value(&conn, database_id, broken_note_id, quotient_id),
+        None
+    );
+
+    write_projection_number_record(
+        &database,
+        database_id,
+        broken_note_id,
+        minimum_id,
+        divisor_id,
+        "3",
+        "-1",
+    );
+    let repaired = update_database_values_incremental(
+        &conn,
+        &vault,
+        database_id,
+        &[broken_note_id.to_owned()],
+    )
+    .unwrap();
+    assert_eq!(repaired.diagnostics, 0);
+    assert_eq!(
+        projection_diagnostic_count(&conn, database_id, broken_note_id),
+        0
+    );
+    assert_eq!(
+        projection_value(&conn, database_id, broken_note_id, quotient_id),
+        Some("-3".to_owned())
+    );
+
+    write_projection_number_record(
+        &database,
+        database_id,
+        broken_note_id,
+        minimum_id,
+        divisor_id,
+        "-170141183460469231731687303715884105728",
+        "-1",
+    );
+    let broken_again = update_database_values_incremental(
+        &conn,
+        &vault,
+        database_id,
+        &[broken_note_id.to_owned()],
+    )
+    .unwrap();
+    assert_eq!(broken_again.diagnostics, 1);
+    assert_eq!(
+        projection_diagnostic_count(&conn, database_id, broken_note_id),
+        1
+    );
+    assert_eq!(
+        projection_value(&conn, database_id, broken_note_id, quotient_id),
+        None
+    );
+
+    let fresh_conn = Connection::open_in_memory().unwrap();
+    init_schema(&fresh_conn).unwrap();
+    sync_vault(&fresh_conn, &vault).unwrap();
+    let rebuilt = rebuild_database_projection(&fresh_conn, &vault).unwrap();
+    assert_eq!(rebuilt.diagnostics, 1);
+    assert_eq!(
+        projection_diagnostic_count(&fresh_conn, database_id, broken_note_id),
+        1
+    );
+    assert_eq!(
+        projection_value(&fresh_conn, database_id, healthy_note_id, quotient_id),
+        Some("-5".to_owned())
+    );
+
+    fs::remove_dir_all(vault).unwrap();
+}
+
+fn write_projection_number_record(
+    database: &PathBuf,
+    database_id: &str,
+    note_id: &str,
+    minimum_id: &str,
+    divisor_id: &str,
+    minimum: &str,
+    divisor: &str,
+) {
+    let record = json!({
+        "format": "amby-database-record",
+        "formatVersion": 1,
+        "databaseId": database_id,
+        "noteId": note_id,
+        "values": {
+            minimum_id: {"type": "number", "decimal": minimum},
+            divisor_id: {"type": "number", "decimal": divisor}
+        }
+    });
+    fs::write(
+        database.join(format!(".ambd/records/{note_id}.json")),
+        serde_json::to_vec_pretty(&record).unwrap(),
+    )
+    .unwrap();
+}
+
+fn projection_value(
+    conn: &Connection,
+    database_id: &str,
+    note_id: &str,
+    property_id: &str,
+) -> Option<String> {
+    conn.query_row(
+        "SELECT decimal_value FROM db_values WHERE database_id = ?1 AND note_id = ?2 AND property_id = ?3",
+        params![database_id, note_id, property_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .unwrap()
+}
+
+fn projection_diagnostic_count(conn: &Connection, database_id: &str, note_id: &str) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(*) FROM db_diagnostics WHERE diagnostic_id = ?1",
+        [format!("computed:formula:{database_id}:{note_id}")],
+        |row| row.get(0),
+    )
+    .unwrap()
+}
+
+#[test]
+fn relation_projection_refreshes_inverse_and_rollup_after_replacement_and_unlink() {
+    use crate::database::mutations::{self, UpdateDatabaseRelationValueRequest};
+    use crate::database::projection::update_relation_values_incremental;
+    use crate::watcher::WatcherState;
+
+    let vault = temp_vault("relation-incremental-replacement");
+    let tasks_db = "01J00000000000000000000050";
+    let projects_db = "01J00000000000000000000060";
+    let task_id = "01J00000000000000000000051";
+    let old_project_id = "01J00000000000000000000061";
+    let new_project_id = "01J00000000000000000000062";
+    let task_relation_id = "01J00000000000000000000052";
+    let inverse_relation_id = "01J00000000000000000000063";
+    let hours_id = "01J00000000000000000000064";
+    let task_count_id = "01J00000000000000000000065";
+
+    let tasks = vault.join("Tasks");
+    let projects = vault.join("Projects");
+    fs::create_dir_all(tasks.join(".ambd/records")).unwrap();
+    fs::create_dir_all(projects.join(".ambd/records")).unwrap();
+    fs::write(
+        tasks.join("ambd.json"),
+        serde_json::to_vec_pretty(&json!({
+            "format": "amby-database",
+            "formatVersion": 1,
+            "databaseId": tasks_db,
+            "name": "Tasks",
+            "locked": false,
+            "membership": {"kind": "filesystem-descendants", "recursive": true},
+            "properties": [
+                {
+                    "type": "relation", "id": task_relation_id, "name": "Project",
+                    "pageVisibility": "alwaysShow", "yamlBinding": null,
+                    "config": {
+                        "targetDatabaseId": projects_db, "maxItems": 1,
+                        "inversePropertyId": inverse_relation_id
+                    }
+                },
+                {
+                    "type": "number", "id": hours_id, "name": "Hours",
+                    "pageVisibility": "alwaysShow", "yamlBinding": null,
+                    "config": {"format": "number", "currency": null}
+                }
+            ],
+            "viewOrder": [], "defaultViewId": null, "templateOrder": [],
+            "defaultTemplateId": null
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        projects.join("ambd.json"),
+        serde_json::to_vec_pretty(&json!({
+            "format": "amby-database",
+            "formatVersion": 1,
+            "databaseId": projects_db,
+            "name": "Projects",
+            "locked": false,
+            "membership": {"kind": "filesystem-descendants", "recursive": true},
+            "properties": [
+                {
+                    "type": "relation", "id": inverse_relation_id, "name": "Tasks",
+                    "pageVisibility": "alwaysShow", "yamlBinding": null,
+                    "config": {
+                        "targetDatabaseId": tasks_db, "maxItems": null,
+                        "inversePropertyId": task_relation_id
+                    }
+                },
+                {
+                    "type": "rollup", "id": task_count_id, "name": "Task Count",
+                    "pageVisibility": "alwaysShow", "yamlBinding": null,
+                    "config": {
+                        "relationPropertyId": inverse_relation_id,
+                        "targetPropertyId": hours_id,
+                        "aggregation": "count"
+                    }
+                }
+            ],
+            "viewOrder": [], "defaultViewId": null, "templateOrder": [],
+            "defaultTemplateId": null
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let task_bytes =
+        format!("---\namby-id: {task_id}\nHours: 4\nkept: yes\n---\n# Task\n").into_bytes();
+    let old_project_bytes = format!("---\namby-id: {old_project_id}\n---\n# Old\n").into_bytes();
+    let new_project_bytes = format!("---\namby-id: {new_project_id}\n---\n# New\n").into_bytes();
+    fs::write(tasks.join("Task.md"), &task_bytes).unwrap();
+    fs::write(projects.join("Old.md"), &old_project_bytes).unwrap();
+    fs::write(projects.join("New.md"), &new_project_bytes).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    init_schema(&conn).unwrap();
+    sync_vault(&conn, &vault).unwrap();
+    rebuild_database_projection(&conn, &vault).unwrap();
+    let watcher = WatcherState::new();
+
+    let initial = mutations::update_database_relation_value(
+        &vault,
+        &watcher,
+        &UpdateDatabaseRelationValueRequest {
+            expected_generation: 1,
+            operation_id: format!("relation-{}", ulid::Ulid::generate()),
+            database_id: tasks_db.to_owned(),
+            note_id: task_id.to_owned(),
+            property_id: task_relation_id.to_owned(),
+            expected_revision: raw_revision(&fs::read(tasks.join("Task.md")).unwrap()),
+            target_note_ids: vec![old_project_id.to_owned()],
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        affected_note_pairs(&initial),
+        vec![
+            (tasks_db.to_owned(), task_id.to_owned()),
+            (projects_db.to_owned(), old_project_id.to_owned()),
+        ]
+    );
+    let after_initial = update_relation_values_incremental(&conn, &vault, &initial.affected_notes);
+    assert!(after_initial.projection.is_some());
+    assert!(after_initial.warnings.is_empty());
+    assert_eq!(
+        relation_edges(&conn, tasks_db, task_id, task_relation_id),
+        vec![old_project_id]
+    );
+    assert_eq!(
+        relation_edges(&conn, projects_db, old_project_id, inverse_relation_id),
+        vec![task_id]
+    );
+    assert_eq!(
+        projection_value(&conn, projects_db, old_project_id, task_count_id),
+        Some("1".to_owned())
+    );
+
+    let replacement = mutations::update_database_relation_value(
+        &vault,
+        &watcher,
+        &UpdateDatabaseRelationValueRequest {
+            expected_generation: 1,
+            operation_id: format!("relation-{}", ulid::Ulid::generate()),
+            database_id: tasks_db.to_owned(),
+            note_id: task_id.to_owned(),
+            property_id: task_relation_id.to_owned(),
+            expected_revision: raw_revision(&fs::read(tasks.join("Task.md")).unwrap()),
+            target_note_ids: vec![new_project_id.to_owned()],
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        affected_note_pairs(&replacement),
+        vec![
+            (tasks_db.to_owned(), task_id.to_owned()),
+            (projects_db.to_owned(), old_project_id.to_owned()),
+            (projects_db.to_owned(), new_project_id.to_owned()),
+        ]
+    );
+    let bytes_after_replacement = [
+        (
+            tasks.join("Task.md"),
+            fs::read(tasks.join("Task.md")).unwrap(),
+        ),
+        (
+            projects.join("Old.md"),
+            fs::read(projects.join("Old.md")).unwrap(),
+        ),
+        (
+            projects.join("New.md"),
+            fs::read(projects.join("New.md")).unwrap(),
+        ),
+    ];
+    update_relation_values_incremental(&conn, &vault, &replacement.affected_notes);
+    for (path, bytes) in &bytes_after_replacement {
+        assert_eq!(fs::read(path).unwrap(), *bytes);
+    }
+    assert_eq!(
+        relation_edges(&conn, tasks_db, task_id, task_relation_id),
+        vec![new_project_id]
+    );
+    assert!(relation_edges(&conn, projects_db, old_project_id, inverse_relation_id).is_empty());
+    assert_eq!(
+        relation_edges(&conn, projects_db, new_project_id, inverse_relation_id),
+        vec![task_id]
+    );
+    assert_eq!(
+        projection_value(&conn, projects_db, old_project_id, task_count_id),
+        Some("0".to_owned())
+    );
+    assert_eq!(
+        projection_value(&conn, projects_db, new_project_id, task_count_id),
+        Some("1".to_owned())
+    );
+
+    let rebuilt_conn = Connection::open_in_memory().unwrap();
+    init_schema(&rebuilt_conn).unwrap();
+    sync_vault(&rebuilt_conn, &vault).unwrap();
+    rebuild_database_projection(&rebuilt_conn, &vault).unwrap();
+    assert_eq!(
+        relation_edges(&conn, projects_db, old_project_id, inverse_relation_id),
+        relation_edges(
+            &rebuilt_conn,
+            projects_db,
+            old_project_id,
+            inverse_relation_id
+        )
+    );
+    assert_eq!(
+        relation_edges(&conn, projects_db, new_project_id, inverse_relation_id),
+        relation_edges(
+            &rebuilt_conn,
+            projects_db,
+            new_project_id,
+            inverse_relation_id
+        )
+    );
+    assert_eq!(
+        projection_value(&conn, projects_db, new_project_id, task_count_id),
+        projection_value(&rebuilt_conn, projects_db, new_project_id, task_count_id)
+    );
+
+    let unlink = mutations::update_database_relation_value(
+        &vault,
+        &watcher,
+        &UpdateDatabaseRelationValueRequest {
+            expected_generation: 1,
+            operation_id: format!("relation-{}", ulid::Ulid::generate()),
+            database_id: tasks_db.to_owned(),
+            note_id: task_id.to_owned(),
+            property_id: task_relation_id.to_owned(),
+            expected_revision: raw_revision(&fs::read(tasks.join("Task.md")).unwrap()),
+            target_note_ids: Vec::new(),
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        affected_note_pairs(&unlink),
+        vec![
+            (tasks_db.to_owned(), task_id.to_owned()),
+            (projects_db.to_owned(), new_project_id.to_owned()),
+        ]
+    );
+    let bytes_after_unlink = [
+        (
+            tasks.join("Task.md"),
+            fs::read(tasks.join("Task.md")).unwrap(),
+        ),
+        (
+            projects.join("Old.md"),
+            fs::read(projects.join("Old.md")).unwrap(),
+        ),
+        (
+            projects.join("New.md"),
+            fs::read(projects.join("New.md")).unwrap(),
+        ),
+    ];
+    update_relation_values_incremental(&conn, &vault, &unlink.affected_notes);
+    for (path, bytes) in &bytes_after_unlink {
+        assert_eq!(fs::read(path).unwrap(), *bytes);
+    }
+    assert!(relation_edges(&conn, tasks_db, task_id, task_relation_id).is_empty());
+    assert!(relation_edges(&conn, projects_db, new_project_id, inverse_relation_id).is_empty());
+    assert_eq!(
+        projection_value(&conn, projects_db, new_project_id, task_count_id),
+        Some("0".to_owned())
+    );
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
+fn relation_projection_refreshes_self_inverse_in_one_database() {
+    use crate::database::mutations::{self, UpdateDatabaseRelationValueRequest};
+    use crate::database::projection::update_relation_values_incremental;
+    use crate::watcher::WatcherState;
+
+    let vault = temp_vault("relation-incremental-self");
+    let database_id = "01J00000000000000000000070";
+    let parent_id = "01J00000000000000000000071";
+    let children_id = "01J00000000000000000000072";
+    let hours_id = "01J00000000000000000000073";
+    let child_count_id = "01J00000000000000000000074";
+    let parent_note_id = "01J00000000000000000000075";
+    let child_note_id = "01J00000000000000000000076";
+    let database = vault.join("Tasks");
+    fs::create_dir_all(database.join(".ambd/records")).unwrap();
+    fs::write(
+        database.join("ambd.json"),
+        serde_json::to_vec_pretty(&json!({
+            "format": "amby-database",
+            "formatVersion": 1,
+            "databaseId": database_id,
+            "name": "Tasks",
+            "locked": false,
+            "membership": {"kind": "filesystem-descendants", "recursive": true},
+            "properties": [
+                {
+                    "type": "relation", "id": parent_id, "name": "Parent",
+                    "pageVisibility": "alwaysShow", "yamlBinding": null,
+                    "config": {"targetDatabaseId": database_id, "maxItems": 1, "inversePropertyId": children_id}
+                },
+                {
+                    "type": "relation", "id": children_id, "name": "Children",
+                    "pageVisibility": "alwaysShow", "yamlBinding": null,
+                    "config": {"targetDatabaseId": database_id, "maxItems": null, "inversePropertyId": parent_id}
+                },
+                {
+                    "type": "number", "id": hours_id, "name": "Hours",
+                    "pageVisibility": "alwaysShow", "yamlBinding": null,
+                    "config": {"format": "number", "currency": null}
+                },
+                {
+                    "type": "rollup", "id": child_count_id, "name": "Child Count",
+                    "pageVisibility": "alwaysShow", "yamlBinding": null,
+                    "config": {"relationPropertyId": children_id, "targetPropertyId": hours_id, "aggregation": "count"}
+                }
+            ],
+            "viewOrder": [], "defaultViewId": null, "templateOrder": [],
+            "defaultTemplateId": null
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let parent_bytes =
+        format!("---\namby-id: {parent_note_id}\nHours: 2\n---\n# Parent\n").into_bytes();
+    let child_bytes =
+        format!("---\namby-id: {child_note_id}\nHours: 3\n---\n# Child\n").into_bytes();
+    fs::write(database.join("Parent.md"), &parent_bytes).unwrap();
+    fs::write(database.join("Child.md"), &child_bytes).unwrap();
+
+    let conn = Connection::open_in_memory().unwrap();
+    init_schema(&conn).unwrap();
+    sync_vault(&conn, &vault).unwrap();
+    rebuild_database_projection(&conn, &vault).unwrap();
+    let watcher = WatcherState::new();
+    let linked = mutations::update_database_relation_value(
+        &vault,
+        &watcher,
+        &UpdateDatabaseRelationValueRequest {
+            expected_generation: 1,
+            operation_id: format!("relation-{}", ulid::Ulid::generate()),
+            database_id: database_id.to_owned(),
+            note_id: parent_note_id.to_owned(),
+            property_id: parent_id.to_owned(),
+            expected_revision: raw_revision(&fs::read(database.join("Parent.md")).unwrap()),
+            target_note_ids: vec![child_note_id.to_owned()],
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        affected_note_pairs(&linked),
+        vec![
+            (database_id.to_owned(), parent_note_id.to_owned()),
+            (database_id.to_owned(), child_note_id.to_owned()),
+        ]
+    );
+    let bytes_after_link = [
+        (
+            database.join("Parent.md"),
+            fs::read(database.join("Parent.md")).unwrap(),
+        ),
+        (
+            database.join("Child.md"),
+            fs::read(database.join("Child.md")).unwrap(),
+        ),
+    ];
+    let linked_report = update_relation_values_incremental(&conn, &vault, &linked.affected_notes);
+    assert_eq!(
+        linked_report.projection.as_ref().map(|report| report.seq),
+        Some(1)
+    );
+    for (path, bytes) in &bytes_after_link {
+        assert_eq!(fs::read(path).unwrap(), *bytes);
+    }
+    assert_eq!(
+        relation_edges(&conn, database_id, parent_note_id, parent_id),
+        vec![child_note_id]
+    );
+    assert_eq!(
+        relation_edges(&conn, database_id, child_note_id, children_id),
+        vec![parent_note_id]
+    );
+    assert_eq!(
+        projection_value(&conn, database_id, child_note_id, child_count_id),
+        Some("1".to_owned())
+    );
+
+    let unlinked = mutations::update_database_relation_value(
+        &vault,
+        &watcher,
+        &UpdateDatabaseRelationValueRequest {
+            expected_generation: 1,
+            operation_id: format!("relation-{}", ulid::Ulid::generate()),
+            database_id: database_id.to_owned(),
+            note_id: parent_note_id.to_owned(),
+            property_id: parent_id.to_owned(),
+            expected_revision: raw_revision(&fs::read(database.join("Parent.md")).unwrap()),
+            target_note_ids: Vec::new(),
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        affected_note_pairs(&unlinked),
+        vec![
+            (database_id.to_owned(), parent_note_id.to_owned()),
+            (database_id.to_owned(), child_note_id.to_owned()),
+        ]
+    );
+    let bytes_after_unlink = [
+        (
+            database.join("Parent.md"),
+            fs::read(database.join("Parent.md")).unwrap(),
+        ),
+        (
+            database.join("Child.md"),
+            fs::read(database.join("Child.md")).unwrap(),
+        ),
+    ];
+    let unlinked_report =
+        update_relation_values_incremental(&conn, &vault, &unlinked.affected_notes);
+    assert_eq!(
+        unlinked_report.projection.as_ref().map(|report| report.seq),
+        Some(2)
+    );
+    for (path, bytes) in &bytes_after_unlink {
+        assert_eq!(fs::read(path).unwrap(), *bytes);
+    }
+    assert!(relation_edges(&conn, database_id, parent_note_id, parent_id).is_empty());
+    assert!(relation_edges(&conn, database_id, child_note_id, children_id).is_empty());
+    assert_eq!(
+        projection_value(&conn, database_id, child_note_id, child_count_id),
+        Some("0".to_owned())
+    );
+    let _ = fs::remove_dir_all(vault);
+}
+
+fn affected_note_pairs(
+    result: &crate::database::mutations::UpdateDatabaseRelationValueResult,
+) -> Vec<(String, String)> {
+    let mut affected = result
+        .affected_notes
+        .iter()
+        .map(|note| (note.database_id.clone(), note.note_id.clone()))
+        .collect::<Vec<_>>();
+    affected.sort();
+    affected.dedup();
+    affected
+}
+
+fn relation_edges(
+    conn: &Connection,
+    database_id: &str,
+    note_id: &str,
+    property_id: &str,
+) -> Vec<String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT target_note_id FROM db_relation_edges WHERE source_database_id = ?1 AND source_note_id = ?2 AND property_id = ?3 ORDER BY position",
+        )
+        .unwrap();
+    statement
+        .query_map(params![database_id, note_id, property_id], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<String>, _>>()
+        .unwrap()
+}
+
+#[test]
+fn relation_projection_reports_one_bad_group_and_processes_the_next_group() {
+    use crate::database::mutations::DatabaseAffectedNote;
+    use crate::database::projection::update_relation_values_incremental;
+
+    let vault = temp_vault("relation-incremental-warning");
+    let missing_db = "01J00000000000000000000000";
+    let healthy_db = "01J00000000000000000000080";
+    let broken_db = "01J00000000000000000000090";
+    let healthy_note = "01J00000000000000000000081";
+    let broken_note = "01J00000000000000000000091";
+    let healthy = vault.join("Healthy");
+    let broken = vault.join("Broken");
+    fs::create_dir_all(healthy.join(".ambd/records")).unwrap();
+    fs::create_dir_all(broken.join(".ambd/records")).unwrap();
+    for (container, database_id, name, note_id) in [
+        (&healthy, healthy_db, "Entry", healthy_note),
+        (&broken, broken_db, "Child", broken_note),
+    ] {
+        fs::write(
+            container.join("ambd.json"),
+            serde_json::to_vec_pretty(&manifest(database_id, None)).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            container.join(format!("{name}.md")),
+            format!("---\namby-id: {note_id}\n---\n# {name}\n"),
+        )
+        .unwrap();
+    }
+
+    let conn = Connection::open_in_memory().unwrap();
+    init_schema(&conn).unwrap();
+    sync_vault(&conn, &vault).unwrap();
+    rebuild_database_projection(&conn, &vault).unwrap();
+    let healthy_before = fs::read(healthy.join("Entry.md")).unwrap();
+    fs::write(broken.join("ambd.json"), b"{ malformed manifest").unwrap();
+
+    let report = update_relation_values_incremental(
+        &conn,
+        &vault,
+        &[
+            DatabaseAffectedNote {
+                database_id: broken_db.to_owned(),
+                note_id: broken_note.to_owned(),
+            },
+            DatabaseAffectedNote {
+                database_id: healthy_db.to_owned(),
+                note_id: healthy_note.to_owned(),
+            },
+        ],
+    );
+    assert!(report.projection.is_some());
+    assert_eq!(
+        report.projection.as_ref().map(|projection| projection.seq),
+        Some(1)
+    );
+    assert_eq!(report.warnings.len(), 1);
+    assert!(report.warnings[0].contains(broken_db));
+    assert_eq!(fs::read(healthy.join("Entry.md")).unwrap(), healthy_before);
+
+    let report_after_missing_group = update_relation_values_incremental(
+        &conn,
+        &vault,
+        &[
+            DatabaseAffectedNote {
+                database_id: missing_db.to_owned(),
+                note_id: healthy_note.to_owned(),
+            },
+            DatabaseAffectedNote {
+                database_id: healthy_db.to_owned(),
+                note_id: healthy_note.to_owned(),
+            },
+        ],
+    );
+    assert_eq!(report_after_missing_group.warnings.len(), 1);
+    assert!(report_after_missing_group.warnings[0].contains(missing_db));
+    assert_eq!(
+        report_after_missing_group
+            .projection
+            .as_ref()
+            .map(|projection| projection.seq),
+        Some(2)
+    );
+    assert_eq!(fs::read(healthy.join("Entry.md")).unwrap(), healthy_before);
+    let _ = fs::remove_dir_all(vault);
+}

@@ -1152,17 +1152,18 @@ export type AiMessage = {
  * "user" | "assistant"
  */
 role: string; content: string }
-export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null }
-export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; warnings: string[] }
-export type CreateDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; propertyType: string; beforePropertyId: string | null; options?: string[]; formulaExpression?: string | null; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null }
+export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedRelatedManifestRevisions?: DatabaseManifestRevision[] }
+export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
+export type CreateDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; propertyType: string; beforePropertyId: string | null; options?: string[]; formulaExpression?: string | null; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedTargetManifestRevision?: string | null }
 export type CreateDatabaseRequest = { expectedGeneration: number; mode: DatabaseCreateMode; parentPath: string | null; notePath: string | null; name: string }
 export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; title: string; template: DatabaseRowTemplate }
 export type CreateDatabaseViewRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; layout: string }
 export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string; notePath: string | null; warnings: string[] }
-export type CreatedDatabaseProperty = { databaseId: string; propertyId: string; name: string; propertyType: string; manifestRevision: string; warnings: string[] }
+export type CreatedDatabaseProperty = { databaseId: string; propertyId: string; name: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
 export type CreatedDatabaseRow = { databaseId: string; noteId: string; title: string; notePath: string; recordPath: string; recordRevision: string; warnings: string[] }
 export type CredentialInfo = { exists: boolean; masked: string | null }
 export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }
+export type DatabaseAffectedNote = { databaseId: string; noteId: string }
 export type DatabaseAggregateGroup = { key: string; label: string; count: number; value: string | null }
 export type DatabaseAggregateRequest = { expectedGeneration: number; databaseId: string; source: DatabaseQuerySource; category: DatabaseFieldRef | null; measure: DatabaseFieldRef | null; aggregation: string; search: string | null; limit: number }
 export type DatabaseAggregateResult = { databaseId: string; groups: DatabaseAggregateGroup[]; totalCount: number; warnings: string[] }
@@ -1173,6 +1174,7 @@ export type DatabaseError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" 
 export type DatabaseFieldRef = { kind: "system"; field: string } | { kind: "property"; property_id: string }
 export type DatabaseFilterNode = { kind: "group"; operator: string; children: DatabaseFilterNode[] } | { kind: "condition"; field: DatabaseFieldRef; operator: string; value: string | null }
 export type DatabaseHistoryStatus = { databaseId: string; canUndo: boolean; canRedo: boolean }
+export type DatabaseManifestRevision = { databaseId: string; revision: string }
 export type DatabaseMigrationStatus = { databaseId: string; databaseName: string; containerPath: string; needsMigration: boolean; hasLegacyManifest: boolean; hasRecordShards: boolean; hasViewShards: boolean; recordShardsCount: number; viewShardsCount: number }
 export type DatabaseModuleState = { enabled: boolean; vaultGeneration: number | null; projection: ProjectionVersion | null }
 export type DatabaseNoteContext = { vaultGeneration: number; databaseId: string; databaseTitle: string; databaseIcon: string | null; manifestRevision: string; locked: boolean; properties: DatabasePropertySummary[]; row: DatabaseRow }
@@ -1296,8 +1298,8 @@ export type SyncReport = { inserted: number; updated: number; deleted: number; w
 export type TagEntry = { tag: string; notes: IndexedNote[] }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
-export type UpdateDatabaseRelationValueRequest = { expectedGeneration: number; databaseId: string; noteId: string; propertyId: string; targetNoteIds: string[] }
-export type UpdateDatabaseRelationValueResult = { databaseId: string; noteId: string; targetNoteIds: string[]; warnings: string[] }
+export type UpdateDatabaseRelationValueRequest = { expectedGeneration: number; operationId: string; expectedRevision: string; databaseId: string; noteId: string; propertyId: string; targetNoteIds: string[] }
+export type UpdateDatabaseRelationValueResult = { operationId: string; databaseId: string; noteId: string; targetNoteIds: string[]; affectedNotes: DatabaseAffectedNote[]; revisions: DatabaseNoteRevision[]; warnings: string[] }
 export type UpdateDatabaseViewConfigRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; configJson: string }
 export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
 /**

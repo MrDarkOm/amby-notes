@@ -99,6 +99,33 @@ pub fn confine_rel(root: &Path, rel: &str) -> Result<PathBuf, String> {
     confine(root, &root.join(rel_path))
 }
 
+/// Reject symlinks even when they point back inside the root. Inspect lexical
+/// components before canonicalization; the selected root itself may be an OS
+/// alias (for example /var on macOS). Like `confine`, this is not a protection
+/// against another process replacing a directory after the check.
+pub fn confine_rel_no_symlinks(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let root = root.canonicalize().map_err(|error| error.to_string())?;
+    let mut candidate = root.clone();
+    if rel.is_empty() {
+        return Err("Path must not be empty".into());
+    }
+    for component in Path::new(rel).components() {
+        let std::path::Component::Normal(name) = component else {
+            return Err(format!("Unsafe relative path: {rel}"));
+        };
+        candidate.push(name);
+        match std::fs::symlink_metadata(&candidate) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(format!("Symbolic links are not allowed: {rel}"));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    confine(&root, &candidate)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

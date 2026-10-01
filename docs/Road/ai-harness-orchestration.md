@@ -1,9 +1,15 @@
 # ИИ-агент Amby: исполнение через оркестрацию
 
-Статус: все пакеты запланированы. Дата: 2026-09-24. Версия: 1.
+Статус: все пакеты запланированы. Дата: 2026-09-30. Версия: 2.
 
 Контракт: [архитектурный план](./ai-harness-plan.md).  
 Проверки: [приёмка](./ai-harness-acceptance.md).
+
+Подготовлены проекты [контракта](../ai-harness.md),
+[формата состояния](../ai-state-format.md) и [каталога действий](../ai-action-catalog.md).
+Исполнители уточняют их в H-00/H-01 относительно фактического baseline.
+Эти документы не закрывают пакеты: schemas, fixtures и implementation evidence
+ещё не созданы. Текущий этап работы ограничен документацией.
 
 ## Правила координации
 
@@ -121,6 +127,10 @@ store/adapter, интегратор сериализует изменения н
   исходные проверки; несвязанные ошибки отделить от блокирующих зависимостей.
   Зафиксировать версии/лицензии upstream материалов для планируемых заимствований.
 - **Артефакт:** `docs/ai-action-catalog.md`, progress baseline и integration ownership.
+- **Уточнение второй редакции:** каталог уже содержит стартовые API references,
+  но не полную UI coverage. Разрешить расхождение system trash/internal archive,
+  проверить границы shared sidecars, доступные database layouts и зависимости
+  от планов единой доски/творческого модуля; сохранить честные M/U/B статусы.
 - **Готово:** каждая группа из каталога плана имеет реальные code references;
   строки `missingImplementation` имеют владельца; существующие проблемы storage
   и plugin isolation не скрыты release notes. Проверки Q01.
@@ -135,6 +145,11 @@ store/adapter, интегратор сериализует изменения н
 - **Артефакт:** `docs/ai-harness.md`, `docs/ai-state-format.md`, schemas и начальный
   `tests/fixtures/agent/` с expected invariants. Отдельно решить transport/context
   для открытых документов и безопасный typed settings patch.
+- **Уточнение второй редакции:** взять подготовленные проекты как исходный
+  контракт; закрепить canonical request digest, resource/effect closure,
+  mixed workspace/global journal ownership, lock order, orphan receipt recovery,
+  privacy purge и именованные варианты Q-сценариев. Не считать Markdown schema
+  заменой исполняемого validator или crash fixture.
 - **Готово:** policy, persistence и UI owners могут реализовывать контракты без
   несовместимых предположений; Q01, Q02; G0. Изменения контрактов далее требуют
   review всех downstream owners и обновления fixtures.
@@ -297,6 +312,9 @@ store/adapter, интегратор сериализует изменения н
   rename/move с backlinks, bundle/layer lifecycle, trash/restore, attachments.
   Preview перечисляет все effects; наружные links и shared assets учитываются
   policy. Стабильные IDs и opaque YAML не переписываются автоматически.
+  Internal archive, system trash и archive отдельного слоя имеют разные actions.
+  Автоматический undo не вызывает current `deleteItem`/`deleteLayer`, отправляющие
+  данные в OS trash; manual исключения остаются видимыми в coverage.
 - **Готово:** Q04, Q08, Q11, Q15—Q17, Q31, Q32; операции доступны без открытого
   редактора и отменяются через общий журнал.
 
@@ -318,6 +336,9 @@ store/adapter, интегратор сериализует изменения н
 - **Сделать:** create/read/patch scene, note/text/image cards, edges/groups,
   reusable layout, bounds validation, stable IDs и сохранение unknown fields.
   Выделить editor-independent scene transformations; persist только через executor.
+  Согласовать общий `board` command service с H-43 и планом единой доски:
+  один владелец shared contracts, отдельные format adapters, без двух моделей
+  документа и конкурирующих history stacks.
 - **Готово:** карточки открывают настоящие заметки, внешние ссылки не обогащают
   scope, round-trip и undo сохраняют неизвестные данные; Q37, Q39.
 
@@ -328,6 +349,8 @@ store/adapter, интегратор сериализует изменения н
   deterministic layout и patch по IDs; renderer preview как результат проверки.
   Использовать существующий format/serializer и совместимые Excalidraw helpers;
   не хранить editor runtime fields в документе.
+  Использовать согласованный с H-42 `board` contract; Excalidraw-only возможности
+  не включать для `.canvas`. Shared files закрепить до параллельных работ.
 - **Готово:** заметки встроены и кликабельны, редактирование одного элемента
   сохраняет остальные, переносимость/visual/undo checks проходят; Q38, Q39.
 

@@ -274,14 +274,98 @@ fn parse_yaml(yaml: &str) -> Result<Value, serde_yaml::Error> {
     }
 }
 
-/// Replace or append one top-level scalar YAML binding without serializing the
-/// surrounding document. Complex/multiline values are rejected until a
-/// dedicated lossless YAML AST splice is available.
+#[derive(Debug)]
+struct TopLevelYamlEntry {
+    key: Value,
+    line_start: usize,
+    line_end: usize,
+    value_start: usize,
+    value_end: usize,
+    value_kind: YamlValueKind,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum YamlValueKind {
+    Scalar,
+    InlineCollection,
+    Complex,
+}
+
+/// Replace or append one top-level YAML binding without serializing the
+/// surrounding document. The source is scanned only for mapping entries at
+/// column zero; nested mappings and block scalar contents therefore remain
+/// opaque bytes. The parsed mapping comparison below is the final guard
+/// against a splice that changes anything besides the requested key.
 pub(crate) fn replace_yaml_binding_lossless(
     content: &str,
     key: &str,
     value: &Value,
 ) -> Result<String, String> {
+    validate_binding_key(key)?;
+    let scalar = yaml_inline_value(value)?;
+    let (yaml, _) = split_frontmatter(content)
+        .ok_or_else(|| "YAML binding requires a closed frontmatter envelope".to_owned())?;
+    let (yaml_start, yaml_end, envelope_end) = frontmatter_yaml_offsets(content, yaml)?;
+    let original =
+        parse_yaml(yaml).map_err(|error| format!("Invalid frontmatter YAML: {error}"))?;
+    let mut original_mapping = match original {
+        Value::Mapping(mapping) => mapping,
+        _ => return Err("YAML binding requires a mapping frontmatter root".to_owned()),
+    };
+    let entries = scan_top_level_yaml_entries(yaml)?;
+    validate_mapping_entries(&original_mapping, &entries)?;
+
+    let target = Value::String(key.to_owned());
+    let matching = entries
+        .iter()
+        .filter(|entry| entry.key == target)
+        .collect::<Vec<_>>();
+    if matching.len() > 1 {
+        return Err(format!("YAML binding key '{key}' is duplicated"));
+    }
+    if matching.is_empty() {
+        original_mapping.insert(target, value.clone());
+    } else {
+        let entry = matching[0];
+        if entry.value_kind == YamlValueKind::Complex {
+            return Err(format!(
+                "YAML binding key '{key}' has an unsupported, anchored, or multiline value"
+            ));
+        }
+        if original_mapping.get(&target) == Some(value) {
+            // A semantically identical update should not change quoting, spacing,
+            // comments, or any other presentation byte in the source.
+            return Ok(content.to_owned());
+        }
+        original_mapping.insert(target, value.clone());
+    }
+
+    let mut next_yaml = yaml.to_owned();
+    if let Some(entry) = matching.first() {
+        let value_start = entry.value_start;
+        let value_end = entry.value_end;
+        next_yaml.replace_range(value_start..value_end, &scalar);
+    } else {
+        let eol = frontmatter_eol(content);
+        if !next_yaml.is_empty() {
+            next_yaml.push_str(eol);
+        }
+        next_yaml.push_str(key);
+        next_yaml.push_str(": ");
+        next_yaml.push_str(&scalar);
+    }
+
+    let next = format!(
+        "{}{}{}{}",
+        &content[..yaml_start],
+        next_yaml,
+        &content[yaml_end..envelope_end],
+        &content[envelope_end..]
+    );
+    validate_yaml_mapping_change(&next, &original_mapping)
+}
+
+fn validate_binding_key(key: &str) -> Result<(), String> {
     if key.is_empty()
         || !key
             .chars()
@@ -289,9 +373,10 @@ pub(crate) fn replace_yaml_binding_lossless(
     {
         return Err("YAML binding key is not a safe top-level key".to_owned());
     }
-    let scalar = yaml_inline_value(value)?;
-    let (yaml, _) = split_frontmatter(content)
-        .ok_or_else(|| "YAML binding requires a closed frontmatter envelope".to_owned())?;
+    Ok(())
+}
+
+fn frontmatter_yaml_offsets(content: &str, yaml: &str) -> Result<(usize, usize, usize), String> {
     let envelope = split_frontmatter_envelope(content)
         .map(|(envelope, _)| envelope)
         .ok_or_else(|| "YAML binding requires a closed frontmatter envelope".to_owned())?;
@@ -304,69 +389,402 @@ pub(crate) fn replace_yaml_binding_lossless(
             4
         };
     let yaml_start = opening_len;
-    let yaml_end = yaml_start + yaml.len();
-    let mut found = false;
-    let mut rebuilt = String::with_capacity(yaml.len() + key.len() + scalar.len() + 4);
+    let yaml_end = yaml_start
+        .checked_add(yaml.len())
+        .ok_or_else(|| "YAML frontmatter is too large".to_owned())?;
+    if yaml_end > envelope.len() {
+        return Err("YAML frontmatter boundary is inconsistent".to_owned());
+    }
+    Ok((yaml_start, yaml_end, envelope.len()))
+}
+
+fn frontmatter_eol(content: &str) -> &'static str {
+    let without_bom = content.strip_prefix('\u{feff}').unwrap_or(content);
+    if without_bom.starts_with("---\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
+fn scan_top_level_yaml_entries(yaml: &str) -> Result<Vec<TopLevelYamlEntry>, String> {
+    let mut entries = Vec::new();
+    let mut ranges = Vec::new();
+    let mut line_start = 0;
     for line in yaml.split_inclusive('\n') {
+        ranges.push((line_start, line_start + line.len()));
+        line_start += line.len();
+    }
+
+    for (line_index, (line_start, line_end)) in ranges.iter().copied().enumerate() {
+        let line = &yaml[line_start..line_end];
         let line_without_lf = line.strip_suffix('\n').unwrap_or(line);
         let line_without_eol = line_without_lf
             .strip_suffix('\r')
             .unwrap_or(line_without_lf);
-        let leading = line_without_eol.len() - line_without_eol.trim_start().len();
-        let candidate = &line_without_eol[leading..];
-        let matches_key = candidate
-            .split_once(':')
-            .is_some_and(|(candidate_key, remainder)| {
-                let candidate_clean = candidate_key.trim().trim_matches('"').trim_matches('\'');
-                (candidate_clean == key || candidate_clean.eq_ignore_ascii_case(key))
-                    && !remainder.trim_start().starts_with('#')
-            });
-        if matches_key {
-            if found {
-                return Err("YAML binding key is duplicated".to_owned());
-            }
-            found = true;
-            let eol = if line.ends_with("\r\n") {
-                "\r\n"
-            } else if line.ends_with('\n') {
-                "\n"
+        if let Some((key_text, colon)) = top_level_key_colon(line_without_eol) {
+            let key = parse_top_level_key(key_text)?;
+            let after_colon = colon + 1;
+            let value_start = line_without_eol[after_colon..]
+                .find(|character: char| !character.is_ascii_whitespace())
+                .map_or(line_without_eol.len(), |offset| after_colon + offset);
+            let value_limit = yaml_value_limit(&line_without_eol[value_start..])
+                .map_or(line_without_eol.len(), |offset| value_start + offset);
+            let value_end = line_without_eol[value_start..value_limit]
+                .trim_end_matches([' ', '\t'])
+                .len()
+                + value_start;
+            let value_text = line_without_eol[value_start..value_end].trim();
+            let has_continuation = ranges
+                .iter()
+                .enumerate()
+                .skip(line_index + 1)
+                .take_while(|(_, (start, end))| {
+                    let next_line = yaml[*start..*end].trim_end_matches(['\n', '\r']);
+                    top_level_key_colon(next_line).is_none()
+                })
+                .any(|(_, (start, end))| {
+                    let next_line = yaml[*start..*end].trim_end_matches(['\n', '\r']);
+                    !next_line.trim().is_empty()
+                        && !next_line.trim_start().starts_with('#')
+                        && next_line.starts_with(char::is_whitespace)
+                });
+            let value_kind = if has_continuation
+                || value_text.is_empty()
+                || value_text.starts_with(['|', '>'])
+                || contains_unsafe_yaml_indicator(value_text)
+            {
+                YamlValueKind::Complex
+            } else if value_text.starts_with(['[', '{']) {
+                if is_safe_inline_collection(value_text) {
+                    YamlValueKind::InlineCollection
+                } else {
+                    YamlValueKind::Complex
+                }
             } else {
-                ""
+                YamlValueKind::Scalar
             };
-            rebuilt.push_str(&line_without_eol[..leading]);
-            rebuilt.push_str(key);
-            rebuilt.push_str(": ");
-            rebuilt.push_str(&scalar);
-            rebuilt.push_str(eol);
-        } else {
-            rebuilt.push_str(line);
+            entries.push(TopLevelYamlEntry {
+                key,
+                line_start,
+                line_end,
+                value_start: line_start + value_start,
+                value_end: line_start + value_end,
+                value_kind,
+            });
         }
     }
-    if !found {
-        let eol = if content.contains("\r\n") {
-            "\r\n"
-        } else {
-            "\n"
-        };
-        if !rebuilt.is_empty() {
-            rebuilt.push_str(eol);
+    Ok(entries)
+}
+
+/// Return whether a value contains an anchor, alias, or tag token outside a
+/// quoted scalar. These constructs can carry context outside this one line;
+/// refusing them keeps a byte splice from silently changing YAML semantics.
+fn contains_unsafe_yaml_indicator(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut single_quoted = false;
+    let mut double_quoted = false;
+    let mut escaped = false;
+    let mut flow_depth = 0usize;
+    let mut token_start = true;
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if double_quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                double_quoted = false;
+            }
+            index += 1;
+            continue;
         }
-        rebuilt.push_str(key);
-        rebuilt.push_str(": ");
-        rebuilt.push_str(&scalar);
+        if single_quoted {
+            if byte == b'\'' {
+                if bytes.get(index + 1) == Some(&b'\'') {
+                    index += 2;
+                    continue;
+                }
+                single_quoted = false;
+            }
+            index += 1;
+            continue;
+        }
+        match byte {
+            b'"' if token_start => {
+                double_quoted = true;
+                token_start = false;
+            }
+            b'\'' if token_start => {
+                single_quoted = true;
+                token_start = false;
+            }
+            b'&' | b'*' | b'!' if token_start => return true,
+            b'[' | b'{' if token_start || flow_depth > 0 => {
+                flow_depth += 1;
+                token_start = true;
+            }
+            b']' | b'}' if flow_depth > 0 => {
+                flow_depth -= 1;
+                token_start = false;
+            }
+            b',' | b':' if flow_depth > 0 => token_start = true,
+            byte if byte.is_ascii_whitespace() => {}
+            _ => token_start = false,
+        }
+        index += 1;
     }
-    let next = format!(
-        "{}{}{}{}",
-        &content[..yaml_start],
-        rebuilt,
-        &envelope[yaml_end..],
-        &content[envelope.len()..]
-    );
-    let parsed = parse_markdown(&next);
-    if parsed.frontmatter_status != FrontmatterStatus::Valid {
-        return Err("YAML binding update produced invalid frontmatter".to_owned());
+    false
+}
+
+/// Validate a one-line flow sequence or mapping without deserializing it.
+/// serde_yaml performs the semantic validation later; this lexical pass only
+/// proves that delimiters are balanced and no context-bearing YAML token is
+/// hidden inside an unquoted fragment.
+fn is_safe_inline_collection(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let Some(&opening) = bytes.first() else {
+        return false;
+    };
+    if !matches!(opening, b'[' | b'{') || bytes.last() != Some(&matching_close(opening)) {
+        return false;
     }
-    Ok(next)
+    let mut stack = Vec::new();
+    let mut single_quoted = false;
+    let mut double_quoted = false;
+    let mut escaped = false;
+    let mut token_start = true;
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if double_quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                double_quoted = false;
+            }
+            index += 1;
+            continue;
+        }
+        if single_quoted {
+            if byte == b'\'' {
+                if bytes.get(index + 1) == Some(&b'\'') {
+                    index += 2;
+                    continue;
+                }
+                single_quoted = false;
+            }
+            index += 1;
+            continue;
+        }
+        match byte {
+            b'"' if token_start => {
+                double_quoted = true;
+                token_start = false;
+            }
+            b'\'' if token_start => {
+                single_quoted = true;
+                token_start = false;
+            }
+            b'&' | b'*' | b'!' if token_start => return false,
+            b'[' | b'{' => {
+                stack.push(byte);
+                token_start = true;
+            }
+            b']' | b'}' if stack.pop().map(matching_close) != Some(byte) => return false,
+            b']' | b'}' => token_start = false,
+            b',' | b':' => token_start = true,
+            byte if byte.is_ascii_whitespace() => {}
+            _ => token_start = false,
+        }
+        index += 1;
+    }
+    !single_quoted && !double_quoted && stack.is_empty()
+}
+
+fn matching_close(opening: u8) -> u8 {
+    match opening {
+        b'[' => b']',
+        b'{' => b'}',
+        _ => 0,
+    }
+}
+
+fn top_level_key_colon(line: &str) -> Option<(&str, usize)> {
+    if line.is_empty() || line.starts_with(char::is_whitespace) || line.starts_with('#') {
+        return None;
+    }
+    let bytes = line.as_bytes();
+    let mut single_quoted = false;
+    let mut double_quoted = false;
+    let mut escaped = false;
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if double_quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                double_quoted = false;
+            }
+            index += 1;
+            continue;
+        }
+        if single_quoted {
+            if byte == b'\'' {
+                if bytes.get(index + 1) == Some(&b'\'') {
+                    index += 2;
+                    continue;
+                }
+                single_quoted = false;
+            }
+            index += 1;
+            continue;
+        }
+        match byte {
+            b'"' if index == 0 => double_quoted = true,
+            b'\'' if index == 0 => single_quoted = true,
+            b':' if bytes
+                .get(index + 1)
+                .is_none_or(|next| next.is_ascii_whitespace() || *next == b'#') =>
+            {
+                let key = line[..index].trim_end();
+                if key.is_empty() {
+                    return None;
+                }
+                return Some((key, index));
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}
+
+fn parse_top_level_key(key_text: &str) -> Result<Value, String> {
+    let source = format!("{key_text}: null");
+    let value = serde_yaml::from_str::<Value>(&source)
+        .map_err(|error| format!("Unsupported top-level YAML key '{key_text}': {error}"))?;
+    let Value::Mapping(mapping) = value else {
+        return Err(format!("Unsupported top-level YAML key '{key_text}'"));
+    };
+    let Some((key, value)) = mapping.into_iter().next() else {
+        return Err(format!("Unsupported top-level YAML key '{key_text}'"));
+    };
+    if value != Value::Null {
+        return Err(format!("Unsupported top-level YAML key '{key_text}'"));
+    }
+    if !matches!(key, Value::String(_)) {
+        return Err(format!(
+            "Unsupported non-string top-level YAML key '{key_text}'"
+        ));
+    }
+    Ok(key)
+}
+
+fn yaml_value_limit(value: &str) -> Option<usize> {
+    let bytes = value.as_bytes();
+    let mut single_quoted = false;
+    let mut double_quoted = false;
+    let mut escaped = false;
+    let mut flow_depth = 0usize;
+    let mut token_start = true;
+    let mut index = 0;
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if double_quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                double_quoted = false;
+            }
+            index += 1;
+            continue;
+        }
+        if single_quoted {
+            if byte == b'\'' {
+                if bytes.get(index + 1) == Some(&b'\'') {
+                    index += 2;
+                    continue;
+                }
+                single_quoted = false;
+            }
+            index += 1;
+            continue;
+        }
+        match byte {
+            b'"' if token_start => {
+                double_quoted = true;
+                token_start = false;
+            }
+            b'\'' if token_start => {
+                single_quoted = true;
+                token_start = false;
+            }
+            b'[' | b'{' if token_start || flow_depth > 0 => {
+                flow_depth += 1;
+                token_start = true;
+            }
+            b']' | b'}' if flow_depth > 0 => {
+                flow_depth -= 1;
+                token_start = false;
+            }
+            b',' | b':' if flow_depth > 0 => token_start = true,
+            b'#' if flow_depth == 0 && (index == 0 || bytes[index - 1].is_ascii_whitespace()) => {
+                return Some(index);
+            }
+            byte if byte.is_ascii_whitespace() => {}
+            _ => token_start = false,
+        }
+        index += 1;
+    }
+    None
+}
+
+fn validate_mapping_entries(
+    mapping: &Mapping,
+    entries: &[TopLevelYamlEntry],
+) -> Result<(), String> {
+    for (index, left) in entries.iter().enumerate() {
+        if entries[..index].iter().any(|right| right.key == left.key) {
+            return Err("YAML binding key is duplicated".to_owned());
+        }
+    }
+    if entries.len() != mapping.len() {
+        return Err(
+            "Unsupported YAML mapping representation; only explicit top-level entries can be mutated"
+                .to_owned(),
+        );
+    }
+    for left in entries {
+        if !mapping.contains_key(&left.key) {
+            return Err("Unsupported YAML mapping key representation".to_owned());
+        }
+    }
+    Ok(())
+}
+
+fn validate_yaml_mapping_change(
+    content: &str,
+    expected_mapping: &Mapping,
+) -> Result<String, String> {
+    let (yaml, _) = split_frontmatter(content)
+        .ok_or_else(|| "YAML binding update produced an invalid frontmatter envelope".to_owned())?;
+    let actual = parse_yaml(yaml)
+        .map_err(|error| format!("YAML binding update produced invalid frontmatter: {error}"))?;
+    if actual == Value::Mapping(expected_mapping.clone()) {
+        Ok(content.to_owned())
+    } else {
+        Err("YAML binding update changed more than the requested top-level key".to_owned())
+    }
 }
 
 fn yaml_inline_value(value: &Value) -> Result<String, String> {
@@ -406,67 +824,46 @@ fn yaml_inline_value(value: &Value) -> Result<String, String> {
 /// in the frontmatter envelope. A missing key is a no-op; duplicate keys are
 /// refused rather than guessing which user value should be removed.
 pub(crate) fn remove_yaml_binding_lossless(content: &str, key: &str) -> Result<String, String> {
-    if key.is_empty()
-        || !key
-            .chars()
-            .all(|character| character.is_alphanumeric() || matches!(character, '-' | '_' | ' '))
-    {
-        return Err("YAML binding key is not a safe top-level key".to_owned());
-    }
+    validate_binding_key(key)?;
     let (yaml, _) = split_frontmatter(content)
         .ok_or_else(|| "YAML binding requires a closed frontmatter envelope".to_owned())?;
-    let envelope = split_frontmatter_envelope(content)
-        .map(|(envelope, _)| envelope)
-        .ok_or_else(|| "YAML binding requires a closed frontmatter envelope".to_owned())?;
-    let without_bom = content.strip_prefix('\u{feff}').unwrap_or(content);
-    let bom_len = content.len() - without_bom.len();
-    let opening_len = bom_len
-        + if without_bom.starts_with("---\r\n") {
-            5
-        } else {
-            4
-        };
-    let yaml_start = opening_len;
-    let yaml_end = yaml_start + yaml.len();
-    let mut found = false;
-    let mut rebuilt = String::with_capacity(yaml.len());
-    for line in yaml.split_inclusive('\n') {
-        let line_without_lf = line.strip_suffix('\n').unwrap_or(line);
-        let line_without_eol = line_without_lf
-            .strip_suffix('\r')
-            .unwrap_or(line_without_lf);
-        let leading = line_without_eol.len() - line_without_eol.trim_start().len();
-        let candidate = &line_without_eol[leading..];
-        let matches_key = candidate
-            .split_once(':')
-            .is_some_and(|(candidate_key, remainder)| {
-                let candidate_clean = candidate_key.trim().trim_matches('"').trim_matches('\'');
-                (candidate_clean == key || candidate_clean.eq_ignore_ascii_case(key))
-                    && !remainder.trim_start().starts_with('#')
-            });
-        if matches_key {
-            if found {
-                return Err("YAML binding key is duplicated".to_owned());
-            }
-            found = true;
-            continue;
-        }
-        rebuilt.push_str(line);
+    let (yaml_start, yaml_end, envelope_end) = frontmatter_yaml_offsets(content, yaml)?;
+    let original =
+        parse_yaml(yaml).map_err(|error| format!("Invalid frontmatter YAML: {error}"))?;
+    let mut expected = match original {
+        Value::Mapping(mapping) => mapping,
+        _ => return Err("YAML binding requires a mapping frontmatter root".to_owned()),
+    };
+    let entries = scan_top_level_yaml_entries(yaml)?;
+    validate_mapping_entries(&expected, &entries)?;
+    let target = Value::String(key.to_owned());
+    let matching = entries
+        .iter()
+        .filter(|entry| entry.key == target)
+        .collect::<Vec<_>>();
+    if matching.len() > 1 {
+        return Err(format!("YAML binding key '{key}' is duplicated"));
     }
-    if !found {
+    let Some(entry) = matching.first() else {
         return Ok(content.to_owned());
+    };
+    if entry.value_kind == YamlValueKind::Complex {
+        return Err(format!(
+            "YAML binding key '{key}' has an unsupported, anchored, or multiline value"
+        ));
     }
+    expected.remove(&target);
+    let mut next_yaml = String::with_capacity(yaml.len());
+    next_yaml.push_str(&yaml[..entry.line_start]);
+    next_yaml.push_str(&yaml[entry.line_end..]);
     let next = format!(
         "{}{}{}{}",
         &content[..yaml_start],
-        rebuilt,
-        &envelope[yaml_end..],
-        &content[envelope.len()..]
+        next_yaml,
+        &content[yaml_end..envelope_end],
+        &content[envelope_end..]
     );
-    if parse_markdown(&next).frontmatter_status != FrontmatterStatus::Valid {
-        return Err("YAML binding removal produced invalid frontmatter".to_owned());
-    }
-    Ok(next)
+    validate_yaml_mapping_change(&next, &expected)
 }
 
 pub fn property_value_to_yaml_value(value: &str, property_type: &str) -> Value {

@@ -4,6 +4,10 @@ A fully open-source, local-first desktop knowledge workspace built with Tauri 2,
 
 [Release notes](updates/README.md)
 
+For AI-assisted development, start with [AGENTS.md](AGENTS.md) and the
+[project map](MAP.md). Claude Code and Gemini CLI share the same entry rules;
+subsystem maps are read only as needed. See [context design](docs/agent-context.md).
+
 ## Features
 
 - **Vault-based** — open any folder as a vault; notes are `.md` files you own

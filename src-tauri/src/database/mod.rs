@@ -13,6 +13,8 @@ pub mod mutation_state;
 pub mod mutations;
 pub mod projection;
 pub mod query;
+pub mod relation_recovery;
+pub mod relation_schema_recovery;
 pub mod rows;
 pub mod runtime_state;
 #[allow(dead_code)]

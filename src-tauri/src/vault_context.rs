@@ -141,6 +141,24 @@ impl VaultContext {
                 recovery.journal_path
             ));
         }
+        // Read and validate every pending value and reciprocal-schema journal
+        // before restoring either namespace. The two plans touch disjoint
+        // user-owned paths, but a corrupt journal in either namespace must
+        // still block activation before any recovery write occurs.
+        let pending_relations =
+            crate::database::relation_recovery::prepare_pending_relations(&root)
+                .map_err(|error| format!("Relation recovery blocked vault activation: {error}"))?;
+        let pending_relation_schemas =
+            crate::database::relation_schema_recovery::prepare_pending_relation_schemas(&root)
+                .map_err(|error| {
+                    format!("Relation schema recovery blocked vault activation: {error}")
+                })?;
+        crate::database::relation_recovery::restore_prepared_relations(pending_relations)
+            .map_err(|error| format!("Relation recovery blocked vault activation: {error}"))?;
+        crate::database::relation_schema_recovery::restore_prepared_relation_schemas(
+            pending_relation_schemas,
+        )
+        .map_err(|error| format!("Relation schema recovery blocked vault activation: {error}"))?;
         let connection = vault_index::open_connection(&root)?;
         property_store::restore_cache(&connection, &root)?;
         let _ = crate::recovery::sweep_expired_recovery(&root);

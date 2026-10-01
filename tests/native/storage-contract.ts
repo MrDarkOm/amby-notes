@@ -1,6 +1,7 @@
 import { DesktopAdapter } from "../../src/lib/storage/desktop-adapter"
 import { joinStoragePath } from "../../src/lib/storage/storage-path"
 import { storageContractCases } from "../../src/lib/storage/storage-contract"
+import { nativeDatabaseCases } from "./database-contract"
 import { nativeNoteCases } from "./note-contract"
 import { nativeDebugCases } from "./debug-contract"
 
@@ -12,6 +13,7 @@ const results: Array<{ name: string; passed: boolean; error?: string }> = []
 try {
   for (const [index, scenario] of [
     ...storageContractCases,
+    ...nativeDatabaseCases,
     ...nativeNoteCases,
     ...nativeDebugCases,
   ].entries()) {

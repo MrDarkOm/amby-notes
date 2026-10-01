@@ -37,6 +37,7 @@ import {
   renameDatabaseProperty,
   renameDatabaseView,
   queryDatabase,
+  listDatabases,
   resolveDatabaseYamlConflict,
   syncDatabaseYaml,
   setDefaultDatabaseView,
@@ -111,6 +112,50 @@ interface DatabaseWorkspaceProps {
 }
 
 const EMPTY_PROPERTIES: DatabasePropertySummary[] = []
+
+function createDatabaseOperationId(prefix: string, suffix?: string): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${prefix}-${crypto.randomUUID()}`
+  }
+  const random = Math.random().toString(36).slice(2)
+  const safeSuffix = suffix?.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64)
+  return `${prefix}-${Date.now()}${safeSuffix ? `-${safeSuffix}` : ""}-${random}`
+}
+
+function relationTargetFromConfig(configJson: string, reciprocalOnly = false): string | undefined {
+  try {
+    const config = JSON.parse(configJson) as {
+      targetDatabaseId?: unknown
+      inversePropertyId?: unknown
+    }
+    if (reciprocalOnly && !config.inversePropertyId) return undefined
+    return typeof config.targetDatabaseId === "string" ? config.targetDatabaseId : undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function expectedRelatedManifestRevisions(
+  sourceDatabaseId: string,
+  unavailableMessage: string,
+  ...targetDatabaseIds: Array<string | undefined>
+): Promise<Array<{ databaseId: string; revision: string }>> {
+  const relatedIds = [
+    ...new Set(
+      targetDatabaseIds.filter((databaseId): databaseId is string =>
+        Boolean(databaseId && databaseId !== sourceDatabaseId),
+      ),
+    ),
+  ]
+  if (!relatedIds.length) return []
+
+  const summaries = await listDatabases()
+  return relatedIds.flatMap((databaseId) => {
+    const summary = summaries.find((candidate) => candidate.databaseId === databaseId)
+    if (!summary?.manifestRevision) throw new Error(unavailableMessage)
+    return [{ databaseId, revision: summary.manifestRevision }]
+  })
+}
 
 export function DatabaseWorkspace({
   databaseId,
@@ -994,15 +1039,27 @@ export function DatabaseWorkspace({
       mutationBusy
     )
       return
+    const isSelfRelation = relationTargetDatabaseId === databaseId
+    const twoWay = isSelfRelation ? relationSelfDual : relationTwoWay
+    const isTwoWayRelation = propertyType === "relation" && twoWay
+    const operationId = isTwoWayRelation
+      ? createDatabaseOperationId("schema", `${databaseId}-${propertyName.trim()}`)
+      : undefined
     setMutationBusy(true)
     setMutationError(null)
     try {
-      const isSelfRelation = relationTargetDatabaseId === databaseId
-      const twoWay = isSelfRelation ? relationSelfDual : relationTwoWay
+      const expectedTargetManifestRevision =
+        isTwoWayRelation && !isSelfRelation
+          ? (await listDatabases()).find(
+              (candidate) => candidate.databaseId === relationTargetDatabaseId,
+            )?.manifestRevision
+          : undefined
       const created = await createDatabaseProperty({
         expectedGeneration: currentGeneration,
         databaseId,
         expectedManifestRevision: database.manifestRevision,
+        operationId,
+        expectedTargetManifestRevision,
         name: propertyName.trim(),
         propertyType,
         formulaExpression: propertyType === "formula" ? formulaExpression : undefined,
@@ -1186,19 +1243,41 @@ export function DatabaseWorkspace({
         return
       setMutationError(null)
       try {
+        const currentRelationTargetDatabaseId =
+          property.propertyType === "relation"
+            ? relationTargetFromConfig(property.configJson, true)
+            : undefined
+        const relationOperation =
+          property.propertyType === "relation" || nextPropertyType === "relation"
+        const targetDatabaseId =
+          nextPropertyType === "relation" ? nextRelationTargetDatabaseId || databaseId : undefined
+        const operationId = relationOperation
+          ? createDatabaseOperationId("schema", `${databaseId}-${propertyId}`)
+          : undefined
+        const relatedManifestRevisions = relationOperation
+          ? await expectedRelatedManifestRevisions(
+              databaseId,
+              t("databaseWorkspace.notFound"),
+              currentRelationTargetDatabaseId,
+              targetDatabaseId,
+            )
+          : []
         const changed = await changeDatabasePropertyType({
           expectedGeneration: vaultGeneration,
           databaseId,
           propertyId,
           expectedManifestRevision: database.manifestRevision,
           propertyType: nextPropertyType,
-          relationTargetDatabaseId: nextRelationTargetDatabaseId,
+          operationId,
+          expectedRelatedManifestRevisions: relatedManifestRevisions,
+          relationTargetDatabaseId: targetDatabaseId,
         })
         logger.info("database.change_property_type", {
           databaseId,
           propertyId,
           oldType: property.propertyType,
           newType: nextPropertyType,
+          operationId,
         })
         const refreshResults = await Promise.allSettled([onCatalogChanged?.(), retry()])
         const refreshFailure = refreshResults.find(
@@ -1223,7 +1302,7 @@ export function DatabaseWorkspace({
         setMutationError(error instanceof Error ? error.message : String(error))
       }
     },
-    [database, databaseId, isDatabaseLocked, onCatalogChanged, retry, vaultGeneration],
+    [database, databaseId, isDatabaseLocked, onCatalogChanged, retry, t, vaultGeneration],
   )
 
   const commitCell = React.useCallback(
@@ -1243,6 +1322,7 @@ export function DatabaseWorkspace({
         delete next[cellKey]
         return next
       })
+      const operationId = createDatabaseOperationId("cell", `${row.noteId}-${property.propertyId}`)
       const task = prior
         .catch(() => {})
         .then(async () => {
@@ -1261,11 +1341,15 @@ export function DatabaseWorkspace({
             }
             const result = await updateDatabaseRelationValue({
               expectedGeneration: vaultGeneration,
+              operationId,
               databaseId,
               noteId: row.noteId,
               propertyId: property.propertyId,
               targetNoteIds,
+              expectedRevision: revisionOverrides.current.get(row.noteId) ?? row.rowRevision,
             })
+            const revision = result.revisions.find((item) => item.noteId === row.noteId)?.revision
+            if (revision) revisionOverrides.current.set(row.noteId, revision)
             if (result.warnings.length) setMutationError(result.warnings.join("; "))
             await retry()
             void refreshHistoryStatus()
@@ -1273,10 +1357,7 @@ export function DatabaseWorkspace({
             const result = await applyDatabaseValueBatch({
               expectedGeneration: vaultGeneration,
               databaseId,
-              operationId:
-                typeof crypto !== "undefined" && "randomUUID" in crypto
-                  ? `cell-${crypto.randomUUID()}`
-                  : `cell-${Date.now()}-${row.noteId}-${property.propertyId}`,
+              operationId,
               cells: [
                 {
                   noteId: row.noteId,
@@ -2412,14 +2493,32 @@ export function DatabaseWorkspace({
           setMutationBusy(true)
           setMutationError(null)
           try {
+            const currentRelationTargetDatabaseId = relationTargetFromConfig(
+              relationConfigProperty.configJson,
+              true,
+            )
+            const operationId = createDatabaseOperationId(
+              "schema",
+              `${databaseId}-${relationConfigProperty.propertyId}`,
+            )
+            const relatedManifestRevisions = await expectedRelatedManifestRevisions(
+              databaseId,
+              t("databaseWorkspace.notFound"),
+              currentRelationTargetDatabaseId,
+              config.targetDatabaseId,
+            )
             const changed = await changeDatabasePropertyType({
               expectedGeneration: vaultGeneration,
               databaseId,
               propertyId: relationConfigProperty.propertyId,
               expectedManifestRevision: database.manifestRevision,
               propertyType: "relation",
+              operationId,
+              expectedRelatedManifestRevisions: relatedManifestRevisions,
               relationTargetDatabaseId: config.targetDatabaseId,
-              relationMaxItems: config.maxItems,
+              // `null` means "keep the current value" at the Rust boundary;
+              // zero is the explicit request to remove a one-page limit.
+              relationMaxItems: config.maxItems ?? 0,
               relationTwoWay: config.twoWay,
               relationInversePropertyName: config.inversePropertyName,
             })

@@ -358,6 +358,41 @@ backend снова проверяет fingerprints. Собственные за�
 `WatcherState`, но command сам обновляет projection; watcher-event остается
 страховкой, а не создает вторую mutation.
 
+После `update_database_relation_value` command обновляет проекцию по
+`result.affectedNotes`: пары `databaseId`/`noteId` берутся из успешно выполненного
+плана записи, включая прежние цели, из которых удалена обратная связь. Нельзя
+использовать только новый `targetNoteIds` как список инвалидирования. Страницы
+группируются по базе и дедуплицируются; self-relation обновляется один раз.
+Runtime публикует последнюю успешную `epoch`/`seq`. Ошибка любой группы возвращается
+в `warnings`, остальные группы всё равно обрабатываются; durable-файлы из-за
+ошибки проекции не откатываются и не переписываются. Full rebuild остаётся
+способом восстановить derived state. Изменение значений Relation теперь требует
+raw-byte ревизию источника, перепроверяет notes/manifests перед публикацией и
+выполняет условный откат с проверкой внешних правок. `operationId` и durable
+Relation journal сохраняют завершённый результат для идемпотентного replay.
+При vault activation pending операции откатываются до загрузки индекса; ошибка
+проверок recovery блокирует activation с сохранением journal/backups. Протокол
+описан в [контракте Relations](database-format.md#relations).
+
+Создание двустороннего Relation готовит оба manifests до записи и использует
+отдельный schema journal. Запрос проверяет source/target manifest revisions;
+result возвращает стабильные forward/inverse IDs и `manifestRevisions`.
+Self-pair публикуется одним manifest. Completion предшествует watcher
+confirmation; command затем перестраивает projection, а отказ cache возвращает
+warning без отката durable схемы. Vault activation проверяет pending journals
+значений и схем до начала restore и до открытия SQLite. Настройка существующего
+Relation и конверсия в/из Relation используют version-2 того же schema journal:
+source и связанные raw manifest revisions, до трёх объединённых manifests,
+устойчивый operation ID и replay исходного результата. Version-1 создания
+продолжает читаться. Смена топологии пока требует пустых значений на обеих
+сторонах; старое обратное свойство сохраняется с отключённым reciprocal pointer.
+
+Предупреждение частичного обновления необходимо учитывать даже при глобальном
+`database_projection_status = healthy`: успешная группа может оставить этот
+статус, пока cache другой группы не обновился. Отдельное degraded-state и полная
+транзитивная рекалькуляция многоуровневых Rollup остаются задачами P0; этот путь
+подтверждает непосредственные Rollup затронутых страниц.
+
 При выключенном Databases module watcher продолжает обычный note index, но не
 парсит database shards. Старая `db_*` projection не используется для query.
 Повторное включение всегда начинает с validation и full database rebuild.
@@ -488,10 +523,12 @@ interface DatabaseMutationEnvelope<T> {
 
 ### 10.2 Multi-resource write
 
-Schema relation pair, batch, CSV и filesystem moves используют `.ambd/recovery`
-journal из format contract. Durable commit считается завершенным только после
-финального journal marker. Resume/rollback идемпотентны; затронутая база не
-принимает новые конфликтующие mutations до recovery.
+Relation values используют `.amby/recovery/database_relations`, а создание и
+изменение схемы Relation — `.amby/recovery/database_relation_schemas` из format
+contract. Durable commit считается завершённым после финального journal marker;
+pending операции блокируют конфликтующие Relation mutations до recovery.
+Обычный value batch сохраняет отдельный прежний `.ambd/recovery` protocol.
+Общий протокол для CSV и filesystem moves остаётся целевым контрактом.
 
 ### 10.3 Durable success, index failure
 

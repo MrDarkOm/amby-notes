@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "docs:check": "node scripts/check-project-map.mjs",
     "build:modules": "node scripts/build-modules.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -33,7 +34,7 @@
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml",
     "verify": "npm run verify:full",
     "verify:fast": "npm run version:check && npm run typecheck && npm run lint && npm run test && npm run rust:check",
-    "verify:full": "npm run version:check && npm run typecheck && npm run lint && npm run test && npm run format:check && npm run knip && npm run rust:fmt && npm run rust:clippy && npm run rust:test && npm run bindings:check",
+    "verify:full": "npm run docs:check && npm run version:check && npm run typecheck && npm run lint && npm run test && npm run format:check && npm run knip && npm run rust:fmt && npm run rust:clippy && npm run rust:test && npm run bindings:check",
     "bindings:check": "node scripts/check-bindings.mjs",
     "benchmark:debug": "node scripts/benchmark-debug.mjs",
     "version:check": "node scripts/check-version-sync.mjs",
@@ -91,6 +92,7 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-i18next": "^17.0.8",
+    "semver": "^7.8.5",
     "tailwind-merge": "^3.5.0",
     "zustand": "^5.0.13"
   },
@@ -102,6 +104,7 @@
     "@types/markdown-it": "^14.1.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@types/semver": "^7.8.0",
     "@vitejs/plugin-react": "^6.0.5",
     "autoprefixer": "^10.5.0",
     "eslint": "^10.4.1",
@@ -118,6 +121,15 @@
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.60.0",
     "vite": "^8.2.0",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "lodash-es": "4.18.1",
+    "@excalidraw/excalidraw": {
+      "nanoid": "3.3.18"
+    },
+    "@excalidraw/mermaid-to-excalidraw": {
+      "nanoid": "5.1.16"
+    }
   }
 }

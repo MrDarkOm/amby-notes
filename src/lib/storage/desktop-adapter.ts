@@ -247,6 +247,8 @@ export class DesktopAdapter implements StoragePort {
     return unwrapDatabaseCommand(
       await commands.createDatabaseProperty({
         ...request,
+        operationId: request.operationId ?? null,
+        expectedTargetManifestRevision: request.expectedTargetManifestRevision ?? null,
         beforePropertyId: request.beforePropertyId ?? null,
         options: request.options ?? [],
         formulaExpression: request.formulaExpression ?? null,
@@ -264,6 +266,8 @@ export class DesktopAdapter implements StoragePort {
     return unwrapDatabaseCommand(
       await commands.changeDatabasePropertyType({
         ...request,
+        operationId: request.operationId ?? null,
+        expectedRelatedManifestRevisions: request.expectedRelatedManifestRevisions ?? [],
         relationTargetDatabaseId: request.relationTargetDatabaseId ?? null,
         relationMaxItems: request.relationMaxItems ?? null,
         relationTwoWay: request.relationTwoWay ?? null,

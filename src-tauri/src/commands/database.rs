@@ -707,57 +707,21 @@ pub fn update_database_relation_value(
         message,
     })?;
 
-    // Update incremental projection for the primary note
-    match crate::database::projection::update_database_values_incremental(
+    let projection = crate::database::projection::update_relation_values_incremental(
         &active.connection,
         &active.root,
-        &request.database_id,
-        std::slice::from_ref(&request.note_id),
-    ) {
-        Ok(report) => {
-            runtime.set_projection(
-                actual_generation,
-                Some(crate::database::model::ProjectionVersion {
-                    epoch: report.epoch,
-                    seq: report.seq,
-                }),
-            );
-        }
-        Err(error) => {
-            tracing::warn!(event = "database_projection_rebuild_failed", %error);
-            result
-                .warnings
-                .push(format!("Incremental projection update required: {error}"));
-        }
+        &result.affected_notes,
+    );
+    if let Some(report) = projection.projection {
+        runtime.set_projection(
+            actual_generation,
+            Some(crate::database::model::ProjectionVersion {
+                epoch: report.epoch,
+                seq: report.seq,
+            }),
+        );
     }
-
-    // Update incremental projection for target notes in the target database if present
-    if !request.target_note_ids.is_empty() {
-        if let Ok(container) =
-            crate::database::mutations::find_database_container(&active.root, &request.database_id)
-        {
-            let manifest_path = crate::database::discovery::manifest_path_for_container(&container);
-            if let Ok(manifest_bytes) = std::fs::read(&manifest_path) {
-                if let Ok(manifest) = crate::database::format::parse_manifest(&manifest_bytes) {
-                    if let Some(crate::database::format::PropertyDefinition::Relation(rel)) =
-                        manifest
-                            .value
-                            .properties
-                            .iter()
-                            .find(|p| p.id() == Some(&request.property_id))
-                    {
-                        let target_db_id = &rel.config.target_database_id;
-                        let _ = crate::database::projection::update_database_values_incremental(
-                            &active.connection,
-                            &active.root,
-                            target_db_id,
-                            &request.target_note_ids,
-                        );
-                    }
-                }
-            }
-        }
-    }
+    result.warnings.extend(projection.warnings);
 
     Ok(result)
 }

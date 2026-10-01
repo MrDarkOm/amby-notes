@@ -184,7 +184,7 @@ pub fn recovery_from_journal(path: &Path, journal: &IdMigrationJournal) -> IdMig
 }
 
 pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>, String> {
-    let directory = migration_directory(vault);
+    let directory = crate::paths::confine_rel_no_symlinks(vault, ".amby/migrations")?;
     if !directory.exists() {
         return Ok(Vec::new());
     }
@@ -194,6 +194,7 @@ pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>
         if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
             continue;
         }
+        let path = checked_journal_path(vault, &path_string(&path))?;
         let StoredIdMigrationJournal::Recoverable(journal) = read_migration_journal(&path)? else {
             continue;
         };
@@ -209,21 +210,163 @@ pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>
 }
 
 pub fn checked_journal_path(vault: &Path, journal_path: &str) -> Result<PathBuf, String> {
-    let directory = migration_directory(vault)
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
-    let candidate = PathBuf::from(journal_path)
-        .canonicalize()
-        .map_err(|error| error.to_string())?;
-    if candidate
-        .extension()
-        .and_then(|extension| extension.to_str())
-        != Some("json")
-        || candidate.strip_prefix(&directory).is_err()
+    let root = vault.canonicalize().map_err(|error| error.to_string())?;
+    let candidate = Path::new(journal_path);
+    let relative = candidate
+        .strip_prefix(vault)
+        .or_else(|_| candidate.strip_prefix(&root))
+        .map_err(|_| "Migration journal is outside this vault".to_string())?;
+    if relative.parent() != Some(Path::new(".amby/migrations"))
+        || relative
+            .extension()
+            .and_then(|extension| extension.to_str())
+            != Some("json")
     {
-        return Err("Migration journal is outside this vault".to_string());
+        return Err("Migration journal is outside this vault's migration directory".into());
     }
-    Ok(candidate)
+    confined_migration_relative_path(&root, &normalize_rel_path(relative), "Migration journal")
+}
+
+/// Validate every path carried by a migration journal before the journal is
+/// persisted or any source/backup file is touched.  The journal format is
+/// intentionally unchanged; this is a read-only safety gate for both current
+/// and legacy recoverable journals.
+fn validate_migration_paths(
+    vault: &Path,
+    journal_path: &Path,
+    journal: &IdMigrationJournal,
+) -> Result<(PathBuf, Vec<(PathBuf, PathBuf)>), String> {
+    let vault_root = vault
+        .canonicalize()
+        .map_err(|error| format!("Vault is not accessible: {error}"))?;
+    if !vault_root.is_dir() {
+        return Err(format!("Vault is not a directory: {}", vault.display()));
+    }
+
+    let checked_journal = checked_journal_path(vault, &path_string(journal_path))?;
+    if checked_journal
+        != journal_path
+            .canonicalize()
+            .map_err(|error| error.to_string())?
+    {
+        return Err("Migration journal path changed during validation".to_string());
+    }
+
+    let backup_root = confined_migration_relative_path(
+        &vault_root,
+        &journal.backup_path,
+        "Migration backup root",
+    )?;
+    let backup_relative = Path::new(&journal.backup_path);
+    let mut components = backup_relative.components();
+    let is_amby_backups = matches!(
+        (components.next(), components.next()),
+        (Some(std::path::Component::Normal(first)), Some(std::path::Component::Normal(second)))
+            if first == ".amby" && second == "backups"
+    );
+    if !is_amby_backups || backup_relative.components().count() != 3 {
+        return Err("Migration backup root must be inside .amby/backups".to_string());
+    }
+
+    let mut paths = Vec::with_capacity(journal.files.len());
+    let mut sources = HashSet::new();
+    let mut backups = HashSet::new();
+    for file in &journal.files {
+        let source = confined_migration_relative_path(&vault_root, &file.path, "Migration source")?;
+        if source.extension().and_then(|extension| extension.to_str()) != Some("md") {
+            return Err(format!(
+                "Migration source must be a Markdown file: {}",
+                file.path
+            ));
+        }
+        if is_reserved_migration_source(&file.path) {
+            return Err(format!(
+                "Migration source is inside an excluded vault directory: {}",
+                file.path
+            ));
+        }
+
+        let backup_relative_file = Path::new(&file.backup_path);
+        validate_relative_migration_path(backup_relative_file, "Migration backup file")?;
+        let backup = confined_migration_path(
+            &vault_root,
+            &backup_root,
+            backup_relative_file,
+            "Migration backup file",
+        )?;
+        if !backup.starts_with(&backup_root) || backup == backup_root {
+            return Err(format!(
+                "Migration backup escapes its operation root: {}",
+                file.backup_path
+            ));
+        }
+        if !sources.insert(source.clone()) || !backups.insert(backup.clone()) {
+            return Err("Migration journal contains duplicate source or backup paths".into());
+        }
+        if !source.is_file() || (backup.exists() && !backup.is_file()) {
+            return Err("Migration source/backup must be a regular file".into());
+        }
+        if !is_amby_id(&file.id) {
+            return Err("Invalid planned migration ID".into());
+        }
+        paths.push((source, backup));
+    }
+    Ok((backup_root, paths))
+}
+
+fn is_reserved_migration_source(path: &str) -> bool {
+    Path::new(path).components().any(|component| {
+        let std::path::Component::Normal(name) = component else {
+            return true;
+        };
+        matches!(
+            name.to_string_lossy().as_ref(),
+            ".amby" | ".obsidian" | ".git" | ".trash" | "assets"
+        )
+    })
+}
+
+fn validate_relative_migration_path(path: &Path, label: &str) -> Result<(), String> {
+    let text = path
+        .to_str()
+        .ok_or_else(|| format!("{label} must be UTF-8"))?;
+    if text.is_empty()
+        || text.contains(['\\', '\0', ':'])
+        || text
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..")
+        || path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(format!("{label} contains an unsafe relative path"));
+    }
+    Ok(())
+}
+
+fn confined_migration_relative_path(
+    vault_root: &Path,
+    relative: &str,
+    label: &str,
+) -> Result<PathBuf, String> {
+    let relative_path = Path::new(relative);
+    validate_relative_migration_path(relative_path, label)?;
+    confined_migration_path(vault_root, vault_root, relative_path, label)
+}
+
+fn confined_migration_path(
+    vault_root: &Path,
+    base: &Path,
+    relative: &Path,
+    label: &str,
+) -> Result<PathBuf, String> {
+    validate_relative_migration_path(relative, label)?;
+    let candidate = base.join(relative);
+    let within_root = candidate
+        .strip_prefix(vault_root)
+        .map_err(|_| format!("{label} is outside vault"))?;
+    crate::paths::confine_rel_no_symlinks(vault_root, &normalize_rel_path(within_root))
+        .map_err(|error| format!("{label}: {error}"))
 }
 
 pub fn apply_migration_journal(
@@ -231,6 +374,7 @@ pub fn apply_migration_journal(
     journal_path: &Path,
     journal: &mut IdMigrationJournal,
 ) -> Result<(), String> {
+    let (_backup_root, file_paths) = validate_migration_paths(vault, journal_path, journal)?;
     if matches!(journal.status, IdMigrationStatus::Completed) {
         return Ok(());
     }
@@ -240,11 +384,8 @@ pub fn apply_migration_journal(
     journal.status = IdMigrationStatus::InProgress;
     write_migration_journal(journal_path, journal)?;
 
-    let backup_root = abs_from_rel(vault, &journal.backup_path);
-    for index in 0..journal.files.len() {
+    for (index, (source, backup)) in file_paths.iter().enumerate() {
         let file = &journal.files[index];
-        let source = abs_from_rel(vault, &file.path);
-        let backup = backup_root.join(&file.backup_path);
         let file_path = file.path.clone();
         let file_id = file.id.clone();
         let status = file.status.clone();
@@ -256,11 +397,11 @@ pub fn apply_migration_journal(
         }
 
         if matches!(status, IdMigrationFileStatus::Pending) {
-            let original = fs::read(&source).map_err(|error| error.to_string())?;
+            let original = fs::read(source).map_err(|error| error.to_string())?;
             if let Some(parent) = backup.parent() {
                 fs::create_dir_all(parent).map_err(|error| error.to_string())?;
             }
-            match frontmatter::atomic_write_bytes_new(&backup, &original) {
+            match frontmatter::atomic_write_bytes_new(backup, &original) {
                 Ok(()) | Err(frontmatter::AtomicCreateError::AlreadyExists) => {}
                 Err(frontmatter::AtomicCreateError::Other(error)) => return Err(error),
             }
@@ -269,8 +410,8 @@ pub fn apply_migration_journal(
             write_migration_journal(journal_path, journal)?;
         }
 
-        let original = fs::read(&backup).map_err(|error| error.to_string())?;
-        let current = fs::read(&source).map_err(|error| error.to_string())?;
+        let original = fs::read(backup).map_err(|error| error.to_string())?;
+        let current = fs::read(source).map_err(|error| error.to_string())?;
         let outputs = migration_outputs(&original, &file_id, journal.version)
             .map_err(|error| format!("{file_path}: {error}"))?;
         if outputs.contains(&current) {
@@ -286,7 +427,7 @@ pub fn apply_migration_journal(
         }
         let original_text = std::str::from_utf8(&original).map_err(|error| error.to_string())?;
         let next = frontmatter::body_with_id(original_text, &file_id)?;
-        frontmatter::atomic_write_bytes(&source, next.as_bytes())?;
+        frontmatter::atomic_write_bytes(source, next.as_bytes())?;
         check_migration_failure(2)?;
         journal.files[index].status = IdMigrationFileStatus::Applied;
         write_migration_journal(journal_path, journal)?;
@@ -322,20 +463,17 @@ pub fn rollback_migration_journal(
     journal_path: &Path,
     journal: &mut IdMigrationJournal,
 ) -> Result<(), String> {
+    let (_backup_root, file_paths) = validate_migration_paths(vault, journal_path, journal)?;
     if matches!(journal.status, IdMigrationStatus::RolledBack) {
         return Ok(());
     }
-    let backup_root = abs_from_rel(vault, &journal.backup_path);
-    for index in 0..journal.files.len() {
+    for (index, (source, backup)) in file_paths.iter().enumerate() {
         let file = &journal.files[index];
         let file_path = file.path.clone();
         let file_id = file.id.clone();
-        let backup_path = file.backup_path.clone();
         if matches!(file.status, IdMigrationFileStatus::RolledBack) {
             continue;
         }
-        let source = abs_from_rel(vault, &file_path);
-        let backup = backup_root.join(&backup_path);
         if !backup.is_file() {
             if matches!(file.status, IdMigrationFileStatus::Pending) {
                 // No backup means this file has not reached a write boundary.
@@ -345,8 +483,8 @@ pub fn rollback_migration_journal(
             }
             return Err(format!("Migration backup is missing: {}", backup.display()));
         }
-        let original = fs::read(&backup).map_err(|error| error.to_string())?;
-        let current = fs::read(&source).map_err(|error| error.to_string())?;
+        let original = fs::read(backup).map_err(|error| error.to_string())?;
+        let current = fs::read(source).map_err(|error| error.to_string())?;
         if current != original {
             let outputs = migration_outputs(&original, &file_id, journal.version)?;
             if !outputs.contains(&current) {
@@ -355,7 +493,7 @@ pub fn rollback_migration_journal(
                     file_path
                 ));
             }
-            frontmatter::atomic_write_bytes(&source, &original)?;
+            frontmatter::atomic_write_bytes(source, &original)?;
         }
         journal.files[index].status = IdMigrationFileStatus::RolledBack;
         write_migration_journal(journal_path, journal)?;
@@ -450,6 +588,7 @@ pub fn recover_id_migration(
             "This legacy migration was already completed and needs no recovery".to_string(),
         );
     };
+    validate_migration_paths(vault, &journal_path, &journal)?;
     match action {
         IdMigrationRecoveryAction::InspectOnly => {}
         IdMigrationRecoveryAction::Resume => {
@@ -475,8 +614,13 @@ pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
         .map_err(|error| error.to_string())?
         .as_millis();
     let backup_relative = format!(".amby/backups/id-migration-{stamp}-{}", Ulid::generate());
-    let journal_path =
-        migration_directory(vault).join(format!("id-migration-{stamp}-{}.json", Ulid::generate()));
+    let journal_path = crate::paths::confine_rel_no_symlinks(
+        vault,
+        &format!(
+            ".amby/migrations/id-migration-{stamp}-{}.json",
+            Ulid::generate()
+        ),
+    )?;
     let mut journal = IdMigrationJournal {
         version: ID_MIGRATION_VERSION,
         kind: ID_MIGRATION_KIND.to_string(),
@@ -506,4 +650,215 @@ pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
         modified_paths: journal.files.iter().map(|file| file.path.clone()).collect(),
         status: journal.status,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_vault(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        let vault = std::env::temp_dir().join(format!("amby-migration-{name}-{stamp}"));
+        fs::create_dir_all(&vault).expect("create test vault");
+        vault
+    }
+
+    fn pending_journal(
+        backup_path: &str,
+        source_path: &str,
+        backup_file: &str,
+    ) -> IdMigrationJournal {
+        IdMigrationJournal {
+            version: ID_MIGRATION_VERSION,
+            kind: ID_MIGRATION_KIND.to_string(),
+            created_at_ms: 1,
+            backup_path: backup_path.to_string(),
+            status: IdMigrationStatus::Planned,
+            files: vec![IdMigrationFile {
+                path: source_path.to_string(),
+                backup_path: backup_file.to_string(),
+                id: Ulid::generate().to_string(),
+                status: IdMigrationFileStatus::Pending,
+            }],
+        }
+    }
+
+    #[test]
+    fn traversal_is_rejected_before_resume_updates_journal_or_source() {
+        let vault = temp_vault("traversal");
+        let outside = vault
+            .parent()
+            .expect("temporary parent")
+            .join(format!("amby-migration-outside-{}", Ulid::generate()));
+        fs::create_dir_all(&outside).expect("create outside fixture");
+        let note = vault.join("Note.md");
+        let original = b"# original\n";
+        fs::write(&note, original).expect("write source fixture");
+        let outside_file = outside.join("Note.md");
+        fs::write(&outside_file, b"outside\n").expect("write outside fixture");
+
+        let journal_path = migration_directory(&vault).join("unsafe.json");
+        let journal = pending_journal("../outside", "Note.md", "Note.md");
+        write_migration_journal(&journal_path, &journal).expect("write journal");
+        let before = fs::read(&journal_path).expect("read journal");
+
+        let result = recover_id_migration(
+            &vault,
+            &path_string(&journal_path),
+            IdMigrationRecoveryAction::Resume,
+        );
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&journal_path).unwrap(), before);
+        assert_eq!(fs::read(&note).unwrap(), original);
+        assert_eq!(fs::read(&outside_file).unwrap(), b"outside\n");
+        fs::remove_dir_all(&vault).expect("remove test vault");
+        fs::remove_dir_all(outside).expect("remove outside fixture");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_source_is_rejected_before_rollback_writes() {
+        use std::os::unix::fs::symlink;
+
+        let vault = temp_vault("symlink");
+        let outside = vault.parent().expect("temporary parent").join(format!(
+            "amby-migration-symlink-outside-{}",
+            Ulid::generate()
+        ));
+        fs::create_dir_all(&outside).expect("create outside fixture");
+        fs::write(outside.join("Note.md"), b"outside\n").expect("write outside note");
+        symlink(&outside, vault.join("linked")).expect("create source symlink");
+
+        let journal_path = migration_directory(&vault).join("unsafe.json");
+        let journal = pending_journal(".amby/backups/rollback", "linked/Note.md", "Note.md");
+        write_migration_journal(&journal_path, &journal).expect("write journal");
+        let before = fs::read(&journal_path).expect("read journal");
+
+        let result = recover_id_migration(
+            &vault,
+            &path_string(&journal_path),
+            IdMigrationRecoveryAction::Rollback,
+        );
+
+        assert!(result.is_err());
+        assert_eq!(fs::read(&journal_path).unwrap(), before);
+        assert_eq!(fs::read(outside.join("Note.md")).unwrap(), b"outside\n");
+        fs::remove_dir_all(&vault).expect("remove test vault");
+        fs::remove_dir_all(outside).expect("remove outside fixture");
+    }
+
+    #[test]
+    fn all_paths_are_checked_before_the_first_note_or_journal_is_modified() {
+        for bad in [
+            "../Outside.md",
+            "/Outside.md",
+            "C:\\Outside.md",
+            ".amby/hidden.md",
+            "dir/../../Outside.md",
+        ] {
+            let vault = temp_vault("all-paths");
+            fs::write(vault.join("Note.md"), b"original\n").unwrap();
+            let mut journal = pending_journal(".amby/backups/check", "Note.md", "Note.md");
+            let mut invalid = journal.files[0].clone();
+            invalid.path = bad.into();
+            invalid.backup_path = "Other.md".into();
+            journal.files.push(invalid);
+            let path = migration_directory(&vault).join("check.json");
+            write_migration_journal(&path, &journal).unwrap();
+            let before = fs::read(&path).unwrap();
+            assert!(
+                apply_migration_journal(&vault, &path, &mut journal).is_err(),
+                "{bad}"
+            );
+            assert!(
+                rollback_migration_journal(&vault, &path, &mut journal).is_err(),
+                "{bad}"
+            );
+            assert_eq!(fs::read(&path).unwrap(), before);
+            assert_eq!(fs::read(vault.join("Note.md")).unwrap(), b"original\n");
+            assert!(!vault.join(".amby/backups/check").exists());
+            fs::remove_dir_all(vault).unwrap();
+        }
+    }
+
+    #[test]
+    fn backup_paths_and_duplicate_targets_are_rejected_before_writing() {
+        for bad in [
+            "../Outside.md",
+            "/Outside.md",
+            "C:\\Outside.md",
+            "a/./Note.md",
+            "a//Note.md",
+        ] {
+            let vault = temp_vault("backup-path");
+            fs::write(vault.join("Note.md"), b"original\n").unwrap();
+            let mut journal = pending_journal(".amby/backups/check", "Note.md", bad);
+            let path = migration_directory(&vault).join("check.json");
+            write_migration_journal(&path, &journal).unwrap();
+            let before = fs::read(&path).unwrap();
+            assert!(
+                apply_migration_journal(&vault, &path, &mut journal).is_err(),
+                "{bad}"
+            );
+            assert_eq!(fs::read(&path).unwrap(), before);
+            journal.files[0].backup_path = "Note.md".into();
+            journal.files.push(journal.files[0].clone());
+            assert!(apply_migration_journal(&vault, &path, &mut journal).is_err());
+            assert_eq!(fs::read(vault.join("Note.md")).unwrap(), b"original\n");
+            fs::remove_dir_all(vault).unwrap();
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn journal_and_backup_symlinks_are_rejected_even_inside_the_vault() {
+        use std::os::unix::fs::symlink;
+        let vault = temp_vault("journal-link");
+        fs::write(vault.join("Note.md"), b"original\n").unwrap();
+        let journal = pending_journal(".amby/backups/check", "Note.md", "Note.md");
+        let path = migration_directory(&vault).join("check.json");
+        write_migration_journal(&path, &journal).unwrap();
+        let alias = migration_directory(&vault).join("alias.json");
+        symlink(&path, &alias).unwrap();
+        assert!(recover_id_migration(
+            &vault,
+            &path_string(&alias),
+            IdMigrationRecoveryAction::Resume
+        )
+        .is_err());
+        fs::create_dir_all(vault.join(".amby/backups")).unwrap();
+        symlink(&vault, vault.join(".amby/backups/check")).unwrap();
+        assert!(recover_id_migration(
+            &vault,
+            &path_string(&path),
+            IdMigrationRecoveryAction::Rollback
+        )
+        .is_err());
+        assert_eq!(fs::read(vault.join("Note.md")).unwrap(), b"original\n");
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn valid_journal_still_applies_and_rolls_back() {
+        let vault = temp_vault("valid");
+        let note = vault.join("Note.md");
+        let original = b"# original\n";
+        fs::write(&note, original).expect("write source fixture");
+        let journal_path = migration_directory(&vault).join("valid.json");
+        let mut journal = pending_journal(".amby/backups/valid", "Note.md", "Note.md");
+        write_migration_journal(&journal_path, &journal).expect("write journal");
+
+        apply_migration_journal(&vault, &journal_path, &mut journal).expect("apply migration");
+        assert_ne!(fs::read(&note).unwrap(), original);
+        rollback_migration_journal(&vault, &journal_path, &mut journal)
+            .expect("rollback migration");
+        assert_eq!(fs::read(&note).unwrap(), original);
+        fs::remove_dir_all(vault).expect("remove test vault");
+    }
 }

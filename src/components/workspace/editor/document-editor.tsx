@@ -15,7 +15,7 @@ import { FilePickerModal, LayerConfirmDialog, type LayerKind } from "./document-
 import { DocumentHeader } from "./document-header"
 import { DocumentBody } from "./document-body"
 import { NotePdfExport, NotePdfExportDialog, type PdfExportOptions } from "./note-pdf-export"
-import { noteEditingPolicy } from "./note-editing-policy"
+import { inspectMarkdownCompatibility, noteEditingPolicy } from "./note-editing-policy"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
 import { Button } from "@/components/ui/button"
 import { useDocStore } from "../use-doc-store"
@@ -26,6 +26,7 @@ export interface Document {
   id: string
   title: string
   content: string
+  source?: string
   modified: string
   wordCount: number
   path: string
@@ -182,7 +183,20 @@ export function DocumentEditor({
   onScrollPositionChange,
   onCloseTab,
 }: DocumentEditorProps) {
-  const [content, setContent] = React.useState(document?.content ?? "")
+  const [buffer, setBuffer] = React.useState({
+    documentId: document?.id,
+    upstream: document?.content,
+    value: document?.content ?? "",
+  })
+  // Use the new buffer on the first render after navigation/external reload;
+  // never mount a rich editor with the previous document's compatibility result.
+  const content =
+    buffer.documentId === document?.id && buffer.upstream === document?.content
+      ? buffer.value
+      : (document?.content ?? "")
+  if (buffer.documentId !== document?.id || buffer.upstream !== document?.content) {
+    setBuffer({ documentId: document?.id, upstream: document?.content, value: content })
+  }
   const [editingTitle, setEditingTitle] = React.useState(false)
   const [moreActionsOpen, setMoreActionsOpen] = React.useState(false)
   const [viewModeMenuOpen, setViewModeMenuOpen] = React.useState(false)
@@ -200,7 +214,11 @@ export function DocumentEditor({
   const editorSelectionRef = React.useRef<MarkdownSelection | null>(null)
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
   const { t } = useTranslation()
-  const editingPolicy = noteEditingPolicy(document?.noteProperties)
+  const compatibility = React.useMemo(
+    () => inspectMarkdownCompatibility(content, document?.source),
+    [content, document?.source],
+  )
+  const editingPolicy = noteEditingPolicy(document?.noteProperties, compatibility)
   const documentId = document?.id
   const leaseToken = React.useId()
   const [hasEditorLease, setHasEditorLease] = React.useState(!documentId)
@@ -272,10 +290,6 @@ export function DocumentEditor({
   }, [document?.id])
 
   React.useEffect(() => {
-    setContent(document?.content ?? "")
-  }, [document?.content])
-
-  React.useEffect(() => {
     setRestoringDeleted(false)
     setRestoreError(false)
   }, [document?.id, document?.externallyDeleted])
@@ -295,7 +309,7 @@ export function DocumentEditor({
 
   const handleContentChange = (v: string) => {
     if (!document || effectiveLocked) return
-    setContent(v)
+    setBuffer({ documentId: document.id, upstream: document.content, value: v })
     onContentChange?.(v, document.id)
   }
 

@@ -96,7 +96,7 @@ export async function stagePackage(
     }
   }
 
-  const stagingId = `staging-${validManifest.id}-${Date.now()}`
+  let stagingId = `staging-${Date.now()}`
 
   // 5. If running in Tauri desktop, stage on disk via Rust backend
   if (isTauri()) {
@@ -112,6 +112,7 @@ export async function stagePackage(
         errorCode: "STAGING_FAILED",
       }
     }
+    stagingId = res.data.stagingId
   }
 
   return {

@@ -1,4 +1,68 @@
 import { PACKAGE_FORMAT_VERSION, type PackageManifest } from "./types"
+import * as semver from "semver"
+
+/**
+ * Package versions use strict SemVer. Dependency strings preserve the legacy
+ * meaning of an exact version (the installed version must be at least that
+ * version). Explicit ranges use complete versions with ^, ~, =, <, <=, >,
+ * >= or a space-separated intersection; partials, OR and hyphens are refused.
+ */
+function parseStrictVersion(value: string, field: string): string {
+  const parsed = strictVersion(value)
+  if (!parsed) {
+    throw new Error(`Invalid ${field}: ${value}`)
+  }
+  return parsed
+}
+
+function strictVersion(value: string): string | null {
+  if (typeof value !== "string") return null
+  if (value.length > 128 || value !== value.trim() || !/^\d/.test(value)) return null
+  const parsed = semver.parse(value)
+  if (!parsed) return null
+  if (
+    parsed.prerelease.some(
+      (part) => /^\d+$/.test(String(part)) && !Number.isSafeInteger(Number(part)),
+    )
+  )
+    return null
+  return value
+}
+
+function validModuleId(value: unknown): value is string {
+  if (
+    typeof value !== "string" ||
+    value.length > 128 ||
+    !/^[a-z0-9][a-z0-9._+-]*$/i.test(value) ||
+    value.endsWith(".")
+  )
+    return false
+  const stem = value.split(".")[0]!.toUpperCase()
+  return !/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/.test(stem)
+}
+
+function dependencyRange(value: string): string | null {
+  const exact = strictVersion(value)
+  if (exact) return `>=${exact}`
+  if (value === "*") return "*"
+  if (!value || value.length > 1024 || value !== value.trim()) return null
+  const parts = value.split(" ")
+  if (
+    !parts.every((part) => {
+      const match = /^(>=|<=|>|<|=|\^|~)(.+)$/.exec(part)
+      return match && strictVersion(match[2]!) !== null
+    })
+  )
+    return null
+  return semver.validRange(value)
+}
+
+function validateVersionField(value: unknown, field: string): string | undefined {
+  if (typeof value !== "string" || !strictVersion(value)) {
+    return `Manifest must specify a valid ${field} (strict SemVer)`
+  }
+  return undefined
+}
 
 /**
  * Validates package manifest structure and required fields.
@@ -21,7 +85,7 @@ export function validateManifest(raw: unknown): {
     }
   }
 
-  if (!m.id || typeof m.id !== "string" || !/^[a-z0-9_.-]+$/i.test(m.id)) {
+  if (!validModuleId(m.id)) {
     return { valid: false, error: "Manifest must specify a valid alphanumeric id" }
   }
 
@@ -29,8 +93,9 @@ export function validateManifest(raw: unknown): {
     return { valid: false, error: "Manifest must specify a name" }
   }
 
-  if (!m.version || typeof m.version !== "string") {
-    return { valid: false, error: "Manifest must specify a version" }
+  const versionError = validateVersionField(m.version, "version")
+  if (versionError) {
+    return { valid: false, error: versionError }
   }
 
   if (!m.publisher || typeof m.publisher !== "string") {
@@ -41,8 +106,19 @@ export function validateManifest(raw: unknown): {
     return { valid: false, error: "Manifest kind must be 'official' or 'community'" }
   }
 
-  if (!m.minAppVersion || typeof m.minAppVersion !== "string") {
-    return { valid: false, error: "Manifest must specify minAppVersion" }
+  const minVersionError = validateVersionField(m.minAppVersion, "minAppVersion")
+  if (minVersionError) {
+    return { valid: false, error: minVersionError }
+  }
+
+  if (m.maxAppVersion !== undefined) {
+    const maxVersionError = validateVersionField(m.maxAppVersion, "maxAppVersion")
+    if (maxVersionError) {
+      return { valid: false, error: maxVersionError }
+    }
+    if (semver.gt(m.minAppVersion!, m.maxAppVersion as string)) {
+      return { valid: false, error: "minAppVersion cannot exceed maxAppVersion" }
+    }
   }
 
   if (!m.entry || typeof m.entry !== "string") {
@@ -61,6 +137,20 @@ export function validateManifest(raw: unknown): {
     return { valid: false, error: "Manifest must include signature with keyId and sig" }
   }
 
+  if (m.dependencies !== undefined) {
+    if (!m.dependencies || typeof m.dependencies !== "object" || Array.isArray(m.dependencies)) {
+      return { valid: false, error: "Manifest dependencies must be a module-to-version map" }
+    }
+    for (const [dependencyId, requirement] of Object.entries(m.dependencies)) {
+      if (!validModuleId(dependencyId) || dependencyId === m.id) {
+        return { valid: false, error: `Invalid dependency module id: ${dependencyId}` }
+      }
+      if (typeof requirement !== "string" || !dependencyRange(requirement)) {
+        return { valid: false, error: `Invalid dependency version range: ${requirement}` }
+      }
+    }
+  }
+
   return { valid: true, manifest: m as PackageManifest }
 }
 
@@ -68,14 +158,7 @@ export function validateManifest(raw: unknown): {
  * Compare two semver strings: a < b (-1), a === b (0), a > b (1).
  */
 export function compareSemver(a: string, b: string): number {
-  const parse = (v: string) => v.split(".").map((n) => parseInt(n, 10) || 0)
-  const [a1 = 0, a2 = 0, a3 = 0] = parse(a)
-  const [b1 = 0, b2 = 0, b3 = 0] = parse(b)
-
-  if (a1 !== b1) return a1 > b1 ? 1 : -1
-  if (a2 !== b2) return a2 > b2 ? 1 : -1
-  if (a3 !== b3) return a3 > b3 ? 1 : -1
-  return 0
+  return semver.compare(parseStrictVersion(a, "version"), parseStrictVersion(b, "version"))
 }
 
 /**
@@ -85,14 +168,28 @@ export function validateApiCompatibility(
   manifest: PackageManifest,
   currentAppVersion: string,
 ): { compatible: boolean; reason?: string } {
-  if (compareSemver(currentAppVersion, manifest.minAppVersion) < 0) {
+  const current = strictVersion(currentAppVersion)
+  const min = strictVersion(manifest.minAppVersion)
+  const max = manifest.maxAppVersion !== undefined ? strictVersion(manifest.maxAppVersion) : null
+  if (
+    !current ||
+    !min ||
+    (manifest.maxAppVersion !== undefined && !max) ||
+    (max && semver.gt(min, max))
+  ) {
+    return {
+      compatible: false,
+      reason: "Package or application version is not valid strict SemVer",
+    }
+  }
+  if (semver.lt(current, min)) {
     return {
       compatible: false,
       reason: `Requires Amby ${manifest.minAppVersion} or higher (current: ${currentAppVersion})`,
     }
   }
 
-  if (manifest.maxAppVersion && compareSemver(currentAppVersion, manifest.maxAppVersion) > 0) {
+  if (max && semver.gt(current, max)) {
     return {
       compatible: false,
       reason: `Incompatible with Amby ${currentAppVersion} (maximum supported: ${manifest.maxAppVersion})`,
@@ -280,13 +377,16 @@ export function validateDependencies(
 
   const missing: string[] = []
   for (const [depId, requiredVersion] of Object.entries(manifest.dependencies)) {
-    const installed = installedModules[depId]
+    const installed = Object.prototype.hasOwnProperty.call(installedModules, depId)
+      ? installedModules[depId]
+      : undefined
     if (!installed) {
       missing.push(`${depId}@${requiredVersion}`)
       continue
     }
-    // Basic semver requirement check (greater than or equal)
-    if (compareSemver(installed.activeVersion, requiredVersion) < 0) {
+    const installedVersion = strictVersion(installed.activeVersion)
+    const range = dependencyRange(requiredVersion)
+    if (!installedVersion || !range || !semver.satisfies(installedVersion, range)) {
       missing.push(`${depId}@${requiredVersion} (installed: ${installed.activeVersion})`)
     }
   }

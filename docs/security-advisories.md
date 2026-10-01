@@ -23,3 +23,14 @@ without a Tauri/Specta compatibility migration.
 2. Prefer a compatible direct dependency update and remove exceptions that it resolves.
 3. Reconfirm target reachability, owner and review date before retaining any exception.
 4. Never ignore a vulnerability without a separately approved mitigation plan.
+
+## Dependency remediation — 2026-09-29
+
+- Cargo.lock selects Rustls 0.23.45, fixing [RUSTSEC-2026-0285](https://rustsec.org/advisories/RUSTSEC-2026-0285.html). Its required aws-lc/webpki updates stay in the lockfile. The transitive `chacha20` 0.10.1 was yanked; 0.10.2 replaces it through the existing `ulid → rand` dependency, without changing vault IDs or formats.
+- Vitest and its matching internal packages use 4.1.11, addressing [GHSA-82fw-gwwq-j7x9](https://github.com/vitest-dev/vitest/security/advisories/GHSA-82fw-gwwq-j7x9). Tests here run in Node; the advisory concerns the development mocker server, not a demonstrated production app exploit.
+- The Excalidraw dependency chain uses `lodash-es` 4.18.1 via an override because its upstream packages retain older pins. The [upstream advisory](https://github.com/lodash/lodash/security/advisories/GHSA-r5fr-rjxr-66jc) identifies 4.18.0 as the first patched release. Excalidraw itself remains 0.18.1.
+- Scoped overrides select Nano ID [3.3.18](https://github.com/ai/nanoid/releases/tag/3.3.18) for Excalidraw and [5.1.16](https://github.com/ai/nanoid/releases/tag/5.1.16) for mermaid-to-excalidraw. The latter replaces the unpatched 4.x line: the consumer uses the named ESM `nanoid()` API without a size argument. Remove these overrides only after upstream manifests resolve patched versions themselves.
+
+Browser checks covered Excalidraw element creation, drawing, JSON restoration, Amby sketch serialization with unknown metadata, Mermaid flowcharts, and Canvas conversion. Mermaid class diagrams triggered a converter DOM-ID error and fell back to an SVG image. Editable class-diagram conversion is **not** verified; this remains an upstream integration defect to resolve separately. Do not describe the browser run as error-free.
+
+The updated lockfile was compared locally against the findings of the earlier npm audit. A fresh npm audit has not run: it requires sending dependency names and versions to registry.npmjs.org, and that transfer is awaiting explicit authorization. The package updates are not evidence of a clean, current, whole-tree npm audit. No additional Rust advisory exceptions were added.
