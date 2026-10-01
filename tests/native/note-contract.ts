@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event"
-import { NoteRevisionConflictError } from "../../src/lib/storage/types"
+import { FileRevisionConflictError, NoteRevisionConflictError } from "../../src/lib/storage/types"
 import { StorageOperationError } from "../../src/lib/storage/operation-error"
 import { joinStoragePath } from "../../src/lib/storage/storage-path"
 import { settingsRepository } from "../../src/lib/storage"
@@ -135,6 +135,31 @@ export const nativeNoteCases: Array<{
       check(
         (await adapter.readFile(restored.primaryPath!)) === original,
         "Restored bytes are intact",
+      )
+    },
+  },
+  {
+    name: "native conditional file write rejects a stale revision and keeps the newer bytes",
+    async run({ adapter, vaultPath }) {
+      const note = await adapter.createNote(vaultPath, vaultPath, "Conditional File")
+      const path = note.primaryPath!
+      const baseline = await adapter.getFileRevision(path)
+      check(baseline.length === 64, "Revision is a SHA-256 hex digest")
+      const first = await adapter.writeFile(path, "first", baseline)
+      check(first !== baseline, "A successful write returns the new revision")
+      check((await adapter.getFileRevision(path)) === first, "Returned revision matches disk")
+      // An external editor changes the file after the buffer was loaded.
+      await adapter.writeFile(path, "external edit")
+      let conflict: unknown
+      try {
+        await adapter.writeFile(path, "stale buffer", first)
+      } catch (error) {
+        conflict = error
+      }
+      check(conflict instanceof FileRevisionConflictError, "Stale revision is a typed conflict")
+      check(
+        (await adapter.readFile(path)) === "external edit",
+        "A conflicting write leaves the newer bytes untouched",
       )
     },
   },

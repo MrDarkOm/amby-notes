@@ -87,6 +87,23 @@ impl WriteNoteError {
     }
 }
 
+/// Failure of the generic file write. `RevisionConflict` means the bytes on
+/// disk no longer match the revision the caller last saw; nothing was written.
+#[derive(Debug, Serialize, specta::Type)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum WriteFileError {
+    RevisionConflict { actual_revision: String },
+    Failed { message: String },
+}
+
+impl WriteFileError {
+    pub fn failed(message: impl Into<String>) -> Self {
+        Self::Failed {
+            message: message.into(),
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteWrittenPayload {

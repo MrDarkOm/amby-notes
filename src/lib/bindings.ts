@@ -82,9 +82,27 @@ async readFile(path: string) : Promise<Result<string, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async writeFile(path: string, content: string) : Promise<Result<null, string>> {
+/**
+ * Writes a Canvas/Excalidraw/generic text file and returns its new revision.
+ * With `expected_revision` the current bytes are compared under the mutation
+ * gate first; a mismatch writes nothing. `None` keeps the unconditional
+ * overwrite used by explicit conflict resolution and tests.
+ */
+async writeFile(path: string, content: string, expectedRevision: string | null) : Promise<Result<string, WriteFileError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("write_file", { path, content }) };
+    return { status: "ok", data: await TAURI_INVOKE("write_file", { path, content, expectedRevision }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Revision of a non-note file: the SHA-256 of its raw bytes, or an empty
+ * string when the file does not exist. Notes use `read_note` revisions.
+ */
+async getFileRevision(path: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_file_revision", { path }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1308,6 +1326,11 @@ export type UpdateDatabaseRelationValueRequest = { expectedGeneration: number; o
 export type UpdateDatabaseRelationValueResult = { operationId: string; databaseId: string; noteId: string; targetNoteIds: string[]; affectedNotes: DatabaseAffectedNote[]; revisions: DatabaseNoteRevision[]; warnings: string[] }
 export type UpdateDatabaseViewConfigRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; configJson: string }
 export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
+/**
+ * Failure of the generic file write. `RevisionConflict` means the bytes on
+ * disk no longer match the revision the caller last saw; nothing was written.
+ */
+export type WriteFileError = { kind: "revisionConflict"; actual_revision: string } | { kind: "failed"; message: string }
 /**
  * A save failure that callers can distinguish from transport and filesystem
  * failures. In particular, a stale renderer must never retry a CAS conflict

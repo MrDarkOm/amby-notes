@@ -7,11 +7,12 @@ import {
   scheduleRecoveryDraft,
   type RecoveryScope,
 } from "@/lib/recovery-drafts"
-import { confirmAction, readFile, writeFile } from "@/lib/storage"
+import { confirmAction, readFile } from "@/lib/storage"
 import { recordAutosaveDiagnostic } from "@/lib/debug/autosave"
 import { logger, errorType } from "@/lib/logger"
 import { useDocStore } from "../use-doc-store"
 import { sketchLayerPath } from "../workspace-tree-utils"
+import { FileConflictPausedError, FileRevisionTracker } from "../autosave/file-revision-tracker"
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
 import { recoveryNeedsConfirmation, resolveRecoveryContent } from "../recovery-restore"
@@ -36,6 +37,7 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
   )
   const openSketches = openSketchesRef.current
   const sketchLoadsRef = React.useRef(new CanvasLoadDeduplicator())
+  const revisionsRef = React.useRef(new FileRevisionTracker())
   const vaultGenerationRef = React.useRef({ generation })
   vaultGenerationRef.current.generation = generation
 
@@ -51,7 +53,10 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
       coordinator: new AutosaveCoordinator<SketchAutosavePayload>({
         delayMs: 500,
         onDiagnostic: recordAutosaveDiagnostic,
-        save: ({ value, operationId }) => writeFile(value.path, value.json, operationId),
+        save: ({ key, value, operationId }) =>
+          revisionsRef.current.save(value.path, value.json, operationId, () =>
+            autosaveRef.current?.coordinator.pause(key),
+          ),
         onSaveSuccess: ({ key, value }) => {
           const pending = autosaveRef.current?.coordinator.inspect(key)
           if (
@@ -74,7 +79,9 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
           }
         },
         onSaveFailure: (_snapshot, error) =>
-          logger.error("sketch.save_failed", { errorType: errorType(error) }),
+          error instanceof FileConflictPausedError
+            ? undefined
+            : logger.error("sketch.save_failed", { errorType: errorType(error) }),
       }),
     }
   }
@@ -89,6 +96,7 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
       sketchLoadsRef.current.run(generation, path, async () => {
         let diskContent: string
         try {
+          await revisionsRef.current.baseline(path)
           diskContent = validateAndSerializeSketch(await readFile(path))
         } catch {
           diskContent = defaultSketchJson()
@@ -142,6 +150,7 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
         return false
       }
       try {
+        await revisionsRef.current.baseline(path)
         const diskContent = await readFile(path)
         const normalized = validateAndSerializeSketch(diskContent)
         if (openSketchesRef.current[path] === normalized) return false

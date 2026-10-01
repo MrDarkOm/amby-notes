@@ -52,6 +52,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::vault::list_files,
         commands::notes::read_file,
         commands::notes::write_file,
+        commands::notes::get_file_revision,
         commands::notes::save_conflict_copy,
         commands::history::list_snapshots,
         commands::history::get_history_stats,

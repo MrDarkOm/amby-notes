@@ -83,8 +83,12 @@ export class NotesRepository {
     return this.port().readNote(vaultPath, noteId, operationId)
   }
 
-  async writeFile(path: string, content: string): Promise<void> {
-    return this.port().writeFile(path, content)
+  async writeFile(path: string, content: string, expectedRevision?: string): Promise<string> {
+    return this.port().writeFile(path, content, expectedRevision)
+  }
+
+  async getFileRevision(path: string): Promise<string> {
+    return this.port().getFileRevision(path)
   }
 
   async writeNote(

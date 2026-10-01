@@ -21,6 +21,8 @@ const ru = {
     moveTargetNotFound: "Источник или назначение перемещения не найдено.",
     sourceNotFound: "Источник не найден: {{path}}",
     vaultOpenFailed: "Не удалось открыть хранилище.\n\n{{details}}",
+    fileChangedExternally:
+      "Файл изменён вне Amby после открытия. Автосохранение приостановлено, чтобы не затереть внешние правки; ваши изменения сохранены в черновике восстановления.",
     autosaveFailed:
       "Не удалось сохранить изменения на диск. Проверьте доступ к хранилищу и свободное место.",
     settingsSaveError:
@@ -1965,6 +1967,8 @@ const en: typeof ru = {
     moveTargetNotFound: "Move source or target not found.",
     sourceNotFound: "Source not found: {{path}}",
     vaultOpenFailed: "Could not open the vault.\n\n{{details}}",
+    fileChangedExternally:
+      "The file was changed outside Amby after it was opened. Autosave is paused so the external edit is not overwritten; your changes are kept in the recovery draft.",
     autosaveFailed: "Could not save changes to disk. Check vault access and free space.",
     settingsSaveError: "Failed to save settings. Check configuration file permissions.",
     storageQuotaExceeded: "Browser storage is full. Free up space and try again.",

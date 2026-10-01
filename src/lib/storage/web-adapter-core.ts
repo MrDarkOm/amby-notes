@@ -606,8 +606,15 @@ export class WebAdapterCore implements StoragePort {
     return { content: body, revision: webRevision(body), source }
   }
 
-  async writeFile(path: string, content: string): Promise<void> {
+  // The browser adapter is a development fallback with no external writers, so
+  // it keeps no file revisions and never reports a conflict.
+  async writeFile(path: string, content: string, _expectedRevision?: string): Promise<string> {
     webSet(FILE_PREFIX + path, content)
+    return ""
+  }
+
+  async getFileRevision(_path: string): Promise<string> {
+    return ""
   }
 
   async writeNote(

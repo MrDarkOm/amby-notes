@@ -135,10 +135,20 @@ export const readNote = (vaultPath: string, noteId: string): Promise<NoteReadOut
     notesRepository.readNote(vaultPath, noteId, operationId),
   )
 }
-export const writeFile = (path: string, content: string, operationId?: string): Promise<void> =>
-  traceOperation("storage.write_file", {}, () => notesRepository.writeFile(path, content), {
-    operationId,
-  })
+export const writeFile = (
+  path: string,
+  content: string,
+  operationId?: string,
+  expectedRevision?: string,
+): Promise<string> =>
+  traceOperation(
+    "storage.write_file",
+    {},
+    () => notesRepository.writeFile(path, content, expectedRevision),
+    { operationId },
+  )
+export const getFileRevision = (path: string): Promise<string> =>
+  notesRepository.getFileRevision(path)
 export const writeNote = (
   vaultPath: string,
   noteId: string,

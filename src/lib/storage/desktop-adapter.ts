@@ -1,9 +1,10 @@
 import i18n from "@/lib/i18n"
 import { commands, type DatabaseSummary as BindingDatabaseSummary } from "@/lib/bindings"
 import { unwrapCommand } from "./ipc-result"
+import { desktopOperationError } from "./operation-error"
 import { joinStoragePath } from "./storage-path"
 import type { StoragePort } from "./port"
-import { NoteRevisionConflictError } from "./types"
+import { FileRevisionConflictError, NoteRevisionConflictError } from "./types"
 import { unwrapDatabaseCommand } from "./database-port"
 import type {
   DatabaseFieldRef,
@@ -522,8 +523,19 @@ export class DesktopAdapter implements StoragePort {
     return unwrapCommand(commands.readNote(noteId, operationId ?? null))
   }
 
-  async writeFile(path: string, content: string): Promise<void> {
-    return unwrapCommand(commands.writeFile(path, content))
+  async writeFile(path: string, content: string, expectedRevision?: string): Promise<string> {
+    const result = await commands.writeFile(path, content, expectedRevision ?? null)
+    if (result.status === "error") {
+      if (result.error.kind === "revisionConflict") {
+        throw new FileRevisionConflictError(result.error.actual_revision)
+      }
+      throw desktopOperationError(result.error.message)
+    }
+    return result.data
+  }
+
+  async getFileRevision(path: string): Promise<string> {
+    return unwrapCommand(commands.getFileRevision(path))
   }
 
   async writeNote(

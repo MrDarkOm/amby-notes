@@ -2525,6 +2525,143 @@ fn recover_pending_batches_reports_unreadable_journals_without_dropping_them() {
     let _ = fs::remove_dir_all(vault);
 }
 
+/// Failure matrix over the real publish boundaries of a two-way Relation value
+/// update (journal create, backups, source write, inverse write, journal
+/// progress, completion). For every n-th atomic write, failing either before
+/// or right after publication, activation recovery must leave the two notes
+/// consistent: either both linked or both byte-identical to the original, with
+/// no temp files, and a second recovery must change nothing.
+#[test]
+fn relation_value_update_failure_matrix_keeps_both_notes_consistent() {
+    let mut exercised = 0;
+    for after_publish in [false, true] {
+        for nth in 1..=40u64 {
+            let vault = temp_vault();
+            let watcher = WatcherState::new();
+            let mut databases = Vec::new();
+            for name in ["Tasks", "Projects"] {
+                databases.push(
+                    create_database(
+                        &vault,
+                        &watcher,
+                        &CreateDatabaseRequest {
+                            expected_generation: 1,
+                            mode: DatabaseCreateMode::Standalone,
+                            parent_path: Some(vault.to_string_lossy().to_string()),
+                            note_path: None,
+                            name: name.to_owned(),
+                        },
+                    )
+                    .unwrap(),
+                );
+            }
+            let (tasks_db, projects_db) = (&databases[0], &databases[1]);
+            let tasks_rel = create_database_property(
+                &vault,
+                &watcher,
+                &CreateDatabasePropertyRequest {
+                    expected_generation: 1,
+                    database_id: tasks_db.database_id.clone(),
+                    expected_manifest_revision: tasks_db.manifest_revision.clone(),
+                    name: "Project".to_owned(),
+                    property_type: "relation".to_owned(),
+                    relation_target_database_id: Some(projects_db.database_id.clone()),
+                    relation_max_items: Some(1),
+                    relation_two_way: Some(true),
+                    relation_inverse_property_name: Some("Tasks".to_owned()),
+                    operation_id: Some(format!("relation-schema-{}", ulid::Ulid::generate())),
+                    expected_target_manifest_revision: Some(raw_revision(
+                        &fs::read(&projects_db.manifest_path).unwrap(),
+                    )),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let task_id = ulid::Ulid::generate().to_string();
+            let project_id = ulid::Ulid::generate().to_string();
+            let task_path = Path::new(&tasks_db.manifest_path)
+                .parent()
+                .unwrap()
+                .join("Task.md");
+            let project_path = Path::new(&projects_db.manifest_path)
+                .parent()
+                .unwrap()
+                .join("Project.md");
+            fs::write(
+                &task_path,
+                format!("---\namby-id: {task_id}\n---\n# Task\n"),
+            )
+            .unwrap();
+            fs::write(
+                &project_path,
+                format!("---\namby-id: {project_id}\n---\n# Project\n"),
+            )
+            .unwrap();
+            let original_task = fs::read(&task_path).unwrap();
+            let original_project = fs::read(&project_path).unwrap();
+            let request = UpdateDatabaseRelationValueRequest {
+                expected_generation: 1,
+                operation_id: format!("relation-{}", ulid::Ulid::generate()),
+                database_id: tasks_db.database_id.clone(),
+                note_id: task_id.clone(),
+                property_id: tasks_rel.property_id.clone(),
+                expected_revision: raw_revision(&original_task),
+                target_note_ids: vec![project_id.clone()],
+            };
+
+            frontmatter::inject_nth_atomic_write_failure(nth, after_publish);
+            let result = update_database_relation_value(&vault, &watcher, &request, None);
+            let calls = frontmatter::clear_atomic_write_failure();
+            if calls < nth {
+                // The operation finished before reaching this write: matrix complete.
+                assert!(result.is_ok(), "no fault injected, operation must succeed");
+                let _ = fs::remove_dir_all(vault);
+                break;
+            }
+            exercised += 1;
+
+            crate::database::relation_recovery::recover_pending_relations(&vault).unwrap_or_else(
+                |error| panic!("recovery failed (nth={nth}, after={after_publish}): {error}"),
+            );
+            let task = fs::read(&task_path).unwrap();
+            let project = fs::read(&project_path).unwrap();
+            let task_linked = String::from_utf8_lossy(&task).contains(&project_id);
+            let project_linked = String::from_utf8_lossy(&project).contains(&task_id);
+            assert_eq!(
+                task_linked, project_linked,
+                "notes diverged (nth={nth}, after_publish={after_publish})"
+            );
+            if !task_linked {
+                assert_eq!(task, original_task, "nth={nth} after={after_publish}");
+                assert_eq!(project, original_project, "nth={nth} after={after_publish}");
+            }
+            for dir in [task_path.parent().unwrap(), project_path.parent().unwrap()] {
+                for entry in fs::read_dir(dir).unwrap() {
+                    let name = entry.unwrap().file_name().to_string_lossy().into_owned();
+                    assert!(!name.contains(".amby-tmp-"), "temp leftover {name}");
+                }
+            }
+            crate::database::relation_recovery::recover_pending_relations(&vault).unwrap();
+            assert_eq!(
+                fs::read(&task_path).unwrap(),
+                task,
+                "recovery not idempotent"
+            );
+            assert_eq!(
+                fs::read(&project_path).unwrap(),
+                project,
+                "recovery not idempotent"
+            );
+            let _ = fs::remove_dir_all(vault);
+        }
+    }
+    eprintln!("failure matrix exercised {exercised} boundaries");
+    assert!(
+        exercised >= 8,
+        "matrix exercised only {exercised} boundaries"
+    );
+}
+
 #[test]
 fn two_way_relation_creates_property_in_target_database_and_links_reciprocals() {
     let vault = temp_vault();

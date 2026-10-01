@@ -52,6 +52,43 @@ thread_local! {
     static FAIL_ATOMIC_WRITE_STAGE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
+// Test-only operation-level fault: fail the n-th `atomic_write_bytes` call on
+// this thread, either before the rename (target untouched) or right after it
+// (target published, caller sees an error as after a crash).
+#[cfg(test)]
+thread_local! {
+    static FAIL_NTH_ATOMIC_WRITE: std::cell::Cell<(u64, bool)> = const { std::cell::Cell::new((0, false)) };
+    static ATOMIC_WRITE_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn inject_nth_atomic_write_failure(nth: u64, after_publish: bool) {
+    ATOMIC_WRITE_CALLS.with(|calls| calls.set(0));
+    FAIL_NTH_ATOMIC_WRITE.with(|fault| fault.set((nth, after_publish)));
+}
+
+#[cfg(test)]
+pub(crate) fn clear_atomic_write_failure() -> u64 {
+    FAIL_NTH_ATOMIC_WRITE.with(|fault| fault.set((0, false)));
+    ATOMIC_WRITE_CALLS.with(|calls| calls.get())
+}
+
+/// Returns `Some(after_publish)` when this call is the one to fail.
+#[cfg(test)]
+fn nth_write_fault() -> Option<bool> {
+    let call = ATOMIC_WRITE_CALLS.with(|calls| {
+        calls.set(calls.get() + 1);
+        calls.get()
+    });
+    let (nth, after) = FAIL_NTH_ATOMIC_WRITE.with(|fault| fault.get());
+    (nth != 0 && call == nth).then_some(after)
+}
+
+#[cfg(not(test))]
+fn nth_write_fault() -> Option<bool> {
+    None
+}
+
 #[cfg(test)]
 fn fail_if_requested(stage: u64) -> Result<(), String> {
     if FAIL_ATOMIC_WRITE_STAGE.with(|requested| requested.get()) == stage {
@@ -1358,12 +1395,16 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
     let suffix = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
     let tmp = parent.join(format!(".{name}.amby-tmp-{}-{suffix}", std::process::id()));
 
+    let nth_fault = nth_write_fault();
     let write_result = (|| -> Result<(), String> {
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(&tmp)
             .map_err(|e| e.to_string())?;
+        if nth_fault == Some(false) {
+            return Err("injected atomic-write failure before publish".to_owned());
+        }
         fail_if_requested(1)?;
         file.write_all(content).map_err(|e| e.to_string())?;
         fail_if_requested(2)?;
@@ -1372,6 +1413,9 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
         drop(file);
         fail_if_requested(4)?;
         atomic_rename_with_retry(&tmp, path).map_err(|e| e.to_string())?;
+        if nth_fault == Some(true) {
+            return Err("injected atomic-write failure after publish".to_owned());
+        }
         sync_parent_directory(parent)
     })();
     if write_result.is_err() {

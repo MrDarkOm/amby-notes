@@ -23,6 +23,30 @@ pub fn read_file(scope: tauri::State<paths::VaultScope>, path: String) -> Result
     })
 }
 
+/// Revision of a non-note file: the SHA-256 of its raw bytes, or an empty
+/// string when the file does not exist. Notes use `read_note` revisions.
+#[tauri::command]
+#[specta::specta]
+pub fn get_file_revision(
+    scope: tauri::State<paths::VaultScope>,
+    path: String,
+) -> Result<String, String> {
+    let path = paths::guard(&scope, &path)?;
+    file_revision(&path)
+}
+
+fn file_revision(path: &std::path::Path) -> Result<String, String> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(crate::database::format::raw_revision(&bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Writes a Canvas/Excalidraw/generic text file and returns its new revision.
+/// With `expected_revision` the current bytes are compared under the mutation
+/// gate first; a mismatch writes nothing. `None` keeps the unconditional
+/// overwrite used by explicit conflict resolution and tests.
 #[tauri::command]
 #[specta::specta]
 pub fn write_file(
@@ -31,12 +55,23 @@ pub fn write_file(
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
     content: String,
-) -> Result<(), String> {
+    expected_revision: Option<String>,
+) -> Result<String, crate::model::WriteFileError> {
+    use crate::model::WriteFileError;
     let _mutation_guard = db.mutation_gate.lock().unwrap();
-    let path = paths::guard(&scope, &path)?;
-    let vault = scope.get()?;
-    let expected =
-        watcher::fingerprint_for_bytes(&frontmatter::text_bytes_for_write(&path, &content)?);
+    let path = paths::guard(&scope, &path).map_err(WriteFileError::failed)?;
+    let vault = scope.get().map_err(WriteFileError::failed)?;
+    if let Some(expected) = &expected_revision {
+        let actual = file_revision(&path).map_err(WriteFileError::failed)?;
+        if &actual != expected {
+            return Err(WriteFileError::RevisionConflict {
+                actual_revision: actual,
+            });
+        }
+    }
+    let bytes =
+        frontmatter::text_bytes_for_write(&path, &content).map_err(WriteFileError::failed)?;
+    let expected = watcher::fingerprint_for_bytes(&bytes);
     let prepared = watcher_state.prepare_write([(&path, expected)]);
     let result = (|| {
         history::snapshot_before_write(&vault, &path, content.as_bytes(), "file-save")?;
@@ -45,11 +80,11 @@ pub fn write_file(
     match result {
         Ok(()) => {
             watcher_state.confirm_prepared_write(&prepared);
-            Ok(())
+            Ok(crate::database::format::raw_revision(&bytes))
         }
         Err(error) => {
             watcher_state.cancel_prepared_write(&prepared);
-            Err(error)
+            Err(WriteFileError::failed(error))
         }
     }
 }

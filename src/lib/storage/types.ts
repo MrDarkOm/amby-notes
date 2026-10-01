@@ -189,6 +189,17 @@ export class NoteRevisionConflictError extends Error {
   }
 }
 
+/**
+ * A compare-and-swap rejected a stale buffer of a non-note file (Canvas,
+ * Excalidraw). Nothing was written; the file on disk changed after it was read.
+ */
+export class FileRevisionConflictError extends Error {
+  constructor(public readonly actualRevision: string) {
+    super("File changed before save")
+    this.name = "FileRevisionConflictError"
+  }
+}
+
 export type LayerKind = "canvas" | "database" | "sketch" | "note"
 
 export interface LayerResult {

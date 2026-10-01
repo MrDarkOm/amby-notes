@@ -97,8 +97,15 @@ by file; a finished old operation must not clear newer dirty state.
 
 ## 7. Gaps this design must close
 
-1. `write_file` (Canvas, Excalidraw, generic text) has **no expected revision**;
-   the strong path exists only for notes. (S4.1)
+1. ~~`write_file` has no expected revision~~ — **done for Canvas/Excalidraw**:
+   `write_file` takes an optional `expectedRevision` (SHA-256 of raw bytes),
+   compares under `mutation_gate`, returns the new revision and a typed
+   `revisionConflict`. The renderer keeps a per-path baseline captured before
+   each read (`FileRevisionTracker`); a conflict pauses autosave, keeps the
+   recovery draft and tells the user. Still open: no conflict-resolution UI for
+   these files (only a notice), renamed paths fall back to the current revision,
+   and the unconditional form remains for explicit conflict resolution.
+
 2. Helpers (path guard, id validation, `create_new`, directory sync, journal CAS)
    live inside the database module, so other journals re-implement them. (S3.2)
 3. Activation swallows recovery errors:
@@ -126,7 +133,10 @@ its 13 recovery tests (plus 14 in `relation_schema_recovery_test.rs`) are the re
 and stop swallowing activation errors (surface them as an activation warning
 that blocks only the affected database, not the whole vault).
 
-**S3.3 — failure matrix**, only real boundaries: read failure, snapshot, temp
+**S3.3 — failure matrix** (done for the two-way Relation value update: every
+`atomic_write_bytes` call, failing before or right after publication, then
+activation recovery; 22 boundaries; test-only hook in `frontmatter.rs`. The
+controlled-subprocess kill test is **not** done), only real boundaries: read failure, snapshot, temp
 write, sync, first publish, second publish, cache update, completion record,
 rollback. Fault switches are `cfg(test)` only. Two controlled-subprocess
 interruption tests (kill between publish steps, restart, recover). Windows

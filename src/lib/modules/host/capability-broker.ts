@@ -55,6 +55,6 @@ export class CapabilityBroker {
     }
     const cleanRel = validateConfinedRelPath(relPath)
     const fullPath = `${this.context.vault}/${cleanRel}`
-    return storageWriteFile(fullPath, contents)
+    await storageWriteFile(fullPath, contents)
   }
 }

@@ -51,7 +51,10 @@ export interface StoragePort extends DatabasePort {
   // Notes & Text Files
   readFile(path: string): Promise<string>
   readNote(vaultPath: string, noteId: string, operationId?: string): Promise<NoteReadOutcome>
-  writeFile(path: string, content: string): Promise<void>
+  /** Returns the new revision. `expectedRevision` makes the write conditional. */
+  writeFile(path: string, content: string, expectedRevision?: string): Promise<string>
+  /** SHA-256 of the raw bytes, or "" when the file does not exist. */
+  getFileRevision(path: string): Promise<string>
   writeNote(
     vaultPath: string,
     noteId: string,
