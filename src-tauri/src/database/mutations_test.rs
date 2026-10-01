@@ -2832,6 +2832,64 @@ fn recover_pending_batches_quarantines_a_journal_whose_note_changed_after_the_cr
 }
 
 #[test]
+fn batch_rollback_is_all_or_nothing_when_a_later_step_cannot_be_restored() {
+    let vault = temp_vault();
+    let batches = vault
+        .join(".amby")
+        .join("recovery")
+        .join("database_batches");
+    let op_id = "two-step-op";
+    let backup_dir = batches.join(op_id);
+    fs::create_dir_all(&backup_dir).unwrap();
+    let mut steps = Vec::new();
+    let mut expectations = Vec::new();
+    for (index, name) in ["A.md", "B.md"].iter().enumerate() {
+        let original = format!("---\nid: 01HZY1234567890ABCDEFGH00{index}\nS: Todo\n---\n{name}");
+        let target = format!("---\nid: 01HZY1234567890ABCDEFGH00{index}\nS: Done\n---\n{name}");
+        fs::write(backup_dir.join(format!("{index}.md")), &original).unwrap();
+        // B was edited by the user after the crash; A still holds the target.
+        let on_disk = if index == 1 {
+            format!("---\nid: 01HZY1234567890ABCDEFGH00{index}\nS: Mine\n---\n{name}")
+        } else {
+            target.clone()
+        };
+        fs::write(vault.join(name), &on_disk).unwrap();
+        expectations.push((vault.join(name), on_disk));
+        steps.push(BatchRecoveryStep {
+            record_path: (*name).to_owned(),
+            backup_path: format!(".amby/recovery/database_batches/{op_id}/{index}.md"),
+            original_revision: raw_revision(original.as_bytes()),
+            target_revision: raw_revision(target.as_bytes()),
+            status: "planned".to_owned(),
+        });
+    }
+    let journal = BatchRecoveryJournal {
+        format: "amby-database-recovery".to_owned(),
+        format_version: 1,
+        operation_id: op_id.to_owned(),
+        database_id: ulid::Ulid::generate().to_string(),
+        request_revision: "test-rev".to_owned(),
+        status: "inProgress".to_owned(),
+        steps,
+        result: None,
+    };
+    fs::write(
+        batches.join("two-step-op.json"),
+        journal_bytes(&journal).unwrap(),
+    )
+    .unwrap();
+
+    let report = recover_pending_batches(&vault).unwrap();
+    assert_eq!(report.recovered, 0);
+    assert_eq!(report.quarantined.len(), 1);
+    // Neither note was touched: no half-reverted batch.
+    for (path, bytes) in expectations {
+        assert_eq!(fs::read(path).unwrap(), bytes.as_bytes());
+    }
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
 fn two_way_relation_creates_property_in_target_database_and_links_reciprocals() {
     let vault = temp_vault();
     let watcher = WatcherState::new();

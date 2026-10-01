@@ -2640,42 +2640,43 @@ fn quarantine_batch_journal(root: &Path, journal: &Path) -> Result<(), String> {
         .map(|stem| stem.to_string_lossy().into_owned())
         .ok_or("Journal has no name")?;
     let mut suffix = 0u32;
-    let target_json = loop {
-        let name = if suffix == 0 {
-            format!("{stem}.json")
+    let dir_name = |suffix: u32| {
+        if suffix == 0 {
+            stem.clone()
         } else {
-            format!("{stem}.{suffix}.json")
-        };
-        let candidate = quarantine.join(&name);
-        if !candidate.exists() {
+            format!("{stem}.{suffix}")
+        }
+    };
+    // Pick a suffix free for BOTH the journal file and its backup directory.
+    let target_json = loop {
+        let candidate = quarantine.join(format!("{}.json", dir_name(suffix)));
+        if !candidate.exists() && !quarantine.join(dir_name(suffix)).exists() {
             break candidate;
         }
         suffix += 1;
     };
     let backups = root.join(&stem);
-    if backups.is_dir() {
-        let target_dir = quarantine.join(format!(
-            "{}{}",
-            stem,
-            if suffix == 0 {
-                String::new()
-            } else {
-                format!(".{suffix}")
-            }
-        ));
-        if !target_dir.exists() {
-            fs::rename(&backups, &target_dir).map_err(|error| error.to_string())?;
-        }
+    // A journal literally named `quarantine` would own the quarantine folder
+    // itself; never move that directory into itself.
+    if backups.is_dir() && stem != "quarantine" {
+        fs::rename(&backups, quarantine.join(dir_name(suffix)))
+            .map_err(|error| error.to_string())?;
     }
     fs::rename(journal, target_json).map_err(|error| error.to_string())
 }
 
+/// All-or-nothing: every step is checked (record revision, backup hash) before
+/// the first byte is restored, so a failure can never leave a batch half
+/// reverted. Only then are the backups written back.
 fn rollback_batch_journal(
     container: &Path,
     journal_path: &Path,
     mut journal: BatchRecoveryJournal,
 ) -> Result<(), String> {
-    for step in &mut journal.steps {
+    // Phase 1: read-only preflight.
+    let mut restores: Vec<(usize, PathBuf, Vec<u8>)> = Vec::new();
+    let mut already_original: Vec<usize> = Vec::new();
+    for (index, step) in journal.steps.iter().enumerate() {
         let (record_path, backup_path) =
             recovery_step_paths(container, &journal.operation_id, step)?;
         if !record_path.is_file() {
@@ -2684,7 +2685,7 @@ fn rollback_batch_journal(
         let current = fs::read(&record_path).map_err(|error| error.to_string())?;
         let current_revision = raw_revision(&current);
         if current_revision == step.original_revision {
-            step.status = "rolledBack".to_owned();
+            already_original.push(index);
             continue;
         }
         if current_revision != step.target_revision {
@@ -2700,8 +2701,15 @@ fn rollback_batch_journal(
                 backup_path.display()
             ));
         }
+        restores.push((index, record_path, backup));
+    }
+    // Phase 2: write.
+    for index in already_original {
+        journal.steps[index].status = "rolledBack".to_owned();
+    }
+    for (index, record_path, backup) in restores {
         frontmatter::atomic_write_bytes(&record_path, &backup)?;
-        step.status = "rolledBack".to_owned();
+        journal.steps[index].status = "rolledBack".to_owned();
     }
     journal.status = "rolledBack".to_owned();
     journal.result = None;
