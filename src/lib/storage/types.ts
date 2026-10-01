@@ -235,6 +235,9 @@ export interface ImportedAsset {
   kind: "image" | "file"
 }
 
+/** Where deleting an item sends it; `permanent` keeps no copy at all. */
+export type DeleteMode = "system" | "vault" | "permanent"
+
 export type SettingsReadResult<T> =
   | { status: "found"; data: T }
   | { status: "missing" }

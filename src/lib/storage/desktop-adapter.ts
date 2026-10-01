@@ -57,6 +57,7 @@ import type {
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  DeleteMode,
   HistoryCleanupPreview,
   HistoryCleanupResult,
   HistoryRetention,
@@ -639,8 +640,12 @@ export class DesktopAdapter implements StoragePort {
     return unwrapMutation(commands.moveItem(sourcePath, targetPath))
   }
 
-  async deleteItem(_vaultPath: string, path: string): Promise<FsMutationResult> {
-    return unwrapMutation(commands.deleteItem(path))
+  async deleteItem(
+    _vaultPath: string,
+    path: string,
+    mode: DeleteMode = "system",
+  ): Promise<FsMutationResult> {
+    return unwrapMutation(commands.deleteItem(path, mode))
   }
 
   async archiveItem(_vaultPath: string, path: string): Promise<FsMutationResult> {

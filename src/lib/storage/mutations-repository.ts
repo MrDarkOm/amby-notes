@@ -1,6 +1,6 @@
 import { logger } from "../logger"
 import type { StoragePort } from "./port"
-import type { FsMutationResult, LayerKind, LayerResult, NoteLayers } from "./types"
+import type { DeleteMode, FsMutationResult, LayerKind, LayerResult, NoteLayers } from "./types"
 
 export class MutationsRepository {
   constructor(private readonly port: () => StoragePort) {}
@@ -52,9 +52,9 @@ export class MutationsRepository {
     return this.port().moveItem(vaultPath, sourcePath, targetPath)
   }
 
-  async deleteItem(vaultPath: string, path: string): Promise<FsMutationResult> {
-    logger.info("storage.delete_item", { vaultPath, path })
-    return this.port().deleteItem(vaultPath, path)
+  async deleteItem(vaultPath: string, path: string, mode?: DeleteMode): Promise<FsMutationResult> {
+    logger.info("storage.delete_item", { vaultPath, path, mode })
+    return this.port().deleteItem(vaultPath, path, mode)
   }
 
   async archiveItem(vaultPath: string, path: string): Promise<FsMutationResult> {

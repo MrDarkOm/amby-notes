@@ -9,6 +9,18 @@ use ulid::Ulid;
 
 const TRASH_DIR: &str = "trash";
 
+/// Where `delete_item` sends an item. `System` is the default; `Vault` keeps a
+/// restorable copy under `.amby/trash`; `Permanent` removes the item for good
+/// and must only be requested after an explicit user confirmation.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum DeleteMode {
+    #[default]
+    System,
+    Vault,
+    Permanent,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TrashEntry {
@@ -79,6 +91,34 @@ pub fn preview_move_to_trash(vault: &Path, path: &Path) -> Result<TrashMovePrevi
     Ok(TrashMovePreview {
         deleted_paths: collect_markdown_paths(&original_path)?,
         original_path,
+    })
+}
+
+/// Removes an item without keeping any copy. Bundles and their Markdown index
+/// entries are resolved exactly like a trash move so callers can report the
+/// same `deleted_paths`.
+pub fn delete_permanently(vault: &Path, path: &Path) -> Result<FsMutationResult, String> {
+    let preview = preview_move_to_trash(vault, path)?;
+    let deleted_paths = preview
+        .deleted_paths
+        .iter()
+        .map(|path| path_string(path))
+        .collect();
+    // `symlink_metadata` keeps a symlinked item from being followed: only the
+    // link itself is removed, never its target.
+    let metadata =
+        fs::symlink_metadata(&preview.original_path).map_err(|error| error.to_string())?;
+    if metadata.is_dir() {
+        fs::remove_dir_all(&preview.original_path).map_err(|error| error.to_string())?;
+    } else {
+        fs::remove_file(&preview.original_path).map_err(|error| error.to_string())?;
+    }
+    Ok(FsMutationResult {
+        primary_id: None,
+        primary_path: None,
+        path_changes: Vec::new(),
+        deleted_paths,
+        deleted_ids: Vec::new(),
     })
 }
 
@@ -240,6 +280,35 @@ pub fn purge(vault: &Path, id: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn permanent_delete_removes_item_without_a_trash_copy() {
+        let vault = std::env::temp_dir().join(format!("amby-perm-{}", Ulid::generate()));
+        let tree = vault.join("Folder");
+        fs::create_dir_all(&tree).unwrap();
+        fs::write(tree.join("Note.md"), "note").unwrap();
+        let outside = vault.join("keep.md");
+        fs::write(&outside, "keep").unwrap();
+        let deleted = delete_permanently(&vault, &tree).unwrap();
+        assert_eq!(deleted.deleted_paths.len(), 1);
+        assert!(!tree.exists());
+        assert!(list(&vault).is_empty(), "permanent delete keeps no copy");
+        assert_eq!(fs::read(&outside).unwrap(), b"keep");
+        assert!(delete_permanently(&vault, &tree).is_err());
+        fs::remove_dir_all(&vault).ok();
+    }
+
+    #[test]
+    fn permanent_delete_rejects_paths_outside_the_vault() {
+        let base = std::env::temp_dir().join(format!("amby-perm-out-{}", Ulid::generate()));
+        let vault = base.join("vault");
+        fs::create_dir_all(&vault).unwrap();
+        let outside = base.join("outside.md");
+        fs::write(&outside, "keep").unwrap();
+        assert!(delete_permanently(&vault, &outside).is_err());
+        assert_eq!(fs::read(&outside).unwrap(), b"keep");
+        fs::remove_dir_all(&base).ok();
+    }
 
     #[test]
     fn restores_a_deleted_tree_with_its_attachment() {

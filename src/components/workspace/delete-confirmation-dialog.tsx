@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import i18n from "@/lib/i18n"
+import { useSettingsStore } from "./use-settings-store"
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,7 @@ export function DeleteConfirmationDialog({
   const t = i18n.t.bind(i18n)
   const [dontAskAgain, setDontAskAgain] = React.useState(false)
   const isBulk = count > 1
+  const deleteMode = useSettingsStore((s) => s.prefs.files.deleteMode)
 
   if (isDirtyOrConflicted) {
     return (
@@ -95,10 +97,12 @@ export function DeleteConfirmationDialog({
             {t(isBulk ? "workspace.deleteManyTitle" : "workspace.deleteTitle")}
           </DialogTitle>
           <DialogDescription>
-            {t(isBulk ? "workspace.deleteManyConfirm" : "workspace.deleteConfirm", {
-              name,
-              count,
-            })}
+            {t(
+              `${isBulk ? "workspace.deleteManyConfirm" : "workspace.deleteConfirm"}${
+                deleteMode === "vault" ? "Vault" : ""
+              }`,
+              { name, count },
+            )}
           </DialogDescription>
         </DialogHeader>
         <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">

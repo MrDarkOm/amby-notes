@@ -63,6 +63,17 @@ const ru = {
       editor: "Поведение редактора для новых и открываемых заметок.",
     },
     general: {
+      deleteMode: "Удаление файлов",
+      deleteModeOption: {
+        system: "Системная корзина",
+        vault: "Корзина хранилища (.amby/trash)",
+        permanent: "Удалять полностью",
+      },
+      deleteModeHint: {
+        system: "Файлы уходят в корзину операционной системы",
+        vault: "Файлы можно вернуть из корзины Amby внутри хранилища",
+        permanent: "Файлы удаляются без возможности восстановления; подтверждение всегда включено",
+      },
       confirmFileDelete: "Подтверждать удаление файлов",
       confirmFileDeleteHint: "Настройка действует только для текущего хранилища",
       vaultSettingUnavailable: "Откройте хранилище, чтобы изменить эту настройку",
@@ -1770,6 +1781,10 @@ const ru = {
     deleteTitle: "Удалить файл?",
     deleteManyTitle: "Удалить выбранные файлы?",
     deleteManyConfirm: "Переместить {{count}} файлов в системную корзину?",
+    deleteConfirmVault: 'Переместить "{{name}}" в корзину хранилища?',
+    deleteManyConfirmVault: "Переместить {{count}} файлов в корзину хранилища?",
+    deletePermanentConfirm: 'Удалить "{{name}}" навсегда? Восстановить файл будет нельзя.',
+    deletePermanentManyConfirm: "Удалить {{count}} файлов навсегда? Восстановить их будет нельзя.",
     archive: "В архив",
     deleteDirtyTitle: "Удалить несохранённый файл?",
     deleteDirtyConfirm:
@@ -1988,6 +2003,17 @@ const en: typeof ru = {
       editor: "Editor behavior for new and opened notes.",
     },
     general: {
+      deleteMode: "File deletion",
+      deleteModeOption: {
+        system: "System trash",
+        vault: "Vault trash (.amby/trash)",
+        permanent: "Delete permanently",
+      },
+      deleteModeHint: {
+        system: "Files go to the operating system trash",
+        vault: "Files can be restored from Amby's trash inside the vault",
+        permanent: "Files are deleted with no way to restore them; confirmation is always on",
+      },
       confirmFileDelete: "Confirm before deleting files",
       confirmFileDeleteHint: "This setting applies only to the current vault",
       vaultSettingUnavailable: "Open a vault to change this setting",
@@ -3689,6 +3715,10 @@ const en: typeof ru = {
     deleteTitle: "Delete file?",
     deleteManyTitle: "Delete selected files?",
     deleteManyConfirm: "Move {{count}} files to the system Recycle Bin?",
+    deleteConfirmVault: 'Move "{{name}}" to the vault trash?',
+    deleteManyConfirmVault: "Move {{count}} files to the vault trash?",
+    deletePermanentConfirm: 'Delete "{{name}}" permanently? It cannot be restored.',
+    deletePermanentManyConfirm: "Delete {{count}} files permanently? They cannot be restored.",
     archive: "Archive",
     deleteDirtyTitle: "Delete unsaved file?",
     deleteDirtyConfirm:

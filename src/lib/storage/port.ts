@@ -26,6 +26,7 @@ import type {
   VaultPreflight,
   VaultTagEntry,
   WriteNoteOutcome,
+  DeleteMode,
 } from "./types"
 import type { DatabasePort } from "./database-port"
 
@@ -78,7 +79,7 @@ export interface StoragePort extends DatabasePort {
   attachSketchToNote(vaultPath: string, sketchPath: string): Promise<FsMutationResult>
   renameItem(vaultPath: string, path: string, newName: string): Promise<FsMutationResult>
   moveItem(vaultPath: string, sourcePath: string, targetPath: string): Promise<FsMutationResult>
-  deleteItem(vaultPath: string, path: string): Promise<FsMutationResult>
+  deleteItem(vaultPath: string, path: string, mode?: DeleteMode): Promise<FsMutationResult>
   archiveItem(vaultPath: string, path: string): Promise<FsMutationResult>
 
   // Layers

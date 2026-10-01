@@ -320,10 +320,13 @@ restores or completes an interrupted operation before history is used again.
 This history is application metadata; the Markdown vault remains the source of
 truth.
 
-The explicit Delete action moves a note, folder, or complete bundle to the
-operating system's trash; restoration uses that system's trash interface.
-Amby does not keep a second vault-local copy for this action. A failed system
-trash operation is reported rather than silently deleting the item permanently.
+The explicit Delete action follows the application setting `files.deleteMode`
+(`delete_item` takes the mode explicitly). The default `system` moves a note,
+folder, or complete bundle to the operating system's trash; restoration uses
+that system's trash interface and Amby keeps no vault-local copy. `vault` moves
+the item to `.amby/trash/` like Archive. `permanent` removes it with no copy and
+is always confirmed in the UI. A failed system or vault move is reported rather
+than falling back to permanent deletion.
 
 Archive remains a separate action that moves items to `.amby/trash/`, including
 Canvas, Excalidraw, and database layers, and can be restored inside Amby. After

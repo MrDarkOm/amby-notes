@@ -37,6 +37,7 @@ import type {
   CustomProperty,
   FileMetadata,
   FsMutationResult,
+  DeleteMode,
   HistoryCleanupPreview,
   HistoryCleanupResult,
   HistoryRetention,
@@ -402,8 +403,11 @@ export const moveItem = (
   sourcePath: string,
   targetPath: string,
 ): Promise<FsMutationResult> => mutationsRepository.moveItem(vaultPath, sourcePath, targetPath)
-export const deleteItem = (vaultPath: string, path: string): Promise<FsMutationResult> =>
-  mutationsRepository.deleteItem(vaultPath, path)
+export const deleteItem = (
+  vaultPath: string,
+  path: string,
+  mode?: DeleteMode,
+): Promise<FsMutationResult> => mutationsRepository.deleteItem(vaultPath, path, mode)
 export const archiveItem = (vaultPath: string, path: string): Promise<FsMutationResult> =>
   mutationsRepository.archiveItem(vaultPath, path)
 export const noteLayers = (notePath: string): Promise<NoteLayers> =>

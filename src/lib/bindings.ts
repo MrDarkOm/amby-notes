@@ -434,9 +434,9 @@ async previewRenameRefactor(path: string, newName: string) : Promise<Result<Refa
     else return { status: "error", error: e  as any };
 }
 },
-async deleteItem(path: string) : Promise<Result<MutationOutcome, string>> {
+async deleteItem(path: string, mode: DeleteMode) : Promise<Result<MutationOutcome, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_item", { path }) };
+    return { status: "ok", data: await TAURI_INVOKE("delete_item", { path, mode }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1213,6 +1213,12 @@ export type DebugConfig = { enabled: boolean; logLevel: LogLevel; logToFile: boo
 export type DebugEvent = { id: string; timestamp: string; level: LogLevel; event: string; source: LogSource; metadata?: Partial<{ [key in string]: JsonValue }> | null; sessionId?: string | null; windowId?: string | null; operationId?: string | null; subsystem?: string | null; durationMs?: number | null; sequence?: number | null }
 export type DeleteDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string }
 export type DeleteDatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; expectedManifestRevision: string }
+/**
+ * Where `delete_item` sends an item. `System` is the default; `Vault` keeps a
+ * restorable copy under `.amby/trash`; `Permanent` removes the item for good
+ * and must only be requested after an explicit user confirmation.
+ */
+export type DeleteMode = "system" | "vault" | "permanent"
 export type DeletedDatabaseProperty = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 /**

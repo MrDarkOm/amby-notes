@@ -61,9 +61,13 @@ just the location of the journal JSON. Validate the entire plan before the first
 write, including migration resume and rollback. A malformed or conflicted
 pending operation must not silently disappear during vault activation.
 
-Deletion follows the repository's vault-local, restorable trash contract.
-Any separate system-trash action has a distinct contract and must not promise
-the internal archive's restore guarantees. Recovery must detect interrupted
+Deletion has three user-selectable modes (application setting
+`files.deleteMode`, default `system`). `system` sends the item to the operating
+system trash and does not promise the internal archive's restore guarantees.
+`vault` follows the vault-local, restorable `.amby/trash/` contract.
+`permanent` keeps no copy and is always confirmed, even when ordinary delete
+confirmation is off. A failed system or vault move must never fall back to
+permanent deletion. Archive always uses `.amby/trash/`. Recovery must detect interrupted
 trash operations and preserve unclassified payloads instead of deleting them.
 
 ## Security boundaries and verification

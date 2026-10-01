@@ -207,6 +207,19 @@ describe("app-config & settings storage resilience (WP-19)", () => {
 
   it("defaults tree guide lines on and preserves the explicit preference", () => {
     expect(normalizeAppPreferences({}).treeGuides).toBe(true)
+  })
+
+  it("defaults the delete mode to the system trash and rejects unknown values", () => {
+    expect(normalizeAppPreferences({}).files.deleteMode).toBe("system")
+    expect(normalizeAppPreferences({ files: { deleteMode: "vault" } }).files.deleteMode).toBe(
+      "vault",
+    )
+    expect(normalizeAppPreferences({ files: { deleteMode: "permanent" } }).files.deleteMode).toBe(
+      "permanent",
+    )
+    expect(normalizeAppPreferences({ files: { deleteMode: "wipe" } }).files.deleteMode).toBe(
+      "system",
+    )
     expect(normalizeAppPreferences({ treeGuides: false }).treeGuides).toBe(false)
   })
 

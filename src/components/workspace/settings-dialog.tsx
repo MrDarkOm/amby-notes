@@ -72,6 +72,7 @@ import {
   ModulesTab,
   DataTab,
   DeleteConfirmationSetting,
+  DeleteModeSetting,
   SearchResults,
   DebugSettings,
 } from "./settings"
@@ -493,6 +494,7 @@ export function SettingsDialog({
                       </SelectContent>
                     </Select>
                   </Row>
+                  <DeleteModeSetting />
                   <DeleteConfirmationSetting vault={vault} />
                 </SettingsGroup>
                 <SettingsGroup title={t("settings.groups.startup")} icon={Sparkles}>

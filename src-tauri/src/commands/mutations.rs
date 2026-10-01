@@ -867,6 +867,7 @@ pub fn delete_item(
     db: tauri::State<'_, VaultContext>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
+    mode: recycle_bin::DeleteMode,
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock().unwrap();
     let path = paths::guard(&db, &path)?;
@@ -881,7 +882,12 @@ pub fn delete_item(
             .map(|path| (path, PathFingerprint::Missing)),
     );
     let prepared = watcher_state.prepare_write(writes);
-    let result = match system_recycle_bin::move_to_system_trash(&vault, &path) {
+    let removal = match mode {
+        recycle_bin::DeleteMode::System => system_recycle_bin::move_to_system_trash(&vault, &path),
+        recycle_bin::DeleteMode::Vault => recycle_bin::move_to_trash(&vault, &path),
+        recycle_bin::DeleteMode::Permanent => recycle_bin::delete_permanently(&vault, &path),
+    };
+    let result = match removal {
         Ok(result) => {
             watcher_state.confirm_prepared_write(&prepared);
             result

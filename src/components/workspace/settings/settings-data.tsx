@@ -4,10 +4,19 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { FolderOpen, RotateCcw, Trash2 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { confirmAction, isTauri, openInExplorer } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import {
   DEFAULT_PREFS,
+  DELETE_MODES,
+  type DeleteModePref,
   loadWorkspaceConfig,
   saveWorkspaceConfigPatch,
   saveWorkspaces,
@@ -15,7 +24,7 @@ import {
 } from "../app-config"
 import { useSettingsStore } from "../use-settings-store"
 import { useVaultStore } from "../use-vault-store"
-import { Row } from "./settings-common"
+import { Row, selectTrigger } from "./settings-common"
 
 export function DataTab({ vault }: { vault: string | null }) {
   const { t } = useTranslation()
@@ -123,6 +132,37 @@ export function DeleteConfirmationSetting({ vault }: { vault: string | null }) {
           }).catch(() => setEnabled(!next))
         }}
       />
+    </Row>
+  )
+}
+
+export function DeleteModeSetting() {
+  const { t } = useTranslation()
+  const mode = useSettingsStore((s) => s.prefs.files.deleteMode)
+  const setPrefs = useSettingsStore((s) => s.setPrefs)
+
+  return (
+    <Row
+      label={t("settings.general.deleteMode")}
+      hint={t(`settings.general.deleteModeHint.${mode}`)}
+    >
+      <Select
+        value={mode}
+        onValueChange={(value) =>
+          void setPrefs({ files: { deleteMode: value as DeleteModePref } }).catch(() => {})
+        }
+      >
+        <SelectTrigger className={selectTrigger}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {DELETE_MODES.map((option) => (
+            <SelectItem key={option} value={option}>
+              {t(`settings.general.deleteModeOption.${option}`)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </Row>
   )
 }

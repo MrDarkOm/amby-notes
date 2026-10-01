@@ -352,6 +352,14 @@ export interface EditorPrefs {
   autosaveMs: number
 }
 
+export type DeleteModePref = "system" | "vault" | "permanent"
+export const DELETE_MODES: DeleteModePref[] = ["system", "vault", "permanent"]
+
+export interface FilePrefs {
+  /** Where deleting a file sends it. `permanent` always asks for confirmation. */
+  deleteMode: DeleteModePref
+}
+
 export interface StartupPrefs {
   reopenLastVault: boolean
   restoreSession: boolean
@@ -402,6 +410,7 @@ export interface AppPreferences {
   language: Language
   editor: EditorPrefs
   startup: StartupPrefs
+  files: FilePrefs
   updates: UpdatePrefs
   debug: DebugPrefs
   docks: DockPreferences
@@ -421,6 +430,7 @@ export const DEFAULT_PREFS: AppPreferences = {
   language: "ru",
   editor: { defaultViewMode: "live", contentWidth: "normal", autosaveMs: 500 },
   startup: { reopenLastVault: true, restoreSession: true },
+  files: { deleteMode: "system" },
   updates: { autoUpdate: true },
   debug: { ...DEFAULT_DEBUG_PREFS },
   docks: { leftPinned: true, rightPinned: true },
@@ -452,6 +462,7 @@ export function normalizeAppPreferences(
   const ed = (d.editor ?? {}) as Partial<EditorPrefs>
   const su = (d.startup ?? {}) as Partial<StartupPrefs>
   const up = (d.updates ?? {}) as Partial<UpdatePrefs>
+  const fi = (d.files ?? {}) as Partial<FilePrefs>
   const dbg = (d.debug ?? {}) as Partial<DebugPrefs>
   const dk = (d.docks ?? {}) as Partial<DockPreferences>
   const wi = (d.window ?? {}) as Partial<WindowPreferences>
@@ -495,6 +506,13 @@ export function normalizeAppPreferences(
     startup: {
       reopenLastVault: typeof su.reopenLastVault === "boolean" ? su.reopenLastVault : true,
       restoreSession: typeof su.restoreSession === "boolean" ? su.restoreSession : true,
+    },
+    files: {
+      deleteMode: oneOf<DeleteModePref>(
+        fi.deleteMode,
+        DELETE_MODES,
+        DEFAULT_PREFS.files.deleteMode,
+      ),
     },
     updates: {
       autoUpdate: typeof up.autoUpdate === "boolean" ? up.autoUpdate : true,

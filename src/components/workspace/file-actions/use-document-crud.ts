@@ -5,6 +5,7 @@ import {
   attachCanvasToNote,
   attachSketchToNote,
   archiveItem,
+  confirmAction,
   createCanvasFile,
   createSketchFile,
   createFolder,
@@ -19,6 +20,7 @@ import { createDefaultSketch, serializeSketch } from "@/lib/sketch-format"
 import { loadWorkspaceConfig, saveWorkspaceConfigPatch } from "../app-config"
 import { DeleteConfirmationDialog } from "../delete-confirmation-dialog"
 import { logger } from "@/lib/logger"
+import { useSettingsStore } from "../use-settings-store"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useTabsStore } from "../use-tabs-store"
 import { useViewStateStore } from "../use-view-state-store"
@@ -209,14 +211,33 @@ export function useDocumentCrud({
           docStore.unsavedFileIds.has(document.id) ||
           Boolean(docStore.externalConflicts[document.id]),
       )
+      const deleteMode = useSettingsStore.getState().prefs.files.deleteMode
+      // Permanent deletion keeps no copy, so it is confirmed every time, even
+      // when the user switched off the ordinary delete confirmation.
+      if (
+        mode !== "archive" &&
+        deleteMode === "permanent" &&
+        !(await confirmAction(
+          t(
+            targets.length > 1
+              ? "workspace.deletePermanentManyConfirm"
+              : "workspace.deletePermanentConfirm",
+            { count: targets.length, name: targets[0]?.name ?? "" },
+          ),
+        ))
+      ) {
+        return
+      }
       const resolution =
         mode === "archive"
           ? "archive"
-          : await requestDeleteConfirmation(
-              targets.map((target) => target.id),
-              targets.map((target) => target.name),
-              hasDirtyDocuments,
-            )
+          : deleteMode === "permanent" && !hasDirtyDocuments
+            ? "confirm"
+            : await requestDeleteConfirmation(
+                targets.map((target) => target.id),
+                targets.map((target) => target.name),
+                hasDirtyDocuments,
+              )
       if (resolution === "cancel") return
       logger.info("file.delete", {
         count: targets.length,
@@ -235,7 +256,7 @@ export function useDocumentCrud({
             const result =
               resolution === "archive"
                 ? await archiveItem(vault ?? "", target.path)
-                : await deleteItem(vault ?? "", target.path)
+                : await deleteItem(vault ?? "", target.path, deleteMode)
             handleApplyMutation(result)
             if (resolution === "archive") {
               window.dispatchEvent(new Event("amby:archive-changed"))

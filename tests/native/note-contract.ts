@@ -128,7 +128,7 @@ export const nativeNoteCases: Array<{
       const snapshots = await adapter.listSnapshots(note.primaryPath!)
       check(snapshots.length > 0, "History recorded pre-write bytes")
       await adapter.readSnapshotText(snapshots[0].id)
-      await adapter.deleteItem(vaultPath, note.primaryPath!)
+      await adapter.deleteItem(vaultPath, note.primaryPath!, "vault")
       const trash = await adapter.listTrash()
       check(trash.length === 1, "Delete entered vault-local recycle bin")
       const restored = await adapter.restoreTrash(trash[0].id)
@@ -136,6 +136,25 @@ export const nativeNoteCases: Array<{
         (await adapter.readFile(restored.primaryPath!)) === original,
         "Restored bytes are intact",
       )
+    },
+  },
+  {
+    name: "native permanent delete removes the note and keeps no trash copy",
+    async run({ adapter, vaultPath }) {
+      const keep = await adapter.createNote(vaultPath, vaultPath, "Keep Permanent")
+      const keepBytes = await adapter.readFile(keep.primaryPath!)
+      const note = await adapter.createNote(vaultPath, vaultPath, "Gone Permanent")
+      const trashBefore = (await adapter.listTrash()).length
+      await adapter.deleteItem(vaultPath, note.primaryPath!, "permanent")
+      let readable = true
+      try {
+        await adapter.readFile(note.primaryPath!)
+      } catch {
+        readable = false
+      }
+      check(!readable, "Permanently deleted note is gone")
+      check((await adapter.listTrash()).length === trashBefore, "No trash copy is kept")
+      check((await adapter.readFile(keep.primaryPath!)) === keepBytes, "Other notes stay intact")
     },
   },
   {
@@ -166,7 +185,7 @@ export const nativeNoteCases: Array<{
 
       let failed = false
       try {
-        await adapter.deleteItem(vaultPath, note.primaryPath!)
+        await adapter.deleteItem(vaultPath, note.primaryPath!, "vault")
       } catch {
         failed = true
       }
