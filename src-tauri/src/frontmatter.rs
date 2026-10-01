@@ -59,12 +59,21 @@ thread_local! {
 thread_local! {
     static FAIL_NTH_ATOMIC_WRITE: std::cell::Cell<(u64, bool)> = const { std::cell::Cell::new((0, false)) };
     static ATOMIC_WRITE_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static ABORT_AT_FAULT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 #[cfg(test)]
 pub(crate) fn inject_nth_atomic_write_failure(nth: u64, after_publish: bool) {
     ATOMIC_WRITE_CALLS.with(|calls| calls.set(0));
     FAIL_NTH_ATOMIC_WRITE.with(|fault| fault.set((nth, after_publish)));
+}
+
+/// Like [`inject_nth_atomic_write_failure`] but the process aborts at the
+/// fault, with no unwinding and no error return, to model a real crash.
+#[cfg(test)]
+pub(crate) fn inject_nth_atomic_write_abort(nth: u64, after_publish: bool) {
+    ABORT_AT_FAULT.with(|abort| abort.set(true));
+    inject_nth_atomic_write_failure(nth, after_publish);
 }
 
 #[cfg(test)]
@@ -81,7 +90,12 @@ fn nth_write_fault() -> Option<bool> {
         calls.get()
     });
     let (nth, after) = FAIL_NTH_ATOMIC_WRITE.with(|fault| fault.get());
-    (nth != 0 && call == nth).then_some(after)
+    let hit = nth != 0 && call == nth;
+    if hit && ABORT_AT_FAULT.with(|abort| abort.get()) && !after {
+        // Crash before the rename: the target was never touched.
+        std::process::abort();
+    }
+    hit.then_some(after)
 }
 
 #[cfg(not(test))]
@@ -1414,6 +1428,10 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<(), String> {
         fail_if_requested(4)?;
         atomic_rename_with_retry(&tmp, path).map_err(|e| e.to_string())?;
         if nth_fault == Some(true) {
+            #[cfg(test)]
+            if ABORT_AT_FAULT.with(|abort| abort.get()) {
+                std::process::abort();
+            }
             return Err("injected atomic-write failure after publish".to_owned());
         }
         sync_parent_directory(parent)

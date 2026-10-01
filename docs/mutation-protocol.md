@@ -136,8 +136,9 @@ that blocks only the affected database, not the whole vault).
 
 **S3.3 — failure matrix** (done for the two-way Relation value update: every
 `atomic_write_bytes` call, failing before or right after publication, then
-activation recovery; 22 boundaries; test-only hook in `frontmatter.rs`. The
-controlled-subprocess kill test is **not** done), only real boundaries: read failure, snapshot, temp
+activation recovery; 22 boundaries; test-only hook in `frontmatter.rs`. A
+real process-kill test re-runs the operation in a child test process that
+`abort()`s at 12 chosen writes, then recovers in the parent), only real boundaries: read failure, snapshot, temp
 write, sync, first publish, second publish, cache update, completion record,
 rollback. Fault switches are `cfg(test)` only. Two controlled-subprocess
 interruption tests (kill between publish steps, restart, recover). Windows
