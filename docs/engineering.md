@@ -70,3 +70,9 @@ The backend validates app bounds and installed direct dependencies before public
 Formula arithmetic uses checked bounded decimals. Overflow, division by zero and invalid expressions produce diagnostics. During projection, each note's formula or rollup values are computed within a savepoint. A failure discards that note's values of the affected computed kind and records a deterministic diagnostic; other notes continue. A successful retry removes that diagnostic. Rollups refuse a failed formula or rollup target in the referenced database; unrelated diagnostics do not block ordinary numeric values. Source Markdown and record shards are never changed by this cache computation.
 
 A `healthy` projection means the published cache matches the current source and may include explicit computation diagnostics. It does not promise every formula succeeds. Such diagnostics do not make source properties read-only, so users can correct inputs. Projection reports count the actual stored diagnostics. SQL publication failures still propagate for transaction rollback.
+
+## Release gate and third-party modules
+
+A `v*` tag build starts with the `gate` job in `.github/workflows/release.yml`: version check, `npm run verify:full` and `npm run audit` on the exact tagged commit. Installers are built (`publish`) only after it passes. This workflow has not been exercised end to end locally; the first tagged run is its real test.
+
+Installed (package-manager) modules are not executed: `INSTALLED_MODULE_EXECUTION_ENABLED` in `src/lib/modules/host/execution-policy.ts` is `false` and `loadInstalledModule` returns `null`. Official modules are bundled and unaffected. Enable it only together with a verified isolation runtime and packaged-CSP checks.

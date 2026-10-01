@@ -200,6 +200,59 @@ pub fn preview_restore(vault: &Path, id: &str) -> Result<TrashRestorePreview, St
     })
 }
 
+/// A trash record that no longer matches its payload, typically after a crash
+/// between moving the payload and writing (or removing) its manifest. Nothing
+/// is deleted automatically: the evidence stays in `.amby/trash`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TrashAnomaly {
+    pub id: String,
+    pub kind: TrashAnomalyKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrashAnomalyKind {
+    /// A payload directory exists but its manifest was never written.
+    PayloadWithoutManifest,
+    /// A manifest exists but its payload is gone (e.g. interrupted restore).
+    ManifestWithoutPayload,
+}
+
+pub fn detect_anomalies(vault: &Path) -> Vec<TrashAnomaly> {
+    let trash_root = root(vault);
+    let Ok(read_dir) = fs::read_dir(&trash_root) else {
+        return Vec::new();
+    };
+    let mut anomalies = Vec::new();
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if path.is_dir() {
+            if name.parse::<Ulid>().is_ok() && !manifest_path(&trash_root, name).is_file() {
+                anomalies.push(TrashAnomaly {
+                    id: name.to_owned(),
+                    kind: TrashAnomalyKind::PayloadWithoutManifest,
+                });
+            }
+        } else if let Some(id) = name.strip_suffix(".json") {
+            let Ok(entry) =
+                serde_json::from_slice::<TrashEntry>(&fs::read(&path).unwrap_or_default())
+            else {
+                continue;
+            };
+            if entry.id == id && !trash_root.join(id).join(&entry.name).exists() {
+                anomalies.push(TrashAnomaly {
+                    id: id.to_owned(),
+                    kind: TrashAnomalyKind::ManifestWithoutPayload,
+                });
+            }
+        }
+    }
+    anomalies.sort_by(|left, right| left.id.cmp(&right.id));
+    anomalies
+}
+
 pub fn list(vault: &Path) -> Vec<TrashEntry> {
     let mut entries = fs::read_dir(root(vault))
         .into_iter()
@@ -213,6 +266,9 @@ pub fn list(vault: &Path) -> Vec<TrashEntry> {
 }
 
 pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
+    if let Some(done) = finish_interrupted_restore(vault, id)? {
+        return Ok(done);
+    }
     let preview = preview_restore(vault, id)?;
     let trash_root = root(vault);
     let payload_root = preview.payload.clone();
@@ -261,6 +317,39 @@ pub fn restore(vault: &Path, id: &str) -> Result<FsMutationResult, String> {
     })
 }
 
+/// A restore that renamed the payload back but crashed before removing its
+/// manifest leaves a record whose payload is gone while the destination exists.
+/// Repeating the restore completes that cleanup instead of failing forever. It
+/// only drops the stale record, never any file.
+fn finish_interrupted_restore(vault: &Path, id: &str) -> Result<Option<FsMutationResult>, String> {
+    id.parse::<Ulid>()
+        .map_err(|_| "Invalid trash identifier".to_string())?;
+    let trash_root = root(vault);
+    let manifest = manifest_path(&trash_root, id);
+    let Ok(bytes) = fs::read(&manifest) else {
+        return Ok(None);
+    };
+    let Ok(entry) = serde_json::from_slice::<TrashEntry>(&bytes) else {
+        return Ok(None);
+    };
+    if entry.id != id || trash_root.join(id).join(&entry.name).exists() {
+        return Ok(None);
+    }
+    let destination = crate::paths::confine_rel(vault, &entry.original_path)?;
+    if !destination.exists() {
+        return Ok(None);
+    }
+    fs::remove_file(&manifest).map_err(|error| error.to_string())?;
+    let _ = fs::remove_dir(trash_root.join(id));
+    Ok(Some(FsMutationResult {
+        primary_id: None,
+        primary_path: Some(path_string(&destination)),
+        path_changes: Vec::new(),
+        deleted_paths: Vec::new(),
+        deleted_ids: Vec::new(),
+    }))
+}
+
 pub fn purge(vault: &Path, id: &str) -> Result<(), String> {
     id.parse::<Ulid>()
         .map_err(|_| "Invalid trash identifier".to_string())?;
@@ -280,6 +369,51 @@ pub fn purge(vault: &Path, id: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_orphans_and_completes_an_interrupted_restore_without_deleting_files() {
+        let vault = std::env::temp_dir().join(format!("amby-anomaly-{}", Ulid::generate()));
+        fs::create_dir_all(&vault).unwrap();
+        let note = vault.join("Note.md");
+        fs::write(&note, "kept").unwrap();
+        assert!(detect_anomalies(&vault).is_empty());
+
+        // Crash after the payload was moved but before the manifest was written.
+        let orphan = Ulid::generate().to_string();
+        let orphan_dir = root(&vault).join(&orphan);
+        fs::create_dir_all(&orphan_dir).unwrap();
+        fs::write(orphan_dir.join("Lost.md"), "payload").unwrap();
+        assert_eq!(
+            detect_anomalies(&vault),
+            vec![TrashAnomaly {
+                id: orphan.clone(),
+                kind: TrashAnomalyKind::PayloadWithoutManifest
+            }]
+        );
+        assert_eq!(fs::read(orphan_dir.join("Lost.md")).unwrap(), b"payload");
+
+        // Crash after a restore renamed the payload back, before manifest removal.
+        move_to_trash(&vault, &note).unwrap();
+        let id = list(&vault)[0].id.clone();
+        let preview = preview_restore(&vault, &id).unwrap();
+        fs::rename(&preview.payload, &preview.destination).unwrap();
+        assert!(detect_anomalies(&vault)
+            .iter()
+            .any(|a| a.id == id && a.kind == TrashAnomalyKind::ManifestWithoutPayload));
+        let finished = restore(&vault, &id).unwrap();
+        assert_eq!(
+            finished
+                .primary_path
+                .map(PathBuf::from)
+                .map(|path| path.canonicalize().unwrap()),
+            Some(note.canonicalize().unwrap())
+        );
+        assert_eq!(fs::read(&note).unwrap(), b"kept");
+        assert!(list(&vault).is_empty());
+        // The unrelated orphan is still untouched.
+        assert!(orphan_dir.join("Lost.md").is_file());
+        fs::remove_dir_all(&vault).ok();
+    }
 
     #[test]
     fn permanent_delete_removes_item_without_a_trash_copy() {

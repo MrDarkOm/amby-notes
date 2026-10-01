@@ -212,7 +212,7 @@ fn manifest_path_shape(relative: &str) -> Result<(), String> {
     if components.len() < 2
         || components
             .iter()
-            .any(|part| crate::vault::scan::is_service_directory(*part))
+            .any(|part| crate::vault::scan::is_service_directory(part))
     {
         return Err("Invalid Relation schema manifest path".to_owned());
     }

@@ -162,6 +162,14 @@ impl VaultContext {
         let connection = vault_index::open_connection(&root)?;
         property_store::restore_cache(&connection, &root)?;
         let _ = crate::recovery::sweep_expired_recovery(&root);
+        for anomaly in crate::recycle_bin::detect_anomalies(&root) {
+            // Evidence is preserved; surface it in the log until recovery UI exists.
+            tracing::warn!(
+                event = "trash_anomaly",
+                id = %anomaly.id,
+                kind = ?anomaly.kind
+            );
+        }
         crate::database::mutations::recover_pending_batches(&root).map_err(|error| {
             format!("Database batch recovery blocked vault activation: {error}")
         })?;

@@ -49,7 +49,7 @@ pub fn classify_path(vault: &Path, path: &Path, generation: u64) -> Option<Datab
         .collect::<Vec<_>>();
     if components
         .iter()
-        .any(|component| crate::vault::scan::is_reserved_directory(*component))
+        .any(|component| crate::vault::scan::is_reserved_directory(component))
     {
         return None;
     }

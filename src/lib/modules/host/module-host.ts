@@ -1,5 +1,7 @@
 import { isTauri } from "@/lib/storage"
 import { commands } from "@/lib/bindings"
+import { logger } from "@/lib/logger"
+import { canExecuteInstalledModules } from "./execution-policy"
 import { toCanonicalModuleId } from "../types"
 import { CapabilityBroker } from "./capability-broker"
 import {
@@ -98,6 +100,11 @@ export class ModuleHost {
     const existing = this.definitions.get(canonicalId)
     if (existing) {
       return existing
+    }
+
+    if (!canExecuteInstalledModules()) {
+      logger.warn("module_host.installed_module_execution_disabled", { moduleId: canonicalId })
+      return null
     }
 
     if (isTauri()) {
