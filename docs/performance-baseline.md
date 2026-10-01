@@ -34,6 +34,23 @@ The update metric includes the full refresh, not just the single SQLite row.
 Do not compare these Windows/debug numbers directly to the older macOS sample.
 Resident WebView memory remains unmeasured.
 
+## macOS measurement — 2026-10-02
+
+Source: branch `checkpoint/handoff-stage2`. Apple M5, macOS 26.6.2, Rust 1.95.0,
+`cargo test` debug/unoptimized build, one sample per size, local temporary
+filesystem, other work idle. Command: `AMBY_E2E_LARGE_VAULT_SIZE=<n> npm run test:e2e:large`.
+
+| Notes  | Initial scan | Warm reopen | One-file update + refresh | Search  |
+| ------ | ------------ | ----------- | ------------------------- | ------- |
+| 1,000  | 0.254 s      | 0.084 s     | 0.046 s                   | 0.40 ms |
+| 10,000 | 2.784 s      | 0.949 s     | 0.518 s                   | 1.16 ms |
+
+Reading: scan and reopen scale roughly linearly. The one-file update grows about
+11x for 10x notes, so a single edit still refreshes work proportional to vault
+size. That is the evidence for handoff task S7.3 (incremental index/tree); it is
+a debug-build figure and must be re-measured in release before acting. Do not
+compare with the Windows numbers above (different OS, hardware and build).
+
 ## Database fixture generator — 2026-09-12
 
 `npm run db:fixture -- --size 10000|50000|100000` creates a disposable database
