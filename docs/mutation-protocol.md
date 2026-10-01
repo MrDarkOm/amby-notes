@@ -119,9 +119,10 @@ by file; a finished old operation must not clear newer dirty state.
 
 **Progress.** Done in S3.2: `durable.rs` holds the shared validators and path
 primitives (Relation value and schema journals and batch recovery use it);
-`recover_pending_batches` now attempts every journal, preserves unreadable
-ones and returns the failures, and vault activation is blocked by that error
-instead of ignoring it. Not done: the generic `JournalFile` type, the
+`recover_pending_batches` now attempts every journal and moves one that is
+unreadable or cannot be rolled back (for example a note edited after the crash)
+into `quarantine/` with its backups; it is logged and never blocks the vault.
+The stricter Relation journals still block activation. Not done: the generic `JournalFile` type, the
 `recovery-required` outcome for non-Relation commands, per-database (rather than
 whole-vault) blocking, and all of S3.3.
 

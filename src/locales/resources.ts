@@ -22,7 +22,7 @@ const ru = {
     sourceNotFound: "Источник не найден: {{path}}",
     vaultOpenFailed: "Не удалось открыть хранилище.\n\n{{details}}",
     fileChangedExternally:
-      "Файл изменён вне Amby после открытия. Автосохранение приостановлено, чтобы не затереть внешние правки; ваши изменения сохранены в черновике восстановления.",
+      "Файл изменён вне Amby после открытия. Перезаписать его вашей версией? Если отменить, внешняя версия останется на диске, автосохранение этого файла приостановится, а ваши изменения сохранятся в черновике восстановления.",
     autosaveFailed:
       "Не удалось сохранить изменения на диск. Проверьте доступ к хранилищу и свободное место.",
     settingsSaveError:
@@ -1968,7 +1968,7 @@ const en: typeof ru = {
     sourceNotFound: "Source not found: {{path}}",
     vaultOpenFailed: "Could not open the vault.\n\n{{details}}",
     fileChangedExternally:
-      "The file was changed outside Amby after it was opened. Autosave is paused so the external edit is not overwritten; your changes are kept in the recovery draft.",
+      "The file was changed outside Amby after it was opened. Overwrite it with your version? If you cancel, the external version stays on disk, autosave for this file pauses, and your changes are kept in the recovery draft.",
     autosaveFailed: "Could not save changes to disk. Check vault access and free space.",
     settingsSaveError: "Failed to save settings. Check configuration file permissions.",
     storageQuotaExceeded: "Browser storage is full. Free up space and try again.",

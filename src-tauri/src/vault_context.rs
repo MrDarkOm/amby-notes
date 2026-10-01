@@ -170,9 +170,18 @@ impl VaultContext {
                 kind = ?anomaly.kind
             );
         }
-        crate::database::mutations::recover_pending_batches(&root).map_err(|error| {
-            format!("Database batch recovery blocked vault activation: {error}")
-        })?;
+        // Unreadable or unrecoverable batch journals are quarantined, never
+        // dropped, and must not lock the user out of the vault.
+        match crate::database::mutations::recover_pending_batches(&root) {
+            Ok(report) => {
+                for entry in &report.quarantined {
+                    tracing::error!(event = "database_batch_journal_quarantined", detail = %entry);
+                }
+            }
+            Err(error) => {
+                tracing::error!(event = "database_batch_recovery_failed", error = %error)
+            }
+        }
         let loaded = vault_index::load_vault(&connection, &root)?;
         let _ = crate::database::projection::rebuild_database_projection(&connection, &root);
 

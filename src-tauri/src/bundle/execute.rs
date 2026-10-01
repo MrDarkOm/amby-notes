@@ -122,7 +122,11 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
         } else {
             new_dir.join("ambd.json")
         };
-        rewrite_manifest_name(&manifest_path, trimmed)?;
+        // The folder rename already happened and must be reported; a manifest
+        // display-name that could not be refreshed is logged, not fatal.
+        if let Err(error) = rewrite_manifest_name(&manifest_path, trimmed) {
+            tracing::warn!(event = "database_manifest_name_update_failed", error = %error);
+        }
 
         Ok(FsMutationResult {
             primary_id: None,
@@ -179,7 +183,11 @@ pub(crate) fn rename_item_impl(path: &Path, new_name: &str) -> Result<FsMutation
         } else {
             new_path.join("ambd.json")
         };
-        rewrite_manifest_name(&manifest_path, trimmed)?;
+        // The folder rename already happened and must be reported; a manifest
+        // display-name that could not be refreshed is logged, not fatal.
+        if let Err(error) = rewrite_manifest_name(&manifest_path, trimmed) {
+            tracing::warn!(event = "database_manifest_name_update_failed", error = %error);
+        }
         Ok(FsMutationResult {
             primary_id: None,
             primary_path: Some(path_string(&new_path)),
@@ -280,8 +288,7 @@ fn move_item_to_dir(source_path: &Path, target_dir: &Path) -> Result<FsMutationR
 /// Updates the display `name` of a renamed database manifest. A manifest that
 /// cannot be parsed is left untouched (preserved, not repaired). The write is
 /// atomic so a crash can never leave a truncated manifest, and a failure is
-/// reported: the folder rename already happened, so the caller must not claim
-/// a clean success.
+/// returned so callers can log it; the folder rename already happened.
 pub(super) fn rewrite_manifest_name(manifest_path: &Path, name: &str) -> Result<(), String> {
     if !manifest_path.is_file() {
         return Ok(());

@@ -870,6 +870,9 @@ pub fn delete_item(
     mode: recycle_bin::DeleteMode,
 ) -> Result<MutationOutcome, String> {
     let _mutation_guard = db.mutation_gate.lock().unwrap();
+    if mode == recycle_bin::DeleteMode::Permanent {
+        recycle_bin::reject_symlink_for_permanent_delete(Path::new(&path))?;
+    }
     let path = paths::guard(&db, &path)?;
     let vault = db.root()?;
     let preview = recycle_bin::preview_move_to_trash(&vault, &path)?;

@@ -10,7 +10,7 @@ const storage = vi.hoisted(() => {
     FileRevisionConflictError,
     getFileRevision: vi.fn(),
     writeFile: vi.fn(),
-    showErrorMessage: vi.fn(async () => undefined),
+    confirmAction: vi.fn(async () => false),
   }
 })
 vi.mock("@/lib/storage", () => storage)
@@ -23,7 +23,8 @@ describe("FileRevisionTracker", () => {
   beforeEach(() => {
     storage.getFileRevision.mockReset()
     storage.writeFile.mockReset()
-    storage.showErrorMessage.mockClear()
+    storage.confirmAction.mockReset()
+    storage.confirmAction.mockResolvedValue(false)
   })
 
   it("saves against the baseline and advances it with each write", async () => {
@@ -37,7 +38,7 @@ describe("FileRevisionTracker", () => {
     expect(storage.writeFile).toHaveBeenNthCalledWith(2, "a.canvas", "two", "op2", "rev-2")
   })
 
-  it("pauses, warns and keeps the baseline on an external edit", async () => {
+  it("pauses and keeps the baseline when the user keeps the external version", async () => {
     storage.getFileRevision.mockResolvedValue("rev-1")
     storage.writeFile.mockRejectedValue(new storage.FileRevisionConflictError("rev-x"))
     const tracker = new FileRevisionTracker()
@@ -47,12 +48,44 @@ describe("FileRevisionTracker", () => {
       FileConflictPausedError,
     )
     expect(onConflict).toHaveBeenCalledOnce()
-    expect(storage.showErrorMessage).toHaveBeenCalledWith("errors.fileChangedExternally")
+    expect(storage.confirmAction).toHaveBeenCalledWith("errors.fileChangedExternally")
     // A later attempt still uses the stale baseline, so it conflicts again.
     await expect(tracker.save("a.canvas", "mine", undefined, vi.fn())).rejects.toBeInstanceOf(
       FileConflictPausedError,
     )
     expect(storage.writeFile).toHaveBeenLastCalledWith("a.canvas", "mine", undefined, "rev-1")
+  })
+
+  it("overwrites on confirmation using the current disk revision", async () => {
+    storage.getFileRevision.mockResolvedValueOnce("rev-1").mockResolvedValueOnce("rev-ext")
+    storage.writeFile
+      .mockRejectedValueOnce(new storage.FileRevisionConflictError("rev-ext"))
+      .mockResolvedValueOnce("rev-mine")
+    storage.confirmAction.mockResolvedValue(true)
+    const tracker = new FileRevisionTracker()
+    await tracker.baseline("a.canvas")
+    const onConflict = vi.fn()
+    await tracker.save("a.canvas", "mine", "op", onConflict)
+    expect(onConflict).not.toHaveBeenCalled()
+    expect(storage.writeFile).toHaveBeenNthCalledWith(1, "a.canvas", "mine", "op", "rev-1")
+    expect(storage.writeFile).toHaveBeenNthCalledWith(2, "a.canvas", "mine", "op", "rev-ext")
+    // The next save continues from the revision just written.
+    storage.writeFile.mockResolvedValueOnce("rev-next")
+    await tracker.save("a.canvas", "again", undefined, vi.fn())
+    expect(storage.writeFile).toHaveBeenLastCalledWith("a.canvas", "again", undefined, "rev-mine")
+  })
+
+  it("pauses when the file changes again while the user is deciding", async () => {
+    storage.getFileRevision.mockResolvedValue("rev-1")
+    storage.writeFile.mockRejectedValue(new storage.FileRevisionConflictError("rev-x"))
+    storage.confirmAction.mockResolvedValue(true)
+    const tracker = new FileRevisionTracker()
+    await tracker.baseline("a.canvas")
+    const onConflict = vi.fn()
+    await expect(tracker.save("a.canvas", "mine", undefined, onConflict)).rejects.toBeInstanceOf(
+      FileConflictPausedError,
+    )
+    expect(onConflict).toHaveBeenCalledOnce()
   })
 
   it("rethrows other failures without pausing", async () => {

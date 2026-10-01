@@ -2455,7 +2455,7 @@ fn test_recover_pending_batches_restores_interrupted_batch_on_startup() {
     fs::write(&journal_path, journal_bytes(&journal).unwrap()).unwrap();
 
     // Run recovery as would occur during vault activation
-    let recovered = recover_pending_batches(&vault).unwrap();
+    let recovered = recover_pending_batches(&vault).unwrap().recovered;
     assert_eq!(recovered, 1);
 
     // Note content must be restored back to original
@@ -2466,14 +2466,14 @@ fn test_recover_pending_batches_restores_interrupted_batch_on_startup() {
     assert_eq!(updated_journal.status, "rolledBack");
 
     // Idempotent: subsequent recovery run finds 0 pending batches
-    let second_run = recover_pending_batches(&vault).unwrap();
+    let second_run = recover_pending_batches(&vault).unwrap().recovered;
     assert_eq!(second_run, 0);
 
     let _ = fs::remove_dir_all(vault);
 }
 
 #[test]
-fn recover_pending_batches_reports_unreadable_journals_without_dropping_them() {
+fn recover_pending_batches_quarantines_unreadable_journals_without_locking_the_vault() {
     let vault = temp_vault();
     let batches = vault
         .join(".amby")
@@ -2516,11 +2516,20 @@ fn recover_pending_batches_reports_unreadable_journals_without_dropping_them() {
     let corrupt = batches.join("bad-op.json");
     fs::write(&corrupt, b"{ not a journal").unwrap();
 
-    let error = recover_pending_batches(&vault).unwrap_err();
-    assert!(error.contains("bad-op.json"), "{error}");
-    // The valid journal is still recovered and the corrupt one is preserved.
+    let report = recover_pending_batches(&vault).unwrap();
+    assert_eq!(report.recovered, 1);
+    assert_eq!(report.quarantined.len(), 1, "{:?}", report.quarantined);
+    assert!(report.quarantined[0].contains("bad-op.json"));
+    // The valid journal is recovered; the corrupt one is moved, not deleted.
     assert_eq!(fs::read(&note_path).unwrap(), original);
-    assert_eq!(fs::read(&corrupt).unwrap(), b"{ not a journal");
+    assert!(!corrupt.exists());
+    assert_eq!(
+        fs::read(batches.join("quarantine").join("bad-op.json")).unwrap(),
+        b"{ not a journal"
+    );
+    // A second run is clean: the stuck journal no longer blocks anything.
+    let again = recover_pending_batches(&vault).unwrap();
+    assert!(again.quarantined.is_empty());
 
     let _ = fs::remove_dir_all(vault);
 }
@@ -2660,6 +2669,66 @@ fn relation_value_update_failure_matrix_keeps_both_notes_consistent() {
         exercised >= 8,
         "matrix exercised only {exercised} boundaries"
     );
+}
+
+#[test]
+fn recover_pending_batches_quarantines_a_journal_whose_note_changed_after_the_crash() {
+    let vault = temp_vault();
+    let batches = vault
+        .join(".amby")
+        .join("recovery")
+        .join("database_batches");
+    let note_path = vault.join("Task.md");
+    let original = b"---\nid: 01HZY1234567890ABCDEFGH001\nStatus: Todo\n---\nBody";
+    let target = b"---\nid: 01HZY1234567890ABCDEFGH001\nStatus: Done\n---\nBody";
+    // The user edited the note after the crash: neither original nor target.
+    let edited = b"---\nid: 01HZY1234567890ABCDEFGH001\nStatus: Mine\n---\nBody";
+    fs::write(&note_path, edited).unwrap();
+    let op_id = "changed-op";
+    let backup_dir = batches.join(op_id);
+    fs::create_dir_all(&backup_dir).unwrap();
+    fs::write(backup_dir.join("01HZY1234567890ABCDEFGH001.md"), original).unwrap();
+    let journal = BatchRecoveryJournal {
+        format: "amby-database-recovery".to_owned(),
+        format_version: 1,
+        operation_id: op_id.to_owned(),
+        database_id: ulid::Ulid::generate().to_string(),
+        request_revision: "test-rev".to_owned(),
+        status: "inProgress".to_owned(),
+        steps: vec![BatchRecoveryStep {
+            record_path: "Task.md".to_owned(),
+            backup_path: format!(
+                ".amby/recovery/database_batches/{op_id}/01HZY1234567890ABCDEFGH001.md"
+            ),
+            original_revision: raw_revision(original),
+            target_revision: raw_revision(target),
+            status: "planned".to_owned(),
+        }],
+        result: None,
+    };
+    fs::write(
+        batches.join("changed-op.json"),
+        journal_bytes(&journal).unwrap(),
+    )
+    .unwrap();
+
+    let report = recover_pending_batches(&vault).unwrap();
+    assert_eq!(report.recovered, 0);
+    assert_eq!(report.quarantined.len(), 1);
+    // The user's edit is never overwritten; journal and backup are preserved.
+    assert_eq!(fs::read(&note_path).unwrap(), edited);
+    let quarantine = batches.join("quarantine");
+    assert!(quarantine.join("changed-op.json").is_file());
+    assert_eq!(
+        fs::read(
+            quarantine
+                .join("changed-op")
+                .join("01HZY1234567890ABCDEFGH001.md")
+        )
+        .unwrap(),
+        original
+    );
+    let _ = fs::remove_dir_all(vault);
 }
 
 #[test]

@@ -150,9 +150,14 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
         return false
       }
       try {
-        await revisionsRef.current.baseline(path)
+        // Capture first, commit only for an accepted reload: a file that fails
+        // validation, or a buffer edited during the awaits, must keep its old
+        // baseline so the next save conflicts instead of overwriting.
+        const revision = await revisionsRef.current.capture(path)
         const diskContent = await readFile(path)
         const normalized = validateAndSerializeSketch(diskContent)
+        if (autosave.inspect(autosaveKey(path))?.dirty) return false
+        revisionsRef.current.commit(path, revision)
         if (openSketchesRef.current[path] === normalized) return false
         openSketchesRef.current = { ...openSketchesRef.current, [path]: normalized }
         setSketchRevision((revision) => revision + 1)

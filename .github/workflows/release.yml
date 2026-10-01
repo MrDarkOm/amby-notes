@@ -30,6 +30,8 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
       - run: npm ci
       - run: npm run version:check
         env:

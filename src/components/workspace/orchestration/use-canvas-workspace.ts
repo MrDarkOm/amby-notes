@@ -154,9 +154,14 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
         return false
       }
       try {
-        await revisionsRef.current.baseline(path)
+        // Capture first, commit only for an accepted reload: a file that fails
+        // validation, or a buffer edited during the awaits, must keep its old
+        // baseline so the next save conflicts instead of overwriting.
+        const revision = await revisionsRef.current.capture(path)
         const diskContent = await readFile(path)
         const normalized = validateAndSerializeCanvas(diskContent)
+        if (autosave.inspect(autosaveKey(path))?.dirty) return false
+        revisionsRef.current.commit(path, revision)
         if (openCanvasesRef.current[path] === normalized) return false
         openCanvasesRef.current = { ...openCanvasesRef.current, [path]: normalized }
         setCanvasRevision((revision) => revision + 1)

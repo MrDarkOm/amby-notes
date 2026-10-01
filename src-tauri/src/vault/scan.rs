@@ -89,11 +89,11 @@ pub fn is_database_dir(dir: &Path) -> bool {
 /// migration, database discovery) shares this list so they cannot drift apart.
 pub const RESERVED_DIRECTORIES: &[&str] = &[".amby", ".obsidian", ".git", ".trash", "assets"];
 
-/// Like [`RESERVED_DIRECTORIES`] plus a database's own `.ambd` service folder.
 pub fn is_reserved_directory(name: &str) -> bool {
     RESERVED_DIRECTORIES.contains(&name)
 }
 
+/// Like [`is_reserved_directory`] plus a database's own `.ambd` service folder.
 pub fn is_service_directory(name: &str) -> bool {
     name == ".ambd" || is_reserved_directory(name)
 }

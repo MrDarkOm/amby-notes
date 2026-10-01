@@ -2563,19 +2563,30 @@ fn recover_other_value_batches(
     Ok(())
 }
 
-/// Rolls back every interrupted batch. A journal that cannot be read or rolled
-/// back is never dropped silently: all journals are still attempted, the files
-/// are left in place, and the failures are returned together so the caller can
-/// refuse to continue (the data-safety contract forbids pending operations
-/// disappearing during activation).
-pub fn recover_pending_batches(vault: &Path) -> Result<usize, String> {
+/// Outcome of startup recovery for interrupted batch operations.
+#[derive(Debug, Default)]
+pub struct BatchRecoveryReport {
+    pub recovered: usize,
+    /// Journals that could not be read or rolled back. They are moved, not
+    /// deleted, to `quarantine/` beside the journals together with their
+    /// backups, so the evidence survives and the vault still opens.
+    pub quarantined: Vec<String>,
+}
+
+/// Rolls back every interrupted batch. Every journal is attempted. A journal
+/// that is unreadable (corrupt, newer format) or cannot be rolled back (a note
+/// changed after the crash, missing backup) must neither disappear nor lock the
+/// user out of the vault, so it is quarantined and reported to the caller.
+pub fn recover_pending_batches(vault: &Path) -> Result<BatchRecoveryReport, String> {
     let recovery_root = vault
         .join(".amby")
         .join("recovery")
         .join("database_batches");
     let entries = match fs::read_dir(&recovery_root) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(BatchRecoveryReport::default())
+        }
         Err(error) => return Err(format!("Cannot read database batch recovery: {error}")),
     };
     let mut paths = Vec::new();
@@ -2583,41 +2594,80 @@ pub fn recover_pending_batches(vault: &Path) -> Result<usize, String> {
         let path = entry
             .map_err(|error| format!("Cannot read database batch recovery: {error}"))?
             .path();
-        if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
+        if path.is_file()
+            && path.extension().and_then(|extension| extension.to_str()) == Some("json")
+        {
             paths.push(path);
         }
     }
     paths.sort();
-    let mut recovered = 0;
-    let mut failures = Vec::new();
+    let mut report = BatchRecoveryReport::default();
     for path in paths {
         let name = path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let journal = match read_batch_journal(&path) {
-            Ok(journal) => journal,
-            Err(error) => {
-                failures.push(format!("{name}: {error}"));
-                continue;
+        let failure = match read_batch_journal(&path) {
+            Err(error) => Some(error),
+            Ok(journal) if journal.status == "planned" || journal.status == "inProgress" => {
+                match rollback_batch_journal(vault, &path, journal) {
+                    Ok(()) => {
+                        report.recovered += 1;
+                        None
+                    }
+                    Err(error) => Some(error),
+                }
             }
+            Ok(_) => None,
         };
-        if journal.status == "planned" || journal.status == "inProgress" {
-            match rollback_batch_journal(vault, &path, journal) {
-                Ok(()) => recovered += 1,
-                Err(error) => failures.push(format!("{name}: {error}")),
-            }
+        if let Some(error) = failure {
+            quarantine_batch_journal(&recovery_root, &path).map_err(|move_error| {
+                format!("{name}: {error}; quarantine failed: {move_error}")
+            })?;
+            report.quarantined.push(format!("{name}: {error}"));
         }
     }
-    if failures.is_empty() {
-        Ok(recovered)
-    } else {
-        Err(format!(
-            "{} database batch recovery journal(s) need attention: {}",
-            failures.len(),
-            failures.join("; ")
-        ))
+    Ok(report)
+}
+
+/// Moves a stuck journal (and its backup directory, when present) under
+/// `quarantine/`. Nothing is deleted. A name collision gets a numeric suffix.
+fn quarantine_batch_journal(root: &Path, journal: &Path) -> Result<(), String> {
+    let quarantine = root.join("quarantine");
+    fs::create_dir_all(&quarantine).map_err(|error| error.to_string())?;
+    let stem = journal
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .ok_or("Journal has no name")?;
+    let mut suffix = 0u32;
+    let target_json = loop {
+        let name = if suffix == 0 {
+            format!("{stem}.json")
+        } else {
+            format!("{stem}.{suffix}.json")
+        };
+        let candidate = quarantine.join(&name);
+        if !candidate.exists() {
+            break candidate;
+        }
+        suffix += 1;
+    };
+    let backups = root.join(&stem);
+    if backups.is_dir() {
+        let target_dir = quarantine.join(format!(
+            "{}{}",
+            stem,
+            if suffix == 0 {
+                String::new()
+            } else {
+                format!(".{suffix}")
+            }
+        ));
+        if !target_dir.exists() {
+            fs::rename(&backups, &target_dir).map_err(|error| error.to_string())?;
+        }
     }
+    fs::rename(journal, target_json).map_err(|error| error.to_string())
 }
 
 fn rollback_batch_journal(

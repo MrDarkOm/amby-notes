@@ -35,6 +35,12 @@ Browser checks covered Excalidraw element creation, drawing, JSON restoration, A
 
 The updated lockfile was compared locally against the findings of the earlier npm audit. A fresh npm audit has not run: it requires sending dependency names and versions to registry.npmjs.org, and that transfer is awaiting explicit authorization. The package updates are not evidence of a clean, current, whole-tree npm audit. No additional Rust advisory exceptions were added.
 
+## Known limitation — Windows system trash
+
+`DeleteMode::System` uses `SHFileOperationW` with `FOF_ALLOWUNDO | FOF_NOCONFIRMATION`.
+For items the Recycle Bin cannot hold (too large, network drives) Windows may delete
+permanently without a warning. Not reproduced or fixed here (no Windows run).
+
 ## Open finding — official package signing key in source — 2026-10-02
 
 **Severity: high. Needs the project owner; not fixed by code alone.**

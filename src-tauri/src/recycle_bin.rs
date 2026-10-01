@@ -94,6 +94,20 @@ pub fn preview_move_to_trash(vault: &Path, path: &Path) -> Result<TrashMovePrevi
     })
 }
 
+/// A permanent delete must never resolve a symlink to its target and remove
+/// that instead. Path guarding canonicalizes, so callers check the raw path the
+/// user selected before it is resolved.
+pub fn reject_symlink_for_permanent_delete(requested: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(requested) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(
+            "Refusing to permanently delete a symbolic link: it would remove its target. \
+             Delete the link itself in the file manager."
+                .to_owned(),
+        ),
+        _ => Ok(()),
+    }
+}
+
 /// Removes an item without keeping any copy. Bundles and their Markdown index
 /// entries are resolved exactly like a trash move so callers can report the
 /// same `deleted_paths`.
@@ -332,15 +346,26 @@ fn finish_interrupted_restore(vault: &Path, id: &str) -> Result<Option<FsMutatio
     let Ok(entry) = serde_json::from_slice::<TrashEntry>(&bytes) else {
         return Ok(None);
     };
-    if entry.id != id || trash_root.join(id).join(&entry.name).exists() {
+    let payload_dir = trash_root.join(id);
+    let payload_dir_is_empty = match fs::read_dir(&payload_dir) {
+        Ok(mut entries) => entries.next().is_none(),
+        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+    };
+    if entry.id != id || payload_dir.join(&entry.name).exists() || !payload_dir_is_empty {
         return Ok(None);
     }
     let destination = crate::paths::confine_rel(vault, &entry.original_path)?;
     if !destination.exists() {
         return Ok(None);
     }
-    fs::remove_file(&manifest).map_err(|error| error.to_string())?;
-    let _ = fs::remove_dir(trash_root.join(id));
+    // The record carries no content hash, so an item at the original path may
+    // be the restored one or a later, different file. Keep the record as
+    // evidence under `restored/` instead of deleting it.
+    let evidence_dir = trash_root.join("restored");
+    fs::create_dir_all(&evidence_dir).map_err(|error| error.to_string())?;
+    fs::rename(&manifest, evidence_dir.join(format!("{id}.json")))
+        .map_err(|error| error.to_string())?;
+    let _ = fs::remove_dir(&payload_dir);
     Ok(Some(FsMutationResult {
         primary_id: None,
         primary_path: Some(path_string(&destination)),
@@ -410,6 +435,10 @@ mod tests {
         );
         assert_eq!(fs::read(&note).unwrap(), b"kept");
         assert!(list(&vault).is_empty());
+        assert!(root(&vault)
+            .join("restored")
+            .join(format!("{id}.json"))
+            .is_file());
         // The unrelated orphan is still untouched.
         assert!(orphan_dir.join("Lost.md").is_file());
         fs::remove_dir_all(&vault).ok();
@@ -429,6 +458,21 @@ mod tests {
         assert!(list(&vault).is_empty(), "permanent delete keeps no copy");
         assert_eq!(fs::read(&outside).unwrap(), b"keep");
         assert!(delete_permanently(&vault, &tree).is_err());
+        fs::remove_dir_all(&vault).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn permanent_delete_refuses_a_symlink_instead_of_removing_its_target() {
+        let vault = std::env::temp_dir().join(format!("amby-perm-link-{}", Ulid::generate()));
+        let folder = vault.join("Folder");
+        fs::create_dir_all(&folder).unwrap();
+        fs::write(folder.join("Note.md"), "keep").unwrap();
+        let link = vault.join("link");
+        std::os::unix::fs::symlink(&folder, &link).unwrap();
+        assert!(reject_symlink_for_permanent_delete(&link).is_err());
+        assert!(reject_symlink_for_permanent_delete(&folder).is_ok());
+        assert_eq!(fs::read(folder.join("Note.md")).unwrap(), b"keep");
         fs::remove_dir_all(&vault).ok();
     }
 

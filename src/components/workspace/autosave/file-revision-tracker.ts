@@ -1,9 +1,4 @@
-import {
-  FileRevisionConflictError,
-  getFileRevision,
-  writeFile,
-  showErrorMessage,
-} from "@/lib/storage"
+import { FileRevisionConflictError, confirmAction, getFileRevision, writeFile } from "@/lib/storage"
 import i18n from "@/lib/i18n"
 import { logger } from "@/lib/logger"
 
@@ -26,9 +21,19 @@ export class FileConflictPausedError extends Error {
 export class FileRevisionTracker {
   private readonly revisions = new Map<string, string>()
 
-  /** Capture the baseline; call immediately before reading the file. */
+  /** Read the current revision without adopting it; call before reading the file. */
+  capture(path: string): Promise<string> {
+    return getFileRevision(path)
+  }
+
+  /** Adopt a captured revision once the content read after it was accepted. */
+  commit(path: string, revision: string): void {
+    this.revisions.set(path, revision)
+  }
+
+  /** Capture and adopt in one step (initial load). */
   async baseline(path: string): Promise<void> {
-    this.revisions.set(path, await getFileRevision(path))
+    this.commit(path, await this.capture(path))
   }
 
   forget(path: string): void {
@@ -36,9 +41,11 @@ export class FileRevisionTracker {
   }
 
   /**
-   * Conditional save. A conflict leaves the file untouched, keeps the local
-   * buffer (and its recovery draft) and rethrows as FileConflictPausedError
-   * after `onConflict` pauses the autosave queue.
+   * Conditional save. On an external edit the file is left untouched and the
+   * user chooses: overwrite with this buffer (the baseline moves to the current
+   * disk revision and the save is retried once) or keep the external version,
+   * which pauses the autosave queue via `onConflict` while the local buffer
+   * stays in its recovery draft.
    */
   async save(
     path: string,
@@ -54,12 +61,23 @@ export class FileRevisionTracker {
       expected = await getFileRevision(path)
     }
     try {
-      const next = await writeFile(path, content, operationId, expected)
-      this.revisions.set(path, next)
+      this.revisions.set(path, await writeFile(path, content, operationId, expected))
+      return
     } catch (error) {
       if (!(error instanceof FileRevisionConflictError)) throw error
+    }
+    const overwrite = await confirmAction(i18n.t("errors.fileChangedExternally")).catch(() => false)
+    if (!overwrite) {
       onConflict()
-      void showErrorMessage(i18n.t("errors.fileChangedExternally")).catch(() => undefined)
+      throw new FileConflictPausedError()
+    }
+    try {
+      const current = await getFileRevision(path)
+      this.revisions.set(path, await writeFile(path, content, operationId, current))
+    } catch (error) {
+      if (!(error instanceof FileRevisionConflictError)) throw error
+      // Changed again while asking: stop and let the user decide again later.
+      onConflict()
       throw new FileConflictPausedError()
     }
   }
