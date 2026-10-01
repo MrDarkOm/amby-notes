@@ -34,3 +34,32 @@ without a Tauri/Specta compatibility migration.
 Browser checks covered Excalidraw element creation, drawing, JSON restoration, Amby sketch serialization with unknown metadata, Mermaid flowcharts, and Canvas conversion. Mermaid class diagrams triggered a converter DOM-ID error and fell back to an SVG image. Editable class-diagram conversion is **not** verified; this remains an upstream integration defect to resolve separately. Do not describe the browser run as error-free.
 
 The updated lockfile was compared locally against the findings of the earlier npm audit. A fresh npm audit has not run: it requires sending dependency names and versions to registry.npmjs.org, and that transfer is awaiting explicit authorization. The package updates are not evidence of a clean, current, whole-tree npm audit. No additional Rust advisory exceptions were added.
+
+## Open finding — official package signing key in source — 2026-10-02
+
+**Severity: high. Needs the project owner; not fixed by code alone.**
+
+The private half of the official Ed25519 key `amby-official-2026` is committed in
+`scripts/build-modules.mjs` and, as a "test" key, in
+`src/lib/modules/package-manager/validator.ts` (`TEST_OFFICIAL_PRIVATE_KEY_HEX`).
+The build script verifies its own signatures against the same public key that
+`src-tauri/src/package_manager.rs` (`OFFICIAL_ED25519_PUBLIC_KEY_HEX`) trusts, so
+the committed secret corresponds to the trusted official key. It has been in git
+history since commit `14ed478`; removing it from the tree does not un-leak it.
+
+Anyone with repository read access can therefore sign a package that the backend
+accepts as official. Current mitigation: installed modules are not executed
+(`INSTALLED_MODULE_EXECUTION_ENABLED = false`), and only bundled official modules
+run. That limits impact but does not remove the trust-anchor problem.
+
+Required remediation (owner actions marked):
+
+1. **Owner:** generate a new Ed25519 key pair outside the repository and keep the
+   private key only in a secrets store (CI secret or local environment).
+2. Replace the public key and key ID in `package_manager.rs`, `validator.ts` and
+   `scripts/build-modules.mjs`; stop accepting `amby-official-2026`.
+3. Make `build-modules.mjs` read the private key from the environment and fail
+   loudly when absent; tests must use an ephemeral key pair injected as the trust
+   anchor, never a committed secret.
+4. Treat packages signed with the old key as untrusted and reissue any that were
+   distributed. Do not enable installed-module execution before this is done.
