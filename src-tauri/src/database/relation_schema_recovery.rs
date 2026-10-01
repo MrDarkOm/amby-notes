@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -17,10 +17,37 @@ use super::mutations::{
     ChangeDatabasePropertyTypeRequest, ChangedDatabasePropertyType, CreateDatabasePropertyRequest,
     CreatedDatabaseProperty,
 };
-use crate::frontmatter::{self, AtomicCreateError};
+use crate::frontmatter;
 use crate::watcher::WatcherState;
 
 const RECOVERY_ROOT: &str = ".amby/recovery/database_relation_schemas";
+
+use crate::durable::{self, valid_operation_id};
+
+const LABEL: &str = "Relation schema recovery";
+
+fn valid_revision(value: &str) -> bool {
+    durable::valid_revision(value)
+}
+
+fn relative_components(relative: &str) -> Result<Vec<&str>, String> {
+    durable::relative_components(relative, LABEL)
+}
+
+fn guarded_path(vault: &Path, relative: &str) -> Result<PathBuf, String> {
+    durable::guarded_path(vault, relative, LABEL)
+}
+
+fn relative_string(vault: &Path, path: &Path) -> Result<String, String> {
+    durable::relative_string(vault, path, LABEL)
+}
+
+fn create_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    durable::create_new(path, bytes, LABEL)
+}
+
+use durable::sync_directory;
+
 const RECOVERY_FORMAT: &str = "amby-relation-schema-recovery";
 const RECOVERY_VERSION: u64 = 1;
 const MAX_STEPS: usize = 2;
@@ -147,21 +174,6 @@ pub(crate) struct PendingSchemaRecovery {
     restore: Vec<RestoreStep>,
 }
 
-fn valid_operation_id(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 160
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-}
-
-fn valid_revision(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
-}
-
 fn request_value(request: &CreateDatabasePropertyRequest) -> Result<Value, String> {
     serde_json::to_value(request).map_err(|error| error.to_string())
 }
@@ -177,60 +189,6 @@ fn request_revision(request: &Value) -> Result<String, String> {
         .remove("expectedGeneration");
     let bytes = serde_json::to_vec(&value).map_err(|error| error.to_string())?;
     Ok(raw_revision(&bytes))
-}
-
-fn relative_components(relative: &str) -> Result<Vec<&str>, String> {
-    if relative.is_empty()
-        || relative.contains('\\')
-        || Path::new(relative)
-            .components()
-            .any(|part| !matches!(part, Component::Normal(_)))
-    {
-        return Err("Unsafe path in Relation schema recovery journal".to_owned());
-    }
-    let components = relative.split('/').collect::<Vec<_>>();
-    if components
-        .iter()
-        .any(|component| component.is_empty() || matches!(*component, "." | ".."))
-    {
-        return Err("Unsafe path in Relation schema recovery journal".to_owned());
-    }
-    Ok(components)
-}
-
-fn guarded_path(vault: &Path, relative: &str) -> Result<PathBuf, String> {
-    let mut path = vault.to_path_buf();
-    for component in relative_components(relative)? {
-        path.push(component);
-        match fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err("Symlink in Relation schema recovery path".to_owned());
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
-        }
-    }
-    if crate::paths::confine(vault, &path)? != path {
-        return Err("Relation schema recovery path changed".to_owned());
-    }
-    Ok(path)
-}
-
-fn relative_string(vault: &Path, path: &Path) -> Result<String, String> {
-    let relative = path
-        .strip_prefix(vault)
-        .map_err(|_| "Relation schema manifest is outside the vault")?;
-    Ok(relative
-        .components()
-        .map(|component| match component {
-            Component::Normal(name) => name
-                .to_str()
-                .ok_or("Non-UTF-8 Relation schema recovery path"),
-            _ => Err("Unsafe Relation schema recovery path"),
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map(|parts| parts.join("/"))?)
 }
 
 fn journal_path(vault: &Path, operation_id: &str) -> Result<PathBuf, String> {
@@ -637,28 +595,6 @@ fn read_journal_with_revision(path: &Path) -> Result<(SchemaRecoveryJournal, Str
 
 fn read_journal(path: &Path) -> Result<SchemaRecoveryJournal, String> {
     read_journal_with_revision(path).map(|(journal, _)| journal)
-}
-
-fn create_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    match frontmatter::atomic_write_bytes_new(path, bytes) {
-        Ok(()) => Ok(()),
-        Err(AtomicCreateError::AlreadyExists) => {
-            Err("Relation schema recovery file already exists".to_owned())
-        }
-        Err(AtomicCreateError::Other(error)) => Err(error),
-    }
-}
-
-#[cfg(unix)]
-fn sync_directory(path: &Path) -> Result<(), String> {
-    fs::File::open(path)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| error.to_string())
-}
-
-#[cfg(not(unix))]
-fn sync_directory(_path: &Path) -> Result<(), String> {
-    Ok(())
 }
 
 fn journals(vault: &Path) -> Result<Vec<SchemaJournal>, String> {

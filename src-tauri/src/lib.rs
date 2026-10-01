@@ -4,6 +4,7 @@ mod bundle;
 mod commands;
 mod credentials;
 mod database;
+mod durable;
 mod frontmatter;
 mod history;
 pub mod index;

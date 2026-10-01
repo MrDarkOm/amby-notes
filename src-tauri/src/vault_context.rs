@@ -162,7 +162,9 @@ impl VaultContext {
         let connection = vault_index::open_connection(&root)?;
         property_store::restore_cache(&connection, &root)?;
         let _ = crate::recovery::sweep_expired_recovery(&root);
-        let _ = crate::database::mutations::recover_pending_batches(&root);
+        crate::database::mutations::recover_pending_batches(&root).map_err(|error| {
+            format!("Database batch recovery blocked vault activation: {error}")
+        })?;
         let loaded = vault_index::load_vault(&connection, &root)?;
         let _ = crate::database::projection::rebuild_database_projection(&connection, &root);
 

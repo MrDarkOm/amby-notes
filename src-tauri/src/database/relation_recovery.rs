@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -12,9 +12,35 @@ use super::format::{raw_revision, ExtraFields, MAX_JSON_BYTES};
 use super::mutations::{
     RelationPlannedWrite, UpdateDatabaseRelationValueRequest, UpdateDatabaseRelationValueResult,
 };
-use crate::frontmatter::{self, AtomicCreateError};
+use crate::frontmatter;
 
 const RECOVERY_ROOT: &str = ".amby/recovery/database_relations";
+
+use crate::durable::{self, valid_operation_id};
+
+const LABEL: &str = "Relation recovery";
+
+fn revision_is_valid(value: &str) -> bool {
+    durable::valid_revision(value)
+}
+
+fn relative_components(relative: &str) -> Result<Vec<&str>, String> {
+    durable::relative_components(relative, LABEL)
+}
+
+fn guarded_path(vault: &Path, relative: &str) -> Result<PathBuf, String> {
+    durable::guarded_path(vault, relative, LABEL)
+}
+
+fn relative_string(vault: &Path, path: &Path) -> Result<String, String> {
+    durable::relative_string(vault, path, LABEL)
+}
+
+fn create_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    durable::create_new(path, bytes, LABEL)
+}
+
+use durable::sync_directory;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,21 +78,6 @@ pub(super) struct RelationJournal {
     journal: RelationRecoveryJournal,
 }
 
-fn valid_operation_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 160
-        && id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-}
-
-fn revision_is_valid(revision: &str) -> bool {
-    revision.len() == 64
-        && revision
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
 fn request_value(request: &UpdateDatabaseRelationValueRequest) -> Result<Value, String> {
     serde_json::to_value(request).map_err(|error| error.to_string())
 }
@@ -80,59 +91,6 @@ fn request_revision(request: &Value) -> Result<String, String> {
     Ok(raw_revision(
         &serde_json::to_vec(&semantic).map_err(|error| error.to_string())?,
     ))
-}
-
-fn relative_components(relative: &str) -> Result<Vec<&str>, String> {
-    if relative.is_empty()
-        || relative.contains('\\')
-        || Path::new(relative)
-            .components()
-            .any(|part| !matches!(part, Component::Normal(_)))
-    {
-        return Err("Unsafe path in Relation recovery journal".to_owned());
-    }
-    let components = relative.split('/').collect::<Vec<_>>();
-    if components
-        .iter()
-        .any(|component| component.is_empty() || matches!(*component, "." | ".."))
-    {
-        return Err("Unsafe path in Relation recovery journal".to_owned());
-    }
-    Ok(components)
-}
-
-/// Reject symlinks inside the vault, including aliases that stay inside it.
-fn guarded_path(vault: &Path, relative: &str) -> Result<PathBuf, String> {
-    let mut path = vault.to_path_buf();
-    for component in relative_components(relative)? {
-        path.push(component);
-        match fs::symlink_metadata(&path) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err("Symlink in Relation recovery path".to_owned());
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
-        }
-    }
-    if crate::paths::confine(vault, &path)? != path {
-        return Err("Relation recovery path changed".to_owned());
-    }
-    Ok(path)
-}
-
-fn relative_string(vault: &Path, path: &Path) -> Result<String, String> {
-    let relative = path
-        .strip_prefix(vault)
-        .map_err(|_| "Relation record is outside the vault")?;
-    let parts = relative
-        .components()
-        .map(|component| match component {
-            Component::Normal(name) => name.to_str().ok_or("Non-UTF-8 Relation recovery path"),
-            _ => Err("Unsafe Relation recovery path"),
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(parts.join("/"))
 }
 
 fn journal_path(vault: &Path, operation_id: &str) -> Result<PathBuf, String> {
@@ -393,29 +351,6 @@ pub(super) fn prepare(
         persisted_revision: raw_revision(&bytes),
         journal,
     })
-}
-
-fn create_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    match frontmatter::atomic_write_bytes_new(path, bytes) {
-        Ok(()) => Ok(()),
-        Err(AtomicCreateError::AlreadyExists) => {
-            Err("Relation recovery file already exists".to_owned())
-        }
-        Err(AtomicCreateError::Other(error)) => Err(error),
-    }
-}
-
-#[cfg(unix)]
-fn sync_directory(path: &Path) -> Result<(), String> {
-    fs::File::open(path)
-        .and_then(|directory| directory.sync_all())
-        .map_err(|error| error.to_string())
-}
-
-#[cfg(not(unix))]
-fn sync_directory(_path: &Path) -> Result<(), String> {
-    // Match the cross-platform atomic-write helper's directory-sync policy.
-    Ok(())
 }
 
 impl RelationJournal {

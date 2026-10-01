@@ -1520,8 +1520,13 @@ pub fn refresh_dependent_rollups(
         }
     }
 
+    // Deterministic order: the refresh result must not depend on HashMap
+    // iteration when several source databases are affected.
+    let mut sources_by_db: Vec<_> = sources_by_db.into_iter().collect();
+    sources_by_db.sort_by(|left, right| left.0.cmp(&right.0));
     for (s_db, s_notes) in sources_by_db {
-        let note_vec: Vec<String> = s_notes.into_iter().collect();
+        let mut note_vec: Vec<String> = s_notes.into_iter().collect();
+        note_vec.sort();
         let container_path: Option<String> = tx
             .query_row(
                 "SELECT container_path FROM db_databases WHERE database_id = ?1",

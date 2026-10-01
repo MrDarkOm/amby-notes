@@ -1,5 +1,6 @@
 //! Database creation and durable, conflict-aware metadata/schema/value mutations.
 
+use crate::durable::valid_operation_id;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -2519,14 +2520,6 @@ pub fn apply_value_batch(
     Ok(batch_result)
 }
 
-fn valid_operation_id(operation_id: &str) -> bool {
-    !operation_id.is_empty()
-        && operation_id.len() <= 160
-        && operation_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-}
-
 fn journal_bytes(journal: &BatchRecoveryJournal) -> Result<Vec<u8>, String> {
     json_bytes(&serde_json::to_value(journal).map_err(|error| error.to_string())?)
 }
@@ -2573,33 +2566,61 @@ fn recover_other_value_batches(
     Ok(())
 }
 
+/// Rolls back every interrupted batch. A journal that cannot be read or rolled
+/// back is never dropped silently: all journals are still attempted, the files
+/// are left in place, and the failures are returned together so the caller can
+/// refuse to continue (the data-safety contract forbids pending operations
+/// disappearing during activation).
 pub fn recover_pending_batches(vault: &Path) -> Result<usize, String> {
     let recovery_root = vault
         .join(".amby")
         .join("recovery")
         .join("database_batches");
-    if !recovery_root.is_dir() {
-        return Ok(0);
-    }
     let entries = match fs::read_dir(&recovery_root) {
-        Ok(e) => e,
-        Err(_) => return Ok(0),
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(format!("Cannot read database batch recovery: {error}")),
     };
-    let mut recovered = 0;
-    for entry in entries.filter_map(Result::ok) {
-        let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
-            continue;
+    let mut paths = Vec::new();
+    for entry in entries {
+        let path = entry
+            .map_err(|error| format!("Cannot read database batch recovery: {error}"))?
+            .path();
+        if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
+            paths.push(path);
         }
-        if let Ok(journal) = read_batch_journal(&path) {
-            if (journal.status == "planned" || journal.status == "inProgress")
-                && rollback_batch_journal(vault, &path, journal).is_ok()
-            {
-                recovered += 1;
+    }
+    paths.sort();
+    let mut recovered = 0;
+    let mut failures = Vec::new();
+    for path in paths {
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let journal = match read_batch_journal(&path) {
+            Ok(journal) => journal,
+            Err(error) => {
+                failures.push(format!("{name}: {error}"));
+                continue;
+            }
+        };
+        if journal.status == "planned" || journal.status == "inProgress" {
+            match rollback_batch_journal(vault, &path, journal) {
+                Ok(()) => recovered += 1,
+                Err(error) => failures.push(format!("{name}: {error}")),
             }
         }
     }
-    Ok(recovered)
+    if failures.is_empty() {
+        Ok(recovered)
+    } else {
+        Err(format!(
+            "{} database batch recovery journal(s) need attention: {}",
+            failures.len(),
+            failures.join("; ")
+        ))
+    }
 }
 
 fn rollback_batch_journal(

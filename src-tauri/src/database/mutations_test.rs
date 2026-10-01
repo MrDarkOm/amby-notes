@@ -2473,6 +2473,59 @@ fn test_recover_pending_batches_restores_interrupted_batch_on_startup() {
 }
 
 #[test]
+fn recover_pending_batches_reports_unreadable_journals_without_dropping_them() {
+    let vault = temp_vault();
+    let batches = vault
+        .join(".amby")
+        .join("recovery")
+        .join("database_batches");
+    fs::create_dir_all(&batches).unwrap();
+
+    // A pending batch that is valid and one whose journal is corrupt.
+    let note_path = vault.join("Task.md");
+    let original = b"---\nid: 01HZY1234567890ABCDEFGH001\nStatus: Todo\n---\nBody";
+    let target = b"---\nid: 01HZY1234567890ABCDEFGH001\nStatus: Done\n---\nBody";
+    fs::write(&note_path, target).unwrap();
+    let op_id = "good-op";
+    let backup_dir = batches.join(op_id);
+    fs::create_dir_all(&backup_dir).unwrap();
+    fs::write(backup_dir.join("01HZY1234567890ABCDEFGH001.md"), original).unwrap();
+    let journal = BatchRecoveryJournal {
+        format: "amby-database-recovery".to_owned(),
+        format_version: 1,
+        operation_id: op_id.to_owned(),
+        database_id: ulid::Ulid::generate().to_string(),
+        request_revision: "test-rev".to_owned(),
+        status: "inProgress".to_owned(),
+        steps: vec![BatchRecoveryStep {
+            record_path: "Task.md".to_owned(),
+            backup_path: format!(
+                ".amby/recovery/database_batches/{op_id}/01HZY1234567890ABCDEFGH001.md"
+            ),
+            original_revision: raw_revision(original),
+            target_revision: raw_revision(target),
+            status: "planned".to_owned(),
+        }],
+        result: None,
+    };
+    fs::write(
+        batches.join("good-op.json"),
+        journal_bytes(&journal).unwrap(),
+    )
+    .unwrap();
+    let corrupt = batches.join("bad-op.json");
+    fs::write(&corrupt, b"{ not a journal").unwrap();
+
+    let error = recover_pending_batches(&vault).unwrap_err();
+    assert!(error.contains("bad-op.json"), "{error}");
+    // The valid journal is still recovered and the corrupt one is preserved.
+    assert_eq!(fs::read(&note_path).unwrap(), original);
+    assert_eq!(fs::read(&corrupt).unwrap(), b"{ not a journal");
+
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
 fn two_way_relation_creates_property_in_target_database_and_links_reciprocals() {
     let vault = temp_vault();
     let watcher = WatcherState::new();
