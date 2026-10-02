@@ -301,6 +301,7 @@ export function WorkspaceOrchestration() {
   const {
     autosave: canvasAutosave,
     autosaveKey: canvasAutosaveKey,
+    fileRevisions: canvasRevisions,
     handleCanvasSave,
     loadCanvasBuffer,
     openCanvases,
@@ -311,6 +312,7 @@ export function WorkspaceOrchestration() {
   const {
     autosave: sketchAutosave,
     autosaveKey: sketchAutosaveKey,
+    fileRevisions: sketchRevisions,
     handleSketchSave,
     loadSketchBuffer,
     openSketches,
@@ -749,6 +751,7 @@ export function WorkspaceOrchestration() {
         const nextPath = remapFn(path)
         if (nextPath !== path) {
           canvasAutosave.remapKey(canvasAutosaveKey(path), canvasAutosaveKey(nextPath))
+          canvasRevisions.rename(path, nextPath)
           void remapRecoveryDraft(path, nextPath, "canvas", nextPath, recoveryScope)
         }
         next[nextPath] = json
@@ -768,6 +771,7 @@ export function WorkspaceOrchestration() {
         const nextPath = remapFn(path)
         if (nextPath !== path) {
           sketchAutosave.remapKey(sketchAutosaveKey(path), sketchAutosaveKey(nextPath))
+          sketchRevisions.rename(path, nextPath)
           void remapRecoveryDraft(path, nextPath, "sketch", nextPath, recoveryScope)
         }
         next[nextPath] = json

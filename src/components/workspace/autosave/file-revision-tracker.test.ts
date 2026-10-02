@@ -98,6 +98,17 @@ describe("FileRevisionTracker", () => {
     expect(onConflict).not.toHaveBeenCalled()
   })
 
+  it("carries the baseline over a rename so the compare stays meaningful", async () => {
+    storage.getFileRevision.mockResolvedValue("rev-1")
+    storage.writeFile.mockResolvedValue("rev-2")
+    const tracker = new FileRevisionTracker()
+    await tracker.baseline("old.canvas")
+    tracker.rename("old.canvas", "new.canvas")
+    await tracker.save("new.canvas", "x", undefined, vi.fn())
+    expect(storage.writeFile).toHaveBeenCalledWith("new.canvas", "x", undefined, "rev-1")
+    expect(storage.getFileRevision).toHaveBeenCalledTimes(1)
+  })
+
   it("falls back to the current revision for a path without a baseline", async () => {
     storage.getFileRevision.mockResolvedValue("rev-now")
     storage.writeFile.mockResolvedValue("rev-next")

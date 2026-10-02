@@ -36,6 +36,14 @@ export class FileRevisionTracker {
     this.commit(path, await this.capture(path))
   }
 
+  /** Carry the baseline over when an open file is renamed or moved. */
+  rename(from: string, to: string): void {
+    const revision = this.revisions.get(from)
+    if (revision === undefined) return
+    this.revisions.delete(from)
+    this.revisions.set(to, revision)
+  }
+
   forget(path: string): void {
     this.revisions.delete(path)
   }

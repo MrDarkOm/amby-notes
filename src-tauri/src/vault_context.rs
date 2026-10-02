@@ -162,13 +162,16 @@ impl VaultContext {
         let connection = vault_index::open_connection(&root)?;
         property_store::restore_cache(&connection, &root)?;
         let _ = crate::recovery::sweep_expired_recovery(&root);
+        // Notices for the user, prefixed `recovery:` so the renderer shows only
+        // these from the sync warnings. Evidence is always preserved.
+        let mut recovery_notices: Vec<String> = Vec::new();
         for anomaly in crate::recycle_bin::detect_anomalies(&root) {
-            // Evidence is preserved; surface it in the log until recovery UI exists.
             tracing::warn!(
                 event = "trash_anomaly",
                 id = %anomaly.id,
                 kind = ?anomaly.kind
             );
+            recovery_notices.push(format!("recovery:trash:{}:{:?}", anomaly.id, anomaly.kind));
         }
         // Unreadable or unrecoverable batch journals are quarantined, never
         // dropped, and must not lock the user out of the vault.
@@ -176,13 +179,16 @@ impl VaultContext {
             Ok(report) => {
                 for entry in &report.quarantined {
                     tracing::error!(event = "database_batch_journal_quarantined", detail = %entry);
+                    recovery_notices.push(format!("recovery:batch:{entry}"));
                 }
             }
             Err(error) => {
-                tracing::error!(event = "database_batch_recovery_failed", error = %error)
+                tracing::error!(event = "database_batch_recovery_failed", error = %error);
+                recovery_notices.push(format!("recovery:batch:{error}"));
             }
         }
-        let loaded = vault_index::load_vault(&connection, &root)?;
+        let mut loaded = vault_index::load_vault(&connection, &root)?;
+        loaded.sync.warnings.extend(recovery_notices);
         let _ = crate::database::projection::rebuild_database_projection(&connection, &root);
 
         Ok(PreparedVault {
@@ -451,6 +457,33 @@ mod tests {
         for command in commands {
             command.join().unwrap().unwrap();
         }
+    }
+
+    #[test]
+    fn stuck_batch_journal_is_quarantined_and_reported_without_blocking_activation() {
+        let vault = temp_dir("quarantine-notice");
+        fs::write(vault.join("Note.md"), "# Note\n").unwrap();
+        let batches = vault.join(".amby/recovery/database_batches");
+        fs::create_dir_all(&batches).unwrap();
+        fs::write(batches.join("broken.json"), b"{ not a journal").unwrap();
+
+        let prepared = VaultContext::prepare_activation(vault.to_str().unwrap()).unwrap();
+        assert!(
+            prepared
+                .loaded
+                .sync
+                .warnings
+                .iter()
+                .any(|warning| warning.starts_with("recovery:batch:")
+                    && warning.contains("broken.json")),
+            "{:?}",
+            prepared.loaded.sync.warnings
+        );
+        assert_eq!(prepared.loaded.notes.len(), 1, "the vault still opens");
+        assert_eq!(
+            fs::read(batches.join("quarantine/broken.json")).unwrap(),
+            b"{ not a journal"
+        );
     }
 
     #[test]

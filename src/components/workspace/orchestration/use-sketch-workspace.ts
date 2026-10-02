@@ -190,6 +190,7 @@ export function useSketchWorkspace(generation: number, t: TFunction, recoverySco
   return {
     autosave,
     autosaveKey,
+    fileRevisions: revisionsRef.current,
     handleSketchSave,
     loadSketchBuffer,
     openSketches,

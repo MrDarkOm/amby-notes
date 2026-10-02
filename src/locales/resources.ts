@@ -21,6 +21,8 @@ const ru = {
     moveTargetNotFound: "Источник или назначение перемещения не найдено.",
     sourceNotFound: "Источник не найден: {{path}}",
     vaultOpenFailed: "Не удалось открыть хранилище.\n\n{{details}}",
+    recoveryNotices:
+      "При открытии хранилища найдено незавершённых операций: {{count}}. Данные сохранены и не изменены или перенесены в карантин (.amby/recovery/…/quarantine), ничего не удалено.\n{{details}}",
     fileChangedExternally:
       "Файл изменён вне Amby после открытия. Перезаписать его вашей версией? Если отменить, внешняя версия останется на диске, автосохранение этого файла приостановится, а ваши изменения сохранятся в черновике восстановления.",
     autosaveFailed:
@@ -1967,6 +1969,8 @@ const en: typeof ru = {
     moveTargetNotFound: "Move source or target not found.",
     sourceNotFound: "Source not found: {{path}}",
     vaultOpenFailed: "Could not open the vault.\n\n{{details}}",
+    recoveryNotices:
+      "Unfinished operations found while opening the vault: {{count}}. Data was preserved and left unchanged or moved to quarantine (.amby/recovery/…/quarantine); nothing was deleted.\n{{details}}",
     fileChangedExternally:
       "The file was changed outside Amby after it was opened. Overwrite it with your version? If you cancel, the external version stays on disk, autosave for this file pauses, and your changes are kept in the recovery draft.",
     autosaveFailed: "Could not save changes to disk. Check vault access and free space.",

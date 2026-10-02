@@ -252,6 +252,21 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
       setActiveTabKey("")
       setVault(activePath)
       setBackendGeneration(loaded.generation)
+      const recoveryNotices = (loaded.sync.warnings ?? []).filter((warning) =>
+        warning.startsWith("recovery:"),
+      )
+      if (recoveryNotices.length > 0) {
+        // Stuck recovery data was preserved, not applied or deleted; tell the user.
+        void showErrorMessage(
+          t("errors.recoveryNotices", {
+            count: recoveryNotices.length,
+            details: recoveryNotices
+              .slice(0, 3)
+              .map((notice) => notice.replace(/^recovery:/, ""))
+              .join("\n"),
+          }),
+        ).catch(() => undefined)
+      }
       setTreeItems(tree)
       setLinkGraph({ nodes: [], edges: [] })
       addVaultToList(activePath)

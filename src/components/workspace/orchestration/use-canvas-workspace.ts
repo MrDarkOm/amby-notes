@@ -196,6 +196,7 @@ export function useCanvasWorkspace(generation: number, t: TFunction, recoverySco
   return {
     autosave,
     autosaveKey,
+    fileRevisions: revisionsRef.current,
     handleCanvasSave,
     loadCanvasBuffer,
     openCanvases,
