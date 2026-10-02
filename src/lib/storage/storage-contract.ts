@@ -73,7 +73,7 @@ export const storageContractCases: Array<{
       check(path(renamed.primaryPath!) === `${path(vaultPath)}/Переименовано.md`, "Rename path")
       check((await adapter.readFile(renamed.primaryPath!)) === "saved content", "Rename bytes")
       await rejects(adapter.readFile(note.primaryPath!))
-      await adapter.deleteItem(vaultPath, renamed.primaryPath!)
+      await adapter.deleteItem(vaultPath, renamed.primaryPath!, "vault")
       await rejects(adapter.readFile(renamed.primaryPath!))
       check(
         !flatten(await adapter.listFiles(vaultPath)).some(

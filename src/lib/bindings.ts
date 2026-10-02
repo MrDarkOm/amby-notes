@@ -630,6 +630,38 @@ async importDatabaseAsset(request: ImportDatabaseAssetRequest) : Promise<Result<
     else return { status: "error", error: e  as any };
 }
 },
+async resolveDatabaseAssetPaths(request: ResolveDatabaseAssetPathsRequest) : Promise<Result<ResolvedDatabaseAssetPaths, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resolve_database_asset_paths", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async configureDatabaseRollup(request: ConfigureDatabaseRollupRequest) : Promise<Result<ConfiguredDatabaseRollup, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("configure_database_rollup", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async searchRelationCandidates(request: SearchRelationCandidatesRequest) : Promise<Result<RelationCandidatePage, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("search_relation_candidates", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async resolveRecordReferences(request: ResolveRecordReferencesRequest) : Promise<Result<ResolvedRecordReferences, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resolve_record_references", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async syncDatabaseYaml(request: DatabaseYamlSyncRequest) : Promise<Result<DatabaseYamlSyncResult, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("sync_database_yaml", { request }) };
@@ -1172,7 +1204,9 @@ export type AiMessage = {
 role: string; content: string }
 export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedRelatedManifestRevisions?: DatabaseManifestRevision[] }
 export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
-export type CreateDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; propertyType: string; beforePropertyId: string | null; options?: string[]; formulaExpression?: string | null; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedTargetManifestRevision?: string | null }
+export type ConfigureDatabaseRollupRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; relationPropertyId: string; targetPropertyId: string; aggregation: string }
+export type ConfiguredDatabaseRollup = { databaseId: string; propertyId: string; aggregation: string; manifestRevision: string; warnings: string[] }
+export type CreateDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; propertyType: string; beforePropertyId: string | null; options?: string[]; formulaExpression?: string | null; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedTargetManifestRevision?: string | null; rollupRelationPropertyId?: string | null; rollupTargetPropertyId?: string | null; rollupAggregation?: string | null }
 export type CreateDatabaseRequest = { expectedGeneration: number; mode: DatabaseCreateMode; parentPath: string | null; notePath: string | null; name: string }
 export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; title: string; template: DatabaseRowTemplate }
 export type CreateDatabaseViewRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; layout: string }
@@ -1183,7 +1217,7 @@ export type CredentialInfo = { exists: boolean; masked: string | null }
 export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }
 export type DatabaseAffectedNote = { databaseId: string; noteId: string }
 export type DatabaseAggregateGroup = { key: string; label: string; count: number; value: string | null }
-export type DatabaseAggregateRequest = { expectedGeneration: number; databaseId: string; source: DatabaseQuerySource; category: DatabaseFieldRef | null; measure: DatabaseFieldRef | null; aggregation: string; search: string | null; limit: number }
+export type DatabaseAggregateRequest = { expectedGeneration: number; databaseId: string; source: DatabaseQuerySource; category: DatabaseFieldRef | null; measure: DatabaseFieldRef | null; aggregation: string; search: string | null; limit: number; contextPageId?: string | null }
 export type DatabaseAggregateResult = { databaseId: string; groups: DatabaseAggregateGroup[]; totalCount: number; warnings: string[] }
 export type DatabaseChangedRequest = { kind: string; path: string; containerPath: string; generation: number; requiresFullRebuild: boolean }
 export type DatabaseCreateMode = "standalone" | "attached"
@@ -1200,7 +1234,12 @@ export type DatabaseNoteRevision = { noteId: string; revision: string }
 export type DatabaseOptionSummary = { optionId: string; name: string; color: string }
 export type DatabasePageRequest = { limit: number; cursor: string | null }
 export type DatabasePropertySummary = { propertyId: string; name: string; propertyType: string; configJson: string; options: DatabaseOptionSummary[] }
-export type DatabaseQueryRequest = { expectedGeneration: number; databaseId: string; search: string | null; sorts: DatabaseSortSpec[] | null; filter: DatabaseFilterNode | null; source: DatabaseQuerySource; page: DatabasePageRequest }
+export type DatabaseQueryRequest = { expectedGeneration: number; databaseId: string; search: string | null; sorts: DatabaseSortSpec[] | null; filter: DatabaseFilterNode | null; source: DatabaseQuerySource; page: DatabasePageRequest; 
+/**
+ * The page the query runs for. A `@currentPage` operand in the filter is
+ * replaced by it; without a page that operand is an error, never a match-all.
+ */
+contextPageId?: string | null }
 export type DatabaseQueryResult = { database: DatabaseSummary; projection: ProjectionVersion; rows: DatabaseRow[]; nextCursor: string | null; diagnostics: DatabaseDiagnostic[]; totalCount: number }
 export type DatabaseQuerySource = { kind: "savedView"; view_id: string; expected_revision: string | null } | { kind: "inline"; spec: DatabaseQuerySpec }
 export type DatabaseQuerySpec = { filter: DatabaseFilterNode | null; sorts: DatabaseSortSpec[] }
@@ -1302,8 +1341,24 @@ export type PathChange = { oldPath: string; newPath: string }
  */
 export type ProjectionVersion = { epoch: string; seq: number }
 export type PublishModuleResult = { success: boolean; moduleId: string; installedVersion: string; previousVersion: string | null; installPath: string }
+export type RecordReference = { noteId: string; state: RecordReferenceState; title: string | null; path: string | null }
+export type RecordReferenceState = 
+/**
+ * The note is in the vault index.
+ */
+"ok" | 
+/**
+ * No indexed note has this ID: deleted, in the trash, or not yet indexed.
+ */
+"missing"
 export type RecoveryEntry = { version: number; vaultGeneration: number; documentKind: string; id: string; pathHint: string; savedAtMs: number; content: string; contentHash: string }
 export type RefactorPreview = { notes: number; replacements: number }
+export type RelationCandidate = { noteId: string; title: string; 
+/**
+ * Path inside the vault; lets the picker tell equal titles apart.
+ */
+path: string }
+export type RelationCandidatePage = { candidates: RelationCandidate[]; nextCursor: string | null }
 export type RenameDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; name: string }
 export type RenameDatabaseRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string }
 export type RenameDatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; name: string }
@@ -1312,8 +1367,30 @@ export type RenamedDatabaseProperty = { databaseId: string; propertyId: string; 
 export type ReorderDatabasePropertiesRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; propertyIds: string[] }
 export type ReorderDatabaseViewsRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; viewIds: string[] }
 export type ReorderedDatabaseProperties = { databaseId: string; propertyIds: string[]; manifestRevision: string; warnings: string[] }
+export type ResolveDatabaseAssetPathsRequest = { expectedGeneration: number; databaseId: string; 
+/**
+ * Stored `assets/<note-id>/<file>` paths from Files values.
+ */
+relativePaths: string[] }
+export type ResolveRecordReferencesRequest = { expectedGeneration: number; noteIds: string[] }
+export type ResolvedDatabaseAssetPaths = { 
+/**
+ * Absolute path per requested item, in request order; `None` when the
+ * asset is missing, not a regular image file, or not a database asset path.
+ */
+paths: (string | null)[] }
+export type ResolvedRecordReferences = { 
+/**
+ * One entry per requested ID, in request order.
+ */
+references: RecordReference[] }
 export type RestoreDeletedNoteRequest = { expectedGeneration: number; noteId: string; path: string; content: string; sourceTemplate: string; originWindow: string }
 export type RollbackModuleResult = { success: boolean; moduleId: string; rolledBackToVersion: string; previousVersion: string; activeInstallPath: string }
+export type SearchRelationCandidatesRequest = { expectedGeneration: number; 
+/**
+ * The database the Relation points to.
+ */
+databaseId: string; search: string | null; cursor: string | null; limit: number | null }
 export type SearchResult = { note: IndexedNote; matchType: string; snippet: string | null; score: number }
 export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }
 export type SnapshotText = { sourcePath: string; content: string }

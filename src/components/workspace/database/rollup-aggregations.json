@@ -1,0 +1,12 @@
+{
+  "text": ["count", "countNonEmpty", "unique"],
+  "url": ["count", "countNonEmpty", "unique"],
+  "number": ["count", "countNonEmpty", "unique", "sum", "average", "min", "max"],
+  "date": ["count", "countNonEmpty", "unique", "earliest", "latest"],
+  "checkbox": ["count", "percentChecked"],
+  "select": ["count", "countNonEmpty", "unique"],
+  "status": ["count", "countNonEmpty", "unique", "percentChecked"],
+  "multiSelect": ["count", "countNonEmpty"],
+  "relation": ["count", "countNonEmpty"],
+  "files": ["count", "countNonEmpty"]
+}

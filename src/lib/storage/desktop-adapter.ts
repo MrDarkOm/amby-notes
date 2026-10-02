@@ -34,6 +34,14 @@ import type {
   CreatedDatabaseRow,
   ImportDatabaseAssetRequest,
   ImportedDatabaseAsset,
+  ConfigureDatabaseRollupRequest,
+  ConfiguredDatabaseRollup,
+  ResolveDatabaseAssetPathsRequest,
+  ResolvedDatabaseAssetPaths,
+  SearchRelationCandidatesRequest,
+  RelationCandidatePage,
+  ResolveRecordReferencesRequest,
+  ResolvedRecordReferences,
   DatabaseYamlSyncRequest,
   DatabaseYamlSyncResult,
   DatabaseYamlResolveRequest,
@@ -184,6 +192,7 @@ function toBindingQueryRequest(request: DatabaseQueryRequest) {
       limit: request.page.limit,
       cursor: request.page.cursor ?? null,
     },
+    contextPageId: request.contextPageId ?? null,
   }
 }
 
@@ -258,8 +267,17 @@ export class DesktopAdapter implements StoragePort {
         relationMaxItems: request.relationMaxItems ?? null,
         relationTwoWay: request.relationTwoWay ?? null,
         relationInversePropertyName: request.relationInversePropertyName ?? null,
+        rollupRelationPropertyId: request.rollupRelationPropertyId ?? null,
+        rollupTargetPropertyId: request.rollupTargetPropertyId ?? null,
+        rollupAggregation: request.rollupAggregation ?? null,
       }),
     )
+  }
+
+  async configureDatabaseRollup(
+    request: ConfigureDatabaseRollupRequest,
+  ): Promise<ConfiguredDatabaseRollup> {
+    return unwrapDatabaseCommand(await commands.configureDatabaseRollup({ ...request }))
   }
 
   async changeDatabasePropertyType(
@@ -343,6 +361,43 @@ export class DesktopAdapter implements StoragePort {
     )
   }
 
+  async resolveDatabaseAssetPaths(
+    request: ResolveDatabaseAssetPathsRequest,
+  ): Promise<ResolvedDatabaseAssetPaths> {
+    return unwrapDatabaseCommand(
+      await commands.resolveDatabaseAssetPaths({
+        expectedGeneration: request.expectedGeneration,
+        databaseId: request.databaseId,
+        relativePaths: request.relativePaths,
+      }),
+    )
+  }
+
+  async searchRelationCandidates(
+    request: SearchRelationCandidatesRequest,
+  ): Promise<RelationCandidatePage> {
+    return unwrapDatabaseCommand(
+      await commands.searchRelationCandidates({
+        expectedGeneration: request.expectedGeneration,
+        databaseId: request.databaseId,
+        search: request.search ?? null,
+        cursor: request.cursor ?? null,
+        limit: request.limit ?? null,
+      }),
+    )
+  }
+
+  async resolveRecordReferences(
+    request: ResolveRecordReferencesRequest,
+  ): Promise<ResolvedRecordReferences> {
+    return unwrapDatabaseCommand(
+      await commands.resolveRecordReferences({
+        expectedGeneration: request.expectedGeneration,
+        noteIds: request.noteIds,
+      }),
+    )
+  }
+
   async syncDatabaseYaml(request: DatabaseYamlSyncRequest): Promise<DatabaseYamlSyncResult> {
     return unwrapDatabaseCommand(
       await commands.syncDatabaseYaml({
@@ -394,6 +449,7 @@ export class DesktopAdapter implements StoragePort {
         aggregation: request.aggregation,
         search: request.search ?? null,
         limit: request.limit,
+        contextPageId: request.contextPageId ?? null,
       }),
     )
     return {

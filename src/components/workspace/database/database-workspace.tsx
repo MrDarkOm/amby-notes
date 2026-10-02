@@ -18,13 +18,13 @@ import {
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
 import { Button } from "@/components/ui/button"
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"
 import { motionTransitions } from "@/lib/motion-config"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import {
   applyDatabaseValueBatch,
-  updateDatabaseRelationValue,
   changeDatabasePropertyType,
   createDatabaseProperty,
   createDatabaseView,
@@ -36,7 +36,6 @@ import {
   renameDatabase,
   renameDatabaseProperty,
   renameDatabaseView,
-  queryDatabase,
   listDatabases,
   resolveDatabaseYamlConflict,
   syncDatabaseYaml,
@@ -58,6 +57,19 @@ import { useDatabaseQuery } from "./use-database-query"
 import { TableView } from "./table-view"
 import { DatabaseSidePeek } from "./peek/database-side-peek"
 import { BoardView, GalleryView, ListView } from "./layouts"
+import { useViewQueryState } from "./use-view-query-state"
+import { BoardLanesView } from "./board-lanes-view"
+import { ViewFilterEditor } from "./view-filter-editor"
+import { ViewSortEditor } from "./view-sort-editor"
+import { conditionsToFilter } from "./view-config"
+import { EMPTY_ROLLUP_DRAFT, type RollupDraft } from "./rollup-model"
+import { RollupConfigDialog } from "./rollup-config-dialog"
+import {
+  createDatabaseOperationId,
+  createRelationTargetRow,
+  usePropertyMutation,
+} from "./use-property-mutation"
+import { referenceTitles, relationTargetIds, useRecordReferences } from "./use-record-references"
 import { ChartView } from "./chart-view"
 import { RelationConfigDialog } from "./relation-config-dialog"
 import type { DatabaseHostKind } from "./database-store"
@@ -65,7 +77,6 @@ import type { Document } from "../use-doc-store"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { IconValue } from "../icon-value"
 import { normalizeDatabaseIcon } from "./database-icon"
-import { useViewStateStore } from "../use-view-state-store"
 import { EDITOR_CONTENT_WIDTH } from "@/lib/themes"
 import type { ContentWidth } from "../app-config"
 import {
@@ -82,7 +93,7 @@ import {
 import { DatabaseViewDialog, DatabaseRowDialog, DatabasePropertyDialog } from "./database-dialogs"
 import { PeekRowEditor } from "./database-peek-editor"
 import { DatabaseFloatingToolbar } from "./database-floating-toolbar"
-import { DatabaseToolbarButton, DatabaseSettingsMenuContent } from "./database-view-menu"
+import { DatabaseSettingsMenuContent, QueryPanelButton } from "./database-view-menu"
 import { getViewLayoutIcon } from "./database-layout-icons"
 
 interface DatabaseWorkspaceProps {
@@ -112,15 +123,7 @@ interface DatabaseWorkspaceProps {
 }
 
 const EMPTY_PROPERTIES: DatabasePropertySummary[] = []
-
-function createDatabaseOperationId(prefix: string, suffix?: string): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return `${prefix}-${crypto.randomUUID()}`
-  }
-  const random = Math.random().toString(36).slice(2)
-  const safeSuffix = suffix?.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 64)
-  return `${prefix}-${Date.now()}${safeSuffix ? `-${safeSuffix}` : ""}-${random}`
-}
+const EMPTY_ROWS: DatabaseRow[] = []
 
 function relationTargetFromConfig(configJson: string, reciprocalOnly = false): string | undefined {
   try {
@@ -244,6 +247,8 @@ export function DatabaseWorkspace({
     "table" | "board" | "list" | "gallery" | "chart"
   >("table")
   const [selectedRowId, setSelectedRowId] = React.useState<string | null>(null)
+  // A card opened from a board lane may not be in the loaded table page.
+  const [selectedRowSnapshot, setSelectedRowSnapshot] = React.useState<DatabaseRow | null>(null)
   const [rowDialogOpen, setRowDialogOpen] = React.useState(false)
   const [rowTitle, setRowTitle] = React.useState("")
   const [rowTemplate, setRowTemplate] = React.useState<DatabaseRowTemplate>({ kind: "empty" })
@@ -254,11 +259,6 @@ export function DatabaseWorkspace({
   const iconTriggerRef = React.useRef<HTMLButtonElement>(null)
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [searchQuery, setSearchQuery] = React.useState("")
-  const [filterValues, setFilterValues] = React.useState<Record<string, string>>({})
-  const [sortValue, setSortValue] = React.useState<{
-    key: string
-    direction: "asc" | "desc"
-  } | null>(null)
   const toolbarContainerRef = React.useRef<HTMLDivElement>(null)
   const viewsMeasureRef = React.useRef<HTMLDivElement>(null)
   const actionsRef = React.useRef<HTMLDivElement>(null)
@@ -318,6 +318,9 @@ export function DatabaseWorkspace({
   const [propertyName, setPropertyName] = React.useState("")
   const [propertyType, setPropertyType] = React.useState("text")
   const [formulaExpression, setFormulaExpression] = React.useState("0")
+  const [rollupDraft, setRollupDraft] = React.useState<RollupDraft>(EMPTY_ROLLUP_DRAFT)
+  const [rollupConfigProperty, setRollupConfigProperty] =
+    React.useState<DatabasePropertySummary | null>(null)
   const [relationTargetDatabaseId, setRelationTargetDatabaseId] = React.useState(databaseId)
   const [relationMaxItems, setRelationMaxItems] = React.useState<number | null>(null)
   const [relationTwoWay, setRelationTwoWay] = React.useState(false)
@@ -325,15 +328,8 @@ export function DatabaseWorkspace({
   const [relationSelfDual, setRelationSelfDual] = React.useState(true)
   const [relationConfigProperty, setRelationConfigProperty] =
     React.useState<DatabasePropertySummary | null>(null)
-  const [relationOptionsByProperty, setRelationOptionsByProperty] = React.useState<
-    Record<string, Array<{ noteId: string; title: string; icon?: string | null }>>
-  >({})
   const [mutationBusy, setMutationBusy] = React.useState(false)
   const [mutationError, setMutationError] = React.useState<string | null>(null)
-  const [pendingCells, setPendingCells] = React.useState<Set<string>>(new Set())
-  const [cellErrors, setCellErrors] = React.useState<Record<string, string>>({})
-  const rowQueues = React.useRef(new Map<string, Promise<void>>())
-  const revisionOverrides = React.useRef(new Map<string, string>())
   const [yamlSyncState, setYamlSyncState] = React.useState<{
     rowId: string
     busy: boolean
@@ -350,69 +346,48 @@ export function DatabaseWorkspace({
   const handleToggleLock = onToggleLock ?? (() => setIsLockedStub((current) => !current))
   const [isLinkCopied, setIsLinkCopied] = React.useState(false)
 
-  const [hiddenPropertiesByView, setHiddenPropertiesByView] = React.useState<
-    Record<string, string[]>
-  >(() => {
-    try {
-      const raw = localStorage.getItem("amby:db-view-hidden-properties")
-      return raw ? JSON.parse(raw) : {}
-    } catch {
-      return {}
-    }
-  })
-
-  const activeHiddenPropertyIds = React.useMemo(() => {
-    if (!activeView) return new Set<string>()
-    const list = hiddenPropertiesByView[`${databaseId}:${activeView.viewId}`] ?? []
-    return new Set<string>(list)
-  }, [activeView, databaseId, hiddenPropertiesByView])
-
-  const setViewHiddenPropertyIds = React.useCallback(
-    (
-      targetViewId: string,
-      ids: Set<string> | string[] | ((current: Set<string>) => Set<string>),
-    ) => {
-      setHiddenPropertiesByView((current) => {
-        const key = `${databaseId}:${targetViewId}`
-        const currentIds = new Set(current[key] ?? [])
-        const nextIds = typeof ids === "function" ? ids(currentIds) : ids
-        const arr = Array.from(nextIds)
-        const next = { ...current, [key]: arr }
-        try {
-          localStorage.setItem("amby:db-view-hidden-properties", JSON.stringify(next))
-        } catch {
-          // Ignore
-        }
-        return next
-      })
-    },
-    [databaseId],
-  )
-
-  const togglePropertyVisibility = React.useCallback(
-    (propertyId: string) => {
-      if (!activeView) return
-      setViewHiddenPropertyIds(activeView.viewId, (currentSet) => {
-        const next = new Set(currentSet)
-        if (next.has(propertyId)) next.delete(propertyId)
-        else next.add(propertyId)
-        return next
-      })
-    },
-    [activeView, setViewHiddenPropertyIds],
-  )
-
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
-  const propertyTypes = React.useMemo(() => {
-    const map: Record<string, string> = { title: "text" }
-    if (database?.properties) {
-      for (const p of database.properties) {
-        map[p.propertyId] = p.propertyType
-      }
-    }
-    return map
-  }, [database?.properties])
+  const {
+    savedView,
+    viewSettings,
+    updateViewSettings,
+    activeHiddenPropertyIds,
+    setViewHiddenPropertyIds,
+    togglePropertyVisibility,
+    savedConditions,
+    filterCount,
+    filteredFieldKeys,
+    sortValue,
+    setSortValue,
+    tableSavedSettings,
+    queryFilter,
+    querySorts,
+  } = useViewQueryState({
+    databaseId,
+    vaultGeneration,
+    activeView,
+    isDatabaseLocked,
+    onCatalogChanged,
+  })
+  React.useEffect(() => {
+    if (savedView.error) setMutationError(savedView.error)
+  }, [savedView.error])
+  const [queryPanel, setQueryPanel] = React.useState<"filter" | "sort" | null>(null)
+  const [requestedFilterField, setRequestedFilterField] = React.useState<string | null>(null)
+  const boardGroupProperty = React.useMemo(() => {
+    const group = selectedView?.groupField
+    if (selectedView?.layout !== "board" || !group || group.kind !== "property") return null
+    const property = database?.properties.find(
+      (candidate) => candidate.propertyId === group.propertyId,
+    )
+    return property && (property.propertyType === "select" || property.propertyType === "status")
+      ? property
+      : null
+  }, [database?.properties, selectedView?.groupField, selectedView?.layout])
 
+  const queriesEnabled =
+    Boolean(runtime?.enabled) && catalogStatus === "ready" && Boolean(database) && savedView.ready
+  const boardEnabled = queriesEnabled
   const {
     host: queriedHost,
     loadNextPage,
@@ -420,16 +395,23 @@ export function DatabaseWorkspace({
   } = useDatabaseQuery({
     databaseId,
     vaultGeneration,
-    enabled: Boolean(runtime?.enabled) && catalogStatus === "ready" && Boolean(database),
+    enabled: queriesEnabled,
     viewId,
     hostKind,
     hostId,
     search: searchQuery,
-    filterValues,
-    propertyTypes,
-    sortValue,
+    filter: queryFilter,
+    sorts: querySorts,
   })
   const activeHost = queriedHost
+  const computedErrors = React.useMemo(() => {
+    const errors: { formula?: string; rollup?: string } = {}
+    for (const diagnostic of activeHost?.diagnostics ?? []) {
+      if (diagnostic.code === "formulaError") errors.formula ??= diagnostic.message
+      if (diagnostic.code === "rollupError") errors.rollup ??= diagnostic.message
+    }
+    return errors
+  }, [activeHost?.diagnostics])
 
   const [historyStatus, setHistoryStatus] = React.useState<{ canUndo: boolean; canRedo: boolean }>({
     canUndo: false,
@@ -512,89 +494,24 @@ export function DatabaseWorkspace({
 
   React.useEffect(() => setDatabaseTitle(title), [title])
   React.useEffect(() => setDatabaseIcon(normalizeDatabaseIcon(icon) ?? ""), [icon])
+  // Search is session state; saved filters and sorts belong to the view, not the host.
   React.useEffect(() => {
     setSearchQuery("")
-    setFilterValues({})
     setSearchOpen(false)
-    setSortValue(null)
   }, [databaseId])
 
   // Search and sorting are backend query inputs. Never filter or reorder only
   // the currently loaded page: doing so makes page counts and distant rows
   // incorrect on large databases.
-  const displayRows = activeHost?.rows ?? []
+  const displayRows = React.useMemo(() => activeHost?.rows ?? EMPTY_ROWS, [activeHost?.rows])
 
-  const relationTargets = React.useMemo(
-    () =>
-      (database?.properties ?? [])
-        .filter((property) => property.propertyType === "relation")
-        .map((property) => {
-          try {
-            const config = JSON.parse(property.configJson) as { targetDatabaseId?: unknown }
-            return {
-              propertyId: property.propertyId,
-              databaseId:
-                typeof config.targetDatabaseId === "string" ? config.targetDatabaseId : databaseId,
-            }
-          } catch {
-            return { propertyId: property.propertyId, databaseId }
-          }
-        }),
-    [database?.properties, databaseId],
+  const relationReferences = useRecordReferences(
+    React.useMemo(() => relationTargetIds(displayRows.map((row) => row.valuesJson)), [displayRows]),
   )
-
-  React.useEffect(() => {
-    if (vaultGeneration === null || !runtime?.enabled || !relationTargets.length) {
-      setRelationOptionsByProperty({})
-      return
-    }
-    let cancelled = false
-    void Promise.all(
-      [...new Set(relationTargets.map((target) => target.databaseId))].map(
-        async (targetDatabaseId) => {
-          const result = await queryDatabase({
-            expectedGeneration: vaultGeneration,
-            databaseId: targetDatabaseId,
-            source: {
-              kind: "inline",
-              spec: {
-                sorts: [
-                  { field: { kind: "system", field: "title" }, direction: "asc", nulls: "last" },
-                ],
-              },
-            },
-            page: { limit: 100 },
-          })
-          return [
-            targetDatabaseId,
-            result.rows.map((row) => ({
-              noteId: row.noteId,
-              title: row.title,
-              icon: useViewStateStore.getState().iconOverrides[row.noteId] ?? null,
-            })),
-          ] as const
-        },
-      ),
-    )
-      .then((results) => {
-        if (cancelled) return
-        const byDatabaseId = Object.fromEntries(results)
-        setRelationOptionsByProperty(
-          Object.fromEntries(
-            relationTargets.map((target) => [
-              target.propertyId,
-              byDatabaseId[target.databaseId] ?? [],
-            ]),
-          ),
-        )
-      })
-      .catch(() => {
-        if (!cancelled) setRelationOptionsByProperty({})
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [relationTargets, runtime?.enabled, vaultGeneration])
+  const relationTitles = React.useMemo(
+    () => referenceTitles(relationReferences),
+    [relationReferences],
+  )
 
   const persistDatabaseTitle = React.useCallback(
     async (next: string) => {
@@ -981,7 +898,9 @@ export function DatabaseWorkspace({
   const displayedDatabaseIcon =
     normalizeDatabaseIcon(databaseIcon) ?? normalizeDatabaseIcon(database?.icon)
 
-  const selectedRow = displayRows.find((row) => row.noteId === selectedRowId) ?? null
+  const selectedRow =
+    displayRows.find((row) => row.noteId === selectedRowId) ??
+    (selectedRowSnapshot?.noteId === selectedRowId ? selectedRowSnapshot : null)
   const selectedRowIndex = selectedRow ? displayRows.indexOf(selectedRow) : -1
   const selectAdjacentRow = (offset: number) => {
     if (selectedRowIndex < 0) return
@@ -1063,6 +982,9 @@ export function DatabaseWorkspace({
         name: propertyName.trim(),
         propertyType,
         formulaExpression: propertyType === "formula" ? formulaExpression : undefined,
+        rollupRelationPropertyId: propertyType === "rollup" ? rollupDraft.relationId : undefined,
+        rollupTargetPropertyId: propertyType === "rollup" ? rollupDraft.targetId : undefined,
+        rollupAggregation: propertyType === "rollup" ? rollupDraft.aggregation : undefined,
         options: propertyType === "relation" ? [relationTargetDatabaseId] : undefined,
         relationTargetDatabaseId:
           propertyType === "relation" ? relationTargetDatabaseId : undefined,
@@ -1083,6 +1005,7 @@ export function DatabaseWorkspace({
       setPropertyName("")
       setPropertyType("text")
       setFormulaExpression("0")
+      setRollupDraft(EMPTY_ROLLUP_DRAFT)
       setRelationTargetDatabaseId(databaseId)
       setRelationMaxItems(null)
       setRelationTwoWay(false)
@@ -1115,6 +1038,9 @@ export function DatabaseWorkspace({
       setMutationBusy(false)
     }
   }, [
+    rollupDraft.aggregation,
+    rollupDraft.relationId,
+    rollupDraft.targetId,
     database?.manifestRevision,
     databaseId,
     formulaExpression,
@@ -1305,102 +1231,21 @@ export function DatabaseWorkspace({
     [database, databaseId, isDatabaseLocked, onCatalogChanged, retry, t, vaultGeneration],
   )
 
-  const commitCell = React.useCallback(
-    (row: DatabaseRow, property: DatabasePropertySummary, valueJson?: string) => {
-      const cellKey = `${row.noteId}:${property.propertyId}`
-      const prior = rowQueues.current.get(row.noteId) ?? Promise.resolve()
-      logger.info("database.commit_cell", {
-        databaseId,
-        noteId: row.noteId,
-        propertyId: property.propertyId,
-        propertyName: property.name,
-        propertyType: property.propertyType,
-      })
-      setPendingCells((current) => new Set(current).add(cellKey))
-      setCellErrors((current) => {
-        const next = { ...current }
-        delete next[cellKey]
-        return next
-      })
-      const operationId = createDatabaseOperationId("cell", `${row.noteId}-${property.propertyId}`)
-      const task = prior
-        .catch(() => {})
-        .then(async () => {
-          if (vaultGeneration === null) return
-          if (property.propertyType === "relation") {
-            let targetNoteIds: string[] = []
-            if (valueJson) {
-              try {
-                const parsed = JSON.parse(valueJson) as { targetNoteIds?: string[] }
-                if (Array.isArray(parsed.targetNoteIds)) {
-                  targetNoteIds = parsed.targetNoteIds
-                }
-              } catch {
-                // ignore
-              }
-            }
-            const result = await updateDatabaseRelationValue({
-              expectedGeneration: vaultGeneration,
-              operationId,
-              databaseId,
-              noteId: row.noteId,
-              propertyId: property.propertyId,
-              targetNoteIds,
-              expectedRevision: revisionOverrides.current.get(row.noteId) ?? row.rowRevision,
-            })
-            const revision = result.revisions.find((item) => item.noteId === row.noteId)?.revision
-            if (revision) revisionOverrides.current.set(row.noteId, revision)
-            if (result.warnings.length) setMutationError(result.warnings.join("; "))
-            await retry()
-            void refreshHistoryStatus()
-          } else {
-            const result = await applyDatabaseValueBatch({
-              expectedGeneration: vaultGeneration,
-              databaseId,
-              operationId,
-              cells: [
-                {
-                  noteId: row.noteId,
-                  propertyId: property.propertyId,
-                  valueJson,
-                  expectedRevision: revisionOverrides.current.get(row.noteId) ?? row.rowRevision,
-                },
-              ],
-            })
-            const revision = result.revisions.find((item) => item.noteId === row.noteId)?.revision
-            if (revision) revisionOverrides.current.set(row.noteId, revision)
-            if (result.warnings.length) setMutationError(result.warnings.join("; "))
-            await retry()
-            void refreshHistoryStatus()
-          }
-        })
-        .catch(async (error) => {
-          logger.error("database.commit_cell_failed", {
-            databaseId,
-            noteId: row.noteId,
-            propertyId: property.propertyId,
-            error,
-          })
-          revisionOverrides.current.delete(row.noteId)
-          setCellErrors((current) => ({
-            ...current,
-            [cellKey]: error instanceof Error ? error.message : String(error),
-          }))
-          await retry()
-        })
-        .finally(() => {
-          setPendingCells((current) => {
-            const next = new Set(current)
-            next.delete(cellKey)
-            return next
-          })
-          if (rowQueues.current.get(row.noteId) === task) rowQueues.current.delete(row.noteId)
-        })
-      rowQueues.current.set(row.noteId, task)
-      return task
+  const {
+    commit: commitCell,
+    pendingCells,
+    cellErrors,
+  } = usePropertyMutation({
+    databaseId,
+    vaultGeneration,
+    onSettled: async (outcome) => {
+      if (outcome.ok && outcome.result?.warnings.length) {
+        setMutationError(outcome.result.warnings.join("; "))
+      }
+      await retry()
+      if (outcome.ok) void refreshHistoryStatus()
     },
-    [databaseId, refreshHistoryStatus, retry, vaultGeneration],
-  )
+  })
 
   const handleCreateRelationRow = React.useCallback(
     async (targetDatabaseId: string, rowTitleText: string): Promise<string | void> => {
@@ -1408,19 +1253,13 @@ export function DatabaseWorkspace({
       setMutationBusy(true)
       setMutationError(null)
       try {
-        const created = await createDatabaseRow({
-          expectedGeneration: vaultGeneration,
-          databaseId: targetDatabaseId,
-          title: rowTitleText.trim(),
-          template: { kind: "empty" },
-        })
-        logger.info("database.create_relation_row", {
+        const createdNoteId = await createRelationTargetRow(
+          vaultGeneration,
           targetDatabaseId,
-          noteId: created.noteId,
-          title: rowTitleText.trim(),
-        })
+          rowTitleText,
+        )
         await Promise.allSettled([onCatalogChanged?.(), retry()])
-        return created.noteId
+        return createdNoteId
       } catch (error) {
         logger.error("database.create_relation_row_failed", {
           targetDatabaseId,
@@ -1508,21 +1347,17 @@ export function DatabaseWorkspace({
     async (row: DatabaseRow, laneKey: string) => {
       const groupField = selectedView?.groupField
       if (!groupField || groupField.kind !== "property" || vaultGeneration === null) return
-      let values: unknown
-      try {
-        values = JSON.parse(row.valuesJson)
-      } catch {
-        throw new Error(t("databaseBoard.invalidValues"))
-      }
-      const current =
-        values && typeof values === "object"
-          ? (values as Record<string, unknown>)[groupField.propertyId]
-          : null
-      const typed =
-        current && typeof current === "object" ? (current as Record<string, unknown>) : null
-      if (!typed || (typed.type !== "select" && typed.type !== "status")) {
+      const groupProperty = database?.properties.find(
+        (candidate) => candidate.propertyId === groupField.propertyId,
+      )
+      if (
+        !groupProperty ||
+        (groupProperty.propertyType !== "select" && groupProperty.propertyType !== "status")
+      ) {
         throw new Error(t("databaseBoard.unsupportedValue"))
       }
+      // A card without a value (the "No value" lane) has no stored value to copy.
+      const typed = { type: groupProperty.propertyType }
       await applyDatabaseValueBatch({
         expectedGeneration: vaultGeneration,
         databaseId,
@@ -1540,7 +1375,15 @@ export function DatabaseWorkspace({
       retry()
       void refreshHistoryStatus()
     },
-    [databaseId, refreshHistoryStatus, retry, selectedView?.groupField, t, vaultGeneration],
+    [
+      database?.properties,
+      databaseId,
+      refreshHistoryStatus,
+      retry,
+      selectedView?.groupField,
+      t,
+      vaultGeneration,
+    ],
   )
 
   const chartCategory = React.useMemo(() => {
@@ -1958,13 +1801,18 @@ export function DatabaseWorkspace({
                 searchOpen={searchOpen}
                 isLinkCopied={isLinkCopied}
                 activeHiddenPropertyIds={activeHiddenPropertyIds}
-                filterValues={filterValues}
-                titleColumnName={titleColumnName}
-                sortValue={sortValue}
+                filterCount={filterCount}
+                sortCount={viewSettings.sorts.length}
+                onOpenFilter={() => setQueryPanel("filter")}
+                onOpenSort={() => setQueryPanel("sort")}
                 openRowDialog={openRowDialog}
                 onToggleSearch={() => setSearchOpen((open) => !open)}
                 openRenameViewDialog={openRenameViewDialog}
                 changeActiveViewLayout={changeActiveViewLayout}
+                cardFields={viewSettings.cardFields}
+                cardSize={viewSettings.cardSize}
+                onCardFieldsChange={(cardFields) => updateViewSettings({ cardFields })}
+                onCardSizeChange={(cardSize) => updateViewSettings({ cardSize })}
                 setViewHiddenPropertyIds={setViewHiddenPropertyIds}
                 togglePropertyVisibility={togglePropertyVisibility}
                 onOpenAddProperty={() => {
@@ -1973,8 +1821,6 @@ export function DatabaseWorkspace({
                   setRelationTargetDatabaseId(databaseId)
                   setPropertyDialogOpen(true)
                 }}
-                setFilterValues={setFilterValues}
-                setSortValue={setSortValue}
                 copyLinkToView={copyLinkToView}
                 handleToggleLock={handleToggleLock}
                 mutateView={mutateView}
@@ -1982,171 +1828,171 @@ export function DatabaseWorkspace({
             )
 
             return (
-              <div ref={actionsRef} className="ml-auto flex shrink-0 items-center gap-1">
-                {isCompactToolbar ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 gap-1.5 rounded-full px-3 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-foreground"
-                        aria-label={t("databaseWorkspace.settings")}
-                        title={t("databaseWorkspace.settings")}
-                      >
-                        <SlidersHorizontal className="size-3.5 shrink-0" />
-                        <span className="truncate max-w-[100px]">
-                          {t("databaseWorkspace.settings")}
-                        </span>
-                        {(Object.keys(filterValues).length > 0 || sortValue !== null) && (
-                          <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-                        )}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    {settingsMenuContent}
-                  </DropdownMenu>
-                ) : (
-                  <>
-                    <DatabaseToolbarButton
-                      icon={<Filter className="size-4" />}
-                      label={t("databaseWorkspace.filter")}
-                    >
-                      <DropdownMenuLabel>{t("databaseWorkspace.filter")}</DropdownMenuLabel>
-                      {Object.entries(filterValues).map(([key, value]) => {
-                        const property =
-                          key === "title"
-                            ? { name: titleColumnName ?? t("databaseTable.title") }
-                            : database?.properties.find((candidate) => candidate.propertyId === key)
-                        return (
-                          <DropdownMenuItem
-                            key={key}
-                            onSelect={() =>
-                              setFilterValues((current) => {
-                                const next = { ...current }
-                                delete next[key]
-                                return next
-                              })
-                            }
-                          >
-                            <span className="min-w-0 flex-1 truncate">{property?.name ?? key}</span>
-                            <span className="max-w-24 truncate text-muted-foreground">{value}</span>
-                            <X className="ml-1 size-3 text-muted-foreground" />
-                          </DropdownMenuItem>
-                        )
-                      })}
-                      {Object.keys(filterValues).length === 0 ? (
-                        <DropdownMenuItem disabled>
-                          {t("databaseWorkspace.noFilters")}
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem onSelect={() => setFilterValues({})}>
-                          {t("databaseTable.clearFilter")}
-                        </DropdownMenuItem>
-                      )}
-                    </DatabaseToolbarButton>
-                    <DatabaseToolbarButton
-                      icon={<ArrowDownUp className="size-4" />}
-                      label={t("databaseWorkspace.sort")}
-                    >
-                      <DropdownMenuLabel>{t("databaseWorkspace.sort")}</DropdownMenuLabel>
-                      <DropdownMenuItem
-                        onSelect={() => setSortValue({ key: "title", direction: "asc" })}
-                      >
-                        {t("databaseWorkspace.sortAscending")}
-                        {sortValue?.key === "title" && sortValue.direction === "asc" && (
-                          <span className="ml-auto text-primary">✓</span>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => setSortValue({ key: "title", direction: "desc" })}
-                      >
-                        {t("databaseWorkspace.sortDescending")}
-                        {sortValue?.key === "title" && sortValue.direction === "desc" && (
-                          <span className="ml-auto text-primary">✓</span>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem disabled={!sortValue} onSelect={() => setSortValue(null)}>
-                        {t("databaseTable.clearSort")}
-                      </DropdownMenuItem>
-                    </DatabaseToolbarButton>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground"
-                      title={t("databaseWorkspace.search")}
-                      aria-label={t("databaseWorkspace.search")}
-                      onClick={() => setSearchOpen((open) => !open)}
-                    >
-                      {searchOpen ? <X className="size-4" /> : <Search className="size-4" />}
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="size-8 p-0 text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground"
-                          aria-label={t("databaseWorkspace.settings")}
-                          title={t("databaseWorkspace.settings")}
-                        >
-                          <SlidersHorizontal className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      {settingsMenuContent}
-                    </DropdownMenu>
-                    <div className="ml-2 inline-flex items-stretch">
-                      <Button
-                        size="sm"
-                        className="h-8 rounded-l-md rounded-r-none bg-primary px-3 text-xs text-primary-foreground shadow-sm hover:bg-primary/90"
-                        disabled={isDatabaseLocked || vaultGeneration === null}
-                        onClick={() => openRowDialog({ kind: "default" })}
-                      >
-                        <Plus className="size-4" />
-                        {t("databaseWorkspace.newPageButton")}
-                      </Button>
+              <Popover
+                open={queryPanel !== null}
+                onOpenChange={(open) => {
+                  if (!open) setQueryPanel(null)
+                }}
+              >
+                <PopoverAnchor asChild>
+                  <div ref={actionsRef} className="ml-auto flex shrink-0 items-center gap-1">
+                    {isCompactToolbar ? (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
-                            size="icon-sm"
-                            className="h-8 w-8 rounded-l-none rounded-r-md border-l border-primary-foreground/25 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
-                            disabled={isDatabaseLocked || vaultGeneration === null}
-                            aria-label={t("databaseWorkspace.chooseTemplate")}
-                            title={t("databaseWorkspace.chooseTemplate")}
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1.5 rounded-full px-3 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-foreground"
+                            aria-label={t("databaseWorkspace.settings")}
+                            title={t("databaseWorkspace.settings")}
                           >
-                            <ChevronDown className="size-3.5" />
+                            <SlidersHorizontal className="size-3.5 shrink-0" />
+                            <span className="truncate max-w-[100px]">
+                              {t("databaseWorkspace.settings")}
+                            </span>
+                            {(filterCount > 0 || viewSettings.sorts.length > 0) && (
+                              <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+                            )}
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56">
-                          <DropdownMenuLabel>{t("databaseWorkspace.templates")}</DropdownMenuLabel>
-                          <DropdownMenuItem onSelect={() => openRowDialog({ kind: "default" })}>
-                            <Database className="size-4" />
-                            {t("databaseWorkspace.defaultTemplate")}
-                          </DropdownMenuItem>
-                          {database?.templates.map((template) => (
-                            <DropdownMenuItem
-                              key={template.templateId}
-                              onSelect={() =>
-                                openRowDialog({ kind: "template", templateId: template.templateId })
-                              }
-                            >
-                              <FileText className="size-4 shrink-0 text-primary" />
-                              <span className="truncate">{template.name}</span>
-                            </DropdownMenuItem>
-                          ))}
-                          {(!database || database.templates.length === 0) && (
-                            <DropdownMenuItem disabled>
-                              {t("databaseWorkspace.noTemplates")}
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onSelect={() => openRowDialog({ kind: "empty" })}>
-                            <Plus className="size-4" />
-                            {t("databaseWorkspace.createTemplate")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
+                        {settingsMenuContent}
                       </DropdownMenu>
-                    </div>
-                  </>
-                )}
-              </div>
+                    ) : (
+                      <>
+                        <QueryPanelButton
+                          icon={<Filter className="size-4" />}
+                          label={t("databaseWorkspace.filter")}
+                          count={filterCount}
+                          active={queryPanel === "filter"}
+                          onClick={() =>
+                            setQueryPanel((current) => (current === "filter" ? null : "filter"))
+                          }
+                        />
+                        <QueryPanelButton
+                          icon={<ArrowDownUp className="size-4" />}
+                          label={t("databaseWorkspace.sort")}
+                          count={viewSettings.sorts.length}
+                          active={queryPanel === "sort"}
+                          onClick={() =>
+                            setQueryPanel((current) => (current === "sort" ? null : "sort"))
+                          }
+                        />
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground"
+                          title={t("databaseWorkspace.search")}
+                          aria-label={t("databaseWorkspace.search")}
+                          onClick={() => setSearchOpen((open) => !open)}
+                        >
+                          {searchOpen ? <X className="size-4" /> : <Search className="size-4" />}
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="size-8 p-0 text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground"
+                              aria-label={t("databaseWorkspace.settings")}
+                              title={t("databaseWorkspace.settings")}
+                            >
+                              <SlidersHorizontal className="size-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          {settingsMenuContent}
+                        </DropdownMenu>
+                        <div className="ml-2 inline-flex items-stretch">
+                          <Button
+                            size="sm"
+                            className="h-8 rounded-l-md rounded-r-none bg-primary px-3 text-xs text-primary-foreground shadow-sm hover:bg-primary/90"
+                            disabled={isDatabaseLocked || vaultGeneration === null}
+                            onClick={() => openRowDialog({ kind: "default" })}
+                          >
+                            <Plus className="size-4" />
+                            {t("databaseWorkspace.newPageButton")}
+                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="icon-sm"
+                                className="h-8 w-8 rounded-l-none rounded-r-md border-l border-primary-foreground/25 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+                                disabled={isDatabaseLocked || vaultGeneration === null}
+                                aria-label={t("databaseWorkspace.chooseTemplate")}
+                                title={t("databaseWorkspace.chooseTemplate")}
+                              >
+                                <ChevronDown className="size-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-56">
+                              <DropdownMenuLabel>
+                                {t("databaseWorkspace.templates")}
+                              </DropdownMenuLabel>
+                              <DropdownMenuItem onSelect={() => openRowDialog({ kind: "default" })}>
+                                <Database className="size-4" />
+                                {t("databaseWorkspace.defaultTemplate")}
+                              </DropdownMenuItem>
+                              {database?.templates.map((template) => (
+                                <DropdownMenuItem
+                                  key={template.templateId}
+                                  onSelect={() =>
+                                    openRowDialog({
+                                      kind: "template",
+                                      templateId: template.templateId,
+                                    })
+                                  }
+                                >
+                                  <FileText className="size-4 shrink-0 text-primary" />
+                                  <span className="truncate">{template.name}</span>
+                                </DropdownMenuItem>
+                              ))}
+                              {(!database || database.templates.length === 0) && (
+                                <DropdownMenuItem disabled>
+                                  {t("databaseWorkspace.noTemplates")}
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onSelect={() => openRowDialog({ kind: "empty" })}>
+                                <Plus className="size-4" />
+                                {t("databaseWorkspace.createTemplate")}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </PopoverAnchor>
+                <PopoverContent
+                  align="end"
+                  className="w-[28rem] max-w-[calc(100vw-2rem)] p-3"
+                  aria-label={
+                    queryPanel === "sort" ? t("databaseSort.title") : t("databaseFilter.title")
+                  }
+                >
+                  {queryPanel === "filter" && (
+                    <ViewFilterEditor
+                      conditions={savedConditions ?? []}
+                      complex={savedConditions === null}
+                      properties={database?.properties ?? EMPTY_PROPERTIES}
+                      titleName={titleColumnName ?? t("databaseTable.title")}
+                      requestedField={requestedFilterField}
+                      onRequestedFieldHandled={() => setRequestedFilterField(null)}
+                      onChange={(conditions) =>
+                        updateViewSettings({ filter: conditionsToFilter(conditions) })
+                      }
+                      onResetComplex={() => updateViewSettings({ filter: null })}
+                    />
+                  )}
+                  {queryPanel === "sort" && (
+                    <ViewSortEditor
+                      sorts={viewSettings.sorts}
+                      properties={database?.properties ?? EMPTY_PROPERTIES}
+                      titleName={titleColumnName ?? t("databaseTable.title")}
+                      onChange={(sorts) => updateViewSettings({ sorts })}
+                    />
+                  )}
+                </PopoverContent>
+              </Popover>
             )
           })()}
         </div>
@@ -2182,14 +2028,18 @@ export function DatabaseWorkspace({
               {selectedView?.layout === "chart" && viewId ? (
                 <ChartView
                   databaseId={databaseId}
-                  viewId={viewId}
                   expectedGeneration={vaultGeneration}
-                  enabled={Boolean(runtime?.enabled) && catalogStatus === "ready"}
+                  enabled={queriesEnabled}
                   category={chartCategory}
+                  filter={queryFilter}
+                  search={searchQuery}
                 />
               ) : selectedView?.layout === "list" ? (
                 <ListView
                   rows={displayRows}
+                  cardFields={viewSettings.cardFields}
+                  properties={database?.properties ?? EMPTY_PROPERTIES}
+                  relationTitles={relationTitles}
                   loading={activeHost.status === "loading"}
                   error={activeHost.error}
                   hasNextPage={Boolean(activeHost.nextCursor)}
@@ -2200,6 +2050,12 @@ export function DatabaseWorkspace({
               ) : selectedView?.layout === "gallery" ? (
                 <GalleryView
                   rows={displayRows}
+                  cardFields={viewSettings.cardFields}
+                  cardSize={viewSettings.cardSize}
+                  databaseId={databaseId}
+                  vaultGeneration={vaultGeneration}
+                  properties={database?.properties ?? EMPTY_PROPERTIES}
+                  relationTitles={relationTitles}
                   loading={activeHost.status === "loading"}
                   error={activeHost.error}
                   hasNextPage={Boolean(activeHost.nextCursor)}
@@ -2208,23 +2064,44 @@ export function DatabaseWorkspace({
                   onRowSelect={(row) => setSelectedRowId(row.noteId)}
                 />
               ) : selectedView?.layout === "board" ? (
-                <BoardView
-                  rows={displayRows}
-                  groupField={selectedView.groupField}
-                  loading={activeHost.status === "loading"}
-                  error={activeHost.error}
-                  hasNextPage={Boolean(activeHost.nextCursor)}
-                  onLoadNextPage={loadNextPage}
-                  onRetry={retry}
-                  onRowSelect={(row) => setSelectedRowId(row.noteId)}
-                  onMoveRow={moveRowToGroup}
-                />
+                boardGroupProperty ? (
+                  <BoardLanesView
+                    databaseId={databaseId}
+                    groupProperty={boardGroupProperty}
+                    properties={database?.properties ?? EMPTY_PROPERTIES}
+                    relationTitles={relationTitles}
+                    cardFields={viewSettings.cardFields}
+                    filter={queryFilter}
+                    sorts={querySorts}
+                    search={searchQuery}
+                    enabled={boardEnabled}
+                    onRowSelect={(row) => {
+                      setSelectedRowSnapshot(row)
+                      setSelectedRowId(row.noteId)
+                    }}
+                    onMoveRow={moveRowToGroup}
+                  />
+                ) : (
+                  <BoardView
+                    rows={displayRows}
+                    cardFields={viewSettings.cardFields}
+                    properties={database?.properties ?? EMPTY_PROPERTIES}
+                    relationTitles={relationTitles}
+                    groupField={selectedView.groupField}
+                    loading={activeHost.status === "loading"}
+                    error={activeHost.error}
+                    hasNextPage={Boolean(activeHost.nextCursor)}
+                    onLoadNextPage={loadNextPage}
+                    onRetry={retry}
+                    onRowSelect={(row) => setSelectedRowId(row.noteId)}
+                    onMoveRow={moveRowToGroup}
+                  />
+                )
               ) : (
                 <TableView
                   databaseId={databaseId}
                   rows={displayRows}
                   properties={database?.properties ?? EMPTY_PROPERTIES}
-                  relationOptionsByProperty={relationOptionsByProperty}
                   databases={databases}
                   onOpenNote={handleOpenNote}
                   onCreateRelationRow={handleCreateRelationRow}
@@ -2239,6 +2116,12 @@ export function DatabaseWorkspace({
                   onChangePropertyType={
                     isDatabaseLocked || vaultGeneration === null ? undefined : persistPropertyType
                   }
+                  onConfigureRollup={
+                    isDatabaseLocked || vaultGeneration === null
+                      ? undefined
+                      : setRollupConfigProperty
+                  }
+                  computedErrors={computedErrors}
                   onConfigureRelation={
                     isDatabaseLocked || vaultGeneration === null
                       ? undefined
@@ -2260,8 +2143,11 @@ export function DatabaseWorkspace({
                         }
                   }
                   onRenameRow={onRenameRow}
-                  filterValues={filterValues}
-                  onFilterValuesChange={setFilterValues}
+                  filteredFieldKeys={filteredFieldKeys}
+                  onFilterColumn={(key) => {
+                    setRequestedFilterField(key)
+                    setQueryPanel("filter")
+                  }}
                   sortValue={sortValue}
                   onSortValueChange={setSortValue}
                   pendingCells={pendingCells}
@@ -2292,6 +2178,8 @@ export function DatabaseWorkspace({
                       : () => openRowDialog({ kind: "empty" })
                   }
                   newPageLabel={t("databaseWorkspace.newPage")}
+                  savedSettings={tableSavedSettings}
+                  onSavedSettingsChange={updateViewSettings}
                   hiddenPropertyIds={activeHiddenPropertyIds}
                   onHiddenPropertyIdsChange={(next) => {
                     if (activeView) {
@@ -2432,9 +2320,21 @@ export function DatabaseWorkspace({
         currentDatabaseId={databaseId}
         currentDatabaseTitle={title}
         databases={databases}
+        rollupDraft={rollupDraft}
+        onRollupDraftChange={setRollupDraft}
         mutationBusy={mutationBusy}
         mutationError={mutationError}
         onCreate={() => void createProperty()}
+      />
+      <RollupConfigDialog
+        property={rollupConfigProperty}
+        database={database ?? undefined}
+        databases={databases}
+        vaultGeneration={vaultGeneration}
+        onClose={() => setRollupConfigProperty(null)}
+        onSaved={async () => {
+          await Promise.allSettled([onCatalogChanged?.(), retry()])
+        }}
       />
       <RelationConfigDialog
         open={Boolean(relationConfigProperty)}

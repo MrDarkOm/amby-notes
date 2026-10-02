@@ -121,6 +121,7 @@ export interface DatabaseAggregateRequest {
   aggregation: "count" | "sum" | "average" | "min" | "max"
   search?: string
   limit: number
+  contextPageId?: string
 }
 
 export interface DatabaseAggregateGroup {
@@ -183,6 +184,9 @@ export interface CreateDatabasePropertyRequest {
   relationMaxItems?: number | null
   relationTwoWay?: boolean
   relationInversePropertyName?: string
+  rollupRelationPropertyId?: string
+  rollupTargetPropertyId?: string
+  rollupAggregation?: string
 }
 
 export interface RenameDatabaseRequest {
@@ -195,6 +199,24 @@ export interface RenameDatabaseRequest {
 export interface RenamedDatabase {
   databaseId: string
   title: string
+  manifestRevision: string
+  warnings: string[]
+}
+
+export interface ConfigureDatabaseRollupRequest {
+  expectedGeneration: number
+  databaseId: string
+  propertyId: string
+  expectedManifestRevision: string
+  relationPropertyId: string
+  targetPropertyId: string
+  aggregation: string
+}
+
+export interface ConfiguredDatabaseRollup {
+  databaseId: string
+  propertyId: string
+  aggregation: string
   manifestRevision: string
   warnings: string[]
 }
@@ -351,6 +373,55 @@ export interface ImportedDatabaseAsset {
   sizeBytes: number
 }
 
+export interface ResolveDatabaseAssetPathsRequest {
+  expectedGeneration: number
+  databaseId: string
+  relativePaths: string[]
+}
+
+export interface ResolvedDatabaseAssetPaths {
+  /** Per requested path, in order; `null` when it is not a usable image asset. */
+  paths: Array<string | null>
+}
+
+export interface SearchRelationCandidatesRequest {
+  expectedGeneration: number
+  /** The database the Relation points to. */
+  databaseId: string
+  search?: string | null
+  cursor?: string | null
+  limit?: number | null
+}
+
+export interface RelationCandidate {
+  noteId: string
+  title: string
+  /** Vault path; tells apart pages with equal titles. */
+  path: string
+}
+
+export interface RelationCandidatePage {
+  candidates: RelationCandidate[]
+  nextCursor: string | null
+}
+
+export interface ResolveRecordReferencesRequest {
+  expectedGeneration: number
+  noteIds: string[]
+}
+
+export interface RecordReference {
+  noteId: string
+  state: "ok" | "missing"
+  title: string | null
+  path: string | null
+}
+
+export interface ResolvedRecordReferences {
+  /** One entry per requested ID, in request order. */
+  references: RecordReference[]
+}
+
 export interface DatabaseYamlSyncRequest {
   expectedGeneration: number
   databaseId: string
@@ -424,6 +495,8 @@ export interface DatabaseQueryRequest {
     | { kind: "savedView"; viewId: string; expectedRevision?: string }
     | { kind: "inline"; spec: DatabaseQuerySpec }
   page: { limit: number; cursor?: string }
+  /** The page this query runs for: replaces `@currentPage` operands in the filter. */
+  contextPageId?: string
 }
 
 export interface DatabaseRow {

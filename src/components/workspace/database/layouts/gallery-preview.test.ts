@@ -10,6 +10,24 @@ describe("resolveGalleryPreview", () => {
     ).toEqual({ kind: "asset", relativePath: "assets/cover.png" })
   })
 
+  it("skips non-image files and picks the first image", () => {
+    expect(
+      resolveGalleryPreview(
+        JSON.stringify({
+          files: {
+            type: "files",
+            items: [{ relativePath: "assets/brief.pdf" }, { relativePath: "assets/hero.webp" }],
+          },
+        }),
+      ),
+    ).toEqual({ kind: "asset", relativePath: "assets/hero.webp" })
+    expect(
+      resolveGalleryPreview(
+        JSON.stringify({ files: { type: "files", items: [{ relativePath: "assets/brief.pdf" }] } }),
+      ),
+    ).toEqual({ kind: "placeholder", reason: "unsupported" })
+  })
+
   it("rejects external and traversal paths", () => {
     expect(
       resolveGalleryPreview(

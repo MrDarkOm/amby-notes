@@ -19,7 +19,7 @@
 │   │   └── <view-id>.json
 │   ├── templates/
 │   │   └── <template-id>.json
-│   ├── records/
+│   ├── records/         (legacy, см. раздел 6)
 │   │   └── <note-id>.json
 │   ├── assets/
 │   ├── recovery/
@@ -33,8 +33,10 @@
 `<Название_Контейнера>.json` (или `ambd.json` в старых версиях) — небольшой manifest и общая schema.
 Использование именованного файла манифеста обеспечивает архитектурную симметрию со всеми слоями бандла (`.md`, `.canvas`, `.excalidraw`)
 и автоматически исключается из списка дочерних строк в дереве файлов.
-Часто изменяемые views, templates и record values вынесены в отдельные атомарные shards. Это уменьшает
-конфликты между окнами и не требует переписывать всю базу при правке ячейки.
+Часто изменяемые views и templates вынесены в отдельные атомарные shards. Это уменьшает
+конфликты между окнами и не требует переписывать всю базу при правке настроек вида.
+Значения ячеек живут не здесь, а во frontmatter заметок (раздел 1.1); каталог
+`records/` остался от ранних версий формата (раздел 6).
 
 `.ambd/` является durable частью базы:
 
@@ -50,6 +52,9 @@
 ## 1.1. Источники истины и контракт хранения (ST-02)
 
 - **Значения свойств заметок** — Markdown frontmatter файлов заметок в контейнере базы данных является основным источником истины. Значения записываются через точечный бегло-атомарный сплайс (`replace_yaml_binding_lossless`), сохраняя структуру Markdown, BOM, переносы строк и сторонние поля.
+- **Record shards (`.ambd/records/`)** — legacy и переходный формат. Обычная правка
+  ячейки, Relation и создание строки их не пишут и не требуют. Подробности и
+  фактическое поведение — в разделе 6.
 - **Схема и представления базы** — файл манифеста (`<Название_Контейнера>.json` / `ambd.json`) и сохранённые представления (`.ambd/views/`).
 - **SQLite-проекция** — производный, полностью перестраиваемый кэш (`.amby/notes.db`). Удаление файла базы данных SQLite не приводит к потере пользовательских данных или свойств.
 - **Идентичность свойств и ключи:**
@@ -240,6 +245,9 @@ type PropertyDefinition =
           | "unique"
           | "percentChecked"
       }
+      // Единый реестр: src-tauri/src/database/rollup.rs (`rollup-aggregations.json`
+      // в UI сверяется тестом). Допустимость зависит от типа поля связанной базы;
+      // `avg` и `countUnique` читаются как `average` и `unique`.
     })
 ```
 
@@ -302,9 +310,29 @@ Generic `title` не захватывается и не изменяется. С
 переименования файла; пустое или некорректное значение игнорируется с
 сохранением исходных bytes.
 
-## 6. Record shard
+## 6. Record shard (legacy)
 
-Путь: `.ambd/records/<note-id>.json`.
+Статус: legacy / переходный формат. Источник истины для значений — frontmatter
+заметки (раздел 1.1). Состояние кода на 2026-10-02:
+
+- **Запись.** Правка ячейки (`apply_value_batch`), Relation и создание строки
+  shard не создают. Единственный оставшийся писатель — явная команда YAML sync
+  (`yaml_sync.rs`), которая хранит в shard `yamlSyncBases`.
+- **Discovery.** При обнаружении контейнера (`legacy_records.rs`) значения из
+  `.ambd/records/*.json` переносятся в frontmatter заметки только для свойств,
+  которых там ещё нет; существующие значения не затираются. Перед записью делается
+  snapshot заметки. Shard перемещается (не удаляется) в `.ambd/legacy-records/`,
+  поэтому конфликтующие и не преобразованные значения и `yamlSyncBases` остаются
+  доступны. Shard без заметки, нечитаемый или с неудавшейся записью заметки
+  остаётся в `records/` до следующего запуска.
+- **Проекция.** Значения читаются из frontmatter; shard используется как запасной
+  источник только для свойств, которых во frontmatter нет (frontmatter
+  приоритетнее). Для заметки, которую не удалось найти, shard читается как есть.
+- **Диагностика и миграция.** `diagnose_shards` помечает orphan-shards. Явная
+  миграция (`migration.rs`: preflight, backup, журнал) и перенос при discovery
+  следуют одному правилу: frontmatter приоритетнее shard.
+- **Документ ниже** описывает формат файла для чтения legacy-данных; новый
+  код не должен рассчитывать на его существование.
 
 ```json
 {
@@ -358,7 +386,7 @@ type PropertyValue =
   diagnostic value до явной конверсии.
 - Multi-select IDs и relation targets уникальны, порядок отображения сохраняется.
 - URL валидируется, но никогда автоматически не открывается.
-- Formula/rollup values не записываются в record shard.
+- Formula/rollup values не записываются ни во frontmatter, ни в legacy shard.
 
 ### Files & media
 
@@ -612,7 +640,15 @@ type FilterNode =
     }
 ```
 
-Операторы валидируются по типу поля. Frontend не передает SQL. V1 ограничивает
+Операторы валидируются по типу поля через единый реестр
+(`src-tauri/src/database/filter_operators.rs`; тот же список читает UI из
+`filter-operators.json`, тест сверяет их). Канонические имена: `contains`,
+`startsWith`, `equals`, `notEquals`, `greaterThan`, `greaterOrEqual`, `lessThan`,
+`lessOrEqual`, `isEmpty`, `isNotEmpty`; ранние написания `is`, `isNot`, `gt`, `gte`,
+`lt`, `lte` читаются как канонические. «Не равно» включает строки без значения.
+Операнд `"@currentPage"` заменяется backend идентификатором страницы, на которой
+показан вид (`contextPageId` запроса); без страницы запрос — ошибка, а не «все записи».
+Frontend не передает SQL. V1 ограничивает
 глубину AST, число conditions и размер operands константами backend.
 
 ### Sort/group/order
@@ -628,7 +664,8 @@ type FilterNode =
 
 ### Layout config
 
-- Table: column borders/row height и frozen boundary.
+- Table: column borders/row height, frozen boundary (`frozenBoundary`: ключ поля, по
+  которое колонки закреплены) и `wrappedFields` (ключи полей с переносом текста).
 - Board: group property, card fields, cover visibility.
 - List: secondary fields и indentation.
 - Gallery: card size, field list и preview source (`property`, `firstImage`,
@@ -676,7 +713,7 @@ Relation value mutations используют реализованный vault-w
 Journal записывается и sync-ится до первого изменения. Resume и rollback
 идемпотентны и никогда не заменяют файл, измененный после операции.
 
-Удаленные property/option/view/template и record values сначала перемещаются в
+Удаленные property/option/view/template и значения legacy shards сначала перемещаются в
 `.ambd/trash/` с manifest восстановления. Обычные Markdown notes и bundles
 продолжают использовать vault-local `.amby/trash/`.
 
@@ -706,8 +743,9 @@ Rebuild выполняется в порядке:
 2. определить owning database каждой Markdown note по ближайшему manifest;
 3. загрузить property definitions;
 4. загрузить view/template registries и диагностировать missing shards;
-5. загрузить active record shards;
-6. сохранить orphan/removed record shards вне active projection;
+5. прочитать значения из frontmatter принадлежащих базе заметок; legacy record
+   shard — только запасной источник для свойств, которых во frontmatter нет;
+6. сохранить orphan/removed legacy shards вне active projection;
 7. построить relations и inverse projection;
 8. сопоставить YAML bindings и создать conflicts;
 9. атомарно опубликовать новую index generation.
@@ -725,7 +763,8 @@ Unreadable durable file останавливает замену предыдущ
 - Outcome записывается до cleanup старого формата.
 - Legacy `Metadata.md` и `.amby/blocks/*.json` не конвертируются при scan.
 - Existing local `.amby/properties.json` мигрирует только в local-property
-  shards; database records сразу создаются в owning `.ambd/records`.
+  shards; database values записываются сразу во frontmatter owning-заметки, а не
+  в `.ambd/records`.
 - Downgrade к версии без поддержки нового формата не должен изменять durable
   files.
 

@@ -106,3 +106,17 @@ The benchmark also verifies the complete count (10,000) and a search checksum
 (590). 50,000/100,000 runs, p50/p95 series, memory and native UI latency remain
 NOT RUN; repeat the same command for those sizes before calling EX-02/EX-43
 complete.
+
+## Relation picker search — 2026-10-02
+
+Command: `cargo test --manifest-path src-tauri/Cargo.toml --lib relation_search_p95 -- --ignored --nocapture`.
+macOS arm64, Rust debug test profile, in-memory SQLite projection with 10,000
+database members, 270 samples (empty query, title searches, a miss, and keyset
+continuation pages of 50).
+
+| Records | p50     | p95     | max     |
+| ------- | ------- | ------- | ------- |
+| 10,000  | 3.88 ms | 5.13 ms | 6.42 ms |
+
+Backend query only (`searchRelationCandidates`); IPC and WebView rendering are not
+included. The target in the database parity plan is p95 ≤ 150 ms.

@@ -13,6 +13,8 @@ use super::format::{
 };
 use super::format::{raw_revision, MAX_JSON_BYTES};
 use super::validation::validate_manifest;
+pub(crate) use super::value_batch_recovery::recover_pending_batches;
+use super::value_batch_recovery::BatchRecovery;
 use crate::bundle::{ensure_bundle_path, rollback_bundle_promotion};
 use crate::frontmatter::{self, AtomicCreateError};
 use crate::watcher::{self, WatcherState};
@@ -82,31 +84,6 @@ pub struct DatabaseValueBatchResult {
     pub warnings: Vec<String>,
 }
 
-#[allow(dead_code)]
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BatchRecoveryStep {
-    record_path: String,
-    backup_path: String,
-    original_revision: String,
-    target_revision: String,
-    status: String,
-}
-
-#[allow(dead_code)]
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BatchRecoveryJournal {
-    format: String,
-    format_version: u64,
-    operation_id: String,
-    database_id: String,
-    request_revision: String,
-    status: String,
-    steps: Vec<BatchRecoveryStep>,
-    result: Option<DatabaseValueBatchResult>,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateDatabasePropertyRequest {
@@ -132,6 +109,12 @@ pub struct CreateDatabasePropertyRequest {
     pub operation_id: Option<String>,
     #[serde(default)]
     pub expected_target_manifest_revision: Option<String>,
+    #[serde(default)]
+    pub rollup_relation_property_id: Option<String>,
+    #[serde(default)]
+    pub rollup_target_property_id: Option<String>,
+    #[serde(default)]
+    pub rollup_aggregation: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
@@ -556,12 +539,28 @@ pub fn create_database_property(
                 .map(|name| name.trim())
                 .filter(|name| !name.is_empty())
                 .filter(|name| names.insert(name.to_lowercase()))
-                .map(|name| {
-                    json!({
+                .collect::<Vec<_>>();
+            let last = options.len().saturating_sub(1);
+            let options = options
+                .into_iter()
+                .enumerate()
+                .map(|(index, name)| {
+                    let mut option = json!({
                         "id": ulid::Ulid::generate().to_string(),
                         "name": name,
                         "color": "#94a3b8",
-                    })
+                    });
+                    if request.property_type == "status" {
+                        // A Status option must belong to a group: first to do, last done.
+                        option["group"] = json!(if index == 0 {
+                            "notStarted"
+                        } else if index == last {
+                            "done"
+                        } else {
+                            "inProgress"
+                        });
+                    }
+                    option
                 })
                 .collect::<Vec<_>>();
             json!({"options": options})
@@ -601,11 +600,25 @@ pub fn create_database_property(
                 "inversePropertyId": inverse_property_id,
             })
         }
-        // Rollups need a relation and target property at creation time. The
-        // generic create dialog does not have enough information to produce a
-        // valid portable config, so they are created through a future config
-        // editor rather than emitting an invalid shard.
-        "rollup" => return Err("Rollup requires a relation and target property".to_owned()),
+        "rollup" => {
+            let (Some(relation), Some(target), Some(aggregation)) = (
+                request.rollup_relation_property_id.as_deref(),
+                request.rollup_target_property_id.as_deref(),
+                request.rollup_aggregation.as_deref(),
+            ) else {
+                return Err(
+                    "Rollup requires a relation, a target property and an aggregation".to_owned(),
+                );
+            };
+            super::rollup_config::rollup_config_json(
+                vault,
+                &parsed.value,
+                None,
+                relation,
+                target,
+                aggregation,
+            )?
+        }
         _ => return Err("Unsupported property type".to_owned()),
     };
     let property: PropertyDefinition = serde_json::from_value(json!({
@@ -2070,7 +2083,7 @@ pub fn rename_database(
     })
 }
 
-fn json_bytes(value: &serde_json::Value) -> Result<Vec<u8>, String> {
+pub(super) fn json_bytes(value: &serde_json::Value) -> Result<Vec<u8>, String> {
     let mut bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
     bytes.push(b'\n');
     if bytes.len() > MAX_JSON_BYTES {
@@ -2382,66 +2395,29 @@ pub fn apply_value_batch(
         }
     }
 
-    if !valid_operation_id(&request.operation_id) {
-        return Err("Invalid batch operationId".to_string());
+    if let Some(result) =
+        super::value_batch_recovery::completed_result(vault, &request.operation_id)
+    {
+        return Ok(result);
     }
-
-    let recovery_dir = vault
-        .join(".amby")
-        .join("recovery")
-        .join("database_batches");
-    let journal_path = recovery_dir.join(format!("{}.json", request.operation_id));
-    let _ = fs::create_dir_all(&recovery_dir);
-
-    if journal_path.is_file() {
-        if let Ok(existing) = read_batch_journal(&journal_path) {
-            if existing.status == "completed" {
-                if let Some(res) = existing.result {
-                    return Ok(res);
-                }
-            }
-        }
-    }
-
-    let _ = recover_other_value_batches(vault, &recovery_dir, &request.operation_id);
-
-    let op_backup_dir = recovery_dir.join(&request.operation_id);
-    let _ = fs::create_dir_all(&op_backup_dir);
-
-    let mut steps = Vec::new();
-    for (path, post_bytes, pre_bytes, note_id) in &planned_writes {
-        let rel_record = path
-            .strip_prefix(vault)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .to_string();
-        let backup_file = op_backup_dir.join(format!("{note_id}.md"));
-        let _ = frontmatter::atomic_write_bytes(&backup_file, pre_bytes);
-        let rel_backup = backup_file
-            .strip_prefix(vault)
-            .unwrap_or(&backup_file)
-            .to_string_lossy()
-            .to_string();
-        steps.push(BatchRecoveryStep {
-            record_path: rel_record,
-            backup_path: rel_backup,
-            original_revision: raw_revision(pre_bytes),
-            target_revision: raw_revision(post_bytes),
-            status: "planned".to_owned(),
+    if planned_writes.is_empty() {
+        return Ok(DatabaseValueBatchResult {
+            operation_id: request.operation_id.clone(),
+            database_id: request.database_id.clone(),
+            revisions,
+            warnings: Vec::new(),
         });
     }
 
-    let mut journal = BatchRecoveryJournal {
-        format: "amby-database-recovery".to_owned(),
-        format_version: 1,
-        operation_id: request.operation_id.clone(),
-        database_id: request.database_id.clone(),
-        request_revision: raw_revision(&manifest_bytes),
-        status: "inProgress".to_owned(),
-        steps,
-        result: None,
-    };
-    write_batch_journal(&journal_path, &journal)?;
+    // The recovery point (backups + journal) must exist before the first note
+    // changes; any failure here aborts the operation with the notes untouched.
+    let recovery = BatchRecovery::publish(
+        vault,
+        &request.operation_id,
+        &request.database_id,
+        raw_revision(&manifest_bytes),
+        &planned_writes,
+    )?;
 
     for (path, bytes, _, _) in &planned_writes {
         crate::history::snapshot_before_write(vault, path, bytes, "database-value")?;
@@ -2463,34 +2439,35 @@ pub fn apply_value_batch(
 
     if let Some(error) = write_error {
         watcher.cancel_prepared_write(&prepared_writes);
-        let _ = rollback_batch_journal(vault, &journal_path, journal);
-        return Err(format!(
-            "Batch write failed; rolled back written notes: {error}"
-        ));
+        return Err(match recovery.roll_back() {
+            Ok(()) => format!("Batch write failed; rolled back written notes: {error}"),
+            Err(rollback_error) => format!(
+                "Batch write failed ({error}) and the rollback is incomplete; the recovery \
+                 journal and backups were kept: {rollback_error}"
+            ),
+        });
     }
     watcher.confirm_prepared_write(&prepared_writes);
 
     if let Some(history) = history {
-        if !planned_writes.is_empty() {
-            let files = planned_writes
-                .iter()
-                .map(
-                    |(path, post_bytes, pre_bytes, note_id)| super::history::DatabaseHistoryFile {
-                        path: path.clone(),
-                        note_id: note_id.clone(),
-                        pre_bytes: pre_bytes.clone(),
-                        pre_revision: raw_revision(pre_bytes),
-                        post_bytes: post_bytes.clone(),
-                        post_revision: raw_revision(post_bytes),
-                    },
-                )
-                .collect();
-            history.push(super::history::DatabaseHistoryEntry {
-                database_id: request.database_id.clone(),
-                description: format!("Update {} cell(s)", request.cells.len()),
-                files,
-            });
-        }
+        let files = planned_writes
+            .iter()
+            .map(
+                |(path, post_bytes, pre_bytes, note_id)| super::history::DatabaseHistoryFile {
+                    path: path.clone(),
+                    note_id: note_id.clone(),
+                    pre_bytes: pre_bytes.clone(),
+                    pre_revision: raw_revision(pre_bytes),
+                    post_bytes: post_bytes.clone(),
+                    post_revision: raw_revision(post_bytes),
+                },
+            )
+            .collect();
+        history.push(super::history::DatabaseHistoryEntry {
+            database_id: request.database_id.clone(),
+            description: format!("Update {} cell(s)", request.cells.len()),
+            files,
+        });
     }
 
     for (_, bytes, _, note_id) in &planned_writes {
@@ -2500,233 +2477,12 @@ pub fn apply_value_batch(
         });
     }
 
-    for step in &mut journal.steps {
-        step.status = "applied".to_owned();
-    }
-    journal.status = "completed".to_owned();
-    let batch_result = DatabaseValueBatchResult {
+    Ok(recovery.complete(DatabaseValueBatchResult {
         operation_id: request.operation_id.clone(),
         database_id: request.database_id.clone(),
         revisions,
         warnings: Vec::new(),
-    };
-    journal.result = Some(batch_result.clone());
-    let _ = write_batch_journal(&journal_path, &journal);
-    let _ = fs::remove_dir_all(&op_backup_dir);
-
-    Ok(batch_result)
-}
-
-fn journal_bytes(journal: &BatchRecoveryJournal) -> Result<Vec<u8>, String> {
-    json_bytes(&serde_json::to_value(journal).map_err(|error| error.to_string())?)
-}
-
-fn read_batch_journal(path: &Path) -> Result<BatchRecoveryJournal, String> {
-    let journal: BatchRecoveryJournal =
-        serde_json::from_slice(&fs::read(path).map_err(|error| error.to_string())?)
-            .map_err(|error| format!("Invalid database recovery journal: {error}"))?;
-    if journal.format != "amby-database-recovery"
-        || journal.format_version != 1
-        || !valid_operation_id(&journal.operation_id)
-        || ulid::Ulid::from_string(&journal.database_id).is_err()
-        || journal.result.as_ref().is_some_and(|result| {
-            result.operation_id != journal.operation_id || result.database_id != journal.database_id
-        })
-    {
-        return Err("Invalid database recovery journal header".to_owned());
-    }
-    Ok(journal)
-}
-
-fn write_batch_journal(path: &Path, journal: &BatchRecoveryJournal) -> Result<(), String> {
-    frontmatter::atomic_write_bytes(path, &journal_bytes(journal)?)
-}
-
-fn recover_other_value_batches(
-    container: &Path,
-    recovery_root: &Path,
-    current_operation_id: &str,
-) -> Result<(), String> {
-    let entries = fs::read_dir(recovery_root).map_err(|error| error.to_string())?;
-    for entry in entries {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("json")
-            || path.file_stem().and_then(|stem| stem.to_str()) == Some(current_operation_id)
-        {
-            continue;
-        }
-        let journal = read_batch_journal(&path)?;
-        if journal.status == "planned" || journal.status == "inProgress" {
-            rollback_batch_journal(container, &path, journal)?;
-        }
-    }
-    Ok(())
-}
-
-/// Outcome of startup recovery for interrupted batch operations.
-#[derive(Debug, Default)]
-pub struct BatchRecoveryReport {
-    pub recovered: usize,
-    /// Journals that could not be read or rolled back. They are moved, not
-    /// deleted, to `quarantine/` beside the journals together with their
-    /// backups, so the evidence survives and the vault still opens.
-    pub quarantined: Vec<String>,
-}
-
-/// Rolls back every interrupted batch. Every journal is attempted. A journal
-/// that is unreadable (corrupt, newer format) or cannot be rolled back (a note
-/// changed after the crash, missing backup) must neither disappear nor lock the
-/// user out of the vault, so it is quarantined and reported to the caller.
-pub fn recover_pending_batches(vault: &Path) -> Result<BatchRecoveryReport, String> {
-    let recovery_root = vault
-        .join(".amby")
-        .join("recovery")
-        .join("database_batches");
-    let entries = match fs::read_dir(&recovery_root) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(BatchRecoveryReport::default())
-        }
-        Err(error) => return Err(format!("Cannot read database batch recovery: {error}")),
-    };
-    let mut paths = Vec::new();
-    for entry in entries {
-        let path = entry
-            .map_err(|error| format!("Cannot read database batch recovery: {error}"))?
-            .path();
-        if path.is_file()
-            && path.extension().and_then(|extension| extension.to_str()) == Some("json")
-        {
-            paths.push(path);
-        }
-    }
-    paths.sort();
-    let mut report = BatchRecoveryReport::default();
-    for path in paths {
-        let name = path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let failure = match read_batch_journal(&path) {
-            Err(error) => Some(error),
-            Ok(journal) if journal.status == "planned" || journal.status == "inProgress" => {
-                match rollback_batch_journal(vault, &path, journal) {
-                    Ok(()) => {
-                        report.recovered += 1;
-                        None
-                    }
-                    Err(error) => Some(error),
-                }
-            }
-            Ok(_) => None,
-        };
-        if let Some(error) = failure {
-            quarantine_batch_journal(&recovery_root, &path).map_err(|move_error| {
-                format!("{name}: {error}; quarantine failed: {move_error}")
-            })?;
-            report.quarantined.push(format!("{name}: {error}"));
-        }
-    }
-    Ok(report)
-}
-
-/// Moves a stuck journal (and its backup directory, when present) under
-/// `quarantine/`. Nothing is deleted. A name collision gets a numeric suffix.
-fn quarantine_batch_journal(root: &Path, journal: &Path) -> Result<(), String> {
-    let quarantine = root.join("quarantine");
-    fs::create_dir_all(&quarantine).map_err(|error| error.to_string())?;
-    let stem = journal
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .ok_or("Journal has no name")?;
-    let mut suffix = 0u32;
-    let dir_name = |suffix: u32| {
-        if suffix == 0 {
-            stem.clone()
-        } else {
-            format!("{stem}.{suffix}")
-        }
-    };
-    // Pick a suffix free for BOTH the journal file and its backup directory.
-    let target_json = loop {
-        let candidate = quarantine.join(format!("{}.json", dir_name(suffix)));
-        if !candidate.exists() && !quarantine.join(dir_name(suffix)).exists() {
-            break candidate;
-        }
-        suffix += 1;
-    };
-    let backups = root.join(&stem);
-    // A journal literally named `quarantine` would own the quarantine folder
-    // itself; never move that directory into itself.
-    if backups.is_dir() && stem != "quarantine" {
-        fs::rename(&backups, quarantine.join(dir_name(suffix)))
-            .map_err(|error| error.to_string())?;
-    }
-    fs::rename(journal, target_json).map_err(|error| error.to_string())
-}
-
-/// All-or-nothing: every step is checked (record revision, backup hash) before
-/// the first byte is restored, so a failure can never leave a batch half
-/// reverted. Only then are the backups written back.
-fn rollback_batch_journal(
-    container: &Path,
-    journal_path: &Path,
-    mut journal: BatchRecoveryJournal,
-) -> Result<(), String> {
-    // Phase 1: read-only preflight.
-    let mut restores: Vec<(usize, PathBuf, Vec<u8>)> = Vec::new();
-    let mut already_original: Vec<usize> = Vec::new();
-    for (index, step) in journal.steps.iter().enumerate() {
-        let (record_path, backup_path) =
-            recovery_step_paths(container, &journal.operation_id, step)?;
-        if !record_path.is_file() {
-            continue;
-        }
-        let current = fs::read(&record_path).map_err(|error| error.to_string())?;
-        let current_revision = raw_revision(&current);
-        if current_revision == step.original_revision {
-            already_original.push(index);
-            continue;
-        }
-        if current_revision != step.target_revision {
-            return Err(format!(
-                "record changed after the batch: {}",
-                record_path.display()
-            ));
-        }
-        let backup = fs::read(&backup_path).map_err(|error| error.to_string())?;
-        if raw_revision(&backup) != step.original_revision {
-            return Err(format!(
-                "recovery backup is corrupt: {}",
-                backup_path.display()
-            ));
-        }
-        restores.push((index, record_path, backup));
-    }
-    // Phase 2: write.
-    for index in already_original {
-        journal.steps[index].status = "rolledBack".to_owned();
-    }
-    for (index, record_path, backup) in restores {
-        frontmatter::atomic_write_bytes(&record_path, &backup)?;
-        journal.steps[index].status = "rolledBack".to_owned();
-    }
-    journal.status = "rolledBack".to_owned();
-    journal.result = None;
-    write_batch_journal(journal_path, &journal)
-}
-
-fn recovery_step_paths(
-    container: &Path,
-    _operation_id: &str,
-    step: &BatchRecoveryStep,
-) -> Result<(PathBuf, PathBuf), String> {
-    if step.record_path.contains("..") || step.backup_path.contains("..") {
-        return Err("Unsafe path in database recovery journal".to_owned());
-    }
-    let record_path = crate::paths::confine(container, &container.join(&step.record_path))?;
-    let backup_path = crate::paths::confine(container, &container.join(&step.backup_path))?;
-    Ok((record_path, backup_path))
+    }))
 }
 
 pub fn update_database_relation_value(

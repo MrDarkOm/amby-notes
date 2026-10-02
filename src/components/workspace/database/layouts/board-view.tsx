@@ -1,12 +1,25 @@
 import * as React from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useTranslation } from "react-i18next"
-import type { DatabaseFieldRef, DatabaseRow } from "@/lib/storage"
-import { ALL_BOARD_LANE, EMPTY_BOARD_LANE, groupBoardRows, moveRowToBoardLane } from "./board-model"
+import type { DatabaseFieldRef, DatabasePropertySummary, DatabaseRow } from "@/lib/storage"
+import { DatabaseValueCell } from "../database-value-cell"
+import {
+  ALL_BOARD_LANE,
+  EMPTY_BOARD_LANE,
+  groupBoardRows,
+  moveRowToBoardLane,
+  type BoardLane as BoardLaneModel,
+} from "./board-model"
 
 interface BoardViewProps {
   rows: DatabaseRow[]
+  properties?: DatabasePropertySummary[]
+  relationTitles?: Record<string, string>
+  cardFields?: string[] | null
   groupField: DatabaseFieldRef | null
+  /** Lanes with their own counts and paging; replaces grouping the loaded `rows`. */
+  lanes?: BoardLaneModel[]
+  onLoadMoreLane?: (laneKey: string) => void
   loading?: boolean
   error?: string | null
   hasNextPage?: boolean
@@ -18,7 +31,12 @@ interface BoardViewProps {
 
 export function BoardView({
   rows,
+  properties = [],
+  relationTitles,
+  cardFields = null,
   groupField,
+  lanes: providedLanes,
+  onLoadMoreLane,
   loading = false,
   error = null,
   hasNextPage = false,
@@ -33,7 +51,7 @@ export function BoardView({
   const draggedNoteId = React.useRef<string | null>(null)
   const nextPagePendingRef = React.useRef(false)
   const lastPageTriggerRef = React.useRef(0)
-  const lanes = groupBoardRows(optimisticRows, groupField)
+  const lanes = providedLanes ?? groupBoardRows(optimisticRows, groupField, properties)
 
   React.useEffect(() => {
     if (!loading) nextPagePendingRef.current = false
@@ -70,10 +88,10 @@ export function BoardView({
     if (row) void moveRow(row, laneKey)
   }
 
-  function laneLabel(key: string) {
-    if (key === EMPTY_BOARD_LANE) return t("databaseBoard.empty")
-    if (key === ALL_BOARD_LANE) return t("databaseBoard.noGroup")
-    return key
+  function laneLabel(lane: BoardLaneModel) {
+    if (lane.key === EMPTY_BOARD_LANE) return t("databaseBoard.empty")
+    if (lane.key === ALL_BOARD_LANE) return t("databaseBoard.noGroup")
+    return lane.label ?? t("databaseValue.unknownOption")
   }
 
   function handleDrop(event: React.DragEvent, laneKey: string) {
@@ -112,20 +130,26 @@ export function BoardView({
           <BoardLane
             key={lane.key}
             laneKey={lane.key}
-            label={laneLabel(lane.key)}
+            label={laneLabel(lane)}
+            color={lane.color}
             rows={lane.rows}
             index={index}
             laneCount={lanes.length}
             pending={pending}
+            properties={properties}
+            relationTitles={relationTitles}
+            cardFields={cardFields}
+            groupPropertyId={groupField?.kind === "property" ? groupField.propertyId : null}
             onDragStart={(row) => {
               draggedNoteId.current = row.noteId
             }}
             onDrop={(event) => handleDrop(event, lane.key)}
             onMoveRow={moveRow}
             onRowSelect={onRowSelect}
-            loading={loading}
-            hasNextPage={hasNextPage}
-            onLoadNextPage={onLoadNextPage}
+            count={lane.count ?? lane.rows.length}
+            loading={providedLanes ? lane.status === "loadingMore" : loading}
+            hasNextPage={providedLanes ? Boolean(lane.hasMore) : hasNextPage}
+            onLoadNextPage={providedLanes ? () => onLoadMoreLane?.(lane.key) : onLoadNextPage}
           />
         ))}
       </div>
@@ -149,14 +173,20 @@ export function BoardView({
 interface BoardLaneProps {
   laneKey: string
   label: string
+  color: string | null
   rows: DatabaseRow[]
   index: number
   laneCount: number
   pending: Set<string>
+  properties: DatabasePropertySummary[]
+  relationTitles?: Record<string, string>
+  cardFields: string[] | null
+  groupPropertyId: string | null
   onDragStart: (row: DatabaseRow) => void
   onDrop: (event: React.DragEvent) => void
   onMoveRow: (row: DatabaseRow, laneKey: string) => Promise<void>
   onRowSelect?: (row: DatabaseRow) => void
+  count: number
   loading: boolean
   hasNextPage: boolean
   onLoadNextPage?: () => void
@@ -165,14 +195,20 @@ interface BoardLaneProps {
 function BoardLane({
   laneKey,
   label,
+  color,
   rows,
   index,
   laneCount,
   pending,
+  properties,
+  relationTitles,
+  cardFields,
+  groupPropertyId,
   onDragStart,
   onDrop,
   onMoveRow,
   onRowSelect,
+  count,
   loading,
   hasNextPage,
   onLoadNextPage,
@@ -184,7 +220,7 @@ function BoardLane({
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 74,
+    estimateSize: () => 96,
     overscan: 5,
   })
 
@@ -199,7 +235,17 @@ function BoardLane({
       onDragOver={(event) => event.preventDefault()}
       onDrop={onDrop}
     >
-      <header className="border-b border-border/70 px-3 py-2 text-xs font-semibold">{label}</header>
+      <header className="flex items-center gap-1.5 border-b border-border/70 px-3 py-2 text-xs font-semibold">
+        {color && (
+          <span
+            aria-hidden="true"
+            className="size-2 shrink-0 rounded-full"
+            style={{ backgroundColor: color }}
+          />
+        )}
+        <span className="truncate">{label}</span>
+        <span className="ml-auto shrink-0 font-normal text-muted-foreground">{count}</span>
+      </header>
       <div
         ref={parentRef}
         className="min-h-0 flex-1 overflow-y-auto p-2"
@@ -254,16 +300,20 @@ function BoardLane({
                   }}
                 >
                   <span className="block truncate font-medium">{row.title}</span>
-                  <span className="mt-1 block truncate text-[10px] text-muted-foreground">
-                    {row.relativePath}
-                  </span>
+                  <DatabaseValueCell
+                    row={row}
+                    properties={properties}
+                    relationTitles={relationTitles}
+                    fields={cardFields}
+                    exclude={groupPropertyId ? [groupPropertyId] : undefined}
+                  />
                 </button>
               </div>
             )
           })}
         </div>
         {rows.length === 0 && (
-          <p className="p-3 text-xs text-muted-foreground">{t("databaseBoard.empty")}</p>
+          <p className="p-3 text-xs text-muted-foreground">{t("databaseBoard.emptyLane")}</p>
         )}
       </div>
       <div className="sr-only" data-board-lane-index={index} data-board-lane-key={laneKey} />

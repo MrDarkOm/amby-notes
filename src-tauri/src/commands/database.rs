@@ -1,4 +1,7 @@
-use crate::database::assets::{ImportDatabaseAssetRequest, ImportedDatabaseAsset};
+use crate::database::assets::{
+    ImportDatabaseAssetRequest, ImportedDatabaseAsset, ResolveDatabaseAssetPathsRequest,
+    ResolvedDatabaseAssetPaths,
+};
 use crate::database::discovery;
 use crate::database::events::DatabaseChangeKind;
 use crate::database::format::{DatabaseViewFile, FieldRef};
@@ -23,6 +26,11 @@ use crate::database::mutations::{
     ReorderDatabasePropertiesRequest, ReorderedDatabaseProperties,
     UpdateDatabaseRelationValueRequest, UpdateDatabaseRelationValueResult,
 };
+use crate::database::relation_lookup::{
+    RelationCandidatePage, ResolveRecordReferencesRequest, ResolvedRecordReferences,
+    SearchRelationCandidatesRequest,
+};
+use crate::database::rollup_config::{ConfigureDatabaseRollupRequest, ConfiguredDatabaseRollup};
 use crate::database::rows::{CreateDatabaseRowRequest, CreatedDatabaseRow};
 use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::database::yaml_sync::{
@@ -598,6 +606,51 @@ pub fn rename_database_property(
 
 #[tauri::command]
 #[specta::specta]
+pub fn configure_database_rollup(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: ConfigureDatabaseRollupRequest,
+) -> Result<ConfiguredDatabaseRollup, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let mut configured =
+        crate::database::rollup_config::configure_database_rollup(&active.root, &watcher, &request)
+            .map_err(|message| DatabaseError::Failed {
+                code: "databaseRollupConfigureFailed".to_owned(),
+                message,
+            })?;
+    match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
+    {
+        Ok(report) => {
+            runtime.set_projection(
+                actual_generation,
+                Some(crate::database::model::ProjectionVersion {
+                    epoch: report.epoch,
+                    seq: report.seq,
+                }),
+            );
+        }
+        Err(error) => {
+            tracing::warn!(event = "database_projection_rebuild_failed", %error);
+            configured
+                .warnings
+                .push("Projection rebuild required".to_owned());
+        }
+    }
+    Ok(configured)
+}
+
+#[tauri::command]
+#[specta::specta]
 pub fn apply_database_value_batch(
     context: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
@@ -948,6 +1001,76 @@ pub fn import_database_asset(
             message,
         },
     )
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn resolve_database_asset_paths(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    request: ResolveDatabaseAssetPathsRequest,
+) -> Result<ResolvedDatabaseAssetPaths, DatabaseError> {
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    crate::database::assets::resolve_database_asset_paths(&active.root, &request).map_err(
+        |message| DatabaseError::Failed {
+            code: "databaseAssetResolveFailed".to_owned(),
+            message,
+        },
+    )
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn search_relation_candidates(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    request: SearchRelationCandidatesRequest,
+) -> Result<RelationCandidatePage, DatabaseError> {
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    crate::database::relation_lookup::search_relation_candidates(&active.connection, &request)
+        .map_err(|message| DatabaseError::Failed {
+            code: "relationSearchFailed".to_owned(),
+            message,
+        })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn resolve_record_references(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    request: ResolveRecordReferencesRequest,
+) -> Result<ResolvedRecordReferences, DatabaseError> {
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    crate::database::relation_lookup::resolve_record_references(&active.connection, &request)
+        .map_err(|message| DatabaseError::Failed {
+            code: "recordReferenceResolveFailed".to_owned(),
+            message,
+        })
 }
 
 #[tauri::command]

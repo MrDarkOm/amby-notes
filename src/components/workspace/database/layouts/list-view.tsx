@@ -1,11 +1,14 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import type { DatabaseRow } from "@/lib/storage"
+import type { DatabasePropertySummary, DatabaseRow } from "@/lib/storage"
 import { DatabaseValueCell } from "../database-value-cell"
 
 interface ListViewProps {
   rows: DatabaseRow[]
+  properties?: DatabasePropertySummary[]
+  relationTitles?: Record<string, string>
+  cardFields?: string[] | null
   loading?: boolean
   error?: string | null
   hasNextPage?: boolean
@@ -16,6 +19,9 @@ interface ListViewProps {
 
 export function ListView({
   rows,
+  properties = [],
+  relationTitles,
+  cardFields = null,
   loading = false,
   error = null,
   hasNextPage = false,
@@ -68,14 +74,17 @@ export function ListView({
               }
             >
               <span className="block truncate text-sm font-medium">{row.title}</span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {row.categoryPath.length > 0 ? `${row.categoryPath.join(" / ")} · ` : ""}
-                {row.relativePath}
-              </span>
-              <DatabaseValueCell row={row} />
-            </span>
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-              {row.noteId}
+              {row.categoryPath.length > 0 && (
+                <span className="block truncate text-xs text-muted-foreground">
+                  {row.categoryPath.join(" / ")}
+                </span>
+              )}
+              <DatabaseValueCell
+                row={row}
+                properties={properties}
+                relationTitles={relationTitles}
+                fields={cardFields}
+              />
             </span>
           </button>
         ))}

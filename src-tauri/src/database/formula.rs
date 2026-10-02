@@ -268,7 +268,7 @@ pub struct FormulaError {
 }
 
 impl FormulaError {
-    fn new(code: &str, message: impl Into<String>) -> Self {
+    pub(super) fn new(code: &str, message: impl Into<String>) -> Self {
         Self {
             code: code.to_owned(),
             message: message.into(),
@@ -1202,6 +1202,32 @@ fn compute_formula_values(
     Ok(())
 }
 
+/// Option IDs of the `done` group of a Status property, read from the projection.
+fn done_status_options(
+    tx: &Transaction<'_>,
+    database_id: &str,
+    property_id: &str,
+) -> Result<HashSet<String>, String> {
+    let config: String = tx
+        .query_row(
+            "SELECT config_json FROM db_properties WHERE database_id = ?1 AND property_id = ?2",
+            params![database_id, property_id],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    let config: serde_json::Value =
+        serde_json::from_str(&config).map_err(|error| error.to_string())?;
+    Ok(config
+        .get("options")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|option| option.get("group").and_then(serde_json::Value::as_str) == Some("done"))
+        .filter_map(|option| option.get("id").and_then(serde_json::Value::as_str))
+        .map(str::to_owned)
+        .collect())
+}
+
 fn compute_rollup_values(
     tx: &Transaction<'_>,
     database_id: &str,
@@ -1239,6 +1265,11 @@ fn compute_rollup_values(
                 "SELECT property_type FROM db_properties WHERE database_id = ?1 AND property_id = ?2",
                 params![target_database_id, target_prop_id], |row| row.get(0),
             ).map_err(|error| format!("rollup {rollup_id}: missingTargetProperty: {error}"))?;
+            let done_options = if target_kind == "status" {
+                done_status_options(tx, target_database_id, target_prop_id)?
+            } else {
+                HashSet::new()
+            };
             let mut target_note_ids = Vec::new();
             {
                 let mut stmt = tx
@@ -1255,7 +1286,7 @@ fn compute_rollup_values(
                 }
             }
 
-            let mut target_values = Vec::new();
+            let mut target_values: Vec<Option<super::rollup::TargetValue>> = Vec::new();
             for tid in &target_note_ids {
                 let failed = if matches!(target_kind.as_str(), "formula" | "rollup") {
                     tx.query_row(
@@ -1272,22 +1303,31 @@ fn compute_rollup_values(
                 }
                 let mut stmt = tx
                     .prepare_cached(
-                        "SELECT value_type, text_value, decimal_value, bool_value, date_start FROM db_values WHERE note_id = ?1 AND property_id = ?2 AND database_id = ?3",
+                        "SELECT text_value, decimal_value, bool_value, date_start, option_id FROM db_values WHERE note_id = ?1 AND property_id = ?2 AND database_id = ?3",
                     )
                     .map_err(|e| e.to_string())?;
                 let mut rows = stmt
                     .query(params![tid, target_prop_id, target_database_id])
                     .map_err(|e| e.to_string())?;
-                if let Some(row) = rows.next().map_err(|e| e.to_string())? {
-                    let vtype: String = row.get(0).map_err(|e| e.to_string())?;
-                    let tval: Option<String> = row.get(1).map_err(|e| e.to_string())?;
-                    let dval: Option<String> = row.get(2).map_err(|e| e.to_string())?;
-                    let bval: Option<i64> = row.get(3).map_err(|e| e.to_string())?;
-                    let dtval: Option<String> = row.get(4).map_err(|e| e.to_string())?;
-                    target_values.push((vtype, tval, dval, bval, dtval));
-                }
+                target_values.push(match rows.next().map_err(|e| e.to_string())? {
+                    Some(row) => Some(super::rollup::TargetValue {
+                        text: row.get(0).map_err(|e| e.to_string())?,
+                        decimal: row.get(1).map_err(|e| e.to_string())?,
+                        boolean: row.get(2).map_err(|e| e.to_string())?,
+                        date: row.get(3).map_err(|e| e.to_string())?,
+                        option_id: row.get(4).map_err(|e| e.to_string())?,
+                    }),
+                    None => None,
+                });
             }
 
+            let outcome = super::rollup::aggregate(aggregation, &target_values, &done_options)
+                .map_err(|error| {
+                    format!(
+                        "rollup {rollup_id} for note {note_id}: {}: {}",
+                        error.code, error.message
+                    )
+                })?;
             let (
                 canonical_json,
                 text_val,
@@ -1297,162 +1337,8 @@ fn compute_rollup_values(
                 bool_val,
                 d_start,
                 d_start_key,
-            ): ProjectedValueRow = match aggregation {
-                "count" => {
-                    let count = target_values.len() as i64;
-                    let dec_str = count.to_string();
-                    let key = super::projection::decimal_sort_key(&dec_str);
-                    (
-                        serde_json::json!({ "type": "number", "decimal": dec_str }).to_string(),
-                        None,
-                        None,
-                        Some(dec_str),
-                        key,
-                        None,
-                        None,
-                        None,
-                    )
-                }
-                "countUnique" => {
-                    let mut unique = HashSet::new();
-                    for (_, t, d, b, dt) in &target_values {
-                        let repr = if let Some(d) = d {
-                            d.clone()
-                        } else if let Some(t) = t {
-                            t.clone()
-                        } else if let Some(b) = b {
-                            b.to_string()
-                        } else if let Some(dt) = dt {
-                            dt.clone()
-                        } else {
-                            continue;
-                        };
-                        unique.insert(repr);
-                    }
-                    let count = unique.len() as i64;
-                    let dec_str = count.to_string();
-                    let key = super::projection::decimal_sort_key(&dec_str);
-                    (
-                        serde_json::json!({ "type": "number", "decimal": dec_str }).to_string(),
-                        None,
-                        None,
-                        Some(dec_str),
-                        key,
-                        None,
-                        None,
-                        None,
-                    )
-                }
-                "sum" | "avg" => {
-                    let mut sum = Decimal::from_i64(0);
-                    let mut count = 0;
-                    for (_, _, d, _, _) in &target_values {
-                        if let Some(d_str) = d {
-                            let parsed = Decimal::parse(d_str).map_err(|error| {
-                                format!(
-                                    "rollup {rollup_id} for note {note_id}: {}: {}",
-                                    error.code, error.message
-                                )
-                            })?;
-                            sum = sum.add(&parsed).map_err(|error| {
-                                format!(
-                                    "rollup {rollup_id} for note {note_id}: {}: {}",
-                                    error.code, error.message
-                                )
-                            })?;
-                            count += 1;
-                        }
-                    }
-                    if aggregation == "avg" && count > 0 {
-                        let avg = sum.div(&Decimal::from_i64(count)).map_err(|error| {
-                            format!(
-                                "rollup {rollup_id} for note {note_id}: {}: {}",
-                                error.code, error.message
-                            )
-                        })?;
-                        let dec_str = avg.to_string();
-                        let key = super::projection::decimal_sort_key(&dec_str);
-                        (
-                            serde_json::json!({ "type": "number", "decimal": dec_str }).to_string(),
-                            None,
-                            None,
-                            Some(dec_str),
-                            key,
-                            None,
-                            None,
-                            None,
-                        )
-                    } else {
-                        let dec_str = sum.to_string();
-                        let key = super::projection::decimal_sort_key(&dec_str);
-                        (
-                            serde_json::json!({ "type": "number", "decimal": dec_str }).to_string(),
-                            None,
-                            None,
-                            Some(dec_str),
-                            key,
-                            None,
-                            None,
-                            None,
-                        )
-                    }
-                }
-                "min" | "max" => {
-                    let is_max = aggregation == "max";
-                    let mut best_dec: Option<Decimal> = None;
-                    for (_, _, d, _, _) in &target_values {
-                        if let Some(d_str) = d {
-                            let parsed = Decimal::parse(d_str).map_err(|error| {
-                                format!(
-                                    "rollup {rollup_id} for note {note_id}: {}: {}",
-                                    error.code, error.message
-                                )
-                            })?;
-                            match &best_dec {
-                                None => best_dec = Some(parsed),
-                                Some(curr) => {
-                                    let ord = parsed.cmp(curr).map_err(|error| {
-                                        format!(
-                                            "rollup {rollup_id} for note {note_id}: {}: {}",
-                                            error.code, error.message
-                                        )
-                                    })?;
-                                    if (is_max && ord == std::cmp::Ordering::Greater)
-                                        || (!is_max && ord == std::cmp::Ordering::Less)
-                                    {
-                                        best_dec = Some(parsed);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if let Some(d) = best_dec {
-                        let dec_str = d.to_string();
-                        let key = super::projection::decimal_sort_key(&dec_str);
-                        (
-                            serde_json::json!({ "type": "number", "decimal": dec_str }).to_string(),
-                            None,
-                            None,
-                            Some(dec_str),
-                            key,
-                            None,
-                            None,
-                            None,
-                        )
-                    } else {
-                        (
-                            serde_json::json!({ "type": "null" }).to_string(),
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                            None,
-                        )
-                    }
-                }
-                _ => (
+            ): ProjectedValueRow = match outcome {
+                super::rollup::RollupOutcome::Empty => (
                     serde_json::json!({ "type": "null" }).to_string(),
                     None,
                     None,
@@ -1462,6 +1348,33 @@ fn compute_rollup_values(
                     None,
                     None,
                 ),
+                super::rollup::RollupOutcome::Number(dec_str) => {
+                    let key = super::projection::decimal_sort_key(&dec_str);
+                    (
+                        serde_json::json!({ "type": "number", "decimal": dec_str }).to_string(),
+                        None,
+                        None,
+                        Some(dec_str),
+                        key,
+                        None,
+                        None,
+                        None,
+                    )
+                }
+                super::rollup::RollupOutcome::Date(start) => {
+                    let key = super::projection::date_key(&start).0;
+                    (
+                        serde_json::json!({ "type": "date", "start": start, "end": null, "timeZone": null })
+                            .to_string(),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(start),
+                        key,
+                    )
+                }
             };
 
             tx.execute(

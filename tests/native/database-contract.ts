@@ -1,6 +1,12 @@
 import { joinStoragePath } from "../../src/lib/storage/storage-path"
 import type { StorageContractContext } from "../../src/lib/storage/storage-contract"
 import { DatabaseOperationError } from "../../src/lib/storage/database-types"
+import {
+  applySettingsPatch,
+  conditionsToFilter,
+  parseViewSettings,
+  toQueryFilter,
+} from "../../src/components/workspace/database/view-config"
 
 interface RelationRecoveryJournalFixture {
   status: string
@@ -1140,6 +1146,609 @@ export const nativeDatabaseCases: Array<{
           "Rolled-back schema operation reuse preserves restored bytes",
         )
       }
+    },
+  },
+  {
+    name: "native database cover assets resolve only validated image files",
+    async run({ adapter, vaultPath }) {
+      const { generation } = await adapter.loadActiveVaultData()
+      const state = await adapter.getDatabaseModuleState()
+      if (!state.enabled) await adapter.setDatabaseModuleEnabled(true, generation)
+      await adapter.rebuildDatabaseProjection()
+      const media = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "Covers",
+      })
+      const row = await adapter.createDatabaseRow({
+        expectedGeneration: generation,
+        databaseId: media.databaseId,
+        title: "With cover",
+        template: { kind: "empty" },
+      })
+      const source = joinStoragePath(vaultPath, "cover-source.png")
+      await adapter.writeFile(source, "cover-bytes")
+      const imported = await adapter.importDatabaseAsset({
+        expectedGeneration: generation,
+        databaseId: media.databaseId,
+        noteId: row.noteId,
+        sourcePath: source,
+      })
+      const resolved = await adapter.resolveDatabaseAssetPaths({
+        expectedGeneration: generation,
+        databaseId: media.databaseId,
+        relativePaths: [
+          imported.relativePath,
+          `assets/${row.noteId}/missing.png`,
+          `assets/${row.noteId}/../../../cover-source.png`,
+          "https://example.com/cover.png",
+        ],
+      })
+      check(resolved.paths.length === 4, "One result per requested path")
+      check(resolved.paths[0], "The imported image resolves to a file path")
+      check(
+        (await adapter.readFile(resolved.paths[0])) === "cover-bytes",
+        "The resolved path is the imported asset",
+      )
+      check(
+        resolved.paths.slice(1).every((path) => path === null),
+        "Missing, traversal and external paths do not resolve",
+      )
+    },
+  },
+  {
+    name: "native relation candidates are searched on the server beyond the first hundred pages",
+    async run({ adapter, vaultPath }) {
+      const { generation } = await adapter.loadActiveVaultData()
+      const state = await adapter.getDatabaseModuleState()
+      if (!state.enabled) await adapter.setDatabaseModuleEnabled(true, generation)
+      const pages = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "Lookup Targets",
+      })
+      const created: string[] = []
+      for (let index = 1; index <= 105; index += 1) {
+        const row = await adapter.createDatabaseRow({
+          expectedGeneration: generation,
+          databaseId: pages.databaseId,
+          title: `Target ${String(index).padStart(3, "0")}`,
+          template: { kind: "empty" },
+        })
+        created.push(row.noteId)
+      }
+      await adapter.rebuildDatabaseProjection()
+
+      const first = await adapter.searchRelationCandidates({
+        expectedGeneration: generation,
+        databaseId: pages.databaseId,
+        limit: 100,
+      })
+      check(first.candidates.length === 100 && first.nextCursor, "The first page is full")
+      const second = await adapter.searchRelationCandidates({
+        expectedGeneration: generation,
+        databaseId: pages.databaseId,
+        limit: 100,
+        cursor: first.nextCursor,
+      })
+      check(second.candidates.length === 5 && !second.nextCursor, "The cursor reaches the rest")
+      const all = new Set([...first.candidates, ...second.candidates].map((item) => item.noteId))
+      check(all.size === 105, "Paging neither skips nor repeats a page")
+
+      const found = await adapter.searchRelationCandidates({
+        expectedGeneration: generation,
+        databaseId: pages.databaseId,
+        search: "target 104",
+      })
+      check(
+        found.candidates.length === 1 && found.candidates[0].title === "Target 104",
+        "A page after the first hundred is found by title",
+      )
+
+      const resolved = await adapter.resolveRecordReferences({
+        expectedGeneration: generation,
+        noteIds: [created[103], "01J00000000000000000000000"],
+      })
+      check(
+        resolved.references[0].state === "ok" && resolved.references[0].title === "Target 104",
+        "A selected far-away page is named by its ID",
+      )
+      check(resolved.references[1].state === "missing", "An unknown ID is reported as missing")
+
+      let wrongGeneration = false
+      try {
+        await adapter.searchRelationCandidates({
+          expectedGeneration: generation + 1,
+          databaseId: pages.databaseId,
+        })
+      } catch {
+        wrongGeneration = true
+      }
+      check(wrongGeneration, "A stale vault generation is rejected")
+    },
+  },
+  {
+    name: "native saved view keeps filter, widths and wrapping through validation and rebuild",
+    async run({ adapter, vaultPath }) {
+      const { generation } = await adapter.loadActiveVaultData()
+      const state = await adapter.getDatabaseModuleState()
+      if (!state.enabled) await adapter.setDatabaseModuleEnabled(true, generation)
+      const created = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "Saved View Scores",
+      })
+      const score = await adapter.createDatabaseProperty({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        expectedManifestRevision: created.manifestRevision,
+        name: "Score",
+        propertyType: "number",
+        options: [],
+      })
+      const values = [5, 10]
+      for (const [index, value] of values.entries()) {
+        const row = await adapter.createDatabaseRow({
+          expectedGeneration: generation,
+          databaseId: created.databaseId,
+          title: `Row ${index}`,
+          template: { kind: "empty" },
+        })
+        await adapter.applyDatabaseValueBatch({
+          expectedGeneration: generation,
+          databaseId: created.databaseId,
+          operationId: `native-saved-view-${index}-${created.databaseId}`,
+          cells: [
+            {
+              noteId: row.noteId,
+              propertyId: score.propertyId,
+              valueJson: JSON.stringify({ type: "number", decimal: String(value) }),
+              expectedRevision: row.recordRevision,
+            },
+          ],
+        })
+      }
+      await adapter.rebuildDatabaseProjection()
+
+      const summary = (await adapter.listDatabases()).find(
+        (database) => database.databaseId === created.databaseId,
+      )
+      const view = summary?.views[0]
+      check(view, "A new database has its default view")
+      const loaded = await adapter.getDatabaseView({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        viewId: view.viewId,
+        expectedViewRevision: view.revision,
+      })
+      const nextConfig = applySettingsPatch(loaded.configJson, {
+        filter: conditionsToFilter([
+          {
+            field: { kind: "property", propertyId: score.propertyId },
+            operator: "greaterOrEqual",
+            operand: "7",
+          },
+        ]),
+        widths: { [score.propertyId]: 240, title: 300 },
+        wrapped: [score.propertyId],
+        frozenKey: "title",
+        hidden: [],
+      })
+      const saved = await adapter.updateDatabaseViewConfig({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        viewId: view.viewId,
+        expectedViewRevision: loaded.revision,
+        configJson: nextConfig,
+      })
+      check(saved.viewRevision !== loaded.revision, "The save produced a new view revision")
+
+      let stale = false
+      try {
+        await adapter.updateDatabaseViewConfig({
+          expectedGeneration: generation,
+          databaseId: created.databaseId,
+          viewId: view.viewId,
+          expectedViewRevision: loaded.revision,
+          configJson: nextConfig,
+        })
+      } catch {
+        stale = true
+      }
+      check(stale, "A write based on an outdated view revision is rejected")
+
+      await adapter.rebuildDatabaseProjection()
+      const after = (await adapter.listDatabases())
+        .find((database) => database.databaseId === created.databaseId)
+        ?.views.find((candidate) => candidate.viewId === view.viewId)
+      check(after, "The view survives a projection rebuild")
+      const reread = await adapter.getDatabaseView({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        viewId: view.viewId,
+        expectedViewRevision: after.revision,
+      })
+      const settings = parseViewSettings(reread.configJson)
+      check(settings.widths[score.propertyId] === 240, "The saved column width is kept")
+      check(settings.wrapped.includes(score.propertyId), "The saved wrapping is kept")
+      check(settings.frozenKey === "title", "The saved frozen column is kept")
+
+      const result = await adapter.queryDatabase({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        source: { kind: "inline", spec: { sorts: [] } },
+        filter: toQueryFilter(settings.filter),
+        page: { limit: 10 },
+      })
+      check(
+        result.rows.length === 1 && result.rows[0].title === "Row 1",
+        "The saved >= 7 filter returns only the matching row",
+      )
+    },
+  },
+  {
+    name: "native board lanes count the whole view and page each lane on its own",
+    async run({ adapter, vaultPath }) {
+      const { generation } = await adapter.loadActiveVaultData()
+      const state = await adapter.getDatabaseModuleState()
+      if (!state.enabled) await adapter.setDatabaseModuleEnabled(true, generation)
+      const created = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "Board Lanes",
+      })
+      const status = await adapter.createDatabaseProperty({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        expectedManifestRevision: created.manifestRevision,
+        name: "Stage",
+        propertyType: "status",
+        options: ["Todo", "Done"],
+      })
+      const summary = (await adapter.listDatabases()).find(
+        (database) => database.databaseId === created.databaseId,
+      )
+      const property = summary?.properties.find(
+        (candidate) => candidate.propertyId === status.propertyId,
+      )
+      const todo = property?.options.find((option) => option.name === "Todo")
+      const done = property?.options.find((option) => option.name === "Done")
+      check(todo && done, "The status options were created with IDs")
+
+      const placements: Array<string | null> = [
+        todo.optionId,
+        todo.optionId,
+        todo.optionId,
+        done.optionId,
+        null,
+      ]
+      for (const [index, optionId] of placements.entries()) {
+        const row = await adapter.createDatabaseRow({
+          expectedGeneration: generation,
+          databaseId: created.databaseId,
+          title: `Card ${index}`,
+          template: { kind: "empty" },
+        })
+        if (!optionId) continue
+        await adapter.applyDatabaseValueBatch({
+          expectedGeneration: generation,
+          databaseId: created.databaseId,
+          operationId: `native-board-${index}-${created.databaseId}`,
+          cells: [
+            {
+              noteId: row.noteId,
+              propertyId: status.propertyId,
+              valueJson: JSON.stringify({ type: "status", optionId }),
+              expectedRevision: row.recordRevision,
+            },
+          ],
+        })
+      }
+      await adapter.rebuildDatabaseProjection()
+
+      const aggregate = await adapter.aggregateDatabase({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        source: { kind: "inline", spec: { sorts: [] } },
+        category: { kind: "property", propertyId: status.propertyId },
+        aggregation: "count",
+        limit: 256,
+      })
+      const counts = Object.fromEntries(aggregate.groups.map((group) => [group.key, group.count]))
+      check(
+        counts[todo.optionId] === 3 && counts[done.optionId] === 1 && counts.__empty__ === 1,
+        "Group counts cover the whole database, including the no-value group",
+      )
+
+      const lane = (operator: string, value?: string, cursor?: string) =>
+        adapter.queryDatabase({
+          expectedGeneration: generation,
+          databaseId: created.databaseId,
+          source: { kind: "inline", spec: { sorts: [] } },
+          filter: {
+            kind: "condition",
+            field: { kind: "property", propertyId: status.propertyId },
+            operator,
+            ...(value ? { value: JSON.stringify(value) } : {}),
+          },
+          page: { limit: 2, cursor },
+        })
+      const first = await lane("equals", todo.optionId)
+      check(first.rows.length === 2 && first.nextCursor, "A lane pages by its own cursor")
+      const second = await lane("equals", todo.optionId, first.nextCursor)
+      check(second.rows.length === 1 && !second.nextCursor, "The lane's last page ends the cursor")
+      const empty = await lane("isEmpty")
+      check(
+        empty.rows.length === 1 && empty.rows[0].title === "Card 4",
+        "The no-value lane finds its card",
+      )
+    },
+  },
+  {
+    name: "native rollup counts hours and progress and recalculates without a rebuild",
+    async run({ adapter, vaultPath }) {
+      const { generation } = await adapter.loadActiveVaultData()
+      const state = await adapter.getDatabaseModuleState()
+      if (!state.enabled) await adapter.setDatabaseModuleEnabled(true, generation)
+      const projects = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "Rollup Projects",
+      })
+      const tasks = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "Rollup Tasks",
+      })
+      const hours = await adapter.createDatabaseProperty({
+        expectedGeneration: generation,
+        databaseId: tasks.databaseId,
+        expectedManifestRevision: tasks.manifestRevision,
+        name: "Hours",
+        propertyType: "number",
+      })
+      const done = await adapter.createDatabaseProperty({
+        expectedGeneration: generation,
+        databaseId: tasks.databaseId,
+        expectedManifestRevision: hours.manifestRevision,
+        name: "Done",
+        propertyType: "checkbox",
+      })
+      const link = await adapter.createDatabaseProperty({
+        expectedGeneration: generation,
+        databaseId: projects.databaseId,
+        expectedManifestRevision: projects.manifestRevision,
+        name: "Tasks",
+        propertyType: "relation",
+        relationTargetDatabaseId: tasks.databaseId,
+      })
+      let revision = link.manifestRevision
+      let rejected = false
+      try {
+        await adapter.createDatabaseProperty({
+          expectedGeneration: generation,
+          databaseId: projects.databaseId,
+          expectedManifestRevision: revision,
+          name: "Bad",
+          propertyType: "rollup",
+          rollupRelationPropertyId: link.propertyId,
+          rollupTargetPropertyId: done.propertyId,
+          rollupAggregation: "sum",
+        })
+      } catch {
+        rejected = true
+      }
+      check(rejected, "A sum over a checkbox is refused")
+      const total = await adapter.createDatabaseProperty({
+        expectedGeneration: generation,
+        databaseId: projects.databaseId,
+        expectedManifestRevision: revision,
+        name: "Total hours",
+        propertyType: "rollup",
+        rollupRelationPropertyId: link.propertyId,
+        rollupTargetPropertyId: hours.propertyId,
+        rollupAggregation: "sum",
+      })
+      revision = total.manifestRevision
+      const progress = await adapter.createDatabaseProperty({
+        expectedGeneration: generation,
+        databaseId: projects.databaseId,
+        expectedManifestRevision: revision,
+        name: "Progress",
+        propertyType: "rollup",
+        rollupRelationPropertyId: link.propertyId,
+        rollupTargetPropertyId: done.propertyId,
+        rollupAggregation: "percentChecked",
+      })
+
+      const project = await adapter.createDatabaseRow({
+        expectedGeneration: generation,
+        databaseId: projects.databaseId,
+        title: "Site",
+        template: { kind: "empty" },
+      })
+      const taskIds: string[] = []
+      const taskRows = []
+      for (const [index, hoursValue] of ["4", "6", "0"].entries()) {
+        const task = await adapter.createDatabaseRow({
+          expectedGeneration: generation,
+          databaseId: tasks.databaseId,
+          title: `Task ${index}`,
+          template: { kind: "empty" },
+        })
+        const written = await adapter.applyDatabaseValueBatch({
+          expectedGeneration: generation,
+          databaseId: tasks.databaseId,
+          operationId: `native-rollup-hours-${index}-${tasks.databaseId}`,
+          cells: [
+            {
+              noteId: task.noteId,
+              propertyId: hours.propertyId,
+              valueJson: JSON.stringify({ type: "number", decimal: hoursValue }),
+              expectedRevision: task.recordRevision,
+            },
+          ],
+        })
+        taskIds.push(task.noteId)
+        taskRows.push({ ...task, revision: written.revisions[0].revision })
+      }
+      await adapter.rebuildDatabaseProjection()
+      const projectRows = await adapter.queryDatabase({
+        expectedGeneration: generation,
+        databaseId: projects.databaseId,
+        source: { kind: "inline", spec: { sorts: [] } },
+        page: { limit: 10 },
+      })
+      const projectRow = projectRows.rows.find((row) => row.noteId === project.noteId)
+      check(projectRow, "The project row is queryable")
+      await adapter.updateDatabaseRelationValue({
+        expectedGeneration: generation,
+        operationId: `native-rollup-link-${projects.databaseId}`,
+        databaseId: projects.databaseId,
+        noteId: project.noteId,
+        propertyId: link.propertyId,
+        targetNoteIds: taskIds,
+        expectedRevision: projectRow.rowRevision,
+      })
+
+      const rollups = async () => {
+        const result = await adapter.queryDatabase({
+          expectedGeneration: generation,
+          databaseId: projects.databaseId,
+          source: { kind: "inline", spec: { sorts: [] } },
+          page: { limit: 10 },
+        })
+        const values = JSON.parse(result.rows[0].valuesJson) as Record<
+          string,
+          { decimal?: string; type: string }
+        >
+        return { total: values[total.propertyId], progress: values[progress.propertyId] }
+      }
+      const first = await rollups()
+      check(first.total?.decimal === "10", "The sum of related hours is 10")
+      check(first.progress?.decimal === "0.00", "No task is done yet: 0 percent, not empty")
+
+      // Completing a task changes the project's progress without a rebuild.
+      await adapter.applyDatabaseValueBatch({
+        expectedGeneration: generation,
+        databaseId: tasks.databaseId,
+        operationId: `native-rollup-done-${tasks.databaseId}`,
+        cells: [
+          {
+            noteId: taskIds[0],
+            propertyId: done.propertyId,
+            valueJson: JSON.stringify({ type: "checkbox", checked: true }),
+            expectedRevision: taskRows[0].revision,
+          },
+        ],
+      })
+      const second = await rollups()
+      check(second.progress?.decimal === "33.33", "One of three tasks done: 33.33 percent")
+    },
+  },
+  {
+    name: "native current-page filter shows only the records linked to the given page",
+    async run({ adapter, vaultPath }) {
+      const { generation } = await adapter.loadActiveVaultData()
+      const state = await adapter.getDatabaseModuleState()
+      if (!state.enabled) await adapter.setDatabaseModuleEnabled(true, generation)
+      const projects = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "Context Projects",
+      })
+      const tasks = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "Context Tasks",
+      })
+      const project = await adapter.createDatabaseProperty({
+        expectedGeneration: generation,
+        databaseId: tasks.databaseId,
+        expectedManifestRevision: tasks.manifestRevision,
+        name: "Project",
+        propertyType: "relation",
+        relationTargetDatabaseId: projects.databaseId,
+      })
+      const first = await adapter.createDatabaseRow({
+        expectedGeneration: generation,
+        databaseId: projects.databaseId,
+        title: "Site",
+        template: { kind: "empty" },
+      })
+      const second = await adapter.createDatabaseRow({
+        expectedGeneration: generation,
+        databaseId: projects.databaseId,
+        title: "App",
+        template: { kind: "empty" },
+      })
+      const mine = await adapter.createDatabaseRow({
+        expectedGeneration: generation,
+        databaseId: tasks.databaseId,
+        title: "Site task",
+        template: { kind: "empty" },
+      })
+      await adapter.createDatabaseRow({
+        expectedGeneration: generation,
+        databaseId: tasks.databaseId,
+        title: "Unlinked task",
+        template: { kind: "empty" },
+      })
+      await adapter.rebuildDatabaseProjection()
+      const before = await adapter.queryDatabase({
+        expectedGeneration: generation,
+        databaseId: tasks.databaseId,
+        source: { kind: "inline", spec: { sorts: [] } },
+        page: { limit: 10 },
+      })
+      const mineRow = before.rows.find((row) => row.noteId === mine.noteId)
+      check(mineRow, "The task row is queryable")
+      await adapter.updateDatabaseRelationValue({
+        expectedGeneration: generation,
+        operationId: `native-context-link-${tasks.databaseId}`,
+        databaseId: tasks.databaseId,
+        noteId: mine.noteId,
+        propertyId: project.propertyId,
+        targetNoteIds: [first.noteId],
+        expectedRevision: mineRow.rowRevision,
+      })
+
+      const ask = (contextPageId?: string) =>
+        adapter.queryDatabase({
+          expectedGeneration: generation,
+          databaseId: tasks.databaseId,
+          source: { kind: "inline", spec: { sorts: [] } },
+          filter: {
+            kind: "condition",
+            field: { kind: "property", propertyId: project.propertyId },
+            operator: "contains",
+            value: JSON.stringify("@currentPage"),
+          },
+          page: { limit: 10 },
+          contextPageId,
+        })
+      const forSite = await ask(first.noteId)
+      check(
+        forSite.rows.length === 1 && forSite.rows[0].title === "Site task",
+        "The project's own page shows its task",
+      )
+      const forApp = await ask(second.noteId)
+      check(forApp.rows.length === 0, "Another project's page shows nothing")
+      let withoutPage = false
+      try {
+        await ask()
+      } catch {
+        withoutPage = true
+      }
+      check(withoutPage, "Without a page the filter is an error, not every task")
     },
   },
 ]

@@ -395,6 +395,7 @@ fn database_fixture_benchmark_reports_rebuild_and_query_timings() {
     let request = DatabaseQueryRequest {
         expected_generation: 1,
         database_id: database_id.clone(),
+        context_page_id: None,
         search: None,
         sorts: Some(vec![DatabaseSortSpec {
             field: DatabaseFieldRef::System {

@@ -27,7 +27,6 @@ import { motionTransitions } from "@/lib/motion-config"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
-  applyDatabaseValueBatch,
   createDatabaseProperty,
   deleteDatabaseProperty,
   getDatabaseNoteContext,
@@ -37,6 +36,7 @@ import {
   type CustomProperty,
   type DatabaseNoteContext,
   type DatabasePropertySummary,
+  type DatabaseSummary,
   type FrontmatterProperty,
 } from "@/lib/storage"
 import { IconValue } from "../icon-value"
@@ -45,6 +45,11 @@ import { PropertyEditor } from "./property-editor"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import type { PanelRenderProps } from "../panel-registry"
 import { DatabaseCell } from "../database/database-cell"
+import {
+  cellKey,
+  createRelationTargetRow,
+  usePropertyMutation,
+} from "../database/use-property-mutation"
 import { useDatabaseStore } from "../database/database-store"
 import { movePropertyId } from "../database/property-order"
 import { PropertyHeaderMenu } from "../database/table-view"
@@ -196,6 +201,9 @@ function DatabasePropertyRow({
   context,
   pending,
   error,
+  databases,
+  onOpenNote,
+  onCreateRelationRow,
   onCommit,
   onRename,
   onDelete,
@@ -211,6 +219,9 @@ function DatabasePropertyRow({
   context: DatabaseNoteContext
   pending: boolean
   error?: string
+  databases: DatabaseSummary[]
+  onOpenNote?: (noteId: string) => void
+  onCreateRelationRow?: (targetDatabaseId: string, title: string) => Promise<string | void>
   onCommit: (valueJson?: string) => Promise<void>
   onRename: (name: string) => Promise<void>
   onDelete: () => Promise<void>
@@ -225,6 +236,16 @@ function DatabasePropertyRow({
   const { t } = useTranslation()
   const PropertyIcon = databasePropertyIcon(property)
   const dragControls = useDragControls()
+  const relationTargetId = React.useMemo(() => {
+    if (property.propertyType !== "relation") return ""
+    try {
+      return (
+        (JSON.parse(property.configJson) as { targetDatabaseId?: string }).targetDatabaseId ?? ""
+      )
+    } catch {
+      return ""
+    }
+  }, [property.configJson, property.propertyType])
   return (
     <Reorder.Item
       as="div"
@@ -288,7 +309,18 @@ function DatabasePropertyRow({
           pending={pending}
           error={error}
           compact
+          targetDatabaseTitle={
+            relationTargetId
+              ? databases.find((database) => database.databaseId === relationTargetId)?.title
+              : undefined
+          }
           onCommit={onCommit}
+          onOpenNote={onOpenNote}
+          onCreateRelationRow={
+            onCreateRelationRow && relationTargetId
+              ? (title) => onCreateRelationRow(relationTargetId, title)
+              : undefined
+          }
         />
       </div>
     </Reorder.Item>
@@ -1153,6 +1185,7 @@ function FrontmatterPropertyRow({
 export function InfoPanel({
   properties,
   databaseProperties,
+  onSelect,
   onUpsertCustomProperty,
   onDeleteCustomProperty,
   onReorderCustomProperties,
@@ -1168,12 +1201,6 @@ export function InfoPanel({
   const [noteDatabaseContext, setNoteDatabaseContext] = React.useState<DatabaseNoteContext | null>(
     null,
   )
-  const [pendingDatabaseProperties, setPendingDatabaseProperties] = React.useState<Set<string>>(
-    new Set(),
-  )
-  const [databasePropertyErrors, setDatabasePropertyErrors] = React.useState<
-    Record<string, string>
-  >({})
   const [propertyOrderBusy, setPropertyOrderBusy] = React.useState(false)
   const [customPropertyOrderBusy, setCustomPropertyOrderBusy] = React.useState(false)
   const databases = useDatabaseStore((state) => state.databases)
@@ -1247,62 +1274,33 @@ export function InfoPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [databaseInvalidationSeq, properties?.id, properties?.kind])
 
+  // The same write path as the table: Relation goes through the Relation
+  // command (inverse side and rollups stay consistent), writes to one row are
+  // serialized, and the latest revision is reused.
+  const propertyMutation = usePropertyMutation({
+    databaseId: noteDatabaseContext?.databaseId ?? "",
+    vaultGeneration: noteDatabaseContext?.vaultGeneration ?? null,
+    // A write can change other rows (inverse Relations): reload every view and
+    // this panel's own context, also after a failed write.
+    onSettled: () => invalidateDatabaseHosts(),
+  })
   const commitDatabaseProperty = React.useCallback(
-    async (property: DatabasePropertySummary, valueJson?: string) => {
+    (property: DatabasePropertySummary, valueJson?: string) => {
       const context = noteDatabaseContext
-      if (!context || context.locked) return
-      setPendingDatabaseProperties((current) => new Set(current).add(property.propertyId))
-      setDatabasePropertyErrors((current) => {
-        const next = { ...current }
-        delete next[property.propertyId]
-        return next
-      })
-      try {
-        const result = await applyDatabaseValueBatch({
-          expectedGeneration: context.vaultGeneration,
-          databaseId: context.databaseId,
-          operationId:
-            typeof crypto !== "undefined" && "randomUUID" in crypto
-              ? `panel-${crypto.randomUUID()}`
-              : `panel-${Date.now()}-${property.propertyId}`,
-          cells: [
-            {
-              noteId: context.row.noteId,
-              propertyId: property.propertyId,
-              valueJson,
-              expectedRevision: context.row.rowRevision,
-            },
-          ],
-        })
-        const revision =
-          result.revisions.find((item) => item.noteId === context.row.noteId)?.revision ??
-          context.row.rowRevision
-        setNoteDatabaseContext((current) => {
-          if (!current || current.databaseId !== context.databaseId) return current
-          const values = JSON.parse(current.row.valuesJson) as Record<string, unknown>
-          if (valueJson) values[property.propertyId] = JSON.parse(valueJson)
-          else delete values[property.propertyId]
-          return {
-            ...current,
-            row: { ...current.row, valuesJson: JSON.stringify(values), rowRevision: revision },
-          }
-        })
-      } catch (error) {
-        setDatabasePropertyErrors((current) => ({
-          ...current,
-          [property.propertyId]: error instanceof Error ? error.message : String(error),
-        }))
-        const refreshed = await getDatabaseNoteContext(context.row.noteId).catch(() => null)
-        if (refreshed) setNoteDatabaseContext(refreshed)
-      } finally {
-        setPendingDatabaseProperties((current) => {
-          const next = new Set(current)
-          next.delete(property.propertyId)
-          return next
-        })
-      }
+      if (!context || context.locked) return Promise.resolve()
+      return propertyMutation.commit(context.row, property, valueJson)
     },
-    [noteDatabaseContext],
+    [noteDatabaseContext, propertyMutation],
+  )
+  const createDatabaseRelationRow = React.useCallback(
+    async (targetDatabaseId: string, title: string): Promise<string | void> => {
+      const context = noteDatabaseContext
+      if (!context || !title.trim()) return
+      const noteId = await createRelationTargetRow(context.vaultGeneration, targetDatabaseId, title)
+      invalidateDatabaseHosts()
+      return noteId
+    },
+    [invalidateDatabaseHosts, noteDatabaseContext],
   )
 
   const renameNoteDatabaseProperty = React.useCallback(
@@ -1827,8 +1825,15 @@ export function InfoPanel({
                         key={property.propertyId}
                         property={property}
                         context={noteDatabaseContext}
-                        pending={pendingDatabaseProperties.size > 0}
-                        error={databasePropertyErrors[property.propertyId]}
+                        pending={propertyMutation.pendingCells.size > 0}
+                        error={
+                          propertyMutation.cellErrors[
+                            cellKey(noteDatabaseContext.row.noteId, property.propertyId)
+                          ]
+                        }
+                        databases={databases}
+                        onOpenNote={onSelect}
+                        onCreateRelationRow={createDatabaseRelationRow}
                         onCommit={(valueJson) => commitDatabaseProperty(property, valueJson)}
                         onRename={(name) => renameNoteDatabaseProperty(property, name)}
                         onDelete={() => deleteNoteDatabaseProperty(property)}

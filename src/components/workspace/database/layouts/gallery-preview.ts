@@ -1,3 +1,4 @@
+const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp|svg|avif)$/i
 const UNSAFE_PATH_SEGMENTS = new Set(["", ".", ".."])
 
 export type GalleryPreview =
@@ -16,7 +17,7 @@ function isSafeRelativePath(value: unknown): value is string {
   return !value.split(/[\\/]/).some((segment) => UNSAFE_PATH_SEGMENTS.has(segment))
 }
 
-/** Chooses a local, bundle-relative preview without resolving external URLs. */
+/** Chooses the first local image file; the backend validates it before display. */
 export function resolveGalleryPreview(valuesJson: string): GalleryPreview {
   let values: unknown
   try {
@@ -33,7 +34,8 @@ export function resolveGalleryPreview(valuesJson: string): GalleryPreview {
     for (const item of items) {
       if (!item || typeof item !== "object") continue
       const candidate = (item as { relativePath?: unknown }).relativePath
-      if (isSafeRelativePath(candidate)) return { kind: "asset", relativePath: candidate }
+      if (isSafeRelativePath(candidate) && IMAGE_EXTENSION.test(candidate))
+        return { kind: "asset", relativePath: candidate }
     }
   }
   return { kind: "placeholder", reason: "unsupported" }

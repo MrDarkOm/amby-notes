@@ -1,5 +1,9 @@
 use super::*;
 use crate::database::history::DatabaseHistoryState;
+use crate::database::value_batch_recovery::{
+    journal_bytes, read_batch_journal, recovery_step_paths, rollback_batch_journal,
+    BatchRecoveryJournal, BatchRecoveryStep,
+};
 use crate::vault_context::VaultContext;
 
 fn temp_vault() -> PathBuf {
@@ -5363,4 +5367,63 @@ fn property_type_change_empty_reciprocal_relation_to_text_preserves_inverse_and_
         json!({"keep": "inverse"})
     );
     let _ = fs::remove_dir_all(fixture.vault);
+}
+
+#[test]
+fn a_new_status_property_gets_valid_option_groups_and_the_manifest_stays_readable() {
+    let vault = temp_vault();
+    let watcher = WatcherState::new();
+    let created = create_database(
+        &vault,
+        &watcher,
+        &CreateDatabaseRequest {
+            expected_generation: 1,
+            mode: DatabaseCreateMode::Standalone,
+            parent_path: Some(vault.to_string_lossy().to_string()),
+            note_path: None,
+            name: "Stages".to_owned(),
+        },
+    )
+    .unwrap();
+    create_database_property(
+        &vault,
+        &watcher,
+        &CreateDatabasePropertyRequest {
+            expected_generation: 1,
+            database_id: created.database_id.clone(),
+            expected_manifest_revision: created.manifest_revision,
+            name: "Stage".to_owned(),
+            property_type: "status".to_owned(),
+            before_property_id: None,
+            options: vec!["Todo".to_owned(), "Doing".to_owned(), "Done".to_owned()],
+            formula_expression: None,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let manifest = parse_manifest(&fs::read(&created.manifest_path).unwrap()).unwrap();
+    assert!(validate_manifest(&manifest.value).errors.is_empty());
+    let json = serde_json::to_value(&manifest.value.properties[0]).unwrap();
+    let groups: Vec<&str> = json["config"]["options"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|option| option["group"].as_str().unwrap())
+        .collect();
+    assert_eq!(groups, ["notStarted", "inProgress", "done"]);
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
+fn a_manifest_written_by_older_builds_without_status_groups_still_parses() {
+    let raw = br##"{
+      "format":"amby-database","formatVersion":1,
+      "databaseId":"01J00000000000000000000000","name":"Old","locked":false,
+      "membership":{"kind":"filesystem-descendants","recursive":true},
+      "properties":[{"id":"01J00000000000000000000001","name":"Stage","type":"status","pageVisibility":"alwaysShow","yamlBinding":null,
+        "config":{"options":[{"id":"01J00000000000000000000002","name":"Todo","color":"#94a3b8"}]}}],
+      "viewOrder":[],"defaultViewId":null,"templateOrder":[],"defaultTemplateId":null
+    }"##;
+    let manifest = parse_manifest(raw).unwrap();
+    assert!(validate_manifest(&manifest.value).errors.is_empty());
 }

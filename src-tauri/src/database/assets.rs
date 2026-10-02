@@ -108,6 +108,82 @@ pub fn import_database_asset(
     Err("Could not allocate a unique database asset filename".to_owned())
 }
 
+const MAX_RESOLVED_ASSETS: usize = 200;
+const PREVIEW_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "webp", "svg", "avif"];
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveDatabaseAssetPathsRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    /// Stored `assets/<note-id>/<file>` paths from Files values.
+    pub relative_paths: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedDatabaseAssetPaths {
+    /// Absolute path per requested item, in request order; `None` when the
+    /// asset is missing, not a regular image file, or not a database asset path.
+    pub paths: Vec<Option<String>>,
+}
+
+/// Resolves stored Files paths to absolute image paths for card covers. Nothing
+/// outside `<container>/.ambd/assets/<note-id>/` is ever returned, and links are
+/// rejected, so the renderer cannot be steered to another file by edited data.
+pub fn resolve_database_asset_paths(
+    vault: &Path,
+    request: &ResolveDatabaseAssetPathsRequest,
+) -> Result<ResolvedDatabaseAssetPaths, String> {
+    if request.relative_paths.len() > MAX_RESOLVED_ASSETS {
+        return Err(format!(
+            "At most {MAX_RESOLVED_ASSETS} assets can be resolved at once"
+        ));
+    }
+    let container = super::mutations::find_database_container(vault, &request.database_id)?;
+    let assets_root = container.join(".ambd");
+    let paths = request
+        .relative_paths
+        .iter()
+        .map(|relative| resolve_one_asset(vault, &assets_root, relative))
+        .collect();
+    Ok(ResolvedDatabaseAssetPaths { paths })
+}
+
+fn resolve_one_asset(vault: &Path, base: &Path, relative: &str) -> Option<String> {
+    let segments: Vec<&str> = relative.split('/').collect();
+    let [assets, note_id, name] = segments.as_slice() else {
+        return None;
+    };
+    let extension = name.rsplit_once('.')?.1.to_ascii_lowercase();
+    if *assets != "assets"
+        || ulid::Ulid::from_string(note_id).is_err()
+        || name.is_empty()
+        || name.starts_with('.')
+        || name.contains(['\\', ':'])
+        || !PREVIEW_EXTENSIONS.contains(&extension.as_str())
+    {
+        return None;
+    }
+    // `confine` resolves links, so check every link in the chain lexically: a
+    // link anywhere (`.ambd`, `assets`, the row folder or the file) is refused.
+    let mut path = base.to_path_buf();
+    for part in [".", assets, note_id, name] {
+        if part != "." {
+            path.push(part);
+        }
+        if fs::symlink_metadata(&path).ok()?.file_type().is_symlink() {
+            return None;
+        }
+    }
+    let path = paths::confine(vault, &path).ok()?;
+    let metadata = fs::metadata(&path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_ATTACHMENT_FILE_SIZE {
+        return None;
+    }
+    Some(path.to_string_lossy().into_owned())
+}
+
 fn mime_type_for(name: &str) -> String {
     match name
         .rsplit('.')
@@ -186,6 +262,66 @@ mod tests {
             .join("Media/.ambd")
             .join(&asset.relative_path)
             .is_file());
+        let _ = std::fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn resolves_only_regular_image_assets_inside_the_database() {
+        let vault =
+            std::env::temp_dir().join(format!("amby-asset-resolve-{}", ulid::Ulid::generate()));
+        std::fs::create_dir_all(&vault).unwrap();
+        let watcher = WatcherState::new();
+        let created = create_database(
+            &vault,
+            &watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Media".to_owned(),
+            },
+        )
+        .unwrap();
+        let note_id = ulid::Ulid::generate().to_string();
+        let dir = vault.join("Media/.ambd/assets").join(&note_id);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("cover.png"), b"png").unwrap();
+        std::fs::write(dir.join("notes.txt"), b"text").unwrap();
+        let outside = vault.join("secret.png");
+        std::fs::write(&outside, b"secret").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&outside, dir.join("link.png")).unwrap();
+
+        let ask = |paths: Vec<String>| {
+            resolve_database_asset_paths(
+                &vault,
+                &ResolveDatabaseAssetPathsRequest {
+                    expected_generation: 1,
+                    database_id: created.database_id.clone(),
+                    relative_paths: paths,
+                },
+            )
+        };
+        let good = format!("assets/{note_id}/cover.png");
+        let resolved = ask(vec![
+            good.clone(),
+            format!("assets/{note_id}/missing.png"),
+            format!("assets/{note_id}/notes.txt"),
+            format!("assets/{note_id}/link.png"),
+            format!("assets/{note_id}/../../../../secret.png"),
+            "assets/not-an-id/cover.png".to_owned(),
+            "/etc/passwd.png".to_owned(),
+            format!("assets/{note_id}/dir\\cover.png"),
+        ])
+        .unwrap();
+        assert!(resolved.paths[0].as_deref().unwrap().ends_with("cover.png"));
+        assert!(
+            resolved.paths[1..].iter().all(Option::is_none),
+            "{:?}",
+            resolved.paths
+        );
+        assert!(ask(vec![good; MAX_RESOLVED_ASSETS + 1]).is_err());
         let _ = std::fs::remove_dir_all(vault);
     }
 }

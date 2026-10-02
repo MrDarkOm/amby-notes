@@ -25,9 +25,11 @@ interface UseDatabaseQueryOptions {
   hostKind?: DatabaseHostKind
   hostId?: string | null
   search?: string
-  filterValues?: Record<string, string>
-  propertyTypes?: Record<string, string>
-  sortValue?: { key: string; direction: "asc" | "desc" } | null
+  /** The view's saved filter and sorts, applied on top of the search. */
+  filter?: storage.DatabaseFilterNode
+  sorts?: storage.DatabaseSortSpec[]
+  /** The page the view is shown on, for `@currentPage` filters. */
+  contextPageId?: string
 }
 
 // Module-level map of in-flight query promises to prevent duplicate requests
@@ -50,24 +52,18 @@ export function useDatabaseQuery({
   hostKind = "tab",
   hostId = null,
   search = "",
-  filterValues = {},
-  propertyTypes,
-  sortValue = null,
+  filter,
+  sorts,
+  contextPageId,
 }: UseDatabaseQueryOptions) {
-  const normalizedFilters = React.useMemo(() => {
-    return Object.entries(filterValues).filter(
-      ([, value]) => typeof value === "string" && value.trim().length > 0,
-    )
-  }, [filterValues])
-
   const queryIdentity = React.useMemo(() => {
     return JSON.stringify({
       q: search.trim(),
-      s: sortValue ? { k: sortValue.key, d: sortValue.direction } : null,
-      f: normalizedFilters,
-      p: propertyTypes,
+      s: sorts ?? [],
+      f: filter ?? null,
+      c: contextPageId ?? null,
     })
-  }, [normalizedFilters, propertyTypes, search, sortValue])
+  }, [contextPageId, filter, search, sorts])
 
   const key = React.useMemo(
     () => databaseHostKey(hostKind, databaseId, viewId, hostId, queryIdentity),
@@ -108,81 +104,28 @@ export function useDatabaseQuery({
       const promise = (async () => {
         let shouldRefetchStale = false
         try {
-          const filter = normalizedFilters.length
-            ? {
-                kind: "group" as const,
-                operator: "and" as const,
-                children: normalizedFilters.map(([filterKey, filterVal]) => {
-                  const propType =
-                    propertyTypes?.[filterKey] ?? (filterKey === "title" ? "text" : undefined)
-                  let operator: "contains" | "equals" | "notEquals" | "greaterThan" | "lessThan" =
-                    "contains"
-                  let val = filterVal
-                  if (propType === "date" || propType === "number") {
-                    if (val.startsWith(">")) {
-                      operator = "greaterThan"
-                      val = val.slice(1).trim()
-                    } else if (val.startsWith("<")) {
-                      operator = "lessThan"
-                      val = val.slice(1).trim()
-                    } else if (val.startsWith("!=")) {
-                      operator = "notEquals"
-                      val = val.slice(2).trim()
-                    } else {
-                      operator = "equals"
-                      val = val.trim()
-                    }
-                  } else if (propType === "checkbox") {
-                    operator = "equals"
-                    val = val.trim()
-                  }
-                  return {
-                    kind: "condition" as const,
-                    field: (filterKey === "title"
-                      ? { kind: "system", field: "title" }
-                      : { kind: "property", propertyId: filterKey }) as storage.DatabaseFieldRef,
-                    operator,
-                    value:
-                      propType === "checkbox"
-                        ? JSON.stringify(val === "true" || val === "1")
-                        : JSON.stringify(val),
-                  }
-                }),
-              }
-            : undefined
-
           const result = await storage.queryDatabase({
             expectedGeneration: vaultGeneration,
             databaseId,
             search: search.trim() || undefined,
-            sorts: sortValue
-              ? [
+            sorts: sorts?.length ? sorts : undefined,
+            filter,
+            // The view's own filter and sorts arrive as `filter`/`sorts`, so the
+            // query never depends on the projection having caught up with a save.
+            source: {
+              kind: "inline",
+              spec: {
+                sorts: [
                   {
-                    field:
-                      sortValue.key === "title"
-                        ? { kind: "system", field: "title" }
-                        : { kind: "property", propertyId: sortValue.key },
-                    direction: sortValue.direction,
+                    field: { kind: "system", field: "title" },
+                    direction: "asc",
                     nulls: "last",
                   },
-                ]
-              : undefined,
-            filter,
-            source: viewId
-              ? { kind: "savedView", viewId }
-              : {
-                  kind: "inline",
-                  spec: {
-                    sorts: [
-                      {
-                        field: { kind: "system", field: "title" },
-                        direction: "asc",
-                        nulls: "last",
-                      },
-                    ],
-                  },
-                },
+                ],
+              },
+            },
             page: { limit: DEFAULT_PAGE_SIZE, cursor: cursor ?? undefined },
+            contextPageId,
           })
 
           const state = useDatabaseStore.getState()
@@ -250,12 +193,12 @@ export function useDatabaseQuery({
       hostId,
       hostKind,
       key,
-      normalizedFilters,
-      propertyTypes,
+      contextPageId,
+      filter,
       queryIdentity,
       search,
       setHost,
-      sortValue,
+      sorts,
       vaultGeneration,
       viewId,
     ],

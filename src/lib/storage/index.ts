@@ -20,6 +20,10 @@ import type {
   DatabaseValueBatchRequest,
   CreateDatabaseRowRequest,
   ImportDatabaseAssetRequest,
+  ConfigureDatabaseRollupRequest,
+  ResolveDatabaseAssetPathsRequest,
+  SearchRelationCandidatesRequest,
+  ResolveRecordReferencesRequest,
   DatabaseYamlSyncRequest,
   DatabaseYamlResolveRequest,
   CreateDatabaseViewRequest,
@@ -319,6 +323,14 @@ export const createDatabaseRow = (request: CreateDatabaseRowRequest) => {
 }
 export const importDatabaseAsset = (request: ImportDatabaseAssetRequest) =>
   getAdapter().importDatabaseAsset(request)
+export const resolveDatabaseAssetPaths = (request: ResolveDatabaseAssetPathsRequest) =>
+  getAdapter().resolveDatabaseAssetPaths(request)
+export const searchRelationCandidates = (request: SearchRelationCandidatesRequest) =>
+  getAdapter().searchRelationCandidates(request)
+export const resolveRecordReferences = (request: ResolveRecordReferencesRequest) =>
+  getAdapter().resolveRecordReferences(request)
+export const configureDatabaseRollup = (request: ConfigureDatabaseRollupRequest) =>
+  getAdapter().configureDatabaseRollup(request)
 export const syncDatabaseYaml = (request: DatabaseYamlSyncRequest) =>
   traceOperation("database.sync_yaml", { databaseId: request.databaseId }, () =>
     getAdapter().syncDatabaseYaml(request),

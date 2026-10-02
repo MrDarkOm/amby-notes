@@ -1,5 +1,6 @@
 "use client"
 
+import { registerDatabaseNavigation } from "./database/database-navigation"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronDown, FolderOpen } from "lucide-react"
@@ -969,6 +970,16 @@ export function WorkspaceOrchestration() {
     windowLabel,
     refreshDatabaseCatalog,
   })
+
+  // Embedded database views open pages and databases through the app, not on their own.
+  React.useEffect(
+    () =>
+      registerDatabaseNavigation({
+        openNote: (noteId) => handleSelect(noteId),
+        openDatabase: (databaseId, title) => openDatabaseTab(databaseId, title, true),
+      }),
+    [handleSelect, openDatabaseTab],
+  )
 
   const handleRenameDatabaseRow = React.useCallback(
     async (rowId: string, name: string) => {

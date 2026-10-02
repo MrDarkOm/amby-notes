@@ -13,7 +13,7 @@ use walkdir::{DirEntry, WalkDir};
 
 use super::format::{
     parse_manifest, parse_record, parse_template, parse_view, DatabaseManifest, FormatError,
-    PropertyDefinition, PropertyValue,
+    PropertyDefinition,
 };
 use super::validation::{validate_manifest, validate_record};
 use crate::frontmatter;
@@ -272,119 +272,13 @@ fn repair_container_shards(
         changed = true;
     }
 
-    // 2. Migrate legacy records from .ambd/records into note frontmatter
-    let records_dir = dir.join(".ambd").join("records");
-    if records_dir.is_dir() {
-        let properties: Vec<PropertyDefinition> = manifest_val
-            .get("properties")
-            .and_then(|p| serde_json::from_value(p.clone()).ok())
-            .unwrap_or_default();
-
-        if let Ok(entries) = fs::read_dir(&records_dir) {
-            for entry in entries.filter_map(Result::ok) {
-                let path = entry.path();
-                if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json")
-                {
-                    continue;
-                }
-                let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
-                    continue;
-                };
-                if let Ok(bytes) = fs::read(&path) {
-                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                        let note_path =
-                            crate::database::mutations::resolve_note_path_for_id(vault, dir, stem)
-                                .ok()
-                                .or_else(|| {
-                                    let candidate = dir.join(format!("{stem}.md"));
-                                    if candidate.is_file() {
-                                        Some(candidate)
-                                    } else {
-                                        None
-                                    }
-                                });
-                        if let Some(note_path) = note_path {
-                            if let Ok(mut content) = fs::read_to_string(&note_path) {
-                                let mut note_changed = false;
-                                if frontmatter::frontmatter_yaml_mapping(&content)
-                                    .ok()
-                                    .flatten()
-                                    .is_none()
-                                {
-                                    content = format!("---\namby-id: {stem}\n---\n{content}");
-                                    note_changed = true;
-                                } else if frontmatter::read_markdown(&note_path)
-                                    .ok()
-                                    .and_then(|p| p.id)
-                                    .as_deref()
-                                    != Some(stem)
-                                {
-                                    if let Ok(updated) = frontmatter::replace_yaml_binding_lossless(
-                                        &content,
-                                        "amby-id",
-                                        &serde_yaml::Value::String(stem.to_string()),
-                                    ) {
-                                        if updated != content {
-                                            content = updated;
-                                            note_changed = true;
-                                        }
-                                    }
-                                }
-                                if let Some(values_obj) =
-                                    val.get("values").and_then(|v| v.as_object())
-                                {
-                                    for (prop_id, val_json) in values_obj {
-                                        if let Some(prop_def) = properties
-                                            .iter()
-                                            .find(|p| p.id() == Some(prop_id.as_str()))
-                                        {
-                                            if let Some(prop_name) = prop_def
-                                                .frontmatter_key()
-                                                .or_else(|| prop_def.name())
-                                            {
-                                                if let Ok(prop_val) =
-                                                    serde_json::from_value::<PropertyValue>(
-                                                        val_json.clone(),
-                                                    )
-                                                {
-                                                    if let Some(fm_val) =
-                                                        super::format::property_value_to_frontmatter_value(
-                                                            &prop_val, prop_def,
-                                                        )
-                                                    {
-                                                        if let Ok(next) =
-                                                            frontmatter::replace_yaml_binding_lossless(
-                                                                &content,
-                                                                prop_name,
-                                                                &fm_val,
-                                                            )
-                                                        {
-                                                            if next != content {
-                                                                content = next;
-                                                                note_changed = true;
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                if note_changed {
-                                    let _ = frontmatter::atomic_write_bytes(
-                                        &note_path,
-                                        content.as_bytes(),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-                let _ = fs::remove_file(&path);
-                changed = true;
-            }
-        }
-        let _ = fs::remove_dir(&records_dir);
+    // 2. Move legacy records from .ambd/records into note frontmatter
+    let properties: Vec<PropertyDefinition> = manifest_val
+        .get("properties")
+        .and_then(|p| serde_json::from_value(p.clone()).ok())
+        .unwrap_or_default();
+    if super::legacy_records::migrate_container_records(vault, dir, &properties) {
+        changed = true;
     }
 
     // 3. Repair all templates in .ambd/templates

@@ -6,23 +6,30 @@ import {
   aggregateDatabase,
   type DatabaseAggregateResult,
   type DatabaseFieldRef,
+  type DatabaseFilterNode,
 } from "@/lib/storage"
+import { useDatabaseStore } from "./database-store"
 
 interface ChartViewProps {
   databaseId: string
-  viewId: string
   expectedGeneration: number | null
   enabled: boolean
   category?: DatabaseFieldRef
+  /** The view's filter and the toolbar search: the chart counts what the table shows. */
+  filter?: DatabaseFilterNode
+  search?: string
 }
 
 export function ChartView({
   databaseId,
-  viewId,
   expectedGeneration,
   enabled,
   category,
+  filter,
+  search = "",
 }: ChartViewProps) {
+  const invalidationSeq = useDatabaseStore((state) => state.invalidationSeq)
+  const requestToken = React.useRef(0)
   const { t } = useTranslation()
   const [result, setResult] = React.useState<DatabaseAggregateResult | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -30,25 +37,31 @@ export function ChartView({
 
   const load = React.useCallback(async () => {
     if (!enabled || expectedGeneration === null) return
+    const mine = ++requestToken.current
     setLoading(true)
     setError(null)
     try {
-      setResult(
-        await aggregateDatabase({
-          expectedGeneration,
-          databaseId,
-          source: { kind: "savedView", viewId },
-          category,
-          aggregation: "count",
-          limit: 12,
-        }),
-      )
+      const next = await aggregateDatabase({
+        expectedGeneration,
+        databaseId,
+        source: { kind: "inline", spec: { filter, sorts: [] } },
+        category,
+        aggregation: "count",
+        search: search.trim() || undefined,
+        limit: 12,
+      })
+      // An older answer must not replace the result for the current filter.
+      if (mine === requestToken.current) setResult(next)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      if (mine === requestToken.current) {
+        setError(reason instanceof Error ? reason.message : String(reason))
+      }
     } finally {
-      setLoading(false)
+      if (mine === requestToken.current) setLoading(false)
     }
-  }, [category, databaseId, enabled, expectedGeneration, viewId])
+    // `invalidationSeq` reloads the chart whenever the projection changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, databaseId, enabled, expectedGeneration, filter, search, invalidationSeq])
 
   React.useEffect(() => {
     void load()

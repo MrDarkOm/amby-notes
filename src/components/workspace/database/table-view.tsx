@@ -64,9 +64,37 @@ import {
 const DEFAULT_ROW_HEIGHT = 52
 const WRAPPED_ROW_HEIGHT = 84
 const OVERSCAN = 8
+function canFilterType(propertyType: string): boolean {
+  return [
+    "text",
+    "url",
+    "number",
+    "date",
+    "checkbox",
+    "select",
+    "status",
+    "multiselect",
+    "multiSelect",
+    "relation",
+    "files",
+  ].includes(propertyType)
+}
+
 const MIN_PROPERTY_WIDTH = 56
 const MIN_TITLE_WIDTH = 80
 const ACTION_COLUMN_WIDTH = "3.5rem"
+
+export interface TableSavedSettings {
+  widths: Record<string, number>
+  wrapped: string[]
+  frozenKey: string | null
+}
+
+export interface TableSettingsPatch {
+  widths?: Record<string, number>
+  wrapped?: string[]
+  frozenKey?: string | null
+}
 
 interface TableViewProps {
   databaseId: string
@@ -95,16 +123,20 @@ interface TableViewProps {
   onRenameProperty?: (propertyId: string, name: string) => Promise<void> | void
   onChangePropertyType?: (propertyId: string, propertyType: string) => Promise<void> | void
   onConfigureRelation?: (property: DatabasePropertySummary) => void
-  filterValues?: Record<string, string>
-  onFilterValuesChange?: (values: Record<string, string>) => void
+  onConfigureRollup?: (property: DatabasePropertySummary) => void
+  /** First calculation failure per computed kind, for cells that have no value. */
+  computedErrors?: Partial<Record<"formula" | "rollup", string>>
+  /** Columns that currently have a saved filter (for the header indicator). */
+  filteredFieldKeys?: Set<string>
+  /** The header's "Filter" action: opens the view's filter editor on this column. */
+  onFilterColumn?: (fieldKey: string) => void
   sortValue?: { key: string; direction: "asc" | "desc" } | null
   onSortValueChange?: (value: { key: string; direction: "asc" | "desc" } | null) => void
   hiddenPropertyIds?: Set<string>
   onHiddenPropertyIdsChange?: (hiddenPropertyIds: Set<string>) => void
-  relationOptionsByProperty?: Record<
-    string,
-    Array<{ noteId: string; title: string; icon?: string | null }>
-  >
+  /** Persisted layout of this view; local state follows it and reports user changes. */
+  savedSettings?: TableSavedSettings
+  onSavedSettingsChange?: (patch: TableSettingsPatch) => void
   onOpenNote?: (noteId: string) => void
   databases?: DatabaseSummary[]
   onCreateRelationRow?: (targetDatabaseId: string, title: string) => Promise<string | void>
@@ -183,13 +215,16 @@ export function TableView({
   onRenameProperty,
   onChangePropertyType,
   onConfigureRelation,
-  filterValues,
-  onFilterValuesChange,
+  onConfigureRollup,
+  computedErrors,
+  filteredFieldKeys,
+  onFilterColumn,
   sortValue,
   onSortValueChange,
   hiddenPropertyIds: propHiddenPropertyIds,
   onHiddenPropertyIdsChange,
-  relationOptionsByProperty = {},
+  savedSettings,
+  onSavedSettingsChange,
   onOpenNote,
   databases,
   onCreateRelationRow,
@@ -200,7 +235,6 @@ export function TableView({
   const [viewportHeight, setViewportHeight] = React.useState(480)
   const [selectedNoteId, setSelectedNoteId] = React.useState<string | null>(null)
   const [columnWidths, setColumnWidths] = React.useState<Record<string, number>>({})
-  const [propertyFilters, setPropertyFilters] = React.useState<Record<string, string>>({})
   const [propertySort, setPropertySort] = React.useState<{
     key: string
     direction: "asc" | "desc"
@@ -228,6 +262,20 @@ export function TableView({
   )
   const [wrappedPropertyIds, setWrappedPropertyIds] = React.useState<Set<string>>(new Set())
   const [frozenColumnKey, setFrozenColumnKey] = React.useState<string | null>(null)
+  const columnWidthsRef = React.useRef(columnWidths)
+  columnWidthsRef.current = columnWidths
+  const savedSettingsKey = savedSettings ? JSON.stringify(savedSettings) : null
+  React.useEffect(() => {
+    if (!savedSettingsKey) return
+    const saved = JSON.parse(savedSettingsKey) as TableSavedSettings
+    setColumnWidths((current) => ({ ...current, ...saved.widths }))
+    setWrappedPropertyIds(new Set(saved.wrapped))
+    setFrozenColumnKey(saved.frozenKey)
+  }, [savedSettingsKey])
+  const persistSettings = React.useCallback(
+    (patch: TableSettingsPatch) => onSavedSettingsChange?.(patch),
+    [onSavedSettingsChange],
+  )
   const initializedWidthKeys = React.useRef(new Set<string>())
   const resizeRef = React.useRef<{ key: string; startX: number; startWidth: number } | null>(null)
   const viewportRef = React.useRef<HTMLDivElement>(null)
@@ -236,18 +284,6 @@ export function TableView({
   const nextPagePendingRef = React.useRef(false)
   const lastPageTriggerRef = React.useRef(0)
 
-  const updateFilterValue = React.useCallback(
-    (key: string, value: string) => {
-      setPropertyFilters((current) => {
-        const next = { ...current }
-        if (value.trim()) next[key] = value
-        else delete next[key]
-        onFilterValuesChange?.(next)
-        return next
-      })
-    },
-    [onFilterValuesChange],
-  )
   const updateSortValue = React.useCallback(
     (value: { key: string; direction: "asc" | "desc" } | null) => {
       setPropertySort(value)
@@ -256,9 +292,6 @@ export function TableView({
     [onSortValueChange],
   )
 
-  React.useEffect(() => {
-    if (filterValues) setPropertyFilters(filterValues)
-  }, [filterValues])
   React.useEffect(() => {
     if (sortValue !== undefined) setPropertySort(sortValue)
   }, [sortValue])
@@ -287,6 +320,8 @@ export function TableView({
   }, [properties, rows])
 
   React.useEffect(() => {
+    // An empty schema is "not loaded yet", not "all properties were deleted".
+    if (properties.length === 0) return
     const available = new Set(properties.map((property) => property.propertyId))
     setHiddenPropertyIds((current) => {
       const next = new Set([...current].filter((id) => available.has(id)))
@@ -295,13 +330,6 @@ export function TableView({
     setWrappedPropertyIds((current) => {
       const next = new Set([...current].filter((id) => available.has(id)))
       return next.size === current.size ? current : next
-    })
-    setPropertyFilters((current) => {
-      const next = Object.fromEntries(
-        Object.entries(current).filter(([key]) => key === "title" || available.has(key)),
-      )
-      if (Object.keys(next).length !== Object.keys(current).length) onFilterValuesChange?.(next)
-      return Object.keys(next).length === Object.keys(current).length ? current : next
     })
     setPropertySort((current) => {
       const next =
@@ -312,7 +340,7 @@ export function TableView({
     setFrozenColumnKey((current) =>
       current && current !== "title" && !available.has(current) ? null : current,
     )
-  }, [onFilterValuesChange, onSortValueChange, properties, setHiddenPropertyIds])
+  }, [onSortValueChange, properties, setHiddenPropertyIds])
 
   React.useEffect(() => {
     const move = (event: PointerEvent) => {
@@ -327,6 +355,13 @@ export function TableView({
       }))
     }
     const stop = () => {
+      const resized = resizeRef.current
+      if (resized) {
+        const width = columnWidthsRef.current[resized.key]
+        if (width !== undefined && width !== resized.startWidth) {
+          persistSettings({ widths: { [resized.key]: width } })
+        }
+      }
       resizeRef.current = null
       document.body.style.cursor = ""
       document.body.style.userSelect = ""
@@ -337,7 +372,7 @@ export function TableView({
       window.removeEventListener("pointermove", move)
       window.removeEventListener("pointerup", stop)
     }
-  }, [])
+  }, [persistSettings])
 
   React.useLayoutEffect(() => {
     const element = viewportRef.current
@@ -564,17 +599,19 @@ export function TableView({
                     options: [],
                   }}
                   onRename={onTitleColumnNameChange}
-                  filterValue={propertyFilters.title ?? ""}
+                  filterActive={Boolean(filteredFieldKeys?.has("title"))}
                   sortDirection={propertySort?.key === "title" ? propertySort.direction : null}
                   isFrozen={frozenColumnKey === "title"}
                   canFilter
-                  onFilterChange={(value) => updateFilterValue("title", value)}
+                  onFilter={onFilterColumn ? () => onFilterColumn("title") : undefined}
                   onSort={(direction) =>
                     updateSortValue(direction ? { key: "title", direction } : null)
                   }
-                  onToggleFreeze={() =>
-                    setFrozenColumnKey((current) => (current === "title" ? null : "title"))
-                  }
+                  onToggleFreeze={() => {
+                    const next = frozenColumnKey === "title" ? null : "title"
+                    setFrozenColumnKey(next)
+                    persistSettings({ frozenKey: next })
+                  }}
                   onInsertRight={
                     onAddProperty ? () => onAddProperty(properties[0]?.propertyId) : undefined
                   }
@@ -642,39 +679,22 @@ export function TableView({
                           ? () => onConfigureRelation(property)
                           : undefined
                       }
-                      filterValue={propertyFilters[property.propertyId] ?? ""}
+                      onConfigureRollup={
+                        property.propertyType === "rollup" && onConfigureRollup
+                          ? () => onConfigureRollup(property)
+                          : undefined
+                      }
+                      filterActive={Boolean(filteredFieldKeys?.has(property.propertyId))}
                       sortDirection={
                         propertySort?.key === property.propertyId ? propertySort.direction : null
                       }
                       isFrozen={frozenColumnKey === property.propertyId}
                       isWrapped={wrappedPropertyIds.has(property.propertyId)}
                       canWrap={property.propertyType === "text" || property.propertyType === "url"}
-                      canFilter={[
-                        "text",
-                        "url",
-                        "number",
-                        "date",
-                        "checkbox",
-                        "select",
-                        "status",
-                        "multiselect",
-                        "multiSelect",
-                        "relation",
-                      ].includes(property.propertyType)}
-                      onFilterChange={
-                        [
-                          "text",
-                          "url",
-                          "number",
-                          "date",
-                          "checkbox",
-                          "select",
-                          "status",
-                          "multiselect",
-                          "multiSelect",
-                          "relation",
-                        ].includes(property.propertyType)
-                          ? (value) => updateFilterValue(property.propertyId, value)
+                      canFilter={canFilterType(property.propertyType)}
+                      onFilter={
+                        onFilterColumn && canFilterType(property.propertyType)
+                          ? () => onFilterColumn(property.propertyId)
                           : undefined
                       }
                       onSort={
@@ -687,27 +707,27 @@ export function TableView({
                               )
                           : undefined
                       }
-                      onToggleFreeze={() =>
-                        setFrozenColumnKey((current) =>
-                          current === property.propertyId ? null : property.propertyId,
-                        )
-                      }
+                      onToggleFreeze={() => {
+                        const next =
+                          frozenColumnKey === property.propertyId ? null : property.propertyId
+                        setFrozenColumnKey(next)
+                        persistSettings({ frozenKey: next })
+                      }}
                       onHide={() => {
                         setHiddenPropertyIds((current) => new Set(current).add(property.propertyId))
-                        updateFilterValue(property.propertyId, "")
                         if (propertySort?.key === property.propertyId) updateSortValue(null)
-                        setFrozenColumnKey((current) =>
-                          current === property.propertyId ? null : current,
-                        )
+                        if (frozenColumnKey === property.propertyId) {
+                          setFrozenColumnKey(null)
+                          persistSettings({ frozenKey: null })
+                        }
                       }}
-                      onToggleWrap={() =>
-                        setWrappedPropertyIds((current) => {
-                          const next = new Set(current)
-                          if (next.has(property.propertyId)) next.delete(property.propertyId)
-                          else next.add(property.propertyId)
-                          return next
-                        })
-                      }
+                      onToggleWrap={() => {
+                        const next = new Set(wrappedPropertyIds)
+                        if (next.has(property.propertyId)) next.delete(property.propertyId)
+                        else next.add(property.propertyId)
+                        setWrappedPropertyIds(next)
+                        persistSettings({ wrapped: [...next] })
+                      }}
                       onInsertLeft={
                         onAddProperty ? () => onAddProperty(property.propertyId) : undefined
                       }
@@ -951,11 +971,16 @@ export function TableView({
                         <DatabaseCell
                           property={property}
                           valuesJson={row.valuesJson}
-                          relationOptions={relationOptionsByProperty[property.propertyId] ?? []}
                           wrap={wrappedPropertyIds.has(property.propertyId)}
                           pending={!onCellCommit || pendingCells.has(cellKey)}
                           error={cellErrors[cellKey]}
                           targetDatabaseTitle={targetDbTitle}
+                          computedError={
+                            property.propertyType === "formula" ||
+                            property.propertyType === "rollup"
+                              ? computedErrors?.[property.propertyType]
+                              : undefined
+                          }
                           onCommit={(valueJson) =>
                             onCellCommit?.(row, property, valueJson) ?? Promise.resolve()
                           }
@@ -1021,13 +1046,14 @@ export function PropertyHeaderMenu({
   onRename,
   onChangeType,
   onConfigureRelation,
-  filterValue = "",
+  onConfigureRollup,
+  filterActive = false,
   sortDirection = null,
   canFilter = true,
   isFrozen = false,
   isWrapped = false,
   canWrap = false,
-  onFilterChange,
+  onFilter,
   onSort,
   onToggleFreeze,
   onHide,
@@ -1043,14 +1069,15 @@ export function PropertyHeaderMenu({
   onRename: (name: string) => Promise<void> | void
   onChangeType?: (propertyType: string) => Promise<void> | void
   onConfigureRelation?: () => void
-  filterValue?: string
+  onConfigureRollup?: () => void
+  filterActive?: boolean
   sortDirection?: "asc" | "desc" | null
   canFilter?: boolean
   isFrozen?: boolean
   isWrapped?: boolean
   canWrap?: boolean
   cursorText?: boolean
-  onFilterChange?: (value: string) => void
+  onFilter?: () => void
   onSort?: (direction: "asc" | "desc" | null) => void
   onToggleFreeze?: () => void
   onHide?: () => void
@@ -1063,9 +1090,7 @@ export function PropertyHeaderMenu({
   const [open, setOpen] = React.useState(false)
   const [draft, setDraft] = React.useState(property.name)
   const [busy, setBusy] = React.useState(false)
-  const [filterEditorOpen, setFilterEditorOpen] = React.useState(Boolean(filterValue))
   const inputRef = React.useRef<HTMLInputElement>(null)
-  const filterInputRef = React.useRef<HTMLInputElement>(null)
   const committingRef = React.useRef(false)
   const iconTriggerRef = React.useRef<HTMLButtonElement>(null)
   const [iconPickerOpen, setIconPickerOpen] = React.useState(false)
@@ -1112,8 +1137,6 @@ export function PropertyHeaderMenu({
         if (nextOpen) {
           setDraft(property.name)
           focusName()
-        } else {
-          setFilterEditorOpen(Boolean(filterValue))
         }
       }}
     >
@@ -1256,54 +1279,29 @@ export function PropertyHeaderMenu({
           />
         )}
 
+        {onConfigureRollup && (
+          <PropertyMenuItem
+            icon={<ArrowUpRight />}
+            label={t("databaseRollup.configure")}
+            onSelect={() => {
+              setOpen(false)
+              onConfigureRollup()
+            }}
+          />
+        )}
+
         <DropdownMenuSeparator className="my-1.5" />
 
         <PropertyMenuItem
           icon={<ListFilter />}
           label={t("databaseTable.filterProperty")}
-          active={Boolean(filterValue)}
-          disabled={!onFilterChange || !canFilter}
-          onSelect={(event) => {
-            event.preventDefault()
-            setFilterEditorOpen(true)
-            requestAnimationFrame(() => filterInputRef.current?.focus())
+          active={filterActive}
+          disabled={!onFilter || !canFilter}
+          onSelect={() => {
+            setOpen(false)
+            onFilter?.()
           }}
         />
-        {filterEditorOpen && onFilterChange && (
-          <div
-            className="mx-1 mb-1 flex h-9 items-center rounded-lg border border-border bg-background px-2 focus-within:ring-1 focus-within:ring-ring"
-            onKeyDown={(event) => event.stopPropagation()}
-          >
-            <input
-              ref={filterInputRef}
-              autoFocus
-              value={filterValue}
-              placeholder={t("databaseTable.filterPlaceholder")}
-              aria-label={t("databaseTable.filterProperty")}
-              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-              onChange={(event) => onFilterChange(event.target.value)}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.preventDefault()
-                  setFilterEditorOpen(false)
-                }
-              }}
-            />
-            {filterValue && (
-              <button
-                type="button"
-                className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                title={t("databaseTable.clearFilter")}
-                aria-label={t("databaseTable.clearFilter")}
-                onPointerDown={(event) => event.preventDefault()}
-                onClick={() => onFilterChange("")}
-              >
-                <X className="size-3.5" />
-              </button>
-            )}
-          </div>
-        )}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger
             className="h-9 gap-2.5 rounded-lg px-2 text-sm"

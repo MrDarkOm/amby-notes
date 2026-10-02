@@ -21,6 +21,14 @@ import {
   type CreatedDatabaseRow,
   type ImportDatabaseAssetRequest,
   type ImportedDatabaseAsset,
+  type ConfigureDatabaseRollupRequest,
+  type ConfiguredDatabaseRollup,
+  type ResolveDatabaseAssetPathsRequest,
+  type ResolvedDatabaseAssetPaths,
+  type SearchRelationCandidatesRequest,
+  type RelationCandidatePage,
+  type ResolveRecordReferencesRequest,
+  type ResolvedRecordReferences,
   type DatabaseYamlSyncRequest,
   type DatabaseYamlSyncResult,
   type DatabaseYamlResolveRequest,
@@ -70,6 +78,16 @@ export interface DatabasePort {
   ): Promise<UpdateDatabaseRelationValueResult>
   createDatabaseRow(request: CreateDatabaseRowRequest): Promise<CreatedDatabaseRow>
   importDatabaseAsset(request: ImportDatabaseAssetRequest): Promise<ImportedDatabaseAsset>
+  resolveDatabaseAssetPaths(
+    request: ResolveDatabaseAssetPathsRequest,
+  ): Promise<ResolvedDatabaseAssetPaths>
+  searchRelationCandidates(request: SearchRelationCandidatesRequest): Promise<RelationCandidatePage>
+  resolveRecordReferences(
+    request: ResolveRecordReferencesRequest,
+  ): Promise<ResolvedRecordReferences>
+  configureDatabaseRollup(
+    request: ConfigureDatabaseRollupRequest,
+  ): Promise<ConfiguredDatabaseRollup>
   syncDatabaseYaml(request: DatabaseYamlSyncRequest): Promise<DatabaseYamlSyncResult>
   resolveDatabaseYamlConflict(request: DatabaseYamlResolveRequest): Promise<DatabaseYamlSyncResult>
   listDatabases(): Promise<DatabaseSummary[]>

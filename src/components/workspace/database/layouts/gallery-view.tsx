@@ -2,12 +2,25 @@ import * as React from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import type { DatabaseRow } from "@/lib/storage"
+import type { DatabasePropertySummary, DatabaseRow } from "@/lib/storage"
 import { DatabaseValueCell } from "../database-value-cell"
+import { resolveDatabaseAssetPaths } from "@/lib/storage"
+import type { CardSize } from "../view-config"
+import { createCoverResolver } from "./cover-resolver"
+import { GalleryCover } from "./gallery-cover"
 import { resolveGalleryPreview } from "./gallery-preview"
+
+const GALLERY_CARD_WIDTH: Record<CardSize, number> = { small: 170, medium: 220, large: 320 }
+const GALLERY_CARD_HEIGHT: Record<CardSize, number> = { small: 190, medium: 240, large: 330 }
 
 interface GalleryViewProps {
   rows: DatabaseRow[]
+  properties?: DatabasePropertySummary[]
+  relationTitles?: Record<string, string>
+  databaseId?: string
+  cardFields?: string[] | null
+  cardSize?: CardSize
+  vaultGeneration?: number | null
   loading?: boolean
   error?: string | null
   hasNextPage?: boolean
@@ -18,6 +31,12 @@ interface GalleryViewProps {
 
 export function GalleryView({
   rows,
+  properties = [],
+  relationTitles,
+  databaseId,
+  cardFields = null,
+  cardSize = "medium",
+  vaultGeneration = null,
   loading = false,
   error = null,
   hasNextPage = false,
@@ -26,23 +45,40 @@ export function GalleryView({
   onRowSelect,
 }: GalleryViewProps) {
   const parentRef = React.useRef<HTMLDivElement>(null)
+  const coverResolver = React.useMemo(
+    () =>
+      createCoverResolver(async (relativePaths) => {
+        if (!databaseId || vaultGeneration === null) return relativePaths.map(() => null)
+        const result = await resolveDatabaseAssetPaths({
+          expectedGeneration: vaultGeneration,
+          databaseId,
+          relativePaths,
+        })
+        return result.paths
+      }),
+    [databaseId, vaultGeneration],
+  )
+  React.useEffect(() => () => coverResolver.clear(), [coverResolver])
   const [columnCount, setColumnCount] = React.useState(1)
 
   React.useLayoutEffect(() => {
     const element = parentRef.current
     if (!element) return
-    const update = () => setColumnCount(Math.max(1, Math.floor((element.clientWidth + 12) / 220)))
+    const update = () =>
+      setColumnCount(
+        Math.max(1, Math.floor((element.clientWidth + 12) / GALLERY_CARD_WIDTH[cardSize])),
+      )
     update()
     const observer = new ResizeObserver(update)
     observer.observe(element)
     return () => observer.disconnect()
-  }, [])
+  }, [cardSize])
 
   const rowCount = Math.ceil(rows.length / columnCount)
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 180,
+    estimateSize: () => GALLERY_CARD_HEIGHT[cardSize],
     overscan: 4,
   })
 
@@ -98,22 +134,18 @@ export function GalleryView({
                   <button
                     key={row.noteId}
                     type="button"
-                    className="group flex min-h-36 flex-col justify-between rounded-xl border border-border/70 bg-card/60 p-4 text-left hover:border-primary/50 hover:bg-accent/40"
+                    className="group flex min-h-36 flex-col rounded-xl border border-border/70 bg-card/60 p-4 text-left hover:border-primary/50 hover:bg-accent/40"
                     onClick={() => onRowSelect?.(row)}
                   >
                     <span>
-                      <span
-                        className={`mb-2 block h-16 rounded-md ${preview.kind === "asset" ? "bg-muted" : "bg-muted/70"}`}
-                        aria-hidden="true"
-                      />
+                      <GalleryCover preview={preview} resolver={coverResolver} size={cardSize} />
                       <span className="block truncate text-sm font-semibold">{row.title}</span>
-                      <span className="mt-1 block truncate text-xs text-muted-foreground">
-                        {row.relativePath}
-                      </span>
-                      <DatabaseValueCell row={row} />
-                    </span>
-                    <span className="mt-4 truncate font-mono text-[10px] text-muted-foreground">
-                      {row.noteId}
+                      <DatabaseValueCell
+                        row={row}
+                        properties={properties}
+                        relationTitles={relationTitles}
+                        fields={cardFields}
+                      />
                     </span>
                   </button>
                 )

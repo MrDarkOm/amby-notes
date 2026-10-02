@@ -794,19 +794,7 @@ fn validate_property(
                 &fields.config.target_property_id,
                 &format!("{path}.config.targetPropertyId"),
             );
-            if !matches!(
-                fields.config.aggregation.as_str(),
-                "count"
-                    | "countNonEmpty"
-                    | "sum"
-                    | "average"
-                    | "min"
-                    | "max"
-                    | "earliest"
-                    | "latest"
-                    | "unique"
-                    | "percentChecked"
-            ) {
+            if super::rollup::canonical(&fields.config.aggregation).is_none() {
                 report.error(
                     ValidationCode::InvalidConfiguration,
                     format!("{path}.config.aggregation"),
@@ -1497,36 +1485,7 @@ fn field_kind<'a>(field: &'a FieldRef, manifest: Option<&'a DatabaseManifest>) -
 }
 
 fn operator_allowed(kind: &str, operator: &str) -> bool {
-    match kind {
-        "text" | "url" => matches!(
-            operator,
-            "is" | "isNot" | "contains" | "startsWith" | "isEmpty" | "isNotEmpty"
-        ),
-        "number" | "date" => matches!(
-            operator,
-            "equals" | "notEquals" | "gt" | "gte" | "lt" | "lte" | "isEmpty" | "isNotEmpty"
-        ),
-        "checkbox" => matches!(operator, "is" | "isNot" | "isEmpty" | "isNotEmpty"),
-        "select" | "status" | "multiSelect" | "relation" | "files" => matches!(
-            operator,
-            "is" | "isNot" | "contains" | "isEmpty" | "isNotEmpty"
-        ),
-        "system" => matches!(
-            operator,
-            "is" | "isNot"
-                | "contains"
-                | "startsWith"
-                | "isEmpty"
-                | "isNotEmpty"
-                | "equals"
-                | "notEquals"
-                | "gt"
-                | "gte"
-                | "lt"
-                | "lte"
-        ),
-        _ => true,
-    }
+    super::filter_operators::allowed(kind, operator)
 }
 
 fn validate_group(
@@ -1588,7 +1547,12 @@ fn validate_layout_config(report: &mut ValidationReport, layout: &str, config: &
         return;
     };
     let allowed: &[&str] = match layout {
-        "table" => &["columnBorders", "rowHeight", "frozenBoundary"],
+        "table" => &[
+            "columnBorders",
+            "rowHeight",
+            "frozenBoundary",
+            "wrappedFields",
+        ],
         "board" => &["groupPropertyId", "cardFields", "coverVisible"],
         "list" => &["secondaryFields", "indentation"],
         "gallery" => &["cardSize", "fieldList", "previewSource"],
@@ -1686,6 +1650,36 @@ mod tests {
             .errors
             .iter()
             .any(|issue| issue.code == ValidationCode::InvalidConfiguration));
+    }
+
+    #[test]
+    fn registry_operators_and_saved_table_settings_validate_without_read_only() {
+        let value = manifest();
+        for operator in [
+            "greaterThan",
+            "greaterOrEqual",
+            "lessOrEqual",
+            "gte",
+            "notEquals",
+            "isEmpty",
+        ] {
+            let raw = serde_json::json!({
+              "format":"amby-database-view","formatVersion":1,
+              "databaseId":"01J00000000000000000000000","viewId":"01J00000000000000000000002","name":"All",
+              "layout":"table","openMode":"sidePeek","subitemsMode":"nested","density":null,
+              "fields":[{"field":{"kind":"system","field":"title"},"visible":true,"width":300,"frozen":true}],
+              "filter":{"kind":"condition","field":{"kind":"property","propertyId":"01J00000000000000000000001"},"operator":operator,"value":"7"},
+              "sorts":[],"group":null,"manualOrder":[],"aggregates":[],
+              "layoutConfig":{"frozenBoundary":"title","wrappedFields":["01J00000000000000000000001"]}
+            });
+            let view: DatabaseViewFile = serde_json::from_value(raw).unwrap();
+            let report = validate_view(&view, Some(&value));
+            assert!(report.errors.is_empty(), "{operator}: {:?}", report.errors);
+            assert!(
+                !report.read_only,
+                "{operator} must not make the view read-only"
+            );
+        }
     }
 
     #[test]

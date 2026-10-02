@@ -1,5 +1,7 @@
 "use client"
 
+import { RollupWizard } from "./rollup-wizard"
+import { isDraftComplete, type RollupDraft } from "./rollup-model"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -172,6 +174,8 @@ export interface DatabasePropertyDialogProps {
   currentDatabaseId: string
   currentDatabaseTitle: string
   databases: DatabaseSummary[]
+  rollupDraft: RollupDraft
+  onRollupDraftChange: (draft: RollupDraft) => void
   mutationBusy: boolean
   mutationError: string | null
   onCreate: () => void
@@ -199,6 +203,8 @@ export function DatabasePropertyDialog({
   currentDatabaseId,
   currentDatabaseTitle,
   databases,
+  rollupDraft,
+  onRollupDraftChange,
   mutationBusy,
   mutationError,
   onCreate,
@@ -237,6 +243,7 @@ export function DatabasePropertyDialog({
               "status",
               "formula",
               "relation",
+              "rollup",
             ].map((type) => (
               <option key={type} value={type}>
                 {t(`databaseWorkspace.propertyTypes.${type}`)}
@@ -254,6 +261,15 @@ export function DatabasePropertyDialog({
               onChange={(event) => onFormulaExpressionChange(event.target.value)}
             />
           </label>
+        )}
+        {propertyType === "rollup" && (
+          <RollupWizard
+            draft={rollupDraft}
+            onChange={onRollupDraftChange}
+            database={databases.find((candidate) => candidate.databaseId === currentDatabaseId)}
+            databases={databases}
+            currentDatabaseId={currentDatabaseId}
+          />
         )}
         {propertyType === "relation" && (
           <div className="space-y-3 pt-1">
@@ -380,7 +396,14 @@ export function DatabasePropertyDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t("common.cancel")}
           </Button>
-          <Button disabled={!propertyName.trim() || mutationBusy} onClick={() => void onCreate()}>
+          <Button
+            disabled={
+              !propertyName.trim() ||
+              mutationBusy ||
+              (propertyType === "rollup" && !isDraftComplete(rollupDraft))
+            }
+            onClick={() => void onCreate()}
+          >
             {t("common.create")}
           </Button>
         </DialogFooter>

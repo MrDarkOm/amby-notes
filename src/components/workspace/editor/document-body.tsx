@@ -361,6 +361,7 @@ export function DocumentBody({
                 placeholder={t("editor.placeholder")}
                 vaultPath={vault}
                 notePath={docPath}
+                noteId={docId}
                 selection={editorSelection}
                 onSelectionChange={onEditorSelectionChange}
               />

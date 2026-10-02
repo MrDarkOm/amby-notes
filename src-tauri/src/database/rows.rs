@@ -1,5 +1,5 @@
 //! Structural row operations. A database row remains an ordinary Markdown
-//! note; the record shard is only an additional, rebuildable value source.
+//! note; its values live in frontmatter (legacy record shards are read-only input).
 
 use std::fs;
 use std::path::Path;

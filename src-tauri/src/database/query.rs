@@ -163,6 +163,7 @@ pub fn query_database(
             None => filter.clone(),
         });
     }
+    apply_page_context(&mut view_spec.filter, request.context_page_id.as_deref())?;
     let database_name = database_title
         .or_else(|| database_name(conn, &request.database_id).ok().flatten())
         .ok_or_else(|| QueryFailure::new("databaseNotFound", "database was not found"))?;
@@ -336,7 +337,7 @@ pub fn aggregate_database(
             "aggregate limit must be between 1 and 256",
         ));
     }
-    let (spec, database_title) = match &request.source {
+    let (mut spec, database_title) = match &request.source {
         DatabaseQuerySource::Inline { spec } => (spec.clone(), None),
         DatabaseQuerySource::SavedView {
             view_id,
@@ -373,6 +374,7 @@ pub fn aggregate_database(
             (query_spec_from_view(view), Some(row.0))
         }
     };
+    apply_page_context(&mut spec.filter, request.context_page_id.as_deref())?;
     let _database_name = database_title
         .or_else(|| database_name(conn, &request.database_id).ok().flatten())
         .ok_or_else(|| QueryFailure::new("databaseNotFound", "database was not found"))?;
@@ -770,6 +772,56 @@ fn sort_plan(
     })
 }
 
+/// The operand that stands for "the page this view is shown on".
+pub const CURRENT_PAGE_OPERAND: &str = "@currentPage";
+
+/// Replaces every `@currentPage` operand with the request's page ID. Asking for a
+/// page-relative filter without a page is an error: silently dropping the
+/// condition would show every record in a view meant to show one page's own.
+fn apply_page_context(
+    filter: &mut Option<DatabaseFilterNode>,
+    context_page_id: Option<&str>,
+) -> Result<(), QueryFailure> {
+    if let Some(id) = context_page_id {
+        if ulid::Ulid::from_string(id).is_err() {
+            return Err(QueryFailure::new(
+                "invalidContextPage",
+                "contextPageId must be a canonical ULID",
+            ));
+        }
+    }
+    fn walk(node: &mut DatabaseFilterNode, context: Option<&str>) -> Result<(), QueryFailure> {
+        match node {
+            DatabaseFilterNode::Group { children, .. } => {
+                for child in children {
+                    walk(child, context)?;
+                }
+                Ok(())
+            }
+            DatabaseFilterNode::Condition { value, .. } => {
+                let is_token = value
+                    .as_deref()
+                    .and_then(|raw| serde_json::from_str::<JsonValue>(raw).ok())
+                    .is_some_and(|operand| operand.as_str() == Some(CURRENT_PAGE_OPERAND));
+                if is_token {
+                    let id = context.ok_or_else(|| {
+                        QueryFailure::new(
+                            "missingPageContext",
+                            "this filter refers to the current page, but no page was given",
+                        )
+                    })?;
+                    *value = Some(JsonValue::String(id.to_owned()).to_string());
+                }
+                Ok(())
+            }
+        }
+    }
+    match filter {
+        Some(node) => walk(node, context_page_id),
+        None => Ok(()),
+    }
+}
+
 fn compile_filter(
     conn: &Connection,
     database_id: &str,
@@ -833,6 +885,12 @@ fn compile_condition(
     operand: Option<JsonValue>,
     bindings: &mut Vec<Value>,
 ) -> Result<String, QueryFailure> {
+    let operator = super::filter_operators::canonical(operator).ok_or_else(|| {
+        QueryFailure::new(
+            "invalidOperator",
+            format!("operator {operator} is not supported"),
+        )
+    })?;
     match field {
         DatabaseFieldRef::System { field } => {
             compile_system_condition(field, operator, operand, bindings)
@@ -901,13 +959,10 @@ fn compile_system_condition(
             bindings.push(Value::Text(bind_value));
             Ok(expression)
         }
-        "greaterThan" | "lessThan" => {
+        "greaterThan" | "greaterOrEqual" | "lessThan" | "lessOrEqual" => {
             let value = operand_i64(operand)?;
             bindings.push(Value::Integer(value));
-            Ok(format!(
-                "{column} {} ?",
-                if operator == "greaterThan" { ">" } else { "<" }
-            ))
+            Ok(format!("{column} {} ?", comparator(operator)))
         }
         _ => Err(QueryFailure::new(
             "invalidOperator",
@@ -943,12 +998,16 @@ fn compile_property_condition(
             bindings.push(Value::Text(property_id.to_owned()));
             Ok("EXISTS (SELECT 1 FROM db_values v WHERE v.database_id = m.database_id AND v.note_id = m.note_id AND v.property_id = ?)".to_owned())
         }
-        "equals" | "notEquals" => {
+        "equals" => {
             bindings.push(Value::Text(property_id.to_owned()));
-            let operand = property_operand(property_type, operand)?;
-            bindings.push(operand);
-            let comparator = if operator == "equals" { "=" } else { "<>" };
-            Ok(format!("{exists} {comparator} ?)"))
+            bindings.push(property_operand(property_type, operand)?);
+            Ok(format!("{exists} = ?)"))
+        }
+        // "Is not" includes rows without a value, like an empty cell is not the operand.
+        "notEquals" => {
+            bindings.push(Value::Text(property_id.to_owned()));
+            bindings.push(property_operand(property_type, operand)?);
+            Ok(format!("NOT {exists} = ?)"))
         }
         "contains" | "startsWith" if matches!(property_type, "text" | "url") => {
             bindings.push(Value::Text(property_id.to_owned()));
@@ -978,7 +1037,9 @@ fn compile_property_condition(
             bindings.push(Value::Text(operand));
             Ok("EXISTS (SELECT 1 FROM db_relation_edges re WHERE re.source_database_id = m.database_id AND re.source_note_id = m.note_id AND re.property_id = ? AND re.target_note_id = ?)".to_owned())
         }
-        "greaterThan" | "lessThan" if property_type == "number" => {
+        "greaterThan" | "greaterOrEqual" | "lessThan" | "lessOrEqual"
+            if property_type == "number" =>
+        {
             let operand = operand_string(operand)?;
             let decimal = canonical_decimal(&operand).map_err(|_| {
                 QueryFailure::new("invalidOperand", "number operand is not exact decimal")
@@ -991,12 +1052,14 @@ fn compile_property_condition(
             };
             bindings.push(Value::Text(property_id.to_owned()));
             bindings.push(Value::Blob(key));
-            let comparator = if operator == "greaterThan" { ">" } else { "<" };
+            let comparator = comparator(operator);
             Ok(format!(
                 "EXISTS (SELECT 1 FROM db_values v WHERE v.database_id = m.database_id AND v.note_id = m.note_id AND v.property_id = ? AND v.decimal_sort_key {comparator} ?)"
             ))
         }
-        "greaterThan" | "lessThan" if property_type == "date" => {
+        "greaterThan" | "greaterOrEqual" | "lessThan" | "lessOrEqual"
+            if property_type == "date" =>
+        {
             let operand = operand_string(operand)?;
             let (key, _) = super::projection::date_key(&operand);
             let Some(key) = key else {
@@ -1007,7 +1070,7 @@ fn compile_property_condition(
             };
             bindings.push(Value::Text(property_id.to_owned()));
             bindings.push(Value::Integer(key));
-            let comparator = if operator == "greaterThan" { ">" } else { "<" };
+            let comparator = comparator(operator);
             Ok(format!(
                 "EXISTS (SELECT 1 FROM db_values v WHERE v.database_id = m.database_id AND v.note_id = m.note_id AND v.property_id = ? AND v.date_start_key {comparator} ?)"
             ))
@@ -1016,6 +1079,15 @@ fn compile_property_condition(
             "invalidOperator",
             format!("operator {operator} is not supported for property type {property_type}"),
         )),
+    }
+}
+
+fn comparator(operator: &str) -> &'static str {
+    match operator {
+        "greaterThan" => ">",
+        "greaterOrEqual" => ">=",
+        "lessThan" => "<",
+        _ => "<=",
     }
 }
 

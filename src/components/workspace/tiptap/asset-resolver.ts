@@ -5,6 +5,8 @@ import { isTauri } from "@/lib/storage"
 export interface AssetContext {
   vaultPath: string
   notePath: string
+  /** The note being edited, for blocks that depend on the page they sit on. */
+  noteId?: string
 }
 
 const contexts = new WeakMap<Editor, AssetContext>()
@@ -108,6 +110,19 @@ export function resolveAssetSrcCandidates(editor: Editor | null, src: string): s
       return path
     }
   })
+}
+
+/**
+ * URL for an absolute path the backend already validated (for example a
+ * database asset). Only meaningful in the desktop runtime; `null` elsewhere.
+ */
+export function assetUrlForAbsolutePath(absolutePath: string): string | null {
+  if (!isTauri()) return null
+  try {
+    return convert(absolutePath)
+  } catch {
+    return null
+  }
 }
 
 let cachedConvert: ((p: string) => string) | null = null

@@ -77,6 +77,14 @@ import type {
   CreatedDatabaseRow,
   ImportDatabaseAssetRequest,
   ImportedDatabaseAsset,
+  ConfigureDatabaseRollupRequest,
+  ConfiguredDatabaseRollup,
+  ResolveDatabaseAssetPathsRequest,
+  ResolvedDatabaseAssetPaths,
+  SearchRelationCandidatesRequest,
+  RelationCandidatePage,
+  ResolveRecordReferencesRequest,
+  ResolvedRecordReferences,
   DatabaseYamlSyncRequest,
   DatabaseYamlSyncResult,
   DatabaseYamlResolveRequest,
@@ -402,6 +410,38 @@ export class WebAdapterCore implements StoragePort {
 
   async importDatabaseAsset(_request: ImportDatabaseAssetRequest): Promise<ImportedDatabaseAsset> {
     throw new DatabaseOperationError("failed", "Database asset import requires the desktop runtime")
+  }
+
+  async resolveDatabaseAssetPaths(
+    request: ResolveDatabaseAssetPathsRequest,
+  ): Promise<ResolvedDatabaseAssetPaths> {
+    // The browser fallback has no database files, hence no resolvable covers.
+    return { paths: request.relativePaths.map(() => null) }
+  }
+
+  async searchRelationCandidates(
+    _request: SearchRelationCandidatesRequest,
+  ): Promise<RelationCandidatePage> {
+    return { candidates: [], nextCursor: null }
+  }
+
+  async resolveRecordReferences(
+    request: ResolveRecordReferencesRequest,
+  ): Promise<ResolvedRecordReferences> {
+    return {
+      references: request.noteIds.map((noteId) => ({
+        noteId,
+        state: "missing" as const,
+        title: null,
+        path: null,
+      })),
+    }
+  }
+
+  async configureDatabaseRollup(
+    _request: ConfigureDatabaseRollupRequest,
+  ): Promise<ConfiguredDatabaseRollup> {
+    throw new DatabaseOperationError("failed", "Rollup configuration requires the desktop runtime")
   }
 
   async syncDatabaseYaml(_request: DatabaseYamlSyncRequest): Promise<DatabaseYamlSyncResult> {

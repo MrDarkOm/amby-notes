@@ -1,4 +1,5 @@
-import type { DatabaseFieldRef, DatabaseRow } from "@/lib/storage"
+import type { DatabaseFieldRef, DatabasePropertySummary, DatabaseRow } from "@/lib/storage"
+import { safeOptionColor } from "../value-format"
 
 export const EMPTY_BOARD_LANE = "__empty__"
 export const ALL_BOARD_LANE = "__all__"
@@ -6,6 +7,13 @@ export const ALL_BOARD_LANE = "__all__"
 export interface BoardLane {
   key: string
   rows: DatabaseRow[]
+  /** Option name; `null` for the no-value lane and for options missing from the schema. */
+  label: string | null
+  color: string | null
+  /** Rows in the whole view; the loaded `rows` may be fewer. */
+  count?: number
+  hasMore?: boolean
+  status?: "loading" | "ready" | "loadingMore" | "error"
 }
 
 function fieldValue(row: DatabaseRow, field: DatabaseFieldRef | null): string | null {
@@ -27,14 +35,56 @@ function fieldValue(row: DatabaseRow, field: DatabaseFieldRef | null): string | 
   return typed.optionId || null
 }
 
-export function groupBoardRows(rows: DatabaseRow[], field: DatabaseFieldRef | null): BoardLane[] {
-  if (!field || field.kind !== "property") return [{ key: ALL_BOARD_LANE, rows }]
-  const lanes = new Map<string, DatabaseRow[]>()
+/**
+ * Lanes follow the property's options in schema order, empty ones included, so
+ * the board does not depend on which rows happen to be loaded. Values naming an
+ * option that no longer exists get their own lane after the schema lanes, and
+ * the no-value lane always comes last. Without a Select/Status schema the lanes
+ * are derived from the loaded rows only.
+ */
+export function groupBoardRows(
+  rows: DatabaseRow[],
+  field: DatabaseFieldRef | null,
+  properties?: DatabasePropertySummary[],
+): BoardLane[] {
+  if (!field || field.kind !== "property") {
+    return [{ key: ALL_BOARD_LANE, rows, label: null, color: null }]
+  }
+  const property = properties?.find((candidate) => candidate.propertyId === field.propertyId)
+  const schemaBacked =
+    property && (property.propertyType === "select" || property.propertyType === "status")
+  const grouped = new Map<string, DatabaseRow[]>()
   for (const row of rows) {
     const key = fieldValue(row, field) ?? EMPTY_BOARD_LANE
-    lanes.set(key, [...(lanes.get(key) ?? []), row])
+    grouped.set(key, [...(grouped.get(key) ?? []), row])
   }
-  return [...lanes.entries()].map(([key, groupedRows]) => ({ key, rows: groupedRows }))
+  if (!schemaBacked) {
+    return [...grouped.entries()].map(([key, laneRows]) => ({
+      key,
+      rows: laneRows,
+      label: null,
+      color: null,
+    }))
+  }
+  const lanes: BoardLane[] = property.options.map((option) => ({
+    key: option.optionId,
+    rows: grouped.get(option.optionId) ?? [],
+    label: option.name,
+    color: safeOptionColor(option.color),
+  }))
+  const known = new Set(property.options.map((option) => option.optionId))
+  for (const [key, laneRows] of grouped) {
+    if (key !== EMPTY_BOARD_LANE && !known.has(key)) {
+      lanes.push({ key, rows: laneRows, label: null, color: null })
+    }
+  }
+  lanes.push({
+    key: EMPTY_BOARD_LANE,
+    rows: grouped.get(EMPTY_BOARD_LANE) ?? [],
+    label: null,
+    color: null,
+  })
+  return lanes
 }
 
 export function moveRowToBoardLane(

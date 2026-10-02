@@ -1,0 +1,42 @@
+{
+  "text": ["contains", "equals", "notEquals", "startsWith", "isEmpty", "isNotEmpty"],
+  "url": ["contains", "equals", "notEquals", "startsWith", "isEmpty", "isNotEmpty"],
+  "number": [
+    "equals",
+    "notEquals",
+    "greaterThan",
+    "greaterOrEqual",
+    "lessThan",
+    "lessOrEqual",
+    "isEmpty",
+    "isNotEmpty"
+  ],
+  "date": [
+    "equals",
+    "notEquals",
+    "greaterThan",
+    "greaterOrEqual",
+    "lessThan",
+    "lessOrEqual",
+    "isEmpty",
+    "isNotEmpty"
+  ],
+  "checkbox": ["equals", "notEquals"],
+  "select": ["equals", "notEquals", "isEmpty", "isNotEmpty"],
+  "status": ["equals", "notEquals", "isEmpty", "isNotEmpty"],
+  "multiSelect": ["contains", "isEmpty", "isNotEmpty"],
+  "relation": ["contains", "isEmpty", "isNotEmpty"],
+  "files": ["isEmpty", "isNotEmpty"],
+  "system": [
+    "contains",
+    "equals",
+    "notEquals",
+    "startsWith",
+    "greaterThan",
+    "greaterOrEqual",
+    "lessThan",
+    "lessOrEqual",
+    "isEmpty",
+    "isNotEmpty"
+  ]
+}

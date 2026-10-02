@@ -1,25 +1,31 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { FileText, Plus, X } from "lucide-react"
+import { Plus } from "lucide-react"
 import type { DatabasePropertySummary } from "@/lib/storage"
-import { IconValue } from "@/components/workspace/icon-value"
+import { useViewStateStore } from "@/components/workspace/use-view-state-store"
 import { cn } from "@/lib/utils"
 import {
   databaseCellText,
   encodeDatabaseCellDraft,
   readDatabaseCellValue,
 } from "./database-cell-value"
-import { RelationPickerPopover, type RelationItem } from "./relation-picker-popover"
+import { formatComputedValue } from "./value-format"
+import { RelationChip } from "./relation-chip"
+import { RelationPickerPopover } from "./relation-picker-popover"
+import { useRecordReferences } from "./use-record-references"
+
+const MAX_VISIBLE_RELATIONS = 3
 
 interface DatabaseCellProps {
   property: DatabasePropertySummary
   valuesJson: string
-  relationOptions?: RelationItem[]
   wrap?: boolean
   compact?: boolean
   pending: boolean
   error?: string | null
   targetDatabaseTitle?: string
+  /** Message of a calculation failure in this database, shown on computed cells without a value. */
+  computedError?: string
   onCommit: (valueJson?: string) => Promise<void>
   onOpenNote?: (noteId: string) => void
   onCreateRelationRow?: (title: string) => Promise<string | void>
@@ -28,17 +34,17 @@ interface DatabaseCellProps {
 export function DatabaseCell({
   property,
   valuesJson,
-  relationOptions = [],
   wrap = false,
   compact = false,
   pending,
   error,
   targetDatabaseTitle,
+  computedError,
   onCommit,
   onOpenNote,
   onCreateRelationRow,
 }: DatabaseCellProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [relationPickerOpen, setRelationPickerOpen] = React.useState(false)
   const value = React.useMemo(
     () => readDatabaseCellValue(valuesJson, property.propertyId),
@@ -56,6 +62,15 @@ export function DatabaseCell({
       return null
     }
   }, [property.configJson, property.propertyType])
+  const relationNoteIds = React.useMemo(
+    () =>
+      property.propertyType === "relation" && Array.isArray(value?.targetNoteIds)
+        ? value.targetNoteIds.filter((noteId): noteId is string => typeof noteId === "string")
+        : [],
+    [property.propertyType, value],
+  )
+  const relationReferences = useRecordReferences(relationNoteIds)
+  const iconOverrides = useViewStateStore((state) => state.iconOverrides)
   const [draft, setDraft] = React.useState(() => databaseCellText(value, property.propertyType))
   const initial = databaseCellText(value, property.propertyType)
   const wrappedTextRef = React.useRef<HTMLTextAreaElement>(null)
@@ -184,52 +199,35 @@ export function DatabaseCell({
           targetDatabaseTitle={targetDatabaseTitle}
           maxItems={maxItems}
           selectedNoteIds={selected}
-          options={relationOptions}
-          isLoading={pending}
+          pending={pending}
           onSelectNotes={handleSelectNotes}
           onCreatePage={onCreateRelationRow}
           onOpenNote={onOpenNote}
         >
           <div className="flex flex-wrap items-center gap-1 w-full min-w-0">
-            {selected.map((noteId) => {
-              const option = relationOptions.find((opt) => opt.noteId === noteId)
-              const title = option?.title || noteId
-              return (
-                <span
-                  key={noteId}
-                  className="group/chip inline-flex items-center gap-1 rounded bg-muted/80 hover:bg-muted px-1.5 py-0.5 text-xs text-foreground max-w-full cursor-pointer select-none"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    if (onOpenNote) {
-                      onOpenNote(noteId)
-                    } else {
-                      setRelationPickerOpen(true)
-                    }
-                  }}
-                  title={title}
-                >
-                  <IconValue
-                    value={option?.icon ?? undefined}
-                    fallback={<FileText className="size-3 text-muted-foreground shrink-0" />}
-                    className="size-3 shrink-0"
-                  />
-                  <span className="truncate max-w-[130px] font-medium">{title}</span>
-                  {!pending && (
-                    <button
-                      type="button"
-                      className="opacity-40 group-hover/chip:opacity-100 hover:text-destructive hover:bg-background/80 rounded p-0.5 shrink-0"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleRemoveOne(noteId)
-                      }}
-                      title={t("databaseWorkspace.relationRemoveItem")}
-                    >
-                      <X className="size-2.5" />
-                    </button>
-                  )}
-                </span>
-              )
-            })}
+            {(wrap ? selected : selected.slice(0, MAX_VISIBLE_RELATIONS)).map((noteId) => (
+              <RelationChip
+                key={noteId}
+                view={relationReferences[noteId] ?? { status: "loading" }}
+                icon={iconOverrides[noteId]}
+                onOpen={onOpenNote ? () => onOpenNote(noteId) : () => setRelationPickerOpen(true)}
+                onUnlink={pending ? undefined : () => handleRemoveOne(noteId)}
+              />
+            ))}
+            {!wrap && selected.length > MAX_VISIBLE_RELATIONS && (
+              <button
+                type="button"
+                className="rounded bg-muted/60 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setRelationPickerOpen(true)
+                }}
+              >
+                {t("databaseWorkspace.relationMore", {
+                  count: selected.length - MAX_VISIBLE_RELATIONS,
+                })}
+              </button>
+            )}
 
             {!pending && (maxItems !== 1 || selected.length === 0) && (
               <button
@@ -256,6 +254,31 @@ export function DatabaseCell({
             )}
           </div>
         </RelationPickerPopover>
+      </div>
+    )
+  }
+
+  if (property.propertyType === "formula" || property.propertyType === "rollup") {
+    const text = formatComputedValue(value, property, i18n.language)
+    // No stored value at all means the calculation failed (or has not run yet);
+    // "no data" is a stored null, and zero is a stored 0.
+    const failed = value === null && Boolean(computedError)
+    return (
+      <div
+        className={cn(
+          "flex h-full items-center justify-start truncate px-1 text-left text-sm",
+          failed
+            ? "text-destructive"
+            : text === null
+              ? "italic text-muted-foreground"
+              : "tabular-nums",
+        )}
+        title={failed ? computedError : undefined}
+        aria-label={property.name}
+      >
+        {failed
+          ? t("databaseRollup.error")
+          : (text ?? (value === null ? "—" : t("databaseRollup.noData")))}
       </div>
     )
   }

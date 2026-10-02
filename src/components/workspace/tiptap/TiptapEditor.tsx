@@ -46,6 +46,7 @@ interface TiptapEditorProps {
   resolveWikiLinkTarget?: (target: string) => string | null
   vaultPath?: string
   notePath?: string
+  noteId?: string
   /** Resolve a wiki-link target to its markdown content for transclusion embeds. */
   fetchTransclusion?: (target: string) => Promise<string | null>
   selection?: MarkdownSelection | null
@@ -87,6 +88,7 @@ export function TiptapEditor({
   resolveWikiLinkTarget,
   vaultPath,
   notePath,
+  noteId,
   fetchTransclusion,
   selection,
   onSelectionChange,
@@ -191,7 +193,7 @@ export function TiptapEditor({
     onCreate: ({ editor }) => {
       // Make the asset context available before image NodeViews paint. The
       // effect below still handles vault/note changes for a mounted editor.
-      setAssetContext(editor, { vaultPath: vaultPath ?? "", notePath: notePath ?? "" })
+      setAssetContext(editor, { vaultPath: vaultPath ?? "", notePath: notePath ?? "", noteId })
     },
     editorProps,
     onTransaction: ({ transaction }) => {
@@ -346,8 +348,8 @@ export function TiptapEditor({
   // Make vault/note paths reachable from inside extensions/node views.
   React.useEffect(() => {
     if (!editor) return
-    setAssetContext(editor, { vaultPath: vaultPath ?? "", notePath: notePath ?? "" })
-  }, [editor, vaultPath, notePath])
+    setAssetContext(editor, { vaultPath: vaultPath ?? "", notePath: notePath ?? "", noteId })
+  }, [editor, vaultPath, notePath, noteId])
 
   // Register the transclusion content fetcher so TransclusionNode NodeViews can
   // resolve note content without prop-drilling through the extension system.

@@ -4,8 +4,12 @@ import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
 import { Database, Plus, X } from "lucide-react"
 
 import { loadVaultJSON, saveVaultJSON } from "@/lib/storage"
-import { DatabaseLinkedView } from "@/components/workspace/database/linked-view"
-import { parseDatabaseLinkedReference } from "@/components/workspace/database/linked-reference"
+import { DatabaseViewHost } from "@/components/workspace/database/database-view-host"
+import {
+  parseDatabaseLinkedReference,
+  serializeDatabaseLinkedReference,
+} from "@/components/workspace/database/linked-reference"
+import { getAssetContext } from "./asset-resolver"
 
 /** On-disk shape of a `db` block's sidecar (`.amby/blocks/<id>.json`). */
 interface DbData {
@@ -39,7 +43,20 @@ export function AmbyBlockView(props: NodeViewProps) {
   const blockType = props.node.attrs.blockType as string
   const blockId = props.node.attrs.blockId as string
   const linkedReference = blockType === "db" ? parseDatabaseLinkedReference(blockId) : null
-  if (linkedReference) return <DatabaseLinkedView reference={linkedReference.value} />
+  if (linkedReference) {
+    return (
+      <DatabaseViewHost
+        reference={linkedReference.value}
+        noteId={getAssetContext(props.editor)?.noteId}
+        editable={props.editor.isEditable}
+        onReferenceChange={(next) =>
+          props.updateAttributes({
+            blockId: serializeDatabaseLinkedReference(linkedReference, next),
+          })
+        }
+      />
+    )
+  }
   return <LegacyAmbyBlockView {...props} />
 }
 

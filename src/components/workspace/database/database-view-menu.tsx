@@ -12,6 +12,7 @@ import {
   FileText,
   Filter,
   Layers,
+  LayoutGrid,
   Link,
   Lock,
   Palette,
@@ -24,47 +25,50 @@ import {
   X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import type { CardSize } from "./view-config"
 import {
-  DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { DatabaseSummary, DatabaseViewSummary } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { getViewLayoutIcon } from "./database-layout-icons"
 
-export function DatabaseToolbarButton({
+/** A toolbar toggle for the filter or sort panel, with a badge for active rules. */
+export function QueryPanelButton({
   icon,
   label,
-  children,
+  count,
+  active,
+  onClick,
 }: {
   icon: React.ReactNode
   label: string
-  children: React.ReactNode
+  count: number
+  active: boolean
+  onClick: () => void
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="size-8 p-0 text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground"
-          aria-label={label}
-          title={label}
-        >
-          {icon}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        {children}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      variant="ghost"
+      size="sm"
+      className="relative size-8 p-0 text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground"
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      onClick={onClick}
+    >
+      {icon}
+      {count > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 flex min-w-3.5 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium leading-3.5 text-primary-foreground">
+          {count}
+        </span>
+      )}
+    </Button>
   )
 }
 
@@ -78,9 +82,14 @@ export interface DatabaseSettingsMenuContentProps {
   searchOpen: boolean
   isLinkCopied: boolean
   activeHiddenPropertyIds: Set<string>
-  filterValues: Record<string, string>
-  titleColumnName?: string
-  sortValue: { key: string; direction: "asc" | "desc" } | null
+  cardFields: string[] | null
+  cardSize: CardSize
+  onCardFieldsChange: (fields: string[] | null) => void
+  onCardSizeChange: (size: CardSize) => void
+  filterCount: number
+  sortCount: number
+  onOpenFilter: () => void
+  onOpenSort: () => void
   openRowDialog: (
     opts: { kind: "default" | "empty" } | { kind: "template"; templateId: string },
   ) => void
@@ -92,10 +101,6 @@ export interface DatabaseSettingsMenuContentProps {
   setViewHiddenPropertyIds: (viewId: string, hidden: Set<string>) => void
   togglePropertyVisibility: (propertyId: string) => void
   onOpenAddProperty: () => void
-  setFilterValues: React.Dispatch<React.SetStateAction<Record<string, string>>>
-  setSortValue: React.Dispatch<
-    React.SetStateAction<{ key: string; direction: "asc" | "desc" } | null>
-  >
   copyLinkToView: () => void | Promise<void>
   handleToggleLock: () => void
   mutateView: (action: "duplicate" | "delete", viewId: string) => void | Promise<void>
@@ -111,9 +116,14 @@ export function DatabaseSettingsMenuContent({
   searchOpen,
   isLinkCopied,
   activeHiddenPropertyIds,
-  filterValues,
-  titleColumnName,
-  sortValue,
+  cardFields,
+  cardSize,
+  onCardFieldsChange,
+  onCardSizeChange,
+  filterCount,
+  sortCount,
+  onOpenFilter,
+  onOpenSort,
   openRowDialog,
   onToggleSearch,
   openRenameViewDialog,
@@ -121,8 +131,6 @@ export function DatabaseSettingsMenuContent({
   setViewHiddenPropertyIds,
   togglePropertyVisibility,
   onOpenAddProperty,
-  setFilterValues,
-  setSortValue,
   copyLinkToView,
   handleToggleLock,
   mutateView,
@@ -315,77 +323,101 @@ export function DatabaseSettingsMenuContent({
         </DropdownMenuSub>
       )}
 
-      {/* 5. Фильтр */}
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger>
-          <Filter className="size-4" />
-          <span className="flex-1">{t("databaseWorkspace.filter")}</span>
-          {Object.keys(filterValues).length > 0 && (
-            <span className="ml-auto rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-              {Object.keys(filterValues).length}
+      {/* 4b. Поля карточек (board, list, gallery) */}
+      {activeView && ["board", "list", "gallery"].includes(activeView.layout) && (
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <LayoutGrid className="size-4" />
+            <span className="flex-1">{t("databaseWorkspace.cardFields")}</span>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {cardFields === null ? t("databaseWorkspace.cardFieldsAuto") : cardFields.length}
             </span>
-          )}
-        </DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="w-56">
-          <DropdownMenuLabel>{t("databaseWorkspace.filter")}</DropdownMenuLabel>
-          {Object.entries(filterValues).map(([key, value]) => {
-            const property =
-              key === "title"
-                ? { name: titleColumnName ?? t("databaseTable.title") }
-                : database?.properties.find((candidate) => candidate.propertyId === key)
-            return (
-              <DropdownMenuItem
-                key={key}
-                onSelect={() =>
-                  setFilterValues((current) => {
-                    const next = { ...current }
-                    delete next[key]
-                    return next
-                  })
-                }
-              >
-                <span className="min-w-0 flex-1 truncate">{property?.name ?? key}</span>
-                <span className="max-w-24 truncate text-muted-foreground">{value}</span>
-                <X className="ml-1 size-3 text-muted-foreground" />
-              </DropdownMenuItem>
-            )
-          })}
-          {Object.keys(filterValues).length === 0 ? (
-            <DropdownMenuItem disabled>{t("databaseWorkspace.noFilters")}</DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem onSelect={() => setFilterValues({})}>
-              {t("databaseTable.clearFilter")}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-56 max-h-80 overflow-y-auto">
+            <DropdownMenuItem
+              disabled={isDatabaseLocked}
+              onSelect={(event) => {
+                event.preventDefault()
+                onCardFieldsChange(null)
+              }}
+            >
+              <span className="flex-1">{t("databaseWorkspace.cardFieldsAuto")}</span>
+              {cardFields === null && <Check className="size-4 text-primary" />}
             </DropdownMenuItem>
-          )}
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            {allProperties.map((property) => {
+              const checked = cardFields?.includes(property.propertyId) ?? false
+              return (
+                <DropdownMenuItem
+                  key={property.propertyId}
+                  disabled={isDatabaseLocked}
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    const selected = new Set(cardFields ?? [])
+                    if (checked) selected.delete(property.propertyId)
+                    else selected.add(property.propertyId)
+                    // Keep the schema order, whatever order they were ticked in.
+                    onCardFieldsChange(
+                      allProperties
+                        .map((candidate) => candidate.propertyId)
+                        .filter((id) => selected.has(id)),
+                    )
+                  }}
+                >
+                  <span className="flex-1 truncate">{property.name}</span>
+                  {checked && <Check className="size-4 text-primary" />}
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      )}
+
+      {activeView?.layout === "gallery" && (
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <LayoutGrid className="size-4" />
+            <span className="flex-1">{t("databaseWorkspace.cardSize")}</span>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {t(`databaseWorkspace.cardSizes.${cardSize}`)}
+            </span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-44">
+            {(["small", "medium", "large"] as const).map((size) => (
+              <DropdownMenuItem
+                key={size}
+                disabled={isDatabaseLocked}
+                onSelect={() => onCardSizeChange(size)}
+              >
+                <span className="flex-1">{t(`databaseWorkspace.cardSizes.${size}`)}</span>
+                {cardSize === size && <Check className="size-4 text-primary" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      )}
+
+      {/* 5. Фильтр */}
+      <DropdownMenuItem onSelect={onOpenFilter}>
+        <Filter className="size-4" />
+        <span className="flex-1">{t("databaseWorkspace.filter")}</span>
+        {filterCount > 0 && (
+          <span className="ml-auto rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+            {filterCount}
+          </span>
+        )}
+      </DropdownMenuItem>
 
       {/* 6. Сортировка */}
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger>
-          <ArrowDownUp className="size-4" />
-          <span className="flex-1">{t("databaseWorkspace.sort")}</span>
-          {sortValue && <span className="ml-auto text-xs text-primary">✓</span>}
-        </DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="w-56">
-          <DropdownMenuLabel>{t("databaseWorkspace.sort")}</DropdownMenuLabel>
-          <DropdownMenuItem onSelect={() => setSortValue({ key: "title", direction: "asc" })}>
-            {t("databaseWorkspace.sortAscending")}
-            {sortValue?.key === "title" && sortValue.direction === "asc" && (
-              <span className="ml-auto text-primary">✓</span>
-            )}
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setSortValue({ key: "title", direction: "desc" })}>
-            {t("databaseWorkspace.sortDescending")}
-            {sortValue?.key === "title" && sortValue.direction === "desc" && (
-              <span className="ml-auto text-primary">✓</span>
-            )}
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled={!sortValue} onSelect={() => setSortValue(null)}>
-            {t("databaseTable.clearSort")}
-          </DropdownMenuItem>
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
+      <DropdownMenuItem onSelect={onOpenSort}>
+        <ArrowDownUp className="size-4" />
+        <span className="flex-1">{t("databaseWorkspace.sort")}</span>
+        {sortCount > 0 && (
+          <span className="ml-auto rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+            {sortCount}
+          </span>
+        )}
+      </DropdownMenuItem>
 
       {/* 7. Группировать (Заглушка) */}
       <DropdownMenuItem disabled className="opacity-60 cursor-not-allowed">

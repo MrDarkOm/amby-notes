@@ -255,11 +255,17 @@ pub struct SelectOption {
     pub extra: ExtraFields,
 }
 
+fn default_status_group() -> String {
+    "notStarted".to_owned()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct StatusOption {
     pub id: String,
     pub name: String,
     pub color: String,
+    /// Older builds created Status options without a group; read those as `notStarted`.
+    #[serde(default = "default_status_group")]
     pub group: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub aliases: Vec<String>,

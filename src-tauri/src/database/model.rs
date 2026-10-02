@@ -228,6 +228,10 @@ pub struct DatabaseQueryRequest {
     pub filter: Option<DatabaseFilterNode>,
     pub source: DatabaseQuerySource,
     pub page: DatabasePageRequest,
+    /// The page the query runs for. A `@currentPage` operand in the filter is
+    /// replaced by it; without a page that operand is an error, never a match-all.
+    #[serde(default)]
+    pub context_page_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
@@ -287,6 +291,8 @@ pub struct DatabaseAggregateRequest {
     pub aggregation: String,
     pub search: Option<String>,
     pub limit: u32,
+    #[serde(default)]
+    pub context_page_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]

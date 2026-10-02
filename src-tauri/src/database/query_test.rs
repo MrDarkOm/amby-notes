@@ -46,6 +46,7 @@ fn request(filter: Option<DatabaseFilterNode>, page: DatabasePageRequest) -> Dat
             },
         },
         page,
+        context_page_id: None,
         search: None,
         sorts: None,
         filter: None,
@@ -71,6 +72,7 @@ fn aggregate_count_is_calculated_before_pagination() {
             aggregation: "count".to_owned(),
             search: None,
             limit: 1,
+            context_page_id: None,
         },
     )
     .unwrap();
@@ -650,4 +652,122 @@ fn review_select_filter_sent_by_frontend_is_accepted() {
         &mut bindings,
     );
     assert!(result.is_ok(), "frontend operator rejected: {result:?}");
+}
+
+#[test]
+fn every_registered_operator_compiles_for_its_field_kind() {
+    for (kind, operators) in crate::database::filter_operators::REGISTRY {
+        if *kind == "system" {
+            continue;
+        }
+        let operand = match *kind {
+            "number" => serde_json::json!("1"),
+            "date" => serde_json::json!("2026-01-01"),
+            "checkbox" => serde_json::json!("true"),
+            _ => serde_json::json!("x"),
+        };
+        for operator in *operators {
+            let mut bindings = Vec::new();
+            let result = compile_property_condition(
+                kind,
+                "p",
+                operator,
+                Some(operand.clone()),
+                &mut bindings,
+            );
+            assert!(result.is_ok(), "{kind} {operator}: {result:?}");
+        }
+    }
+}
+
+#[test]
+fn inclusive_bounds_and_is_not_cover_equal_and_empty_rows() {
+    let conn = connection();
+    property(
+        &conn,
+        "number",
+        &[
+            Some(serde_json::json!({"decimal":"1"})),
+            Some(serde_json::json!({"decimal":"2"})),
+            None,
+        ],
+    );
+    let ask = |operator: &str, operand: &str| {
+        all_pages(
+            &conn,
+            request(
+                Some(DatabaseFilterNode::Condition {
+                    field: DatabaseFieldRef::Property {
+                        property_id: "number".to_owned(),
+                    },
+                    operator: operator.to_owned(),
+                    value: Some(serde_json::json!(operand).to_string()),
+                }),
+                DatabasePageRequest {
+                    limit: 10,
+                    cursor: None,
+                },
+            ),
+        )
+    };
+    assert_eq!(ask("greaterOrEqual", "2"), ["Beta"]);
+    assert_eq!(ask("lessOrEqual", "1"), ["Alpha"]);
+    // "Is not 1" keeps the row that has no value at all.
+    assert_eq!(ask("notEquals", "1"), ["Beta", "Gamma"]);
+    // Legacy spellings keep working.
+    assert_eq!(ask("gte", "2"), ["Beta"]);
+    assert_eq!(ask("isNot", "1"), ["Beta", "Gamma"]);
+}
+
+#[test]
+fn a_current_page_filter_matches_only_the_given_page_and_never_everything() {
+    let conn = connection();
+    // Alpha is linked to page ...9 through a relation edge.
+    conn.execute(
+        "INSERT INTO db_properties (database_id, property_id, position, name, property_type, page_visibility, config_json) VALUES ('01J00000000000000000000000', 'rel', 2, 'rel', 'relation', 'alwaysShow', '{}')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO db_relation_edges (source_database_id, source_note_id, property_id, target_note_id, position, target_state) VALUES ('01J00000000000000000000000', '01J00000000000000000000001', 'rel', '01J00000000000000000000009', 0, 'linked')",
+        [],
+    )
+    .unwrap();
+    let filter = DatabaseFilterNode::Condition {
+        field: DatabaseFieldRef::Property {
+            property_id: "rel".to_owned(),
+        },
+        operator: "contains".to_owned(),
+        value: Some(serde_json::json!(CURRENT_PAGE_OPERAND).to_string()),
+    };
+    let mut ask = |context: Option<&str>| {
+        let mut req = request(
+            Some(filter.clone()),
+            DatabasePageRequest {
+                limit: 10,
+                cursor: None,
+            },
+        );
+        req.context_page_id = context.map(str::to_owned);
+        query_database(&conn, &req)
+    };
+    let page = ask(Some("01J00000000000000000000009")).unwrap();
+    assert_eq!(
+        page.rows
+            .iter()
+            .map(|row| row.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Alpha"]
+    );
+    // Another page: nothing links to it.
+    assert!(ask(Some("01J00000000000000000000008"))
+        .unwrap()
+        .rows
+        .is_empty());
+    // No page: an error, not every record.
+    assert_eq!(ask(None).unwrap_err().code, "missingPageContext");
+    assert_eq!(
+        ask(Some("not-an-id")).unwrap_err().code,
+        "invalidContextPage"
+    );
 }

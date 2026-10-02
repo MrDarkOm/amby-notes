@@ -1,85 +1,42 @@
-import type { DatabaseRow } from "@/lib/storage"
+import { useTranslation } from "react-i18next"
+import type { DatabaseRow, DatabasePropertySummary } from "@/lib/storage"
+import { PropertyValue } from "./property-value"
+import { cardProperties } from "./value-format"
 
 interface DatabaseValueCellProps {
   row: DatabaseRow
-  noteTitles?: Record<string, string>
+  properties: DatabasePropertySummary[]
+  relationTitles?: Record<string, string>
+  /** Property IDs shown elsewhere on the card (for example the Board group). */
+  exclude?: string[]
+  limit?: number
+  /** Properties chosen for the view's cards; `null` shows the first few non-empty ones. */
+  fields?: string[] | null
 }
 
-export function DatabaseValueCell({ row, noteTitles }: DatabaseValueCellProps) {
-  const values = parseValues(row.valuesJson, noteTitles)
-  if (values.length === 0) return null
+/** Compact, schema-aware values for Gallery, List and Board cards. */
+export function DatabaseValueCell({
+  row,
+  properties,
+  relationTitles,
+  exclude,
+  limit,
+  fields,
+}: DatabaseValueCellProps) {
+  const { i18n } = useTranslation()
+  const shown = cardProperties(row.valuesJson, properties, {
+    relationTitles,
+    exclude,
+    limit,
+    fields,
+    locale: i18n.language,
+  })
+  if (shown.length === 0) return null
   return (
-    <span className="mt-2 flex min-w-0 flex-wrap gap-1">
-      {values.map((value, index) => (
-        <span
-          key={`${value.kind}-${value.text}-${index}`}
-          className="max-w-full truncate rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-        >
-          {value.text}
-        </span>
+    <span className="mt-2 flex min-w-0 flex-col gap-1">
+      {shown.map((property) => (
+        <PropertyValue key={property.propertyId} property={property} />
       ))}
     </span>
   )
-}
-
-interface DisplayValue {
-  kind: string
-  text: string
-}
-
-function parseValues(valuesJson: string, noteTitles?: Record<string, string>): DisplayValue[] {
-  let values: unknown
-  try {
-    values = JSON.parse(valuesJson)
-  } catch {
-    return []
-  }
-  if (!values || typeof values !== "object") return []
-  return Object.values(values as Record<string, unknown>).flatMap((value) => {
-    if (!value || typeof value !== "object") return []
-    const typed = value as Record<string, unknown>
-    switch (typed.type) {
-      case "text":
-      case "url":
-        return typeof typed.value === "string" ? [{ kind: typed.type, text: typed.value }] : []
-      case "number":
-        return typeof typed.decimal === "string" ? [{ kind: typed.type, text: typed.decimal }] : []
-      case "checkbox":
-        return typeof typed.checked === "boolean"
-          ? [{ kind: typed.type, text: typed.checked ? "✓" : "–" }]
-          : []
-      case "date":
-        return typeof typed.start === "string" ? [{ kind: typed.type, text: typed.start }] : []
-      case "select":
-      case "status":
-        return typeof typed.optionId === "string"
-          ? [{ kind: typed.type, text: typed.optionId }]
-          : []
-      case "multiSelect":
-        return Array.isArray(typed.optionIds)
-          ? typed.optionIds
-              .filter((item): item is string => typeof item === "string")
-              .map((text) => ({ kind: typed.type as string, text }))
-          : []
-      case "relation":
-        return Array.isArray(typed.targetNoteIds)
-          ? typed.targetNoteIds
-              .filter((item): item is string => typeof item === "string")
-              .map((id) => ({
-                kind: typed.type as string,
-                text: noteTitles?.[id] || id,
-              }))
-          : []
-      case "files":
-        return Array.isArray(typed.items)
-          ? typed.items.flatMap((item) => {
-              if (!item || typeof item !== "object") return []
-              const name = (item as { name?: unknown }).name
-              return typeof name === "string" ? [{ kind: typed.type as string, text: name }] : []
-            })
-          : []
-      default:
-        return []
-    }
-  })
 }
