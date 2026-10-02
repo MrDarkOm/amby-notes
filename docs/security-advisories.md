@@ -71,3 +71,15 @@ Required remediation (owner actions marked):
    anchor, never a committed secret.
 4. Treat packages signed with the old key as untrusted and reissue any that were
    distributed. Do not enable installed-module execution before this is done.
+
+## npm audit — 2026-10-02
+
+Run with the owner's consent (package names and versions are sent to the npm
+registry). Before: 3 findings — `brace-expansion` 5.0.9 (high, dev tooling via
+eslint/minimatch), `dompurify` 3.4.15 (low, via mermaid/Excalidraw) and
+`markdown-it` 14.3.0 (moderate, direct). `npm audit fix` (no `--force`, scripts
+off) moved the lockfile to `brace-expansion` 5.0.12, `dompurify` 3.4.16 and
+`markdown-it` 14.3.2; `package.json` is unchanged. After: 0 vulnerabilities for
+the full tree and for `--omit=dev`. This closes the "npm audit not run" item of
+handoff stage 2. The exceptions listed for Rust (`npm run audit:rust`) are
+unchanged and were not re-reviewed here.
