@@ -45,6 +45,8 @@ permanently without a warning. Not reproduced or fixed here (no Windows run).
 
 **Severity: high. Needs the project owner; not fixed by code alone.**
 
+**Status (2026-10-02): deferred by the owner.** Third-party modules are not used yet. The key rotation below is a hard prerequisite for enabling installed-module execution (`INSTALLED_MODULE_EXECUTION_ENABLED`), publishing any package, or announcing a module ecosystem; do not enable those before it is done.
+
 The private half of the official Ed25519 key `amby-official-2026` is committed in
 `scripts/build-modules.mjs` and, as a "test" key, in
 `src/lib/modules/package-manager/validator.ts` (`TEST_OFFICIAL_PRIVATE_KEY_HEX`).
