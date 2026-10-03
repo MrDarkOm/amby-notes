@@ -1486,6 +1486,33 @@ export const nativeDatabaseCases: Array<{
         empty.rows.length === 1 && empty.rows[0].title === "Card 4",
         "The no-value lane finds its card",
       )
+
+      // The board's columns are chosen in the view: the saved group shows in the catalog.
+      const view = summary?.views[0]
+      check(view, "The database has its default view")
+      const loadedView = await adapter.getDatabaseView({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        viewId: view.viewId,
+        expectedViewRevision: view.revision,
+      })
+      const grouped = applySettingsPatch(loadedView.configJson, { groupBy: status.propertyId })
+      await adapter.updateDatabaseViewConfig({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        viewId: view.viewId,
+        expectedViewRevision: loadedView.revision,
+        configJson: grouped,
+      })
+      await adapter.rebuildDatabaseProjection()
+      const groupedView = (await adapter.listDatabases())
+        .find((database) => database.databaseId === created.databaseId)
+        ?.views.find((candidate) => candidate.viewId === view.viewId)
+      check(
+        groupedView?.groupField?.kind === "property" &&
+          groupedView.groupField.propertyId === status.propertyId,
+        "The saved board grouping is reported by the view catalog",
+      )
     },
   },
   {
@@ -1749,6 +1776,227 @@ export const nativeDatabaseCases: Array<{
         withoutPage = true
       }
       check(withoutPage, "Without a page the filter is an error, not every task")
+    },
+  },
+  {
+    name: "native option edits keep ids, keep old names resolving and never rewrite records",
+    async run({ adapter, vaultPath }) {
+      const { generation } = await adapter.loadActiveVaultData()
+      const state = await adapter.getDatabaseModuleState()
+      if (!state.enabled) await adapter.setDatabaseModuleEnabled(true, generation)
+      const created = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "Option Edits",
+      })
+      const select = await adapter.createDatabaseProperty({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        expectedManifestRevision: created.manifestRevision,
+        name: "Kind",
+        propertyType: "select",
+        options: ["Todo", "Doing"],
+      })
+      const summaryOf = async () =>
+        (await adapter.listDatabases()).find(
+          (database) => database.databaseId === created.databaseId,
+        )
+      const optionsOf = async () =>
+        (await summaryOf())?.properties.find(
+          (candidate) => candidate.propertyId === select.propertyId,
+        )?.options ?? []
+      const [todo, doing] = await optionsOf()
+      check(todo?.name === "Todo" && doing?.name === "Doing", "The options were created with IDs")
+
+      const setOption = async (title: string, optionId: string) => {
+        const row = await adapter.createDatabaseRow({
+          expectedGeneration: generation,
+          databaseId: created.databaseId,
+          title,
+          template: { kind: "empty" },
+        })
+        await adapter.applyDatabaseValueBatch({
+          expectedGeneration: generation,
+          databaseId: created.databaseId,
+          operationId: `native-options-${title.split(" ")[0].toLowerCase()}-${created.databaseId}`,
+          cells: [
+            {
+              noteId: row.noteId,
+              propertyId: select.propertyId,
+              valueJson: JSON.stringify({ type: "select", optionId }),
+              expectedRevision: row.recordRevision,
+            },
+          ],
+        })
+        return row.noteId
+      }
+      const doingCard = await setOption("Doing card", doing.optionId)
+      const todoCard = await setOption("Todo card", todo.optionId)
+      const manifestRevision = (await summaryOf())?.manifestRevision
+      check(manifestRevision, "The manifest revision is known")
+
+      const updated = await adapter.updateDatabasePropertyOptions({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        propertyId: select.propertyId,
+        expectedManifestRevision: manifestRevision,
+        // Rename and recolor "Todo", drop "Doing", add "Done".
+        options: [
+          { id: todo.optionId, name: "To do", color: "#EF4444" },
+          { name: "Done", color: "#22c55e" },
+        ],
+      })
+      check(
+        updated.options.length === 2 &&
+          updated.options[0].id === todo.optionId &&
+          updated.options[0].name === "To do" &&
+          updated.options[0].color === "#ef4444" &&
+          updated.options[1].name === "Done",
+        "The saved list keeps the ID of a renamed option and assigns one to a new option",
+      )
+      const afterUpdate = await optionsOf()
+      check(
+        afterUpdate.map((option) => option.name).join() === "To do,Done" &&
+          !afterUpdate.some((option) => option.optionId === doing.optionId),
+        "The catalog shows the new list without the removed option",
+      )
+
+      // Records store the option name and a renamed option keeps its old name as an
+      // alias, so the renamed card still points at the same option after a rebuild.
+      await adapter.rebuildDatabaseProjection()
+      const result = await queryDatabase(adapter, generation, created.databaseId)
+      const valueOf = (noteId: string) =>
+        (
+          JSON.parse(rowFor(result.rows, noteId, "The card is listed").valuesJson) as Record<
+            string,
+            { optionId?: string } | undefined
+          >
+        )[select.propertyId]?.optionId
+      check(
+        valueOf(todoCard) === todo.optionId,
+        "A renamed option still resolves the records written with its old name",
+      )
+      // The removed option stays in the record: deleting an option never loses data.
+      const kept = valueOf(doingCard)
+      check(
+        kept === doing.optionId || kept === doing.name,
+        `The record keeps the removed option's value (${kept})`,
+      )
+
+      let stale = false
+      try {
+        await adapter.updateDatabasePropertyOptions({
+          expectedGeneration: generation,
+          databaseId: created.databaseId,
+          propertyId: select.propertyId,
+          expectedManifestRevision: manifestRevision,
+          options: [],
+        })
+      } catch {
+        stale = true
+      }
+      check(stale, "An edit based on an old manifest revision is refused")
+      check((await optionsOf()).length === 2, "A refused edit changes nothing")
+    },
+  },
+  {
+    name: "native property settings change formats, and a date keeps its values valid",
+    async run({ adapter, vaultPath }) {
+      const { generation } = await adapter.loadActiveVaultData()
+      const state = await adapter.getDatabaseModuleState()
+      if (!state.enabled) await adapter.setDatabaseModuleEnabled(true, generation)
+      const created = await adapter.createDatabase({
+        expectedGeneration: generation,
+        mode: "standalone",
+        parentPath: vaultPath,
+        name: "Property Settings",
+      })
+      const date = await adapter.createDatabaseProperty({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        expectedManifestRevision: created.manifestRevision,
+        name: "Due",
+        propertyType: "date",
+        options: [],
+      })
+      const summary = async () =>
+        (await adapter.listDatabases()).find(
+          (database) => database.databaseId === created.databaseId,
+        )
+      const configOf = async () =>
+        JSON.parse(
+          (await summary())?.properties.find((property) => property.propertyId === date.propertyId)
+            ?.configJson ?? "{}",
+        ) as Record<string, unknown>
+      const revision = async () => {
+        const current = (await summary())?.manifestRevision
+        check(current, "The manifest revision is known")
+        return current
+      }
+      const change = async (patch: Record<string, unknown>) =>
+        adapter.updateDatabasePropertyConfig({
+          expectedGeneration: generation,
+          databaseId: created.databaseId,
+          propertyId: date.propertyId,
+          expectedManifestRevision: await revision(),
+          ...patch,
+        })
+
+      await change({ dateFormat: "dayMonthYear", timeFormat: "12h" })
+      const shown = await configOf()
+      check(
+        shown.dateFormat === "dayMonthYear" && shown.timeFormat === "12h",
+        "The display formats are saved in the property",
+      )
+      await change({ includeTime: true })
+      check(
+        (await configOf()).includeTime === true,
+        "Time can be switched on while there are no values",
+      )
+
+      const row = await adapter.createDatabaseRow({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        title: "Card",
+        template: { kind: "empty" },
+      })
+      await adapter.applyDatabaseValueBatch({
+        expectedGeneration: generation,
+        databaseId: created.databaseId,
+        operationId: `native-settings-${created.databaseId}`,
+        cells: [
+          {
+            noteId: row.noteId,
+            propertyId: date.propertyId,
+            valueJson: JSON.stringify({
+              type: "date",
+              start: "2026-10-03T09:00:00Z",
+              end: null,
+              timeZone: null,
+            }),
+            expectedRevision: row.recordRevision,
+          },
+        ],
+      })
+      let refused = ""
+      try {
+        await change({ includeTime: false })
+      } catch (failure) {
+        refused = failure instanceof Error ? failure.message : String(failure)
+      }
+      check(
+        refused.includes("existing values are cleared") && (await configOf()).includeTime === true,
+        "Switching the time off is refused while a value has one, and nothing changes",
+      )
+      await change({ dateFormat: "relative" })
+      check(
+        (await configOf()).dateFormat === "relative",
+        "A display format still changes with values",
+      )
+      await adapter.rebuildDatabaseProjection()
+      const result = await queryDatabase(adapter, generation, created.databaseId)
+      check(result.rows.length === 1, "The record is still valid after the settings changed")
     },
   },
 ]

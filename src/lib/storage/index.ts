@@ -15,6 +15,8 @@ import type {
   DeleteDatabasePropertyRequest,
   ReorderDatabasePropertiesRequest,
   RenameDatabasePropertyRequest,
+  UpdateDatabasePropertyOptionsRequest,
+  UpdateDatabasePropertyConfigRequest,
   RenameDatabaseRequest,
   DatabaseQueryRequest,
   DatabaseValueBatchRequest,
@@ -292,6 +294,21 @@ export const renameDatabaseProperty = (request: RenameDatabasePropertyRequest) =
     name: request.name,
   })
   return getAdapter().renameDatabaseProperty(request)
+}
+export const updateDatabasePropertyConfig = (request: UpdateDatabasePropertyConfigRequest) => {
+  logger.info("storage.update_database_property_config", {
+    databaseId: request.databaseId,
+    propertyId: request.propertyId,
+  })
+  return getAdapter().updateDatabasePropertyConfig(request)
+}
+export const updateDatabasePropertyOptions = (request: UpdateDatabasePropertyOptionsRequest) => {
+  logger.info("storage.update_database_property_options", {
+    databaseId: request.databaseId,
+    propertyId: request.propertyId,
+    optionCount: request.options.length,
+  })
+  return getAdapter().updateDatabasePropertyOptions(request)
 }
 export const renameDatabase = (request: RenameDatabaseRequest) =>
   getAdapter().renameDatabase(request)

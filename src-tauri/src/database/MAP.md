@@ -36,6 +36,13 @@ mutations; see the formula failure contract in
 [engineering.md](../../../docs/engineering.md). Keep vault generation, operation
 IDs, mutation locking and transaction boundaries coordinated across the command.
 
+`update_database_property_config` in `mutations.rs` edits the settings of a Number, Date or
+Formula property (display formats are free; a date's time and range wait for its values to be
+clear). `update_database_property_options` in `mutations.rs` replaces a Select, Multi-select
+or Status option list in the manifest only (IDs kept, snapshot before the write);
+a renamed option keeps its old name as an alias (records store names). It never
+rewrites records, so a removed option stays in values as a diagnostic name.
+
 Property rename in `mutations.rs` changes only the manifest. Existing YAML
 bindings stay intact; a legacy stored property's previous name is pinned as its
 storage key before renaming. Do not recursively rename YAML keys in notes or

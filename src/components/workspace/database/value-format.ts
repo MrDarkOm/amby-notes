@@ -91,17 +91,85 @@ function parseDate(value: string): { date: Date; hasTime: boolean } | null {
   return Number.isNaN(timestamp) ? null : { date: new Date(timestamp), hasTime: true }
 }
 
-function formatDate(value: string, includeTime: boolean, locale?: string): string {
+export type DateFormatId = "full" | "monthDayYear" | "dayMonthYear" | "yearMonthDay" | "relative"
+export const DATE_FORMAT_IDS: DateFormatId[] = [
+  "full",
+  "monthDayYear",
+  "dayMonthYear",
+  "yearMonthDay",
+  "relative",
+]
+
+/** How a Date property shows its values; only presentation, never what is stored. */
+export interface DateDisplay {
+  includeTime: boolean
+  dateFormat: DateFormatId
+  timeFormat: "12h" | "24h"
+}
+
+export function dateDisplayOf(configJson: string): DateDisplay {
+  const config = parseConfig(configJson)
+  return {
+    includeTime: config.includeTime === true,
+    dateFormat: DATE_FORMAT_IDS.includes(config.dateFormat as DateFormatId)
+      ? (config.dateFormat as DateFormatId)
+      : "full",
+    timeFormat: config.timeFormat === "12h" ? "12h" : "24h",
+  }
+}
+
+const pad = (value: number) => String(value).padStart(2, "0")
+
+function dayDifference(date: Date, now: Date): number {
+  const day = (value: Date) => Date.UTC(value.getFullYear(), value.getMonth(), value.getDate())
+  return Math.round((day(date) - day(now)) / 86_400_000)
+}
+
+/** A stored date or date-time shown in the property's own format. */
+export function formatDateValue(
+  value: string,
+  display: DateDisplay,
+  locale?: string,
+  now: Date = new Date(),
+): string {
   const parsed = parseDate(value)
   if (!parsed) return value
+  const { date } = parsed
+  const time =
+    display.includeTime && parsed.hasTime
+      ? new Intl.DateTimeFormat(locale, {
+          hour: display.timeFormat === "12h" ? "numeric" : "2-digit",
+          minute: "2-digit",
+          hour12: display.timeFormat === "12h",
+        }).format(date)
+      : null
+  let day: string
   try {
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: "medium",
-      ...(includeTime && parsed.hasTime ? { timeStyle: "short" } : {}),
-    }).format(parsed.date)
+    switch (display.dateFormat) {
+      case "monthDayYear":
+        day = `${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${date.getFullYear()}`
+        break
+      case "dayMonthYear":
+        day = `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()}`
+        break
+      case "yearMonthDay":
+        day = `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}`
+        break
+      case "relative": {
+        const difference = dayDifference(date, now)
+        day =
+          Math.abs(difference) <= 31
+            ? new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(difference, "day")
+            : new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date)
+        break
+      }
+      default:
+        day = new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date)
+    }
   } catch {
     return value
   }
+  return time ? `${day} ${time}` : day
 }
 
 function optionChip(
@@ -111,8 +179,24 @@ function optionChip(
 ): DisplayChip | null {
   if (!optionId) return null
   const option = options.find((candidate) => candidate.optionId === optionId)
-  if (!option) return { key, kind: "option", label: null, color: null, state: "missing" }
+  if (!option) return missingOptionChip(key, optionId)
   return { key, kind: "option", label: option.name, color: safeOptionColor(option.color) }
+}
+
+const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/i
+
+/**
+ * An option that is no longer in the list. Records store the option name, so a
+ * deleted option's value is still readable text; only a bare ID has nothing to show.
+ */
+export function missingOptionChip(key: string, optionId: string): DisplayChip {
+  return {
+    key,
+    kind: "option",
+    label: ULID.test(optionId) ? null : optionId,
+    color: null,
+    state: "missing",
+  }
 }
 
 /**
@@ -140,7 +224,7 @@ export function formatComputedValue(
       return value.checked === true ? "✓" : value.checked === false ? "–" : null
     case "date":
       return typeof value.start === "string" && value.start
-        ? formatDate(value.start, false, locale)
+        ? formatDateValue(value.start, dateDisplayOf(property.configJson), locale)
         : null
     default:
       return null
@@ -179,11 +263,11 @@ function chipsFor(
       return value.checked === true ? [textChip(id, "✓")] : []
     case "date": {
       if (typeof value.start !== "string" || !value.start) return []
-      const includeTime = parseConfig(property.configJson).includeTime === true
-      const start = formatDate(value.start, includeTime, options.locale)
+      const display = dateDisplayOf(property.configJson)
+      const start = formatDateValue(value.start, display, options.locale)
       const end =
         typeof value.end === "string" && value.end
-          ? formatDate(value.end, includeTime, options.locale)
+          ? formatDateValue(value.end, display, options.locale)
           : null
       return [textChip(id, end ? `${start} – ${end}` : start)]
     }
@@ -205,7 +289,11 @@ function chipsFor(
         : []
     case "relation":
       return Array.isArray(value.targetNoteIds)
-        ? value.targetNoteIds.flatMap((targetId) => {
+        ? // Links beyond a one-page limit set later stay stored; only the first is shown.
+          (parseConfig(property.configJson).maxItems === 1
+            ? value.targetNoteIds.slice(0, 1)
+            : value.targetNoteIds
+          ).flatMap((targetId) => {
             if (typeof targetId !== "string") return []
             const title = options.relationTitles?.[targetId]
             return [

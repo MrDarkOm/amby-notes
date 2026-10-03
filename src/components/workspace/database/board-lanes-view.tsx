@@ -6,6 +6,7 @@ import type {
   DatabaseSortSpec,
 } from "@/lib/storage"
 import { BoardView } from "./layouts"
+import type { CardCellEdit } from "./database-value-cell"
 import { useBoardLanes } from "./use-board-lanes"
 
 interface BoardLanesViewProps {
@@ -14,6 +15,7 @@ interface BoardLanesViewProps {
   properties: DatabasePropertySummary[]
   relationTitles?: Record<string, string>
   cardFields?: string[] | null
+  cardEdit?: CardCellEdit
   filter?: DatabaseFilterNode
   sorts?: DatabaseSortSpec[]
   search?: string
@@ -31,6 +33,7 @@ export function BoardLanesView({
   properties,
   relationTitles,
   cardFields,
+  cardEdit,
   filter,
   sorts,
   search,
@@ -70,6 +73,26 @@ export function BoardLanesView({
     },
     [board, laneOf, onMoveRow],
   )
+  // A changed property can move a card to another lane or out of the filter.
+  const laneEdit = React.useMemo<CardCellEdit | undefined>(
+    () =>
+      cardEdit && {
+        ...cardEdit,
+        onCommit: async (row, property, valueJson) => {
+          await cardEdit.onCommit(row, property, valueJson)
+          board.reload()
+        },
+        onRename: cardEdit.onRename
+          ? async (row, name) => {
+              await cardEdit.onRename?.(row, name)
+              board.reload()
+            }
+          : undefined,
+      },
+    // `board.reload` is stable per render of the hook's state; the lanes reload on any change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cardEdit],
+  )
   const groupField = React.useMemo(
     () => ({ kind: "property" as const, propertyId: groupProperty.propertyId }),
     [groupProperty.propertyId],
@@ -82,6 +105,7 @@ export function BoardLanesView({
       properties={properties}
       relationTitles={relationTitles}
       cardFields={cardFields}
+      cardEdit={laneEdit}
       groupField={groupField}
       loading={board.status === "loading"}
       error={board.error}

@@ -1,5 +1,6 @@
 "use client"
 
+import { AmbySelect } from "@/components/ui/amby-select"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { ArrowLeft, FileText, Send, Settings2, Square } from "lucide-react"
@@ -254,19 +255,16 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
                 </button>
               )}
             </div>
-            <select
+            <AmbySelect
+              size="sm"
+              className="w-full text-[11px] text-muted-foreground"
               value={ai.activeModelId ?? ""}
-              onChange={(e) => updateAi({ ...ai, activeModelId: e.target.value })}
               title={t("ai.activeModel")}
-              className="h-6 w-full rounded border border-border bg-card px-1.5 text-[11px] text-muted-foreground outline-none focus:border-border"
-            >
-              {ai.models.length === 0 && <option value="">{t("ai.noModelsOpenSettings")}</option>}
-              {ai.models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
+              aria-label={t("ai.activeModel")}
+              placeholder={t("ai.noModelsOpenSettings")}
+              options={ai.models.map((m) => ({ value: m.id, label: m.label }))}
+              onValueChange={(next) => updateAi({ ...ai, activeModelId: next })}
+            />
           </div>
         </>
       )}

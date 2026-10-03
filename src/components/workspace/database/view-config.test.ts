@@ -199,39 +199,57 @@ describe("patch helpers", () => {
 describe("card settings", () => {
   const gallery = JSON.stringify({ ...base, layout: "gallery" })
 
-  it("stores the card property list under the key of the view's own layout", () => {
-    for (const [layout, key] of [
-      ["board", "cardFields"],
-      ["list", "secondaryFields"],
-      ["gallery", "fieldList"],
-    ] as const) {
-      const text = JSON.stringify({ ...base, layout })
-      const next = applySettingsPatch(text, { cardFields: ["p1"] })
-      expect(JSON.parse(next).layoutConfig[key]).toEqual(["p1"])
-      expect(parseViewSettings(next).cardFields).toEqual(["p1"])
-    }
-  })
-
-  it("distinguishes automatic (no key) from an explicit empty list, and resets", () => {
-    expect(parseViewSettings(gallery).cardFields).toBeNull()
-    const none = applySettingsPatch(gallery, { cardFields: [] })
-    expect(parseViewSettings(none).cardFields).toEqual([])
-    const reset = applySettingsPatch(none, { cardFields: null })
-    expect(JSON.parse(reset).layoutConfig.fieldList).toBeUndefined()
-    expect(parseViewSettings(reset).cardFields).toBeNull()
-  })
-
-  it("keeps card settings of another layout when the layout is switched", () => {
-    const withFields = applySettingsPatch(gallery, { cardFields: ["p1"], cardSize: "large" })
-    const asBoard = JSON.stringify({ ...JSON.parse(withFields), layout: "board" })
-    expect(parseViewSettings(asBoard).cardFields).toBeNull()
-    expect(JSON.parse(asBoard).layoutConfig.fieldList).toEqual(["p1"])
-    expect(parseViewSettings(withFields)).toMatchObject({ cardFields: ["p1"], cardSize: "large" })
-  })
-
   it("does not store the default card size", () => {
     const large = applySettingsPatch(gallery, { cardSize: "large" })
     const back = JSON.parse(applySettingsPatch(large, { cardSize: "medium" }))
     expect(back.layoutConfig.cardSize).toBeUndefined()
+  })
+})
+
+describe("board grouping and gallery cover", () => {
+  const board = JSON.stringify({ ...base, layout: "board", group: null })
+
+  it("sets, reads and clears the property a board is split by", () => {
+    const grouped = applySettingsPatch(board, { groupBy: "p1" })
+    expect(JSON.parse(grouped).group).toEqual({ field: { kind: "property", propertyId: "p1" } })
+    expect(parseViewSettings(grouped).groupBy).toBe("p1")
+    const cleared = applySettingsPatch(grouped, { groupBy: null })
+    expect(JSON.parse(cleared).group).toBeNull()
+    expect(parseViewSettings(cleared).groupBy).toBeNull()
+  })
+
+  it("keeps other fields of the group rule and leaves other settings alone", () => {
+    const text = JSON.stringify({
+      ...JSON.parse(board),
+      group: { field: { kind: "property", propertyId: "old" }, future: 1 },
+    })
+    const next = JSON.parse(applySettingsPatch(text, { groupBy: "p1" }))
+    expect(next.group).toEqual({ field: { kind: "property", propertyId: "p1" }, future: 1 })
+    expect(next.futureTopLevel).toEqual({ keep: "me" })
+    expect(next.layoutConfig).toEqual(base.layoutConfig)
+  })
+
+  it("does not treat a title group as a property group", () => {
+    const text = JSON.stringify({
+      ...JSON.parse(board),
+      group: { field: { kind: "system", field: "title" } },
+    })
+    expect(parseViewSettings(text).groupBy).toBeNull()
+  })
+
+  it("shows the gallery cover by default and stores only the hidden state", () => {
+    const gallery = JSON.stringify({ ...base, layout: "gallery" })
+    expect(parseViewSettings(gallery).coverVisible).toBe(true)
+    const hidden = applySettingsPatch(gallery, { coverVisible: false })
+    expect(JSON.parse(hidden).layoutConfig.coverVisible).toBe(false)
+    expect(parseViewSettings(hidden).coverVisible).toBe(false)
+    const shown = JSON.parse(applySettingsPatch(hidden, { coverVisible: true }))
+    expect(shown.layoutConfig.coverVisible).toBeUndefined()
+    expect(shown.layoutConfig.somethingNew).toBe(true)
+  })
+
+  it("applies the new settings to the optimistic copy", () => {
+    const next = settingsAfter(parseViewSettings(board), { groupBy: "p1", coverVisible: false })
+    expect(next).toMatchObject({ groupBy: "p1", coverVisible: false })
   })
 })

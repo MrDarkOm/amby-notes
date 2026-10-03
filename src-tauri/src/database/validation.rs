@@ -290,7 +290,7 @@ pub fn validate_view(
     match view.open_mode.as_str() {
         "sidePeek" | "centerPeek" | "fullPage" => {}
         // DB-10 briefly generated this alias. Keep those app-owned files
-        // readable without rewriting user data; new creators use `sidePeek`.
+        // readable without rewriting user data; new views are created with `centerPeek`.
         "inline" => report.warning(
             ValidationCode::InvalidConfiguration,
             "openMode",
@@ -966,16 +966,23 @@ fn validate_property_value(
                 target_note_ids, ..
             },
         ) => {
-            if target_note_ids.len() > MAX_RELATION_TARGETS
-                || fields
-                    .config
-                    .max_items
-                    .is_some_and(|max| target_note_ids.len() > usize::from(max))
-            {
+            if target_note_ids.len() > MAX_RELATION_TARGETS {
                 report.error(
                     ValidationCode::LimitExceeded,
                     path,
                     "too many relation targets",
+                );
+            } else if fields
+                .config
+                .max_items
+                .is_some_and(|max| target_note_ids.len() > usize::from(max))
+            {
+                // A limit set after links were made leaves the extra links stored: only the
+                // first is used, and the record stays valid until someone replaces the value.
+                report.warning(
+                    ValidationCode::LimitExceeded,
+                    path,
+                    "relation has more links than its limit; only the first is used",
                 );
             }
             validate_unique_ulids(report, target_note_ids, path);
@@ -1555,7 +1562,7 @@ fn validate_layout_config(report: &mut ValidationReport, layout: &str, config: &
         ],
         "board" => &["groupPropertyId", "cardFields", "coverVisible"],
         "list" => &["secondaryFields", "indentation"],
-        "gallery" => &["cardSize", "fieldList", "previewSource"],
+        "gallery" => &["cardSize", "fieldList", "previewSource", "coverVisible"],
         "chart" => &[
             "chartType",
             "categoryField",
@@ -1650,6 +1657,27 @@ mod tests {
             .errors
             .iter()
             .any(|issue| issue.code == ValidationCode::InvalidConfiguration));
+    }
+
+    #[test]
+    fn gallery_cover_and_board_group_settings_are_known_view_settings() {
+        let value = manifest();
+        let raw = serde_json::json!({
+          "format":"amby-database-view","formatVersion":1,
+          "databaseId":"01J00000000000000000000000","viewId":"01J00000000000000000000002","name":"Gallery",
+          "layout":"gallery","openMode":"sidePeek","subitemsMode":"nested","density":null,
+          "fields":[{"field":{"kind":"system","field":"title"},"visible":true,"width":null,"frozen":true}],
+          "filter":null,"sorts":[],"group":null,"manualOrder":[],"aggregates":[],
+          "layoutConfig":{"coverVisible":false,"cardSize":"large"}
+        });
+        let view: DatabaseViewFile = serde_json::from_value(raw).unwrap();
+        let report = validate_view(&view, Some(&value));
+        assert!(report.errors.is_empty());
+        assert!(
+            !report.read_only,
+            "coverVisible must not make the view read-only: {:?}",
+            report.warnings
+        );
     }
 
     #[test]

@@ -10,6 +10,8 @@ import {
   readDatabaseCellValue,
 } from "./database-cell-value"
 import { formatComputedValue } from "./value-format"
+import { DateCell } from "./date-cell"
+import { OptionCell } from "./option-cell"
 import { RelationChip } from "./relation-chip"
 import { RelationPickerPopover } from "./relation-picker-popover"
 import { useRecordReferences } from "./use-record-references"
@@ -121,55 +123,38 @@ export function DatabaseCell({
     property.propertyType === "status" ||
     property.propertyType === "multiSelect"
   ) {
-    const selected =
-      property.propertyType === "multiSelect"
-        ? Array.isArray(value?.optionIds)
-          ? (value.optionIds as string[])
-          : []
-        : typeof value?.optionId === "string"
-          ? value.optionId
-          : ""
     return (
-      <div className={cn("flex h-full items-center justify-start", compact ? "px-0" : "px-1")}>
-        <select
-          multiple={property.propertyType === "multiSelect"}
-          value={selected}
-          disabled={pending}
-          title={error ?? undefined}
-          className={cn(
-            "max-w-full rounded-md bg-transparent text-left outline-none focus:bg-accent/30 disabled:opacity-60",
-            compact ? "h-7 w-full min-w-0 px-1 text-xs" : "h-8 min-w-[4rem] px-2 text-sm",
-          )}
-          onClick={stopRowSelection}
-          onChange={(event) => {
-            if (property.propertyType === "multiSelect") {
-              const optionIds = Array.from(event.target.selectedOptions, (option) => option.value)
-              void onCommit(
-                optionIds.length ? JSON.stringify({ type: "multiSelect", optionIds }) : undefined,
-              )
-              return
-            }
-            const optionId = event.target.value
-            void onCommit(
-              optionId ? JSON.stringify({ type: property.propertyType, optionId }) : undefined,
-            )
-          }}
-        >
-          {property.propertyType !== "multiSelect" && <option value="">—</option>}
-          {property.options.map((option) => (
-            <option key={option.optionId} value={option.optionId}>
-              {option.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      <OptionCell
+        property={property}
+        value={value}
+        compact={compact}
+        wrap={wrap || compact}
+        pending={pending}
+        error={error}
+        onCommit={onCommit}
+      />
+    )
+  }
+
+  if (property.propertyType === "date") {
+    return (
+      <DateCell
+        property={property}
+        value={value}
+        compact={compact}
+        pending={pending}
+        error={error}
+        onCommit={onCommit}
+      />
     )
   }
 
   if (property.propertyType === "relation") {
-    const selected = Array.isArray(value?.targetNoteIds)
+    const stored = Array.isArray(value?.targetNoteIds)
       ? value.targetNoteIds.filter((noteId): noteId is string => typeof noteId === "string")
       : []
+    // Links beyond a one-page limit set later stay stored; only the first is available.
+    const selected = relationConfig?.maxItems === 1 ? stored.slice(0, 1) : stored
 
     const handleSelectNotes = (nextIds: string[]) => {
       void onCommit(
@@ -187,7 +172,8 @@ export function DatabaseCell({
     return (
       <div
         className={cn(
-          "flex h-full w-full min-h-[30px] flex-wrap items-center gap-1 overflow-hidden",
+          "flex h-full w-full items-center gap-1 overflow-hidden",
+          wrap && "flex-wrap",
           compact ? "px-0 py-0.5" : "px-1 py-1",
         )}
         onClick={stopRowSelection}
@@ -204,7 +190,7 @@ export function DatabaseCell({
           onCreatePage={onCreateRelationRow}
           onOpenNote={onOpenNote}
         >
-          <div className="flex flex-wrap items-center gap-1 w-full min-w-0">
+          <div className={cn("flex w-full min-w-0 items-center gap-1", wrap && "flex-wrap")}>
             {(wrap ? selected : selected.slice(0, MAX_VISIBLE_RELATIONS)).map((noteId) => (
               <RelationChip
                 key={noteId}
@@ -283,7 +269,7 @@ export function DatabaseCell({
     )
   }
 
-  const supported = ["text", "url", "number", "date"].includes(property.propertyType)
+  const supported = ["text", "url", "number"].includes(property.propertyType)
   if (!supported) {
     return (
       <div

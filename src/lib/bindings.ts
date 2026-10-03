@@ -646,6 +646,22 @@ async configureDatabaseRollup(request: ConfigureDatabaseRollupRequest) : Promise
     else return { status: "error", error: e  as any };
 }
 },
+async updateDatabasePropertyConfig(request: UpdateDatabasePropertyConfigRequest) : Promise<Result<UpdatedDatabasePropertyConfig, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_database_property_config", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateDatabasePropertyOptions(request: UpdateDatabasePropertyOptionsRequest) : Promise<Result<UpdatedDatabasePropertyOptions, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_database_property_options", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async searchRelationCandidates(request: SearchRelationCandidatesRequest) : Promise<Result<RelationCandidatePage, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("search_relation_candidates", { request }) };
@@ -1231,6 +1247,16 @@ export type DatabaseMigrationStatus = { databaseId: string; databaseName: string
 export type DatabaseModuleState = { enabled: boolean; vaultGeneration: number | null; projection: ProjectionVersion | null }
 export type DatabaseNoteContext = { vaultGeneration: number; databaseId: string; databaseTitle: string; databaseIcon: string | null; manifestRevision: string; locked: boolean; properties: DatabasePropertySummary[]; row: DatabaseRow }
 export type DatabaseNoteRevision = { noteId: string; revision: string }
+export type DatabaseOptionInput = { 
+/**
+ * Existing option to keep (its ID is stable); absent for a new option.
+ */
+id?: string | null; name: string; color: string; 
+/**
+ * Status only: `notStarted`, `inProgress` or `done`.
+ */
+group?: string | null }
+export type DatabaseOptionResult = { id: string; name: string; color: string; group: string | null }
 export type DatabaseOptionSummary = { optionId: string; name: string; color: string }
 export type DatabasePageRequest = { limit: number; cursor: string | null }
 export type DatabasePropertySummary = { propertyId: string; name: string; propertyType: string; configJson: string; options: DatabaseOptionSummary[] }
@@ -1399,9 +1425,57 @@ export type SyncReport = { inserted: number; updated: number; deleted: number; w
 export type TagEntry = { tag: string; notes: IndexedNote[] }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
+/**
+ * A change to the settings of a Text, Number, Date or Formula property. Only the
+ * fields that apply to the property's type may be set.
+ */
+export type UpdateDatabasePropertyConfigRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; 
+/**
+ * Text: whether the value may span lines.
+ */
+multiline?: boolean | null; 
+/**
+ * Number: `number`, `percent` or `currency`.
+ */
+numberFormat?: string | null; 
+/**
+ * Number: ISO 4217 code (three capital letters) of the `currency` format.
+ */
+currency?: string | null; 
+/**
+ * Date: whether values carry a time. Only while the property has no values.
+ */
+includeTime?: boolean | null; 
+/**
+ * Date: whether values may be a range. Only while the property has no values.
+ */
+allowRange?: boolean | null; 
+/**
+ * Date, display only: `full`, `monthDayYear`, `dayMonthYear`, `yearMonthDay` or `relative`.
+ */
+dateFormat?: string | null; 
+/**
+ * Date, display only: `12h` or `24h`.
+ */
+timeFormat?: string | null; 
+/**
+ * Formula: the expression.
+ */
+formulaExpression?: string | null }
+export type UpdateDatabasePropertyOptionsRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; 
+/**
+ * The complete, ordered option list of the property.
+ */
+options: DatabaseOptionInput[] }
 export type UpdateDatabaseRelationValueRequest = { expectedGeneration: number; operationId: string; expectedRevision: string; databaseId: string; noteId: string; propertyId: string; targetNoteIds: string[] }
 export type UpdateDatabaseRelationValueResult = { operationId: string; databaseId: string; noteId: string; targetNoteIds: string[]; affectedNotes: DatabaseAffectedNote[]; revisions: DatabaseNoteRevision[]; warnings: string[] }
 export type UpdateDatabaseViewConfigRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; configJson: string }
+export type UpdatedDatabasePropertyConfig = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
+export type UpdatedDatabasePropertyOptions = { databaseId: string; propertyId: string; manifestRevision: string; 
+/**
+ * The saved list in order, with IDs assigned to the new options.
+ */
+options: DatabaseOptionResult[]; warnings: string[] }
 export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
 /**
  * Failure of the generic file write. `RevisionConflict` means the bytes on

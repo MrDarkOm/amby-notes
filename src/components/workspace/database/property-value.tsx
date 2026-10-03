@@ -9,7 +9,7 @@ export function StatusBadge({ chip, className }: { chip: DisplayChip; className?
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center gap-1 truncate rounded px-1.5 py-0.5 text-[11px] text-foreground",
+        "inline-flex h-[22px] max-w-full shrink-0 items-center gap-1.5 truncate rounded-md px-2 text-xs font-medium text-foreground",
         chip.color ? undefined : "bg-muted",
         chip.state === "missing" && "italic text-muted-foreground",
         className,
@@ -38,10 +38,7 @@ function ValueChip({ chip }: { chip: DisplayChip }) {
   const pending = chip.state === "pending"
   return (
     <span
-      className={cn(
-        "max-w-full truncate rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground",
-        pending && "italic",
-      )}
+      className={cn("max-w-full truncate text-xs text-foreground/80", pending && "italic")}
       aria-busy={pending || undefined}
     >
       {chip.label ?? t("databaseValue.loading")}
@@ -49,11 +46,10 @@ function ValueChip({ chip }: { chip: DisplayChip }) {
   )
 }
 
-/** One property of a card: its name and formatted value chips. */
+/** One property of a card: just its value; the property's name is the tooltip. */
 export function PropertyValue({ property }: { property: DisplayProperty }) {
   return (
-    <span className="flex min-w-0 flex-wrap items-center gap-1">
-      <span className="shrink-0 text-[10px] text-muted-foreground/80">{property.name}</span>
+    <span className="flex min-w-0 flex-wrap items-center gap-1" title={property.name}>
       {property.chips.map((chip) => (
         <ValueChip key={chip.key} chip={chip} />
       ))}

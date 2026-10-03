@@ -34,13 +34,6 @@ export interface ViewSort {
 
 export type CardSize = "small" | "medium" | "large"
 
-/** Where each card layout stores its property list in `layoutConfig`. */
-const CARD_FIELD_KEYS: Record<string, string> = {
-  board: "cardFields",
-  list: "secondaryFields",
-  gallery: "fieldList",
-}
-
 export interface ViewSettings {
   /** The saved filter as stored; `null` when none. */
   filter: DurableFilter | null
@@ -52,9 +45,11 @@ export interface ViewSettings {
   /** Field key up to which columns are frozen; `null` freezes nothing. */
   frozenKey: string | null
   openMode: string
-  /** Property IDs shown on cards of a board, list or gallery; `null` is automatic. */
-  cardFields: string[] | null
   cardSize: CardSize
+  /** Property that splits a board into columns; `null` is no grouping. */
+  groupBy: string | null
+  /** Gallery: show the cover image at the top of each card. */
+  coverVisible: boolean
 }
 
 export interface SettingsPatch {
@@ -66,8 +61,9 @@ export interface SettingsPatch {
   wrapped?: string[]
   frozenKey?: string | null
   openMode?: string
-  cardFields?: string[] | null
   cardSize?: CardSize
+  groupBy?: string | null
+  coverVisible?: boolean
 }
 
 export const EMPTY_SETTINGS: ViewSettings = {
@@ -78,8 +74,9 @@ export const EMPTY_SETTINGS: ViewSettings = {
   wrapped: [],
   frozenKey: null,
   openMode: "sidePeek",
-  cardFields: null,
   cardSize: "medium",
+  groupBy: null,
+  coverVisible: true,
 }
 
 function isObject(value: unknown): value is Json {
@@ -97,6 +94,12 @@ export function fieldKey(ref: unknown): string | null {
     return ref.field === TITLE_KEY ? TITLE_KEY : null
   }
   return null
+}
+
+/** The property ID of a field reference; `null` for the title or an unreadable reference. */
+function propertyKey(ref: unknown): string | null {
+  const key = fieldKey(ref)
+  return key && key !== TITLE_KEY ? key : null
 }
 
 export function fieldRefFromKey(key: string): DatabaseFieldRef {
@@ -136,12 +139,6 @@ function parseSorts(value: unknown): ViewSort[] {
   })
 }
 
-function parseCardFields(doc: Json, layout: Json): string[] | null {
-  const key = typeof doc.layout === "string" ? CARD_FIELD_KEYS[doc.layout] : undefined
-  const list = key ? layout[key] : undefined
-  return Array.isArray(list) ? list.filter((id): id is string => typeof id === "string") : null
-}
-
 export function parseViewSettings(configJson: string): ViewSettings {
   const doc = parseDoc(configJson)
   const hidden: string[] = []
@@ -169,9 +166,10 @@ export function parseViewSettings(configJson: string): ViewSettings {
       : [],
     frozenKey: typeof layout.frozenBoundary === "string" ? layout.frozenBoundary : null,
     openMode: typeof doc.openMode === "string" ? doc.openMode : "sidePeek",
-    cardFields: parseCardFields(doc, layout),
     cardSize:
       layout.cardSize === "small" || layout.cardSize === "large" ? layout.cardSize : "medium",
+    groupBy: isObject(doc.group) ? propertyKey(doc.group.field) : null,
+    coverVisible: layout.coverVisible !== false,
   }
 }
 
@@ -283,6 +281,15 @@ export function applySettingsPatch(configJson: string, patch: SettingsPatch): st
     }))
   }
   if (patch.openMode) doc.openMode = patch.openMode
+  if (patch.groupBy !== undefined) {
+    // Keep the rule's other fields (written by newer builds) and change only its field.
+    doc.group = patch.groupBy
+      ? {
+          ...(isObject(doc.group) ? doc.group : {}),
+          field: durableField(fieldRefFromKey(patch.groupBy)),
+        }
+      : null
+  }
   if (patch.hidden || patch.widths) {
     const fields = (Array.isArray(doc.fields) ? doc.fields : [])
       .filter(isObject)
@@ -311,8 +318,8 @@ export function applySettingsPatch(configJson: string, patch: SettingsPatch): st
   if (
     patch.wrapped !== undefined ||
     patch.frozenKey !== undefined ||
-    patch.cardFields !== undefined ||
-    patch.cardSize !== undefined
+    patch.cardSize !== undefined ||
+    patch.coverVisible !== undefined
   ) {
     const layout = isObject(doc.layoutConfig) ? { ...doc.layoutConfig } : {}
     if (patch.wrapped !== undefined) {
@@ -323,16 +330,13 @@ export function applySettingsPatch(configJson: string, patch: SettingsPatch): st
       if (patch.frozenKey) layout.frozenBoundary = patch.frozenKey
       else delete layout.frozenBoundary
     }
-    if (patch.cardFields !== undefined) {
-      const key = typeof doc.layout === "string" ? CARD_FIELD_KEYS[doc.layout] : undefined
-      if (key) {
-        if (patch.cardFields === null) delete layout[key]
-        else layout[key] = patch.cardFields
-      }
-    }
     if (patch.cardSize !== undefined) {
       if (patch.cardSize === "medium") delete layout.cardSize
       else layout.cardSize = patch.cardSize
+    }
+    if (patch.coverVisible !== undefined) {
+      if (patch.coverVisible) delete layout.coverVisible
+      else layout.coverVisible = false
     }
     doc.layoutConfig = layout
   }
@@ -361,7 +365,8 @@ export function settingsAfter(settings: ViewSettings, patch: SettingsPatch): Vie
     wrapped: patch.wrapped ?? settings.wrapped,
     frozenKey: patch.frozenKey !== undefined ? patch.frozenKey : settings.frozenKey,
     openMode: patch.openMode ?? settings.openMode,
-    cardFields: patch.cardFields !== undefined ? patch.cardFields : settings.cardFields,
     cardSize: patch.cardSize ?? settings.cardSize,
+    groupBy: patch.groupBy !== undefined ? patch.groupBy : settings.groupBy,
+    coverVisible: patch.coverVisible ?? settings.coverVisible,
   }
 }

@@ -291,6 +291,62 @@ export interface RenameDatabasePropertyRequest {
   name: string
 }
 
+/** A change to the settings of a Text, Number, Date or Formula property; set only what applies. */
+export interface UpdateDatabasePropertyConfigRequest {
+  expectedGeneration: number
+  databaseId: string
+  propertyId: string
+  expectedManifestRevision: string
+  multiline?: boolean | null
+  numberFormat?: "number" | "percent" | "currency" | null
+  currency?: string | null
+  includeTime?: boolean | null
+  allowRange?: boolean | null
+  dateFormat?: "full" | "monthDayYear" | "dayMonthYear" | "yearMonthDay" | "relative" | null
+  timeFormat?: "12h" | "24h" | null
+  formulaExpression?: string | null
+}
+
+export interface UpdatedDatabasePropertyConfig {
+  databaseId: string
+  propertyId: string
+  manifestRevision: string
+  warnings: string[]
+}
+
+export interface DatabaseOptionInput {
+  /** Existing option to keep (stable ID); omitted for a new option. */
+  id?: string | null
+  name: string
+  color: string
+  /** Status only. */
+  group?: string | null
+}
+
+export interface DatabaseOptionResult {
+  id: string
+  name: string
+  color: string
+  group: string | null
+}
+
+export interface UpdateDatabasePropertyOptionsRequest {
+  expectedGeneration: number
+  databaseId: string
+  propertyId: string
+  expectedManifestRevision: string
+  /** The complete, ordered option list. Removed options keep their values (shown as missing). */
+  options: DatabaseOptionInput[]
+}
+
+export interface UpdatedDatabasePropertyOptions {
+  databaseId: string
+  propertyId: string
+  manifestRevision: string
+  options: DatabaseOptionResult[]
+  warnings: string[]
+}
+
 export interface RenamedDatabaseProperty {
   databaseId: string
   propertyId: string

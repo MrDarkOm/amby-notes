@@ -1,3 +1,4 @@
+import { AmbySelect } from "@/components/ui/amby-select"
 import * as React from "react"
 import { Plus, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -154,34 +155,27 @@ export function ViewFilterEditor({
         return (
           <div key={row.id} className="space-y-1 rounded-md border border-border/60 p-1.5">
             <div className="flex items-center gap-1.5">
-              <select
-                className={`${CONTROL} flex-1`}
+              <AmbySelect
+                size="sm"
+                className="flex-1"
                 aria-label={t("databaseFilter.field")}
                 value={key}
                 disabled={disabled}
-                onChange={(event) => setCondition(newCondition(event.target.value, types))}
-              >
-                {columns.map((column) => (
-                  <option key={column.key} value={column.key}>
-                    {column.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                className={`${CONTROL} flex-1`}
+                options={columns.map((column) => ({ value: column.key, label: column.name }))}
+                onValueChange={(next) => setCondition(newCondition(next, types))}
+              />
+              <AmbySelect
+                size="sm"
+                className="flex-1"
                 aria-label={t("databaseFilter.operator")}
                 value={row.condition.operator}
                 disabled={disabled}
-                onChange={(event) =>
-                  setCondition(withOperator(row.condition, event.target.value, types))
-                }
-              >
-                {operatorsFor(kind).map((operator) => (
-                  <option key={operator} value={operator}>
-                    {operatorLabel(kind, operator)}
-                  </option>
-                ))}
-              </select>
+                options={operatorsFor(kind).map((operator) => ({
+                  value: operator,
+                  label: operatorLabel(kind, operator),
+                }))}
+                onValueChange={(next) => setCondition(withOperator(row.condition, next, types))}
+              />
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -280,34 +274,37 @@ function OperandEditor({
   const label = t("databaseFilter.value")
   if (input === "boolean") {
     return (
-      <select
-        className={`${CONTROL} w-full`}
+      <AmbySelect
+        size="sm"
+        className="w-full"
         aria-label={label}
         value={value === false ? "no" : "yes"}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.value === "yes")}
-      >
-        <option value="yes">{t("databaseFilter.yes")}</option>
-        <option value="no">{t("databaseFilter.no")}</option>
-      </select>
+        options={[
+          { value: "yes", label: t("databaseFilter.yes") },
+          { value: "no", label: t("databaseFilter.no") },
+        ]}
+        onValueChange={(next) => onChange(next === "yes")}
+      />
     )
   }
   if (input === "option") {
     return (
-      <select
-        className={`${CONTROL} w-full`}
+      <AmbySelect
+        size="sm"
+        className="w-full"
         aria-label={label}
         value={typeof value === "string" ? value : ""}
         disabled={disabled}
-        onChange={(event) => onChange(event.target.value || undefined)}
-      >
-        <option value="">{t("databaseFilter.pickOption")}</option>
-        {(property?.options ?? []).map((option) => (
-          <option key={option.optionId} value={option.optionId}>
-            {option.name}
-          </option>
-        ))}
-      </select>
+        options={[
+          { value: "", label: t("databaseFilter.pickOption") },
+          ...(property?.options ?? []).map((option) => ({
+            value: option.optionId,
+            label: option.name,
+          })),
+        ]}
+        onValueChange={(next) => onChange(next || undefined)}
+      />
     )
   }
   return (

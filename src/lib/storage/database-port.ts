@@ -13,6 +13,10 @@ import {
   type DeletedDatabaseProperty,
   type RenameDatabasePropertyRequest,
   type RenamedDatabaseProperty,
+  type UpdateDatabasePropertyOptionsRequest,
+  type UpdatedDatabasePropertyOptions,
+  type UpdateDatabasePropertyConfigRequest,
+  type UpdatedDatabasePropertyConfig,
   type RenameDatabaseRequest,
   type RenamedDatabase,
   type DatabaseValueBatchRequest,
@@ -71,6 +75,12 @@ export interface DatabasePort {
   ): Promise<ChangedDatabasePropertyType>
   deleteDatabaseProperty(request: DeleteDatabasePropertyRequest): Promise<DeletedDatabaseProperty>
   renameDatabaseProperty(request: RenameDatabasePropertyRequest): Promise<RenamedDatabaseProperty>
+  updateDatabasePropertyConfig(
+    request: UpdateDatabasePropertyConfigRequest,
+  ): Promise<UpdatedDatabasePropertyConfig>
+  updateDatabasePropertyOptions(
+    request: UpdateDatabasePropertyOptionsRequest,
+  ): Promise<UpdatedDatabasePropertyOptions>
   renameDatabase(request: RenameDatabaseRequest): Promise<RenamedDatabase>
   applyDatabaseValueBatch(request: DatabaseValueBatchRequest): Promise<DatabaseValueBatchResult>
   updateDatabaseRelationValue(

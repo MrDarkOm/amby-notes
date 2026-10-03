@@ -176,6 +176,94 @@ pub struct RenamedDatabaseProperty {
     pub warnings: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseOptionInput {
+    /// Existing option to keep (its ID is stable); absent for a new option.
+    #[serde(default)]
+    pub id: Option<String>,
+    pub name: String,
+    pub color: String,
+    /// Status only: `notStarted`, `inProgress` or `done`.
+    #[serde(default)]
+    pub group: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDatabasePropertyOptionsRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub property_id: String,
+    pub expected_manifest_revision: String,
+    /// The complete, ordered option list of the property.
+    pub options: Vec<DatabaseOptionInput>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseOptionResult {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    pub group: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedDatabasePropertyOptions {
+    pub database_id: String,
+    pub property_id: String,
+    pub manifest_revision: String,
+    /// The saved list in order, with IDs assigned to the new options.
+    pub options: Vec<DatabaseOptionResult>,
+    pub warnings: Vec<String>,
+}
+
+/// A change to the settings of a Text, Number, Date or Formula property. Only the
+/// fields that apply to the property's type may be set.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateDatabasePropertyConfigRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub property_id: String,
+    pub expected_manifest_revision: String,
+    /// Text: whether the value may span lines.
+    #[serde(default)]
+    pub multiline: Option<bool>,
+    /// Number: `number`, `percent` or `currency`.
+    #[serde(default)]
+    pub number_format: Option<String>,
+    /// Number: ISO 4217 code (three capital letters) of the `currency` format.
+    #[serde(default)]
+    pub currency: Option<String>,
+    /// Date: whether values carry a time. Only while the property has no values.
+    #[serde(default)]
+    pub include_time: Option<bool>,
+    /// Date: whether values may be a range. Only while the property has no values.
+    #[serde(default)]
+    pub allow_range: Option<bool>,
+    /// Date, display only: `full`, `monthDayYear`, `dayMonthYear`, `yearMonthDay` or `relative`.
+    #[serde(default)]
+    pub date_format: Option<String>,
+    /// Date, display only: `12h` or `24h`.
+    #[serde(default)]
+    pub time_format: Option<String>,
+    /// Formula: the expression.
+    #[serde(default)]
+    pub formula_expression: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedDatabasePropertyConfig {
+    pub database_id: String,
+    pub property_id: String,
+    pub manifest_revision: String,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeDatabasePropertyTypeRequest {
@@ -429,7 +517,7 @@ pub fn create_database(
         "viewId": view_id,
         "name": "Table",
         "layout": "table",
-        "openMode": "sidePeek",
+        "openMode": "centerPeek",
         "subitemsMode": "nested",
         "density": "default",
         "fields": [{"field": {"kind": "system", "field": "title"}, "visible": true, "width": null, "frozen": true}],
@@ -1334,11 +1422,12 @@ pub fn change_database_property_type(
     };
     let old_two_way = old_inverse_id.is_some();
     let new_two_way = new_relation && request.relation_two_way.unwrap_or(old_two_way);
+    // The limit is a rule for new links, not a change to stored ones: links beyond a new
+    // one-page limit stay stored (only the first is used), so it never waits for values to go.
     let topology_changed = old_relation.is_some()
         && (!new_relation
             || old_relation_target.as_deref() != Some(target_database_id.as_str())
-            || old_two_way != new_two_way
-            || old_max_items != max_items);
+            || old_two_way != new_two_way);
 
     if current_property.kind() != request.property_type && current_property.yaml_binding().is_some()
     {
@@ -2018,6 +2107,434 @@ pub fn rename_database_property(
         property_id: request.property_id.clone(),
         name: name.to_owned(),
         manifest_revision: prepared.revision,
+        warnings: Vec::new(),
+    })
+}
+
+const DATE_FORMATS: [&str; 5] = [
+    "full",
+    "monthDayYear",
+    "dayMonthYear",
+    "yearMonthDay",
+    "relative",
+];
+
+/// Sets or clears (`full` / `24h` are the defaults) a display-only config key.
+fn set_display_key(
+    extra: &mut std::collections::BTreeMap<String, serde_json::Value>,
+    key: &str,
+    value: &str,
+    default: &str,
+) {
+    if value == default {
+        extra.remove(key);
+    } else {
+        extra.insert(key.to_owned(), json!(value));
+    }
+}
+
+fn reject_inapplicable(
+    request: &UpdateDatabasePropertyConfigRequest,
+    kind: &str,
+) -> Result<(), String> {
+    let applies = match kind {
+        "text" => request.multiline.is_some(),
+        "number" => request.number_format.is_some() || request.currency.is_some(),
+        "date" => {
+            request.include_time.is_some()
+                || request.allow_range.is_some()
+                || request.date_format.is_some()
+                || request.time_format.is_some()
+        }
+        "formula" => request.formula_expression.is_some(),
+        _ => false,
+    };
+    // A request that sets nothing for this type, or sets other types' fields, is a mistake.
+    let others = (kind != "text" && request.multiline.is_some())
+        || (kind != "number" && (request.number_format.is_some() || request.currency.is_some()))
+        || (kind != "date"
+            && (request.include_time.is_some()
+                || request.allow_range.is_some()
+                || request.date_format.is_some()
+                || request.time_format.is_some()))
+        || (kind != "formula" && request.formula_expression.is_some());
+    if others || !applies {
+        return Err("These settings do not apply to this property".to_owned());
+    }
+    Ok(())
+}
+
+/// Changes the settings of a Text, Number, Date or Formula property.
+///
+/// Settings that change what a stored value must look like (a date's time and range)
+/// are refused while the property has values, so no record can become invalid; the
+/// rest only change how values are shown or computed, and never touch records.
+pub fn update_database_property_config(
+    vault: &Path,
+    watcher: &WatcherState,
+    request: &UpdateDatabasePropertyConfigRequest,
+) -> Result<UpdatedDatabasePropertyConfig, String> {
+    let container = find_database_container(vault, &request.database_id)?;
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
+    let original = fs::read(&manifest_path).map_err(|error| error.to_string())?;
+    let parsed = parse_manifest(&original).map_err(|error| error.to_string())?;
+    if parsed.revision != request.expected_manifest_revision {
+        return Err("Manifest revision conflict".to_owned());
+    }
+    if parsed.value.locked {
+        return Err("Database is locked".to_owned());
+    }
+    let current = parsed
+        .value
+        .properties
+        .iter()
+        .find(|property| property.id() == Some(request.property_id.as_str()))
+        .ok_or_else(|| "Property not found".to_owned())?;
+    reject_inapplicable(request, current.kind())?;
+
+    let mut manifest = parsed.value.clone();
+    let property = manifest
+        .properties
+        .iter_mut()
+        .find(|property| property.id() == Some(request.property_id.as_str()))
+        .ok_or_else(|| "Property not found".to_owned())?;
+    let mut needs_value_check = false;
+    match property {
+        PropertyDefinition::Text(fields) => {
+            if let Some(multiline) = request.multiline {
+                fields.config.multiline = multiline;
+            }
+        }
+        PropertyDefinition::Number(fields) => {
+            let format = request
+                .number_format
+                .clone()
+                .unwrap_or_else(|| fields.config.format.clone());
+            if !matches!(format.as_str(), "number" | "percent" | "currency") {
+                return Err("Unknown number format".to_owned());
+            }
+            let currency = match (&request.currency, format.as_str()) {
+                (_, "number" | "percent") => None,
+                (Some(code), _) => {
+                    let code = code.trim().to_ascii_uppercase();
+                    if code.len() != 3 || !code.bytes().all(|byte| byte.is_ascii_uppercase()) {
+                        return Err("Currency must be a three-letter code".to_owned());
+                    }
+                    Some(code)
+                }
+                (None, _) => fields.config.currency.clone(),
+            };
+            if format == "currency" && currency.is_none() {
+                return Err("Currency format requires a currency code".to_owned());
+            }
+            fields.config.format = format;
+            fields.config.currency = currency;
+        }
+        PropertyDefinition::Date(fields) => {
+            if let Some(include_time) = request.include_time {
+                needs_value_check |= include_time != fields.config.include_time;
+                fields.config.include_time = include_time;
+            }
+            if let Some(allow_range) = request.allow_range {
+                // Allowing ranges only widens what is valid; forbidding them can break values.
+                needs_value_check |= !allow_range && fields.config.allow_range;
+                fields.config.allow_range = allow_range;
+            }
+            if let Some(format) = request.date_format.as_deref() {
+                if !DATE_FORMATS.contains(&format) {
+                    return Err("Unknown date format".to_owned());
+                }
+                set_display_key(&mut fields.config.extra, "dateFormat", format, "full");
+            }
+            if let Some(format) = request.time_format.as_deref() {
+                if !matches!(format, "12h" | "24h") {
+                    return Err("Unknown time format".to_owned());
+                }
+                set_display_key(&mut fields.config.extra, "timeFormat", format, "24h");
+            }
+        }
+        PropertyDefinition::Formula(fields) => {
+            if let Some(expression) = request.formula_expression.as_deref() {
+                let expression = expression.trim();
+                if expression.is_empty() {
+                    return Err("Formula expression is required".to_owned());
+                }
+                super::formula::extract_dependencies(expression)
+                    .map_err(|error| format!("Invalid formula: {error}"))?;
+                fields.config.expression = expression.to_owned();
+            }
+        }
+        _ => return Err("These settings do not apply to this property".to_owned()),
+    }
+    if needs_value_check {
+        let target = parsed
+            .value
+            .properties
+            .iter()
+            .find(|property| property.id() == Some(request.property_id.as_str()))
+            .ok_or_else(|| "Property not found".to_owned())?;
+        ensure_property_has_no_durable_values(vault, &request.database_id, &container, target)
+            .map_err(|error| {
+                if error.contains("existing values are cleared") {
+                    "Date time and range settings can only change after the existing values are cleared"
+                        .to_owned()
+                } else {
+                    error
+                }
+            })?;
+    }
+
+    let report = validate_manifest(&manifest);
+    if !report.errors.is_empty() {
+        return Err("Property settings would make the database manifest invalid".to_owned());
+    }
+    let prepared = prepare_json(&parsed, &manifest).map_err(|error| error.to_string())?;
+    let current = fs::read(&manifest_path).map_err(|error| error.to_string())?;
+    if raw_revision(&current) != request.expected_manifest_revision {
+        return Err("Manifest revision conflict".to_owned());
+    }
+    crate::history::snapshot_before_write(
+        vault,
+        &manifest_path,
+        &prepared.bytes,
+        "database-schema",
+    )?;
+    let write = watcher.prepare_write([(
+        &manifest_path,
+        watcher::fingerprint_for_bytes(&prepared.bytes),
+    )]);
+    if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path, &prepared.bytes) {
+        watcher.cancel_prepared_write(&write);
+        return Err(error);
+    }
+    watcher.confirm_prepared_write(&write);
+
+    Ok(UpdatedDatabasePropertyConfig {
+        database_id: request.database_id.clone(),
+        property_id: request.property_id.clone(),
+        manifest_revision: prepared.revision,
+        warnings: Vec::new(),
+    })
+}
+
+/// Records store the option *name* in their frontmatter and find the option by
+/// name or alias, so a renamed option keeps its old name as an alias: records
+/// written before the rename still resolve to the same option.
+fn keep_old_name_as_alias(aliases: &mut Vec<String>, old_name: &str, new_name: &str) {
+    if old_name.is_empty() || old_name == new_name {
+        return;
+    }
+    if !aliases
+        .iter()
+        .any(|alias| alias.eq_ignore_ascii_case(old_name))
+    {
+        aliases.push(old_name.to_owned());
+    }
+}
+
+/// A name always wins over an alias: an alias that equals any option's current
+/// name is dropped so a name resolves to exactly one option.
+fn drop_aliases_taken_by_names<T>(
+    options: &mut [T],
+    parts: impl Fn(&mut T) -> (&String, &mut Vec<String>),
+) {
+    let names: Vec<String> = options
+        .iter_mut()
+        .map(|option| parts(option).0.to_lowercase())
+        .collect();
+    for option in options.iter_mut() {
+        let (_, aliases) = parts(option);
+        aliases.retain(|alias| !names.contains(&alias.to_lowercase()));
+    }
+}
+
+fn is_hex_color(color: &str) -> bool {
+    color.len() == 7
+        && color.starts_with('#')
+        && color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+/// Validated names/colors of a requested option list, in the requested order.
+fn normalize_option_inputs(
+    inputs: &[DatabaseOptionInput],
+) -> Result<Vec<DatabaseOptionInput>, String> {
+    if inputs.len() > super::validation::MAX_OPTIONS_PER_PROPERTY {
+        return Err("Too many options".to_owned());
+    }
+    let mut names = std::collections::HashSet::new();
+    let mut ids = std::collections::HashSet::new();
+    let mut normalized = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let name = input.name.trim();
+        if name.is_empty() {
+            return Err("Option name is required".to_owned());
+        }
+        if !names.insert(name.to_lowercase()) {
+            return Err("An option with this name already exists".to_owned());
+        }
+        if !is_hex_color(&input.color) {
+            return Err("Option color must be a #rrggbb value".to_owned());
+        }
+        if let Some(id) = input.id.as_deref() {
+            if !ids.insert(id.to_owned()) {
+                return Err("Option ID is repeated".to_owned());
+            }
+        }
+        normalized.push(DatabaseOptionInput {
+            id: input.id.clone(),
+            name: name.to_owned(),
+            color: input.color.to_ascii_lowercase(),
+            group: input.group.clone(),
+        });
+    }
+    Ok(normalized)
+}
+
+/// Replaces the option list of a Select, Multi-select or Status property.
+///
+/// Values already stored in records are never rewritten: a removed option stays
+/// referenced by its ID and is shown as a missing option (a diagnostic value),
+/// so deleting an option can never lose data.
+pub fn update_database_property_options(
+    vault: &Path,
+    watcher: &WatcherState,
+    request: &UpdateDatabasePropertyOptionsRequest,
+) -> Result<UpdatedDatabasePropertyOptions, String> {
+    let inputs = normalize_option_inputs(&request.options)?;
+    let container = find_database_container(vault, &request.database_id)?;
+    let manifest_path = super::discovery::manifest_path_for_container(&container);
+    let original = fs::read(&manifest_path).map_err(|error| error.to_string())?;
+    let parsed = parse_manifest(&original).map_err(|error| error.to_string())?;
+    if parsed.revision != request.expected_manifest_revision {
+        return Err("Manifest revision conflict".to_owned());
+    }
+    if parsed.value.locked {
+        return Err("Database is locked".to_owned());
+    }
+
+    let mut manifest = parsed.value.clone();
+    let property = manifest
+        .properties
+        .iter_mut()
+        .find(|property| property.id() == Some(request.property_id.as_str()))
+        .ok_or_else(|| "Property not found".to_owned())?;
+    let mut results = Vec::with_capacity(inputs.len());
+    match property {
+        PropertyDefinition::Select(fields) | PropertyDefinition::MultiSelect(fields) => {
+            let previous = std::mem::take(&mut fields.config.options);
+            let mut next = Vec::with_capacity(inputs.len());
+            for input in &inputs {
+                let existing = match input.id.as_deref() {
+                    Some(id) => Some(
+                        previous
+                            .iter()
+                            .find(|option| option.id == id)
+                            .ok_or_else(|| "Unknown option".to_owned())?,
+                    ),
+                    None => None,
+                };
+                let mut option = existing
+                    .cloned()
+                    .unwrap_or_else(|| super::format::SelectOption {
+                        id: ulid::Ulid::generate().to_string(),
+                        name: String::new(),
+                        color: String::new(),
+                        aliases: Vec::new(),
+                        extra: Default::default(),
+                    });
+                keep_old_name_as_alias(&mut option.aliases, &option.name, &input.name);
+                option.name = input.name.clone();
+                option.color = input.color.clone();
+                results.push(DatabaseOptionResult {
+                    id: option.id.clone(),
+                    name: option.name.clone(),
+                    color: option.color.clone(),
+                    group: None,
+                });
+                next.push(option);
+            }
+            drop_aliases_taken_by_names(&mut next, |option| (&option.name, &mut option.aliases));
+            fields.config.options = next;
+        }
+        PropertyDefinition::Status(fields) => {
+            let previous = std::mem::take(&mut fields.config.options);
+            let mut next = Vec::with_capacity(inputs.len());
+            for input in &inputs {
+                let existing = match input.id.as_deref() {
+                    Some(id) => Some(
+                        previous
+                            .iter()
+                            .find(|option| option.id == id)
+                            .ok_or_else(|| "Unknown option".to_owned())?,
+                    ),
+                    None => None,
+                };
+                let group = input
+                    .group
+                    .clone()
+                    .or_else(|| existing.map(|option| option.group.clone()))
+                    .unwrap_or_else(|| "notStarted".to_owned());
+                if !matches!(group.as_str(), "notStarted" | "inProgress" | "done") {
+                    return Err("Unknown status group".to_owned());
+                }
+                let mut option = existing
+                    .cloned()
+                    .unwrap_or_else(|| super::format::StatusOption {
+                        id: ulid::Ulid::generate().to_string(),
+                        name: String::new(),
+                        color: String::new(),
+                        group: group.clone(),
+                        aliases: Vec::new(),
+                        extra: Default::default(),
+                    });
+                keep_old_name_as_alias(&mut option.aliases, &option.name, &input.name);
+                option.name = input.name.clone();
+                option.color = input.color.clone();
+                option.group = group;
+                results.push(DatabaseOptionResult {
+                    id: option.id.clone(),
+                    name: option.name.clone(),
+                    color: option.color.clone(),
+                    group: Some(option.group.clone()),
+                });
+                next.push(option);
+            }
+            drop_aliases_taken_by_names(&mut next, |option| (&option.name, &mut option.aliases));
+            fields.config.options = next;
+        }
+        _ => return Err("This property has no options".to_owned()),
+    }
+
+    let report = validate_manifest(&manifest);
+    if !report.errors.is_empty() {
+        return Err("Option update would make the database manifest invalid".to_owned());
+    }
+    let prepared = prepare_json(&parsed, &manifest).map_err(|error| error.to_string())?;
+    let current = fs::read(&manifest_path).map_err(|error| error.to_string())?;
+    if raw_revision(&current) != request.expected_manifest_revision {
+        return Err("Manifest revision conflict".to_owned());
+    }
+    crate::history::snapshot_before_write(
+        vault,
+        &manifest_path,
+        &prepared.bytes,
+        "database-schema",
+    )?;
+    let write = watcher.prepare_write([(
+        &manifest_path,
+        watcher::fingerprint_for_bytes(&prepared.bytes),
+    )]);
+    if let Err(error) = frontmatter::atomic_write_bytes(&manifest_path, &prepared.bytes) {
+        watcher.cancel_prepared_write(&write);
+        return Err(error);
+    }
+    watcher.confirm_prepared_write(&write);
+
+    Ok(UpdatedDatabasePropertyOptions {
+        database_id: request.database_id.clone(),
+        property_id: request.property_id.clone(),
+        manifest_revision: prepared.revision,
+        options: results,
         warnings: Vec::new(),
     })
 }

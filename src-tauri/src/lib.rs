@@ -119,6 +119,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::database::import_database_asset,
         commands::database::resolve_database_asset_paths,
         commands::database::configure_database_rollup,
+        commands::database::update_database_property_config,
+        commands::database::update_database_property_options,
         commands::database::search_relation_candidates,
         commands::database::resolve_record_references,
         commands::database::sync_database_yaml,

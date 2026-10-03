@@ -1,5 +1,6 @@
 "use client"
 
+import { AmbySelect } from "@/components/ui/amby-select"
 import * as React from "react"
 import { CalendarDays, CheckSquare, Hash, Link2, List, Trash2, Type } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -144,19 +145,17 @@ export function PropertyEditor({
         </div>
         <label className="grid gap-1 text-[10px] text-muted-foreground">
           {t("infoPanel.propertyType")}
-          <select
+          <AmbySelect
             value={draft.propertyType}
-            onChange={(event) =>
-              setDraft((value) => ({ ...value, propertyType: event.target.value, value: "" }))
+            aria-label={t("infoPanel.propertyType")}
+            options={CUSTOM_PROPERTY_TYPES.map((type) => ({
+              value: type,
+              label: t(`infoPanel.propertyTypes.${type}`),
+            }))}
+            onValueChange={(next) =>
+              setDraft((value) => ({ ...value, propertyType: next, value: "" }))
             }
-            className="h-9 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-          >
-            {CUSTOM_PROPERTY_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {t(`infoPanel.propertyTypes.${type}`)}
-              </option>
-            ))}
-          </select>
+          />
         </label>
         {draft.propertyType === "select" && (
           <label className="grid gap-1 text-[10px] text-muted-foreground">
@@ -190,18 +189,15 @@ export function PropertyEditor({
               <span>{draft.value === "true" ? "✓" : "○"}</span>
             </button>
           ) : draft.propertyType === "select" ? (
-            <select
+            <AmbySelect
               value={draft.value}
-              onChange={(event) => setDraft((value) => ({ ...value, value: event.target.value }))}
-              className="h-9 rounded-md border border-border bg-background px-2 text-xs text-foreground"
-            >
-              <option value="">—</option>
-              {options.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+              aria-label={t("infoPanel.propertyValue", { defaultValue: draft.name })}
+              options={[
+                { value: "", label: "—" },
+                ...options.map((option) => ({ value: option, label: option })),
+              ]}
+              onValueChange={(next) => setDraft((value) => ({ ...value, value: next }))}
+            />
           ) : (
             <Input
               type={

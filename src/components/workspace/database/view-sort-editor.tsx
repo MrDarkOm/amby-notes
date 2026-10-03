@@ -1,12 +1,10 @@
+import { AmbySelect } from "@/components/ui/amby-select"
 import { ArrowDown, ArrowUp, Plus, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import type { DatabasePropertySummary } from "@/lib/storage"
 import { isSortable } from "./filter-editor-model"
 import { fieldKey, fieldRefFromKey, TITLE_KEY, type ViewSort } from "./view-config"
-
-const CONTROL =
-  "h-8 min-w-0 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
 
 export interface ViewSortEditorProps {
   sorts: ViewSort[]
@@ -56,38 +54,31 @@ export function ViewSortEditor({
             <span className="w-12 shrink-0 text-[11px] text-muted-foreground">
               {index === 0 ? t("databaseSort.first") : t("databaseSort.then")}
             </span>
-            <select
-              className={`${CONTROL} flex-1`}
+            <AmbySelect
+              size="sm"
+              className="flex-1"
               value={key}
               disabled={disabled}
               aria-label={t("databaseFilter.field")}
-              onChange={(event) =>
-                replace(index, { ...sort, field: fieldRefFromKey(event.target.value) })
-              }
-            >
-              {columns
+              options={columns
                 .filter((column) => column.key === key || !used.has(column.key))
-                .map((column) => (
-                  <option key={column.key} value={column.key}>
-                    {column.name}
-                  </option>
-                ))}
-            </select>
-            <select
-              className={CONTROL}
+                .map((column) => ({ value: column.key, label: column.name }))}
+              onValueChange={(next) => replace(index, { ...sort, field: fieldRefFromKey(next) })}
+            />
+            <AmbySelect
+              size="sm"
+              className="w-28"
               value={sort.direction}
               disabled={disabled}
               aria-label={t("databaseSort.title")}
-              onChange={(event) =>
-                replace(index, {
-                  ...sort,
-                  direction: event.target.value === "desc" ? "desc" : "asc",
-                })
+              options={[
+                { value: "asc", label: t("databaseSort.ascending") },
+                { value: "desc", label: t("databaseSort.descending") },
+              ]}
+              onValueChange={(next) =>
+                replace(index, { ...sort, direction: next === "desc" ? "desc" : "asc" })
               }
-            >
-              <option value="asc">{t("databaseSort.ascending")}</option>
-              <option value="desc">{t("databaseSort.descending")}</option>
-            </select>
+            />
             <Button
               variant="ghost"
               size="icon-sm"

@@ -1,4 +1,6 @@
 import * as React from "react"
+import { motion } from "motion/react"
+import { motionTransition, motionTransitions } from "@/lib/motion-config"
 import { ImageIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { assetUrlForAbsolutePath } from "../../tiptap/asset-resolver"
@@ -64,15 +66,20 @@ export function GalleryCover({ preview, resolver, size = "medium" }: GalleryCove
   return (
     <span
       ref={ref}
-      className={`mb-2 flex w-full ${COVER_HEIGHT[size]} items-center justify-center overflow-hidden rounded-md bg-muted/70 text-muted-foreground`}
+      data-gallery-cover=""
+      className={`mb-2.5 flex w-full ${COVER_HEIGHT[size]} items-center justify-center overflow-hidden rounded-xl bg-muted/60 text-muted-foreground`}
       title={state.status === "error" ? t("databaseValue.coverUnavailable") : undefined}
     >
       {state.status === "ready" ? (
-        <img
+        <motion.img
           src={state.url}
           alt=""
           loading="lazy"
           decoding="async"
+          // The picture fades in once it has loaded instead of popping in.
+          initial={{ opacity: 0, scale: 1.04 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={motionTransition(motionTransitions.slow)}
           className="size-full object-cover"
           onError={() => setState({ status: "error" })}
         />

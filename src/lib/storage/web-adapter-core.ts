@@ -59,6 +59,10 @@ import type {
   DeletedDatabaseProperty,
   RenameDatabasePropertyRequest,
   RenamedDatabaseProperty,
+  UpdateDatabasePropertyOptionsRequest,
+  UpdatedDatabasePropertyOptions,
+  UpdateDatabasePropertyConfigRequest,
+  UpdatedDatabasePropertyConfig,
   CreatedDatabaseProperty,
   DatabaseNoteContext,
   ReorderDatabasePropertiesRequest,
@@ -366,6 +370,24 @@ export class WebAdapterCore implements StoragePort {
     throw new DatabaseOperationError(
       "failed",
       "Database property rename requires the desktop runtime",
+    )
+  }
+
+  async updateDatabasePropertyConfig(
+    _request: UpdateDatabasePropertyConfigRequest,
+  ): Promise<UpdatedDatabasePropertyConfig> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Editing database property settings requires the desktop runtime",
+    )
+  }
+
+  async updateDatabasePropertyOptions(
+    _request: UpdateDatabasePropertyOptionsRequest,
+  ): Promise<UpdatedDatabasePropertyOptions> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Editing database options requires the desktop runtime",
     )
   }
 

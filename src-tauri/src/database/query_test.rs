@@ -740,7 +740,7 @@ fn a_current_page_filter_matches_only_the_given_page_and_never_everything() {
         operator: "contains".to_owned(),
         value: Some(serde_json::json!(CURRENT_PAGE_OPERAND).to_string()),
     };
-    let mut ask = |context: Option<&str>| {
+    let ask = |context: Option<&str>| {
         let mut req = request(
             Some(filter.clone()),
             DatabasePageRequest {

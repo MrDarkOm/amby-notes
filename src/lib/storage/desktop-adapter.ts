@@ -19,6 +19,10 @@ import type {
   DeletedDatabaseProperty,
   RenameDatabasePropertyRequest,
   RenamedDatabaseProperty,
+  UpdateDatabasePropertyOptionsRequest,
+  UpdatedDatabasePropertyOptions,
+  UpdateDatabasePropertyConfigRequest,
+  UpdatedDatabasePropertyConfig,
   CreatedDatabaseProperty,
   DatabaseNoteContext,
   ReorderDatabasePropertiesRequest,
@@ -312,6 +316,18 @@ export class DesktopAdapter implements StoragePort {
     request: RenameDatabasePropertyRequest,
   ): Promise<RenamedDatabaseProperty> {
     return unwrapDatabaseCommand(await commands.renameDatabaseProperty(request))
+  }
+
+  async updateDatabasePropertyConfig(
+    request: UpdateDatabasePropertyConfigRequest,
+  ): Promise<UpdatedDatabasePropertyConfig> {
+    return unwrapDatabaseCommand(await commands.updateDatabasePropertyConfig(request))
+  }
+
+  async updateDatabasePropertyOptions(
+    request: UpdateDatabasePropertyOptionsRequest,
+  ): Promise<UpdatedDatabasePropertyOptions> {
+    return unwrapDatabaseCommand(await commands.updateDatabasePropertyOptions(request))
   }
 
   async getDatabaseNoteContext(noteId: string): Promise<DatabaseNoteContext | null> {

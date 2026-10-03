@@ -1,10 +1,12 @@
 import * as React from "react"
 import { ExternalLink, Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { AmbySelect } from "@/components/ui/amby-select"
 import { Button } from "@/components/ui/button"
 import {
   createDatabaseRow,
   getDatabaseNoteContext,
+  type DatabaseFieldRef,
   type DatabasePropertySummary,
   getFileRevision,
   updateDatabaseRelationValue,
@@ -12,6 +14,7 @@ import {
 } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { BoardLanesView } from "./board-lanes-view"
+import type { CardCellEdit } from "./database-value-cell"
 import { openDatabaseFromEmbed, openNoteFromDatabase } from "./database-navigation"
 import { useDatabaseStore } from "./database-store"
 import { getViewLayoutIcon } from "./database-layout-icons"
@@ -77,6 +80,16 @@ export function DatabaseViewHost({
     persist: false,
   })
   const settings = savedView.settings
+  // The view's saved grouping; the catalog summary is only used until it is read.
+  const groupField = React.useMemo<DatabaseFieldRef | null>(
+    () =>
+      savedView.ready
+        ? settings.groupBy
+          ? { kind: "property", propertyId: settings.groupBy }
+          : null
+        : (view?.groupField ?? null),
+    [savedView.ready, settings.groupBy, view?.groupField],
+  )
   const filter = React.useMemo(
     () => combineFilters(settings.filter, reference.filter),
     [reference.filter, settings.filter],
@@ -118,6 +131,14 @@ export function DatabaseViewHost({
   })
   const rows = host?.rows ?? EMPTY_ROWS
   const properties = database?.properties ?? EMPTY_PROPERTIES
+  // Cards show the properties the view shows.
+  const cardFields = React.useMemo(
+    () =>
+      properties
+        .filter((property) => !settings.hidden.includes(property.propertyId))
+        .map((property) => property.propertyId),
+    [properties, settings.hidden],
+  )
   const relationReferences = useRecordReferences(
     React.useMemo(() => relationTargetIds(rows.map((row) => row.valuesJson)), [rows]),
   )
@@ -130,6 +151,19 @@ export function DatabaseViewHost({
     vaultGeneration,
     onSettled: () => retry(),
   })
+
+  const cardEdit = React.useMemo<CardCellEdit | undefined>(
+    () =>
+      editable && !database?.locked
+        ? {
+            onCommit: mutation.commit,
+            pendingCells: mutation.pendingCells,
+            cellErrors: mutation.cellErrors,
+            onOpenNote: openNoteFromDatabase,
+          }
+        : undefined,
+    [database?.locked, editable, mutation.cellErrors, mutation.commit, mutation.pendingCells],
+  )
 
   const pageRelations = React.useMemo(
     () => pageRelationCandidates(properties, pageDatabaseId, reference.databaseId),
@@ -223,22 +257,22 @@ export function DatabaseViewHost({
         {editable && onReferenceChange && pageRelations.length > 0 && (
           <label className="flex items-center gap-1.5 text-muted-foreground">
             <span>{t("databaseEmbed.pageFilter")}</span>
-            <select
-              className="h-7 rounded-md border border-border bg-background px-1.5 text-xs text-foreground"
+            <AmbySelect
+              size="sm"
+              className="w-40"
+              aria-label={t("databaseEmbed.pageFilter")}
               value={ownTied}
-              onChange={(event) =>
-                onReferenceChange({
-                  filter: event.target.value ? currentPageFilter(event.target.value) : undefined,
-                })
+              options={[
+                { value: "", label: t("databaseEmbed.pageFilterNone") },
+                ...pageRelations.map((property) => ({
+                  value: property.propertyId,
+                  label: property.name,
+                })),
+              ]}
+              onValueChange={(value) =>
+                onReferenceChange({ filter: value ? currentPageFilter(value) : undefined })
               }
-            >
-              <option value="">{t("databaseEmbed.pageFilterNone")}</option>
-              {pageRelations.map((property) => (
-                <option key={property.propertyId} value={property.propertyId}>
-                  {property.name}
-                </option>
-              ))}
-            </select>
+            />
           </label>
         )}
         {editable && onReferenceChange && (
@@ -292,13 +326,14 @@ export function DatabaseViewHost({
         </p>
       )}
       <div className="flex h-[420px] min-h-0 flex-col">
-        {layout === "board" && view.groupField?.kind === "property" ? (
+        {layout === "board" && groupField?.kind === "property" ? (
           <BoardHostLayout
             databaseId={reference.databaseId}
-            groupPropertyId={view.groupField.propertyId}
+            groupPropertyId={groupField.propertyId}
             properties={properties}
             relationTitles={relationTitles}
-            cardFields={settings.cardFields}
+            cardFields={cardFields}
+            cardEdit={cardEdit}
             filter={queryFilter}
             sorts={querySorts}
             contextPageId={noteId}
@@ -310,8 +345,9 @@ export function DatabaseViewHost({
             {...common}
             properties={properties}
             relationTitles={relationTitles}
-            cardFields={settings.cardFields}
-            groupField={view.groupField}
+            cardFields={cardFields}
+            cardEdit={cardEdit}
+            groupField={groupField}
             onRowSelect={open}
           />
         ) : layout === "list" ? (
@@ -319,7 +355,8 @@ export function DatabaseViewHost({
             {...common}
             properties={properties}
             relationTitles={relationTitles}
-            cardFields={settings.cardFields}
+            cardFields={cardFields}
+            cardEdit={cardEdit}
             onRowSelect={open}
           />
         ) : layout === "gallery" ? (
@@ -329,8 +366,10 @@ export function DatabaseViewHost({
             relationTitles={relationTitles}
             databaseId={reference.databaseId}
             vaultGeneration={vaultGeneration}
-            cardFields={settings.cardFields}
+            cardFields={cardFields}
+            cardEdit={cardEdit}
             cardSize={settings.cardSize}
+            coverVisible={settings.coverVisible}
             onRowSelect={open}
           />
         ) : (
@@ -365,6 +404,7 @@ function BoardHostLayout(props: {
   properties: DatabasePropertySummary[]
   relationTitles: Record<string, string>
   cardFields: string[] | null
+  cardEdit?: CardCellEdit
   filter: ReturnType<typeof toQueryFilter>
   sorts: ReturnType<typeof toQuerySorts>
   contextPageId?: string
@@ -387,6 +427,7 @@ function BoardHostLayout(props: {
       properties={props.properties}
       relationTitles={props.relationTitles}
       cardFields={props.cardFields}
+      cardEdit={props.cardEdit}
       filter={props.filter}
       sorts={props.sorts}
       contextPageId={props.contextPageId}

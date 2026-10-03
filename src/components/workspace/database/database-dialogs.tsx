@@ -1,5 +1,6 @@
 "use client"
 
+import { AmbySelect } from "@/components/ui/amby-select"
 import { RollupWizard } from "./rollup-wizard"
 import { isDraftComplete, type RollupDraft } from "./rollup-model"
 import { useTranslation } from "react-i18next"
@@ -15,6 +16,20 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import type { DatabaseSummary } from "@/lib/storage"
+
+const PROPERTY_TYPE_IDS = [
+  "text",
+  "number",
+  "checkbox",
+  "date",
+  "url",
+  "select",
+  "multiSelect",
+  "status",
+  "formula",
+  "relation",
+  "rollup",
+]
 
 export interface DatabaseViewDialogProps {
   open: boolean
@@ -67,24 +82,20 @@ export function DatabaseViewDialog({
           }}
         />
         {(mode === "create" || mode === "edit") && (
-          <label className="space-y-1 text-xs text-muted-foreground">
+          <div className="space-y-1 text-xs text-muted-foreground">
             <span>{t("databaseWorkspace.viewLayout")}</span>
-            <select
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            <AmbySelect
               value={viewLayout}
-              onChange={(event) =>
-                onViewLayoutChange(
-                  event.target.value as "table" | "board" | "list" | "gallery" | "chart",
-                )
+              aria-label={t("databaseWorkspace.viewLayout")}
+              options={(["table", "board", "list", "gallery", "chart"] as const).map((layout) => ({
+                value: layout,
+                label: t(`databaseLayouts.${layout}`),
+              }))}
+              onValueChange={(layout) =>
+                onViewLayoutChange(layout as "table" | "board" | "list" | "gallery" | "chart")
               }
-            >
-              {(["table", "board", "list", "gallery", "chart"] as const).map((layout) => (
-                <option key={layout} value={layout}>
-                  {t(`databaseLayouts.${layout}`)}
-                </option>
-              ))}
-            </select>
-          </label>
+            />
+          </div>
         )}
         {mutationError && <p className="text-xs text-destructive">{mutationError}</p>}
         <DialogFooter>
@@ -227,29 +238,15 @@ export function DatabasePropertyDialog({
         />
         <label className="space-y-1 text-xs text-muted-foreground">
           <span>{t("databaseWorkspace.propertyType")}</span>
-          <select
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          <AmbySelect
             value={propertyType}
-            onChange={(event) => onPropertyTypeChange(event.target.value)}
-          >
-            {[
-              "text",
-              "number",
-              "checkbox",
-              "date",
-              "url",
-              "select",
-              "multiSelect",
-              "status",
-              "formula",
-              "relation",
-              "rollup",
-            ].map((type) => (
-              <option key={type} value={type}>
-                {t(`databaseWorkspace.propertyTypes.${type}`)}
-              </option>
-            ))}
-          </select>
+            aria-label={t("databaseWorkspace.propertyType")}
+            options={PROPERTY_TYPE_IDS.map((type) => ({
+              value: type,
+              label: t(`databaseWorkspace.propertyTypes.${type}`),
+            }))}
+            onValueChange={onPropertyTypeChange}
+          />
         </label>
         {propertyType === "formula" && (
           <label className="space-y-1 text-xs text-muted-foreground">
@@ -275,26 +272,23 @@ export function DatabasePropertyDialog({
           <div className="space-y-3 pt-1">
             <label className="space-y-1 text-xs text-muted-foreground block">
               <span>{t("databaseWorkspace.relationTarget")}</span>
-              <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              <AmbySelect
                 value={relationTargetDatabaseId}
-                onChange={(event) => {
-                  const nextId = event.target.value
+                aria-label={t("databaseWorkspace.relationTarget")}
+                options={databases.map((candidate) => ({
+                  value: candidate.databaseId,
+                  label:
+                    candidate.databaseId === currentDatabaseId
+                      ? `${candidate.title} (${t("databaseWorkspace.relationSelfSingle")})`
+                      : candidate.title,
+                }))}
+                onValueChange={(nextId) => {
                   onRelationTargetDatabaseIdChange(nextId)
                   if (!relationInversePropertyName) {
                     onRelationInversePropertyNameChange(currentDatabaseTitle || "Related")
                   }
                 }}
-              >
-                {databases.map((candidate) => (
-                  <option key={candidate.databaseId} value={candidate.databaseId}>
-                    {candidate.title}{" "}
-                    {candidate.databaseId === currentDatabaseId
-                      ? `(${t("databaseWorkspace.relationSelfSingle")})`
-                      : ""}
-                  </option>
-                ))}
-              </select>
+              />
             </label>
 
             {/* Limit */}

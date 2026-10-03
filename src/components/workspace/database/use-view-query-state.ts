@@ -47,7 +47,10 @@ export function useViewQueryState({
     ) => {
       if (targetViewId !== activeView?.viewId) return
       const current = new Set(viewSettings.hidden)
-      const next = typeof ids === "function" ? ids(current) : ids
+      const next = new Set(typeof ids === "function" ? ids(current) : ids)
+      // An unchanged list must not become a new settings object: the table's
+      // clean-up effect reports its list on every pass and would loop.
+      if (next.size === current.size && [...next].every((id) => current.has(id))) return
       updateViewSettings({ hidden: Array.from(next) })
     },
     [activeView?.viewId, updateViewSettings, viewSettings.hidden],

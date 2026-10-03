@@ -5427,3 +5427,693 @@ fn a_manifest_written_by_older_builds_without_status_groups_still_parses() {
     let manifest = parse_manifest(raw).unwrap();
     assert!(validate_manifest(&manifest.value).errors.is_empty());
 }
+
+fn option_fixture(
+    property_type: &str,
+    names: &[&str],
+) -> (
+    PathBuf,
+    WatcherState,
+    CreatedDatabase,
+    CreatedDatabaseProperty,
+) {
+    let vault = temp_vault();
+    let watcher = WatcherState::new();
+    let created = create_database(
+        &vault,
+        &watcher,
+        &CreateDatabaseRequest {
+            expected_generation: 1,
+            mode: DatabaseCreateMode::Standalone,
+            parent_path: Some(vault.to_string_lossy().to_string()),
+            note_path: None,
+            name: "Tasks".to_owned(),
+        },
+    )
+    .unwrap();
+    let property = create_database_property(
+        &vault,
+        &watcher,
+        &CreateDatabasePropertyRequest {
+            expected_generation: 1,
+            database_id: created.database_id.clone(),
+            expected_manifest_revision: created.manifest_revision.clone(),
+            name: "Stage".to_owned(),
+            property_type: property_type.to_owned(),
+            options: names.iter().map(|name| (*name).to_owned()).collect(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    (vault, watcher, created, property)
+}
+
+fn options_request(
+    created: &CreatedDatabase,
+    property: &CreatedDatabaseProperty,
+    revision: &str,
+    options: Vec<DatabaseOptionInput>,
+) -> UpdateDatabasePropertyOptionsRequest {
+    UpdateDatabasePropertyOptionsRequest {
+        expected_generation: 1,
+        database_id: created.database_id.clone(),
+        property_id: property.property_id.clone(),
+        expected_manifest_revision: revision.to_owned(),
+        options,
+    }
+}
+
+fn option_input(id: Option<&str>, name: &str, color: &str) -> DatabaseOptionInput {
+    DatabaseOptionInput {
+        id: id.map(str::to_owned),
+        name: name.to_owned(),
+        color: color.to_owned(),
+        group: None,
+    }
+}
+
+fn stored_options(created: &CreatedDatabase, property_id: &str) -> Vec<serde_json::Value> {
+    let parsed = parse_manifest(&fs::read(&created.manifest_path).unwrap()).unwrap();
+    let property = parsed
+        .value
+        .properties
+        .iter()
+        .find(|property| property.id() == Some(property_id))
+        .unwrap();
+    serde_json::to_value(property).unwrap()["config"]["options"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+#[test]
+fn property_options_are_edited_keeping_ids_and_never_touching_values() {
+    let (vault, watcher, created, property) = option_fixture("select", &["Todo", "Doing"]);
+    let before = stored_options(&created, &property.property_id);
+    let todo_id = before[0]["id"].as_str().unwrap().to_owned();
+
+    let updated = update_database_property_options(
+        &vault,
+        &watcher,
+        &options_request(
+            &created,
+            &property,
+            &property.manifest_revision,
+            vec![
+                // Renamed and recolored; the ID is kept.
+                option_input(Some(&todo_id), "  To do ", "#EF4444"),
+                // A new option.
+                option_input(None, "Done", "#22c55e"),
+            ],
+        ),
+    )
+    .unwrap();
+
+    assert_eq!(updated.options.len(), 2);
+    assert_eq!(updated.options[0].id, todo_id);
+    assert_eq!(updated.options[0].name, "To do");
+    assert_eq!(updated.options[0].color, "#ef4444");
+    assert_ne!(updated.options[1].id, before[1]["id"].as_str().unwrap());
+    let stored = stored_options(&created, &property.property_id);
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[1]["name"], "Done");
+    let parsed = parse_manifest(&fs::read(&created.manifest_path).unwrap()).unwrap();
+    assert_eq!(parsed.revision, updated.manifest_revision);
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
+fn property_options_reject_unsafe_lists_without_writing() {
+    let (vault, watcher, created, property) = option_fixture("multiSelect", &["A"]);
+    let manifest_before = fs::read(&created.manifest_path).unwrap();
+    let a_id = stored_options(&created, &property.property_id)[0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let revision = property.manifest_revision.clone();
+    let cases: Vec<(Vec<DatabaseOptionInput>, &str)> = vec![
+        (
+            vec![option_input(None, "   ", "#94a3b8")],
+            "name is required",
+        ),
+        (
+            vec![
+                option_input(None, "Same", "#94a3b8"),
+                option_input(None, "same", "#94a3b8"),
+            ],
+            "already exists",
+        ),
+        (vec![option_input(None, "Red", "red")], "#rrggbb"),
+        (
+            vec![option_input(None, "Red", "url(javascript:alert(1))")],
+            "#rrggbb",
+        ),
+        (
+            vec![option_input(
+                Some("01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+                "Ghost",
+                "#94a3b8",
+            )],
+            "Unknown option",
+        ),
+        (
+            vec![
+                option_input(Some(&a_id), "One", "#94a3b8"),
+                option_input(Some(&a_id), "Two", "#94a3b8"),
+            ],
+            "ID is repeated",
+        ),
+    ];
+    for (options, expected) in cases {
+        let error = update_database_property_options(
+            &vault,
+            &watcher,
+            &options_request(&created, &property, &revision, options),
+        )
+        .unwrap_err();
+        assert!(
+            error.contains(expected),
+            "{error} should contain {expected}"
+        );
+        assert_eq!(fs::read(&created.manifest_path).unwrap(), manifest_before);
+    }
+    let stale = update_database_property_options(
+        &vault,
+        &watcher,
+        &options_request(&created, &property, "stale", vec![]),
+    )
+    .unwrap_err();
+    assert!(stale.contains("revision conflict"));
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
+fn status_options_keep_groups_and_default_new_ones_to_not_started() {
+    let (vault, watcher, created, property) =
+        option_fixture("status", &["Backlog", "Active", "Shipped"]);
+    let before = stored_options(&created, &property.property_id);
+    assert_eq!(before[2]["group"], "done");
+    let shipped_id = before[2]["id"].as_str().unwrap().to_owned();
+
+    let updated = update_database_property_options(
+        &vault,
+        &watcher,
+        &options_request(
+            &created,
+            &property,
+            &property.manifest_revision,
+            vec![
+                option_input(Some(&shipped_id), "Released", "#22c55e"),
+                DatabaseOptionInput {
+                    group: Some("inProgress".to_owned()),
+                    ..option_input(None, "Review", "#f59e0b")
+                },
+                option_input(None, "Idea", "#94a3b8"),
+            ],
+        ),
+    )
+    .unwrap();
+    assert_eq!(updated.options[0].group.as_deref(), Some("done"));
+    assert_eq!(updated.options[1].group.as_deref(), Some("inProgress"));
+    assert_eq!(updated.options[2].group.as_deref(), Some("notStarted"));
+
+    let error = update_database_property_options(
+        &vault,
+        &watcher,
+        &options_request(
+            &created,
+            &property,
+            &updated.manifest_revision,
+            vec![DatabaseOptionInput {
+                group: Some("later".to_owned()),
+                ..option_input(None, "Odd", "#94a3b8")
+            }],
+        ),
+    )
+    .unwrap_err();
+    assert!(error.contains("status group"));
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
+fn property_options_refuse_properties_without_options() {
+    let (vault, watcher, created, property) = option_fixture("text", &[]);
+    let error = update_database_property_options(
+        &vault,
+        &watcher,
+        &options_request(&created, &property, &property.manifest_revision, vec![]),
+    )
+    .unwrap_err();
+    assert!(error.contains("no options"));
+    let _ = fs::remove_dir_all(vault);
+}
+
+fn resolve_option(created: &CreatedDatabase, property_id: &str, name: &str) -> Option<String> {
+    let parsed = parse_manifest(&fs::read(&created.manifest_path).unwrap()).unwrap();
+    parsed
+        .value
+        .properties
+        .iter()
+        .find(|property| property.id() == Some(property_id))
+        .unwrap()
+        .find_option_id(name)
+        .map(str::to_owned)
+}
+
+#[test]
+fn renamed_option_keeps_resolving_records_written_with_its_old_name() {
+    // Records store the option name in their frontmatter and find it by name or alias.
+    let (vault, watcher, created, property) = option_fixture("select", &["Todo", "Doing"]);
+    let before = stored_options(&created, &property.property_id);
+    let todo_id = before[0]["id"].as_str().unwrap().to_owned();
+    let doing_id = before[1]["id"].as_str().unwrap().to_owned();
+
+    let first = update_database_property_options(
+        &vault,
+        &watcher,
+        &options_request(
+            &created,
+            &property,
+            &property.manifest_revision,
+            vec![
+                option_input(Some(&todo_id), "To do", "#94a3b8"),
+                option_input(Some(&doing_id), "Doing", "#94a3b8"),
+            ],
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        resolve_option(&created, &property.property_id, "Todo").as_deref(),
+        Some(todo_id.as_str()),
+        "the old name still resolves to the same option"
+    );
+    assert_eq!(
+        resolve_option(&created, &property.property_id, "To do").as_deref(),
+        Some(todo_id.as_str())
+    );
+
+    // A second rename keeps both earlier names, without repeating them.
+    let second = update_database_property_options(
+        &vault,
+        &watcher,
+        &options_request(
+            &created,
+            &property,
+            &first.manifest_revision,
+            vec![
+                option_input(Some(&todo_id), "Backlog", "#94a3b8"),
+                option_input(Some(&doing_id), "Doing", "#94a3b8"),
+            ],
+        ),
+    )
+    .unwrap();
+    let stored = stored_options(&created, &property.property_id);
+    assert_eq!(stored[0]["aliases"], serde_json::json!(["Todo", "To do"]));
+    assert!(stored[1].get("aliases").is_none());
+
+    // A name always wins over an alias: a new option called "Todo" takes the
+    // name, and the old option stops claiming it.
+    update_database_property_options(
+        &vault,
+        &watcher,
+        &options_request(
+            &created,
+            &property,
+            &second.manifest_revision,
+            vec![
+                option_input(Some(&todo_id), "Backlog", "#94a3b8"),
+                option_input(Some(&doing_id), "Doing", "#94a3b8"),
+                option_input(None, "Todo", "#94a3b8"),
+            ],
+        ),
+    )
+    .unwrap();
+    let new_id = resolve_option(&created, &property.property_id, "todo").unwrap();
+    assert_ne!(new_id, todo_id);
+    assert_eq!(
+        resolve_option(&created, &property.property_id, "To do").as_deref(),
+        Some(todo_id.as_str())
+    );
+    let _ = fs::remove_dir_all(vault);
+}
+
+fn config_request(
+    created: &CreatedDatabase,
+    property: &CreatedDatabaseProperty,
+    revision: &str,
+) -> UpdateDatabasePropertyConfigRequest {
+    UpdateDatabasePropertyConfigRequest {
+        expected_generation: 1,
+        database_id: created.database_id.clone(),
+        property_id: property.property_id.clone(),
+        expected_manifest_revision: revision.to_owned(),
+        ..Default::default()
+    }
+}
+
+fn stored_config(created: &CreatedDatabase, property_id: &str) -> serde_json::Value {
+    let parsed = parse_manifest(&fs::read(&created.manifest_path).unwrap()).unwrap();
+    let property = parsed
+        .value
+        .properties
+        .iter()
+        .find(|property| property.id() == Some(property_id))
+        .unwrap();
+    serde_json::to_value(property).unwrap()["config"].clone()
+}
+
+#[test]
+fn property_config_edits_text_and_number_and_refuses_what_does_not_apply() {
+    let (vault, watcher, created, text) = option_fixture("text", &[]);
+    let updated = update_database_property_config(
+        &vault,
+        &watcher,
+        &UpdateDatabasePropertyConfigRequest {
+            multiline: Some(true),
+            ..config_request(&created, &text, &text.manifest_revision)
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        stored_config(&created, &text.property_id)["multiline"],
+        true
+    );
+    // A date setting on a text property, and an empty request, are mistakes.
+    for request in [
+        UpdateDatabasePropertyConfigRequest {
+            include_time: Some(true),
+            ..config_request(&created, &text, &updated.manifest_revision)
+        },
+        config_request(&created, &text, &updated.manifest_revision),
+    ] {
+        let error = update_database_property_config(&vault, &watcher, &request).unwrap_err();
+        assert!(error.contains("do not apply"), "{error}");
+    }
+    let _ = fs::remove_dir_all(vault);
+
+    let (vault, watcher, created, number) = option_fixture("number", &[]);
+    let currency = update_database_property_config(
+        &vault,
+        &watcher,
+        &UpdateDatabasePropertyConfigRequest {
+            number_format: Some("currency".to_owned()),
+            currency: Some(" usd ".to_owned()),
+            ..config_request(&created, &number, &number.manifest_revision)
+        },
+    )
+    .unwrap();
+    let config = stored_config(&created, &number.property_id);
+    assert_eq!(
+        (config["format"].as_str(), config["currency"].as_str()),
+        (Some("currency"), Some("USD"))
+    );
+    for (patch, expected) in [
+        (
+            UpdateDatabasePropertyConfigRequest {
+                number_format: Some("currency".to_owned()),
+                currency: Some("US".to_owned()),
+                ..config_request(&created, &number, &currency.manifest_revision)
+            },
+            "three-letter",
+        ),
+        (
+            UpdateDatabasePropertyConfigRequest {
+                number_format: Some("hex".to_owned()),
+                ..config_request(&created, &number, &currency.manifest_revision)
+            },
+            "Unknown number format",
+        ),
+    ] {
+        let error = update_database_property_config(&vault, &watcher, &patch).unwrap_err();
+        assert!(error.contains(expected), "{error}");
+    }
+    // Leaving the currency format drops the code, so it cannot linger invisibly.
+    update_database_property_config(
+        &vault,
+        &watcher,
+        &UpdateDatabasePropertyConfigRequest {
+            number_format: Some("percent".to_owned()),
+            ..config_request(&created, &number, &currency.manifest_revision)
+        },
+    )
+    .unwrap();
+    let config = stored_config(&created, &number.property_id);
+    assert_eq!(
+        (config["format"].as_str(), config["currency"].is_null()),
+        (Some("percent"), true)
+    );
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
+fn date_display_formats_are_free_but_time_and_range_wait_for_the_values_to_go() {
+    let (vault, watcher, created, date) = option_fixture("date", &[]);
+    let shown = update_database_property_config(
+        &vault,
+        &watcher,
+        &UpdateDatabasePropertyConfigRequest {
+            date_format: Some("dayMonthYear".to_owned()),
+            time_format: Some("12h".to_owned()),
+            ..config_request(&created, &date, &date.manifest_revision)
+        },
+    )
+    .unwrap();
+    let config = stored_config(&created, &date.property_id);
+    assert_eq!(config["dateFormat"], "dayMonthYear");
+    assert_eq!(config["timeFormat"], "12h");
+    // Defaults are not stored.
+    let reset = update_database_property_config(
+        &vault,
+        &watcher,
+        &UpdateDatabasePropertyConfigRequest {
+            date_format: Some("full".to_owned()),
+            time_format: Some("24h".to_owned()),
+            ..config_request(&created, &date, &shown.manifest_revision)
+        },
+    )
+    .unwrap();
+    let config = stored_config(&created, &date.property_id);
+    assert!(config.get("dateFormat").is_none() && config.get("timeFormat").is_none());
+    let error = update_database_property_config(
+        &vault,
+        &watcher,
+        &UpdateDatabasePropertyConfigRequest {
+            date_format: Some("whenever".to_owned()),
+            ..config_request(&created, &date, &reset.manifest_revision)
+        },
+    )
+    .unwrap_err();
+    assert!(error.contains("Unknown date format"));
+
+    // Without values the time can be switched on and ranges allowed.
+    let timed = update_database_property_config(
+        &vault,
+        &watcher,
+        &UpdateDatabasePropertyConfigRequest {
+            include_time: Some(true),
+            allow_range: Some(true),
+            ..config_request(&created, &date, &reset.manifest_revision)
+        },
+    )
+    .unwrap();
+    // With a value stored, narrowing what a value may look like is refused, and nothing changes.
+    let note_id = ulid::Ulid::generate().to_string();
+    let record_path = Path::new(&created.manifest_path)
+        .parent()
+        .unwrap()
+        .join(".ambd/records")
+        .join(format!("{note_id}.json"));
+    fs::create_dir_all(record_path.parent().unwrap()).unwrap();
+    fs::write(
+        record_path,
+        serde_json::to_vec_pretty(&json!({
+            "format": "amby-database-record",
+            "formatVersion": 1,
+            "databaseId": created.database_id,
+            "noteId": note_id,
+            "values": {
+                date.property_id.clone(): {"type": "date", "start": "2026-10-03T09:00:00Z"}
+            },
+            "yamlSyncBases": {}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let before = fs::read(&created.manifest_path).unwrap();
+    for patch in [
+        UpdateDatabasePropertyConfigRequest {
+            include_time: Some(false),
+            ..config_request(&created, &date, &timed.manifest_revision)
+        },
+        UpdateDatabasePropertyConfigRequest {
+            allow_range: Some(false),
+            ..config_request(&created, &date, &timed.manifest_revision)
+        },
+    ] {
+        let error = update_database_property_config(&vault, &watcher, &patch).unwrap_err();
+        assert!(error.contains("existing values are cleared"), "{error}");
+        assert_eq!(fs::read(&created.manifest_path).unwrap(), before);
+    }
+    // Display formats still change with values present; allowing ranges only widens.
+    update_database_property_config(
+        &vault,
+        &watcher,
+        &UpdateDatabasePropertyConfigRequest {
+            date_format: Some("relative".to_owned()),
+            allow_range: Some(true),
+            ..config_request(&created, &date, &timed.manifest_revision)
+        },
+    )
+    .unwrap();
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
+fn formula_expression_is_validated_and_stale_edits_are_refused() {
+    let vault = temp_vault();
+    let watcher = WatcherState::new();
+    let created = create_database(
+        &vault,
+        &watcher,
+        &CreateDatabaseRequest {
+            expected_generation: 1,
+            mode: DatabaseCreateMode::Standalone,
+            parent_path: Some(vault.to_string_lossy().to_string()),
+            note_path: None,
+            name: "Calc".to_owned(),
+        },
+    )
+    .unwrap();
+    let formula = create_database_property(
+        &vault,
+        &watcher,
+        &CreateDatabasePropertyRequest {
+            expected_generation: 1,
+            database_id: created.database_id.clone(),
+            expected_manifest_revision: created.manifest_revision.clone(),
+            name: "Total".to_owned(),
+            property_type: "formula".to_owned(),
+            formula_expression: Some("1 + 1".to_owned()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let ok = update_database_property_config(
+        &vault,
+        &watcher,
+        &UpdateDatabasePropertyConfigRequest {
+            formula_expression: Some("  2 * 3 ".to_owned()),
+            ..config_request(&created, &formula, &formula.manifest_revision)
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        stored_config(&created, &formula.property_id)["expression"],
+        "2 * 3"
+    );
+    let before = fs::read(&created.manifest_path).unwrap();
+    for (expression, expected) in [("   ", "required"), ("1 +", "Invalid formula")] {
+        let error = update_database_property_config(
+            &vault,
+            &watcher,
+            &UpdateDatabasePropertyConfigRequest {
+                formula_expression: Some(expression.to_owned()),
+                ..config_request(&created, &formula, &ok.manifest_revision)
+            },
+        )
+        .unwrap_err();
+        assert!(error.contains(expected), "{error}");
+        assert_eq!(fs::read(&created.manifest_path).unwrap(), before);
+    }
+    let stale = update_database_property_config(
+        &vault,
+        &watcher,
+        &UpdateDatabasePropertyConfigRequest {
+            formula_expression: Some("4".to_owned()),
+            ..config_request(&created, &formula, "stale")
+        },
+    )
+    .unwrap_err();
+    assert!(stale.contains("revision conflict"));
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
+fn a_relation_limit_can_be_set_and_removed_with_links_and_never_rewrites_them() {
+    let (vault, watcher, source, target) = relation_schema_database_pair();
+    let property = create_database_property(
+        &vault,
+        &watcher,
+        &CreateDatabasePropertyRequest {
+            expected_generation: 1,
+            database_id: source.database_id.clone(),
+            expected_manifest_revision: current_manifest_revision(&source),
+            name: "Project".to_owned(),
+            property_type: "relation".to_owned(),
+            relation_target_database_id: Some(target.database_id.clone()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    // A record that already links two pages.
+    let note_id = ulid::Ulid::generate().to_string();
+    let record_path = Path::new(&source.manifest_path)
+        .parent()
+        .unwrap()
+        .join(".ambd/records")
+        .join(format!("{note_id}.json"));
+    fs::create_dir_all(record_path.parent().unwrap()).unwrap();
+    fs::write(
+        &record_path,
+        serde_json::to_vec_pretty(&json!({
+            "format": "amby-database-record",
+            "formatVersion": 1,
+            "databaseId": source.database_id,
+            "noteId": note_id,
+            "values": {
+                property.property_id.clone(): {
+                    "type": "relation",
+                    "targetNoteIds": [
+                        ulid::Ulid::generate().to_string(),
+                        ulid::Ulid::generate().to_string()
+                    ]
+                }
+            },
+            "yamlSyncBases": {}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let record_before = fs::read(&record_path).unwrap();
+    let request = |max_items: u8, revision: String| ChangeDatabasePropertyTypeRequest {
+        expected_generation: 1,
+        database_id: source.database_id.clone(),
+        property_id: property.property_id.clone(),
+        expected_manifest_revision: revision,
+        property_type: "relation".to_owned(),
+        operation_id: Some(format!("schema-limit-{}", ulid::Ulid::generate())),
+        relation_target_database_id: Some(target.database_id.clone()),
+        relation_two_way: Some(false),
+        relation_max_items: Some(max_items),
+        expected_related_manifest_revisions: vec![DatabaseManifestRevision {
+            database_id: target.database_id.clone(),
+            revision: current_manifest_revision(&target),
+        }],
+        ..Default::default()
+    };
+    // A one-page limit is accepted although the record has two links; its links are not touched.
+    let limited = change_database_property_type(
+        &vault,
+        &watcher,
+        &request(1, current_manifest_revision(&source)),
+    )
+    .unwrap();
+    assert_eq!(stored_config(&source, &property.property_id)["maxItems"], 1);
+    assert_eq!(fs::read(&record_path).unwrap(), record_before);
+    // And it can be removed again.
+    change_database_property_type(&vault, &watcher, &request(0, limited.manifest_revision))
+        .unwrap();
+    assert!(stored_config(&source, &property.property_id)["maxItems"].is_null());
+    assert_eq!(fs::read(&record_path).unwrap(), record_before);
+    let _ = fs::remove_dir_all(vault);
+}

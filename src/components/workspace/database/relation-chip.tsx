@@ -41,7 +41,7 @@ export function RelationChip({ view, icon, onOpen, onUnlink, className }: Relati
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center gap-0.5 rounded bg-muted/80 pl-1.5 text-xs text-foreground",
+        "inline-flex h-[22px] max-w-full shrink-0 items-center gap-0.5 rounded-md bg-muted/80 pl-2 text-xs text-foreground",
         view.status !== "ok" && "italic text-muted-foreground",
         view.status === "error" && "text-destructive",
         className,

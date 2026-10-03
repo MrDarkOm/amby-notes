@@ -178,7 +178,7 @@ pub fn create_view(
         "viewId": view_id,
         "name": name,
         "layout": request.layout,
-        "openMode": "sidePeek",
+        "openMode": "centerPeek",
         "subitemsMode": "nested",
         "density": "default",
         "fields": [{"field": {"kind": "system", "field": "title"}, "visible": true, "width": null, "frozen": true}],

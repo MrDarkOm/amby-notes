@@ -152,3 +152,16 @@ export const SKETCH_UI_CARD_COLORS = {
 } as const
 
 export const EXCALIDRAW_DEFAULT_BG = "#ffffff"
+
+/** Colors offered for Select, Multi-select and Status options; the stored value is the hex. */
+export const DATABASE_OPTION_COLORS = [
+  { id: "gray", hex: "#94a3b8" },
+  { id: "red", hex: "#ef4444" },
+  { id: "orange", hex: "#f97316" },
+  { id: "amber", hex: "#f59e0b" },
+  { id: "green", hex: "#22c55e" },
+  { id: "teal", hex: "#14b8a6" },
+  { id: "blue", hex: "#3b82f6" },
+  { id: "purple", hex: "#8b5cf6" },
+  { id: "pink", hex: "#ec4899" },
+] as const

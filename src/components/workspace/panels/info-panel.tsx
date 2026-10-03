@@ -1,5 +1,6 @@
 "use client"
 
+import { AmbySelect } from "@/components/ui/amby-select"
 import * as React from "react"
 import {
   CalendarDays,
@@ -56,6 +57,15 @@ import { PropertyHeaderMenu } from "../database/table-view"
 import { databasePropertyIconKey } from "../database/property-icon"
 import { useViewStateStore } from "../use-view-state-store"
 import { PanelHeader } from "./panel-header"
+
+const PROPERTY_TYPE_FALLBACKS = {
+  text: "Текст",
+  number: "Число",
+  checkbox: "Флажок",
+  date: "Дата",
+  select: "Выбор",
+  url: "Ссылка",
+} as const
 
 function databasePropertyIcon(property: DatabasePropertySummary) {
   return property.propertyType === "number"
@@ -576,22 +586,21 @@ function PropertyRow({
             {checked && <Check className="size-3" />}
           </button>
         ) : property.propertyType === "select" ? (
-          <select
+          <AmbySelect
+            size="sm"
+            variant="bare"
             value={value}
             disabled={disabled}
-            className="h-7 w-full min-w-0 rounded-md border-0 bg-transparent px-1 text-xs text-foreground outline-none focus:bg-accent/40"
-            onChange={(event) => {
-              setValue(event.target.value)
-              void saveValue(event.target.value)
+            aria-label={property.name}
+            options={[
+              { value: "", label: "—" },
+              ...options.map((option) => ({ value: option, label: option })),
+            ]}
+            onValueChange={(next) => {
+              setValue(next)
+              void saveValue(next)
             }}
-          >
-            <option value="">—</option>
-            {options.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+          />
         ) : multiline ? (
           <PropertyValueTextarea
             value={value}
@@ -777,23 +786,21 @@ function FrontmatterPropertyValue({
 
   if (effectiveType === "select") {
     return (
-      <select
+      <AmbySelect
+        size="sm"
+        variant="bare"
         value={value}
         disabled={disabled}
-        className="h-7 w-full min-w-0 rounded-md border-0 bg-transparent px-1 text-xs text-foreground outline-none focus:bg-accent/40"
-        onChange={(event) => {
-          const next = event.target.value
+        aria-label={property.key}
+        options={[
+          { value: "", label: "—" },
+          ...options.map((option) => ({ value: option, label: option })),
+        ]}
+        onValueChange={(next) => {
           setValue(next)
           void onSave?.(next)
         }}
-      >
-        <option value="">—</option>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
+      />
     )
   }
 
@@ -1098,30 +1105,21 @@ function FrontmatterPropertyRow({
                     <span className="text-[11px] text-muted-foreground">
                       {t("infoPanel.propertyType")}
                     </span>
-                    <select
+                    <AmbySelect
+                      size="sm"
+                      className="w-32"
                       value={selectedType}
-                      onChange={(e) => void handleTypeChange(e.target.value)}
-                      className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none cursor-pointer"
-                    >
-                      <option value="text">
-                        {t("infoPanel.propertyTypes.text", { defaultValue: "Текст" })}
-                      </option>
-                      <option value="number">
-                        {t("infoPanel.propertyTypes.number", { defaultValue: "Число" })}
-                      </option>
-                      <option value="checkbox">
-                        {t("infoPanel.propertyTypes.checkbox", { defaultValue: "Флажок" })}
-                      </option>
-                      <option value="date">
-                        {t("infoPanel.propertyTypes.date", { defaultValue: "Дата" })}
-                      </option>
-                      <option value="select">
-                        {t("infoPanel.propertyTypes.select", { defaultValue: "Выбор" })}
-                      </option>
-                      <option value="url">
-                        {t("infoPanel.propertyTypes.url", { defaultValue: "Ссылка" })}
-                      </option>
-                    </select>
+                      aria-label={t("infoPanel.propertyType")}
+                      options={(
+                        ["text", "number", "checkbox", "date", "select", "url"] as const
+                      ).map((type) => ({
+                        value: type,
+                        label: t(`infoPanel.propertyTypes.${type}`, {
+                          defaultValue: PROPERTY_TYPE_FALLBACKS[type],
+                        }),
+                      }))}
+                      onValueChange={(next) => void handleTypeChange(next)}
+                    />
                   </div>
                 )}
 

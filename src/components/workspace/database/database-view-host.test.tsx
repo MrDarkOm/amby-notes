@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { chooseOption } from "@/lib/test-utils/amby-select"
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
@@ -171,7 +172,7 @@ describe("DatabaseViewHost", () => {
       />,
     )
     await screen.findByText("Design the homepage")
-    fireEvent.click(screen.getByRole("button", { name: /Добавить/ }))
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
     await waitFor(() => expect(link).toHaveBeenCalledTimes(1))
     expect(create.mock.calls[0][0]).toMatchObject({ databaseId: DB })
     expect(link.mock.calls[0][0]).toMatchObject({
@@ -223,7 +224,7 @@ describe("DatabaseViewHost", () => {
       />,
     )
     await screen.findByText("Design the homepage")
-    fireEvent.click(screen.getByRole("button", { name: /Добавить/ }))
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
     expect((await screen.findByRole("status")).textContent).toContain("не появится")
   })
 
@@ -241,9 +242,9 @@ describe("DatabaseViewHost", () => {
     await screen.findByText("Design the homepage")
     fireEvent.click(screen.getByRole("button", { name: "Галерея" }))
     expect(onChange).toHaveBeenLastCalledWith({ layout: "gallery" })
-    const select = await screen.findByLabelText("Связано с этой страницей")
+    await screen.findByRole("combobox", { name: "Связано с этой страницей" })
     await act(async () => {
-      fireEvent.change(select, { target: { value: "01J00000000000000000000020" } })
+      await chooseOption("Связано с этой страницей", "Project")
     })
     expect(onChange).toHaveBeenLastCalledWith({
       filter: currentPageFilter("01J00000000000000000000020"),
@@ -260,7 +261,7 @@ describe("DatabaseViewHost", () => {
       />,
     )
     await screen.findByText("Design the homepage")
-    expect(screen.queryByRole("button", { name: /Добавить/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Добавить" })).toBeNull()
     expect(screen.queryByLabelText("Вид")).toBeNull()
   })
 })

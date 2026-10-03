@@ -3,37 +3,26 @@ import { motion } from "motion/react"
 import { MotionSpinner } from "@/lib/motion"
 import { motionTransitions } from "@/lib/motion-config"
 import {
-  AlignJustify,
   AlertTriangle,
   ArrowDown,
   ArrowDownUp,
   ArrowLeftToLine,
   ArrowRightToLine,
-  ArrowUpRight,
   ArrowUp,
-  CalendarDays,
   Check,
-  CheckSquare,
   ChevronRight,
-  CircleChevronDown,
-  CircleDashed,
   Eye,
   EyeOff,
-  Hash,
   Info,
-  Link2,
-  List,
   ListFilter,
   Loader2,
   MoreHorizontal,
-  Paperclip,
   Pin,
   PinOff,
   Plus,
   Repeat2,
   RotateCcw,
-  Sigma,
-  Search,
+  Settings2,
   SquareArrowOutUpRight,
   Trash2,
   Type,
@@ -50,6 +39,8 @@ import { IconValue } from "../icon-value"
 import { EmojiPickerPanel } from "../tiptap/EmojiPickerPanel"
 import { useViewStateStore } from "../use-view-state-store"
 import { databasePropertyIconKey } from "./property-icon"
+import { PropertyTypeIcon as PropertyIcon } from "./property-type-icon"
+import { PageIcon } from "./page-icon"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -61,8 +52,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-const DEFAULT_ROW_HEIGHT = 52
-const WRAPPED_ROW_HEIGHT = 84
+const DEFAULT_ROW_HEIGHT = 40
+const WRAPPED_ROW_HEIGHT = 76
 const OVERSCAN = 8
 function canFilterType(propertyType: string): boolean {
   return [
@@ -122,8 +113,8 @@ interface TableViewProps {
   onRenameRow?: (rowId: string, name: string) => Promise<void> | void
   onRenameProperty?: (propertyId: string, name: string) => Promise<void> | void
   onChangePropertyType?: (propertyId: string, propertyType: string) => Promise<void> | void
-  onConfigureRelation?: (property: DatabasePropertySummary) => void
-  onConfigureRollup?: (property: DatabasePropertySummary) => void
+  /** The settings of a property (options, formats, ...) for its menu; `null` when it has none. */
+  renderPropertySettings?: (property: DatabasePropertySummary) => React.ReactNode
   /** First calculation failure per computed kind, for cells that have no value. */
   computedErrors?: Partial<Record<"formula" | "rollup", string>>
   /** Columns that currently have a saved filter (for the header indicator). */
@@ -140,36 +131,6 @@ interface TableViewProps {
   onOpenNote?: (noteId: string) => void
   databases?: DatabaseSummary[]
   onCreateRelationRow?: (targetDatabaseId: string, title: string) => Promise<string | void>
-}
-
-function PropertyIcon({ type }: { type: string }) {
-  const Icon =
-    type === "text"
-      ? AlignJustify
-      : type === "number"
-        ? Hash
-        : type === "checkbox"
-          ? CheckSquare
-          : type === "date"
-            ? CalendarDays
-            : type === "url"
-              ? Link2
-              : type === "select"
-                ? CircleChevronDown
-                : type === "multiSelect"
-                  ? List
-                  : type === "status"
-                    ? CircleDashed
-                    : type === "relation"
-                      ? ArrowUpRight
-                      : type === "files"
-                        ? Paperclip
-                        : type === "formula"
-                          ? Sigma
-                          : type === "rollup"
-                            ? Search
-                            : Type
-  return <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
 }
 
 function defaultPropertyWidth(property: DatabasePropertySummary, rows: DatabaseRow[]) {
@@ -214,8 +175,7 @@ export function TableView({
   onRenameRow,
   onRenameProperty,
   onChangePropertyType,
-  onConfigureRelation,
-  onConfigureRollup,
+  renderPropertySettings,
   computedErrors,
   filteredFieldKeys,
   onFilterColumn,
@@ -250,6 +210,12 @@ export function TableView({
     (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
       const current = hiddenPropertyIdsRef.current
       const next = typeof updater === "function" ? updater(current) : updater
+      if (
+        next === current ||
+        (next.size === current.size && [...next].every((id) => current.has(id)))
+      ) {
+        return
+      }
       if (onHiddenPropertyIdsChange) {
         hiddenPropertyIdsRef.current = next
         onHiddenPropertyIdsChange(next)
@@ -674,16 +640,7 @@ export function TableView({
                               onChangePropertyType(property.propertyId, propertyType)
                           : undefined
                       }
-                      onConfigureRelation={
-                        property.propertyType === "relation" && onConfigureRelation
-                          ? () => onConfigureRelation(property)
-                          : undefined
-                      }
-                      onConfigureRollup={
-                        property.propertyType === "rollup" && onConfigureRollup
-                          ? () => onConfigureRollup(property)
-                          : undefined
-                      }
+                      settingsEditor={renderPropertySettings?.(property)}
                       filterActive={Boolean(filteredFieldKeys?.has(property.propertyId))}
                       sortDirection={
                         propertySort?.key === property.propertyId ? propertySort.direction : null
@@ -895,7 +852,7 @@ export function TableView({
                   role="row"
                   aria-rowindex={first + index + 2}
                   aria-selected={selectedNoteId === row.noteId}
-                  className="grid border-b border-slate-200 text-sm dark:border-border/60"
+                  className="group/row grid border-b border-slate-200 text-sm hover:bg-accent/30 dark:border-border/60"
                   style={{ gridTemplateColumns, height: rowHeight, ...tableWidthStyle }}
                 >
                   <motion.div
@@ -903,10 +860,14 @@ export function TableView({
                     initial="rest"
                     whileHover="hover"
                     className={cn(
-                      "group relative flex cursor-text items-center justify-start truncate border-r border-border/60 bg-[var(--note-surface)] px-2 py-2 text-left font-medium hover:bg-accent/30",
-                      hasFrozenColumns && "sticky left-0 z-10",
+                      "group relative flex cursor-text items-center justify-start truncate border-r border-border/60 px-2 text-left font-medium",
+                      hasFrozenColumns &&
+                        "sticky left-0 z-10 bg-[var(--note-surface)] group-hover/row:bg-muted",
                     )}
                   >
+                    <span className="mr-1.5 flex shrink-0 items-center">
+                      <PageIcon noteId={row.noteId} />
+                    </span>
                     <EditableRowTitle
                       value={row.title}
                       onCommit={(name) => onRenameRow?.(row.noteId, name)}
@@ -958,8 +919,8 @@ export function TableView({
                         data-row-id={row.noteId}
                         data-property-id={property.propertyId}
                         className={cn(
-                          "min-w-0 border-r border-border/60 hover:bg-accent/30",
-                          frozen && "sticky z-10 bg-[var(--note-surface)]",
+                          "h-full min-w-0 border-r border-border/60",
+                          frozen && "sticky z-10 bg-[var(--note-surface)] group-hover/row:bg-muted",
                         )}
                         style={
                           frozen
@@ -1045,8 +1006,7 @@ export function PropertyHeaderMenu({
   onIconChange,
   onRename,
   onChangeType,
-  onConfigureRelation,
-  onConfigureRollup,
+  settingsEditor,
   filterActive = false,
   sortDirection = null,
   canFilter = true,
@@ -1068,8 +1028,8 @@ export function PropertyHeaderMenu({
   onIconChange?: (icon: string) => Promise<void> | void
   onRename: (name: string) => Promise<void> | void
   onChangeType?: (propertyType: string) => Promise<void> | void
-  onConfigureRelation?: () => void
-  onConfigureRollup?: () => void
+  /** The settings of the property, shown in a submenu; `null` when it has none. */
+  settingsEditor?: React.ReactNode
   filterActive?: boolean
   sortDirection?: "asc" | "desc" | null
   canFilter?: boolean
@@ -1268,26 +1228,23 @@ export function PropertyHeaderMenu({
           </DropdownMenuSub>
         )}
 
-        {onConfigureRelation && (
-          <PropertyMenuItem
-            icon={<ArrowUpRight />}
-            label={t("databaseTable.configureRelation")}
-            onSelect={() => {
-              setOpen(false)
-              onConfigureRelation()
-            }}
-          />
-        )}
-
-        {onConfigureRollup && (
-          <PropertyMenuItem
-            icon={<ArrowUpRight />}
-            label={t("databaseRollup.configure")}
-            onSelect={() => {
-              setOpen(false)
-              onConfigureRollup()
-            }}
-          />
+        {settingsEditor && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="h-9 gap-2.5 rounded-lg px-2 text-sm">
+              <Settings2 />
+              <span className="truncate">{t("databaseProperty.settings")}</span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-72 rounded-xl p-3">
+              {/* Typing in these fields must not reach the menu's own type-ahead and arrow keys. */}
+              <div
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") event.stopPropagation()
+                }}
+              >
+                {settingsEditor}
+              </div>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
         )}
 
         <DropdownMenuSeparator className="my-1.5" />

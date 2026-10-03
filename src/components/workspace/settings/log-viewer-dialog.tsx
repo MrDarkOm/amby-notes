@@ -1,5 +1,6 @@
 "use client"
 
+import { AmbySelect } from "@/components/ui/amby-select"
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { useVirtualizer } from "@tanstack/react-virtual"
@@ -689,29 +690,36 @@ export function LogViewerDialog({ open, onOpenChange }: LogViewerDialogProps) {
             <details className="amby-debug-disclosure">
               <summary>{t("settings.debug.moreFilters")}</summary>
               <div className="amby-debug-advanced-filters">
-                <select
+                <AmbySelect
+                  size="sm"
+                  className="w-32"
+                  aria-label={t("settings.debug.levelAll")}
                   value={filters.level}
-                  onChange={(event) =>
-                    updateFilter("level", event.target.value as DebugEventFilters["level"])
+                  options={[
+                    { value: "all", label: t("settings.debug.levelAll") },
+                    ...(["debug", "info", "warn", "error"] as const).map((level) => ({
+                      value: level,
+                      label: t(`settings.debug.logLevel${level[0].toUpperCase()}${level.slice(1)}`),
+                    })),
+                  ]}
+                  onValueChange={(next) =>
+                    updateFilter("level", next as DebugEventFilters["level"])
                   }
-                >
-                  <option value="all">{t("settings.debug.levelAll")}</option>
-                  {(["debug", "info", "warn", "error"] as const).map((level) => (
-                    <option key={level} value={level}>
-                      {t(`settings.debug.logLevel${level[0].toUpperCase()}${level.slice(1)}`)}
-                    </option>
-                  ))}
-                </select>
-                <select
+                />
+                <AmbySelect
+                  size="sm"
+                  className="w-36"
+                  aria-label={t("settings.debug.sourceAll")}
                   value={filters.source}
-                  onChange={(event) =>
-                    updateFilter("source", event.target.value as DebugEventFilters["source"])
+                  options={[
+                    { value: "all", label: t("settings.debug.sourceAll") },
+                    { value: "frontend", label: t("settings.debug.sourceFrontend") },
+                    { value: "backend", label: t("settings.debug.sourceBackend") },
+                  ]}
+                  onValueChange={(next) =>
+                    updateFilter("source", next as DebugEventFilters["source"])
                   }
-                >
-                  <option value="all">{t("settings.debug.sourceAll")}</option>
-                  <option value="frontend">{t("settings.debug.sourceFrontend")}</option>
-                  <option value="backend">{t("settings.debug.sourceBackend")}</option>
-                </select>
+                />
                 <Input
                   value={filters.subsystem}
                   onChange={(event) => updateFilter("subsystem", event.target.value)}

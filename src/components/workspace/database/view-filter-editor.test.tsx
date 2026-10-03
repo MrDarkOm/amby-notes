@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { chooseOption } from "@/lib/test-utils/amby-select"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
@@ -55,21 +56,14 @@ describe("ViewFilterEditor", () => {
     ])
   })
 
-  it("offers only operators valid for the column and only valid numbers", () => {
+  it("offers only operators valid for the column and only valid numbers", async () => {
     const onChange = setup([budget("equals", "1")])
-    const operators = Array.from(
-      (screen.getByLabelText("Условие") as HTMLSelectElement).options,
-    ).map((option) => option.value)
-    expect(operators).toEqual([
-      "equals",
-      "notEquals",
-      "greaterThan",
-      "greaterOrEqual",
-      "lessThan",
-      "lessOrEqual",
-      "isEmpty",
-      "isNotEmpty",
-    ])
+    fireEvent.click(screen.getByRole("combobox", { name: "Условие" }))
+    const operators = (await screen.findAllByRole("option")).map((option) => option.textContent)
+    // A number column has no text operators such as "contains".
+    expect(operators).toHaveLength(8)
+    expect(operators.some((label) => /содерж/i.test(label ?? ""))).toBe(false)
+    fireEvent.keyDown(screen.getByRole("listbox"), { key: "Escape" })
     act(() => {
       fireEvent.change(screen.getByLabelText("Значение"), { target: { value: ">100" } })
     })
@@ -77,11 +71,11 @@ describe("ViewFilterEditor", () => {
     expect(onChange).toHaveBeenLastCalledWith([])
   })
 
-  it("lets a Status filter pick an option by name and saves its ID", () => {
+  it("lets a Status filter pick an option by name and saves its ID", async () => {
     const onChange = setup([])
     fireEvent.click(screen.getByText("Добавить фильтр"))
-    fireEvent.change(screen.getByLabelText("Свойство"), { target: { value: "s" } })
-    fireEvent.change(screen.getByLabelText("Значение"), { target: { value: "o1" } })
+    await chooseOption("Свойство", "Status")
+    await chooseOption("Значение", "In progress")
     expect(onChange).toHaveBeenLastCalledWith([
       { field: { kind: "property", propertyId: "s" }, operator: "equals", operand: "o1" },
     ])

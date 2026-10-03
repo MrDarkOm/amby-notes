@@ -6,6 +6,13 @@ import type { DatabasePropertySummary, DatabaseRow } from "@/lib/storage"
 import { DatabaseValueCell } from "../database-value-cell"
 import { resolveDatabaseAssetPaths } from "@/lib/storage"
 import type { CardSize } from "../view-config"
+import { CardEditToggle } from "./card-edit-toggle"
+import { useCardActive } from "./use-card-active"
+import { CardSurface } from "./card-surface"
+import { CardTitleInput } from "./card-title-input"
+import { PageIcon } from "../page-icon"
+import { cn } from "@/lib/utils"
+import type { CardCellEdit } from "../database-value-cell"
 import { createCoverResolver } from "./cover-resolver"
 import { GalleryCover } from "./gallery-cover"
 import { resolveGalleryPreview } from "./gallery-preview"
@@ -13,13 +20,19 @@ import { resolveGalleryPreview } from "./gallery-preview"
 const GALLERY_CARD_WIDTH: Record<CardSize, number> = { small: 170, medium: 220, large: 320 }
 const GALLERY_CARD_HEIGHT: Record<CardSize, number> = { small: 190, medium: 240, large: 330 }
 
+/** A card without a cover is only as tall as its title and properties. */
+const GALLERY_CARD_HEIGHT_NO_COVER = 120
+
 interface GalleryViewProps {
   rows: DatabaseRow[]
   properties?: DatabasePropertySummary[]
   relationTitles?: Record<string, string>
   databaseId?: string
   cardFields?: string[] | null
+  cardEdit?: CardCellEdit
   cardSize?: CardSize
+  /** Show the cover image at the top of each card. */
+  coverVisible?: boolean
   vaultGeneration?: number | null
   loading?: boolean
   error?: string | null
@@ -35,7 +48,9 @@ export function GalleryView({
   relationTitles,
   databaseId,
   cardFields = null,
+  cardEdit,
   cardSize = "medium",
+  coverVisible = true,
   vaultGeneration = null,
   loading = false,
   error = null,
@@ -66,7 +81,7 @@ export function GalleryView({
     if (!element) return
     const update = () =>
       setColumnCount(
-        Math.max(1, Math.floor((element.clientWidth + 12) / GALLERY_CARD_WIDTH[cardSize])),
+        Math.max(1, Math.floor((element.clientWidth + 16) / GALLERY_CARD_WIDTH[cardSize])),
       )
     update()
     const observer = new ResizeObserver(update)
@@ -78,7 +93,8 @@ export function GalleryView({
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => GALLERY_CARD_HEIGHT[cardSize],
+    estimateSize: () =>
+      coverVisible ? GALLERY_CARD_HEIGHT[cardSize] : GALLERY_CARD_HEIGHT_NO_COVER,
     overscan: 4,
   })
 
@@ -111,7 +127,7 @@ export function GalleryView({
   return (
     <div
       ref={parentRef}
-      className="min-h-0 min-w-0 flex-1 overflow-auto p-4"
+      className="min-h-0 min-w-0 flex-1 overflow-auto p-5"
       onScroll={handleScroll}
     >
       <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
@@ -122,40 +138,108 @@ export function GalleryView({
               key={virtualRow.key}
               ref={virtualizer.measureElement}
               data-index={virtualRow.index}
-              className="absolute left-0 grid w-full gap-3"
+              className="absolute left-0 grid w-full gap-4 pb-4"
               style={{
                 gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
                 transform: `translateY(${virtualRow.start}px)`,
               }}
             >
-              {rows.slice(start, start + columnCount).map((row) => {
-                const preview = resolveGalleryPreview(row.valuesJson)
-                return (
-                  <button
-                    key={row.noteId}
-                    type="button"
-                    className="group flex min-h-36 flex-col rounded-xl border border-border/70 bg-card/60 p-4 text-left hover:border-primary/50 hover:bg-accent/40"
-                    onClick={() => onRowSelect?.(row)}
-                  >
-                    <span>
-                      <GalleryCover preview={preview} resolver={coverResolver} size={cardSize} />
-                      <span className="block truncate text-sm font-semibold">{row.title}</span>
-                      <DatabaseValueCell
-                        row={row}
-                        properties={properties}
-                        relationTitles={relationTitles}
-                        fields={cardFields}
-                      />
-                    </span>
-                  </button>
-                )
-              })}
+              {rows.slice(start, start + columnCount).map((row, offset) => (
+                <GalleryCard
+                  key={row.noteId}
+                  enterIndex={start + offset}
+                  row={row}
+                  properties={properties}
+                  relationTitles={relationTitles}
+                  cardFields={cardFields}
+                  cardEdit={cardEdit}
+                  cardSize={cardSize}
+                  coverVisible={coverVisible}
+                  coverResolver={coverResolver}
+                  onRowSelect={onRowSelect}
+                />
+              ))}
             </div>
           )
         })}
       </div>
       <LayoutStatus loading={loading} error={error} onRetry={onRetry} />
     </div>
+  )
+}
+
+interface GalleryCardProps {
+  row: DatabaseRow
+  properties: DatabasePropertySummary[]
+  relationTitles?: Record<string, string>
+  cardFields: string[] | null
+  cardEdit?: CardCellEdit
+  cardSize: CardSize
+  coverVisible: boolean
+  coverResolver: ReturnType<typeof createCoverResolver>
+  enterIndex?: number
+  onRowSelect?: (row: DatabaseRow) => void
+}
+
+/** One gallery card: optional cover, the page icon and title, then its properties. */
+export function GalleryCard({
+  row,
+  properties,
+  relationTitles,
+  cardFields,
+  cardEdit,
+  cardSize,
+  coverVisible,
+  coverResolver,
+  enterIndex,
+  onRowSelect,
+}: GalleryCardProps) {
+  const [editing, setEditing] = React.useState(false)
+  const { active, activeProps } = useCardActive()
+  const preview = coverVisible ? resolveGalleryPreview(row.valuesJson) : null
+  return (
+    <CardSurface
+      {...activeProps}
+      lift={!editing}
+      enterIndex={enterIndex}
+      className={cn(
+        "relative flex min-h-36 flex-col rounded-2xl border bg-card p-3.5 text-left shadow-sm",
+        editing
+          ? "cursor-default border-primary/40 ring-2 ring-primary/20"
+          : "cursor-pointer border-border/60 hover:border-border hover:shadow-md",
+      )}
+      onOpen={editing ? undefined : () => onRowSelect?.(row)}
+    >
+      {cardEdit && (
+        <CardEditToggle
+          editing={editing}
+          active={active}
+          onToggle={() => setEditing((on) => !on)}
+        />
+      )}
+      <span>
+        {preview && <GalleryCover preview={preview} resolver={coverResolver} size={cardSize} />}
+        <span className="flex min-w-0 items-center gap-1.5">
+          <PageIcon noteId={row.noteId} editable={editing && Boolean(cardEdit)} />
+          {editing && cardEdit?.onRename ? (
+            <CardTitleInput
+              value={row.title}
+              className="text-sm font-semibold"
+              onCommit={(name) => cardEdit.onRename!(row, name)}
+            />
+          ) : (
+            <span className="truncate pr-6 text-sm font-semibold">{row.title}</span>
+          )}
+        </span>
+        <DatabaseValueCell
+          row={row}
+          properties={properties}
+          relationTitles={relationTitles}
+          fields={cardFields}
+          edit={editing ? cardEdit : undefined}
+        />
+      </span>
+    </CardSurface>
   )
 }
 

@@ -1,3 +1,4 @@
+import { AmbySelect } from "@/components/ui/amby-select"
 import { useTranslation } from "react-i18next"
 import type { DatabaseSummary } from "@/lib/storage"
 import {
@@ -9,9 +10,6 @@ import {
   isDraftComplete,
   type RollupDraft,
 } from "./rollup-model"
-
-const SELECT =
-  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
 
 interface RollupWizardProps {
   draft: RollupDraft
@@ -52,40 +50,30 @@ export function RollupWizard({
     <div className="space-y-3 pt-1">
       <label className="block space-y-1 text-xs text-muted-foreground">
         <span>{t("databaseRollup.relation")}</span>
-        <select
-          className={SELECT}
+        <AmbySelect
           value={draft.relationId}
           disabled={disabled}
-          onChange={(event) =>
-            onChange(nextDraft(draft, { relationId: event.target.value }, context))
-          }
-        >
-          <option value="">{t("databaseRollup.pick")}</option>
-          {relations.map((property) => (
-            <option key={property.propertyId} value={property.propertyId}>
-              {property.name}
-            </option>
-          ))}
-        </select>
+          aria-label={t("databaseRollup.relation")}
+          options={[
+            { value: "", label: t("databaseRollup.pick") },
+            ...relations.map((property) => ({ value: property.propertyId, label: property.name })),
+          ]}
+          onValueChange={(relationId) => onChange(nextDraft(draft, { relationId }, context))}
+        />
       </label>
       {relation && (
         <label className="block space-y-1 text-xs text-muted-foreground">
           <span>{t("databaseRollup.target")}</span>
-          <select
-            className={SELECT}
+          <AmbySelect
             value={draft.targetId}
             disabled={disabled || targets.length === 0}
-            onChange={(event) =>
-              onChange(nextDraft(draft, { targetId: event.target.value }, context))
-            }
-          >
-            <option value="">{t("databaseRollup.pick")}</option>
-            {targets.map((property) => (
-              <option key={property.propertyId} value={property.propertyId}>
-                {property.name}
-              </option>
-            ))}
-          </select>
+            aria-label={t("databaseRollup.target")}
+            options={[
+              { value: "", label: t("databaseRollup.pick") },
+              ...targets.map((property) => ({ value: property.propertyId, label: property.name })),
+            ]}
+            onValueChange={(targetId) => onChange(nextDraft(draft, { targetId }, context))}
+          />
           {targets.length === 0 && (
             <span className="block pt-1">{t("databaseRollup.noTargets")}</span>
           )}
@@ -94,21 +82,19 @@ export function RollupWizard({
       {target && (
         <label className="block space-y-1 text-xs text-muted-foreground">
           <span>{t("databaseRollup.aggregation")}</span>
-          <select
-            className={SELECT}
+          <AmbySelect
             value={draft.aggregation}
             disabled={disabled}
-            onChange={(event) =>
-              onChange(nextDraft(draft, { aggregation: event.target.value }, context))
-            }
-          >
-            <option value="">{t("databaseRollup.pick")}</option>
-            {aggregationsFor(target.propertyType).map((aggregation) => (
-              <option key={aggregation} value={aggregation}>
-                {t(`databaseRollup.agg.${aggregation}`)}
-              </option>
-            ))}
-          </select>
+            aria-label={t("databaseRollup.aggregation")}
+            options={[
+              { value: "", label: t("databaseRollup.pick") },
+              ...aggregationsFor(target.propertyType).map((aggregation) => ({
+                value: aggregation,
+                label: t(`databaseRollup.agg.${aggregation}`),
+              })),
+            ]}
+            onValueChange={(aggregation) => onChange(nextDraft(draft, { aggregation }, context))}
+          />
         </label>
       )}
       {isDraftComplete(draft) && target && (

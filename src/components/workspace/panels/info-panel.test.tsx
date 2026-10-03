@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { chooseOption, selectedText } from "@/lib/test-utils/amby-select"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -242,7 +243,7 @@ describe("InfoPanel frontmatter properties", () => {
     )
   })
 
-  it("allows changing property type and configuring options for select type", () => {
+  it("allows changing property type and configuring options for select type", async () => {
     const onUpsert = vi.fn()
     render(
       <InfoPanel
@@ -259,11 +260,10 @@ describe("InfoPanel frontmatter properties", () => {
     const statusTrigger = screen.getByTitle("status")
     fireEvent.click(statusTrigger)
 
-    const typeSelect = screen.getByDisplayValue("Текст")
-    expect(typeSelect).not.toBeNull()
+    expect(selectedText("Тип свойства")).toBe("Текст")
 
     // Change to select
-    fireEvent.change(typeSelect, { target: { value: "select" } })
+    await chooseOption("Тип свойства", "Выбор")
 
     expect(onUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -285,7 +285,7 @@ describe("InfoPanel frontmatter properties", () => {
     )
   })
 
-  it("renders dropdown select input for select property type with options", () => {
+  it("renders dropdown select input for select property type with options", async () => {
     const docWithSelect: DocumentProperties = {
       ...mockDocumentWithFrontmatter,
       frontmatter: {
@@ -316,10 +316,10 @@ describe("InfoPanel frontmatter properties", () => {
       />,
     )
 
-    const select = screen.getByDisplayValue("in-progress")
-    expect(select.tagName.toLowerCase()).toBe("select")
-
-    fireEvent.change(select, { target: { value: "done" } })
+    const select = screen.getByRole("combobox")
+    expect(select.textContent).toBe("in-progress")
+    fireEvent.click(select)
+    fireEvent.click(await screen.findByRole("option", { name: "done" }))
     expect(onUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
         value: "done",

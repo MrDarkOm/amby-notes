@@ -1,5 +1,6 @@
 "use client"
 
+import { AmbySelect } from "@/components/ui/amby-select"
 import * as React from "react"
 import { Check, KeyRound, Plus, Trash2, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -197,26 +198,15 @@ function ModelEditor({
 
       <div className="flex flex-col gap-1">
         <label className={label}>{t("models.provider")}</label>
-        <select
-          className={field}
+        <AmbySelect
           value={model.provider}
-          onChange={(e) => set({ provider: e.target.value })}
-        >
-          <optgroup label={t("models.local")}>
-            {locals.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </optgroup>
-          <optgroup label={t("models.cloud")}>
-            {clouds.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </optgroup>
-        </select>
+          aria-label={t("models.provider")}
+          options={[
+            ...locals.map((p) => ({ value: p.id, label: p.label, group: t("models.local") })),
+            ...clouds.map((p) => ({ value: p.id, label: p.label, group: t("models.cloud") })),
+          ]}
+          onValueChange={(next) => set({ provider: next })}
+        />
       </div>
 
       <div className="flex flex-col gap-1">

@@ -13,6 +13,27 @@ export function readDatabaseCellValue(
   }
 }
 
+/** A row's values with one cell replaced (or cleared), as the editors would see it. */
+export function applyCellValue(valuesJson: string, propertyId: string, valueJson?: string): string {
+  let values: Record<string, unknown>
+  try {
+    const parsed: unknown = JSON.parse(valuesJson)
+    values = parsed && typeof parsed === "object" ? { ...(parsed as Record<string, unknown>) } : {}
+  } catch {
+    values = {}
+  }
+  if (valueJson) {
+    try {
+      values[propertyId] = JSON.parse(valueJson)
+    } catch {
+      return valuesJson
+    }
+  } else {
+    delete values[propertyId]
+  }
+  return JSON.stringify(values)
+}
+
 export function databaseCellText(value: StoredDatabaseCellValue, propertyType: string): string {
   if (!value) return ""
   if (propertyType === "number") return typeof value.decimal === "string" ? value.decimal : ""

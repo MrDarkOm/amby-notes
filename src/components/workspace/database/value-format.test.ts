@@ -47,10 +47,18 @@ describe("formatRowProperties", () => {
 
   it("never shows a raw option ID: a removed option becomes a missing chip", () => {
     const [shown] = formatRowProperties(
-      JSON.stringify({ status: { type: "status", optionId: "gone" } }),
+      JSON.stringify({ status: { type: "status", optionId: "01ARZ3NDEKTSV4RRFFQ69G5FAV" } }),
       [status],
     )
     expect(shown.chips[0]).toMatchObject({ label: null, state: "missing" })
+  })
+
+  it("shows the stored name of a removed option, since records keep names", () => {
+    const [shown] = formatRowProperties(
+      JSON.stringify({ status: { type: "status", optionId: "Blocked" } }),
+      [status],
+    )
+    expect(shown.chips[0]).toMatchObject({ label: "Blocked", state: "missing" })
   })
 
   it("lists multi-select options by name in value order", () => {
@@ -199,5 +207,23 @@ describe("cardProperties", () => {
       "c",
       "d",
     ])
+  })
+
+  it("shows only the first link of a relation that got a one-page limit after links were made", () => {
+    const relation: DatabasePropertySummary = {
+      propertyId: "r",
+      name: "Project",
+      propertyType: "relation",
+      configJson: JSON.stringify({ maxItems: 1 }),
+      options: [],
+    }
+    const values = JSON.stringify({ r: { type: "relation", targetNoteIds: ["a", "b"] } })
+    const titles = { a: "First", b: "Second" }
+    const limited = formatRowProperties(values, [relation], { relationTitles: titles })[0]
+    expect(limited.chips.map((chip) => chip.label)).toEqual(["First"])
+    const free = formatRowProperties(values, [{ ...relation, configJson: "{}" }], {
+      relationTitles: titles,
+    })[0]
+    expect(free.chips.map((chip) => chip.label)).toEqual(["First", "Second"])
   })
 })

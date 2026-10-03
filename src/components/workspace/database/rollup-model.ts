@@ -94,3 +94,17 @@ export function isDraftComplete(draft: RollupDraft): boolean {
 export function isPercentAggregation(aggregation: string): boolean {
   return aggregation === "percentChecked"
 }
+
+/** The relation, field and function a Rollup property is configured with. */
+export function rollupDraftOf(configJson: string): RollupDraft {
+  try {
+    const config = JSON.parse(configJson) as Record<string, unknown>
+    return {
+      relationId: typeof config.relationPropertyId === "string" ? config.relationPropertyId : "",
+      targetId: typeof config.targetPropertyId === "string" ? config.targetPropertyId : "",
+      aggregation: typeof config.aggregation === "string" ? config.aggregation : "",
+    }
+  } catch {
+    return EMPTY_ROLLUP_DRAFT
+  }
+}

@@ -2,7 +2,15 @@ import * as React from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useTranslation } from "react-i18next"
 import type { DatabaseFieldRef, DatabasePropertySummary, DatabaseRow } from "@/lib/storage"
-import { DatabaseValueCell } from "../database-value-cell"
+import { createPortal } from "react-dom"
+import { AnimatePresence, motion } from "motion/react"
+import { motionTransition, motionTransitions } from "@/lib/motion-config"
+import { cardSpring } from "../database-motion"
+import type { CardCellEdit } from "../database-value-cell"
+import { PageIcon } from "../page-icon"
+import { BoardCard } from "./board-card"
+import { useBoardDrag, type BoardDrag } from "./use-board-drag"
+import { cn } from "@/lib/utils"
 import {
   ALL_BOARD_LANE,
   EMPTY_BOARD_LANE,
@@ -16,6 +24,7 @@ interface BoardViewProps {
   properties?: DatabasePropertySummary[]
   relationTitles?: Record<string, string>
   cardFields?: string[] | null
+  cardEdit?: CardCellEdit
   groupField: DatabaseFieldRef | null
   /** Lanes with their own counts and paging; replaces grouping the loaded `rows`. */
   lanes?: BoardLaneModel[]
@@ -34,6 +43,7 @@ export function BoardView({
   properties = [],
   relationTitles,
   cardFields = null,
+  cardEdit,
   groupField,
   lanes: providedLanes,
   onLoadMoreLane,
@@ -48,7 +58,7 @@ export function BoardView({
   const { t } = useTranslation()
   const [optimisticRows, setOptimisticRows] = React.useState(rows)
   const [pending, setPending] = React.useState<Set<string>>(new Set())
-  const draggedNoteId = React.useRef<string | null>(null)
+  const scrollRef = React.useRef<HTMLDivElement>(null)
   const nextPagePendingRef = React.useRef(false)
   const lastPageTriggerRef = React.useRef(0)
   const lanes = providedLanes ?? groupBoardRows(optimisticRows, groupField, properties)
@@ -82,24 +92,15 @@ export function BoardView({
     [groupField, onMoveRow, pending, rows],
   )
 
-  const handleDropToLane = (noteId: string, laneKey: string) => {
-    draggedNoteId.current = null
-    const row = optimisticRows.find((candidate) => candidate.noteId === noteId)
-    if (row) void moveRow(row, laneKey)
-  }
+  const { drag, begin, consumeClick } = useBoardDrag({
+    scrollRef,
+    onDrop: (row, laneKey) => void moveRow(row, laneKey),
+  })
 
   function laneLabel(lane: BoardLaneModel) {
     if (lane.key === EMPTY_BOARD_LANE) return t("databaseBoard.empty")
     if (lane.key === ALL_BOARD_LANE) return t("databaseBoard.noGroup")
     return lane.label ?? t("databaseValue.unknownOption")
-  }
-
-  function handleDrop(event: React.DragEvent, laneKey: string) {
-    event.preventDefault()
-    const noteId = draggedNoteId.current
-    if (noteId) {
-      handleDropToLane(noteId, laneKey)
-    }
   }
 
   function handleScroll(event: React.UIEvent<HTMLDivElement>) {
@@ -122,10 +123,11 @@ export function BoardView({
 
   return (
     <div
-      className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden p-4"
+      ref={scrollRef}
+      className="min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden p-5"
       onScroll={handleScroll}
     >
-      <div className="flex h-full min-w-full gap-3">
+      <div className="flex h-full min-w-full gap-4">
         {lanes.map((lane, index) => (
           <BoardLane
             key={lane.key}
@@ -139,11 +141,11 @@ export function BoardView({
             properties={properties}
             relationTitles={relationTitles}
             cardFields={cardFields}
+            cardEdit={cardEdit}
             groupPropertyId={groupField?.kind === "property" ? groupField.propertyId : null}
-            onDragStart={(row) => {
-              draggedNoteId.current = row.noteId
-            }}
-            onDrop={(event) => handleDrop(event, lane.key)}
+            drag={drag}
+            onCardPointerDown={begin}
+            consumeClick={consumeClick}
             onMoveRow={moveRow}
             onRowSelect={onRowSelect}
             count={lane.count ?? lane.rows.length}
@@ -153,6 +155,23 @@ export function BoardView({
           />
         ))}
       </div>
+      {drag &&
+        createPortal(
+          <motion.div
+            aria-hidden="true"
+            className="pointer-events-none fixed left-0 top-0 z-[200] rounded-xl border border-primary/50 bg-card px-3 py-2.5 text-xs shadow-2xl"
+            initial={{ scale: 1, rotate: 0 }}
+            animate={{ scale: 1.04, rotate: 2 }}
+            transition={motionTransition(cardSpring)}
+            style={{ width: drag.width, x: drag.x - drag.offsetX, y: drag.y - drag.offsetY }}
+          >
+            <span className="flex min-w-0 items-center gap-1.5">
+              <PageIcon noteId={drag.row.noteId} />
+              <span className="truncate font-medium">{drag.row.title}</span>
+            </span>
+          </motion.div>,
+          document.body,
+        )}
       {(loading || error) && (
         <div
           role={error ? "alert" : undefined}
@@ -181,9 +200,15 @@ interface BoardLaneProps {
   properties: DatabasePropertySummary[]
   relationTitles?: Record<string, string>
   cardFields: string[] | null
+  cardEdit?: CardCellEdit
   groupPropertyId: string | null
-  onDragStart: (row: DatabaseRow) => void
-  onDrop: (event: React.DragEvent) => void
+  drag: BoardDrag | null
+  onCardPointerDown: (
+    event: React.PointerEvent<HTMLElement>,
+    row: DatabaseRow,
+    laneKey: string,
+  ) => void
+  consumeClick: () => boolean
   onMoveRow: (row: DatabaseRow, laneKey: string) => Promise<void>
   onRowSelect?: (row: DatabaseRow) => void
   count: number
@@ -203,9 +228,11 @@ function BoardLane({
   properties,
   relationTitles,
   cardFields,
+  cardEdit,
   groupPropertyId,
-  onDragStart,
-  onDrop,
+  drag,
+  onCardPointerDown,
+  consumeClick,
   onMoveRow,
   onRowSelect,
   count,
@@ -214,6 +241,8 @@ function BoardLane({
   onLoadNextPage,
 }: BoardLaneProps) {
   const { t } = useTranslation()
+  // A card held over a lane other than its own: the lane shows where it would land.
+  const dropTarget = drag !== null && drag.overLane === laneKey && drag.sourceLane !== laneKey
   const parentRef = React.useRef<HTMLDivElement>(null)
   const laneNextPagePendingRef = React.useRef(false)
   const lastLanePageTriggerRef = React.useRef(0)
@@ -229,13 +258,22 @@ function BoardLane({
   }, [loading])
 
   return (
-    <section
+    <motion.section
       aria-label={label}
-      className="flex h-full w-72 shrink-0 flex-col rounded-xl border border-border/70 bg-muted/20"
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={onDrop}
+      data-lane-drop={laneKey}
+      className={cn(
+        "flex h-full w-72 shrink-0 flex-col rounded-2xl bg-muted/40",
+        dropTarget && "bg-primary/10 ring-2 ring-primary/30",
+      )}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0, scale: dropTarget ? 1.012 : 1 }}
+      transition={motionTransition({
+        default: cardSpring,
+        opacity: { ...motionTransitions.enter, delay: Math.min(index, 8) * 0.04 },
+        y: { ...cardSpring, delay: Math.min(index, 8) * 0.04 },
+      })}
     >
-      <header className="flex items-center gap-1.5 border-b border-border/70 px-3 py-2 text-xs font-semibold">
+      <header className="flex items-center gap-2 px-3.5 pb-1.5 pt-3 text-xs font-semibold">
         {color && (
           <span
             aria-hidden="true"
@@ -244,7 +282,9 @@ function BoardLane({
           />
         )}
         <span className="truncate">{label}</span>
-        <span className="ml-auto shrink-0 font-normal text-muted-foreground">{count}</span>
+        <span className="ml-auto shrink-0 rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+          {count}
+        </span>
       </header>
       <div
         ref={parentRef}
@@ -273,50 +313,56 @@ function BoardLane({
             const isPending = pending.has(row.noteId)
             return (
               <div
-                key={virtualRow.key}
+                key={row.noteId}
                 ref={virtualizer.measureElement}
                 data-index={virtualRow.index}
                 className="absolute left-0 w-full pb-2"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
-                <button
-                  type="button"
-                  draggable={!isPending}
-                  aria-busy={isPending}
-                  className="w-full rounded-lg border border-border/70 bg-card px-3 py-3 text-left text-xs shadow-sm hover:bg-accent/40 disabled:opacity-60"
-                  disabled={isPending}
-                  onDragStart={() => onDragStart(row)}
-                  onClick={() => onRowSelect?.(row)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return
-                    const targetIndex = index + (event.key === "ArrowLeft" ? -1 : 1)
-                    if (targetIndex < 0 || targetIndex >= laneCount || isPending) return
-                    event.preventDefault()
-                    const target = document.querySelector<HTMLElement>(
-                      `[data-board-lane-index="${targetIndex}"]`,
-                    )
-                    const targetKey = target?.dataset.boardLaneKey
-                    if (targetKey) void onMoveRow(row, targetKey)
-                  }}
-                >
-                  <span className="block truncate font-medium">{row.title}</span>
-                  <DatabaseValueCell
-                    row={row}
-                    properties={properties}
-                    relationTitles={relationTitles}
-                    fields={cardFields}
-                    exclude={groupPropertyId ? [groupPropertyId] : undefined}
-                  />
-                </button>
+                <BoardCard
+                  row={row}
+                  laneKey={laneKey}
+                  laneIndex={index}
+                  laneCount={laneCount}
+                  pending={isPending}
+                  dragging={drag?.row.noteId === row.noteId}
+                  enterIndex={virtualRow.index}
+                  properties={properties}
+                  relationTitles={relationTitles}
+                  cardFields={cardFields}
+                  cardEdit={cardEdit}
+                  groupPropertyId={groupPropertyId}
+                  onPointerDown={onCardPointerDown}
+                  consumeClick={consumeClick}
+                  onMoveRow={onMoveRow}
+                  onRowSelect={onRowSelect}
+                />
               </div>
             )
           })}
         </div>
-        {rows.length === 0 && (
-          <p className="p-3 text-xs text-muted-foreground">{t("databaseBoard.emptyLane")}</p>
+        <AnimatePresence initial={false}>
+          {dropTarget && (
+            <motion.div
+              key="drop-placeholder"
+              aria-hidden="true"
+              className="flex items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-primary/50 bg-primary/5 text-xs text-primary"
+              initial={{ height: 0, opacity: 0, marginTop: 0 }}
+              animate={{ height: 56, opacity: 1, marginTop: 4 }}
+              exit={{ height: 0, opacity: 0, marginTop: 0 }}
+              transition={motionTransition(cardSpring)}
+            >
+              {t("databaseBoard.dropHere")}
+            </motion.div>
+          )}
+        </AnimatePresence>
+        {rows.length === 0 && !dropTarget && (
+          <p className="px-3 py-6 text-center text-xs text-muted-foreground">
+            {t("databaseBoard.emptyLane")}
+          </p>
         )}
       </div>
       <div className="sr-only" data-board-lane-index={index} data-board-lane-key={laneKey} />
-    </section>
+    </motion.section>
   )
 }
