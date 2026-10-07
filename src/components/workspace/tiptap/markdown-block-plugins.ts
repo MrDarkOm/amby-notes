@@ -1,7 +1,7 @@
 import MarkdownIt from "markdown-it"
 import type StateCore from "markdown-it/lib/rules_core/state_core.mjs"
 import type Token from "markdown-it/lib/token.mjs"
-import { ambyInlineRule } from "./markdown-inline"
+import { ambyInlineRule, linkWithTitleMarkup } from "./markdown-inline"
 import {
   detectAmbyBlocks,
   detectCallouts,
@@ -419,6 +419,47 @@ function preserveTrailingWhitespace(state: StateCore) {
   }
 }
 
+// Earlier versions of the editor right-aligned the numbers of an ordered list (` 9.`
+// above `10.`). Such a list is recognised by its numbers having different widths while
+// their delimiters stand in one column, and is marked so that it is written back the
+// same way. Every other list is written without padding.
+function detectPaddedOrderedLists(state: StateCore) {
+  const lines = state.src.split("\n")
+  // Several markers may share a line (`1. 1. text`): each is searched after the previous.
+  const searchFrom = new Map<number, number>()
+  type OpenList = { open: Token; delimiterAt: Set<number>; widths: Set<number>; known: boolean }
+  const stack: Array<OpenList | null> = []
+
+  for (const token of state.tokens) {
+    if (token.type === "ordered_list_open") {
+      stack.push({ open: token, delimiterAt: new Set(), widths: new Set(), known: true })
+    } else if (token.type === "bullet_list_open") {
+      stack.push(null)
+    } else if (token.type === "ordered_list_close" || token.type === "bullet_list_close") {
+      const list = stack.pop()
+      if (list?.known && list.widths.size > 1 && list.delimiterAt.size === 1) {
+        list.open.meta = { ...(list.open.meta ?? {}), padded: true }
+      }
+    } else if (token.type === "list_item_open") {
+      const list = stack[stack.length - 1]
+      if (!list) continue
+      const lineNumber = token.map?.[0]
+      const line = typeof lineNumber === "number" ? lines[lineNumber] : undefined
+      const marker = token.info + token.markup
+      let at =
+        line === undefined || !token.info ? -1 : line.indexOf(marker, searchFrom.get(lineNumber!))
+      while (at > 0 && /\d/u.test(line![at - 1])) at = line!.indexOf(marker, at + 1)
+      if (at < 0) {
+        list.known = false
+        continue
+      }
+      searchFrom.set(lineNumber!, at + marker.length)
+      list.widths.add(token.info.length)
+      list.delimiterAt.add(at + token.info.length)
+    }
+  }
+}
+
 // ── markdown-it: detect Obsidian-style callouts (`> [!NOTE] emoji`) ──────────
 
 export function createAmbyTokenizer(): MarkdownIt {
@@ -429,10 +470,12 @@ export function createAmbyTokenizer(): MarkdownIt {
 
 function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.inline.ruler.before("html_inline", "amby_html", ambyInlineRule)
+  md.inline.ruler.at("link", linkWithTitleMarkup)
   md.core.ruler.push("amby_tables", normalizeTables)
   md.core.ruler.push("amby_columns", detectColumns)
   md.core.ruler.push("amby_empty_paragraphs", preserveEmptyParagraphs)
   md.core.ruler.push("amby_split_ordered_lists", splitOrderedListsAtEmptyParagraphs)
+  md.core.ruler.push("amby_padded_ordered_lists", detectPaddedOrderedLists)
   md.core.ruler.push("amby_task_lists", detectTaskLists)
   md.core.ruler.push("amby_blocks", detectAmbyBlocks)
   md.core.ruler.push("amby_callouts", detectCallouts)

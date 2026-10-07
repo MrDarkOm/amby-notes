@@ -66,6 +66,33 @@ function ambyEsc(this: EscapeState | void, str: string, startOfLine?: boolean): 
   return str
 }
 
+const TITLE_CLOSERS: Record<string, string> = { '"': '"', "'": "'", "(": ")" }
+
+// A link title is written in the quoting form it was read in, double quotes otherwise.
+// Only what would end the title or change its text is escaped, so a title is always read
+// back as the same text; a source form this does not reproduce keeps its note in Source.
+function linkTitleSource(mark: PMMark): string {
+  const title = typeof mark.attrs.title === "string" ? mark.attrs.title : ""
+  if (!title) return ""
+  const open =
+    (mark.attrs.markdownTitleMarkup as string) in TITLE_CLOSERS
+      ? (mark.attrs.markdownTitleMarkup as string)
+      : '"'
+  const close = TITLE_CLOSERS[open]
+  const escaped = title
+    // A title is inline text: a line break inside it would leave the enclosing block.
+    .replace(/\s*[\r\n]\s*/g, " ")
+    .replace(
+      /\\(?=[!-/:-@[-`{-~]|$)|["'()]|&(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);/g,
+      (match) => {
+        if (match === "\\") return "\\\\"
+        if (match.length === 1) return match === open || match === close ? `\\${match}` : match
+        return entityProbe.utils.unescapeAll(match) === match ? match : `\\${match}`
+      },
+    )
+  return ` ${open}${escaped}${close}`
+}
+
 function backticksFor(node: PMNode, side: number): string {
   const ticks = /`+/g
   let len = 0
@@ -98,6 +125,9 @@ type SerializerState = MarkdownSerializerState & {
   esc: typeof ambyEsc
   out: string
   flushClose: (size?: number) => void
+  closed: PMNode | null
+  inTightList: boolean
+  options: { tightLists?: boolean }
 }
 
 const nodeSerializers: Record<
@@ -224,12 +254,24 @@ const nodeSerializers: Record<
   },
   orderedList(state, node) {
     const start = node.attrs.start || 1
-    const maxWidth = String(start + node.childCount - 1).length
-    const indent = state.repeat(" ", maxWidth + 2)
-    state.renderList(node, indent, (index) => {
-      const numeral = String(start + index)
-      return state.repeat(" ", maxWidth - numeral.length) + numeral + ". "
+    // Numbers are right-aligned only in a list that was read that way from disk.
+    const maxWidth = node.attrs.markdownPadded ? String(start + node.childCount - 1).length : 0
+    // `renderList` with one difference: what follows the first line of an item is
+    // indented by the width of that item's own marker (`9. ` and `10. ` differ).
+    if (state.closed && state.closed.type === node.type) state.flushClose(3)
+    else if (state.inTightList) state.flushClose(1)
+    const isTight =
+      typeof node.attrs.tight !== "undefined" ? node.attrs.tight : state.options.tightLists
+    const prevTight = state.inTightList
+    state.inTightList = isTight
+    node.forEach((child, _offset, index) => {
+      if (index && isTight) state.flushClose(1)
+      const marker = String(start + index).padStart(maxWidth) + ". "
+      state.wrapBlock(state.repeat(" ", marker.length), marker, node, () =>
+        state.render(child, node, index),
+      )
     })
+    state.inTightList = prevTight
   },
   listItem(state, node) {
     state.renderContent(node)
@@ -351,7 +393,8 @@ const markSerializers: Record<string, MarkSerializerSpec> = {
   },
   link: {
     open: "[",
-    close: (_state, mark) => "](" + String(mark.attrs.href || "").replace(/[()"]/g, "\\$&") + ")",
+    close: (_state, mark) =>
+      "](" + String(mark.attrs.href || "").replace(/[()"]/g, "\\$&") + linkTitleSource(mark) + ")",
     mixable: true,
   },
 }

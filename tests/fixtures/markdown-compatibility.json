@@ -205,5 +205,18 @@
         "to": 60
       }
     ]
+  },
+  {
+    "name": "titled_links_and_long_ordered_list",
+    "markdown": "See [site](https://example.com \"Site title\") and [[Linked Note]] about #reading.\n\n1. item 1\n2. item 2\n3. item 3\n4. item 4\n5. item 5\n6. item 6\n7. item 7\n8. item 8\n9. item 9\n10. item 10 with [docs](https://example.com/docs 'Docs title')\n    - nested under a two-digit number\n11. item 11",
+    "expectedTags": ["reading"],
+    "expectedLinks": [
+      {
+        "raw": "Linked Note",
+        "target": "linked note",
+        "label": "Linked Note"
+      }
+    ],
+    "excludedRegions": []
   }
 ]

@@ -32,7 +32,10 @@ const parserTokens: { [token: string]: ParseSpec } = {
   },
   ordered_list: {
     block: "orderedList",
-    getAttrs: (tok) => ({ start: tok.attrGet("start") ? Number(tok.attrGet("start")) : 1 }),
+    getAttrs: (tok) => ({
+      start: tok.attrGet("start") ? Number(tok.attrGet("start")) : 1,
+      markdownPadded: tok.meta?.padded ? true : null,
+    }),
   },
   task_list: { block: "taskList" },
   task_item: {
@@ -103,7 +106,11 @@ const parserTokens: { [token: string]: ParseSpec } = {
   s: { mark: "strike" },
   link: {
     mark: "link",
-    getAttrs: (tok) => ({ href: tok.attrGet("href") }),
+    getAttrs: (tok) => ({
+      href: tok.attrGet("href"),
+      title: tok.attrGet("title") || null,
+      markdownTitleMarkup: (tok.meta?.titleMarkup as string | undefined) ?? null,
+    }),
   },
   code_inline: { mark: "code", noCloseToken: true },
   html_inline: {

@@ -1,10 +1,12 @@
 import { Extension } from "@tiptap/core"
 
-// Attaches a non-rendered `markdownMarkup` attribute to a few nodes/marks so the
-// markdown layer can preserve the exact syntax marker the author used
-// (e.g. `_italic_` vs `*italic*`, `+ item` vs `- item`) across a round-trip.
-// The attribute is data-only (`rendered: false`) — it never touches the DOM,
-// so it is simply absent (and falls back to a default) on HTML paste.
+// Attaches non-rendered attributes to a few nodes/marks so the markdown layer can
+// preserve the exact syntax the author used across a round-trip: `markdownMarkup`
+// (`_italic_` vs `*italic*`, `+ item` vs `- item`), `markdownTitleMarkup` (the
+// character that opens a link title: `"`, `'` or `(`) and `markdownPadded` (an
+// ordered list whose numbers are right-aligned, ` 9.` above `10.`).
+// The attributes are data-only (`rendered: false`) — they never touch the DOM,
+// so they are simply absent (and fall back to a default) on HTML paste.
 export const MarkdownMarkup = Extension.create({
   name: "markdownMarkup",
 
@@ -18,6 +20,14 @@ export const MarkdownMarkup = Extension.create({
             rendered: false,
           },
         },
+      },
+      {
+        types: ["link"],
+        attributes: { markdownTitleMarkup: { default: null, rendered: false } },
+      },
+      {
+        types: ["orderedList"],
+        attributes: { markdownPadded: { default: null, rendered: false } },
       },
     ]
   },

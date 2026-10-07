@@ -9,6 +9,7 @@ import {
 import obsidianCompatFixture from "./fixtures/obsidian-compat.md?raw"
 import livePreviewSafeFixture from "./fixtures/live-preview-safe.md?raw"
 import malformedFrontmatterFixture from "./fixtures/malformed-frontmatter.md?raw"
+import sharedCompatibilityCorpus from "../../../../tests/fixtures/markdown-compatibility.json"
 import {
   docSelectionToMarkdownSelection,
   markdownSelectionToDocSelection,
@@ -433,6 +434,14 @@ describe("markdown <-> tiptap round-trip", () => {
     }
   })
 
+  it("admits the titled links and the long list of the shared indexing corpus", () => {
+    const shared = sharedCompatibilityCorpus.find(
+      (fixture) => fixture.name === "titled_links_and_long_ordered_list",
+    )
+    expect(shared).toBeDefined()
+    expect(roundTripCheck(shared!.markdown)).toEqual({ ok: true, result: shared!.markdown })
+  })
+
   it("routes the complex Obsidian fixture through the lossless Source-mode guard", () => {
     expect(roundTripCheck(obsidianCompatFixture).ok).toBe(false)
   })
@@ -450,6 +459,36 @@ describe("markdown <-> tiptap round-trip", () => {
   it("routes reference-style links to Source mode rather than expanding them", () => {
     const referenceLink = 'Read [Amby][project].\n\n[project]: https://example.com "Amby"'
     expect(roundTripCheck(referenceLink).ok).toBe(false)
+  })
+
+  // Link titles and unpadded ordered lists are admitted to Live Preview; footnotes and
+  // link definitions next to them must still keep the note in Source.
+  it.each([
+    ["footnote reference and definition", "Text.[^1]\n\n[^1]: The footnote body."],
+    ["footnote reference without a definition", "Text.[^note]"],
+    ["footnote definition without a reference", "Text.\n\n[^1]: The footnote body."],
+    ["inline footnote", "Text.^[An inline footnote.]"],
+    ["footnote in a list item", "1. one[^1]\n2. two\n\n[^1]: Body."],
+    ["footnote beside a titled link", '[a](http://a.b "T")[^1]\n\n[^1]: Body.'],
+    ["full reference link", "Read [Amby][project].\n\n[project]: https://example.com"],
+    ["collapsed reference link", "Read [project][].\n\n[project]: https://example.com"],
+    ["shortcut reference link", "Read [project].\n\n[project]: https://example.com"],
+    ["reference image", "![Amby][logo]\n\n[logo]: assets/logo.png"],
+    ["definition nothing refers to", "Text.\n\n[unused]: https://example.com"],
+    ["definition with a double-quoted title", 'Read [a][b].\n\n[b]: http://a.b "Title"'],
+    ["definition with a single-quoted title", "Read [a][b].\n\n[b]: http://a.b 'Title'"],
+    ["definition with a parenthesised title", "Read [a][b].\n\n[b]: http://a.b (Title)"],
+    ["definition with a title on its own line", 'Read [a][b].\n\n[b]: http://a.b\n  "Title"'],
+    ["definition with an angle-bracket address", "Read [a][b].\n\n[b]: <http://a.b>"],
+    [
+      "definition beside a titled link and a long list",
+      `[a](http://a.b "T") and [c][d].\n\n${Array.from({ length: 10 }, (_, n) => `${n + 1}. x`).join("\n")}\n\n[d]: http://c.d`,
+    ],
+  ])("still routes to Source mode: %s", (_name, markdown) => {
+    const check = roundTripCheck(markdown)
+    expect(check.ok).toBe(false)
+    // What the guard rejected is stable, so the rejection cannot flip on a second look.
+    expect(roundTripCheck(check.result).result).toBe(check.result)
   })
 
   it("routes malformed frontmatter through the Source-mode guard", () => {
@@ -555,6 +594,10 @@ describe("markdown <-> tiptap round-trip", () => {
       "Plain text with **bold** and `code`.",
       "- first\n- second",
       "1. first\n2. second",
+      Array.from({ length: 11 }, (_, n) => `${n + 1}. item`).join("\n"),
+      Array.from({ length: 11 }, (_, n) => `${String(n + 1).padStart(2)}. item`).join("\n"),
+      'A [titled](https://example.com "Title") and [another](https://example.com \'It "is"\') link.',
+      "Odd [title](https://example.com  (spaced)) and a note.[^1]",
       "- [ ] todo\n- [x] done",
       "> quoted text",
       "See [[Target#Heading|alias]] and #topic.",
