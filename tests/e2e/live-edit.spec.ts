@@ -19,7 +19,7 @@ test("typing in one paragraph changes only that block in the stored Markdown", a
   await openInLive(page, "Odd")
   const paragraph = liveEditor(page).getByText("Plain paragraph to edit.")
   await paragraph.click()
-  await page.keyboard.press("End")
+  await page.keyboard.press("Meta+ArrowRight")
   await page.keyboard.type(" Typed")
 
   const expected = ODD_SPELLINGS.replace(

@@ -15,6 +15,7 @@ Read [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 | Unknown source preservation                  | [opaque-markdown-node.ts](opaque-markdown-node.ts), [opaque-html-node.ts](opaque-html-node.ts)                                                                                                                                                                                                 |
 | Columns: structure, movement, width          | [columns-node.ts](columns-node.ts), [columns-transaction.ts](columns-transaction.ts), [column-resize.ts](column-resize.ts)                                                                                                                                                                     |
 | Block controls / conversions                 | [BlockHandles.tsx](BlockHandles.tsx), [BlockActionsPanel.tsx](BlockActionsPanel.tsx), [BlockInsertPanel.tsx](BlockInsertPanel.tsx), [block-conversion.ts](block-conversion.ts)                                                                                                                 |
+| Typing and keyboard habits, Markdown paste   | [block-shortcuts.ts](block-shortcuts.ts) (`- [ ] `, `1) `, Backspace in a heading, Mod-D, Mod-Shift-arrows, Mod-K), [markdown-paste.ts](markdown-paste.ts), [indent-shortcut.ts](indent-shortcut.ts), [wrap-shortcuts.ts](wrap-shortcuts.ts)                                                   |
 | Inline toolbar / slash menu                  | [BubbleToolbar.tsx](BubbleToolbar.tsx), [slash-menu.ts](slash-menu.ts)                                                                                                                                                                                                                         |
 | Tags / wiki links / transclusions            | [tags-wikilinks.ts](tags-wikilinks.ts), [WikiLinkContextMenu.tsx](WikiLinkContextMenu.tsx), [transclusion-node.ts](transclusion-node.ts), [transclusion-view.tsx](transclusion-view.tsx)                                                                                                       |
 | Images / drops / asset URLs                  | [amby-image.ts](amby-image.ts), [media-drop.ts](media-drop.ts), [asset-resolver.ts](asset-resolver.ts)                                                                                                                                                                                         |
@@ -35,6 +36,12 @@ column order, explicit widths and empty blocks. Editor-only unlink controls must
 leave the visible label as ordinary text, never appear in Markdown, and preserve
 normal navigation outside the control. Do not add feature rules to the serializer
 without a lossless fixture and a rejection case for unsupported input.
+
+Pasted plain text that is Markdown is read by the note parser and inserted as new
+blocks without kept source; nodes from the parser belong to its own schema and are
+rebuilt for the editor's schema before they are inserted. Behaviour that depends on
+real typing, focus or the clipboard also has a case in
+[the browser suite](../../../../tests/e2e/).
 
 Tests start with [markdown.test.ts](markdown.test.ts) and [fixtures/](fixtures/).
 The no-edit and edit invariants live in

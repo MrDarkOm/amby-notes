@@ -75,6 +75,8 @@ interface BubbleToolbarProps {
   editor: Editor
   left: number
   top: number
+  /** The panel the toolbar opens with; Mod-K opens it on the link panel. */
+  initialPanel?: "link" | null
 }
 
 function ToolbarButton({
@@ -119,13 +121,18 @@ const HEADINGS: Array<{
   { label: "H6", level: 6 },
 ]
 
-export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
+export function BubbleToolbar({ editor, left, top, initialPanel = null }: BubbleToolbarProps) {
   const { t } = useTranslation()
-  const [panel, setPanel] = React.useState<Panel>(null)
-  const [inputValue, setInputValue] = React.useState("")
+  const [panel, setPanel] = React.useState<Panel>(initialPanel)
+  // Opened on the link panel (Mod-K): the address of the link under the selection is shown.
+  const [inputValue, setInputValue] = React.useState(() =>
+    initialPanel === "link" ? String(editor.getAttributes("link").href ?? "") : "",
+  )
   const [linkLabel, setLinkLabel] = React.useState("")
   // Track whether selection was empty when the link panel was opened.
-  const [linkHasSelection, setLinkHasSelection] = React.useState(false)
+  const [linkHasSelection, setLinkHasSelection] = React.useState(
+    () => initialPanel === "link" && !editor.state.selection.empty,
+  )
   const [aiBusy, setAiBusy] = React.useState(false)
   const [aiError, setAiError] = React.useState<string | null>(null)
   const mountedRef = React.useRef(true)
@@ -239,7 +246,15 @@ export function BubbleToolbar({ editor, left, top }: BubbleToolbarProps) {
     if (!url) return
     if (!linkHasSelection) {
       const label = linkLabel.trim() || url
-      editor.chain().focus().insertContent(`[${label}](${url})`).run()
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: "text",
+          text: label,
+          marks: [{ type: "link", attrs: { href: url } }],
+        })
+        .run()
     } else {
       editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run()
     }

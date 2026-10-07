@@ -33,6 +33,7 @@ import { setTransclusionFetcher } from "./transclusion-context"
 import { bindTauriFileDrop, getTauriDropPosForView } from "./media-drop"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
 import { registerEditorSerialization } from "./editor-serialization-lifecycle"
+import { OPEN_LINK_PANEL_EVENT } from "./block-shortcuts"
 import {
   SLASH_TRIGGER_EVENT,
   dismissSlashMenu,
@@ -66,6 +67,8 @@ interface MenuState {
   open: boolean
   left: number
   top: number
+  /** Set when the toolbar was called for its link panel; a new value reopens it. */
+  linkRequest?: number
 }
 
 interface InlineUnlinkState {
@@ -263,7 +266,13 @@ export function TiptapEditor({
         below + MENU_HEIGHT < window.innerHeight - 8
           ? below
           : clamp(above, 8, window.innerHeight - MENU_HEIGHT - 8)
-      setMenu({ open: true, left, top })
+      // The same selection reported again keeps a link panel that Mod-K opened.
+      setMenu((prev) => ({
+        open: true,
+        left,
+        top,
+        linkRequest: prev.open ? prev.linkRequest : undefined,
+      }))
     },
     onBlur: ({ editor }) => {
       flushSerialize(editor)
@@ -290,6 +299,34 @@ export function TiptapEditor({
     window.addEventListener(WIKILINK_CONTEXT_EVENT, onContextMenu)
     return () => window.removeEventListener(WIKILINK_CONTEXT_EVENT, onContextMenu)
   }, [closeMenu, editor])
+
+  // Mod-K: the toolbar opens on its link panel, also when nothing is selected. The cursor
+  // inside a link selects that link, so the panel edits it.
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    const editorDom = editor.view.dom
+    const openLinkPanel = () => {
+      if (!editor.isEditable) return
+      if (editor.state.selection.empty && editor.isActive("link")) {
+        editor.commands.extendMarkRange("link")
+      }
+      window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
+      setWikiLinkContext(null)
+      dismissSlashMenu(editor)
+      const { from, to } = editor.state.selection
+      const start = editor.view.coordsAtPos(from)
+      const end = editor.view.coordsAtPos(to)
+      const left = clamp(
+        (start.left + end.right) / 2 - MENU_WIDTH / 2,
+        8,
+        window.innerWidth - MENU_WIDTH - 8,
+      )
+      const top = clamp(Math.max(start.bottom, end.bottom) + 10, 8, window.innerHeight - 140)
+      setMenu((prev) => ({ open: true, left, top, linkRequest: (prev.linkRequest ?? 0) + 1 }))
+    }
+    editorDom.addEventListener(OPEN_LINK_PANEL_EVENT, openLinkPanel)
+    return () => editorDom.removeEventListener(OPEN_LINK_PANEL_EVENT, openLinkPanel)
+  }, [editor])
 
   // Sync external `value` changes when a mounted tab changes its document
   // (history navigation) or a parent-driven content reset arrives.
@@ -608,7 +645,13 @@ export function TiptapEditor({
       }}
     >
       {editor && editable && menu.open && (
-        <BubbleToolbar editor={editor} left={menu.left} top={menu.top} />
+        <BubbleToolbar
+          key={menu.linkRequest ?? 0}
+          editor={editor}
+          left={menu.left}
+          top={menu.top}
+          initialPanel={menu.linkRequest ? "link" : null}
+        />
       )}
       {editor &&
         editable &&

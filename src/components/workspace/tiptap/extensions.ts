@@ -11,6 +11,8 @@ import { EmptyLineHint } from "./empty-line-hint"
 import { WrapShortcuts } from "./wrap-shortcuts"
 import { MediaDrop } from "./media-drop"
 import { ColumnResize } from "./column-resize"
+import { MarkdownPaste } from "./markdown-paste"
+import { BlockShortcuts } from "./block-shortcuts"
 
 export interface BuildExtensionsOptions {
   placeholder: string
@@ -36,6 +38,9 @@ export function buildExtensions({ placeholder, callbacks }: BuildExtensionsOptio
     EmptyLineHint,
     WrapShortcuts,
     ColumnResize,
+    BlockShortcuts,
+    // Files and image addresses first; plain text written as Markdown after them.
     MediaDrop,
+    MarkdownPaste,
   ]
 }
