@@ -87,11 +87,15 @@ export function TooltipProvider() {
       if (!title || drawnByEditor(element)) return
       element.dataset.ambyTooltip = title
       element.removeAttribute("title")
+      // A label this provider gave follows the title when the control changes its
+      // meaning (lock / unlock); a label the control set itself is never touched.
+      const ownLabel = element.dataset.ambyTooltipLabel === "true"
       if (
-        !element.hasAttribute("aria-label") &&
+        (ownLabel || !element.hasAttribute("aria-label")) &&
         element.matches("button, input, select, textarea, [role=button]")
       ) {
         element.setAttribute("aria-label", title)
+        element.dataset.ambyTooltipLabel = "true"
       }
     }
 

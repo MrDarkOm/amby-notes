@@ -13,6 +13,7 @@
 | Package version agreement            | [package-versions.json](fixtures/package-versions.json), frontend validator and Rust package-manager tests                                                                                                    |
 | Native persistence contract          | [native/storage-contract.ts](native/storage-contract.ts), [native/note-contract.ts](native/note-contract.ts), [native_contract.rs](../src-tauri/src/native_contract.rs)                                       |
 | Native debug contract                | [native/debug-contract.ts](native/debug-contract.ts)                                                                                                                                                          |
+| Editor behaviour in a real browser   | [e2e/](e2e/) with [playwright.config.ts](../playwright.config.ts): Playwright + WebKit against the built browser bundle                                                                                       |
 | Filesystem success/failure/rollback  | Rust tests beside services and [desktop_e2e_tests.rs](../src-tauri/src/desktop_e2e_tests.rs)                                                                                                                  |
 
 Focused iteration: `npm run test -- <test-path>` or
@@ -26,6 +27,17 @@ and [native-ui-smoke.md](../docs/native-ui-smoke.md) before running the matching
 `test:storage:live` / `test:native:ui` scripts. These need the native environment;
 browser fallback and happy-dom do not establish watcher, WebView, dialog or OS
 filesystem behavior. Use disposable fixture vaults, not personal notes.
+
+Real-browser suite: `npm run test:browser` (once per machine:
+`npm run test:browser:install`, about 80 MB of WebKit). It builds the bundle, serves
+it with `vite preview` and drives the localStorage web adapter in WebKit, the engine of
+the desktop webview; `AMBY_E2E_DEV=1` targets the dev server instead. happy-dom cannot
+see a frozen main thread, a redraw loop, real typing or an editor built twice — add a
+case in [e2e/](e2e/) when a change is about any of those. Notes are synthetic strings in
+[e2e/fixtures.ts](e2e/fixtures.ts) (never `.md` files Prettier could rewrite, never
+personal notes); every case seeds its own vault in a fresh browser context. The suite is
+not part of `npm run verify`: it needs the browser binary. It does not cover the native
+window, the Rust side or the system webview's own painting.
 
 Preserve fixture BOM/CRLF bytes. Add meaningful acceptance and rejection/failure
 cases for format and persistence changes; avoid tests that just mirror code.

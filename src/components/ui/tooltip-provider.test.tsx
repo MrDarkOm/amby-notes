@@ -53,6 +53,33 @@ describe("TooltipProvider", () => {
     expect(container.querySelector("a")?.getAttribute("title")).toBe("Link title")
   })
 
+  it("keeps the accessible name in step with a title that changes", async () => {
+    const Toggle = ({ locked }: { locked: boolean }) => (
+      <>
+        <button id="lock" title={locked ? "Edit mode" : "View mode"}>
+          x
+        </button>
+        <button id="named" aria-label="Own name" title={locked ? "B" : "A"}>
+          y
+        </button>
+        <TooltipProvider />
+      </>
+    )
+    const { container, rerender } = render(<Toggle locked={false} />)
+    const lock = container.querySelector("#lock") as HTMLButtonElement
+    const named = container.querySelector("#named") as HTMLButtonElement
+    expect(lock.getAttribute("aria-label")).toBe("View mode")
+
+    rerender(<Toggle locked />)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(lock.dataset.ambyTooltip).toBe("Edit mode")
+    expect(lock.getAttribute("aria-label")).toBe("Edit mode")
+    expect(named.dataset.ambyTooltip).toBe("B")
+    expect(named.getAttribute("aria-label")).toBe("Own name")
+  })
+
   it("dismisses a tooltip when its trigger starts an interaction", () => {
     vi.useFakeTimers()
     const { container } = render(

@@ -14,6 +14,7 @@ command lists in historical plans. Use Node.js 20.19+ or 22.12+, npm 10+, and Ru
 | Rust dependency audit                       | [audit-rust.sh](audit-rust.sh)                                                                                                                                                                               |
 | Icons / CSS density transform               | [generate-app-icons.mjs](generate-app-icons.mjs), [postcss-density-scale.mjs](postcss-density-scale.mjs)                                                                                                     |
 | Frontend build / tests / unused-code checks | [vite.config.ts](../vite.config.ts), [vitest.config.ts](../vitest.config.ts), [knip.json](../knip.json)                                                                                                      |
+| Real-browser editor checks (WebKit)         | [playwright.config.ts](../playwright.config.ts), `npm run test:browser`; first `npm run test:browser:install`. See [the verification map](../tests/MAP.md)                                                   |
 | CI gates and release automation             | [.github/workflows/](../.github/workflows/)                                                                                                                                                                  |
 
 `npm run verify` aliases the full gate, including formatting, Knip, Rust checks,
