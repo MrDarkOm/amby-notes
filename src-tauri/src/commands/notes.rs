@@ -218,7 +218,12 @@ pub fn write_note(
     // Commit file write and history snapshot under mutation_gate, dropping it immediately after
     let (path, body, revision) = {
         let _mutation_guard = db.mutation_gate.lock().unwrap();
-        match vault_index::commit_prepared_note_write(&vault_root, prepared_note) {
+        let history_reason = if request.rewrites_source {
+            history::SOURCE_REWRITE_REASON
+        } else {
+            "note-save"
+        };
+        match vault_index::commit_prepared_note_write(&vault_root, prepared_note, history_reason) {
             Ok(written) => {
                 watcher_state.confirm_prepared_write(&prepared_write);
                 written

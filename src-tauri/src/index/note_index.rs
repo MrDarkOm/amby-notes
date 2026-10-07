@@ -425,12 +425,13 @@ pub fn prepare_opaque_note_text(
 pub fn commit_prepared_note_write(
     vault: &Path,
     prepared: PreparedNoteWrite,
+    history_reason: &str,
 ) -> Result<(PathBuf, String, String), WriteNoteError> {
     history::snapshot_before_write(
         vault,
         &prepared.path,
         &prepared.persisted_bytes,
-        "note-save",
+        history_reason,
     )
     .map_err(WriteNoteError::failed)?;
     frontmatter::atomic_write_bytes(&prepared.path, &prepared.persisted_bytes)
@@ -457,7 +458,7 @@ pub fn write_note_filesystem(
     expected_revision: &str,
 ) -> Result<(PathBuf, String, String), WriteNoteError> {
     let prepared = prepare_note_write(conn, vault, note_id, content, expected_revision)?;
-    commit_prepared_note_write(vault, prepared)
+    commit_prepared_note_write(vault, prepared, "note-save")
 }
 
 pub fn note_metadata(
@@ -771,9 +772,67 @@ pub fn index_update_note(
 mod tests {
     use std::fs;
 
-    use super::{body_revision, read_note, upsert_note_index, write_note_filesystem};
+    use super::{
+        body_revision, commit_prepared_note_write, prepare_note_write, read_note,
+        upsert_note_index, write_note_filesystem,
+    };
+    use crate::history;
     use crate::index::open_connection;
     use crate::model::WriteNoteError;
+
+    #[test]
+    fn a_save_that_rewrites_source_keeps_the_whole_previous_file_in_history() {
+        let vault =
+            std::env::temp_dir().join(format!("amby_note_rewrite_{}", ulid::Ulid::generate()));
+        fs::create_dir_all(&vault).expect("create vault");
+        let id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+        let path = vault.join("Note.md");
+        let original = format!("---\namby-id: {id}\n---\n* * *\n\n1) one\n2) two\n");
+        fs::write(&path, &original).expect("write note");
+        let conn = open_connection(&vault).expect("open index");
+        upsert_note_index(&conn, &vault, id, "* * *\n\n1) one\n2) two\n", &path)
+            .expect("index note");
+
+        // An ordinary autosave first: it takes the snapshot of its ten-minute window.
+        let revision = read_note(&conn, &vault, id).expect("read").revision;
+        let (_, _, revision) = write_note_filesystem(
+            &conn,
+            &vault,
+            id,
+            "* * *\n\n1) one\n2) two\n\ntail\n",
+            &revision,
+        )
+        .expect("autosave");
+        let before_rewrite = fs::read(&path).expect("file before the rewrite");
+
+        // The editor now writes the list in its own form. Without the forced reason
+        // this save would fall inside the window and leave no copy of the file above.
+        let prepared = prepare_note_write(
+            &conn,
+            &vault,
+            id,
+            "* * *\n\n1. one!\n2. two\n\ntail\n",
+            &revision,
+        )
+        .expect("prepare");
+        commit_prepared_note_write(&vault, prepared, history::SOURCE_REWRITE_REASON)
+            .expect("rewriting save");
+
+        let snapshots = history::list_snapshots(&vault, &path).expect("snapshots");
+        let rewrite = snapshots
+            .iter()
+            .find(|snapshot| snapshot.reason == history::SOURCE_REWRITE_REASON)
+            .expect("snapshot taken before the rewrite");
+        assert_eq!(
+            history::read_snapshot_text(&vault, &rewrite.id)
+                .expect("snapshot text")
+                .content
+                .as_bytes(),
+            before_rewrite.as_slice()
+        );
+        assert_eq!(snapshots.len(), 2);
+        fs::remove_dir_all(vault).expect("cleanup");
+    }
 
     #[test]
     fn stale_renderer_revision_cannot_overwrite_a_newer_note_save() {

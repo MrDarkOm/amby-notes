@@ -5,6 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useDocStore, type Document } from "../use-doc-store"
 import { useMarkdownAutosave } from "./use-markdown-autosave"
 import * as storage from "@/lib/storage"
+import {
+  clearSourceRewriteSnapshots,
+  pendingSourceRewriteSnapshot,
+  requestSourceRewriteSnapshot,
+} from "../autosave/source-rewrite"
 
 describe("useMarkdownAutosave", () => {
   beforeEach(() => {
@@ -17,6 +22,7 @@ describe("useMarkdownAutosave", () => {
 
   afterEach(() => {
     cleanup()
+    clearSourceRewriteSnapshots()
     vi.restoreAllMocks()
     useDocStore.setState({
       openDocs: {},
@@ -78,6 +84,72 @@ describe("useMarkdownAutosave", () => {
     })
     expect(useDocStore.getState().openDocs[doc.id].content).toBe("newer unsaved text")
     expect(useDocStore.getState().unsavedFileIds.has(doc.id)).toBe(true)
+    result.current.autosave.cancelGeneration(1)
+  })
+
+  it("asks for a history snapshot on the save that follows a source rewrite, once", async () => {
+    const doc: Document = {
+      id: "note-1",
+      title: "Note",
+      path: "/vault/Note.md",
+      content: "* * *",
+      source: "* * *",
+      revision: "before",
+      created: "",
+      modified: "",
+      wordCount: 1,
+      noteId: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    }
+    useDocStore.getState().setDoc(doc.id, doc)
+    const writeNote = vi.spyOn(storage, "writeNote")
+    writeNote.mockRejectedValueOnce(new Error("disk full"))
+    writeNote.mockResolvedValue({
+      path: doc.path,
+      revision: "after",
+      indexState: "healthy",
+      warnings: [],
+    })
+    vi.spyOn(storage, "getNoteProperties").mockResolvedValue({
+      hasFrontmatter: false,
+      properties: [],
+      customProperties: [],
+    })
+    const { result } = renderHook(() =>
+      useMarkdownAutosave({
+        vault: "/vault",
+        autosaveGeneration: 1,
+        backendGeneration: 1,
+        windowLabel: "main",
+        applyMutationResult: vi.fn(),
+      }),
+    )
+    const key = result.current.autosaveKey(doc.id)
+    const options = () => writeNote.mock.lastCall?.[7]
+
+    // The editor rewrote a block: the request is keyed by the document, not the note ID.
+    requestSourceRewriteSnapshot(doc.id)
+    act(() => result.current.handleContentChange(doc.id, "---\n\nmore"))
+    await act(async () => {
+      await result.current.autosave.flush(key).catch(() => undefined)
+    })
+    expect(writeNote).toHaveBeenCalledTimes(1)
+    expect(options()).toEqual({ rewritesSource: true })
+    // The save failed, so the retry still carries the request.
+    expect(pendingSourceRewriteSnapshot(doc.id)).not.toBeNull()
+
+    act(() => result.current.handleContentChange(doc.id, "---\n\nmore text"))
+    await act(async () => {
+      await result.current.autosave.flush(key)
+    })
+    expect(options()).toEqual({ rewritesSource: true })
+    expect(pendingSourceRewriteSnapshot(doc.id)).toBeNull()
+
+    // Ordinary saves afterwards are coalesced by the backend as before.
+    act(() => result.current.handleContentChange(doc.id, "---\n\nmore text again"))
+    await act(async () => {
+      await result.current.autosave.flush(key)
+    })
+    expect(options()).toBeUndefined()
     result.current.autosave.cancelGeneration(1)
   })
 

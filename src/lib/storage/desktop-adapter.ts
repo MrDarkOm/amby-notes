@@ -3,7 +3,7 @@ import { commands, type DatabaseSummary as BindingDatabaseSummary } from "@/lib/
 import { unwrapCommand } from "./ipc-result"
 import { desktopOperationError } from "./operation-error"
 import { joinStoragePath } from "./storage-path"
-import type { StoragePort } from "./port"
+import type { StoragePort, WriteNoteOptions } from "./port"
 import { FileRevisionConflictError, NoteRevisionConflictError } from "./types"
 import { unwrapDatabaseCommand } from "./database-port"
 import { unwrapProjectCommand } from "./project-port"
@@ -692,6 +692,7 @@ export class DesktopAdapter implements StoragePort {
     expectedRevision: string,
     originWindow: string,
     operationId?: string,
+    options?: WriteNoteOptions,
   ): Promise<WriteNoteOutcome> {
     if (expectedGeneration === null) throw new Error("No active vault generation")
     const result = await commands.writeNote(
@@ -701,6 +702,7 @@ export class DesktopAdapter implements StoragePort {
         content,
         expectedRevision,
         originWindow,
+        ...(options?.rewritesSource ? { rewritesSource: true } : {}),
       },
       operationId ?? null,
     )

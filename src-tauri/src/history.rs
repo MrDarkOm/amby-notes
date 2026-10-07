@@ -409,6 +409,13 @@ pub fn snapshot_before_write(
     snapshot_before_write_at(vault, source, replacement, reason, now_ms()?)
 }
 
+/// The save that may write a block of a note in the editor's own form for the first
+/// time since the note was loaded (see `docs/markdown-compatibility.md`). The file it
+/// replaces is the last one that holds the author's own spelling of those blocks, so
+/// this snapshot is never coalesced with autosaves and is taken even when history is
+/// switched off for the vault.
+pub const SOURCE_REWRITE_REASON: &str = "note-rewrite";
+
 fn is_autosave_snapshot(reason: &str) -> bool {
     matches!(reason, "note-save" | "file-save")
 }
@@ -496,7 +503,7 @@ fn snapshot_before_write_at(
     reason: &str,
     created_at_ms: u64,
 ) -> Result<Option<String>, String> {
-    if !is_history_enabled(vault) {
+    if reason != SOURCE_REWRITE_REASON && !is_history_enabled(vault) {
         return Ok(None);
     }
     let _lock = history_lock();
@@ -1022,6 +1029,76 @@ mod tests {
             .unwrap();
 
         assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn source_rewrite_keeps_the_replaced_file_inside_the_autosave_window() {
+        let vault = temp_vault();
+        let note = vault.join("Note.md");
+        fs::write(&note, "* * *\r\n").unwrap();
+
+        // An ordinary autosave opens the ten-minute window...
+        snapshot_before_write_at(&vault, &note, b"* * *\r\n\r\ntyped", "note-save", 10)
+            .unwrap()
+            .unwrap();
+        fs::write(&note, "* * *\r\n\r\ntyped").unwrap();
+        // ...and the next one inside it would leave no version of this file.
+        assert!(
+            snapshot_before_write_at(&vault, &note, b"unrelated", "note-save", 11)
+                .unwrap()
+                .is_none()
+        );
+        // The save that rewrites a block keeps it, byte for byte.
+        let id = snapshot_before_write_at(
+            &vault,
+            &note,
+            b"---\r\n\r\ntyped",
+            SOURCE_REWRITE_REASON,
+            12,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            read_snapshot_text(&vault, &id).unwrap().content,
+            "* * *\r\n\r\ntyped"
+        );
+        // Later autosaves are coalesced as before: the window is the autosave's own.
+        assert!(
+            snapshot_before_write_at(&vault, &note, b"later", "note-save", 13)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(list_snapshots(&vault, &note).unwrap().len(), 2);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
+    fn source_rewrite_keeps_the_replaced_file_when_history_is_switched_off() {
+        let vault = temp_vault();
+        let amby_dir = vault.join(".amby");
+        fs::create_dir_all(&amby_dir).unwrap();
+        fs::write(
+            amby_dir.join("workspace.json"),
+            r#"{"profile": {"id": "minimal"}}"#,
+        )
+        .unwrap();
+        assert!(!is_history_enabled(&vault));
+
+        let note = vault.join("Note.md");
+        fs::write(&note, "1) one\n2) two\n").unwrap();
+        assert!(
+            snapshot_before_write(&vault, &note, b"1) one\n2) two\n\nmore", "note-save")
+                .unwrap()
+                .is_none()
+        );
+        let id = snapshot_before_write(&vault, &note, b"1. one!\n2. two\n", SOURCE_REWRITE_REASON)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            read_snapshot_text(&vault, &id).unwrap().content,
+            "1) one\n2) two\n"
+        );
         fs::remove_dir_all(vault).unwrap();
     }
 

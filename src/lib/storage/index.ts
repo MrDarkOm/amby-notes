@@ -7,7 +7,7 @@ import { HistoryRepository } from "./history-repository"
 import { SettingsRepository } from "./settings-repository"
 import { configureDebugRepositoryRuntime } from "./debug-repository"
 import { logger, traceOperation } from "../logger"
-import type { StoragePort } from "./port"
+import type { StoragePort, WriteNoteOptions } from "./port"
 import type {
   CreateDatabaseRequest,
   CreateDatabasePropertyRequest,
@@ -172,6 +172,7 @@ export const writeNote = (
   expectedRevision: string,
   originWindow: string,
   operationId?: string,
+  options?: WriteNoteOptions,
 ): Promise<WriteNoteOutcome> => {
   return traceOperation(
     "storage.write_note",
@@ -185,6 +186,7 @@ export const writeNote = (
         expectedRevision,
         originWindow,
         id,
+        options,
       ),
     { operationId },
   )

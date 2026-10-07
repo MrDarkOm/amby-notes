@@ -89,6 +89,7 @@ describe("history presentation", () => {
   })
   it("uses readable event labels and accurate zero/large sizes", () => {
     expect(historyReasonKey("note-save")).toBe("historyPanel.autosave")
+    expect(historyReasonKey("note-rewrite")).toBe("historyPanel.beforeBlockRewrite")
     expect(historyReasonKey("unrecognized")).toBe("historyPanel.savedVersion")
     expect(formatHistorySize(0, "en")).toBe("0 byte")
     expect(formatHistorySize(1048576, "en")).toBe("1 MB")

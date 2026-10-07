@@ -220,6 +220,22 @@ describe("Storage Modular Architecture & Contract Tests (WP-23)", () => {
       setStorageAdapter(adapter)
     })
 
+    it("asks the backend to keep the replaced file when a save rewrites source", async () => {
+      const writeSpy = vi.spyOn(commands, "writeNote").mockResolvedValue({
+        status: "ok",
+        data: { path: "/vault/note.md", revision: "r2", indexState: "healthy", warnings: [] },
+      })
+      await notesRepository.writeNote("/vault", "note-1", "text", 5, "r1", "main", "op", {
+        rewritesSource: true,
+      })
+      expect(writeSpy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ noteId: "note-1", rewritesSource: true }),
+        "op",
+      )
+      await notesRepository.writeNote("/vault", "note-1", "text", 5, "r2", "main", "op")
+      expect(writeSpy.mock.lastCall?.[0]).not.toHaveProperty("rewritesSource")
+    })
+
     it("delegates readNote and writeNote to generated commands", async () => {
       const readSpy = vi.spyOn(commands, "readNote").mockResolvedValue({
         status: "ok",

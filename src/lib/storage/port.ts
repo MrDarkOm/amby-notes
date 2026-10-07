@@ -31,6 +31,14 @@ import type {
 import type { DatabasePort } from "./database-port"
 import type { ProjectPort } from "./project-port"
 
+export interface WriteNoteOptions {
+  /**
+   * The editor may be writing a block in its own form for the first time since the note
+   * was loaded: the replaced file is kept in history regardless of autosave coalescing.
+   */
+  rewritesSource?: boolean
+}
+
 export interface StoragePort extends DatabasePort, ProjectPort {
   // Vault Lifecycle & Index
   openVault(): Promise<string | null>
@@ -64,6 +72,7 @@ export interface StoragePort extends DatabasePort, ProjectPort {
     expectedRevision: string,
     originWindow: string,
     operationId?: string,
+    options?: WriteNoteOptions,
   ): Promise<WriteNoteOutcome>
   restoreDeletedNote(
     vaultPath: string,

@@ -1864,7 +1864,12 @@ export type WriteFileError = { kind: "revisionConflict"; actual_revision: string
  */
 export type WriteNoteError = { kind: "revisionConflict"; actual_revision: string } | { kind: "failed"; message: string }
 export type WriteNoteOutcome = { path: string; revision: string; indexState: IndexState; warnings: OperationWarning[] }
-export type WriteNoteRequest = { expectedGeneration: number; noteId: string; content: string; expectedRevision: string; originWindow: string }
+export type WriteNoteRequest = { expectedGeneration: number; noteId: string; content: string; expectedRevision: string; originWindow: string; 
+/**
+ * The editor may be writing a block in its own form for the first time since
+ * the note was loaded. The file it replaces is kept in history unconditionally.
+ */
+rewritesSource?: boolean }
 
 /** tauri-specta globals **/
 

@@ -1,6 +1,7 @@
 import * as React from "react"
 import i18n from "@/lib/i18n"
 import { discardRecoveryDraft, readRecoveryDraft } from "@/lib/recovery-drafts"
+import { requestSourceRewriteSnapshot } from "../autosave/source-rewrite"
 import {
   confirmAction,
   createNote,
@@ -225,6 +226,9 @@ export function useDocumentLoading({
         }
         setDoc(fileId, document)
         if (recovery.restored) {
+          // A restored draft may hold blocks the editor rewrote before the crash; the
+          // request made then is gone, so the file it replaces is kept in history.
+          requestSourceRewriteSnapshot(fileId)
           markUnsaved(fileId)
           autosave.enqueueImmediate(autosaveKey(fileId), {
             fileId,

@@ -8,7 +8,8 @@ import i18n from "@/lib/i18n"
 import { EditorContent, useEditor, type Editor } from "@tiptap/react"
 
 import { buildExtensions } from "./extensions"
-import { markdownToDoc, docToMarkdown, restoreSourceFormatting } from "./markdown"
+import { requestSourceRewriteSnapshot } from "../autosave/source-rewrite"
+import { composeMarkdown, markdownToDoc, restoreSourceFormatting } from "./markdown"
 import { clamp, type EditorHandle } from "./constants"
 import {
   docSelectionToMarkdownSelection,
@@ -115,13 +116,16 @@ export function TiptapEditor({
   })
   const serializeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const documentDirtyRef = React.useRef(false)
+  const noteIdRef = React.useRef(noteId)
+  // One request per loaded text: the first save that may rewrite a block's source.
+  const rewriteSnapshotRequestedRef = React.useRef(false)
   const userInteractedRef = React.useRef(false)
   const [menu, setMenu] = React.useState<MenuState>({ open: false, left: 0, top: 0 })
   const [wikiLinkContext, setWikiLinkContext] = React.useState<WikiLinkContextDetail | null>(null)
   const [inlineUnlink, setInlineUnlink] = React.useState<InlineUnlinkState | null>(null)
   const unlinkCloseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // docToMarkdown is O(doc size); running it on every keystroke lags large notes.
+  // Serializing is O(doc size); running it on every keystroke lags large notes.
   // Debounce it, and flush on blur/unmount so the save path never loses edits.
   const flushSerialize = React.useCallback((ed: Editor) => {
     if (serializeTimerRef.current) {
@@ -134,11 +138,18 @@ export function TiptapEditor({
     // Only a real editor update authorises a Markdown write.
     if (!documentDirtyRef.current) return
     if (ed.isDestroyed) return
-    const markdown = restoreSourceFormatting(docToMarkdown(ed.state.doc), originalValueRef.current)
+    const composed = composeMarkdown(ed.state.doc)
+    const markdown = restoreSourceFormatting(composed.markdown, originalValueRef.current)
     documentDirtyRef.current = false
     if (markdown === valueRef.current) {
       onContentCleanRef.current?.()
       return
+    }
+    // The note holds text the editor would spell differently, and this edit may be the
+    // one that rewrites it: the file being replaced must stay recoverable from history.
+    if (composed.mayRewriteSource && noteIdRef.current && !rewriteSnapshotRequestedRef.current) {
+      rewriteSnapshotRequestedRef.current = true
+      requestSourceRewriteSnapshot(noteIdRef.current)
     }
     valueRef.current = markdown
     originalValueRef.current = markdown
@@ -148,6 +159,10 @@ export function TiptapEditor({
   React.useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
+
+  React.useEffect(() => {
+    noteIdRef.current = noteId
+  }, [noteId])
 
   React.useEffect(() => {
     onContentDirtyRef.current = onContentDirty
@@ -289,6 +304,7 @@ export function TiptapEditor({
     }
     valueRef.current = value
     originalValueRef.current = value
+    rewriteSnapshotRequestedRef.current = false
     setInlineUnlink(null)
     editor.commands.setContent(markdownToDoc(value), { emitUpdate: false })
   }, [value, editor])

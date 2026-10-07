@@ -23,6 +23,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useDocStore } from "./use-doc-store"
 import { useVaultStore } from "./use-vault-store"
 import { emitAutosaveConflictResolution } from "./autosave/conflict-events"
+import {
+  pendingSourceRewriteSnapshot,
+  settleSourceRewriteSnapshot,
+} from "./autosave/source-rewrite"
 
 /**
  * Prevents an external editor from being silently overwritten by a dirty
@@ -78,6 +82,7 @@ export function ExternalConflictDialog() {
           externallyDeleted: false,
         })
       } else if (vault) {
+        const rewriteSnapshot = pendingSourceRewriteSnapshot(activeConflict.fileId)
         const outcome = await writeNote(
           vault,
           document.noteId ?? activeConflict.fileId,
@@ -85,7 +90,10 @@ export function ExternalConflictDialog() {
           backendGeneration,
           activeConflict.externalRevision ?? document.revision ?? "",
           originWindow,
+          undefined,
+          rewriteSnapshot === null ? undefined : { rewritesSource: true },
         )
+        settleSourceRewriteSnapshot(activeConflict.fileId, rewriteSnapshot)
         patchDoc(activeConflict.fileId, {
           revision: outcome.revision,
           source: activeConflict.sourceTemplate ?? document.source,

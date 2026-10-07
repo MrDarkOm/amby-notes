@@ -1,4 +1,4 @@
-import type { StoragePort } from "./port"
+import type { StoragePort, WriteNoteOptions } from "./port"
 import type {
   CustomProperty,
   FileMetadata,
@@ -99,6 +99,7 @@ export class NotesRepository {
     expectedRevision: string,
     originWindow: string,
     operationId?: string,
+    options?: WriteNoteOptions,
   ): Promise<WriteNoteOutcome> {
     return this.port().writeNote(
       vaultPath,
@@ -108,6 +109,7 @@ export class NotesRepository {
       expectedRevision,
       originWindow,
       operationId,
+      options,
     )
   }
 

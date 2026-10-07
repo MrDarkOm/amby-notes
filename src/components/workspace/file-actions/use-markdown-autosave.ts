@@ -21,6 +21,10 @@ import {
 import { AutosaveCoordinator, type AutosaveKey } from "../autosave/autosave-coordinator"
 import { registerAutosaveLifecycle } from "../autosave/autosave-lifecycle"
 import {
+  pendingSourceRewriteSnapshot,
+  settleSourceRewriteSnapshot,
+} from "../autosave/source-rewrite"
+import {
   AUTOSAVE_CONFLICT_RESOLVED_EVENT,
   type AutosaveConflictResolution,
 } from "../autosave/conflict-events"
@@ -108,6 +112,9 @@ export function useMarkdownAutosave({
         const expectedRevision = currentDocument?.revision ?? snapshot.value.expectedRevision
         if (!expectedRevision) throw new Error("Missing note revision for autosave")
         const noteId = currentDocument?.noteId ?? snapshot.value.fileId
+        // Read when the write starts: a request made while it is in flight belongs to
+        // newer content and stays pending for the next save.
+        const rewriteSnapshot = pendingSourceRewriteSnapshot(snapshot.value.fileId)
         try {
           const outcome = await writeNote(
             activeVault,
@@ -117,7 +124,9 @@ export function useMarkdownAutosave({
             expectedRevision,
             windowLabel,
             snapshot.operationId,
+            rewriteSnapshot === null ? undefined : { rewritesSource: true },
           )
+          settleSourceRewriteSnapshot(snapshot.value.fileId, rewriteSnapshot)
           // Publish the CAS baseline as soon as the filesystem write completes.
           // Property loading must not leave watcher reads using an older revision.
           if (snapshot.key.generation !== generationRef.current) return

@@ -44,6 +44,10 @@ pub struct WriteNoteRequest {
     pub content: String,
     pub expected_revision: String,
     pub origin_window: String,
+    /// The editor may be writing a block in its own form for the first time since
+    /// the note was loaded. The file it replaces is kept in history unconditionally.
+    #[serde(default)]
+    pub rewrites_source: bool,
 }
 
 #[derive(Deserialize, specta::Type)]
