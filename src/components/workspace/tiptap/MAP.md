@@ -7,7 +7,8 @@ Read [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 | Concern                                      | Owner                                                                                                                                                                                                                                                                                          |
 | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | React/ProseMirror lifecycle                  | [TiptapEditor.tsx](TiptapEditor.tsx), [editor-serialization-lifecycle.ts](editor-serialization-lifecycle.ts)                                                                                                                                                                                   |
-| Public conversion API and lossless gate      | [markdown.ts](markdown.ts), [markdown-compatibility.ts](markdown-compatibility.ts)                                                                                                                                                                                                             |
+| Public conversion API and Live admission     | [markdown.ts](markdown.ts), [markdown-compatibility.ts](markdown-compatibility.ts), [markdown-meaning.ts](markdown-meaning.ts)                                                                                                                                                                 |
+| Source text kept per top-level block         | [markdown-block-source.ts](markdown-block-source.ts), [markdown-markup.ts](markdown-markup.ts)                                                                                                                                                                                                 |
 | Parse / serialize                            | [markdown-parser.ts](markdown-parser.ts), [markdown-serializer.ts](markdown-serializer.ts)                                                                                                                                                                                                     |
 | Inline, block, table and raw markup handling | [markdown-inline.ts](markdown-inline.ts), [markdown-it-rules.d.ts](markdown-it-rules.d.ts), [markdown-block-plugins.ts](markdown-block-plugins.ts), [markdown-special-blocks.ts](markdown-special-blocks.ts), [markdown-table.ts](markdown-table.ts), [markdown-markup.ts](markdown-markup.ts) |
 | Schema / extension registration              | [schema.ts](schema.ts), [extensions.ts](extensions.ts), [marks/](marks/)                                                                                                                                                                                                                       |
@@ -23,14 +24,21 @@ Read [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 The insert menu's "Database view" item opens the database picker inside
 `BlockInsertPanel`; the slash text is removed only together with the insertion.
 
-Keep unsupported/lossy syntax Source-only. Preserve `amby:columns` comments,
+A top-level block keeps the text it was read from and is written as that text
+until it is edited; `docToMarkdown` reads its result back before trusting kept
+text in a new place. `docToNormalizedMarkdown` is the editor's own form of every
+block. A note is admitted to Live only when that form reads back as the same
+document, also for the independent reading in `markdown-meaning.ts`; teach that
+reading a new equivalence only when two spellings are the same to every reader.
+Keep syntax whose rewriting would lose anything Source-only. Preserve `amby:columns` comments,
 column order, explicit widths and empty blocks. Editor-only unlink controls must
 leave the visible label as ordinary text, never appear in Markdown, and preserve
 normal navigation outside the control. Do not add feature rules to the serializer
 without a lossless fixture and a rejection case for unsupported input.
 
 Tests start with [markdown.test.ts](markdown.test.ts) and [fixtures/](fixtures/).
-Link titles ([markdown-link-title.test.ts](markdown-link-title.test.ts)), ordered-list
+The no-edit and edit invariants live in
+[markdown-block-source.test.ts](markdown-block-source.test.ts). Link titles ([markdown-link-title.test.ts](markdown-link-title.test.ts)), ordered-list
 numbers ([markdown-ordered-list.test.ts](markdown-ordered-list.test.ts)), typed text,
 columns and media have focused colocated tests. The shared indexing corpus is
 [markdown-compatibility.json](../../../../tests/fixtures/markdown-compatibility.json).

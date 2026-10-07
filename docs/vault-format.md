@@ -310,6 +310,17 @@ entry is deleted. ID assignment, link refactor, restore, and other explicitly
 forced snapshots keep their recovery points regardless of the autosave interval;
 rename and move retain their existing rollback/recovery contracts.
 
+Live Preview keeps the source text of a block until the block is edited (see
+`markdown-compatibility.md`). The save that may write a block in the editor's
+own form for the first time since the note was loaded replaces the last file
+holding the author's spelling, so it carries `rewritesSource` and its pre-write
+snapshot has the reason `note-rewrite`: it is never coalesced with autosaves, and
+it is the one snapshot taken even when history is switched off for the vault
+(history disabled otherwise creates nothing). The editor asks for it once per
+loaded text; the request stays pending until a write that started after it has
+succeeded, and a restored recovery draft asks for it as well. The browser
+development adapter has no history and takes no such snapshot.
+
 History is append-only and is **not automatically pruned**. The History panel
 shows per-note and vault-wide version counts and storage use. Its explicit
 cleanup action previews the number of versions and bytes to remove, requires

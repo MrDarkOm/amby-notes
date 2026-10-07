@@ -2136,7 +2136,7 @@ const ru = {
     identityReadOnly:
       "Не удалось определить amby-id. Исправьте YAML или конфликт ID во внешнем редакторе.",
     losslessSourceOnly:
-      "Эта заметка открыта в исходном режиме, чтобы сохранить Markdown без изменений.",
+      "Эта заметка открыта в исходном режиме: в ней есть разметка, которую визуальный редактор не может сохранить без потерь (например, сноски или ссылки-определения).",
     invalidFrontmatter:
       "Некорректный YAML: свойства недоступны. Текст заметки можно читать и редактировать; исходный YAML сохранится без изменений.",
     unterminatedFrontmatter:
@@ -4567,7 +4567,8 @@ const en: typeof ru = {
       "The vault contains {{notes}} notes. amby-id will be added to {{files}} files:\n\n{{preview}}\nAdditional files: {{remaining}}.\n\nBackups and a migration journal will be created first. Existing id fields remain unchanged; a legacy canonical ULID will be copied to amby-id. Invalid YAML: {{malformed}}; ID conflicts: {{conflicts}} — those files will not be changed.\n\nContinue?",
     identityReadOnly:
       "Could not determine amby-id. Fix YAML or the ID conflict in an external editor.",
-    losslessSourceOnly: "This note is open in Source mode to preserve its Markdown exactly.",
+    losslessSourceOnly:
+      "This note is open in Source mode: it contains Markdown the visual editor cannot save without loss (for example, footnotes or link definitions).",
     invalidFrontmatter:
       "Invalid YAML: properties are unavailable. You can read and edit the note text; the original YAML will remain unchanged.",
     unterminatedFrontmatter:

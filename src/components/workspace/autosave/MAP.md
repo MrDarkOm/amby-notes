@@ -15,6 +15,9 @@ Read [vault format](../../../../docs/vault-format.md) before changing persistenc
 | Queue and durable draft bridge           | [per-key-queue.ts](../../../lib/per-key-queue.ts), [recovery-drafts.ts](../../../lib/recovery-drafts.ts)                                                                     |
 | Filesystem save and recovery             | [storage map](../../../lib/storage/MAP.md), [Rust map](../../../../src-tauri/src/MAP.md)                                                                                     |
 
+The save that may first rewrite a block's source asks for a history snapshot through
+[source-rewrite.ts](source-rewrite.ts) (`rewritesSource` on the write).
+
 Saves are serialized per file. A stale completion must not clear a newer edit;
 recovery is retained until filesystem publication succeeds. Local unsaved changes
 turn external changes/deletion into conflicts. Never silently close or overwrite

@@ -17,7 +17,7 @@ Owns the document surface, editing policy and controls. Public imports come thro
 Before changing mode admission, read
 [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 [vault format](../../../../docs/vault-format.md). An existing mode preference
-does not override the current document's lossless-editing policy. Admission is decided when the note is loaded (`document-editor.tsx` `admission`), never by typing; Live edits do not switch to Source, and only the user's own switch lifts a forced Source. Malformed YAML
+does not override the current document's Live admission (`roundTripCheck`: bytes kept without an edit, no block that would lose anything when rewritten). Admission is decided when the note is loaded (`document-editor.tsx` `admission`), never by typing; Live edits do not switch to Source, and only the user's own switch lifts a forced Source. Malformed YAML
 and identity conflicts have separate policies; preserve their source bytes.
 
 Content changes flow into the [save lifecycle](../autosave/MAP.md), not direct I/O.
