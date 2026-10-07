@@ -30,8 +30,8 @@ and attachments. SQLite is rebuildable; durable sidecars and recovery data are n
 - Never hand-edit `src/lib/bindings.ts`. IPC/type changes require Specta
   annotations and `npm run rust:test` to regenerate bindings in the same batch.
 - Preserve unknown content, BOMs and line endings. In Live Preview an unedited block is
-  written as the bytes it was read from and only an edited block is rewritten; a note
-  whose block cannot be rewritten without loss stays in Source. Keep autosaves serialized,
+  written as the bytes it was read from and only an edited block is rewritten; a block
+  that cannot be rewritten without loss is kept as its source text. Keep autosaves serialized,
   recovery until successful save, and external edits as conflicts when dirty.
   Use existing atomic/no-replace writes, snapshots and restorable deletion paths.
 - Never silently change user frontmatter IDs or other apps' metadata. Persistent

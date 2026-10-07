@@ -100,7 +100,18 @@ export function roundTripCheck(markdown: string, tools: RoundTripTools): RoundTr
     result: normalized,
     refusal,
   })
-  if (FOOTNOTE_SYNTAX_RE.test(original)) return refuse("footnote")
+  // A block with a footnote is kept as its source text by the parser. One that reached
+  // the document as an ordinary block could be rewritten, so the note stays in Source.
+  let editableFootnote = false
+  doc.forEach((block) => {
+    const source = block.attrs.markdownBlockSource
+    if (block.type.name === "opaqueMarkdownBlock") return
+    if (typeof source === "string" ? FOOTNOTE_SYNTAX_RE.test(source) : false)
+      editableFootnote = true
+  })
+  if (editableFootnote || (doc.childCount === 0 && FOOTNOTE_SYNTAX_RE.test(original))) {
+    return refuse("footnote")
+  }
   const meaning = tools.meaning(original)
   if (meaning.hasDefinitions) return refuse("link_definition")
   let textOutsideBlocks = false

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { EditorState } from "@codemirror/state"
+import { Compartment, EditorState } from "@codemirror/state"
 import {
   Decoration,
   type DecorationSet,
@@ -9,6 +9,7 @@ import {
   MatchDecorator,
   ViewPlugin,
   type ViewUpdate,
+  drawSelection,
   keymap,
   placeholder as cmPlaceholder,
 } from "@codemirror/view"
@@ -121,6 +122,12 @@ const tokenDecorations = ViewPlugin.fromClass(
   },
   { decorations: (plugin) => plugin.decorations },
 )
+
+const editableCompartment = new Compartment()
+const editableExtension = (editable: boolean) => [
+  EditorState.readOnly.of(!editable),
+  EditorView.editable.of(editable),
+]
 
 // Raw-markdown editor for "Source" mode. Shows the file byte-exact with
 // markdown syntax highlighting; #tags and [[wikilinks]] stay clickable.
@@ -248,6 +255,10 @@ export function SourceEditor({
         })(),
         extensions: [
           history(),
+          // The editor draws the cursor and the selection itself. The native caret of the
+          // desktop webview (WebKit) left a second, frozen bar behind on an empty line
+          // after a character was typed and removed there.
+          drawSelection(),
           // Tab types a tab character (or indents the selected lines), Shift+Tab outdents.
           // Ctrl+M (Alt+Shift+M on macOS) hands Tab back to the browser for keyboard navigation.
           keymap.of([
@@ -258,8 +269,7 @@ export function SourceEditor({
           ]),
           indentUnit.of("\t"),
           markdown(),
-          EditorState.readOnly.of(!editable),
-          EditorView.editable.of(editable),
+          editableCompartment.of(editableExtension(editable)),
           syntaxHighlighting(markdownHighlight),
           theme,
           tokenDecorations,
@@ -294,12 +304,21 @@ export function SourceEditor({
       view.destroy()
       viewRef.current = null
     }
-    // Created once per mounted tab; document switches update the buffer below,
-    // while lock changes remount this component through the React `key`.
+    // Created once per mounted tab; document switches update the buffer and lock changes
+    // reconfigure the editor below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flushChange, scheduleChange])
 
   React.useEffect(() => registerEditorSerialization({ flush: flushChange }), [flushChange])
+
+  // A lock change keeps the editor, its history and its scroll position. The surface is
+  // locked for an instant while a note is opened; building a second editor for that
+  // made a large note open noticeably slower.
+  React.useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: editableCompartment.reconfigure(editableExtension(editable)),
+    })
+  }, [editable])
 
   // Sync external value changes without echoing our own edits.
   React.useEffect(() => {

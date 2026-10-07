@@ -452,14 +452,49 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(roundTripCheck(obsidianCompatFixture).ok).toBe(false)
   })
 
-  it("routes a complex body with footnotes to Source mode after keeping frontmatter opaque", () => {
+  // A block with a footnote is never rebuilt: it is kept as its source text, and the rest
+  // of the note opens in Live Preview.
+  const sourceBlocks = (markdown: string) => {
+    const kept: string[] = []
+    editorSchema.nodeFromJSON(markdownToDoc(markdown)).forEach((block) => {
+      if (block.type.name === "opaqueMarkdownBlock") kept.push(block.attrs.value as string)
+    })
+    return kept
+  }
+
+  it("opens a complex body with footnotes in Live, keeping the footnote blocks as source", () => {
     const body = obsidianCompatFixture.replace(/^---\n[\s\S]*?\n---\n/u, "")
-    expect(roundTripCheck(body).ok).toBe(false)
+    expect(roundTripCheck(body)).toEqual({ ok: true, result: body })
+    expect(sourceBlocks(body).some((block) => block.includes("[^"))).toBe(true)
+    expect(
+      restoreSourceFormatting(docToMarkdown(editorSchema.nodeFromJSON(markdownToDoc(body))), body),
+    ).toBe(body)
   })
 
-  it("routes footnotes to Source mode before citation tokens exist", () => {
+  it("keeps footnote blocks as source text before citation tokens exist", () => {
     const footnote = "Footnote reference.[^one]\n\n[^one]: The footnote body."
-    expect(roundTripCheck(footnote).ok).toBe(false)
+    expect(roundTripCheck(footnote)).toEqual({ ok: true, result: footnote })
+    expect(sourceBlocks(footnote)).toEqual([
+      "Footnote reference.[^one]",
+      "[^one]: The footnote body.",
+    ])
+  })
+
+  it.each([
+    ["footnote reference and definition", "Text.[^1]\n\n[^1]: The footnote body."],
+    ["footnote reference without a definition", "Text.[^note]"],
+    ["footnote definition without a reference", "Text.\n\n[^1]: The footnote body."],
+    ["inline footnote", "Text.^[An inline footnote.]"],
+  ])("opens in Live with the footnote kept as source text: %s", (_name, markdown) => {
+    expect(roundTripCheck(markdown)).toEqual({ ok: true, result: markdown })
+    const kept = sourceBlocks(markdown)
+    expect(kept.length).toBeGreaterThan(0)
+    for (const block of kept) expect(block).toMatch(/\[\^|\^\[/u)
+    // No block that can be edited holds a footnote.
+    editorSchema.nodeFromJSON(markdownToDoc(markdown)).forEach((block) => {
+      if (block.type.name !== "opaqueMarkdownBlock")
+        expect(block.textContent).not.toMatch(/\[\^|\^\[/u)
+    })
   })
 
   it("routes reference-style links to Source mode rather than expanding them", () => {
@@ -470,10 +505,6 @@ describe("markdown <-> tiptap round-trip", () => {
   // Link titles and unpadded ordered lists are admitted to Live Preview; footnotes and
   // link definitions next to them must still keep the note in Source.
   it.each([
-    ["footnote reference and definition", "Text.[^1]\n\n[^1]: The footnote body."],
-    ["footnote reference without a definition", "Text.[^note]"],
-    ["footnote definition without a reference", "Text.\n\n[^1]: The footnote body."],
-    ["inline footnote", "Text.^[An inline footnote.]"],
     ["footnote in a list item", "1. one[^1]\n2. two\n\n[^1]: Body."],
     ["footnote beside a titled link", '[a](http://a.b "T")[^1]\n\n[^1]: Body.'],
     ["full reference link", "Read [Amby][project].\n\n[project]: https://example.com"],
@@ -497,8 +528,16 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(roundTripCheck(check.result).result).toBe(check.result)
   })
 
-  it("routes malformed frontmatter through the Source-mode guard", () => {
-    expect(roundTripCheck(malformedFrontmatterFixture).ok).toBe(false)
+  // Malformed YAML never reaches the editor as a body (see note-editing-policy.ts). Were
+  // it to, nothing in it would be rebuilt: a save without edits gives the same text.
+  it("never rebuilds malformed frontmatter given to it as a body", () => {
+    const check = roundTripCheck(malformedFrontmatterFixture)
+    if (check.ok) {
+      const doc = editorSchema.nodeFromJSON(markdownToDoc(malformedFrontmatterFixture))
+      expect(restoreSourceFormatting(docToMarkdown(doc), malformedFrontmatterFixture)).toBe(
+        malformedFrontmatterFixture,
+      )
+    }
   })
 
   it("preserves table alignment markers and delimiter spacing", () => {

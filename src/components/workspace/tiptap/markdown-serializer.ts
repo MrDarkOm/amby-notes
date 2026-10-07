@@ -467,6 +467,47 @@ function buildStyledHtml(text: string, marks: readonly PMNode["marks"][number][]
   return inner
 }
 
+const NESTABLE_MARKS = new Set(["bold", "italic", "strike"])
+
+// Markdown emphasis nests: the mark opened first is closed last. A document only says
+// which marks a piece of text has, in a fixed order (bold before italic), so
+// `*`**`word`**`.*` — italic around a bold word and a full stop — was opened bold first
+// and had to close and reopen the italic in the middle (`***word****.*`), which reads as
+// different text. Marks that start together are opened in the order of how far they
+// reach: the one that lasts longer goes outside. Marks already open keep their order.
+function nestMarksByReach(children: PMNode[]): boolean {
+  let changed = false
+  let open: PMMark[] = []
+  children.forEach((child, index) => {
+    const nestable = child.marks.filter((mark) => NESTABLE_MARKS.has(mark.type.name))
+    if (nestable.length < 2) {
+      open = nestable
+      return
+    }
+    const reach = (mark: PMMark) => {
+      let end = index + 1
+      while (end < children.length && children[end].marks.some((other) => other.eq(mark))) end++
+      return end
+    }
+    const continued = open.filter((mark) => nestable.some((other) => other.eq(mark)))
+    const started = nestable
+      .filter((mark) => !continued.some((other) => other.eq(mark)))
+      .map((mark, order) => ({ mark, order, end: reach(mark) }))
+      .sort((left, right) => right.end - left.end || left.order - right.order)
+      .map((entry) => entry.mark)
+    const ordered = [...continued, ...started]
+    open = ordered
+    if (ordered.every((mark, at) => mark === nestable[at])) return
+    let next = 0
+    const marks = child.marks.map((mark) =>
+      NESTABLE_MARKS.has(mark.type.name) ? ordered[next++] : mark,
+    )
+    children[index] = child.mark(marks)
+    changed = true
+  })
+  return changed
+}
+
 // Replace text nodes carrying ambyTextStyle / ambyUnderline marks with inline
 // `ambyHtml` nodes so the serializer emits their exact on-disk HTML form.
 export function transformForSerialization(node: PMNode): PMNode {
@@ -487,6 +528,7 @@ export function transformForSerialization(node: PMNode): PMNode {
     if (next !== child) changed = true
     children.push(next)
   })
+  if (node.inlineContent && nestMarksByReach(children)) changed = true
   // An unchanged subtree keeps its identity, so per-block results can be cached on it.
   return changed ? node.copy(Fragment.fromArray(children)) : node
 }

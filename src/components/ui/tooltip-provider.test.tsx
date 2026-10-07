@@ -10,6 +10,49 @@ afterEach(() => {
 })
 
 describe("TooltipProvider", () => {
+  it("leaves a title the rich editor drew, and promotes one on a control inside a node view", () => {
+    const { container } = render(
+      <>
+        <div className="ProseMirror" contentEditable suppressContentEditableWarning>
+          <p>
+            <a href="https://example.com" title="Link title">
+              text
+            </a>
+            <span contentEditable={false}>
+              <button title="Resize">resize</button>
+            </span>
+          </p>
+        </div>
+        <TooltipProvider />
+      </>,
+    )
+    // Changing a link the editor drew makes it draw the link again: a note with several
+    // titled links around images never stopped redrawing.
+    const link = container.querySelector("a") as HTMLAnchorElement
+    expect(link.getAttribute("title")).toBe("Link title")
+    expect(link.dataset.ambyTooltip).toBeUndefined()
+
+    const control = container.querySelector("button") as HTMLButtonElement
+    expect(control.hasAttribute("title")).toBe(false)
+    expect(control.dataset.ambyTooltip).toBe("Resize")
+  })
+
+  it("leaves titles in a read-only rich editor as well", () => {
+    const { container } = render(
+      <>
+        <div className="ProseMirror" contentEditable={false}>
+          <p>
+            <a href="https://example.com" title="Link title">
+              text
+            </a>
+          </p>
+        </div>
+        <TooltipProvider />
+      </>,
+    )
+    expect(container.querySelector("a")?.getAttribute("title")).toBe("Link title")
+  })
+
   it("dismisses a tooltip when its trigger starts an interaction", () => {
     vi.useFakeTimers()
     const { container } = render(

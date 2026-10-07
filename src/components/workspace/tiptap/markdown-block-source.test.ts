@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { Editor } from "@tiptap/core"
+import { Fragment, Slice } from "@tiptap/pm/model"
 import { afterEach, describe, expect, it } from "vitest"
 import sharedCompatibilityCorpus from "../../../../tests/fixtures/markdown-compatibility.json"
 import livePreviewSafeFixture from "./fixtures/live-preview-safe.md?raw"
@@ -14,6 +15,8 @@ import {
   restoreSourceFormatting,
   roundTripCheck,
 } from "./markdown"
+import { sameDocument } from "./markdown-block-source"
+import { markdownMeaning } from "./markdown-meaning"
 import { schemaExtensions } from "./schema"
 
 const parse = (markdown: string) => editorSchema.nodeFromJSON(markdownToDoc(markdown))
@@ -37,6 +40,10 @@ function expectLive(markdown: string) {
 /** Forms the editor reads but writes differently: they open in Live and keep their bytes. */
 const AUDIT_CASES: Array<[string, string]> = [
   ["an escaped list marker", "1\\. not a list\n\n\\- not a bullet either"],
+  ["italic around a bold word and more", "The verb is ***alkaa**.* In red."],
+  ["bold that ends before the italic around it", "***a** … **a** → **oi*** pattern"],
+  ["bold nested in bold", "**O **mp** ele! O **mm** elkaa!**"],
+  ["italic nested in italic", "*a *b* c*"],
   ["a space before a soft line break", "first line \nsecond line"],
   ["a sparse bullet list", "- one\n\n- two\n\n- three"],
   ["a sparse ordered list", "1. one\n\n2. two"],
@@ -76,14 +83,31 @@ const AUDIT_CASES: Array<[string, string]> = [
 /** Notes that must stay in Source: something in them would be lost by rebuilding a block. */
 const SOURCE_ONLY: Array<[string, string]> = [
   ["a footnote", "Text.[^1]\n\n[^1]: Body."],
-  ["an inline footnote", "Text.^[Inline.]"],
   ["a link definition between blocks", "Read [a][b].\n\n[b]: http://a.b\n\nMore text."],
   ["a link definition at the end", "Read [a][b].\n\n[b]: http://a.b"],
   ["a link definition at the start", "[b]: http://a.b\n\nRead [a][b]."],
   ["a link definition nothing refers to", "Text.\n\n[unused]: http://a.b\n\nMore."],
   ["a link definition inside a quote", "> Read [a][b].\n>\n> [b]: http://a.b"],
   ["a link definition inside a list item", "- Read [a][b].\n\n  [b]: http://a.b"],
-  ["a code fence with more than a language", '```js title="example.js"\ncode\n```'],
+]
+
+/**
+ * Blocks the editor cannot rewrite without changing them. The note opens in Live with
+ * such a block shown as its own source text; everything else stays editable.
+ */
+const KEPT_AS_SOURCE: Array<[string, string, string]> = [
+  ["an inline footnote", "Before.\n\nText.^[Inline.]\n\nAfter.", "Text.^[Inline.]"],
+  ["a footnote reference", "Before.\n\nText.[^note]\n\nAfter.", "Text.[^note]"],
+  [
+    "a code fence with more than a language",
+    'Before.\n\n```js title="example.js"\ncode\n```\n\nAfter.',
+    '```js title="example.js"\ncode\n```',
+  ],
+  [
+    "a link title on two lines",
+    'Before.\n\n[text](http://a.b "line one\nline two")\n\nAfter.',
+    '[text](http://a.b "line one\nline two")',
+  ],
 ]
 
 describe("a save without edits keeps the file", () => {
@@ -95,13 +119,55 @@ describe("a save without edits keeps the file", () => {
     expect(roundTripCheck(markdown).ok).toBe(false)
   })
 
+  it.each(KEPT_AS_SOURCE)(
+    "opens in Live and keeps %s as its source text",
+    (_name, markdown, unsafe) => {
+      expectLive(markdown)
+      const doc = parse(markdown)
+      const kept: string[] = []
+      doc.forEach((block) => {
+        if (block.type.name === "opaqueMarkdownBlock") kept.push(block.attrs.value as string)
+      })
+      expect(kept).toEqual([unsafe])
+
+      // Editing a neighbour rewrites the neighbour alone: the block is written as it was.
+      const first = doc.child(0)
+      const edited = doc.replace(
+        1,
+        1 + first.content.size,
+        new Slice(Fragment.from(editorSchema.text("Changed.")), 0, 0),
+      )
+      expect(docToMarkdown(edited)).toBe(markdown.replace("Before.", "Changed."))
+      // What was written is read the same way again.
+      expect(roundTripCheck(docToMarkdown(edited)).ok).toBe(true)
+    },
+  )
+
+  // Marks that start together are opened in the order of how far they reach, so the
+  // editor's own form of nested emphasis reads back as the same text.
+  it.each([
+    ["The verb is ***alkaa**.* In red.", "The verb is ***alkaa**.* In red."],
+    ["*it **both** it* and **bold *both* bold**", "*it **both** it* and **bold *both* bold**"],
+    ["~~**a** b~~ *c **d***", "~~**a** b~~ *c **d***"],
+    // Nested bold is bold: every reader shows the whole stretch bold, and so does Live.
+    ["**O **mp** ele! O **mm** elkaa!**", "**O mp ele! O mm elkaa!**"],
+    ["**a *b **c** d* e**", "**a *b c d* e**"],
+  ])("writes %s in its own form as %s", (markdown, own) => {
+    const doc = parse(markdown)
+    expect(doc.child(0).type.name).toBe("paragraph")
+    expect(docToNormalizedMarkdown(doc)).toBe(own)
+    expect(sameDocument(parse(own), doc)).toBe(true)
+    expect(markdownMeaning(own).content).toBe(markdownMeaning(markdown).content)
+  })
+
   it("holds for every fixture", () => {
     expect(expectUntouchedSaveKeepsBytes(livePreviewSafeFixture)).toBe(true)
     expect(expectUntouchedSaveKeepsBytes(transclusionSecurityFixture)).toBeTypeOf("boolean")
-    // Footnotes keep the Obsidian fixture in Source, with and without its frontmatter.
+    // The Obsidian fixture has footnotes. Its body opens in Live with those blocks kept as
+    // source text; with the frontmatter left in (never the editor's input) it is refused.
     expect(expectUntouchedSaveKeepsBytes(obsidianCompatFixture)).toBe(false)
     const body = obsidianCompatFixture.replace(/^---\n[\s\S]*?\n---\n/u, "")
-    expect(expectUntouchedSaveKeepsBytes(body)).toBe(false)
+    expect(expectUntouchedSaveKeepsBytes(body)).toBe(true)
     expect(expectUntouchedSaveKeepsBytes(malformedFrontmatterFixture)).toBeTypeOf("boolean")
   })
 

@@ -94,10 +94,14 @@ describe("link titles", () => {
   })
 
   // The editor never writes a title across lines, so rewriting this block would change
-  // the title's text. The note stays in Source.
-  it("keeps a title that spans lines in Source mode", () => {
-    const check = roundTripCheck('[text](http://a.b "line one\nline two")')
-    expect(check).toMatchObject({ ok: false, refusal: "document_changes" })
+  // the title's text. The block is kept as its source text and written back as it was.
+  it("keeps a block whose title spans lines as its source text", () => {
+    const markdown = '[text](http://a.b "line one\nline two")'
+    expect(roundTripCheck(markdown)).toEqual({ ok: true, result: markdown })
+    const block = parse(markdown).child(0)
+    expect(block.type.name).toBe("opaqueMarkdownBlock")
+    expect(block.attrs.value).toBe(markdown)
+    expect(docToMarkdown(parse(markdown))).toBe(markdown)
   })
 
   it("treats an empty title as no title", () => {

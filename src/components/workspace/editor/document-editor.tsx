@@ -251,11 +251,11 @@ export function DocumentEditor({
     () => inspectMarkdownCompatibility(currentAdmission.content, currentAdmission.source),
     [currentAdmission.content, currentAdmission.source],
   )
-  // Compatibility of the current text only gates the user's own switch back to Live.
-  const compatibility = React.useMemo(
-    () => inspectMarkdownCompatibility(content, document?.source),
-    [content, document?.source],
-  )
+  // Compatibility of the current text only gates the user's own switch back to Live. It
+  // reads the whole note several times, so it is checked when the switch is asked for,
+  // not on every edit.
+  const currentTextRef = React.useRef({ content, source: document?.source })
+  currentTextRef.current = { content, source: document?.source }
   const editingPolicy = noteEditingPolicy(
     document?.noteProperties,
     currentAdmission.unlocked ? { ok: true } : loadedCompatibility,
@@ -389,19 +389,16 @@ export function DocumentEditor({
         // Going to Live is always checked against the text as it is now. An unterminated
         // frontmatter envelope has no safe body and never allows it.
         const unterminated = document?.noteProperties?.frontmatterStatus === "unterminated"
-        if (unterminated || !compatibility.ok) return
+        const current = currentTextRef.current
+        if (unterminated || !inspectMarkdownCompatibility(current.content, current.source).ok)
+          return
         if (editingPolicy.sourceOnly) setAdmission((current) => ({ ...current, unlocked: true }))
       }
       editorRef.current?.flush()
       setEditorSelection(editorRef.current?.getMarkdownSelection() ?? editorSelectionRef.current)
       onViewModeChange?.(mode)
     },
-    [
-      onViewModeChange,
-      editingPolicy.sourceOnly,
-      compatibility.ok,
-      document?.noteProperties?.frontmatterStatus,
-    ],
+    [onViewModeChange, editingPolicy.sourceOnly, document?.noteProperties?.frontmatterStatus],
   )
 
   const headerElement = (

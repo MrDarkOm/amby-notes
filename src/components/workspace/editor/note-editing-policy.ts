@@ -25,6 +25,24 @@ function hasMixedLineEndings(source: string): boolean {
  * the renderer boundary while preserving the original bytes on disk.
  */
 export function inspectMarkdownCompatibility(body: string, source?: string): MarkdownCompatibility {
+  const known = recentInspections.find((entry) => entry.body === body && entry.source === source)
+  if (known) return known.result
+  const result = inspect(body, source)
+  recentInspections.unshift({ body, source, result })
+  recentInspections.length = Math.min(recentInspections.length, 4)
+  return result
+}
+
+// The check reads the whole note several times, and one load asks for the same text more
+// than once (the note as loaded, a remount of its editor). The answer depends on the text
+// alone, so the last few are kept.
+const recentInspections: Array<{
+  body: string
+  source: string | undefined
+  result: MarkdownCompatibility
+}> = []
+
+function inspect(body: string, source?: string): MarkdownCompatibility {
   if (hasMixedLineEndings(source ?? body) || hasMixedLineEndings(body)) {
     return { ok: false, reason: "mixed_line_endings" }
   }

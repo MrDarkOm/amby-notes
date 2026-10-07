@@ -1154,6 +1154,20 @@
   margin: 1rem 0;
 }
 
+/* A block kept as its own Markdown source (see docs/markdown-compatibility.md): a
+   paragraph or a list as text, so it wraps like prose instead of scrolling sideways. */
+.amby-tiptap .ProseMirror pre.amby-opaque-markdown {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: visible;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+  color: var(--pre-fg);
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 0.875em;
+  line-height: 1.6;
+}
+
 .amby-tiptap .ProseMirror pre code {
   background: transparent;
   border: none;

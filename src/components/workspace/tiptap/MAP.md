@@ -30,7 +30,7 @@ text in a new place. `docToNormalizedMarkdown` is the editor's own form of every
 block. A note is admitted to Live only when that form reads back as the same
 document, also for the independent reading in `markdown-meaning.ts`; teach that
 reading a new equivalence only when two spellings are the same to every reader.
-Keep syntax whose rewriting would lose anything Source-only. Preserve `amby:columns` comments,
+A block whose rewriting would lose anything is kept as its source text (`isolateUnsafeBlocks`), never rebuilt. Preserve `amby:columns` comments,
 column order, explicit widths and empty blocks. Editor-only unlink controls must
 leave the visible label as ordinary text, never appear in Markdown, and preserve
 normal navigation outside the control. Do not add feature rules to the serializer

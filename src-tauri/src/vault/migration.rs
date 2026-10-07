@@ -183,6 +183,12 @@ pub fn recovery_from_journal(path: &Path, journal: &IdMigrationJournal) -> IdMig
     }
 }
 
+/// Journals already seen finished, by file size and modification time. In memory only:
+/// a restart reads every journal once again.
+static FINISHED_JOURNALS: std::sync::LazyLock<
+    std::sync::Mutex<HashMap<PathBuf, (u64, std::time::SystemTime)>>,
+> = std::sync::LazyLock::new(Default::default);
+
 pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>, String> {
     let directory = crate::paths::confine_rel_no_symlinks(vault, ".amby/migrations")?;
     if !directory.exists() {
@@ -190,19 +196,44 @@ pub fn unfinished_id_migrations(vault: &Path) -> Result<Vec<IdMigrationRecovery>
     }
     let mut recoveries = Vec::new();
     for entry in fs::read_dir(&directory).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
         if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
             continue;
         }
+        // A finished journal is not read again while its file is unchanged: this runs
+        // before every note is opened, and a vault keeps thousands of old journals.
+        let stamp = entry
+            .metadata()
+            .ok()
+            .and_then(|meta| Some((meta.len(), meta.modified().ok()?)));
+        if let Some(stamp) = stamp {
+            let finished = FINISHED_JOURNALS.lock().unwrap();
+            if finished.get(&path) == Some(&stamp) {
+                continue;
+            }
+        }
         let path = checked_journal_path(vault, &path_string(&path))?;
-        let StoredIdMigrationJournal::Recoverable(journal) = read_migration_journal(&path)? else {
-            continue;
+        let unfinished = match read_migration_journal(&path)? {
+            StoredIdMigrationJournal::Recoverable(journal)
+                if matches!(
+                    journal.status,
+                    IdMigrationStatus::Planned | IdMigrationStatus::InProgress
+                ) =>
+            {
+                Some(recovery_from_journal(&path, &journal))
+            }
+            _ => None,
         };
-        if matches!(
-            journal.status,
-            IdMigrationStatus::Planned | IdMigrationStatus::InProgress
-        ) {
-            recoveries.push(recovery_from_journal(&path, &journal));
+        match (unfinished, stamp) {
+            (Some(recovery), _) => recoveries.push(recovery),
+            (None, Some(stamp)) => {
+                FINISHED_JOURNALS
+                    .lock()
+                    .unwrap()
+                    .insert(entry.path(), stamp);
+            }
+            (None, None) => {}
         }
     }
     recoveries.sort_by(|left, right| left.journal_path.cmp(&right.journal_path));
@@ -599,13 +630,24 @@ pub fn recover_id_migration(
 }
 
 pub fn apply_id_migration(vault: &Path) -> Result<IdMigrationResult, String> {
-    if let Some(recovery) = unfinished_id_migrations(vault)?.into_iter().next() {
+    // The preflight lists unfinished migrations as well; the journals are scanned once.
+    let preflight = preflight_vault(vault)?;
+    if let Some(recovery) = preflight.unfinished_migrations.first() {
         return Err(format!(
             "An unfinished ID migration must be recovered first: {}",
             recovery.journal_path
         ));
     }
-    let preflight = preflight_vault(vault)?;
+    if preflight.planned_id_writes.is_empty() {
+        // Nothing to write: no journal and no backup. This runs before every note is
+        // opened, and a journal per call made each later call read all of them.
+        return Ok(IdMigrationResult {
+            backup_path: String::new(),
+            journal_path: String::new(),
+            modified_paths: Vec::new(),
+            status: IdMigrationStatus::Completed,
+        });
+    }
     let stamp = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| error.to_string())?

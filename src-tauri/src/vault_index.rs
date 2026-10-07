@@ -159,6 +159,29 @@ mod tests {
     }
 
     #[test]
+    fn id_migration_with_nothing_to_write_leaves_no_journal_or_backup() {
+        let vault = temp_vault("id-migration-noop");
+        fs::write(vault.join("Untitled.md"), "# Untitled\n").unwrap();
+        apply_id_migration(&vault).unwrap();
+        let journals = || {
+            fs::read_dir(vault.join(".amby/migrations"))
+                .unwrap()
+                .count()
+        };
+        let backups = || fs::read_dir(vault.join(".amby/backups")).unwrap().count();
+        assert_eq!((journals(), backups()), (1, 1));
+
+        // Every note now has an ID; opening notes calls the migration again and again.
+        for _ in 0..3 {
+            let migration = apply_id_migration(&vault).unwrap();
+            assert!(migration.modified_paths.is_empty());
+            assert!(migration.journal_path.is_empty());
+        }
+        assert_eq!((journals(), backups()), (1, 1));
+        fs::remove_dir_all(vault).unwrap();
+    }
+
+    #[test]
     fn preflight_is_read_only_and_id_migration_creates_a_restore_point() {
         let vault = temp_vault("id-migration");
         let note = vault.join("Untitled.md");

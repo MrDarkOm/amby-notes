@@ -305,7 +305,7 @@ export function DocumentBody({
   const editor =
     viewMode === "source" ? (
       <SourceEditor
-        key={`${docId}:${isLocked}`}
+        key={docId}
         value={content}
         onChange={onContentChange}
         onLocalEdit={onContentDirty}

@@ -49,3 +49,21 @@ it("Tab types a tab character and Shift+Tab takes it back", () => {
   press(true)
   expect(view.state.doc.toString()).toBe("word")
 })
+
+it("keeps the same editor, its text and its history when the lock changes", () => {
+  const props = { value: "text", onChange: vi.fn() }
+  const { container, rerender } = render(<SourceEditor {...props} editable={false} />)
+  const view = EditorView.findFromDOM(container.querySelector(".cm-editor")!)!
+  expect(view.state.readOnly).toBe(true)
+
+  rerender(<SourceEditor {...props} editable />)
+  expect(EditorView.findFromDOM(container.querySelector(".cm-editor")!)).toBe(view)
+  expect(view.state.readOnly).toBe(false)
+  expect(view.contentDOM.getAttribute("contenteditable")).toBe("true")
+
+  act(() => view.dispatch({ changes: { from: 4, insert: " typed" } }))
+  rerender(<SourceEditor {...props} editable={false} />)
+  expect(EditorView.findFromDOM(container.querySelector(".cm-editor")!)).toBe(view)
+  expect(view.state.readOnly).toBe(true)
+  expect(view.state.doc.toString()).toBe("text typed")
+})

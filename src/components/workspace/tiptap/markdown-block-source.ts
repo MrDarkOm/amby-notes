@@ -1,5 +1,6 @@
 import { Fragment, type Node as PMNode } from "@tiptap/pm/model"
 import { blockSourceKey } from "./markdown-block-plugins"
+import { markdownMeaning } from "./markdown-meaning"
 import { getMarkdownParser } from "./markdown-parser"
 import {
   createSerializerState,
@@ -190,7 +191,58 @@ export function composeMarkdown(doc: PMNode): ComposedMarkdown {
   return { markdown: sound ? composed : normalized, mayRewriteSource }
 }
 
+const FOOTNOTE_SYNTAX = /(?:\[\^[^\]\r\n]+\]|\^\[[^\]\r\n]+\])/u
+
+/**
+ * Whether writing this block in the editor's own form would change more than how it is
+ * spelled. The block is judged on its own: its source and the editor's form of it must
+ * read as the same block, for the editor's parser and for an independent one.
+ */
+function rewriteChangesMeaning(block: PMNode, source: string, signature: string): boolean {
+  if (FOOTNOTE_SYNTAX.test(source)) return true
+  if (source === signature) return false
+  const reread = getMarkdownParser().parse(signature)
+  if (reread.childCount !== 1 || !sameDocument(reread.child(0), block)) return true
+  return markdownMeaning(signature).content !== markdownMeaning(source).content
+}
+
+/**
+ * A block the editor cannot rewrite without changing it is shown as its own source text
+ * and written back exactly: the rest of the note stays editable in Live Preview. To
+ * change such a block the user edits it in Source.
+ */
+function isolateUnsafeBlocks(doc: PMNode): PMNode {
+  const opaque = editorSchema.nodes.opaqueMarkdownBlock
+  let changed = false
+  const children: PMNode[] = []
+  doc.forEach((child) => {
+    const source = child.attrs.markdownBlockSource
+    const signature = child.attrs.markdownBlockSignature
+    if (
+      child.type === opaque ||
+      typeof source !== "string" ||
+      typeof signature !== "string" ||
+      !rewriteChangesMeaning(child, source, signature)
+    ) {
+      children.push(child)
+      return
+    }
+    changed = true
+    children.push(
+      opaque.create({
+        kind: "source",
+        value: source,
+        markdownBlockSource: source,
+        markdownBlockSignature: source,
+        markdownBlockGap: child.attrs.markdownBlockGap,
+        markdownBlockPrev: child.attrs.markdownBlockPrev,
+      }),
+    )
+  })
+  return changed ? doc.copy(Fragment.fromArray(children)) : doc
+}
+
 /** Reads Markdown into a document whose blocks keep their source text. */
 export function parseMarkdown(markdown: string, env: object = {}): PMNode {
-  return attachBlockSignatures(getMarkdownParser().parse(markdown ?? "", env))
+  return isolateUnsafeBlocks(attachBlockSignatures(getMarkdownParser().parse(markdown ?? "", env)))
 }

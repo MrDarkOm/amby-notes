@@ -509,6 +509,33 @@ function attachBlockSources(state: StateCore) {
 
 // ── markdown-it: detect Obsidian-style callouts (`> [!NOTE] emoji`) ──────────
 
+const EMPHASIS_TOKENS = new Set(["strong", "em", "s"])
+
+// Bold inside bold (`**a **b** c**`) is still just bold, to every Markdown reader. A
+// document has marks, not nesting: the inner closing token would switch the bold off for
+// the rest of the outer one. The inner pair is dropped, so the whole stretch is bold.
+function flattenNestedEmphasis(state: StateCore) {
+  for (const token of state.tokens) {
+    if (token.type !== "inline" || !token.children) continue
+    const depth: Record<string, number> = {}
+    let nested = false
+    const kept = token.children.filter((child) => {
+      const [, name, edge] = /^(.*)_(open|close)$/u.exec(child.type) ?? []
+      if (!name || !EMPHASIS_TOKENS.has(name)) return true
+      if (edge === "open") {
+        depth[name] = (depth[name] ?? 0) + 1
+        if (depth[name] === 1) return true
+      } else {
+        depth[name] = (depth[name] ?? 0) - 1
+        if (depth[name] <= 0) return true
+      }
+      nested = true
+      return false
+    })
+    if (nested) token.children = kept
+  }
+}
+
 export function createAmbyTokenizer(): MarkdownIt {
   const tokenizer = new MarkdownIt("default", { html: true, linkify: false, breaks: false })
   ambyMarkdownItPlugin(tokenizer)
@@ -518,6 +545,7 @@ export function createAmbyTokenizer(): MarkdownIt {
 function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.inline.ruler.before("html_inline", "amby_html", ambyInlineRule)
   md.inline.ruler.at("link", linkWithTitleMarkup)
+  md.core.ruler.push("amby_nested_emphasis", flattenNestedEmphasis)
   md.core.ruler.push("amby_tables", normalizeTables)
   md.core.ruler.push("amby_columns", detectColumns)
   md.core.ruler.push("amby_empty_paragraphs", preserveEmptyParagraphs)

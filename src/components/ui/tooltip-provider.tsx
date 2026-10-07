@@ -71,9 +71,20 @@ export function TooltipProvider() {
   }, [tooltipDelayMs])
 
   React.useLayoutEffect(() => {
+    // The rich editor draws its own document and watches it for changes. Taking the
+    // `title` off a link it drew makes it draw the link again, title included, and with
+    // several such links in a note this never ends. Only controls inside a node view
+    // (marked as not editable) are outside the editor's document and safe to change.
+    const drawnByEditor = (element: HTMLElement) => {
+      const editor = element.closest(".ProseMirror")
+      if (!editor) return false
+      const control = element.closest('[contenteditable="false"]')
+      return !(control && control !== editor && editor.contains(control))
+    }
+
     const promoteTitle = (element: HTMLElement) => {
       const title = element.getAttribute("title")?.trim()
-      if (!title) return
+      if (!title || drawnByEditor(element)) return
       element.dataset.ambyTooltip = title
       element.removeAttribute("title")
       if (
