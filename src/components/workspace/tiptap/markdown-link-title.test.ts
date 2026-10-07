@@ -1,7 +1,13 @@
 // @vitest-environment happy-dom
 import { Editor } from "@tiptap/core"
 import { afterEach, describe, expect, it } from "vitest"
-import { docToMarkdown, editorSchema, markdownToDoc, roundTripCheck } from "./markdown"
+import {
+  docToMarkdown,
+  docToNormalizedMarkdown,
+  editorSchema,
+  markdownToDoc,
+  roundTripCheck,
+} from "./markdown"
 import { schemaExtensions } from "./schema"
 
 const parse = (markdown: string) => editorSchema.nodeFromJSON(markdownToDoc(markdown))
@@ -66,8 +72,8 @@ describe("link titles", () => {
     ])
   })
 
-  // Forms the serializer does not reproduce stay in Source: the guard rejects them,
-  // and the title itself is still read (never dropped) should the text be rebuilt.
+  // Forms the serializer spells differently open in Live as well: the link keeps its
+  // bytes while its block is unchanged, and keeps its title when the block is rewritten.
   it.each([
     ['[text](http://a.b  "Title")', "Title"],
     ['[text](http://a.b "Title" )', "Title"],
@@ -78,15 +84,26 @@ describe("link titles", () => {
     ['[text](http://a.b "a\\!b")', "a!b"],
     ['[text](http://a.b "a\\\\b")', "a\\b"],
     ["[text](http://a.b 'say \\\"hi\\\"')", 'say "hi"'],
-    ['[text](http://a.b "line one\nline two")', "line one\nline two"],
     ['[text](http://a.b\n"Title")', "Title"],
-  ])("keeps %j in Source mode", (markdown, title) => {
+  ])("keeps the bytes of %j and its title when it is rewritten", (markdown, title) => {
     expect(linkMarks(markdown)[0]).toMatchObject({ title })
-    expect(roundTripCheck(markdown).ok).toBe(false)
+    expect(roundTripCheck(markdown)).toEqual({ ok: true, result: markdown })
+    const rewritten = docToNormalizedMarkdown(parse(markdown))
+    expect(rewritten).not.toBe(markdown)
+    expect(linkMarks(rewritten)[0]).toMatchObject({ href: "http://a.b", title })
   })
 
-  it("keeps an empty title in Source mode", () => {
-    expect(roundTripCheck('[text](http://a.b "")').ok).toBe(false)
+  // The editor never writes a title across lines, so rewriting this block would change
+  // the title's text. The note stays in Source.
+  it("keeps a title that spans lines in Source mode", () => {
+    const check = roundTripCheck('[text](http://a.b "line one\nline two")')
+    expect(check).toMatchObject({ ok: false, refusal: "document_changes" })
+  })
+
+  it("treats an empty title as no title", () => {
+    const markdown = '[text](http://a.b "")'
+    expect(roundTripCheck(markdown)).toEqual({ ok: true, result: markdown })
+    expect(docToNormalizedMarkdown(parse(markdown))).toBe("[text](http://a.b)")
   })
 
   it("leaves a link without a title untouched", () => {

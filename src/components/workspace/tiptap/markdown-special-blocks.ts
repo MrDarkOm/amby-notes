@@ -140,6 +140,8 @@ export function detectCallouts(state: StateCore) {
       firstParaClose < bqClose - 1
 
     const calloutOpen = new state.Token("callout_open", "div", 1)
+    // The source range of the quote, so a top-level callout keeps its text.
+    if (tokens[i].map) calloutOpen.map = [tokens[i].map![0], tokens[i].map![1]]
     calloutOpen.attrSet("calloutType", calloutType)
     calloutOpen.attrSet("emoji", emoji)
     calloutOpen.attrSet("headerSuffix", rawHeaderSuffix)
@@ -216,6 +218,7 @@ export function detectTransclusions(state: StateCore) {
         const raw = m[1].trim()
         const base = raw.split("|")[0].split(/[#^]/)[0].trim()
         const t = new state.Token("transclusion", "div", 0)
+        if (tok.map) t.map = [tok.map[0], tok.map[1]]
         t.attrSet("target", base)
         t.attrSet("raw", raw)
         out.push(t)
@@ -246,6 +249,7 @@ export function detectMathBlocks(state: StateCore) {
       const inline = state.tokens[index + 1]
       if (MATH_BLOCK_RE.test(inline.content)) {
         const opaque = new state.Token("opaque_markdown", "pre", 0)
+        if (token.map) opaque.map = [token.map[0], token.map[1]]
         opaque.meta = { kind: "math", value: inline.content.trimEnd() }
         out.push(opaque)
         index += 3

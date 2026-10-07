@@ -460,6 +460,53 @@ function detectPaddedOrderedLists(state: StateCore) {
   }
 }
 
+/** A short key of a block's source text; it only tells whether two blocks were neighbours. */
+export function blockSourceKey(source: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < source.length; index++) {
+    hash = Math.imul(hash ^ source.charCodeAt(index), 0x01000193)
+  }
+  return `${source.length}:${(hash >>> 0).toString(16)}`
+}
+
+const BLANK_LINE = /^[ \t]*$/u
+
+// Every top-level block keeps the lines it was read from, and the lines between it and
+// the block before it. The serializer writes them back while the block is unchanged, so
+// a form the editor would write differently (`* * *`, `1)`, a sparse list) survives a
+// save. Runs last: by now the token stream is the one the document is built from.
+function attachBlockSources(state: StateCore) {
+  const lines = state.src.split("\n")
+  const blocks: Token[] = []
+  let depth = 0
+  for (const token of state.tokens) {
+    if (depth === 0 && token.nesting >= 0 && token.map) blocks.push(token)
+    depth += token.nesting
+  }
+
+  let previous: { end: number; source: string } | null = null
+  blocks.forEach((token, index) => {
+    const start = token.map![0]
+    // A list split at an empty block keeps the range of the whole original list.
+    let end = Math.min(token.map![1], blocks[index + 1]?.map?.[0] ?? lines.length, lines.length)
+    while (end > start && BLANK_LINE.test(lines[end - 1])) end--
+    if (end <= start || start < (previous?.end ?? 0)) return
+    const source = lines.slice(start, end).join("\n")
+    const between = lines.slice(previous?.end ?? 0, start)
+    token.meta = {
+      ...(token.meta ?? {}),
+      blockSource: source,
+      // The first block has no neighbour to join; its gap only records text before it.
+      blockGap:
+        previous || between.some((line) => !BLANK_LINE.test(line))
+          ? between.map((line) => `${line}\n`).join("")
+          : null,
+      blockPrev: previous ? blockSourceKey(previous.source) : null,
+    }
+    previous = { end, source }
+  })
+}
+
 // ── markdown-it: detect Obsidian-style callouts (`> [!NOTE] emoji`) ──────────
 
 export function createAmbyTokenizer(): MarkdownIt {
@@ -483,4 +530,5 @@ function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.core.ruler.push("amby_math_blocks", detectMathBlocks)
   md.core.ruler.push("amby_softbreaks", softbreaksToText)
   md.core.ruler.push("amby_trailing_whitespace", preserveTrailingWhitespace)
+  md.core.ruler.push("amby_block_sources", attachBlockSources)
 }

@@ -121,7 +121,7 @@ type MarkSerializerSpec = {
   escape?: boolean
 }
 
-type SerializerState = MarkdownSerializerState & {
+export type SerializerState = MarkdownSerializerState & {
   esc: typeof ambyEsc
   out: string
   flushClose: (size?: number) => void
@@ -405,13 +405,13 @@ const SerializerStateCtor = MarkdownSerializerState as unknown as new (
   options: { tightLists?: boolean },
 ) => SerializerState
 
-function createSerializerState(): SerializerState {
+export function createSerializerState(): SerializerState {
   const state = new SerializerStateCtor(nodeSerializers, markSerializers, { tightLists: true })
   state.esc = ambyEsc
   return state
 }
 
-function serializeFragment(content: PMNode): string {
+export function serializeFragment(content: PMNode): string {
   const state = createSerializerState()
   state.renderContent(content)
   return state.out
@@ -435,6 +435,13 @@ function tableSeparator(table: PMNode, columnCount: number): string {
       .filter(Boolean)
     if (cells.length === columnCount && cells.every((cell) => /^:?-{3,}:?$/u.test(cell))) {
       return original
+    }
+    // A shorter delimiter (`|:-|-:|`) is rewritten, but its alignment is content.
+    if (cells.length === columnCount && cells.every((cell) => /^:?-+:?$/u.test(cell))) {
+      const aligned = cells.map(
+        (cell) => `${cell.startsWith(":") ? ":" : ""}---${cell.endsWith(":") ? ":" : ""}`,
+      )
+      return `| ${aligned.join(" | ")} |`
     }
   }
   return "| " + Array.from({ length: columnCount }, () => "---").join(" | ") + " |"
@@ -462,7 +469,7 @@ function buildStyledHtml(text: string, marks: readonly PMNode["marks"][number][]
 
 // Replace text nodes carrying ambyTextStyle / ambyUnderline marks with inline
 // `ambyHtml` nodes so the serializer emits their exact on-disk HTML form.
-function transformForSerialization(node: PMNode): PMNode {
+export function transformForSerialization(node: PMNode): PMNode {
   if (node.isText) {
     const hasStyle = node.marks.some(
       (mark) => mark.type.name === "ambyTextStyle" || mark.type.name === "ambyUnderline",
@@ -474,11 +481,18 @@ function transformForSerialization(node: PMNode): PMNode {
   }
   if (node.childCount === 0) return node
   const children: PMNode[] = []
-  node.forEach((child) => children.push(transformForSerialization(child)))
-  return node.copy(Fragment.fromArray(children))
+  let changed = false
+  node.forEach((child) => {
+    const next = transformForSerialization(child)
+    if (next !== child) changed = true
+    children.push(next)
+  })
+  // An unchanged subtree keeps its identity, so per-block results can be cached on it.
+  return changed ? node.copy(Fragment.fromArray(children)) : node
 }
 
-export function docToMarkdown(doc: PMNode): string {
+/** The whole document in the editor's own form, ignoring the source text of its blocks. */
+export function docToNormalizedMarkdown(doc: PMNode): string {
   return serializeFragment(transformForSerialization(doc))
 }
 

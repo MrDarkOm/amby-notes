@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import {
   markdownToDoc,
   docToMarkdown,
+  docToNormalizedMarkdown,
   editorSchema,
   restoreSourceFormatting,
   roundTripCheck,
@@ -120,12 +121,16 @@ describe("markdown <-> tiptap round-trip", () => {
       expect(roundTrip(source)).toBe("# Глава \n\nПервый абзац \n\nВторой абзац\n\n- пункт ")
     })
 
-    it("still sends what it cannot reproduce byte for byte to Source mode", () => {
-      // Interior trailing space on a soft line break is dropped by the parser.
-      expect(roundTripCheck("a \nb").ok).toBe(false)
-      // A closing `#` run and a setext underline are not the editor's own form.
-      expect(roundTripCheck("# T # ").ok).toBe(false)
-      expect(roundTripCheck("Setext \n===").ok).toBe(false)
+    it("keeps the bytes of what the editor would write differently", () => {
+      // Interior trailing space on a soft line break is dropped by the parser; a closing
+      // `#` run and a setext underline are not the editor's own form. Each block keeps
+      // its source until it is edited.
+      for (const source of ["a \nb", "# T # ", "Setext \n==="]) {
+        expect(roundTripCheck(source), JSON.stringify(source)).toEqual({ ok: true, result: source })
+        expect(docToNormalizedMarkdown(editorSchema.nodeFromJSON(markdownToDoc(source)))).not.toBe(
+          source,
+        )
+      }
     })
   })
 
@@ -159,9 +164,10 @@ describe("markdown <-> tiptap round-trip", () => {
       expect(result).toBe("a\n\nb\n\nc")
     })
 
-    it("still rejects whitespace the editor cannot place", () => {
-      // Whitespace on a line with other text is content.
-      expect(roundTripCheck("a\n\n  b\n").ok).toBe(false)
+    it("keeps whitespace the editor would not write itself", () => {
+      // Indentation of a paragraph is dropped by the parser; the block keeps its source.
+      const source = "a\n\n  b\n"
+      expect(roundTripCheck(source)).toEqual({ ok: true, result: source })
     })
   })
 
@@ -588,7 +594,7 @@ describe("markdown <-> tiptap round-trip", () => {
     })
   })
 
-  it("never admits a drifting document from the deterministic compatibility corpus", () => {
+  it("keeps the bytes of every admitted document of the deterministic compatibility corpus", () => {
     const blocks = [
       "# Heading",
       "Plain text with **bold** and `code`.",
@@ -618,9 +624,15 @@ describe("markdown <-> tiptap round-trip", () => {
         "\n\n",
       )
       const check = roundTripCheck(document)
-      if (check.ok) expect(check.result, `corpus document ${index}`).toBe(document)
-      // A parser normalization must be stable and, crucially, the guard must
-      // reject the original document before a Live Preview save can use it.
+      // Without an edit an admitted document is saved byte for byte; anything else is
+      // refused before a Live Preview save can use it.
+      if (check.ok) {
+        const untouched = docToMarkdown(editorSchema.nodeFromJSON(markdownToDoc(document)))
+        expect(restoreSourceFormatting(untouched, document), `corpus document ${index}`).toBe(
+          document,
+        )
+      }
+      // The editor's own form of a refused document is stable.
       expect(roundTripCheck(check.result).result, `corpus document ${index}`).toBe(check.result)
     }
   })

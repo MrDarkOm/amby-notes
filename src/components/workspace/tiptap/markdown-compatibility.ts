@@ -49,12 +49,71 @@ export function restoreSourceFormatting(serialized: string, original: string): s
     .join("\n")
 }
 
-export function roundTripCheck(
-  markdown: string,
-  parse: (source: string) => PMNode,
-  serialize: (doc: PMNode) => string,
-): { ok: boolean; result: string } {
+export type LiveAdmissionRefusal =
+  /** A footnote: the editor has no node for it. */
+  | "footnote"
+  /** A link definition, which the parser consumes without leaving a block. */
+  | "link_definition"
+  /** Text between blocks that belongs to no block. */
+  | "text_outside_blocks"
+  /** A save without edits would not give the same file back. */
+  | "bytes_not_kept"
+  /** The editor's own form of the note does not read back as the same document. */
+  | "document_changes"
+  /** An independent reading finds a difference between the note and the editor's form. */
+  | "meaning_changes"
+
+export interface RoundTripCheck {
+  /** The note may be opened in Live Preview. */
+  ok: boolean
+  /** What a save without edits writes when `ok`; the editor's own form otherwise. */
+  result: string
+  /** Why the note stays in Source. */
+  refusal?: LiveAdmissionRefusal
+}
+
+export interface RoundTripTools {
+  /** Reads Markdown into a document whose blocks keep their source text. */
+  parse: (source: string) => PMNode
+  /** Writes kept source for unchanged blocks, the editor's form for the rest. */
+  serialize: (doc: PMNode) => string
+  /** Writes every block in the editor's own form. */
+  normalize: (doc: PMNode) => string
+  sameDocument: (a: PMNode, b: PMNode) => boolean
+  meaning: (source: string) => { content: string; hasDefinitions: boolean }
+}
+
+/**
+ * Decides whether a note may be opened in Live Preview.
+ *
+ * A note is admitted when (1) saving it without an edit writes the same bytes, and
+ * (2) rewriting any of its blocks in the editor's own form would change only how the
+ * block is spelled: the editor's form of the whole note reads back as the same document,
+ * for the editor's parser and for an independent one. Everything else stays in Source.
+ */
+export function roundTripCheck(markdown: string, tools: RoundTripTools): RoundTripCheck {
   const original = markdown ?? ""
-  const result = restoreSourceFormatting(serialize(parse(original)), original)
-  return { ok: result === original && !FOOTNOTE_SYNTAX_RE.test(original), result }
+  const doc = tools.parse(original)
+  const normalized = restoreSourceFormatting(tools.normalize(doc), original)
+  const refuse = (refusal: LiveAdmissionRefusal): RoundTripCheck => ({
+    ok: false,
+    result: normalized,
+    refusal,
+  })
+  if (FOOTNOTE_SYNTAX_RE.test(original)) return refuse("footnote")
+  const meaning = tools.meaning(original)
+  if (meaning.hasDefinitions) return refuse("link_definition")
+  let textOutsideBlocks = false
+  doc.forEach((block) => {
+    const gap = block.attrs.markdownBlockGap
+    if (typeof gap === "string" && /[^ \t\n]/u.test(gap)) textOutsideBlocks = true
+  })
+  if (textOutsideBlocks) return refuse("text_outside_blocks")
+
+  const untouched = restoreSourceFormatting(tools.serialize(doc), original)
+  if (untouched !== original) return refuse("bytes_not_kept")
+  if (normalized === original) return { ok: true, result: original }
+  if (!tools.sameDocument(tools.parse(normalized), doc)) return refuse("document_changes")
+  if (tools.meaning(normalized).content !== meaning.content) return refuse("meaning_changes")
+  return { ok: true, result: original }
 }

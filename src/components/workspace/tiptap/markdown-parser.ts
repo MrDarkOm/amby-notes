@@ -152,6 +152,28 @@ const parserTokens: { [token: string]: ParseSpec } = {
   },
 }
 
+// A top-level block carries the source text the tokenizer recorded for it.
+function withBlockSource(spec: ParseSpec): ParseSpec {
+  if (!spec.block && !spec.node) return spec
+  return {
+    ...spec,
+    getAttrs: (tok, tokens, index) => {
+      const attrs = spec.getAttrs?.(tok, tokens, index) ?? null
+      if (typeof tok.meta?.blockSource !== "string") return attrs
+      return {
+        ...attrs,
+        markdownBlockSource: tok.meta.blockSource as string,
+        markdownBlockGap: (tok.meta.blockGap as string | null) ?? null,
+        markdownBlockPrev: (tok.meta.blockPrev as string | null) ?? null,
+      }
+    },
+  }
+}
+
+const sourcedParserTokens = Object.fromEntries(
+  Object.entries(parserTokens).map(([name, spec]) => [name, withBlockSource(spec)]),
+)
+
 // Built lazily on first use so that *loading* this module never touches
 // `editorSchema`. markdown.ts ⇄ schema.ts ⇄ transclusion-node.tsx form an
 // import cycle; an eager `new MarkdownParser(editorSchema, …)` at module scope
@@ -159,13 +181,6 @@ const parserTokens: { [token: string]: ParseSpec } = {
 // transclusion-node is the entry into the cycle (white screen in dev ESM).
 let _parser: MarkdownParser | null = null
 export function getMarkdownParser(): MarkdownParser {
-  if (!_parser) _parser = new MarkdownParser(editorSchema, tokenizer, parserTokens)
+  if (!_parser) _parser = new MarkdownParser(editorSchema, tokenizer, sourcedParserTokens)
   return _parser
 }
-
-export function markdownToDoc(markdown: string): Record<string, unknown> {
-  const doc = getMarkdownParser().parse(markdown ?? "")
-  return doc.toJSON() as Record<string, unknown>
-}
-
-// ── Serializer ────────────────────────────────────────────────────────────────

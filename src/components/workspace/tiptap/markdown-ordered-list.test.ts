@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { docToMarkdown, editorSchema, markdownToDoc, roundTripCheck } from "./markdown"
+import {
+  docToMarkdown,
+  docToNormalizedMarkdown,
+  editorSchema,
+  markdownToDoc,
+  roundTripCheck,
+} from "./markdown"
 
 type Json = Record<string, unknown>
 const parse = (markdown: string) => editorSchema.nodeFromJSON(markdownToDoc(markdown))
@@ -149,13 +155,18 @@ describe("ordered list numbers", () => {
     expect(docToMarkdown(editorSchema.topNodeType.create(null, shrunk))).toBe(unpadded(9))
   })
 
-  // Forms that are neither of the two stay in Source, as before.
+  // Forms that are neither of the two open in Live too: the list keeps its bytes until
+  // it is edited, and is then written without padding, numbered from its first number.
   it.each([
     ["half padded", ` 1. a\n${numbered(8, (n) => `${n}. a`, 2)}\n10. a`],
     ["wide indent of a nested block", `${unpadded(9)}\n10. a\n     - nested`],
     ["every number is 1", numbered(10, () => "1. a")],
     ["the `)` delimiter", numbered(10, (n) => `${n}) a`)],
-  ])("keeps a list in Source mode: %s", (_name, markdown) => {
-    expect(roundTripCheck(markdown).ok).toBe(false)
+  ])("keeps the bytes of a list it would write differently: %s", (_name, markdown) => {
+    expectLive(markdown)
+    const rewritten = docToNormalizedMarkdown(parse(markdown))
+    expect(rewritten).not.toBe(markdown)
+    expect(parse(rewritten).textContent).toBe(parse(markdown).textContent)
+    expectLive(rewritten)
   })
 })
