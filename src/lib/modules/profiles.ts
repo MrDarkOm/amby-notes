@@ -19,6 +19,7 @@ export const STANDARD_MODULES: string[] = [
   "amby.graph",
   "amby.ai",
   "amby.excalidraw",
+  "amby.creative",
 ]
 
 export const STANDARD_PROFILE_SIGNATURE = {

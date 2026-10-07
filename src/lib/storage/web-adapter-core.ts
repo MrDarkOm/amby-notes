@@ -78,6 +78,7 @@ import type {
   UpdateDatabaseRelationValueRequest,
   UpdateDatabaseRelationValueResult,
   CreateDatabaseRowRequest,
+  DuplicateDatabaseRowRequest,
   CreatedDatabaseRow,
   ImportDatabaseAssetRequest,
   ImportedDatabaseAsset,
@@ -107,6 +108,19 @@ import type {
   DatabaseHistoryStatus,
 } from "./database-types"
 import { DatabaseOperationError } from "./database-types"
+import { ProjectOperationError } from "./project-types"
+import type {
+  CreateProjectRequest,
+  CreateProjectSectionRequest,
+  CreatedProject,
+  CreatedSection,
+  CreatedTextPage,
+  CreateTextPageRequest,
+  MoveTextPageRequest,
+  MovedTextPage,
+  NoteReference,
+  ProjectCatalog,
+} from "./project-types"
 
 const metadataStorage = new WebMetadataStorage()
 
@@ -430,6 +444,13 @@ export class WebAdapterCore implements StoragePort {
     throw new DatabaseOperationError("failed", "Database row creation requires the desktop runtime")
   }
 
+  async duplicateDatabaseRow(_request: DuplicateDatabaseRowRequest): Promise<CreatedDatabaseRow> {
+    throw new DatabaseOperationError(
+      "failed",
+      "Database row duplication requires the desktop runtime",
+    )
+  }
+
   async importDatabaseAsset(_request: ImportDatabaseAssetRequest): Promise<ImportedDatabaseAsset> {
     throw new DatabaseOperationError("failed", "Database asset import requires the desktop runtime")
   }
@@ -477,6 +498,38 @@ export class WebAdapterCore implements StoragePort {
       "failed",
       "Database YAML conflict resolution requires the desktop runtime",
     )
+  }
+
+  // Projects are files plus databases on disk; the browser fallback has neither.
+  async listProjects(): Promise<ProjectCatalog> {
+    return { vaultGeneration: 0, indexEpoch: "web", projects: [], diagnostics: [] }
+  }
+
+  async refreshProjects(_expectedGeneration: number): Promise<ProjectCatalog> {
+    return this.listProjects()
+  }
+
+  async createProject(_request: CreateProjectRequest): Promise<CreatedProject> {
+    throw new ProjectOperationError("failed", "Project creation requires the desktop runtime")
+  }
+
+  async createProjectSection(_request: CreateProjectSectionRequest): Promise<CreatedSection> {
+    throw new ProjectOperationError(
+      "failed",
+      "Project section creation requires the desktop runtime",
+    )
+  }
+
+  async createTextPage(_request: CreateTextPageRequest): Promise<CreatedTextPage> {
+    throw new ProjectOperationError("failed", "Creating a page requires the desktop runtime")
+  }
+
+  async listNoteReferences(_noteId: string): Promise<NoteReference[]> {
+    return []
+  }
+
+  async moveTextPage(_request: MoveTextPageRequest): Promise<MovedTextPage> {
+    throw new ProjectOperationError("failed", "Moving a page requires the desktop runtime")
   }
 
   async listDatabases(): Promise<DatabaseSummary[]> {

@@ -2,7 +2,8 @@ import { create } from "zustand"
 import { newTabKey } from "./workspace-tree-utils"
 import { logger } from "@/lib/logger"
 
-export type TabKind = "document" | "folder" | "graph" | "canvas" | "database" | "sketch"
+export type TabKind =
+  "document" | "folder" | "graph" | "canvas" | "database" | "sketch" | "creative"
 
 export interface Tab {
   key: string
@@ -14,7 +15,7 @@ export interface Tab {
 }
 
 export type TabTarget = Pick<Tab, "fileId" | "title"> & {
-  kind: Exclude<TabKind, "graph">
+  kind: Exclude<TabKind, "graph" | "creative">
 }
 
 type Updater<T> = T | ((prev: T) => T)
@@ -74,8 +75,8 @@ export const useTabsStore = create<TabsStore>((set) => ({
       const active = state.tabs.find((tab) => tab.key === state.activeTabKey)
       const matches = (tab: Tab) =>
         (tab.kind === target.kind && tab.fileId === target.fileId) ||
-        (tab.fileId.replace(/^(database|canvas|sketch):/u, "") ===
-          target.fileId.replace(/^(database|canvas|sketch):/u, "") &&
+        (tab.fileId.replace(/^(database|canvas|sketch|creative):/u, "") ===
+          target.fileId.replace(/^(database|canvas|sketch|creative):/u, "") &&
           tab.fileId.length > 0 &&
           target.fileId.length > 0 &&
           (tab.kind === target.kind ||
@@ -111,7 +112,8 @@ export const useTabsStore = create<TabsStore>((set) => ({
             : active.kind === "graph" ||
                 active.kind === "database" ||
                 active.kind === "canvas" ||
-                active.kind === "sketch"
+                active.kind === "sketch" ||
+                active.kind === "creative"
               ? []
               : [active.fileId]
           history.push(target.fileId)

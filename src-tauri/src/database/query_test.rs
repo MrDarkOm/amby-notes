@@ -47,6 +47,7 @@ fn request(filter: Option<DatabaseFilterNode>, page: DatabasePageRequest) -> Dat
         },
         page,
         context_page_id: None,
+        manual_order: None,
         search: None,
         sorts: None,
         filter: None,
@@ -769,5 +770,52 @@ fn a_current_page_filter_matches_only_the_given_page_and_never_everything() {
     assert_eq!(
         ask(Some("not-an-id")).unwrap_err().code,
         "invalidContextPage"
+    );
+}
+
+fn manual_request(order: &[&str], sorts: Option<Vec<DatabaseSortSpec>>) -> DatabaseQueryRequest {
+    let mut request = request(
+        None,
+        DatabasePageRequest {
+            limit: 1,
+            cursor: None,
+        },
+    );
+    request.manual_order = Some(order.iter().map(|id| (*id).to_owned()).collect());
+    request.sorts = sorts;
+    request
+}
+
+#[test]
+fn manual_order_comes_first_across_pages_and_unplaced_rows_follow_by_title() {
+    let conn = connection();
+    // Gamma first, Beta second; Alpha was never placed and keeps the title order after them.
+    let order = ["01J00000000000000000000003", "01J00000000000000000000002"];
+    assert_eq!(
+        all_pages(&conn, manual_request(&order, None)),
+        vec!["Gamma", "Beta", "Alpha"]
+    );
+    // An ID of a row that no longer exists is skipped without a trace.
+    let order = ["01J000000000000000000000ZZ", "01J00000000000000000000002"];
+    assert_eq!(
+        all_pages(&conn, manual_request(&order, None)),
+        vec!["Beta", "Alpha", "Gamma"]
+    );
+}
+
+#[test]
+fn an_active_sort_overrides_the_manual_order_without_dropping_it() {
+    let conn = connection();
+    let order = ["01J00000000000000000000003", "01J00000000000000000000002"];
+    let by_title = vec![DatabaseSortSpec {
+        field: DatabaseFieldRef::System {
+            field: "title".to_owned(),
+        },
+        direction: "asc".to_owned(),
+        nulls: "last".to_owned(),
+    }];
+    assert_eq!(
+        all_pages(&conn, manual_request(&order, Some(by_title))),
+        vec!["Alpha", "Beta", "Gamma"]
     );
 }

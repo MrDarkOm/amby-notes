@@ -23,7 +23,7 @@ function ScrollArea({
     >
       <MotionScrollAreaViewport
         data-slot="scroll-area-viewport"
-        className="focus-visible:ring-ring/50 size-full rounded-[inherit] outline-none focus-visible:ring-[3px] focus-visible:outline-1"
+        className="focus-visible:ring-ring/50 size-full rounded-[inherit] outline-none focus-visible:ring-1 focus-visible:outline-1"
         transition={motionTransitions.fast}
       >
         {children}

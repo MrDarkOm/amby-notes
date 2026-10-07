@@ -116,7 +116,7 @@ export function AmbySelect({
           disabled={disabled}
           title={title ?? active?.label}
           className={cn(
-            "flex w-full min-w-0 items-center justify-between gap-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60",
+            "flex w-full min-w-0 items-center justify-between gap-1.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60",
             size === "sm" ? "h-7 text-xs" : "h-8 text-[13px]",
             variant === "field"
               ? "rounded-lg border border-input bg-background px-2.5 hover:border-foreground/30"

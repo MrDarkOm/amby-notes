@@ -232,6 +232,10 @@ pub struct DatabaseQueryRequest {
     /// replaced by it; without a page that operand is an error, never a match-all.
     #[serde(default)]
     pub context_page_id: Option<String>,
+    /// Note IDs in the order the user placed them by hand. Used only while no sort
+    /// is active; rows not listed follow in the ordinary order.
+    #[serde(default)]
+    pub manual_order: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]

@@ -187,7 +187,7 @@ function HistoryContents({
                     aria-label={t("historyPanel.viewVersion", {
                       date: `${dateFormat.format(entry.createdAtMs)}, ${timeFormat.format(entry.createdAtMs)}`,
                     })}
-                    className="group relative ml-2 flex w-[calc(100%-0.5rem)] min-w-0 items-center gap-2 rounded-lg px-2 py-2.5 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="group relative ml-2 flex w-[calc(100%-0.5rem)] min-w-0 items-center gap-2 rounded-lg px-2 py-2.5 text-left hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
                     <span className="absolute -left-[13px] top-[19px] size-2 rounded-full border-2 border-border bg-[var(--note-surface)]" />
                     <div className="min-w-0 flex-1">

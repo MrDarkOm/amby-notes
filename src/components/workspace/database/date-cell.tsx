@@ -95,7 +95,7 @@ export function DateCell({ property, value, compact, pending, error, onCommit }:
       title={error ?? property.name}
       aria-label={property.name}
       className={cn(
-        "flex h-full w-full min-w-0 items-center rounded-md text-left outline-none hover:bg-accent/40 focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60",
+        "flex h-full w-full min-w-0 cursor-pointer items-center rounded-md text-left outline-none hover:bg-accent/40 focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
         compact ? "min-h-7 px-1 text-xs" : "px-2 text-sm",
         !text && "text-muted-foreground",
         error && "text-destructive",

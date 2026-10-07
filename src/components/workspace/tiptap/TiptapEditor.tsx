@@ -1,5 +1,6 @@
 "use client"
 
+import { NodeSelection } from "@tiptap/pm/state"
 import * as React from "react"
 import { createPortal } from "react-dom"
 import { Link2Off } from "lucide-react"
@@ -20,6 +21,9 @@ import {
   type WikiLinkContextDetail,
 } from "./tags-wikilinks"
 import { BubbleToolbar } from "./BubbleToolbar"
+import { TextSelection } from "@tiptap/pm/state"
+import { selectEndOfNote } from "./line-after-block"
+import { nearestLinePos } from "./nearest-line"
 import { BlockHandles } from "./BlockHandles"
 import { BlockInsertPanel } from "./BlockInsertPanel"
 import { WikiLinkContextMenu } from "./WikiLinkContextMenu"
@@ -218,7 +222,12 @@ export function TiptapEditor({
         return
       }
       const { from, to, empty } = editor.state.selection
-      if (empty) {
+      const selection = editor.state.selection
+      // A selected database block has no text to format.
+      if (
+        empty ||
+        (selection instanceof NodeSelection && selection.node.type.name === "ambyBlock")
+      ) {
         closeMenu()
         return
       }
@@ -320,6 +329,29 @@ export function TiptapEditor({
     }
   }, [editable, editor, closeMenu])
 
+  // Click in the empty page: the cursor goes to the nearest line, or to the end of the note.
+  const focusAtPoint = React.useCallback(
+    (x: number, y: number) => {
+      if (editor.isDestroyed || !editor.isEditable) return
+      const children = Array.from(editor.view.dom.children)
+      if (children.length === 0) return
+      const top = children[0].getBoundingClientRect().top
+      const bottom = Math.max(...children.map((child) => child.getBoundingClientRect().bottom))
+      if (y < top) return
+      if (y > bottom) {
+        editor.view.dispatch(selectEndOfNote(editor.state))
+      } else {
+        const pos = nearestLinePos(editor.view, y, x)
+        if (pos === null) return
+        editor.view.dispatch(
+          editor.state.tr.setSelection(TextSelection.create(editor.state.doc, pos)),
+        )
+      }
+      editor.view.focus()
+    },
+    [editor],
+  )
+
   // Expose undo/redo to the parent's floating widget.
   React.useEffect(() => {
     if (!editorRef || !editor) return
@@ -335,15 +367,19 @@ export function TiptapEditor({
       flush: () => flushSerialize(editor),
       getMarkdownSelection: () =>
         docSelectionToMarkdownSelection(editor.state.doc, valueRef.current, editor.state.selection),
+      focusAtPoint,
       focus: (position?: "start" | "end") => {
         if (!editor || editor.isDestroyed || !editor.isEditable) return
-        editor
-          .chain()
-          .focus(position === "end" ? "end" : "start")
-          .run()
+        if (position === "end") {
+          // A note ending with a database gets an empty line to write on.
+          editor.view.dispatch(selectEndOfNote(editor.state))
+          editor.view.focus()
+          return
+        }
+        editor.chain().focus("start").run()
       },
     }
-  }, [editor, editorRef, flushSerialize])
+  }, [editor, editorRef, flushSerialize, focusAtPoint])
 
   // Make vault/note paths reachable from inside extensions/node views.
   React.useEffect(() => {
@@ -532,6 +568,13 @@ export function TiptapEditor({
     <div
       className="amby-tiptap relative min-h-[360px] pb-24"
       data-editor-readonly={isReadOnly ? "true" : "false"}
+      onClick={(event) => {
+        // The empty page inside the editor (under the last block, beside columns): the
+        // cursor goes to the nearest line, or to the end of the note.
+        if (!editor || editor.isDestroyed || !editor.isEditable || event.button !== 0) return
+        if (event.target !== event.currentTarget && event.target !== editor.view.dom) return
+        focusAtPoint(event.clientX, event.clientY)
+      }}
       onKeyDownCapture={() => {
         userInteractedRef.current = true
       }}

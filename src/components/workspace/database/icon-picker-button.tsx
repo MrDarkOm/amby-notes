@@ -4,6 +4,10 @@ import { useTranslation } from "react-i18next"
 import { IconValue } from "@/components/workspace/icon-value"
 import { EmojiPickerPanel } from "@/components/workspace/tiptap/EmojiPickerPanel"
 import { cn } from "@/lib/utils"
+import {
+  CLOSE_BLOCK_MENUS_EVENT,
+  CLOSE_EDITOR_MENUS_EVENT,
+} from "@/components/workspace/tiptap/floating-menu-events"
 
 /** Rough size of the picker, to keep it inside the window. */
 const PICKER_WIDTH = 360
@@ -44,6 +48,9 @@ export function IconPickerButton({
   const open = () => {
     const rect = triggerRef.current?.getBoundingClientRect()
     if (!rect) return
+    // Only one menu is open at a time.
+    window.dispatchEvent(new Event(CLOSE_BLOCK_MENUS_EVENT))
+    window.dispatchEvent(new Event(CLOSE_EDITOR_MENUS_EVENT))
     const left = Math.max(MARGIN, Math.min(rect.left, window.innerWidth - PICKER_WIDTH - MARGIN))
     const below = rect.bottom + 4
     const top =
@@ -65,7 +72,7 @@ export function IconPickerButton({
         aria-expanded={position !== null}
         data-no-drag=""
         className={cn(
-          "flex shrink-0 items-center justify-center rounded-md outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none",
+          "flex shrink-0 items-center justify-center rounded-md outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none",
           className,
         )}
         onPointerDown={(event) => event.stopPropagation()}

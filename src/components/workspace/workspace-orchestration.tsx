@@ -14,6 +14,9 @@ import { ResizeHandle } from "./resize-handle"
 const GraphTabView = React.lazy(() =>
   import("./graph-tab-view").then((m) => ({ default: m.GraphTabView })),
 )
+const ProjectPage = React.lazy(() =>
+  import("./creative/project-page").then((m) => ({ default: m.ProjectPage })),
+)
 // The rich-text/source editor pulls in Tiptap, CodeMirror, and emoji-mart.
 // Keep those libraries out of the startup path until a document is rendered.
 const DocumentEditor = React.lazy(() =>
@@ -78,7 +81,12 @@ import { WorkspacePicker } from "./workspace-picker"
 import { FolderView } from "./folder-view"
 import type { TreeItem } from "./sidebar-tree"
 import { useDatabaseController } from "./database/use-database-controller"
+import { useProjectController } from "./creative/use-project-controller"
+import { DossierFrame } from "./creative/dossier/dossier-frame"
+import { useProjectStore } from "./creative/project-store"
+import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative/creative-nav-store"
 import { useDatabaseStore } from "./database/database-store"
+import type { DatabaseRowActions } from "./database/use-row-menu"
 import { ModuleRequiredFallback } from "./editor/module-required-fallback"
 
 const DatabaseWorkspace = React.lazy(() =>
@@ -481,11 +489,18 @@ export function WorkspaceOrchestration() {
   const sketchEnabled =
     activeModules.includes("excalidraw") || activeModules.includes("amby.excalidraw")
   const graphEnabled = activeModules.includes("graph") || activeModules.includes("amby.graph")
+  const creativeEnabled =
+    activeModules.includes("creative") || activeModules.includes("amby.creative")
   const databases = useDatabaseStore((state) => state.databases)
   const { refreshCatalog: refreshDatabaseCatalog } = useDatabaseController({
     enabled: databasesEnabled,
     vaultGeneration: backendGeneration,
   })
+  useProjectController({
+    enabled: databasesEnabled && creativeEnabled,
+    vaultGeneration: backendGeneration,
+  })
+  const projectCatalog = useProjectStore((state) => state.catalog)
   const presetOptions = React.useMemo(
     () =>
       presets.map((p) => ({
@@ -542,6 +557,37 @@ export function WorkspaceOrchestration() {
     ])
     setActiveTabKey(key)
   }
+
+  const openCreativeTab = React.useCallback(
+    (projectId: string, sectionId?: string) => {
+      const fileId = `creative:${projectId}`
+      if (sectionId) useCreativeNavStore.getState().showSection(projectId, sectionId)
+      else if (!useCreativeNavStore.getState().sectionByProject[projectId])
+        useCreativeNavStore.getState().showSection(projectId, OVERVIEW_SECTION)
+      const existing = tabs.find((tab) => tab.kind === "creative" && tab.fileId === fileId)
+      if (existing) {
+        setActiveTabKey(existing.key)
+        return
+      }
+      const project = useProjectStore
+        .getState()
+        .catalog?.projects.find((candidate) => candidate.projectId === projectId)
+      const key = newTabKey()
+      setTabs((prev) => [
+        ...prev,
+        {
+          key,
+          kind: "creative",
+          fileId,
+          title: project?.name ?? t("creative.welcome.title", "Творческая мастерская"),
+          history: [],
+          historyIndex: 0,
+        },
+      ])
+      setActiveTabKey(key)
+    },
+    [setActiveTabKey, setTabs, t, tabs],
+  )
 
   const openDatabaseTab = React.useCallback(
     (databaseId: string, title: string, inNewTab = false) => {
@@ -981,6 +1027,13 @@ export function WorkspaceOrchestration() {
     [handleSelect, openDatabaseTab],
   )
 
+  // A project or section creates folders and databases without a watcher event
+  // (the app's own writes are not echoed), so the tree and the catalog are re-read.
+  const refreshAfterCreativeWrite = React.useCallback(async () => {
+    await refreshTree()
+    await refreshDatabaseCatalog()
+  }, [refreshDatabaseCatalog, refreshTree])
+
   const handleRenameDatabaseRow = React.useCallback(
     async (rowId: string, name: string) => {
       await handleRenameFile(rowId, name)
@@ -995,6 +1048,29 @@ export function WorkspaceOrchestration() {
   )
 
   const { handleOpenInNewWindow } = useNoteWindows(treeItems)
+  // What the row menu of a database view needs from the workspace: the pages are ordinary notes.
+  const databaseRowActions = React.useMemo<DatabaseRowActions>(
+    () => ({
+      favorites,
+      onToggleFavorite: handleToggleFavorite,
+      onOpenInNewTab: handleOpenInNewTab,
+      onOpenInNewWindow: handleOpenInNewWindow,
+      onDelete: (noteId) => handleDeleteFile(noteId),
+      onDeleteMany: (noteIds) => handleDeleteFiles(noteIds),
+      // An attached database is the folder of its note; a standalone one is its own folder item.
+      onMoveToDatabase: (noteId, target) =>
+        handleMoveItem([noteId], target.attachedNoteId ?? target.databaseId),
+    }),
+    [
+      favorites,
+      handleDeleteFile,
+      handleDeleteFiles,
+      handleMoveItem,
+      handleOpenInNewTab,
+      handleOpenInNewWindow,
+      handleToggleFavorite,
+    ],
+  )
 
   const handleTabUsageChanged = React.useCallback(() => {
     void releaseUnusedDocumentBuffers()
@@ -1314,10 +1390,17 @@ export function WorkspaceOrchestration() {
           key: tab.key,
           fileId: tab.fileId,
           title: tab.title,
-          icon: tab.kind === "folder" ? (item?.icon ?? "📁") : item?.icon,
+          icon:
+            tab.kind === "folder"
+              ? (item?.icon ?? "📁")
+              : tab.kind === "creative"
+                ? (projectCatalog?.projects.find(
+                    (project) => `creative:${project.projectId}` === tab.fileId,
+                  )?.icon ?? "🪶")
+                : item?.icon,
         }
       }),
-    [tabs, treeItemById],
+    [projectCatalog, tabs, treeItemById],
   )
 
   // panelRenderProps is memoised so that sidebar panels don't re-render when only
@@ -1357,6 +1440,8 @@ export function WorkspaceOrchestration() {
       canvasEnabled,
       sketchEnabled,
       onOpenDatabase: openDatabaseTab,
+      onOpenCreativeProject: openCreativeTab,
+      onCreativeChanged: refreshAfterCreativeWrite,
       properties: currentProperties,
       attachments,
       attachmentImages,
@@ -1448,6 +1533,8 @@ export function WorkspaceOrchestration() {
       canvasEnabled,
       sketchEnabled,
       openDatabaseTab,
+      openCreativeTab,
+      refreshAfterCreativeWrite,
       handleUpsertCustomProperty,
       handleDeleteCustomProperty,
       handleReorderCustomProperties,
@@ -1717,6 +1804,7 @@ export function WorkspaceOrchestration() {
             scrollPositionsRef.current[scrollPositionKey] = position
           }
         : undefined,
+      editorFrame: creativeEnabled ? DossierFrame : undefined,
       databaseBody:
         canRenderLayer && doc && attachedDatabase ? (
           databasesEnabled ? (
@@ -1751,6 +1839,7 @@ export function WorkspaceOrchestration() {
                 }
                 onOpenNote={(id) => handleSelect(id)}
                 onOpenRowFullPage={(row) => handleSelect(row.noteId, row.title)}
+                rowActions={databaseRowActions}
                 onRenameRow={handleRenameDatabaseRow}
                 onLoadRowDocument={handleLoadRowDocument}
                 onRowContentChange={handleContentChange}
@@ -1966,6 +2055,7 @@ export function WorkspaceOrchestration() {
               : defaultSketchJson(),
             vault,
             databasesEnabled,
+            creativeEnabled,
             defaultViewMode,
             defaultContentWidth,
           ] as const
@@ -2019,6 +2109,52 @@ export function WorkspaceOrchestration() {
           )
         })}
       </div>
+    )
+  }
+
+  function renderCreativeProject() {
+    if (activeTab?.kind !== "creative") return null
+    return (
+      <ProjectPage
+        projectId={activeTab.fileId.replace(/^creative:/u, "")}
+        onOpenProject={openCreativeTab}
+        onChanged={refreshAfterCreativeWrite}
+        renderDatabase={({ databaseId, title }) => (
+          <React.Suspense fallback={<LazyEditorFallback />}>
+            <DatabaseWorkspace
+              databaseId={databaseId}
+              title={title}
+              icon={databases.find((database) => database.databaseId === databaseId)?.icon}
+              hideHeader
+              hostKind="tab"
+              hostId={`creative:${databaseId}`}
+              contentWidth={
+                contentWidths[databaseContentWidthKey(databaseId)] ?? defaultContentWidth
+              }
+              onContentWidthChange={(width: ContentWidth) =>
+                setContentWidth(databaseContentWidthKey(databaseId), width)
+              }
+              titleColumnName={databaseTitleLabels[databaseContentWidthKey(databaseId)]}
+              onTitleColumnNameChange={(name) =>
+                setDatabaseTitleLabel(databaseContentWidthKey(databaseId), name)
+              }
+              onOpenInNewTab={() => openDatabaseTab(databaseId, title, true)}
+              onOpenNote={(id) => handleSelect(id)}
+              onOpenRowFullPage={(row) => handleSelect(row.noteId, row.title)}
+              rowActions={databaseRowActions}
+              onRenameRow={handleRenameDatabaseRow}
+              onLoadRowDocument={handleLoadRowDocument}
+              onRowContentChange={handleContentChange}
+              vault={vault ?? undefined}
+              onCatalogChanged={refreshDatabaseCatalog}
+              onRowCreated={async (row) => {
+                await refreshTree()
+                await loadDoc(row.noteId, row.title)
+              }}
+            />
+          </React.Suspense>
+        )}
+      />
     )
   }
 
@@ -2093,6 +2229,25 @@ export function WorkspaceOrchestration() {
               moduleName={t("settings.modules.graph")}
               onEnableModule={() => {
                 void setModuleEnabled("graph", true, { vault })
+              }}
+            />
+          )
+        ) : activeTab?.kind === "creative" ? (
+          creativeEnabled ? (
+            <React.Suspense fallback={<LazyEditorFallback />}>
+              <div
+                className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                style={{ boxShadow: "var(--note-surface-shadow)" }}
+              >
+                {renderCreativeProject()}
+              </div>
+            </React.Suspense>
+          ) : (
+            <ModuleRequiredFallback
+              moduleId="amby.creative"
+              moduleName={t("creative.welcome.title", "Творческая мастерская")}
+              onEnableModule={() => {
+                void setModuleEnabled("creative", true, { vault })
               }}
             />
           )
@@ -2369,6 +2524,25 @@ export function WorkspaceOrchestration() {
                 moduleName={t("settings.modules.graph")}
                 onEnableModule={() => {
                   void setModuleEnabled("graph", true, { vault })
+                }}
+              />
+            )
+          ) : activeTab?.kind === "creative" ? (
+            creativeEnabled ? (
+              <React.Suspense fallback={<LazyEditorFallback />}>
+                <div
+                  className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                  style={{ boxShadow: "var(--note-surface-shadow)" }}
+                >
+                  {renderCreativeProject()}
+                </div>
+              </React.Suspense>
+            ) : (
+              <ModuleRequiredFallback
+                moduleId="amby.creative"
+                moduleName={t("creative.welcome.title", "Творческая мастерская")}
+                onEnableModule={() => {
+                  void setModuleEnabled("creative", true, { vault })
                 }}
               />
             )

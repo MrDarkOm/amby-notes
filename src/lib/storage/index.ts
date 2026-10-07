@@ -21,6 +21,7 @@ import type {
   DatabaseQueryRequest,
   DatabaseValueBatchRequest,
   CreateDatabaseRowRequest,
+  DuplicateDatabaseRowRequest,
   ImportDatabaseAssetRequest,
   ConfigureDatabaseRollupRequest,
   ResolveDatabaseAssetPathsRequest,
@@ -38,6 +39,12 @@ import type {
   DatabaseChangedPayload,
   UpdateDatabaseRelationValueRequest,
 } from "./database-types"
+import type {
+  CreateProjectRequest,
+  CreateProjectSectionRequest,
+  CreateTextPageRequest,
+  MoveTextPageRequest,
+} from "./project-types"
 import type {
   CredentialInfo,
   CustomProperty,
@@ -73,6 +80,8 @@ export * from "./types"
 export * from "./port"
 export * from "./database-port"
 export * from "./database-types"
+export * from "./project-port"
+export * from "./project-types"
 export * from "./desktop-adapter"
 export * from "./web-adapter"
 export * from "./notes-repository"
@@ -338,6 +347,13 @@ export const createDatabaseRow = (request: CreateDatabaseRowRequest) => {
   })
   return getAdapter().createDatabaseRow(request)
 }
+export const duplicateDatabaseRow = (request: DuplicateDatabaseRowRequest) => {
+  logger.info("storage.duplicate_database_row", {
+    databaseId: request.databaseId,
+    noteId: request.noteId,
+  })
+  return getAdapter().duplicateDatabaseRow(request)
+}
 export const importDatabaseAsset = (request: ImportDatabaseAssetRequest) =>
   getAdapter().importDatabaseAsset(request)
 export const resolveDatabaseAssetPaths = (request: ResolveDatabaseAssetPathsRequest) =>
@@ -354,6 +370,43 @@ export const syncDatabaseYaml = (request: DatabaseYamlSyncRequest) =>
   )
 export const resolveDatabaseYamlConflict = (request: DatabaseYamlResolveRequest) =>
   getAdapter().resolveDatabaseYamlConflict(request)
+export const listProjects = () => getAdapter().listProjects()
+export const refreshProjects = (expectedGeneration: number) =>
+  traceOperation("project.refresh", {}, () => getAdapter().refreshProjects(expectedGeneration))
+export const createProject = (request: CreateProjectRequest) => {
+  logger.info("storage.create_project", {
+    kind: request.kind,
+    name: request.name,
+    parentPath: request.parentPath ?? null,
+    operationId: request.operationId,
+  })
+  return getAdapter().createProject(request)
+}
+export const createProjectSection = (request: CreateProjectSectionRequest) => {
+  logger.info("storage.create_project_section", {
+    projectId: request.projectId,
+    name: request.name,
+    operationId: request.operationId,
+  })
+  return getAdapter().createProjectSection(request)
+}
+export const createTextPage = (request: CreateTextPageRequest) => {
+  logger.info("storage.create_text_page", {
+    projectId: request.projectId,
+    levelId: request.levelId,
+    hasParent: Boolean(request.parentNoteId),
+  })
+  return getAdapter().createTextPage(request)
+}
+export const moveTextPage = (request: MoveTextPageRequest) => {
+  logger.info("storage.move_text_page", {
+    projectId: request.projectId,
+    noteId: request.noteId,
+    operationId: request.operationId,
+  })
+  return getAdapter().moveTextPage(request)
+}
+export const listNoteReferences = (noteId: string) => getAdapter().listNoteReferences(noteId)
 export const listDatabases = () => getAdapter().listDatabases()
 export const getDatabaseNoteContext = (noteId: string) =>
   getAdapter().getDatabaseNoteContext(noteId)
@@ -544,3 +597,5 @@ export const deleteAiCredential = (credentialId: string): Promise<void> =>
   settingsRepository.deleteAiCredential(credentialId)
 export const inspectAiCredential = (credentialId: string): Promise<CredentialInfo> =>
   settingsRepository.inspectAiCredential(credentialId)
+
+export { joinStoragePath } from "./storage-path"

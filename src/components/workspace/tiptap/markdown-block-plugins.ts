@@ -114,17 +114,27 @@ function detectColumns(state: StateCore) {
       columnSetOpen.map = [sourceStart, sourceEnd]
     }
     out.push(columnSetOpen)
+    // A column keeps the source lines of its opening marker and of the marker that
+    // ends it, so blank lines at its start and end can be read as empty paragraphs.
+    const columnClose = (endingMarker: Token) => {
+      const close = new state.Token("column_close", "div", -1)
+      if (endingMarker.map) close.map = [endingMarker.map[0], endingMarker.map[1]]
+      return close
+    }
     let columnOpen = false
     for (let inner = index + 1; inner < end; inner++) {
       if (markerContent(tokens[inner]) === COLUMN_OPEN) {
-        if (columnOpen) out.push(new state.Token("column_close", "div", -1))
-        out.push(new state.Token("column_open", "div", 1))
+        if (columnOpen) out.push(columnClose(tokens[inner]))
+        const open = new state.Token("column_open", "div", 1)
+        const markerMap = tokens[inner].map
+        if (markerMap) open.map = [markerMap[0], markerMap[1]]
+        out.push(open)
         columnOpen = true
       } else if (columnOpen) {
         out.push(tokens[inner])
       }
     }
-    if (columnOpen) out.push(new state.Token("column_close", "div", -1))
+    if (columnOpen) out.push(columnClose(tokens[end]))
     out.push(new state.Token("column_set_close", "div", -1))
     index = end + 1
   }
@@ -140,6 +150,10 @@ function preserveEmptyParagraphs(state: StateCore) {
   const sourceLines = state.src.split(/\r?\n/u)
   let depth = 0
   let previousTopLevelEnd: number | null = null
+  // Inside a column the same rule applies: its first block follows the column marker
+  // and its last one precedes the next marker, so those gaps count as well.
+  let previousColumnEnd: number | null = null
+  let columnHasBlock = false
 
   function appendEmptyParagraphs(count: number) {
     for (let index = 0; index < count; index++) {
@@ -149,6 +163,35 @@ function preserveEmptyParagraphs(state: StateCore) {
   }
 
   for (const token of state.tokens) {
+    if (token.type === "column_open" && token.map) {
+      previousColumnEnd = token.map[1]
+      columnHasBlock = false
+    }
+    if (token.type === "column_close" && token.map && previousColumnEnd !== null) {
+      const blankLines = token.map[0] - previousColumnEnd
+      // A column with blocks: one blank line is the normal separator, the rest are
+      // empty paragraphs. A column with nothing in it has always been written as
+      // three blank lines (its one empty paragraph); each line beyond is one more.
+      appendEmptyParagraphs(
+        columnHasBlock ? Math.max(0, blankLines - 1) : Math.max(1, blankLines - 2),
+      )
+      previousColumnEnd = null
+    }
+    // Blocks directly inside a column: set (1) > column (2) > block.
+    const isColumnBlock =
+      previousColumnEnd !== null &&
+      depth === 2 &&
+      token.map &&
+      token.map[1] >= token.map[0] &&
+      (token.nesting === 1 || token.nesting === 0)
+    if (isColumnBlock) {
+      const [start, end] = token.map!
+      appendEmptyParagraphs(Math.max(0, start - previousColumnEnd! - 1))
+      let contentEnd = end
+      while (contentEnd > start && !(sourceLines[contentEnd - 1] ?? "").trim()) contentEnd--
+      previousColumnEnd = contentEnd
+      columnHasBlock = true
+    }
     const isTopLevelBlock =
       depth === 0 &&
       token.map &&
@@ -324,7 +367,11 @@ function detectTaskLists(state: StateCore) {
       inline.content = inline.content.slice(check.len)
       const first = inline.children?.[0]
       if (first && first.type === "text") {
-        first.content = first.content.replace(TASK_PREFIX_RE, "")
+        // Drop exactly the characters the raw prefix took: a space the user typed after it
+        // may arrive as a character reference and is text, not part of the prefix.
+        first.content = /^\[[ xX]\]/.test(first.content)
+          ? first.content.slice(check.len)
+          : first.content.replace(TASK_PREFIX_RE, "")
       }
     })
   }
@@ -342,6 +389,33 @@ function softbreaksToText(state: StateCore) {
         child.content = "\n"
       }
     }
+  }
+}
+
+// markdown-it trims the content of a paragraph and of an ATX heading, so spaces and
+// tabs at the end of its last line never reach the document, while the serializer
+// writes text as it is. A space typed at the end of a paragraph therefore could not be
+// read back and the note was treated as lossy. Put the stripped whitespace back as
+// plain text: the bytes round-trip and nothing is trimmed in the user's file. A
+// rendered paragraph is unchanged, because renderers ignore trailing spaces.
+function preserveTrailingWhitespace(state: StateCore) {
+  const lines = state.src.split("\n")
+  const tokens = state.tokens
+  for (let index = 1; index < tokens.length; index++) {
+    const inline = tokens[index]
+    if (inline.type !== "inline" || !inline.children?.length) continue
+    const open = tokens[index - 1]
+    const isParagraph = open.type === "paragraph_open"
+    const isAtxHeading = open.type === "heading_open" && open.markup.startsWith("#")
+    if ((!isParagraph && !isAtxHeading) || !open.map) continue
+    // Anything this puts back that the file does not hold in exactly that form
+    // (a closing `#` run, a lazy continuation) still fails the round-trip check
+    // and keeps the note in Source mode.
+    const trailing = /[ \t]+$/u.exec(lines[open.map[1] - 1] ?? "")?.[0]
+    if (!trailing) continue
+    const text = new state.Token("text", "", 0)
+    text.content = trailing
+    inline.children.push(text)
   }
 }
 
@@ -365,4 +439,5 @@ function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.core.ruler.push("amby_transclusions", detectTransclusions)
   md.core.ruler.push("amby_math_blocks", detectMathBlocks)
   md.core.ruler.push("amby_softbreaks", softbreaksToText)
+  md.core.ruler.push("amby_trailing_whitespace", preserveTrailingWhitespace)
 }

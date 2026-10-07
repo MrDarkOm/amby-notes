@@ -105,55 +105,56 @@ mod tests {
 
 #[cfg(target_os = "macos")]
 fn move_path(path: &Path) -> Result<(), String> {
+    // The system call first: it needs neither Finder nor the Automation permission and
+    // reports why it failed. Finder remains a second try, and the error that comes back
+    // names both reasons, so a failure can be understood instead of guessed.
+    let direct = trash_with_file_manager(path);
+    let Err(direct_error) = direct else {
+        return Ok(());
+    };
+    match trash_with_finder(path) {
+        Ok(()) => Ok(()),
+        Err(finder_error) => {
+            let message = format!(
+                "Could not move {} to the system Trash: {direct_error}; Finder: {finder_error}",
+                path_string(path)
+            );
+            tracing::warn!(event = "system_trash_failed", path = %path.display(), error = %message);
+            Err(message)
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn trash_with_file_manager(path: &Path) -> Result<(), String> {
+    use objc2_foundation::{NSFileManager, NSString, NSURL};
+
+    let text = NSString::from_str(&path.to_string_lossy());
+    let url = NSURL::fileURLWithPath(&text);
+    NSFileManager::defaultManager()
+        .trashItemAtURL_resultingItemURL_error(&url, None)
+        .map_err(|error| error.localizedDescription().to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn trash_with_finder(path: &Path) -> Result<(), String> {
     let path_text = path.to_string_lossy().into_owned();
     let script = r#"on run argv
 tell application "Finder" to delete (POSIX file (item 1 of argv) as alias)
 end run"#;
-    let status = std::process::Command::new("osascript")
+    let output = std::process::Command::new("osascript")
         .args(["-e", script, &path_text])
-        .status();
-    if let Ok(s) = status {
-        if s.success() {
-            return Ok(());
-        }
-    }
-
-    if let Ok(home) = std::env::var("HOME") {
-        let trash_dir = Path::new(&home).join(".Trash");
-        if trash_dir.exists() {
-            if let Some(file_name) = path.file_name() {
-                let mut target = trash_dir.join(file_name);
-                let mut counter = 1;
-                while target.exists() {
-                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
-                    let ext = path
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .map(|e| format!(".{e}"))
-                        .unwrap_or_default();
-                    target = trash_dir.join(format!("{stem} {counter}{ext}"));
-                    counter += 1;
-                }
-                if std::fs::rename(path, &target).is_ok() {
-                    return Ok(());
-                }
-            }
-        }
-    }
-
-    if cfg!(test) {
-        if path.is_dir() {
-            let _ = std::fs::remove_dir_all(path);
-        } else {
-            let _ = std::fs::remove_file(path);
-        }
+        .output()
+        .map_err(|error| error.to_string())?;
+    if output.status.success() {
         return Ok(());
     }
-
-    Err(format!(
-        "Could not move {} to the system Trash",
-        path_string(path)
-    ))
+    let reason = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    Err(if reason.is_empty() {
+        format!("osascript exited with {}", output.status)
+    } else {
+        reason
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -179,4 +180,29 @@ fn move_path(path: &Path) -> Result<(), String> {
         "Moving {} to the system Trash is not supported on this platform",
         path_string(path)
     ))
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod macos_tests {
+    use super::{trash_with_file_manager, trash_with_finder};
+
+    #[test]
+    fn missing_item_reports_why_instead_of_failing_silently() {
+        let missing = std::env::temp_dir().join("amby-trash-missing-item.md");
+        let direct = trash_with_file_manager(&missing).unwrap_err();
+        assert!(!direct.trim().is_empty());
+        let finder = trash_with_finder(&missing).unwrap_err();
+        assert!(!finder.trim().is_empty());
+    }
+
+    #[test]
+    fn file_manager_moves_a_file_with_a_non_ascii_name_without_finder() {
+        let dir = std::env::temp_dir().join(format!("amby-trash-{}", ulid::Ulid::generate()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("Тест файл.md");
+        std::fs::write(&file, "x").unwrap();
+        trash_with_file_manager(&file).unwrap();
+        assert!(!file.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

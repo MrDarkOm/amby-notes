@@ -18,6 +18,8 @@ export interface EditorHandle {
   flush: () => void
   getMarkdownSelection: () => { from: number; to: number } | null
   focus?: (position?: "start" | "end") => void
+  /** Put the cursor on the line nearest to a click in the empty page (viewport coordinates). */
+  focusAtPoint?: (x: number, y: number) => void
 }
 
 export function clamp(value: number, min: number, max: number) {

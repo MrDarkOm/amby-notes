@@ -1,4 +1,4 @@
-import type { Editor } from "@tiptap/core"
+import type { Editor, Range } from "@tiptap/core"
 import {
   AtSign,
   CheckSquare,
@@ -18,6 +18,7 @@ import {
   MessageSquare,
   Minus,
   Table2,
+  DatabaseZap,
   Paperclip,
   Pilcrow,
   Quote,
@@ -29,6 +30,10 @@ import { CALLOUT_DEFAULTS } from "./callout-node"
 import { newBlockId } from "./amby-block-node"
 import { importImageFromClipboard } from "./media-drop"
 import { importAsset, pickAssetFile } from "@/lib/storage"
+import type { DatabaseViewChoice } from "@/components/workspace/database/database-view-picker-model"
+import { useDatabaseStore } from "@/components/workspace/database/database-store"
+import { newLinkedBlock, stringifyLinkedBlock } from "@/components/workspace/database/linked-block"
+import { viewFromChoice } from "@/components/workspace/database/linked-view-factory"
 
 export type BlockItemCategory = "text" | "list" | "media" | "embed"
 export type BlockItemSurface = "plus" | "slash" | "turn-into"
@@ -40,6 +45,8 @@ export interface BlockMediaContext {
   requestUrlInput?: () => void
   /** Panel-provided overlay: request emoji-picker mode. */
   requestEmojiPicker?: () => void
+  /** Panel-provided overlay: request the database view picker. */
+  requestDatabasePicker?: () => void
 }
 
 export interface BlockInsertItem {
@@ -335,6 +342,19 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
         .run(),
   },
   {
+    id: "database-view",
+    icon: DatabaseZap,
+    category: "embed",
+    availableIn: PLUS_SLASH,
+    // The panel owns the picker; the block is inserted by `insertDatabaseView`.
+    insertAfter: (_e, _pos, ctx) => {
+      ctx?.requestDatabasePicker?.()
+    },
+    inline: (_e, ctx) => {
+      ctx?.requestDatabasePicker?.()
+    },
+  },
+  {
     id: "blockquote",
     icon: Quote,
     category: "text",
@@ -512,8 +532,35 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
   },
 ]
 
+/**
+ * Inserts a database shortcut at the selection: one tab on the chosen database,
+ * shown as chosen, with a private copy of the saved view's settings if one was
+ * chosen. The slash text goes away together with the insertion, so a cancelled
+ * picker leaves the note as it was.
+ */
+export async function insertDatabaseView(
+  editor: Editor,
+  choice: DatabaseViewChoice,
+  range?: Range,
+) {
+  const { databases, vaultGeneration } = useDatabaseStore.getState()
+  const database = databases.find((candidate) => candidate.databaseId === choice.databaseId)
+  if (!database) return
+  const view = await viewFromChoice(choice, database, vaultGeneration)
+  if (editor.isDestroyed) return
+  const chain = editor.chain().focus()
+  if (range) chain.deleteRange(range)
+  chain
+    .insertContent({
+      type: "ambyBlock",
+      attrs: { blockType: "db", blockId: stringifyLinkedBlock(newLinkedBlock(view)) },
+    })
+    .run()
+}
+
 const TURN_INTO_BLACKLIST = new Set([
   "divider",
+  "database-view",
   "image-local",
   "image-clipboard",
   "image-url",

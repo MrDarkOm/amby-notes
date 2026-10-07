@@ -275,7 +275,7 @@ function DatabasePropertyRow({
         dragging && "z-10 rounded-md bg-background/95 shadow-sm",
       )}
     >
-      <div className="group/property flex min-h-8 min-w-0 items-center gap-1 rounded-md px-1 py-0.5 hover:bg-accent/60 focus-within:bg-accent/60">
+      <div className="group/property flex min-h-8 min-w-0 items-center gap-1 rounded-md px-1 py-0.5 hover:bg-accent/60 has-[:focus-visible]:bg-accent/60">
         <PropertyDragIcon
           icon={
             <IconValue
@@ -383,7 +383,7 @@ function DatabaseSchemaRow({
         dragging && "z-10 rounded-md bg-background/95 shadow-sm",
       )}
     >
-      <div className="group/property flex min-h-8 min-w-0 items-center gap-1 rounded-md px-1 py-0.5 hover:bg-accent/60 focus-within:bg-accent/60">
+      <div className="group/property flex min-h-8 min-w-0 items-center gap-1 rounded-md px-1 py-0.5 hover:bg-accent/60 has-[:focus-visible]:bg-accent/60">
         <PropertyDragIcon
           icon={
             <IconValue
@@ -535,7 +535,7 @@ function PropertyRow({
         dragging && "z-10 rounded-md bg-background/95 shadow-sm",
       )}
     >
-      <div className="group/property flex min-h-8 min-w-0 items-center gap-1 rounded-md px-1 py-0.5 hover:bg-accent/60 focus-within:bg-accent/60">
+      <div className="group/property flex min-h-8 min-w-0 items-center gap-1 rounded-md px-1 py-0.5 hover:bg-accent/60 has-[:focus-visible]:bg-accent/60">
         <PropertyDragIcon
           icon={
             <IconValue

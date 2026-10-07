@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { DatabasePropertySummary } from "@/lib/storage"
 import {
   OPTION_COLORS,
+  applyDraftPatch,
   draftsChanged,
   draftsFromProperty,
   draftsToInputs,
@@ -43,6 +44,25 @@ describe("option drafts", () => {
     expect(drafts.every((draft) => draft.group === "notStarted")).toBe(true)
   })
 
+  it("reads the default options and lets only one of them be the default of a Select", () => {
+    const withDefault = {
+      ...status,
+      configJson: JSON.stringify({
+        options: [
+          { id: "a", name: "Todo", color: "#94a3b8", group: "notStarted" },
+          { id: "b", name: "Doing", color: "#f59e0b", group: "inProgress" },
+        ],
+        defaultOptionIds: ["a"],
+      }),
+    }
+    const drafts = draftsFromProperty(withDefault)
+    expect(drafts.map((draft) => draft.isDefault)).toEqual([true, false, false])
+    const moved = applyDraftPatch(drafts, "b", { isDefault: true }, false)
+    expect(moved.map((draft) => draft.isDefault)).toEqual([false, true, false])
+    const several = applyDraftPatch(drafts, "b", { isDefault: true }, true)
+    expect(several.map((draft) => draft.isDefault)).toEqual([true, true, false])
+  })
+
   it("sends groups only for a status and keeps IDs", () => {
     const drafts = draftsFromProperty(status)
     expect(draftsToInputs(drafts, true)[1]).toEqual({
@@ -50,6 +70,7 @@ describe("option drafts", () => {
       name: "Doing",
       color: "#f59e0b",
       group: "inProgress",
+      isDefault: false,
     })
     expect(draftsToInputs(drafts, false)[1].group).toBeNull()
   })

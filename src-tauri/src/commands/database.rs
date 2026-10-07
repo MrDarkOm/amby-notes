@@ -33,7 +33,9 @@ use crate::database::relation_lookup::{
     SearchRelationCandidatesRequest,
 };
 use crate::database::rollup_config::{ConfigureDatabaseRollupRequest, ConfiguredDatabaseRollup};
-use crate::database::rows::{CreateDatabaseRowRequest, CreatedDatabaseRow};
+use crate::database::rows::{
+    CreateDatabaseRowRequest, CreatedDatabaseRow, DuplicateDatabaseRowRequest,
+};
 use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::database::yaml_sync::{
     DatabaseYamlResolveRequest, DatabaseYamlSyncRequest, DatabaseYamlSyncResult,
@@ -1081,6 +1083,71 @@ pub fn create_database_row(
         event = "create_database_row",
         database_id = %request.database_id,
         title = %request.title,
+        row_id = %created.note_id,
+    );
+    Ok(created)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn duplicate_database_row(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: DuplicateDatabaseRowRequest,
+) -> Result<CreatedDatabaseRow, DatabaseError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let actual_generation = active_generation(&context).ok_or(DatabaseError::VaultNotOpen)?;
+    if actual_generation != request.expected_generation {
+        return Err(DatabaseError::VaultGenerationConflict { actual_generation });
+    }
+    if !runtime.state(Some(actual_generation)).enabled {
+        return Err(DatabaseError::ModuleDisabled);
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(DatabaseError::VaultNotOpen)?;
+    let mut created =
+        crate::database::rows::duplicate_database_row(&active.root, &watcher, &request).map_err(
+            |message| DatabaseError::Failed {
+                code: "databaseRowDuplicateFailed".to_owned(),
+                message,
+            },
+        )?;
+    if let Err(error) = crate::database::rows::index_created_database_row(
+        &active.connection,
+        &active.root,
+        &created,
+    ) {
+        tracing::warn!(event = "database_row_index_update_failed", %error);
+        active
+            .index_health
+            .set(crate::model::IndexState::RebuildRequired);
+        created
+            .warnings
+            .push("Note index rebuild required".to_owned());
+    }
+    match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
+    {
+        Ok(report) => {
+            runtime.set_projection(
+                actual_generation,
+                Some(crate::database::model::ProjectionVersion {
+                    epoch: report.epoch,
+                    seq: report.seq,
+                }),
+            );
+        }
+        Err(error) => {
+            tracing::warn!(event = "database_projection_rebuild_failed", %error);
+            created
+                .warnings
+                .push("Projection rebuild required".to_owned());
+        }
+    }
+    tracing::info!(
+        event = "duplicate_database_row",
+        database_id = %request.database_id,
+        source_row_id = %request.note_id,
         row_id = %created.note_id,
     );
     Ok(created)

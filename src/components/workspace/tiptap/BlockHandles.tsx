@@ -29,6 +29,7 @@ const DRAGGABLE_TYPES = new Set([
   "horizontalRule",
   "image",
   "table",
+  "ambyBlock",
 ])
 
 function findDraggableAncestor(
@@ -55,6 +56,25 @@ function findDraggableAncestor(
     return { pos: $pos.pos, depth: 1, node: $pos.nodeAfter }
   }
   return null
+}
+
+/**
+ * Draggable block under a `posAtCoords` result. A block atom (a database block)
+ * reports its own position as `inside`; `pos` is only the edge before or after it,
+ * and resolving that edge would hand the handle to the neighbouring block.
+ */
+function findDraggableAtCoords(
+  doc: PMNode,
+  hit: { pos: number; inside: number },
+): { pos: number; depth: number; node: PMNode } | null {
+  if (hit.inside >= 0) {
+    const node = doc.nodeAt(hit.inside)
+    if (node?.isBlock && node.isAtom && DRAGGABLE_TYPES.has(node.type.name)) {
+      return { pos: hit.inside, depth: doc.resolve(hit.inside).depth + 1, node }
+    }
+  }
+  const safe = Math.min(Math.max(hit.pos, 0), Math.max(0, doc.content.size - 1))
+  return findDraggableAncestor(doc.resolve(safe))
 }
 
 function findScrollAncestor(el: HTMLElement): HTMLElement {
@@ -93,6 +113,10 @@ interface DragRowTarget {
 }
 
 interface ColumnGeometry {
+  /** The last column of its set: the empty page to its right still belongs to it. */
+  isLast: boolean
+  /** The first column of its set: so does the empty page to its left. */
+  isFirst: boolean
   columnRect: DOMRect
   contentRect: DOMRect
   blocks: Array<{ element: HTMLElement; rect: DOMRect }>
@@ -104,6 +128,9 @@ const GUTTER_GAP = 12
 // The mouse target is wider than the visible button so the affordance can be
 // discovered before the cursor reaches the text column.
 const GUTTER_HIT_SLOP = 48
+// A column's handle sits left of its content, outside the column box; the hover zone
+// must cover the whole handle and the way to it.
+const COLUMN_GUTTER = HANDLE_WIDTH + 18
 
 interface BlockHandlesProps {
   editor: Editor
@@ -148,6 +175,10 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   const mouseInsideWidgetRef = React.useRef(false)
   const hideTimerRef = React.useRef<number | null>(null)
   const rafRef = React.useRef<number | null>(null)
+  // Set while the user types: where the pointer was. The handle stays hidden until the
+  // pointer really moves away from it (a reflow under a still pointer does not count).
+  const typingRef = React.useRef<{ x: number; y: number } | null>(null)
+  const pointerRef = React.useRef({ x: 0, y: 0 })
   const lastMoveRef = React.useRef<{ x: number; y: number } | null>(null)
   const widgetEnterRef = React.useRef<(() => void) | null>(null)
   const widgetLeaveRef = React.useRef<(() => void) | null>(null)
@@ -177,6 +208,11 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       return
     }
     if (dragRef.current.active) return
+    // Typing hides the handle, and skips the layout reads below on every keystroke.
+    if (typingRef.current && !pinnedTargetRef.current) {
+      setHandle((h) => (h.visible ? { ...h, visible: false } : h))
+      return
+    }
 
     const { state, view } = editor
     editorGeometryRef.current = {
@@ -185,17 +221,9 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     }
 
     const mouseOver = mouseInsideEditorRef.current || mouseInsideWidgetRef.current
-    const selectionTarget = view.hasFocus() ? findDraggableAncestor(state.selection.$from) : null
-    const target =
-      pinnedTargetRef.current ??
-      (mouseOver ? hoverTargetRef.current : null) ??
-      (selectionTarget
-        ? {
-            mode: "block" as const,
-            nodePos: selectionTarget.pos,
-            nodeType: selectionTarget.node.type.name,
-          }
-        : null)
+    // The handle follows the pointer (or a pinned menu), never the caret: with the
+    // pointer gone it must not stay behind on the line being edited.
+    const target = pinnedTargetRef.current ?? (mouseOver ? hoverTargetRef.current : null)
     if (!target) {
       setHandle((h) => (h.visible ? { ...h, visible: false } : h))
       return
@@ -334,6 +362,8 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           .filter((child): child is HTMLElement => child instanceof HTMLElement)
           .map((element) => ({ element, rect: element.getBoundingClientRect() }))
         geometry.push({
+          isLast: !column.nextElementSibling?.classList.contains("amby-column"),
+          isFirst: !column.previousElementSibling?.classList.contains("amby-column"),
           columnRect: column.getBoundingClientRect(),
           contentRect: content.getBoundingClientRect(),
           blocks,
@@ -410,7 +440,16 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         if (mouseInsideEditorRef.current || mouseInsideWidgetRef.current) return
         hoverTargetRef.current = null
         applyVisibility()
-      }, 260)
+      }, 120)
+    }
+
+    // The pointer is over the editor but on nothing grabbable: drop the handle now, not
+    // after the leave timer, which never fires while the pointer is still inside.
+    const dropHover = () => {
+      cancelHide()
+      if (!hoverTargetRef.current) return
+      hoverTargetRef.current = null
+      applyVisibility()
     }
 
     const setHoverTarget = (next: HoverTarget | null) => {
@@ -437,7 +476,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         if (y < columnRect.top || y > columnRect.bottom) continue
         // The divider, resize hit area and grab gutter are outside the actual
         // text DOM. Project that whole strip onto the content for posAtCoords.
-        if (x >= columnRect.left - 16 && x <= contentRect.left + 24) {
+        if (x >= columnRect.left - COLUMN_GUTTER && x <= contentRect.left + 24) {
           return contentRect.left + 2
         }
       }
@@ -449,23 +488,35 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       y: number,
       geometry: ColumnGeometry[] = readColumnGeometry(),
     ): HoverTarget | null => {
-      for (const { columnRect, blocks } of geometry) {
+      for (const { columnRect, blocks, isLast, isFirst } of geometry) {
         if (
           y < columnRect.top ||
           y > columnRect.bottom ||
-          x < columnRect.left - 16 ||
-          x > columnRect.right
+          (x < columnRect.left - COLUMN_GUTTER && !isFirst) ||
+          (x > columnRect.right && !isLast)
         )
           continue
-        const block =
-          blocks.find((child) => {
-            return y >= child.rect.top && y <= child.rect.bottom
-          }) ?? (blocks.length === 1 ? blocks[0] : undefined)
+        // The block under the pointer, else the nearest one in the column by height.
+        let block: (typeof blocks)[number] | undefined
+        let nearest = Infinity
+        for (const child of blocks) {
+          const distance = Math.max(child.rect.top - y, y - child.rect.bottom, 0)
+          if (distance < nearest) {
+            nearest = distance
+            block = child
+          }
+        }
         if (!block) continue
         try {
           const domPos = view.posAtDOM(block.element, 0)
+          // A block without text (a database) starts right at this position; a text block
+          // is found through its content.
+          const atBlock = view.state.doc.nodeAt(domPos)
           const safe = Math.min(Math.max(domPos, 0), Math.max(0, view.state.doc.content.size - 1))
-          const target = findDraggableAncestor(view.state.doc.resolve(safe))
+          const target =
+            atBlock?.isBlock && atBlock.isAtom && DRAGGABLE_TYPES.has(atBlock.type.name)
+              ? { pos: domPos, depth: view.state.doc.resolve(domPos).depth + 1, node: atBlock }
+              : findDraggableAncestor(view.state.doc.resolve(safe))
           if (target) {
             return {
               mode: "block",
@@ -494,25 +545,37 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         return
       }
       columnGutterRef.current = false
+      // Below the last block (or above the first) there is no line to grab; the nearest
+      // block would otherwise keep its handle while the pointer rests in empty space.
+      const first = editorDom.firstElementChild
+      const last = editorDom.lastElementChild
+      if (
+        first &&
+        last &&
+        (y < first.getBoundingClientRect().top - 4 || y > last.getBoundingClientRect().bottom + 4)
+      ) {
+        dropHover()
+        return
+      }
       const editorRect = view.dom.getBoundingClientRect()
       const paddingLeft = parseFloat(window.getComputedStyle(view.dom).paddingLeft) || 12
       const contentLeft = editorRect.left + paddingLeft
       const withinGutter =
         x >= contentLeft - HANDLE_WIDTH - GUTTER_GAP - GUTTER_HIT_SLOP && x <= contentLeft + 24
       const localColumnX = projectedColumnX(x, y, geometry)
+      // Beside the editor (the page margin) the row's text is found at the content edge.
+      const besideEditor = x < editorRect.left || x > editorRect.right
       const pos = view.posAtCoords({
-        left: localColumnX ?? (withinGutter ? contentLeft + 1 : x),
+        left: localColumnX ?? (withinGutter || besideEditor ? contentLeft + 1 : x),
         top: y,
       })
       if (!pos) {
-        scheduleHideIfNeeded()
+        dropHover()
         return
       }
-      const safe = Math.min(Math.max(pos.pos, 0), Math.max(0, view.state.doc.content.size - 1))
-      const $pos = view.state.doc.resolve(safe)
-      const target = findDraggableAncestor($pos)
+      const target = findDraggableAtCoords(view.state.doc, pos)
       if (!target) {
-        scheduleHideIfNeeded()
+        dropHover()
         return
       }
       setHoverTarget({
@@ -522,8 +585,19 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       })
     }
 
+    // True while the pointer still sits where it was when typing began.
+    const stillAfterTyping = (e: MouseEvent) => {
+      const point = typingRef.current
+      if (!point) return false
+      if (Math.hypot(e.clientX - point.x, e.clientY - point.y) < 4) return true
+      typingRef.current = null
+      return false
+    }
+
     const onMouseMove = (e: MouseEvent) => {
+      pointerRef.current = { x: e.clientX, y: e.clientY }
       if (pinnedTargetRef.current) return
+      if (stillAfterTyping(e)) return
       if ((e.target as HTMLElement).closest(".amby-live-wikilink-button")) {
         setHoverTarget(null)
         return
@@ -542,6 +616,13 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     // can reveal the controls before the pointer crosses the block edge.
     const columnGutterRef = { current: false }
     const onDocumentMouseMove = (e: MouseEvent) => {
+      pointerRef.current = { x: e.clientX, y: e.clientY }
+      // On the handle itself the block it belongs to stays; nothing under it is "hovered".
+      if ((e.target as Element | null)?.closest?.(".amby-block-handles")) {
+        cancelHide()
+        return
+      }
+      if (!pinnedTargetRef.current && stillAfterTyping(e)) return
       if (isEditorSurfaceHidden()) {
         mouseInsideEditorRef.current = false
         hoverTargetRef.current = null
@@ -575,8 +656,16 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       // Geometry is read by the RAF-coalesced recompute path. Reuse its last
       // classification here so document-level mousemove stays read-free.
       const inColumnGutter = columnGutterRef.current
+      // The empty page beside the text: no block there, so the one on the same row.
+      const target = e.target as Node
+      const inSideBand =
+        target.contains(editorDom) &&
+        target !== editorDom &&
+        Boolean(geometryContainer?.contains(target)) &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom
 
-      if (inExtendedGutter || inColumnGutter) {
+      if (inExtendedGutter || inColumnGutter || inSideBand) {
         mouseInsideEditorRef.current = true
         cancelHide()
         onMouseMove(e)
@@ -604,8 +693,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       if ((e.target as HTMLElement).closest(".amby-live-wikilink-button")) return
       const pos = view.posAtCoords({ left: e.clientX, top: e.clientY })
       if (!pos) return
-      const safe = Math.min(Math.max(pos.pos, 0), Math.max(0, view.state.doc.content.size - 1))
-      const target = findDraggableAncestor(view.state.doc.resolve(safe))
+      const target = findDraggableAtCoords(view.state.doc, pos)
       if (!target) return
 
       e.preventDefault()
@@ -640,6 +728,27 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       if (e.button === 2 || (e.button === 0 && e.ctrlKey)) e.preventDefault()
     }
 
+    const onEditorKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const edits =
+        e.key.length === 1 ||
+        e.key === "Backspace" ||
+        e.key === "Delete" ||
+        e.key === "Enter" ||
+        e.key === "Process" ||
+        e.isComposing
+      if (!edits) return
+      if (!typingRef.current) typingRef.current = { ...pointerRef.current }
+      hoverTargetRef.current = null
+      applyVisibility()
+    }
+    // A click is a deliberate act: the handle may come back for the clicked block.
+    const onEditorMouseDown = () => {
+      typingRef.current = null
+    }
+
+    editorDom.addEventListener("keydown", onEditorKeyDown)
+    editorDom.addEventListener("mousedown", onEditorMouseDown)
     editorDom.addEventListener("mousedown", onEditorMouseDownCapture, true)
     editorDom.addEventListener("mousemove", onMouseMove)
     editorDom.addEventListener("mouseenter", onEditorEnter)
@@ -673,6 +782,8 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       window.removeEventListener("resize", onChange)
       geometryObserver?.disconnect()
       visibilityObserver?.disconnect()
+      editorDom.removeEventListener("keydown", onEditorKeyDown)
+      editorDom.removeEventListener("mousedown", onEditorMouseDown)
       editorDom.removeEventListener("mousedown", onEditorMouseDownCapture, true)
       editorDom.removeEventListener("mousemove", onMouseMove)
       editorDom.removeEventListener("mouseenter", onEditorEnter)

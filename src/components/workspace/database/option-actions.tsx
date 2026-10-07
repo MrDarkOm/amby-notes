@@ -1,4 +1,5 @@
 import * as React from "react"
+import type { OptionDraft } from "./option-model"
 
 /**
  * Schema edits that cells can trigger on the property they show. Provided by
@@ -12,8 +13,13 @@ export interface OptionActions {
    * the option could not be saved (the owner shows the error).
    */
   createOption: (propertyId: string, name: string) => Promise<string | null>
-  /** Opens the options editor of the property. */
-  editOptions: (propertyId: string) => void
+  /**
+   * Saves the whole option list of the property (rename, color, order, removal) and resolves once
+   * it shows. Rejects with the reason, which the editor shows.
+   */
+  saveOptions: (propertyId: string, drafts: OptionDraft[]) => Promise<void>
+  /** Gives an option (a board column) another colour. */
+  setOptionColor?: (propertyId: string, optionId: string, hex: string) => Promise<void>
 }
 
 const OptionActionsContext = React.createContext<OptionActions | null>(null)

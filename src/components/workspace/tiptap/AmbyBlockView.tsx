@@ -4,11 +4,11 @@ import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
 import { Database, Plus, X } from "lucide-react"
 
 import { loadVaultJSON, saveVaultJSON } from "@/lib/storage"
-import { DatabaseViewHost } from "@/components/workspace/database/database-view-host"
+import { LinkedDatabase } from "@/components/workspace/database/linked-database"
 import {
-  parseDatabaseLinkedReference,
-  serializeDatabaseLinkedReference,
-} from "@/components/workspace/database/linked-reference"
+  parseLinkedBlock,
+  serializeLinkedBlock,
+} from "@/components/workspace/database/linked-block"
 import { getAssetContext } from "./asset-resolver"
 
 /** On-disk shape of a `db` block's sidecar (`.amby/blocks/<id>.json`). */
@@ -39,25 +39,64 @@ function normalize(d: Partial<DbData> | null): DbData {
   return { columns, rows }
 }
 
+/**
+ * Whether the note can be edited, followed live. A node view does not re-render
+ * when the editor becomes editable after it was drawn (the note finishes loading,
+ * Read switches to Live), so reading `editor.isEditable` once would leave the block
+ * locked until the next click in the text.
+ */
+function useEditorEditable(editor: NodeViewProps["editor"]): boolean {
+  return React.useSyncExternalStore(
+    (notify) => {
+      editor.on("update", notify)
+      editor.on("transaction", notify)
+      return () => {
+        editor.off("update", notify)
+        editor.off("transaction", notify)
+      }
+    },
+    () => editor.isEditable,
+  )
+}
+
 export function AmbyBlockView(props: NodeViewProps) {
+  const editable = useEditorEditable(props.editor)
   const blockType = props.node.attrs.blockType as string
   const blockId = props.node.attrs.blockId as string
-  const linkedReference = blockType === "db" ? parseDatabaseLinkedReference(blockId) : null
-  if (linkedReference) {
+  const linked = blockType === "db" ? parseLinkedBlock(blockId) : null
+  if (linked) {
+    // Tiptap needs its wrapper as the root of every node view; without it
+    // ProseMirror throws on mutations and when the note is switched away.
     return (
-      <DatabaseViewHost
-        reference={linkedReference.value}
-        noteId={getAssetContext(props.editor)?.noteId}
-        editable={props.editor.isEditable}
-        onReferenceChange={(next) =>
-          props.updateAttributes({
-            blockId: serializeDatabaseLinkedReference(linkedReference, next),
-          })
-        }
-      />
+      <NodeViewWrapper className="amby-db-block" data-block-type="db" contentEditable={false}>
+        <LinkedDatabase
+          block={linked.block}
+          noteId={getAssetContext(props.editor)?.noteId}
+          editable={editable}
+          onBlockChange={(next) =>
+            props.updateAttributes({ blockId: serializeLinkedBlock(linked, next) })
+          }
+        />
+      </NodeViewWrapper>
     )
   }
+  if (blockType === "db" && blockId.trimStart().startsWith("{")) {
+    return <UnsupportedAmbyBlockView />
+  }
   return <LegacyAmbyBlockView {...props} />
+}
+
+/** A block this version cannot read: shown as is and never rewritten. */
+function UnsupportedAmbyBlockView() {
+  const { t } = useTranslation()
+  return (
+    <NodeViewWrapper
+      className="amby-db-block my-2 rounded-lg border border-dashed border-border px-3 py-3 text-xs text-muted-foreground"
+      contentEditable={false}
+    >
+      {t("databaseLinkedView.unsupported")}
+    </NodeViewWrapper>
+  )
 }
 
 function LegacyAmbyBlockView({ node, editor }: NodeViewProps) {

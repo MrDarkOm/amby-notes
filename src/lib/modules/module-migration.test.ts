@@ -18,6 +18,8 @@ describe("Module ID mappings", () => {
 
     expect(toCanonicalModuleId("excalidraw")).toBe("amby.excalidraw")
     expect(toCanonicalModuleId("canvas")).toBe("amby.canvas")
+    expect(toCanonicalModuleId("creative")).toBe("amby.creative")
+    expect(toShortModuleId("amby.creative")).toBe("creative")
   })
 })
 

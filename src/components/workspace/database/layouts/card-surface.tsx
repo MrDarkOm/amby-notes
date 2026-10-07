@@ -14,6 +14,8 @@ interface CardSurfaceProps extends Omit<React.HTMLAttributes<HTMLDivElement>, Co
   lift?: boolean
   /** Place in the list: set it and the card enters with a fade and rise. */
   enterIndex?: number
+  /** Where the card sits while a row of the list is dragged; set, it replaces the entrance. */
+  shift?: { y: number; instant: boolean }
 }
 
 /**
@@ -29,6 +31,7 @@ export function CardSurface({
   children,
   lift = false,
   enterIndex,
+  shift,
   ...rest
 }: CardSurfaceProps) {
   const enter = cardEnter(enterIndex)
@@ -40,11 +43,17 @@ export function CardSurface({
       aria-disabled={disabled || undefined}
       variants={lift ? liftVariants : { rest: {}, hover: {} }}
       initial={enter.initial === false ? "rest" : { ...enter.initial }}
-      animate={enter.initial === false ? undefined : enter.animate}
+      animate={
+        shift ? { y: shift.y, opacity: 1 } : enter.initial === false ? undefined : enter.animate
+      }
       whileHover={disabled ? undefined : "hover"}
       whileTap={lift && !disabled ? { scale: 0.992 } : undefined}
       transition={
-        enter.initial === false ? motionTransition(motionTransitions.fast) : enter.transition
+        shift
+          ? motionTransition(shift.instant ? motionTransitions.instant : motionTransitions.reorder)
+          : enter.initial === false
+            ? motionTransition(motionTransitions.fast)
+            : enter.transition
       }
       onClick={disabled ? undefined : onOpen}
       onKeyDown={(event) => {

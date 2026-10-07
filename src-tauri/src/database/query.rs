@@ -26,6 +26,9 @@ const MAX_PAGE_SIZE: u32 = 200;
 const MAX_FILTER_DEPTH: usize = 32;
 const MAX_FILTER_CONDITIONS: usize = 256;
 const MAX_OPERAND_BYTES: usize = 64 * 1024;
+const MAX_MANUAL_ORDER: usize = 100_000;
+/// Rank of a row nobody placed: after every placed row.
+const MANUAL_RANK_LAST: i64 = i64::MAX;
 
 #[derive(Debug)]
 pub struct QueryFailure {
@@ -62,7 +65,8 @@ impl SortKey {
 struct SortPlan {
     expression: String,
     join_sql: String,
-    property_id: Option<String>,
+    /// The one bind parameter of `join_sql`, in join order.
+    binding: Option<Value>,
     direction: &'static str,
     nulls: &'static str,
 }
@@ -174,7 +178,18 @@ pub fn query_database(
         .as_deref()
         .map(|value| decode_cursor(value, &projection, &query_hash))
         .transpose()?;
-    let sorts = sort_plans(conn, &request.database_id, &view_spec.sorts)?;
+    let mut sorts = sort_plans(conn, &request.database_id, &view_spec.sorts)?;
+    let ordered_by_hand = match &request.source {
+        DatabaseQuerySource::Inline { .. } => {
+            request.sorts.as_ref().is_none_or(|sorts| sorts.is_empty())
+        }
+        DatabaseQuerySource::SavedView { .. } => view_spec.sorts.is_empty(),
+    };
+    if ordered_by_hand {
+        if let Some(plan) = manual_order_plan(request.manual_order.as_deref())? {
+            sorts.insert(0, plan);
+        }
+    }
     if cursor
         .as_ref()
         .is_some_and(|cursor| cursor.last_sort_keys.len() != sorts.len())
@@ -187,7 +202,7 @@ pub fn query_database(
 
     let mut bindings = sorts
         .iter()
-        .filter_map(|sort| sort.property_id.as_ref().map(|id| Value::Text(id.clone())))
+        .filter_map(|sort| sort.binding.clone())
         .collect::<Vec<_>>();
     bindings.push(Value::Text(request.database_id.clone()));
     let filter_sql = if let Some(filter) = &view_spec.filter {
@@ -675,7 +690,7 @@ fn sort_plans(
         return Ok(vec![SortPlan {
             expression: "m.title_sort_key".to_owned(),
             join_sql: String::new(),
-            property_id: None,
+            binding: None,
             direction: "asc",
             nulls: "last",
         }]);
@@ -685,6 +700,29 @@ fn sort_plans(
         .enumerate()
         .map(|(index, sort)| sort_plan(conn, database_id, sort, index))
         .collect()
+}
+
+/// Rows the user placed by hand come first, in that order; every other row keeps the
+/// ordinary sort after them. Only meant for a view without sorts.
+fn manual_order_plan(order: Option<&[String]>) -> Result<Option<SortPlan>, QueryFailure> {
+    let Some(order) = order.filter(|order| !order.is_empty()) else {
+        return Ok(None);
+    };
+    if order.len() > MAX_MANUAL_ORDER {
+        return Err(QueryFailure::new(
+            "invalidSort",
+            format!("manual order holds at most {MAX_MANUAL_ORDER} rows"),
+        ));
+    }
+    let encoded = serde_json::to_string(order)
+        .map_err(|error| QueryFailure::new("invalidSort", error.to_string()))?;
+    Ok(Some(SortPlan {
+        expression: format!("COALESCE(manual_rank.pos, {MANUAL_RANK_LAST})"),
+        join_sql: "LEFT JOIN (SELECT CAST(value AS TEXT) AS note_id, key AS pos FROM json_each(?)) manual_rank ON manual_rank.note_id = m.note_id".to_owned(),
+        binding: Some(Value::Text(encoded)),
+        direction: "asc",
+        nulls: "last",
+    }))
 }
 
 fn sort_plan(
@@ -766,7 +804,7 @@ fn sort_plan(
     Ok(SortPlan {
         expression,
         join_sql,
-        property_id,
+        binding: property_id.map(Value::Text),
         direction,
         nulls,
     })
@@ -1168,6 +1206,8 @@ fn query_hash(
         request.database_id.as_str(),
         request.search.as_deref().unwrap_or_default(),
         spec,
+        // A cursor of the old order must not continue a re-ordered list.
+        request.manual_order.as_deref().unwrap_or_default(),
     ))
     .map_err(|error| QueryFailure::new("queryHash", error.to_string()))?;
     let digest = Sha256::digest(encoded);

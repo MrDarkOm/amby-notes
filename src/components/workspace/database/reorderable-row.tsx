@@ -49,7 +49,7 @@ export function ReorderableRow<T>({
         aria-label={t("databaseOptions.drag")}
         title={t("databaseOptions.drag")}
         style={{ touchAction: "none" }}
-        className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/60 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-default disabled:opacity-40"
+        className="flex size-6 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/60 outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring active:cursor-grabbing disabled:cursor-default disabled:opacity-40"
         onPointerDown={(event) => {
           if (disabled) return
           event.preventDefault()

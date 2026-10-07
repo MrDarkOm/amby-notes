@@ -203,7 +203,7 @@ export function DatabaseSidePeek({
                     </label>
                     <input
                       id={`yaml-manual-${conflict.propertyId}`}
-                      className="w-full rounded-md border border-border bg-background px-2 py-1 font-mono text-[10px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="w-full rounded-md border border-border bg-background px-2 py-1 font-mono text-[10px] text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       value={manualValues[conflict.propertyId] ?? ""}
                       onChange={(event) =>
                         setManualValues((values) => ({

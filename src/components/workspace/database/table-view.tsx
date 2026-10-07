@@ -1,7 +1,7 @@
 import * as React from "react"
 import { motion } from "motion/react"
 import { MotionSpinner } from "@/lib/motion"
-import { motionTransitions } from "@/lib/motion-config"
+import { motionTransition, motionTransitions } from "@/lib/motion-config"
 import {
   AlertTriangle,
   ArrowDown,
@@ -41,6 +41,14 @@ import { useViewStateStore } from "../use-view-state-store"
 import { databasePropertyIconKey } from "./property-icon"
 import { PropertyTypeIcon as PropertyIcon } from "./property-type-icon"
 import { PageIcon } from "./page-icon"
+import { RowGrab, type RowMenuModel } from "./row-menu"
+import { useRowContextMenu } from "./use-row-context-menu"
+import { RowCheckbox, RowSelectionBar } from "./row-selection"
+import { useRowSelection } from "./use-row-selection"
+import { RowTitleEditor } from "./row-title-editor"
+import type { RowDropPlacement } from "./row-order"
+import { useRowReorder } from "./layouts/use-row-reorder"
+import { dragShift, dragTarget } from "./row-drag-layout"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -74,6 +82,13 @@ function canFilterType(propertyType: string): boolean {
 const MIN_PROPERTY_WIDTH = 56
 const MIN_TITLE_WIDTH = 80
 const ACTION_COLUMN_WIDTH = "3.5rem"
+/** Left of the first column: the grip and the checkbox, outside the table's own borders. */
+const GUTTER_WIDTH = 64
+/**
+ * Pinning columns is a placeholder for now: the setting is kept in the view untouched, but no
+ * column is held while the table scrolls sideways, and the menu item says it is coming.
+ */
+const FREEZE_COLUMNS_AVAILABLE = false
 
 export interface TableSavedSettings {
   widths: Record<string, number>
@@ -131,6 +146,21 @@ interface TableViewProps {
   onOpenNote?: (noteId: string) => void
   databases?: DatabaseSummary[]
   onCreateRelationRow?: (targetDatabaseId: string, title: string) => Promise<string | void>
+  /** What the grip of a row can do; without it rows have no grip. */
+  rowMenu?: (row: DatabaseRow) => RowMenuModel
+  /** Rows can be placed by hand: absent or `enabled: false` leaves the grip as a menu button. */
+  rowReorder?: RowReorderConfig
+  /** Deletes the ticked rows; the selection bar offers it only with this. */
+  onDeleteRows?: (noteIds: string[]) => Promise<void> | void
+}
+
+export interface RowReorderConfig {
+  enabled: boolean
+  onReorder: (rowId: string, overId: string, placement: RowDropPlacement) => void
+  /** Moves a row one place up or down (the arrow keys on the grip). */
+  onNudge?: (rowId: string, offset: -1 | 1) => void
+  /** A drag was tried while a sort decides the order: offer to switch the sort off. */
+  onBlockedDrag?: () => void
 }
 
 function defaultPropertyWidth(property: DatabasePropertySummary, rows: DatabaseRow[]) {
@@ -188,6 +218,9 @@ export function TableView({
   onOpenNote,
   databases,
   onCreateRelationRow,
+  rowMenu,
+  rowReorder,
+  onDeleteRows,
 }: TableViewProps) {
   const { t } = useTranslation()
   const iconOverrides = useViewStateStore((state) => state.iconOverrides)
@@ -236,7 +269,7 @@ export function TableView({
     const saved = JSON.parse(savedSettingsKey) as TableSavedSettings
     setColumnWidths((current) => ({ ...current, ...saved.widths }))
     setWrappedPropertyIds(new Set(saved.wrapped))
-    setFrozenColumnKey(saved.frozenKey)
+    setFrozenColumnKey(FREEZE_COLUMNS_AVAILABLE ? saved.frozenKey : null)
   }, [savedSettingsKey])
   const persistSettings = React.useCallback(
     (patch: TableSettingsPatch) => onSavedSettingsChange?.(patch),
@@ -357,11 +390,58 @@ export function TableView({
   // direct projection of the loaded page so large databases are never
   // silently filtered or reordered only in the renderer.
   const tableRows = rows
+  // The rows have one height, so the row under the pointer follows from the pointer alone, and the
+  // lifted row can be dragged anywhere over the table, not only along its grip.
+  const dragLayout = React.useRef({ rowIds: [] as string[], rowHeight: 0, headerHeight: 0 })
+  const reorder = useRowReorder({
+    scrollRef: viewportRef,
+    axis: "list",
+    onDrop: (rowId, overId, placement) => rowReorder?.onReorder(rowId, overId, placement),
+    hitTest: (_x, y, rowId) => {
+      const area = viewportRef.current
+      if (!area) return null
+      const { rowIds, rowHeight, headerHeight } = dragLayout.current
+      const offset = y - area.getBoundingClientRect().top - headerHeight + area.scrollTop
+      return dragTarget(rowIds, rowId, Math.floor(offset / rowHeight))
+    },
+  })
+  const dragFrom = reorder.drag ? tableRows.findIndex((r) => r.noteId === reorder.drag?.rowId) : -1
+  const dragTo = reorder.drag?.overId
+    ? tableRows.findIndex((r) => r.noteId === reorder.drag?.overId)
+    : dragFrom
+  const reorderEnabled = Boolean(rowReorder?.enabled)
+  // The grip and the checkbox hang in the margin left of the table, outside its surface.
+  const hasGutter = Boolean(rowMenu)
+  const headerRef = React.useRef<HTMLDivElement>(null)
+  const gutterRowsRef = React.useRef<HTMLDivElement>(null)
+  const [headerHeight, setHeaderHeight] = React.useState(36)
+  // Where each row sits while one is lifted: the lifted row follows the pointer up and down, the
+  // rows it passes make room. `instant` after the drop, so the new order does not slide twice.
+  const rowShift = (index: number) => {
+    if (dragFrom === -1) return { y: 0, instant: true }
+    const lifted = index === dragFrom
+    const y = dragShift({
+      index,
+      from: dragFrom,
+      to: dragTo,
+      count: tableRows.length,
+      step: rowHeight,
+      pointerDelta: reorder.drag
+        ? reorder.drag.y - reorder.drag.startY + reorder.drag.scrollDelta
+        : 0,
+    })
+    return { y, instant: lifted }
+  }
+  const [hoveredRowId, setHoveredRowId] = React.useState<string | null>(null)
+  const [headerHovered, setHeaderHovered] = React.useState(false)
+  const selection = useRowSelection(tableRows)
+  const contextMenu = useRowContextMenu({ rows: tableRows, rowMenu })
   const rowHeight = visibleProperties.some((property) =>
     wrappedPropertyIds.has(property.propertyId),
   )
     ? WRAPPED_ROW_HEIGHT
     : DEFAULT_ROW_HEIGHT
+  dragLayout.current = { rowIds: tableRows.map((r) => r.noteId), rowHeight, headerHeight }
   const calculateRange = React.useCallback(
     (offset: number) => {
       const first = Math.min(
@@ -466,6 +546,9 @@ export function TableView({
   function handleScroll(event: React.UIEvent<HTMLDivElement>) {
     const element = event.currentTarget
     scrollTopRef.current = element.scrollTop
+    if (gutterRowsRef.current) {
+      gutterRowsRef.current.style.transform = `translateY(${-element.scrollTop}px)`
+    }
     scheduleRangeUpdate()
     const now = Date.now()
     if (
@@ -530,20 +613,129 @@ export function TableView({
     }
   }, [])
 
+  React.useLayoutEffect(() => {
+    const height = headerRef.current?.offsetHeight
+    if (height) setHeaderHeight(height)
+  }, [visibleProperties.length, rowHeight])
+  // The margin beside the table is not part of any row, so the row under the pointer is worked
+  // out from its height; the same code serves the table and the margin.
+  function trackHover(event: React.PointerEvent) {
+    const bounds = viewportRef.current?.getBoundingClientRect()
+    if (!bounds) return
+    const y = event.clientY - bounds.top - headerHeight + scrollTopRef.current
+    const id = y < 0 ? null : (tableRows[Math.floor(y / rowHeight)]?.noteId ?? null)
+    setHoveredRowId((current) => (current === id ? current : id))
+    // The select-all checkbox shows while the pointer is on the header line.
+    const inHeader = y < 0 && event.clientY >= bounds.top
+    setHeaderHovered((current) => (current === inHeader ? current : inHeader))
+  }
+
   return (
-    <div className="min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden">
+    <div
+      className="relative min-h-0 min-w-0 flex flex-1 flex-col"
+      onPointerMove={hasGutter ? trackHover : undefined}
+      onPointerLeave={
+        hasGutter
+          ? () => {
+              setHeaderHovered(false)
+              setHoveredRowId(null)
+            }
+          : undefined
+      }
+    >
+      {hasGutter && (
+        <div
+          className="pointer-events-none absolute bottom-0 right-full top-0 z-20"
+          style={{ width: GUTTER_WIDTH }}
+        >
+          <div
+            className="pointer-events-auto absolute inset-x-0 top-0 flex items-center justify-end pr-3"
+            style={{ height: headerHeight }}
+          >
+            {tableRows.length > 0 && (
+              <RowCheckbox
+                checked={selection.allSelected}
+                onToggle={selection.toggleAll}
+                label={t("databaseRowMenu.selectAll")}
+                className={cn(!headerHovered && selection.selected.size === 0 && "opacity-0")}
+              />
+            )}
+          </div>
+          <div
+            className="absolute inset-x-0 bottom-0 overflow-hidden"
+            style={{ top: headerHeight }}
+          >
+            <div
+              ref={gutterRowsRef}
+              className="relative"
+              style={{
+                height: tableRows.length * rowHeight,
+                transform: `translateY(${-scrollTopRef.current}px)`,
+              }}
+            >
+              <div className="absolute inset-x-0" style={{ top: first * rowHeight }}>
+                {visibleRows.map((row, offset) => {
+                  const hovered = hoveredRowId === row.noteId || reorder.drag?.rowId === row.noteId
+                  const shift = rowShift(first + offset)
+                  return (
+                    <motion.div
+                      key={row.noteId}
+                      initial={false}
+                      animate={{ y: shift.y }}
+                      transition={motionTransition(
+                        shift.instant ? motionTransitions.instant : motionTransitions.reorder,
+                      )}
+                      className="pointer-events-auto relative flex items-center justify-end gap-2 pr-3"
+                      style={{
+                        height: rowHeight,
+                        zIndex: shift.instant && dragFrom === first + offset ? 5 : 0,
+                      }}
+                    >
+                      <RowGrab
+                        row={row}
+                        menu={rowMenu!(row)}
+                        reorderEnabled={reorderEnabled}
+                        onPress={reorder.begin}
+                        liftTo={() =>
+                          viewportRef.current?.querySelector<HTMLElement>(
+                            `[data-reorder-id="${row.noteId}"]`,
+                          ) ?? null
+                        }
+                        onNudge={
+                          rowReorder?.onNudge
+                            ? (step) => rowReorder.onNudge?.(row.noteId, step)
+                            : undefined
+                        }
+                        onBlockedDrag={rowReorder?.onBlockedDrag}
+                        faded={!hovered}
+                      />
+                      <RowCheckbox
+                        checked={selection.selected.has(row.noteId)}
+                        onToggle={() => selection.toggle(row.noteId)}
+                        label={t("databaseRowMenu.selectRow")}
+                        className={cn(!hovered && selection.selected.size === 0 && "opacity-0")}
+                      />
+                    </motion.div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div
         ref={viewportRef}
         role="grid"
         aria-rowcount={tableRows.length}
         aria-colcount={visibleProperties.length + 3}
         tabIndex={0}
-        className="min-h-0 flex-1 overflow-x-auto overflow-y-auto outline-none amby-table-scroll"
+        className="min-h-0 flex-1 overflow-x-auto overflow-y-auto rounded-xl outline-none amby-table-scroll"
         onScroll={handleScroll}
         onKeyDown={handleKeyDown}
       >
         <div style={tableWidthStyle}>
           <div
+            ref={headerRef}
             role="row"
             className="sticky top-0 z-10 grid border-b border-border bg-[var(--note-surface)] text-xs font-medium text-muted-foreground"
             style={{ gridTemplateColumns, ...tableWidthStyle }}
@@ -553,6 +745,7 @@ export function TableView({
               className={cn(
                 "relative flex h-full min-w-0 items-center justify-start bg-[var(--note-surface)] p-0 text-left",
                 hasFrozenColumns && "sticky left-0 z-20",
+                frozenColumnKey === "title" && "database-frozen-edge",
               )}
             >
               {onTitleColumnNameChange ? (
@@ -573,11 +766,15 @@ export function TableView({
                   onSort={(direction) =>
                     updateSortValue(direction ? { key: "title", direction } : null)
                   }
-                  onToggleFreeze={() => {
-                    const next = frozenColumnKey === "title" ? null : "title"
-                    setFrozenColumnKey(next)
-                    persistSettings({ frozenKey: next })
-                  }}
+                  onToggleFreeze={
+                    FREEZE_COLUMNS_AVAILABLE
+                      ? () => {
+                          const next = frozenColumnKey === "title" ? null : "title"
+                          setFrozenColumnKey(next)
+                          persistSettings({ frozenKey: next })
+                        }
+                      : undefined
+                  }
                   onInsertRight={
                     onAddProperty ? () => onAddProperty(properties[0]?.propertyId) : undefined
                   }
@@ -618,6 +815,7 @@ export function TableView({
                   className={cn(
                     "relative flex h-full min-w-0 items-center bg-[var(--note-surface)] p-0",
                     frozen && "sticky z-20",
+                    frozenColumnKey === property.propertyId && "database-frozen-edge",
                   )}
                   style={
                     frozen ? { left: frozenLeftByProperty.get(property.propertyId) } : undefined
@@ -664,12 +862,16 @@ export function TableView({
                               )
                           : undefined
                       }
-                      onToggleFreeze={() => {
-                        const next =
-                          frozenColumnKey === property.propertyId ? null : property.propertyId
-                        setFrozenColumnKey(next)
-                        persistSettings({ frozenKey: next })
-                      }}
+                      onToggleFreeze={
+                        FREEZE_COLUMNS_AVAILABLE
+                          ? () => {
+                              const next =
+                                frozenColumnKey === property.propertyId ? null : property.propertyId
+                              setFrozenColumnKey(next)
+                              persistSettings({ frozenKey: next })
+                            }
+                          : undefined
+                      }
                       onHide={() => {
                         setHiddenPropertyIds((current) => new Set(current).add(property.propertyId))
                         if (propertySort?.key === property.propertyId) updateSortValue(null)
@@ -846,120 +1048,138 @@ export function TableView({
                 ...tableWidthStyle,
               }}
             >
-              {visibleRows.map((row, index) => (
-                <div
-                  key={row.noteId}
-                  role="row"
-                  aria-rowindex={first + index + 2}
-                  aria-selected={selectedNoteId === row.noteId}
-                  className="group/row grid border-b border-slate-200 text-sm hover:bg-accent/30 dark:border-border/60"
-                  style={{ gridTemplateColumns, height: rowHeight, ...tableWidthStyle }}
-                >
+              {visibleRows.map((row, index) => {
+                const shift = rowShift(first + index)
+                const lifted = dragFrom === first + index
+                return (
                   <motion.div
-                    role="gridcell"
-                    initial="rest"
-                    whileHover="hover"
-                    className={cn(
-                      "group relative flex cursor-text items-center justify-start truncate border-r border-border/60 px-2 text-left font-medium",
-                      hasFrozenColumns &&
-                        "sticky left-0 z-10 bg-[var(--note-surface)] group-hover/row:bg-muted",
+                    key={row.noteId}
+                    initial={false}
+                    animate={{ y: shift.y }}
+                    transition={motionTransition(
+                      shift.instant ? motionTransitions.instant : motionTransitions.reorder,
                     )}
+                    role="row"
+                    aria-rowindex={first + index + 2}
+                    aria-selected={selectedNoteId === row.noteId}
+                    data-reorder-id={row.noteId}
+                    className={cn(
+                      "group/row grid border-b border-slate-200 text-sm dark:border-border/60",
+                      selection.selected.has(row.noteId) && "database-row-selected",
+                      lifted && "database-row-lifted",
+                    )}
+                    style={{ gridTemplateColumns, height: rowHeight, ...tableWidthStyle }}
+                    onContextMenu={(event) => contextMenu.open(event, row)}
                   >
-                    <span className="mr-1.5 flex shrink-0 items-center">
-                      <PageIcon noteId={row.noteId} />
-                    </span>
-                    <EditableRowTitle
-                      value={row.title}
-                      onCommit={(name) => onRenameRow?.(row.noteId, name)}
-                    />
-                    <motion.button
-                      type="button"
-                      className="absolute right-1 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-md bg-[var(--note-surface)]/95 text-muted-foreground shadow-sm backdrop-blur-sm hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
-                      whileFocus={{ opacity: 1 }}
-                      transition={motionTransitions.fast}
-                      title={t("databaseTable.openRow")}
-                      aria-label={t("databaseTable.openRow")}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setSelectedNoteId(row.noteId)
-                        onRowSelect?.(row)
-                      }}
+                    <motion.div
+                      role="gridcell"
+                      initial="rest"
+                      whileHover="hover"
+                      className={cn(
+                        "group relative flex items-center justify-start truncate border-r border-border/60 px-2 text-left font-medium",
+                        hasFrozenColumns &&
+                          "sticky left-0 z-10 bg-[var(--database-row-bg,var(--note-surface))]",
+                        frozenColumnKey === "title" && "database-frozen-edge",
+                      )}
                     >
-                      <SquareArrowOutUpRight className="size-3.5" />
-                    </motion.button>
-                  </motion.div>
-                  {visibleProperties.map((property, propertyIndex) => {
-                    const cellKey = `${row.noteId}:${property.propertyId}`
-                    const frozen = hasFrozenColumns && propertyIndex <= frozenThroughIndex
-                    const targetDbId =
-                      property.propertyType === "relation"
-                        ? (() => {
-                            try {
-                              return (
-                                (
-                                  JSON.parse(property.configJson) as {
-                                    targetDatabaseId?: string
-                                  }
-                                ).targetDatabaseId || ""
-                              )
-                            } catch {
-                              return ""
-                            }
-                          })()
-                        : ""
-                    const targetDbTitle = targetDbId
-                      ? databases?.find((d) => d.databaseId === targetDbId)?.title
-                      : undefined
-
-                    return (
-                      <div
-                        key={cellKey}
-                        data-cell-key={cellKey}
-                        data-row-id={row.noteId}
-                        data-property-id={property.propertyId}
-                        className={cn(
-                          "h-full min-w-0 border-r border-border/60",
-                          frozen && "sticky z-10 bg-[var(--note-surface)] group-hover/row:bg-muted",
-                        )}
-                        style={
-                          frozen
-                            ? { left: frozenLeftByProperty.get(property.propertyId) }
-                            : undefined
-                        }
-                        onClick={(event) => event.stopPropagation()}
+                      <span className="mr-1.5 flex shrink-0 items-center">
+                        <PageIcon noteId={row.noteId} editable={Boolean(onRenameRow)} />
+                      </span>
+                      <RowTitleEditor
+                        value={row.title}
+                        onCommit={onRenameRow ? (name) => onRenameRow(row.noteId, name) : undefined}
+                      />
+                      <motion.button
+                        type="button"
+                        className="absolute right-1 top-1/2 z-10 flex size-6 -translate-y-1/2 items-center justify-center rounded-md bg-[var(--note-surface)]/95 text-muted-foreground shadow-sm backdrop-blur-sm hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
+                        whileFocus={{ opacity: 1 }}
+                        transition={motionTransitions.fast}
+                        title={t("databaseTable.openRow")}
+                        aria-label={t("databaseTable.openRow")}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          setSelectedNoteId(row.noteId)
+                          onRowSelect?.(row)
+                        }}
                       >
-                        <DatabaseCell
-                          property={property}
-                          valuesJson={row.valuesJson}
-                          wrap={wrappedPropertyIds.has(property.propertyId)}
-                          pending={!onCellCommit || pendingCells.has(cellKey)}
-                          error={cellErrors[cellKey]}
-                          targetDatabaseTitle={targetDbTitle}
-                          computedError={
-                            property.propertyType === "formula" ||
-                            property.propertyType === "rollup"
-                              ? computedErrors?.[property.propertyType]
+                        <SquareArrowOutUpRight className="size-3.5" />
+                      </motion.button>
+                    </motion.div>
+                    {visibleProperties.map((property, propertyIndex) => {
+                      const cellKey = `${row.noteId}:${property.propertyId}`
+                      const frozen = hasFrozenColumns && propertyIndex <= frozenThroughIndex
+                      const targetDbId =
+                        property.propertyType === "relation"
+                          ? (() => {
+                              try {
+                                return (
+                                  (
+                                    JSON.parse(property.configJson) as {
+                                      targetDatabaseId?: string
+                                    }
+                                  ).targetDatabaseId || ""
+                                )
+                              } catch {
+                                return ""
+                              }
+                            })()
+                          : ""
+                      const targetDbTitle = targetDbId
+                        ? databases?.find((d) => d.databaseId === targetDbId)?.title
+                        : undefined
+
+                      return (
+                        <div
+                          key={cellKey}
+                          data-cell-key={cellKey}
+                          data-row-id={row.noteId}
+                          data-property-id={property.propertyId}
+                          className={cn(
+                            "h-full min-w-0 border-r border-border/60",
+                            frozen && "sticky z-10 bg-[var(--database-row-bg,var(--note-surface))]",
+                            frozenColumnKey === property.propertyId && "database-frozen-edge",
+                          )}
+                          style={
+                            frozen
+                              ? { left: frozenLeftByProperty.get(property.propertyId) }
                               : undefined
                           }
-                          onCommit={(valueJson) =>
-                            onCellCommit?.(row, property, valueJson) ?? Promise.resolve()
-                          }
-                          onOpenNote={onOpenNote}
-                          onCreateRelationRow={
-                            onCreateRelationRow && targetDbId
-                              ? (title) => onCreateRelationRow(targetDbId, title)
-                              : undefined
-                          }
-                        />
-                      </div>
-                    )
-                  })}
-                  <div aria-hidden="true" />
-                </div>
-              ))}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <DatabaseCell
+                            property={property}
+                            valuesJson={row.valuesJson}
+                            wrap={wrappedPropertyIds.has(property.propertyId)}
+                            pending={!onCellCommit || pendingCells.has(cellKey)}
+                            error={cellErrors[cellKey]}
+                            targetDatabaseTitle={targetDbTitle}
+                            computedError={
+                              property.propertyType === "formula" ||
+                              property.propertyType === "rollup"
+                                ? computedErrors?.[property.propertyType]
+                                : undefined
+                            }
+                            onCommit={(valueJson) =>
+                              onCellCommit?.(row, property, valueJson) ?? Promise.resolve()
+                            }
+                            onOpenNote={onOpenNote}
+                            onCreateRelationRow={
+                              onCreateRelationRow && targetDbId
+                                ? (title) => onCreateRelationRow(targetDbId, title)
+                                : undefined
+                            }
+                          />
+                        </div>
+                      )
+                    })}
+                    <div aria-hidden="true" />
+                  </motion.div>
+                )
+              })}
             </div>
           </div>
+          {contextMenu.element}
           {onCreateRow && (
             <div className="flex items-center px-2 py-1.5" style={tableWidthStyle}>
               <button
@@ -995,6 +1215,20 @@ export function TableView({
           )}
         </div>
       </div>
+      <RowSelectionBar
+        top={Math.max((headerHeight - 32) / 2, 0)}
+        count={selection.selected.size}
+        onClear={selection.clear}
+        onDelete={
+          onDeleteRows
+            ? () => {
+                const ids = [...selection.selected]
+                selection.clear()
+                void onDeleteRows(ids)
+              }
+            : undefined
+        }
+      />
     </div>
   )
 }
@@ -1291,7 +1525,13 @@ export function PropertyHeaderMenu({
         </DropdownMenuSub>
         <PropertyMenuItem
           icon={isFrozen ? <PinOff /> : <Pin />}
-          label={isFrozen ? t("databaseTable.unfreezeProperty") : t("databaseTable.freezeProperty")}
+          label={
+            !onToggleFreeze
+              ? `${t("databaseTable.freezeProperty")} · ${t("common.comingSoon")}`
+              : isFrozen
+                ? t("databaseTable.unfreezeProperty")
+                : t("databaseTable.freezeProperty")
+          }
           active={isFrozen}
           disabled={!onToggleFreeze}
           onSelect={onToggleFreeze}
@@ -1372,74 +1612,5 @@ function PropertyMenuItem({
       {active && !chevron && <Check className="ml-auto size-4 text-primary" />}
       {chevron && <ChevronRight className={badge ? "size-4" : "ml-auto size-4"} />}
     </DropdownMenuItem>
-  )
-}
-
-function EditableRowTitle({
-  value,
-  onCommit,
-}: {
-  value: string
-  onCommit?: (name: string) => Promise<void> | void
-}) {
-  const [editing, setEditing] = React.useState(false)
-  const [draft, setDraft] = React.useState(value)
-  const [busy, setBusy] = React.useState(false)
-  const committingRef = React.useRef(false)
-
-  React.useEffect(() => {
-    if (!editing && !busy) setDraft(value)
-  }, [busy, editing, value])
-
-  const commit = React.useCallback(async () => {
-    if (committingRef.current) return
-    const next = draft.trim()
-    if (!next || next === value || !onCommit) {
-      setDraft(value)
-      setEditing(false)
-      return
-    }
-    committingRef.current = true
-    setBusy(true)
-    try {
-      await onCommit(next)
-      setEditing(false)
-    } catch {
-      setDraft(value)
-      setEditing(false)
-    } finally {
-      committingRef.current = false
-      setBusy(false)
-    }
-  }, [draft, onCommit, value])
-
-  return (
-    <input
-      value={draft}
-      readOnly={!editing || busy}
-      aria-label={value}
-      className="h-8 min-w-0 w-full cursor-text truncate bg-transparent p-0 text-left text-sm font-medium text-foreground outline-none"
-      onFocus={() => {
-        if (!busy && onCommit) setEditing(true)
-      }}
-      onClick={(event) => {
-        event.stopPropagation()
-        if (!busy && onCommit) setEditing(true)
-      }}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => void commit()}
-      onKeyDown={(event) => {
-        event.stopPropagation()
-        if (event.key === "Enter") {
-          event.preventDefault()
-          void commit()
-        }
-        if (event.key === "Escape") {
-          event.preventDefault()
-          setDraft(value)
-          setEditing(false)
-        }
-      }}
-    />
   )
 }

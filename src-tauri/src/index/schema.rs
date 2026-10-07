@@ -206,6 +206,44 @@ pub fn init_schema(conn: &Connection) -> Result<(), String> {
             last_seen_at INTEGER NOT NULL
         );
 
+        -- Creative projects found by `amby-project.json`. Rebuildable cache: the
+        -- structure files stay the only source of truth.
+        CREATE TABLE IF NOT EXISTS project_projects (
+            project_id TEXT PRIMARY KEY,
+            path TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            icon TEXT,
+            tags_json TEXT NOT NULL,
+            groups_json TEXT NOT NULL,
+            text_json TEXT,
+            file_revision TEXT NOT NULL,
+            format_version INTEGER NOT NULL,
+            read_only INTEGER NOT NULL,
+            collection_id TEXT,
+            position INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS project_sections (
+            project_id TEXT NOT NULL REFERENCES project_projects(project_id) ON DELETE CASCADE,
+            section_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            role TEXT,
+            group_id TEXT,
+            database_id TEXT NOT NULL,
+            path_hint TEXT NOT NULL,
+            PRIMARY KEY (project_id, section_id)
+        );
+        CREATE TABLE IF NOT EXISTS project_diagnostics (
+            position INTEGER PRIMARY KEY,
+            code TEXT NOT NULL,
+            severity TEXT NOT NULL,
+            path TEXT NOT NULL,
+            project_id TEXT,
+            detail TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_sections_database
+            ON project_sections(database_id);
+
         CREATE INDEX IF NOT EXISTS idx_db_databases_container_path
             ON db_databases(container_path);
         CREATE INDEX IF NOT EXISTS idx_db_members_parent

@@ -231,7 +231,7 @@ export function HistoryPreview({
                   <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2 text-xs font-medium">
                     {t("historyPanel.versionFromHistory")}
                   </div>
-                  <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
+                  <pre className="min-h-0 flex-1 select-text overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
                     {history.preview.previous}
                   </pre>
                 </section>
@@ -239,7 +239,7 @@ export function HistoryPreview({
                   <div className="border-b bg-muted/30 px-4 py-2 text-xs font-medium">
                     {t("historyPanel.currentVersion")}
                   </div>
-                  <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
+                  <pre className="min-h-0 flex-1 select-text overflow-auto whitespace-pre-wrap break-words p-4 font-mono text-xs leading-6 [overflow-wrap:anywhere]">
                     {history.preview.current}
                   </pre>
                 </section>

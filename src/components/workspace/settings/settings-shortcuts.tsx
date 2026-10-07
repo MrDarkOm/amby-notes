@@ -97,7 +97,7 @@ export function ShortcutsTab() {
                     updateShortcut(definition.id, result.binding)
                   }}
                   className={cn(
-                    "min-w-32 rounded-md border px-3 py-1.5 text-center font-mono text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+                    "min-w-32 rounded-md border px-3 py-1.5 text-center font-mono text-[11px] outline-none focus-visible:ring-1 focus-visible:ring-ring/50",
                     isRecording
                       ? "border-primary bg-primary/10 text-primary"
                       : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground",

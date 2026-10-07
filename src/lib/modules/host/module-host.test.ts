@@ -187,4 +187,85 @@ describe("ModuleHost", () => {
     const unknown = await host.loadInstalledModule("non.existent")
     expect(unknown).toBeNull()
   })
+
+  it("enforces declared dependencies on activation, deactivation and sync", async () => {
+    const host = new ModuleHost()
+
+    const activationOrder: string[] = []
+    const deactivationOrder: string[] = []
+
+    const baseModule: ModuleDefinition = {
+      manifest: {
+        formatVersion: 1,
+        id: "amby.databases",
+        name: "Databases Module",
+        version: "1.0.0",
+        publisher: "Amby",
+        kind: "official",
+        minAppVersion: "0.1.5",
+        permissions: [],
+      },
+      activate: () => {
+        activationOrder.push("amby.databases")
+      },
+      deactivate: () => {
+        deactivationOrder.push("amby.databases")
+      },
+    }
+
+    const dependentModule: ModuleDefinition = {
+      manifest: {
+        formatVersion: 1,
+        id: "amby.creative",
+        name: "Creative Module",
+        version: "1.0.0",
+        publisher: "Amby",
+        kind: "official",
+        minAppVersion: "0.1.5",
+        permissions: [],
+        dependencies: {
+          "amby.databases": "^1.0.0",
+        },
+      },
+      activate: () => {
+        activationOrder.push("amby.creative")
+      },
+      deactivate: () => {
+        deactivationOrder.push("amby.creative")
+      },
+    }
+
+    host.registerModule(baseModule)
+    host.registerModule(dependentModule)
+
+    // 1. Dependent module cannot activate alone
+    const actDepDirectly = await host.activateModule("amby.creative", "/vault")
+    expect(actDepDirectly).toBe(false)
+    expect(host.isModuleActive("amby.creative")).toBe(false)
+
+    // 2. Base activates, then dependent can activate
+    const actBase = await host.activateModule("amby.databases", "/vault")
+    expect(actBase).toBe(true)
+    const actDep = await host.activateModule("amby.creative", "/vault")
+    expect(actDep).toBe(true)
+    expect(activationOrder).toEqual(["amby.databases", "amby.creative"])
+
+    // 3. Deactivating base cascades: dependent is deactivated first!
+    await host.deactivateModule("amby.databases")
+    expect(host.isModuleActive("amby.creative")).toBe(false)
+    expect(host.isModuleActive("amby.databases")).toBe(false)
+    expect(deactivationOrder).toEqual(["amby.creative", "amby.databases"])
+
+    // 4. syncWithWorkspace activates in correct topological order
+    activationOrder.length = 0
+    deactivationOrder.length = 0
+    await host.syncWithWorkspace(["amby.creative", "amby.databases"], "/vault")
+    expect(host.isModuleActive("amby.databases")).toBe(true)
+    expect(host.isModuleActive("amby.creative")).toBe(true)
+    expect(activationOrder).toEqual(["amby.databases", "amby.creative"])
+
+    // 5. syncWithWorkspace disabling base deactivates dependent first
+    await host.syncWithWorkspace([], "/vault")
+    expect(deactivationOrder).toEqual(["amby.creative", "amby.databases"])
+  })
 })

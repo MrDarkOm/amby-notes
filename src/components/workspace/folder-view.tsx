@@ -84,7 +84,7 @@ export function FolderView({
             <div ref={iconTriggerRef} className="relative mb-3 w-fit">
               <motion.button
                 type="button"
-                className="flex size-12 items-center justify-center rounded-2xl bg-accent text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex size-12 items-center justify-center rounded-2xl bg-accent text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.96 }}
                 transition={motionTransitions.default}
@@ -158,7 +158,7 @@ export function FolderView({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("folderView.search")}
-            className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-2 focus:ring-ring/40"
+            className="h-10 w-full rounded-xl border border-border bg-card pl-10 pr-4 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-1 focus:ring-ring/40"
           />
         </div>
 

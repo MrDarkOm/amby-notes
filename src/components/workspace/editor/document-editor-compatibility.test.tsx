@@ -116,6 +116,41 @@ describe("DocumentEditor lossless boundary", () => {
     expect(changeMode).toHaveBeenCalledWith("live")
   })
 
+  it("never leaves Live Preview because of what the user types", () => {
+    const ui = render(<DocumentEditor document={note("Начало")} viewMode="live" />)
+    expect(ui.getByTestId("mode").textContent).toBe("live")
+    // Text the parser cannot read back (an interior trailing space, a footnote), as the
+    // store echoes it after each keystroke.
+    for (const typed of ["Начало ", "Начало \nмир", "Сноска[^1]\n\n[^1]: текст\n"]) {
+      fireEvent.change(ui.getByRole("textbox"), { target: { value: typed } })
+      ui.rerender(<DocumentEditor document={note(typed)} viewMode="live" />)
+      expect(ui.getByTestId("mode").textContent, JSON.stringify(typed)).toBe("live")
+    }
+    expect(rendered.bodies.every((body) => body.viewMode === "live")).toBe(true)
+  })
+
+  it("keeps a note forced into Source there while it is edited, until the user switches", () => {
+    const changeMode = vi.fn()
+    const incompatible = "Text[^x]\n\n[^x]: note\n"
+    const ui = render(
+      <DocumentEditor
+        document={note(incompatible)}
+        viewMode="live"
+        onViewModeChange={changeMode}
+      />,
+    )
+    expect(ui.getByTestId("mode").textContent).toBe("source")
+    fireEvent.change(ui.getByRole("textbox"), { target: { value: "# Fixed\n" } })
+    ui.rerender(
+      <DocumentEditor document={note("# Fixed\n")} viewMode="live" onViewModeChange={changeMode} />,
+    )
+    // Fixed, but the editor does not jump back on its own.
+    expect(ui.getByTestId("mode").textContent).toBe("source")
+    fireEvent.click(ui.getByText("Live"))
+    expect(changeMode).toHaveBeenCalledWith("live")
+    expect(ui.getByTestId("mode").textContent).toBe("live")
+  })
+
   it("does not resurrect an old local buffer when external content returns to an earlier value", () => {
     const ui = render(<DocumentEditor document={note("# A\n")} viewMode="source" />)
     fireEvent.change(ui.getByRole("textbox"), { target: { value: "# B\n" } })

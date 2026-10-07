@@ -27,6 +27,11 @@ export const schemaExtensions: Extensions = [
     // Clicks must not navigate away inside the Tauri webview.
     link: { openOnClick: false, autolink: true },
     heading: { levels: [1, 2, 3, 4, 5, 6] },
+    // No blinking dash beside blocks without text (a database, an image, columns).
+    gapcursor: false,
+    // The note may end with such a block; `line-after-block.ts` brings back a line to
+    // write on when the area below it is clicked.
+    trailingNode: false,
   }),
   MarkdownTable.configure({ resizable: true }),
   TableRow,

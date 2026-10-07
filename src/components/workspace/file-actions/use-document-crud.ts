@@ -247,6 +247,7 @@ export function useDocumentCrud({
       const finishLocalMutation = beginLocalTreeMutation()
       recordLocalTreePaths(targets.flatMap((target) => [target.path, target.root]))
       let failed = 0
+      let firstFailure = ""
       try {
         for (const target of targets) {
           const targetDocuments = affected.filter(
@@ -282,6 +283,9 @@ export function useDocumentCrud({
             }
           } catch (error) {
             failed += 1
+            const reason = error instanceof Error ? error.message : String(error)
+            firstFailure ||= reason
+            logger.error("file.delete_failed", { path: target.path, mode: resolution, reason })
             console.error("Failed to delete:", error)
           }
         }
@@ -345,7 +349,8 @@ export function useDocumentCrud({
         }
 
         if (failed > 0) {
-          void showErrorMessage(t("workspace.deleteManyFailed", { failed, total: targets.length }))
+          const summary = t("workspace.deleteManyFailed", { failed, total: targets.length })
+          void showErrorMessage(firstFailure ? `${summary}\n\n${firstFailure}` : summary)
         }
       } finally {
         finishLocalMutation()

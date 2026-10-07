@@ -4,29 +4,29 @@ Owns database surfaces and view state, not the durable database format. Cross-la
 work continues through [storage](../../../lib/storage/MAP.md) to
 [the database backend](../../../../src-tauri/src/database/MAP.md).
 
-| Concern                                  | Owner                                                                                                                                                                                                                            |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Module registration / top-level surface  | [database-module.tsx](database-module.tsx), [database-workspace.tsx](database-workspace.tsx)                                                                                                                                     |
-| State and orchestration                  | [database-store.ts](database-store.ts), [use-database-controller.ts](use-database-controller.ts)                                                                                                                                 |
-| Query lifecycle                          | [use-database-query.ts](use-database-query.ts)                                                                                                                                                                                   |
-| Table, cells, value presentation         | [table-view.tsx](table-view.tsx), [database-cell.tsx](database-cell.tsx), [database-value-cell.tsx](database-value-cell.tsx), [database-cell-value.ts](database-cell-value.ts)                                                   |
-| Board/list/gallery/chart layouts         | [layouts/](layouts/), [chart-view.tsx](chart-view.tsx)                                                                                                                                                                           |
-| Schema-aware value presentation          | [value-format.ts](value-format.ts), [property-value.tsx](property-value.tsx), [layouts/gallery-cover.tsx](layouts/gallery-cover.tsx), [layouts/cover-resolver.ts](layouts/cover-resolver.ts)                                     |
-| View configuration                       | [view-settings-panel.tsx](view-settings-panel.tsx), [database-view-menu.tsx](database-view-menu.tsx), [database-dialogs.tsx](database-dialogs.tsx)                                                                               |
-| Embedded views / navigation              | [database-view-host.tsx](database-view-host.tsx), [embedded-view-model.ts](embedded-view-model.ts), [database-navigation.ts](database-navigation.ts), [linked-reference.ts](linked-reference.ts), [tab-target.ts](tab-target.ts) |
-| Note peek and editor ownership           | [database-peek-editor.tsx](database-peek-editor.tsx), [peek/database-side-peek.tsx](peek/database-side-peek.tsx), [peek/editor-surface-lease.ts](peek/editor-surface-lease.ts)                                                   |
-| Relations                                | [relation-picker-popover.tsx](relation-picker-popover.tsx), [relation-chip.tsx](relation-chip.tsx), [use-relation-candidates.ts](use-relation-candidates.ts)                                                                     |
-| Relation data                            | [use-record-references.ts](use-record-references.ts), [relation-settings.tsx](relation-settings.tsx)                                                                                                                             |
-| Property order                           | [property-order.ts](property-order.ts)                                                                                                                                                                                           |
-| Value writes (table and info panel)      | [use-property-mutation.ts](use-property-mutation.ts)                                                                                                                                                                             |
-| Property options                         | [option-cell.tsx](option-cell.tsx), [property-config-editor.tsx](property-config-editor.tsx), [property-settings-ui.tsx](property-settings-ui.tsx)                                                                               |
-| Property settings editor                 | [reorderable-row.tsx](reorderable-row.tsx), [property-options-dialog.tsx](property-options-dialog.tsx), [option-model.ts](option-model.ts)                                                                                       |
-| Rollup wizard / computed cells           | [rollup-model.ts](rollup-model.ts), [rollup-wizard.tsx](rollup-wizard.tsx), [rollup-settings.tsx](rollup-settings.tsx), [rollup-aggregations.json](rollup-aggregations.json)                                                     |
-| Saved view settings                      | [view-config.ts](view-config.ts), [use-saved-view.ts](use-saved-view.ts), [use-view-query-state.ts](use-view-query-state.ts), [legacy-hidden-properties.ts](legacy-hidden-properties.ts)                                         |
-| Filter / sort editors and operator table | [view-filter-editor.tsx](view-filter-editor.tsx), [view-sort-editor.tsx](view-sort-editor.tsx), [filter-editor-model.ts](filter-editor-model.ts), [filter-operators.json](filter-operators.json)                                 |
-| Board lanes and chart data               | [use-board-lanes.ts](use-board-lanes.ts), [board-lanes-view.tsx](board-lanes-view.tsx), [chart-view.tsx](chart-view.tsx)                                                                                                         |
-| Icons / board columns prompt             | [board-group-prompt.tsx](board-group-prompt.tsx), [page-icon.tsx](page-icon.tsx), [view-icon.tsx](view-icon.tsx), [icon-picker-button.tsx](icon-picker-button.tsx)                                                               |
-| Clipboard / CSV                          | [editing/](editing/)                                                                                                                                                                                                             |
+| Concern                                  | Owner                                                                                                                                                                                                                      |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Module registration / top-level surface  | [database-module.tsx](database-module.tsx), [database-workspace.tsx](database-workspace.tsx)                                                                                                                               |
+| State and orchestration                  | [database-store.ts](database-store.ts), [use-database-controller.ts](use-database-controller.ts)                                                                                                                           |
+| Query lifecycle                          | [use-database-query.ts](use-database-query.ts)                                                                                                                                                                             |
+| Table, cells, value presentation         | [table-view.tsx](table-view.tsx), [database-cell.tsx](database-cell.tsx), [database-value-cell.tsx](database-value-cell.tsx), [database-cell-value.ts](database-cell-value.ts)                                             |
+| Board/list/gallery/chart layouts         | [layouts/](layouts/), [chart-view.tsx](chart-view.tsx), [row-menu.tsx](row-menu.tsx), [use-row-menu.tsx](use-row-menu.tsx)                                                                                                 |
+| Schema-aware value presentation          | [value-format.ts](value-format.ts), [property-value.tsx](property-value.tsx), [layouts/gallery-cover.tsx](layouts/gallery-cover.tsx), [layouts/cover-resolver.ts](layouts/cover-resolver.ts)                               |
+| View configuration                       | [view-settings-panel.tsx](view-settings-panel.tsx), [database-view-menu.tsx](database-view-menu.tsx), [database-dialogs.tsx](database-dialogs.tsx)                                                                         |
+| Embedded views / navigation              | [linked-database.tsx](linked-database.tsx), [embedded-view-model.ts](embedded-view-model.ts), [database-navigation.ts](database-navigation.ts), [linked-reference.ts](linked-reference.ts), [tab-target.ts](tab-target.ts) |
+| Note peek and editor ownership           | [database-peek-editor.tsx](database-peek-editor.tsx), [peek/database-side-peek.tsx](peek/database-side-peek.tsx), [peek/editor-surface-lease.ts](peek/editor-surface-lease.ts)                                             |
+| Relations                                | [relation-picker-popover.tsx](relation-picker-popover.tsx), [relation-chip.tsx](relation-chip.tsx), [use-relation-candidates.ts](use-relation-candidates.ts)                                                               |
+| Relation data                            | [use-record-references.ts](use-record-references.ts), [relation-settings.tsx](relation-settings.tsx)                                                                                                                       |
+| Property order                           | [property-order.ts](property-order.ts)                                                                                                                                                                                     |
+| Value writes (table and info panel)      | [use-property-mutation.ts](use-property-mutation.ts)                                                                                                                                                                       |
+| Property options                         | [option-cell.tsx](option-cell.tsx), [property-config-editor.tsx](property-config-editor.tsx), [property-settings-ui.tsx](property-settings-ui.tsx)                                                                         |
+| Property settings editor                 | [reorderable-row.tsx](reorderable-row.tsx), [option-edit-menu.tsx](option-edit-menu.tsx), [option-model.ts](option-model.ts)                                                                                               |
+| Rollup wizard / computed cells           | [rollup-model.ts](rollup-model.ts), [rollup-wizard.tsx](rollup-wizard.tsx), [rollup-settings.tsx](rollup-settings.tsx), [rollup-aggregations.json](rollup-aggregations.json)                                               |
+| Saved view settings                      | [view-config.ts](view-config.ts), [use-saved-view.ts](use-saved-view.ts), [use-view-query-state.ts](use-view-query-state.ts), [legacy-hidden-properties.ts](legacy-hidden-properties.ts)                                   |
+| Filter / sort editors and operator table | [view-filter-editor.tsx](view-filter-editor.tsx), [view-sort-editor.tsx](view-sort-editor.tsx), [filter-editor-model.ts](filter-editor-model.ts), [filter-operators.json](filter-operators.json)                           |
+| Board lanes and chart data               | [use-board-lanes.ts](use-board-lanes.ts), [board-lanes-view.tsx](board-lanes-view.tsx), [gallery-lanes-view.tsx](gallery-lanes-view.tsx) (grouped gallery, shares the board's lane data), [chart-view.tsx](chart-view.tsx) |
+| Icons / board columns prompt             | [board-group-prompt.tsx](board-group-prompt.tsx), [page-icon.tsx](page-icon.tsx), [view-icon.tsx](view-icon.tsx), [icon-picker-button.tsx](icon-picker-button.tsx)                                                         |
+| Clipboard / CSV                          | [editing/](editing/)                                                                                                                                                                                                       |
 
 Gallery, List and Board cards show values through `value-format.ts`: schema order,
 option names/colors, Relation titles from the caller (a neutral pending chip when
@@ -57,14 +57,16 @@ filter the editor cannot show (OR, nested groups) is kept intact and can only be
 Board lanes take counts from one aggregate and page each lane on its own; the chart
 aggregates with the same filter and search and recounts on projection changes.
 
-An `amby-db` block is a `DatabaseViewHost`: it reads the shared saved view (layout, filter, sorts,
-card properties, widths) and never writes it. The embedding owns only what its reference
-states, a `layout` and an extra `filter`, both saved back into the block's fence. Both filters
-must hold. The `@currentPage` filter operand is replaced by the backend with the page the
-view sits on (the note ID from the editor's asset context); without a page it is an error,
-never match-all. Creating a record from a view whose filter ties a relation to the current
-page also links the new record to that page, and says so when another condition may still
-hide it. Rows and databases open through `database-navigation.ts`, which the workspace
+An `amby-db` block is a database shortcut ([linked-block.ts](linked-block.ts), fence version 2): tabs,
+each a view of one database with its own name, icon, layout and a private copy of the settings
+(`config`, the view-document shape; [use-local-view.ts](use-local-view.ts) is its `SavedView`). The
+database's saved views are never written from a block; choosing one copies its settings
+([linked-view-factory.ts](linked-view-factory.ts)). The first format opens as a one-tab shortcut, rewritten only when edited. [linked-database.tsx](linked-database.tsx) owns tabs; [linked-view-pane.tsx](linked-view-pane.tsx) the toolbar,
+filter/sort/settings (the shared `ViewSettingsPanel`, `inline`, without schema editing) and layouts. Insert menu,
+add-tab and change-source use [database-view-picker.tsx](database-view-picker.tsx). The
+`@currentPage` operand is replaced by the backend with the page the block sits on; without a page it is
+an error. A record created in a view tied to the page is linked to it.
+Last chosen view: [last-view-memory.ts](last-view-memory.ts). Rows and databases open through `database-navigation.ts`, which the workspace
 registers. Rollup (relation → field → function) offers only combinations the backend
 registry allows; computed cells show zero, "no data" and a failed calculation differently.
 

@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/context-menu"
 import { SourceEditor } from "../source-editor"
 import { TiptapEditor } from "../tiptap/TiptapEditor"
+import { useScrollbarCompensation } from "./use-scrollbar-compensation"
 import { ModuleRequiredFallback } from "./module-required-fallback"
 
 const LazyCanvasEditor = React.lazy(() =>
@@ -86,6 +87,8 @@ export interface DocumentBodyProps {
   onSketchChange?: (json: string) => void
   onEnableModule?: (moduleId: string) => void
   databaseBody?: React.ReactNode
+  /** Wraps the note's editor (the creative dossier). It keeps the editor in one place of the tree. */
+  editorFrame?: React.ComponentType<EditorFrameProps>
   editorSelection: MarkdownSelection | null
   onEditorSelectionChange: (selection: MarkdownSelection) => void
   editorRef: React.RefObject<EditorHandle>
@@ -95,6 +98,18 @@ export interface DocumentBodyProps {
   viewModeMenuOpen: boolean
   onViewModeMenuOpenChange: (open: boolean) => void
   treeItems?: TreeItem[]
+}
+
+/** What a frame around the note's editor is given. */
+export interface EditorFrameProps {
+  noteId: string
+  content: string
+  /** Scrolls the page to its n-th heading. */
+  scrollToHeading: (index: number) => void
+  /** False where headings are not on screen to jump to (the source editor). */
+  canJump: boolean
+  onOpenNote?: (noteId: string) => void
+  children: React.ReactNode
 }
 
 export function DocumentBody({
@@ -137,6 +152,7 @@ export function DocumentBody({
   onSketchChange,
   onEnableModule,
   databaseBody,
+  editorFrame,
   editorSelection,
   onEditorSelectionChange,
   editorRef,
@@ -149,6 +165,14 @@ export function DocumentBody({
 }: DocumentBodyProps) {
   const { t } = useTranslation()
   const scrollRef = React.useRef<HTMLDivElement>(null)
+  const contentRef = React.useRef<HTMLDivElement>(null)
+  useScrollbarCompensation(scrollRef)
+  const scrollToHeading = React.useCallback((index: number) => {
+    const headings = contentRef.current?.querySelectorAll<HTMLElement>(
+      ".ProseMirror h1, .ProseMirror h2, .ProseMirror h3, .ProseMirror h4, .ProseMirror h5, .ProseMirror h6",
+    )
+    headings?.[index]?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }, [])
   const lastScrollTopRef = React.useRef(scrollPosition ?? 0)
   const onScrollPositionChangeRef = React.useRef(onScrollPositionChange)
 
@@ -278,6 +302,58 @@ export function DocumentBody({
       </div>
     ) : null
 
+  const editor =
+    viewMode === "source" ? (
+      <SourceEditor
+        key={`${docId}:${isLocked}`}
+        value={content}
+        onChange={onContentChange}
+        onLocalEdit={onContentDirty}
+        onTagClick={onTagClick}
+        onWikiLinkClick={onWikiLinkClick}
+        editorRef={editorRef}
+        placeholder={t("editor.placeholder")}
+        selection={editorSelection}
+        onSelectionChange={onEditorSelectionChange}
+        editable={!isLocked}
+      />
+    ) : (
+      <TiptapEditor
+        key={docId}
+        value={content}
+        onChange={onContentChange}
+        onContentDirty={onContentDirty}
+        onContentClean={onContentClean}
+        editorRef={editorRef}
+        editable={viewMode === "live" && !isLocked}
+        isReadOnly={viewMode === "read"}
+        onTagClick={onTagClick}
+        onWikiLinkClick={onWikiLinkClick}
+        resolveWikiLinkTarget={resolveWikiLinkTarget}
+        fetchTransclusion={fetchTransclusion}
+        placeholder={t("editor.placeholder")}
+        vaultPath={vault}
+        notePath={docPath}
+        noteId={docId}
+        selection={editorSelection}
+        onSelectionChange={onEditorSelectionChange}
+      />
+    )
+  const Frame = editorFrame
+  const framedEditor = Frame ? (
+    <Frame
+      noteId={docId}
+      content={content}
+      canJump={viewMode !== "source"}
+      scrollToHeading={scrollToHeading}
+      onOpenNote={onOpenItem}
+    >
+      {editor}
+    </Frame>
+  ) : (
+    editor
+  )
+
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
       {/* Editor Layer */}
@@ -291,7 +367,24 @@ export function DocumentBody({
       >
         <div
           ref={scrollRef}
-          className="amby-editor-scroll mr-2 min-h-0 min-w-0 flex-1 overscroll-none overflow-y-auto"
+          className={`amby-editor-scroll mr-2 min-h-0 min-w-0 flex-1 overscroll-none overflow-y-auto${
+            viewMode === "live" && !isLocked ? " cursor-text" : ""
+          }`}
+          onClick={(event) => {
+            // The empty page around the note: the cursor goes to the nearest line.
+            if (viewMode !== "live" || isLocked) return
+            const target = event.target as HTMLElement
+            const empty =
+              target === event.currentTarget ||
+              target === contentRef.current ||
+              target.classList.contains("amby-tiptap")
+            if (!empty) return
+            const top = scrollRef.current
+              ?.querySelector(".ProseMirror")
+              ?.getBoundingClientRect().top
+            if (top === undefined || event.clientY <= top) return
+            editorRef.current?.focusAtPoint?.(event.clientX, event.clientY)
+          }}
           onScroll={(event) => {
             // A display:none transition or inactive layer can emit a synthetic scroll event
             // with scrollTop=0. Never let that overwrite the user's saved position.
@@ -306,6 +399,7 @@ export function DocumentBody({
           }}
         >
           <div
+            ref={contentRef}
             className="mx-auto min-w-0 px-3 pb-8 pt-5 sm:px-8 sm:pt-6 lg:px-10"
             style={{ maxWidth: EDITOR_CONTENT_WIDTH[contentWidth] }}
           >
@@ -330,42 +424,7 @@ export function DocumentBody({
               <div className="mb-2" />
             )}
 
-            {viewMode === "source" ? (
-              <SourceEditor
-                key={`${docId}:${isLocked}`}
-                value={content}
-                onChange={onContentChange}
-                onLocalEdit={onContentDirty}
-                onTagClick={onTagClick}
-                onWikiLinkClick={onWikiLinkClick}
-                editorRef={editorRef}
-                placeholder={t("editor.placeholder")}
-                selection={editorSelection}
-                onSelectionChange={onEditorSelectionChange}
-                editable={!isLocked}
-              />
-            ) : (
-              <TiptapEditor
-                key={docId}
-                value={content}
-                onChange={onContentChange}
-                onContentDirty={onContentDirty}
-                onContentClean={onContentClean}
-                editorRef={editorRef}
-                editable={viewMode === "live" && !isLocked}
-                isReadOnly={viewMode === "read"}
-                onTagClick={onTagClick}
-                onWikiLinkClick={onWikiLinkClick}
-                resolveWikiLinkTarget={resolveWikiLinkTarget}
-                fetchTransclusion={fetchTransclusion}
-                placeholder={t("editor.placeholder")}
-                vaultPath={vault}
-                notePath={docPath}
-                noteId={docId}
-                selection={editorSelection}
-                onSelectionChange={onEditorSelectionChange}
-              />
-            )}
+            {framedEditor}
             {nestedNotesPlacement === "bottom" && nestedNotesBar}
           </div>
         </div>

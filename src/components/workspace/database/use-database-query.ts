@@ -28,6 +28,8 @@ interface UseDatabaseQueryOptions {
   /** The view's saved filter and sorts, applied on top of the search. */
   filter?: storage.DatabaseFilterNode
   sorts?: storage.DatabaseSortSpec[]
+  /** Rows placed by hand, first and in this order; only for a view without sorts. */
+  manualOrder?: string[]
   /** The page the view is shown on, for `@currentPage` filters. */
   contextPageId?: string
 }
@@ -54,6 +56,7 @@ export function useDatabaseQuery({
   search = "",
   filter,
   sorts,
+  manualOrder,
   contextPageId,
 }: UseDatabaseQueryOptions) {
   const queryIdentity = React.useMemo(() => {
@@ -110,6 +113,7 @@ export function useDatabaseQuery({
             search: search.trim() || undefined,
             sorts: sorts?.length ? sorts : undefined,
             filter,
+            manualOrder,
             // The view's own filter and sorts arrive as `filter`/`sorts`, so the
             // query never depends on the projection having caught up with a save.
             source: {
@@ -195,6 +199,7 @@ export function useDatabaseQuery({
       key,
       contextPageId,
       filter,
+      manualOrder,
       queryIdentity,
       search,
       setHost,

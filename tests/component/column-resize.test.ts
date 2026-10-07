@@ -94,4 +94,45 @@ describe("ColumnResize plugin lifecycle", () => {
       expect(cancelFrame).toHaveBeenCalledTimes(1)
     },
   )
+
+  it("keeps the divider mark while the document updates under the pointer", () => {
+    host = document.createElement("div")
+    document.body.appendChild(host)
+    editor = new Editor({
+      element: host,
+      extensions: [StarterKit, Column, ColumnSet, ColumnResize],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "columnSet",
+            attrs: { widths: "0.5000,0.5000" },
+            content: ["Left", "Right"].map((text) => ({
+              type: "column",
+              content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+            })),
+          },
+          { type: "paragraph", content: [{ type: "text", text: "After" }] },
+        ],
+      },
+    })
+    const set = host.querySelector<HTMLElement>(".amby-column-set")!
+    const columns = set.querySelectorAll<HTMLElement>(":scope > .amby-column")
+    vi.spyOn(columns[0], "getBoundingClientRect").mockReturnValue(new DOMRect(100, 100, 280, 100))
+    vi.spyOn(columns[1], "getBoundingClientRect").mockReturnValue(new DOMRect(420, 100, 280, 100))
+    columns[1].dispatchEvent(
+      new MouseEvent("mousemove", { bubbles: true, clientX: 400, clientY: 120 }),
+    )
+    expect(host.querySelectorAll(".amby-column")[1].classList.contains("is-resize-edge")).toBe(true)
+    // A change elsewhere redraws nodes; the mark is a decoration, so it stays.
+    editor.commands.insertContentAt(editor.state.doc.content.size - 1, "x")
+    expect(host.querySelectorAll(".amby-column")[1].classList.contains("is-resize-edge")).toBe(true)
+    // Leaving the divider clears it.
+    columns[1].dispatchEvent(
+      new MouseEvent("mousemove", { bubbles: true, clientX: 200, clientY: 120 }),
+    )
+    expect(host.querySelectorAll(".amby-column")[1].classList.contains("is-resize-edge")).toBe(
+      false,
+    )
+  })
 })

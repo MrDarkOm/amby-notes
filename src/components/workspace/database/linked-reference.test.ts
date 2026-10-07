@@ -20,6 +20,14 @@ describe("database linked references", () => {
     ).toBeNull()
   })
 
+  it("keeps a block height and rejects an unusable one", () => {
+    const ok = parseDatabaseLinkedReference(JSON.stringify({ databaseId, viewId, height: 300 }))
+    expect(ok?.value.height).toBe(300)
+    expect(
+      parseDatabaseLinkedReference(JSON.stringify({ databaseId, viewId, height: "tall" })),
+    ).toBeNull()
+  })
+
   it("creates a changed reference only when explicitly requested", () => {
     const parsed = parseDatabaseLinkedReference(JSON.stringify({ databaseId, viewId }))!
     const changed = serializeDatabaseLinkedReference(parsed, { layout: "list" })

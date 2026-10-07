@@ -22,6 +22,50 @@ export interface ModuleHostOptions {
   safeMode?: SafeModeState
 }
 
+function getDeclaredDependencies(def: ModuleDefinition): string[] {
+  const deps = def.manifest.dependencies
+  if (!deps) return []
+  if (Array.isArray(deps)) return (deps as string[]).map(toCanonicalModuleId)
+  if (typeof deps === "object") return Object.keys(deps).map(toCanonicalModuleId)
+  return []
+}
+
+function sortModulesByDependency(
+  moduleIds: Iterable<string>,
+  definitions: Map<string, ModuleDefinition>,
+  reverse = false,
+): string[] {
+  const list = Array.from(moduleIds)
+  const visited = new Set<string>()
+  const result: string[] = []
+
+  const visit = (id: string, stack: Set<string>) => {
+    if (visited.has(id)) return
+    if (stack.has(id)) {
+      return
+    }
+    stack.add(id)
+    const def = definitions.get(id)
+    if (def) {
+      const deps = getDeclaredDependencies(def)
+      for (const depId of deps) {
+        if (definitions.has(depId)) {
+          visit(depId, stack)
+        }
+      }
+    }
+    stack.delete(id)
+    visited.add(id)
+    result.push(id)
+  }
+
+  for (const id of list) {
+    visit(id, new Set())
+  }
+
+  return reverse ? result.reverse() : result
+}
+
 export class ModuleHost {
   public readonly files: FileHandlerRegistry
   public readonly panels: PanelContributionRegistry
@@ -155,6 +199,18 @@ export class ModuleHost {
       return false
     }
 
+    // Check declared dependencies: all must be currently active
+    const declaredDeps = getDeclaredDependencies(def)
+    for (const depId of declaredDeps) {
+      if (!this.activeModules.has(depId)) {
+        logger.warn("module_host.missing_dependency", {
+          moduleId: canonicalId,
+          dependencyId: depId,
+        })
+        return false
+      }
+    }
+
     const context: ModuleHostContext = {
       moduleId: canonicalId,
       vault,
@@ -180,6 +236,18 @@ export class ModuleHost {
     const canonicalId = toCanonicalModuleId(moduleId)
     if (!this.activeModules.has(canonicalId)) {
       return
+    }
+
+    // Deactivate any active modules that depend on this one first (dependents before dependencies)
+    for (const activeId of Array.from(this.activeModules)) {
+      if (activeId === canonicalId) continue
+      const activeDef = this.definitions.get(activeId)
+      if (activeDef) {
+        const deps = getDeclaredDependencies(activeDef)
+        if (deps.includes(canonicalId)) {
+          await this.deactivateModule(activeId)
+        }
+      }
     }
 
     const def = this.definitions.get(canonicalId)
@@ -225,26 +293,47 @@ export class ModuleHost {
 
       if (vaultChanged) {
         // Vault context changed: full restart of active modules with new vault context
-        for (const activeId of Array.from(this.activeModules)) {
+        // Deactivate in reverse dependency order (dependents first)
+        const activeToDeactivate = sortModulesByDependency(
+          this.activeModules,
+          this.definitions,
+          true,
+        )
+        for (const activeId of activeToDeactivate) {
           await this.deactivateModule(activeId)
         }
-        for (const enabledId of canonicalEnabled) {
-          if (this.definitions.has(enabledId)) {
+
+        // Activate in dependency order (dependencies first)
+        const toActivate = sortModulesByDependency(canonicalEnabled, this.definitions, false)
+        for (const enabledId of toActivate) {
+          if (canonicalEnabled.has(enabledId) && this.definitions.has(enabledId)) {
             await this.activateModule(enabledId, vault)
           }
         }
       } else {
         // Same vault: delta sync
-        // 1. Deactivate modules that are no longer enabled
-        for (const activeId of Array.from(this.activeModules)) {
-          if (!canonicalEnabled.has(activeId)) {
-            await this.deactivateModule(activeId)
-          }
+        // 1. Deactivate modules that are no longer enabled (dependents first)
+        const toDeactivate = sortModulesByDependency(
+          Array.from(this.activeModules).filter((id) => !canonicalEnabled.has(id)),
+          this.definitions,
+          true,
+        )
+        for (const activeId of toDeactivate) {
+          await this.deactivateModule(activeId)
         }
 
-        // 2. Activate newly enabled modules
-        for (const enabledId of canonicalEnabled) {
-          if (!this.activeModules.has(enabledId) && this.definitions.has(enabledId)) {
+        // 2. Activate newly enabled modules (dependencies first)
+        const toActivate = sortModulesByDependency(
+          Array.from(canonicalEnabled).filter((id) => !this.activeModules.has(id)),
+          this.definitions,
+          false,
+        )
+        for (const enabledId of toActivate) {
+          if (
+            canonicalEnabled.has(enabledId) &&
+            !this.activeModules.has(enabledId) &&
+            this.definitions.has(enabledId)
+          ) {
             await this.activateModule(enabledId, vault)
           }
         }
@@ -256,7 +345,8 @@ export class ModuleHost {
   }
 
   async disposeAll(): Promise<void> {
-    for (const activeId of Array.from(this.activeModules)) {
+    const activeToDeactivate = sortModulesByDependency(this.activeModules, this.definitions, true)
+    for (const activeId of activeToDeactivate) {
       await this.deactivateModule(activeId)
     }
     for (const defId of Array.from(this.definitions.keys())) {

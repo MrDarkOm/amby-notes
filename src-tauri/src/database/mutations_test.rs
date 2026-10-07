@@ -5489,6 +5489,7 @@ fn option_input(id: Option<&str>, name: &str, color: &str) -> DatabaseOptionInpu
         name: name.to_owned(),
         color: color.to_owned(),
         group: None,
+        is_default: false,
     }
 }
 
@@ -6115,5 +6116,146 @@ fn a_relation_limit_can_be_set_and_removed_with_links_and_never_rewrites_them() 
         .unwrap();
     assert!(stored_config(&source, &property.property_id)["maxItems"].is_null());
     assert_eq!(fs::read(&record_path).unwrap(), record_before);
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
+fn a_new_property_named_like_a_kept_key_gets_a_key_of_its_own() {
+    let vault = temp_vault();
+    let watcher = WatcherState::new();
+    let created = create_database(
+        &vault,
+        &watcher,
+        &CreateDatabaseRequest {
+            expected_generation: 1,
+            mode: DatabaseCreateMode::Standalone,
+            parent_path: Some(vault.to_string_lossy().to_string()),
+            note_path: None,
+            name: "Projects".to_owned(),
+        },
+    )
+    .unwrap();
+    let phase = create_database_property(
+        &vault,
+        &watcher,
+        &CreateDatabasePropertyRequest {
+            expected_generation: 1,
+            database_id: created.database_id.clone(),
+            expected_manifest_revision: created.manifest_revision.clone(),
+            name: "Phase".to_owned(),
+            property_type: "text".to_owned(),
+            before_property_id: None,
+            options: Vec::new(),
+            formula_expression: None,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    // "Phase" was once called "Stage": a rename pins the old name as its storage key.
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&created.manifest_path).unwrap()).unwrap();
+    manifest["properties"][0]["yamlBinding"] = json!({"direction": "twoWay", "key": "Stage"});
+    let mut bytes = serde_json::to_vec_pretty(&manifest).unwrap();
+    bytes.push(b'\n');
+    fs::write(&created.manifest_path, &bytes).unwrap();
+    let revision = parse_manifest(&bytes).unwrap().revision;
+    let _ = phase;
+
+    // Any name can be used: "Stage" gets a key of its own instead of sharing the old one.
+    let stage = create_database_property(
+        &vault,
+        &watcher,
+        &CreateDatabasePropertyRequest {
+            expected_generation: 1,
+            database_id: created.database_id.clone(),
+            expected_manifest_revision: revision,
+            name: "Stage".to_owned(),
+            property_type: "status".to_owned(),
+            before_property_id: None,
+            options: Vec::new(),
+            formula_expression: None,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&created.manifest_path).unwrap()).unwrap();
+    let new_property = manifest["properties"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|property| property["id"] == stage.property_id)
+        .unwrap();
+    assert_eq!(new_property["name"], "Stage");
+    assert_eq!(new_property["yamlBinding"]["key"], "Stage 2");
+    let _ = fs::remove_dir_all(vault);
+}
+
+#[test]
+fn a_default_option_is_stored_limited_to_one_and_given_to_new_rows() {
+    let (vault, watcher, created, property) = option_fixture("select", &[]);
+    let updated = update_database_property_options(
+        &vault,
+        &watcher,
+        &options_request(
+            &created,
+            &property,
+            &property.manifest_revision,
+            vec![
+                option_input(None, "Idea", "#94a3b8"),
+                DatabaseOptionInput {
+                    is_default: true,
+                    ..option_input(None, "Backlog", "#f59e0b")
+                },
+            ],
+        ),
+    )
+    .unwrap();
+    let parsed = parse_manifest(&fs::read(&created.manifest_path).unwrap()).unwrap();
+    let stored = serde_json::to_value(&parsed.value.properties[0]).unwrap();
+    assert_eq!(
+        stored["config"]["defaultOptionIds"],
+        json!([updated.options[1].id.clone()])
+    );
+
+    // Two defaults on a Select are refused.
+    let error = update_database_property_options(
+        &vault,
+        &watcher,
+        &options_request(
+            &created,
+            &property,
+            &updated.manifest_revision,
+            vec![
+                DatabaseOptionInput {
+                    id: Some(updated.options[0].id.clone()),
+                    is_default: true,
+                    ..option_input(None, "Idea", "#94a3b8")
+                },
+                DatabaseOptionInput {
+                    id: Some(updated.options[1].id.clone()),
+                    is_default: true,
+                    ..option_input(None, "Backlog", "#f59e0b")
+                },
+            ],
+        ),
+    )
+    .unwrap_err();
+    assert!(error.contains("default"), "{error}");
+
+    // A new row starts with the default option, stored by its name.
+    let row = crate::database::rows::create_database_row(
+        &vault,
+        &watcher,
+        &crate::database::rows::CreateDatabaseRowRequest {
+            expected_generation: 1,
+            database_id: created.database_id.clone(),
+            title: "First".to_owned(),
+            template: crate::database::rows::DatabaseRowTemplate::Empty,
+        },
+    )
+    .unwrap();
+    let note = fs::read_to_string(&row.note_path).unwrap();
+    assert!(note.contains("Backlog"), "{note}");
     let _ = fs::remove_dir_all(vault);
 }

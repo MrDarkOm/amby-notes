@@ -5,6 +5,7 @@
     "src/lib/storage/index.ts": ["exports"],
     "src/lib/storage/database-types.ts": ["types"],
     "src/themes/palettes.ts": ["exports"],
-    "src/lib/modules/**": ["exports", "types"]
+    "src/lib/modules/**": ["exports", "types"],
+    "src/lib/storage/project-types.ts": ["types"]
   }
 }

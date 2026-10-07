@@ -74,3 +74,24 @@ export function pageRelationCandidates(
       relationTargetDatabaseId(property, embeddedDatabaseId) === pageDatabaseId,
   )
 }
+
+/** Layouts a block can show; the saved view's own layout is the default. */
+export const EMBED_LAYOUTS = ["table", "board", "list", "gallery"] as const
+export type EmbedLayout = (typeof EMBED_LAYOUTS)[number]
+
+export function isEmbedLayout(value: string | undefined): value is EmbedLayout {
+  return (EMBED_LAYOUTS as readonly string[]).includes(value ?? "")
+}
+
+/** A block fits its content, up to this many px; a longer view scrolls inside. */
+export const EMBED_AUTO_MAX_HEIGHT = 560
+export const EMBED_MIN_HEIGHT = 120
+
+/**
+ * The height a block keeps while its tabs are switched. It only grows: going to a
+ * shorter layout (table → gallery → list) must not pull the text below the block
+ * up and down, so a tab never takes less room than the tallest one seen.
+ */
+export function raiseHeightFloor(floor: number, measured: number): number {
+  return Math.min(EMBED_AUTO_MAX_HEIGHT, Math.max(floor, Math.round(measured)))
+}

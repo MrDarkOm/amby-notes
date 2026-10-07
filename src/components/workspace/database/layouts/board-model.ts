@@ -115,3 +115,50 @@ export function moveRowToBoardLane(
     return { ...row, valuesJson: JSON.stringify(nextValues) }
   })
 }
+
+export interface GroupDisplay {
+  sort: "manual" | "alphabetical" | "reverseAlphabetical"
+  /** The manual order of the columns (keys). */
+  order: string[]
+  /** Columns left out. */
+  hidden: string[]
+  /** Leave out columns with no cards. */
+  hideEmpty: boolean
+}
+
+/**
+ * The columns as the view shows them: hidden and (optionally) empty ones left out,
+ * the rest ordered manually or by name. A column the manual order does not know
+ * (a new option) goes after the known ones; the no-value column stays where it was
+ * when sorting by name, so a name sort never moves it into the middle.
+ */
+export function arrangeLanes(lanes: BoardLane[], display: GroupDisplay): BoardLane[] {
+  const hidden = new Set(display.hidden)
+  const visible = lanes.filter(
+    (lane) =>
+      !hidden.has(lane.key) && !(display.hideEmpty && (lane.count ?? lane.rows.length) === 0),
+  )
+  if (display.sort === "manual") {
+    if (display.order.length === 0) return visible
+    const position = (key: string) => {
+      const at = display.order.indexOf(key)
+      return at < 0 ? Number.POSITIVE_INFINITY : at
+    }
+    return visible
+      .map((lane, index) => ({ lane, index }))
+      .sort((a, b) => position(a.lane.key) - position(b.lane.key) || a.index - b.index)
+      .map((entry) => entry.lane)
+  }
+  const named = visible.filter((lane) => lane.key !== EMPTY_BOARD_LANE)
+  const empty = visible.filter((lane) => lane.key === EMPTY_BOARD_LANE)
+  const direction = display.sort === "alphabetical" ? 1 : -1
+  named.sort((a, b) => direction * (a.label ?? "").localeCompare(b.label ?? ""))
+  // The no-value column keeps the end it had in the natural order.
+  const lastInNatural = lanes[lanes.length - 1]?.key === EMPTY_BOARD_LANE
+  return lastInNatural ? [...named, ...empty] : [...empty, ...named]
+}
+
+/** All the view's columns in the order the settings list shows them, hidden ones too. */
+export function groupListOrder(lanes: BoardLane[], display: GroupDisplay): BoardLane[] {
+  return arrangeLanes(lanes, { ...display, hidden: [], hideEmpty: false })
+}

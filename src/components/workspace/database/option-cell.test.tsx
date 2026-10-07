@@ -20,6 +20,23 @@ const property = (propertyType: string): DatabasePropertySummary => ({
 describe("OptionCell", () => {
   afterEach(cleanup)
 
+  it("lists a Status by stage, with a heading for each stage that has options", async () => {
+    const staged: DatabasePropertySummary = {
+      ...property("status"),
+      configJson: JSON.stringify({
+        options: [
+          { id: "a", group: "notStarted" },
+          { id: "b", group: "done" },
+        ],
+      }),
+    }
+    render(<OptionCell property={staged} value={null} pending={false} onCommit={async () => {}} />)
+    fireEvent.click(screen.getByRole("button", { name: "Stage" }))
+    expect(await screen.findByText("Сделать")).toBeTruthy()
+    expect(screen.getByText("Завершено")).toBeTruthy()
+    expect(screen.queryByText("В процессе")).toBeNull()
+  })
+
   it("shows the chosen option by name and commits a pick from the list", async () => {
     const onCommit = vi.fn(async () => {})
     render(
@@ -85,7 +102,7 @@ describe("OptionCell", () => {
       )
 
     it("filters the list by the typed text", async () => {
-      withActions({ createOption: async () => null, editOptions: () => {} }, async () => {})
+      withActions({ createOption: async () => null, saveOptions: async () => {} }, async () => {})
       fireEvent.click(screen.getByRole("button", { name: "Stage" }))
       fireEvent.change(await screen.findByRole("textbox"), { target: { value: "do" } })
       expect(screen.queryByRole("option", { name: /Todo/ })).toBeTruthy()
@@ -97,7 +114,7 @@ describe("OptionCell", () => {
     it("creates the typed option and selects it", async () => {
       const createOption = vi.fn(async () => "new-id")
       const onCommit = vi.fn(async () => {})
-      withActions({ createOption, editOptions: () => {} }, onCommit)
+      withActions({ createOption, saveOptions: async () => {} }, onCommit)
       fireEvent.click(screen.getByRole("button", { name: "Stage" }))
       const input = await screen.findByRole("textbox")
       fireEvent.change(input, { target: { value: "  Blocked " } })
@@ -113,7 +130,7 @@ describe("OptionCell", () => {
     it("picks the existing option instead of creating a duplicate", async () => {
       const createOption = vi.fn(async () => "x")
       const onCommit = vi.fn(async () => {})
-      withActions({ createOption, editOptions: () => {} }, onCommit)
+      withActions({ createOption, saveOptions: async () => {} }, onCommit)
       fireEvent.click(screen.getByRole("button", { name: "Stage" }))
       const input = await screen.findByRole("textbox")
       fireEvent.change(input, { target: { value: "done" } })
@@ -126,7 +143,7 @@ describe("OptionCell", () => {
     it("selects nothing when creating fails", async () => {
       const onCommit = vi.fn(async () => {})
       const createOption = vi.fn(async () => null)
-      withActions({ createOption, editOptions: () => {} }, onCommit)
+      withActions({ createOption, saveOptions: async () => {} }, onCommit)
       fireEvent.click(screen.getByRole("button", { name: "Stage" }))
       const input = await screen.findByRole("textbox")
       fireEvent.change(input, { target: { value: "Blocked" } })
@@ -135,12 +152,16 @@ describe("OptionCell", () => {
       expect(onCommit).not.toHaveBeenCalled()
     })
 
-    it("opens the options editor from the list", async () => {
-      const editOptions = vi.fn()
-      withActions({ createOption: async () => null, editOptions }, async () => {})
+    it("saves a removal made from the option's own menu", async () => {
+      const saveOptions = vi.fn(async () => {})
+      withActions({ createOption: async () => null, saveOptions }, async () => {})
       fireEvent.click(screen.getByRole("button", { name: "Stage" }))
-      fireEvent.click(await screen.findByRole("button", { name: "Изменить варианты" }))
-      expect(editOptions).toHaveBeenCalledWith("p")
+      fireEvent.click((await screen.findAllByRole("button", { name: "Изменить вариант" }))[0])
+      fireEvent.click(await screen.findByRole("button", { name: "Удалить" }))
+      expect(saveOptions).toHaveBeenCalledTimes(1)
+      const saved = saveOptions.mock.calls[0] as unknown as [string, Array<{ id: string }>]
+      expect(saved[0]).toBe("p")
+      expect(saved[1].map((draft) => draft.id)).toEqual(["b"])
     })
 
     it("offers no creation without actions", async () => {
@@ -155,7 +176,7 @@ describe("OptionCell", () => {
       fireEvent.click(screen.getByRole("button", { name: "Stage" }))
       fireEvent.change(await screen.findByRole("textbox"), { target: { value: "Zzz" } })
       expect(screen.queryByText(/Создать/)).toBeNull()
-      expect(screen.queryByRole("button", { name: "Изменить варианты" })).toBeNull()
+      expect(screen.queryByRole("button", { name: "Изменить вариант" })).toBeNull()
     })
   })
 })

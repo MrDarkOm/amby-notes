@@ -20,7 +20,16 @@ const database = {
   views: [view("table"), view("board")],
   templates: [],
   properties: [
-    { propertyId: "s", name: "Status", propertyType: "status", configJson: "{}", options: [] },
+    {
+      propertyId: "s",
+      name: "Status",
+      propertyType: "status",
+      configJson: "{}",
+      options: [
+        { optionId: "a", name: "Todo", color: "#94a3b8" },
+        { optionId: "b", name: "Done", color: "#22c55e" },
+      ],
+    },
     { propertyId: "h", name: "Hours", propertyType: "number", configJson: "{}", options: [] },
   ],
 } as unknown as DatabaseSummary
@@ -76,13 +85,25 @@ describe("ViewSettingsPanel", () => {
 
   it("shows only the settings the layout needs", () => {
     const { rerender } = render(<ViewSettingsPanel {...props()} />)
-    expect(screen.queryByText("Колонки по свойству")).toBeNull()
+    expect(screen.queryByText("Группировать")).toBeNull()
     rerender(<ViewSettingsPanel {...props({ activeView: view("board") })} />)
-    expect(screen.getByText("Колонки по свойству")).toBeTruthy()
+    expect(screen.getByText("Группировать")).toBeTruthy()
     expect(screen.queryByText("Обложка на карточках")).toBeNull()
     rerender(<ViewSettingsPanel {...props({ activeView: view("gallery") })} />)
+    // The gallery's cover and size live on the Layout page, not in the main list.
+    expect(screen.queryByText("Обложка на карточках")).toBeNull()
+    // A gallery groups its cards by a property, like a board does its columns.
+    expect(screen.getByText("Группировать")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: /Раскладка/ }))
     expect(screen.getByText("Обложка на карточках")).toBeTruthy()
     expect(screen.getByText("Размер карточек")).toBeTruthy()
+  })
+
+  it("offers grouping to boards and galleries only", () => {
+    const { rerender } = render(<ViewSettingsPanel {...props({ activeView: view("list") })} />)
+    expect(screen.queryByText("Группировать")).toBeNull()
+    rerender(<ViewSettingsPanel {...props({ activeView: view("gallery") })} />)
+    expect(screen.getByText("Группировать")).toBeTruthy()
   })
 
   it("stays open and keeps its page when the layout changes", async () => {
@@ -161,16 +182,91 @@ describe("ViewSettingsPanel", () => {
         })}
       />,
     )
-    fireEvent.click(screen.getByRole("button", { name: /Колонки по свойству/ }))
+    fireEvent.click(screen.getByRole("button", { name: /^Группировать/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Группировать по/ }))
     fireEvent.click(await screen.findByRole("radio", { name: "Status" }))
     expect(group).toHaveBeenCalledWith("s")
+    // Back leads to the group page, then to the settings list.
     fireEvent.click(screen.getByRole("button", { name: "Назад" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Назад" }))
     fireEvent.click(await screen.findByRole("button", { name: /Открывать запись/ }))
     fireEvent.click(await screen.findByRole("radio", { name: /В центре/ }))
     expect(openMode).toHaveBeenCalledWith("centerPeek")
   })
 
-  it("switches the gallery cover and size without leaving the list", () => {
+  it("lets a board's columns be coloured from the group page, off by default", () => {
+    const change = vi.fn()
+    render(
+      <ViewSettingsPanel
+        {...props({
+          activeView: view("board"),
+          colorColumns: false,
+          onColorColumnsChange: change,
+        })}
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: /^Группировать/ }))
+    const toggle = screen.getByRole("switch", { name: "Цветные колонки" })
+    expect(toggle.getAttribute("aria-checked")).toBe("false")
+    fireEvent.click(toggle)
+    expect(change).toHaveBeenCalledWith(true)
+  })
+
+  describe("group page of a board", () => {
+    const open = (overrides: Partial<ViewSettingsPanelProps> = {}) => {
+      render(
+        <ViewSettingsPanel
+          {...props({
+            activeView: view("board"),
+            groupPropertyId: "s",
+            ...overrides,
+          })}
+        />,
+      )
+      fireEvent.click(screen.getByRole("button", { name: /^Группировать/ }))
+    }
+
+    it("shows the group-by, sort and the two switches, and lists the columns", async () => {
+      open()
+      expect(screen.getByRole("button", { name: /Группировать по/ })).toBeTruthy()
+      // The page slides in over the list: the newest row is the one on the page.
+      expect(screen.getAllByRole("button", { name: /^Сортировка/ }).length).toBeGreaterThan(0)
+      expect(screen.getByRole("switch", { name: "Скрывать пустые группы" })).toBeTruthy()
+      expect(screen.getByRole("switch", { name: "Цветные колонки" })).toBeTruthy()
+      // The options of the group property, then "no value".
+      expect(screen.getByText("Todo")).toBeTruthy()
+      expect(screen.getByText("Done")).toBeTruthy()
+    })
+
+    it("hides and shows columns one by one and all at once", () => {
+      const hidden = vi.fn()
+      open({ onHiddenGroupsChange: hidden })
+      fireEvent.click(screen.getByRole("button", { name: /Скрыть группу: Todo/ }))
+      expect(hidden).toHaveBeenLastCalledWith(["a"])
+      fireEvent.click(screen.getByRole("button", { name: "Скрыть все" }))
+      expect(hidden.mock.calls[hidden.mock.calls.length - 1][0]).toEqual(
+        expect.arrayContaining(["a", "b", "__empty__"]),
+      )
+    })
+
+    it("chooses how the columns are sorted", async () => {
+      const sort = vi.fn()
+      open({ onGroupSortChange: sort })
+      const rows = screen.getAllByRole("button", { name: /^Сортировка/ })
+      fireEvent.click(rows[rows.length - 1])
+      fireEvent.click(await screen.findByRole("radio", { name: "По алфавиту" }))
+      expect(sort).toHaveBeenCalledWith("alphabetical")
+    })
+
+    it("turns empty groups off and on", () => {
+      const hideEmpty = vi.fn()
+      open({ onHideEmptyGroupsChange: hideEmpty })
+      fireEvent.click(screen.getByRole("switch", { name: "Скрывать пустые группы" }))
+      expect(hideEmpty).toHaveBeenCalledWith(true)
+    })
+  })
+
+  it("switches the gallery cover and size on the layout page", () => {
     const cover = vi.fn()
     const size = vi.fn()
     render(
@@ -182,10 +278,16 @@ describe("ViewSettingsPanel", () => {
         })}
       />,
     )
+    fireEvent.click(screen.getByRole("button", { name: /Раскладка/ }))
     fireEvent.click(screen.getByRole("switch", { name: "Обложка на карточках" }))
     expect(cover).toHaveBeenCalledWith(false)
-    fireEvent.click(screen.getByRole("radio", { name: "Крупные" }))
+    // A slider with three stops: the arrow keys step through them.
+    const slider = screen.getByRole("slider", { name: "Размер карточек" })
+    expect(slider.getAttribute("aria-valuetext")).toBe("Средние")
+    fireEvent.keyDown(slider, { key: "ArrowRight" })
     expect(size).toHaveBeenCalledWith("large")
+    fireEvent.keyDown(slider, { key: "Home" })
+    expect(size).toHaveBeenCalledWith("small")
   })
 
   it("disables edits of a locked database but keeps the lock control", () => {
@@ -208,8 +310,8 @@ describe("ViewSettingsPanel", () => {
 
   it("returns to the list when its page no longer applies to the layout", async () => {
     const { rerender } = render(<ViewSettingsPanel {...props({ activeView: view("board") })} />)
-    fireEvent.click(screen.getByRole("button", { name: /Колонки по свойству/ }))
-    expect(await screen.findByRole("radio", { name: "Status" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: /^Группировать/ }))
+    expect(await screen.findByRole("switch", { name: "Цветные колонки" })).toBeTruthy()
     rerender(<ViewSettingsPanel {...props({ activeView: view("table") })} />)
     expect(await screen.findByRole("button", { name: /Раскладка/ })).toBeTruthy()
   })

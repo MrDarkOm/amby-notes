@@ -32,3 +32,20 @@ it("publishes pending Source text during a global flush without blur", async () 
   })
   expect(onChange).toHaveBeenCalledWith("latest unsaved source")
 })
+
+it("Tab types a tab character and Shift+Tab takes it back", () => {
+  const { container } = render(<SourceEditor value="word" onChange={vi.fn()} />)
+  const view = EditorView.findFromDOM(container.querySelector(".cm-editor")!)!
+  view.focus()
+  act(() => view.dispatch({ selection: { anchor: 0 } }))
+  const press = (shiftKey: boolean) =>
+    act(() => {
+      view.contentDOM.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Tab", code: "Tab", shiftKey, bubbles: true }),
+      )
+    })
+  press(false)
+  expect(view.state.doc.toString()).toBe("\tword")
+  press(true)
+  expect(view.state.doc.toString()).toBe("word")
+})

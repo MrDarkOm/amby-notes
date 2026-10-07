@@ -20,6 +20,9 @@ Read [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 | Amby blocks and callouts                     | [amby-block-node.ts](amby-block-node.ts), [AmbyBlockView.tsx](AmbyBlockView.tsx), [callout-node.ts](callout-node.ts)                                                                                                                         |
 | Source ↔ rich selection                      | [markdown-selection.ts](markdown-selection.ts)                                                                                                                                                                                               |
 
+The insert menu's "Database view" item opens the database picker inside
+`BlockInsertPanel`; the slash text is removed only together with the insertion.
+
 Keep unsupported/lossy syntax Source-only. Preserve `amby:columns` comments,
 column order, explicit widths and empty blocks. Editor-only unlink controls must
 leave the visible label as ordinary text, never appear in Markdown, and preserve

@@ -102,7 +102,11 @@ export function DatabaseCell({
     const checked = value?.checked === true
     return (
       <label
-        className={cn("flex h-full items-center justify-start", compact ? "px-0" : "px-1")}
+        className={cn(
+          "flex h-full items-center justify-start",
+          !pending && "cursor-pointer",
+          compact ? "px-0" : "px-1",
+        )}
         title={error ?? undefined}
         onClick={stopRowSelection}
       >
@@ -173,10 +177,17 @@ export function DatabaseCell({
       <div
         className={cn(
           "flex h-full w-full items-center gap-1 overflow-hidden",
+          !pending && "cursor-pointer",
           wrap && "flex-wrap",
           compact ? "px-0 py-0.5" : "px-1 py-1",
         )}
-        onClick={stopRowSelection}
+        onClick={(event) => {
+          event.stopPropagation()
+          // Anywhere in the cell that is not a chip or a button opens the picker.
+          if (!pending && !(event.target as HTMLElement).closest("button, a, [data-chip]")) {
+            setRelationPickerOpen(true)
+          }
+        }}
       >
         <RelationPickerPopover
           open={relationPickerOpen}
@@ -296,7 +307,7 @@ export function DatabaseCell({
           title={error ?? undefined}
           rows={compact ? 1 : 2}
           className={cn(
-            "min-w-0 w-full resize-none bg-transparent text-left outline-none focus:bg-accent/30 disabled:opacity-60",
+            "min-w-0 w-full cursor-pointer resize-none bg-transparent text-left outline-none focus:cursor-text focus:bg-accent/30 disabled:cursor-default disabled:opacity-60",
             compact
               ? "min-h-7 overflow-hidden rounded-md px-1 py-1 text-xs leading-4 whitespace-pre-wrap break-words"
               : "h-full px-2 py-2 text-sm leading-5",
@@ -333,16 +344,9 @@ export function DatabaseCell({
         value={draft}
         disabled={pending}
         title={error ?? undefined}
-        style={
-          compact
-            ? undefined
-            : {
-                width: `${Math.max(property.propertyType === "date" ? 12 : 6, draft.length + 2)}ch`,
-              }
-        }
         className={cn(
-          "min-w-0 max-w-full rounded-md bg-transparent text-left outline-none focus:bg-accent/30 disabled:opacity-60",
-          compact ? "h-7 w-full px-1 text-xs" : "h-8 px-2 text-sm",
+          "min-w-0 w-full max-w-full cursor-pointer rounded-md bg-transparent text-left outline-none focus:cursor-text focus:bg-accent/30 disabled:cursor-default disabled:opacity-60",
+          compact ? "h-7 px-1 text-xs" : "h-full min-h-8 px-2 text-sm",
           error && "text-destructive",
         )}
         onClick={stopRowSelection}

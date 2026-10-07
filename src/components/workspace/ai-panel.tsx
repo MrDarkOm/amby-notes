@@ -196,7 +196,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
                 <div
                   key={i}
                   className={cn(
-                    "max-w-[92%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-[13px] leading-relaxed",
+                    "max-w-[92%] select-text whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-[13px] leading-relaxed",
                     m.role === "user"
                       ? "self-end bg-sky-600/20 text-foreground"
                       : "self-start bg-card text-foreground",
@@ -206,7 +206,7 @@ export function AiPanel({ currentDocId }: PanelRenderProps) {
                 </div>
               ))}
               {streaming !== null && (
-                <div className="max-w-[92%] self-start whitespace-pre-wrap break-words rounded-lg bg-card px-3 py-2 text-[13px] leading-relaxed text-foreground">
+                <div className="max-w-[92%] select-text self-start whitespace-pre-wrap break-words rounded-lg bg-card px-3 py-2 text-[13px] leading-relaxed text-foreground">
                   {streaming || <span className="text-muted-foreground">{t("ai.thinking")}</span>}
                 </div>
               )}

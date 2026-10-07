@@ -109,6 +109,14 @@ export const OFFICIAL_BUILTIN_CATALOG: ModuleCatalog = {
       "vault.write",
       "workspace.tabs",
     ]),
+    "amby.creative": createOfficialEntry(
+      "amby.creative",
+      "Creative Studio",
+      "1.0.0",
+      300_000,
+      400_000,
+      ["vault.read", "vault.write"],
+    ),
   },
 }
 

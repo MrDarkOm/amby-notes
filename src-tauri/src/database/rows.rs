@@ -7,7 +7,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::discovery::discover_vault;
-use super::format::{parse_manifest, parse_template, PropertyValue};
+use super::format::{parse_manifest, parse_template, PropertyDefinition, PropertyValue};
 use crate::frontmatter::{self, AtomicCreateError};
 use crate::watcher::{self, WatcherState};
 
@@ -43,10 +43,72 @@ pub struct CreatedDatabaseRow {
     pub warnings: Vec<String>,
 }
 
+/// The value a new row gets for a Select, Multi-select or Status that has default options.
+fn default_value_of(property: &PropertyDefinition) -> Option<PropertyValue> {
+    let listed = |extra: &super::format::ExtraFields, exists: &dyn Fn(&str) -> bool| {
+        extra
+            .get("defaultOptionIds")
+            .and_then(serde_json::Value::as_array)
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .filter(|id| exists(id))
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+    };
+    match property {
+        PropertyDefinition::Select(fields) => {
+            let ids = listed(&fields.config.extra, &|id| {
+                fields.config.options.iter().any(|option| option.id == id)
+            });
+            ids.into_iter()
+                .next()
+                .map(|option_id| PropertyValue::Select {
+                    option_id,
+                    extra: Default::default(),
+                })
+        }
+        PropertyDefinition::Status(fields) => {
+            let ids = listed(&fields.config.extra, &|id| {
+                fields.config.options.iter().any(|option| option.id == id)
+            });
+            ids.into_iter()
+                .next()
+                .map(|option_id| PropertyValue::Status {
+                    option_id,
+                    extra: Default::default(),
+                })
+        }
+        PropertyDefinition::MultiSelect(fields) => {
+            let option_ids = listed(&fields.config.extra, &|id| {
+                fields.config.options.iter().any(|option| option.id == id)
+            });
+            (!option_ids.is_empty()).then(|| PropertyValue::MultiSelect {
+                option_ids,
+                extra: Default::default(),
+            })
+        }
+        _ => None,
+    }
+}
+
 pub fn create_database_row(
     vault: &Path,
     watcher: &WatcherState,
     request: &CreateDatabaseRowRequest,
+) -> Result<CreatedDatabaseRow, String> {
+    create_database_row_with_values(vault, watcher, request, &Default::default())
+}
+
+/// Creates a row that already carries `initial` values (by property ID), written together
+/// with the note, so the page never exists half-set. They win over the template's values.
+pub(crate) fn create_database_row_with_values(
+    vault: &Path,
+    watcher: &WatcherState,
+    request: &CreateDatabaseRowRequest,
+    initial: &std::collections::BTreeMap<String, PropertyValue>,
 ) -> Result<CreatedDatabaseRow, String> {
     let title = request.title.trim();
     if title.is_empty()
@@ -74,13 +136,27 @@ pub fn create_database_row(
     if note_path.exists() {
         return Err("A row with this title or ID already exists".to_owned());
     }
-    let (template_body, template_values) = match &request.template {
+    let (template_body, mut template_values) = match &request.template {
         DatabaseRowTemplate::Empty => (String::new(), std::collections::BTreeMap::new()),
         DatabaseRowTemplate::Default => load_default_template(&database, &request.database_id),
         DatabaseRowTemplate::Template { template_id } => {
             load_template(&database, &request.database_id, template_id)
         }
     };
+    for (property_id, value) in initial {
+        template_values.insert(property_id.clone(), value.clone());
+    }
+    // Every new row starts with the options the database marks as defaults, unless the template
+    // already sets that property.
+    if let Ok(bytes) = fs::read(&database.manifest_path) {
+        if let Ok(manifest) = parse_manifest(&bytes) {
+            for property in &manifest.value.properties {
+                if let (Some(id), Some(value)) = (property.id(), default_value_of(property)) {
+                    template_values.entry(id.to_owned()).or_insert(value);
+                }
+            }
+        }
+    }
     let encoded_title = serde_json::to_string(title).map_err(|error| error.to_string())?;
     let mut note_content =
         format!("---\namby-id: {note_id}\namby-title: {encoded_title}\n---\n{template_body}");
@@ -112,6 +188,87 @@ pub fn create_database_row(
             }
         }
     }
+    let note_bytes = note_content.into_bytes();
+    let prepared =
+        watcher.prepare_write([(&note_path, watcher::fingerprint_for_bytes(&note_bytes))]);
+    if let Err(error) = write_new(&note_path, &note_bytes) {
+        watcher.cancel_prepared_write(&prepared);
+        return Err(error);
+    }
+    watcher.confirm_prepared_write(&prepared);
+    Ok(CreatedDatabaseRow {
+        database_id: request.database_id.clone(),
+        note_id,
+        title: title.to_owned(),
+        note_path: note_path.to_string_lossy().to_string(),
+        record_path: String::new(),
+        record_revision: String::new(),
+        warnings: Vec::new(),
+    })
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateDatabaseRowRequest {
+    pub expected_generation: u64,
+    pub database_id: String,
+    pub note_id: String,
+    /// Title of the copy; the caller localizes the "copy" wording.
+    pub title: String,
+}
+
+/// Copies a row next to the original: the same property values and body, a new stable ID and
+/// the given title. The original is only read. Relation values are copied as they are, so a
+/// two-way Relation's other side does not list the copy until it is linked there.
+pub fn duplicate_database_row(
+    vault: &Path,
+    watcher: &WatcherState,
+    request: &DuplicateDatabaseRowRequest,
+) -> Result<CreatedDatabaseRow, String> {
+    let title = request.title.trim();
+    if title.is_empty()
+        || title.contains('/')
+        || title.contains('\\')
+        || title == "."
+        || title == ".."
+    {
+        return Err("Invalid row title".to_owned());
+    }
+    let discovery = discover_vault(vault)?;
+    let database = discovery
+        .databases
+        .iter()
+        .find(|database| database.database_id == request.database_id)
+        .ok_or_else(|| "Database was not found".to_owned())?;
+    if database.read_only {
+        return Err("Database is read-only".to_owned());
+    }
+    let source = discovery
+        .notes
+        .iter()
+        .find(|note| {
+            note.note_id.as_deref() == Some(request.note_id.as_str())
+                && note.owner_database_id.as_deref() == Some(request.database_id.as_str())
+        })
+        .ok_or_else(|| "Row was not found in this database".to_owned())?;
+    let directory = source
+        .path
+        .parent()
+        .ok_or_else(|| "Row has no parent folder".to_owned())?;
+    let content = fs::read_to_string(&source.path)
+        .map_err(|error| format!("Could not read the row: {error}"))?;
+    let note_id = ulid::Ulid::generate().to_string();
+    let with_id = frontmatter::replace_yaml_binding_lossless(
+        &content,
+        frontmatter::AMBY_ID_FIELD,
+        &serde_yaml::Value::String(note_id.clone()),
+    )?;
+    let note_content = frontmatter::replace_yaml_binding_lossless(
+        &with_id,
+        frontmatter::AMBY_TITLE_FIELD,
+        &serde_yaml::Value::String(title.to_owned()),
+    )?;
+    let note_path = unique_row_path(directory, &safe_row_stem(title))?;
     let note_bytes = note_content.into_bytes();
     let prepared =
         watcher.prepare_write([(&note_path, watcher::fingerprint_for_bytes(&note_bytes))]);
@@ -333,6 +490,92 @@ mod tests {
         assert!(String::from_utf8(fs::read(&row.note_path).unwrap())
             .unwrap()
             .contains(&row.note_id));
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn duplicates_a_row_with_a_new_id_the_same_body_and_values() {
+        let vault = temp_vault();
+        let database = create_database(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Projects".to_owned(),
+            },
+        )
+        .unwrap();
+        let row = create_database_row(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRowRequest {
+                expected_generation: 1,
+                database_id: database.database_id.clone(),
+                title: "Plan".to_owned(),
+                template: DatabaseRowTemplate::Empty,
+            },
+        )
+        .unwrap();
+        // The original gains a custom key and a body the copy must carry over.
+        let original = fs::read_to_string(&row.note_path).unwrap();
+        let edited = original.replacen("---\n", "---\nowner: Ann\n", 1) + "Body text\n";
+        fs::write(&row.note_path, &edited).unwrap();
+
+        let copy = duplicate_database_row(
+            &vault,
+            &WatcherState::new(),
+            &DuplicateDatabaseRowRequest {
+                expected_generation: 1,
+                database_id: database.database_id.clone(),
+                note_id: row.note_id.clone(),
+                title: "Plan — copy".to_owned(),
+            },
+        )
+        .unwrap();
+        assert_ne!(copy.note_id, row.note_id);
+        assert_eq!(copy.note_id.len(), 26);
+        let copied = fs::read_to_string(&copy.note_path).unwrap();
+        assert!(copied.contains(&copy.note_id));
+        assert!(!copied.contains(&row.note_id));
+        assert!(copied.contains("owner: Ann"));
+        assert!(copied.ends_with("Body text\n"));
+        assert!(copied.contains("Plan — copy"));
+        // The original is untouched and the copy sits next to it.
+        assert_eq!(fs::read_to_string(&row.note_path).unwrap(), edited);
+        assert_eq!(
+            Path::new(&copy.note_path).parent(),
+            Path::new(&row.note_path).parent()
+        );
+
+        // A second copy with the same title gets its own file.
+        let second = duplicate_database_row(
+            &vault,
+            &WatcherState::new(),
+            &DuplicateDatabaseRowRequest {
+                expected_generation: 1,
+                database_id: database.database_id,
+                note_id: row.note_id,
+                title: "Plan — copy".to_owned(),
+            },
+        )
+        .unwrap();
+        assert_ne!(second.note_path, copy.note_path);
+        let _ = fs::remove_dir_all(vault);
+    }
+
+    #[test]
+    fn refuses_to_duplicate_a_row_of_another_database() {
+        let vault = temp_vault();
+        let request = DuplicateDatabaseRowRequest {
+            expected_generation: 1,
+            database_id: ulid::Ulid::generate().to_string(),
+            note_id: ulid::Ulid::generate().to_string(),
+            title: "Copy".to_owned(),
+        };
+        assert!(duplicate_database_row(&vault, &WatcherState::new(), &request).is_err());
         let _ = fs::remove_dir_all(vault);
     }
 

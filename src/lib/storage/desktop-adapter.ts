@@ -6,6 +6,19 @@ import { joinStoragePath } from "./storage-path"
 import type { StoragePort } from "./port"
 import { FileRevisionConflictError, NoteRevisionConflictError } from "./types"
 import { unwrapDatabaseCommand } from "./database-port"
+import { unwrapProjectCommand } from "./project-port"
+import type {
+  CreateProjectRequest,
+  CreateProjectSectionRequest,
+  CreatedProject,
+  CreatedSection,
+  CreatedTextPage,
+  CreateTextPageRequest,
+  MoveTextPageRequest,
+  MovedTextPage,
+  NoteReference,
+  ProjectCatalog,
+} from "./project-types"
 import type {
   DatabaseFieldRef,
   DatabaseFilterNode,
@@ -35,6 +48,7 @@ import type {
   DatabaseValueBatchRequest,
   DatabaseValueBatchResult,
   CreateDatabaseRowRequest,
+  DuplicateDatabaseRowRequest,
   CreatedDatabaseRow,
   ImportDatabaseAssetRequest,
   ImportedDatabaseAsset,
@@ -197,6 +211,7 @@ function toBindingQueryRequest(request: DatabaseQueryRequest) {
       cursor: request.page.cursor ?? null,
     },
     contextPageId: request.contextPageId ?? null,
+    manualOrder: request.manualOrder ?? null,
   }
 }
 
@@ -366,6 +381,10 @@ export class DesktopAdapter implements StoragePort {
     return unwrapDatabaseCommand(await commands.createDatabaseRow(request))
   }
 
+  async duplicateDatabaseRow(request: DuplicateDatabaseRowRequest): Promise<CreatedDatabaseRow> {
+    return unwrapDatabaseCommand(await commands.duplicateDatabaseRow(request))
+  }
+
   async importDatabaseAsset(request: ImportDatabaseAssetRequest): Promise<ImportedDatabaseAsset> {
     return unwrapDatabaseCommand(
       await commands.importDatabaseAsset({
@@ -438,6 +457,61 @@ export class DesktopAdapter implements StoragePort {
         expectedRecordRevision: request.expectedRecordRevision,
         resolution: request.resolution,
         manualValueJson: request.manualValueJson ?? null,
+      }),
+    )
+  }
+
+  async listProjects(): Promise<ProjectCatalog> {
+    return unwrapProjectCommand(await commands.listProjects())
+  }
+
+  async refreshProjects(expectedGeneration: number): Promise<ProjectCatalog> {
+    return unwrapProjectCommand(await commands.refreshProjects(expectedGeneration))
+  }
+
+  async createProject(request: CreateProjectRequest): Promise<CreatedProject> {
+    return unwrapProjectCommand(
+      await commands.createProject({
+        ...request,
+        parentPath: request.parentPath ?? null,
+        icon: request.icon ?? null,
+        tags: request.tags ?? [],
+        labels: request.labels ?? {},
+      }),
+    )
+  }
+
+  async createProjectSection(request: CreateProjectSectionRequest): Promise<CreatedSection> {
+    return unwrapProjectCommand(
+      await commands.createProjectSection({
+        ...request,
+        role: request.role ?? null,
+        groupId: request.groupId ?? null,
+        preset: request.preset ?? null,
+        labels: request.labels ?? {},
+      }),
+    )
+  }
+
+  async createTextPage(request: CreateTextPageRequest): Promise<CreatedTextPage> {
+    return unwrapProjectCommand(
+      await commands.createTextPage({
+        ...request,
+        parentNoteId: request.parentNoteId ?? null,
+        formatId: request.formatId ?? null,
+      }),
+    )
+  }
+
+  async listNoteReferences(noteId: string): Promise<NoteReference[]> {
+    return unwrapProjectCommand(await commands.listNoteReferences(noteId))
+  }
+
+  async moveTextPage(request: MoveTextPageRequest): Promise<MovedTextPage> {
+    return unwrapProjectCommand(
+      await commands.moveTextPage({
+        ...request,
+        newParentNoteId: request.newParentNoteId ?? null,
       }),
     )
   }

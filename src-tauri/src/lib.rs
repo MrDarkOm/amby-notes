@@ -12,6 +12,7 @@ pub mod logging;
 mod model;
 pub mod package_manager;
 mod paths;
+mod project;
 mod property_store;
 mod recovery;
 mod recycle_bin;
@@ -116,6 +117,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::database::apply_database_value_batch,
         commands::database::update_database_relation_value,
         commands::database::create_database_row,
+        commands::database::duplicate_database_row,
         commands::database::import_database_asset,
         commands::database::resolve_database_asset_paths,
         commands::database::configure_database_rollup,
@@ -144,6 +146,13 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::database::undo_database_mutation,
         commands::database::redo_database_mutation,
         commands::database::get_database_history_status,
+        commands::project::list_projects,
+        commands::project::refresh_projects,
+        commands::project::create_project,
+        commands::project::create_project_section,
+        commands::project::create_text_page,
+        commands::project::move_text_page,
+        commands::project::list_note_references,
         commands::assets::open_in_explorer,
         commands::assets::import_asset,
         commands::assets::import_asset_bytes,

@@ -12,9 +12,17 @@ import {
   keymap,
   placeholder as cmPlaceholder,
 } from "@codemirror/view"
-import { defaultKeymap, history, historyKeymap, redo, undo } from "@codemirror/commands"
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentLess,
+  insertTab,
+  redo,
+  undo,
+} from "@codemirror/commands"
 import { CODE_EDITOR_THEME } from "@/lib/themes"
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language"
+import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language"
 import { markdown } from "@codemirror/lang-markdown"
 import { tags } from "@lezer/highlight"
 
@@ -240,7 +248,15 @@ export function SourceEditor({
         })(),
         extensions: [
           history(),
-          keymap.of([...defaultKeymap, ...historyKeymap]),
+          // Tab types a tab character (or indents the selected lines), Shift+Tab outdents.
+          // Ctrl+M (Alt+Shift+M on macOS) hands Tab back to the browser for keyboard navigation.
+          keymap.of([
+            ...defaultKeymap,
+            { key: "Tab", run: insertTab },
+            { key: "Shift-Tab", run: indentLess },
+            ...historyKeymap,
+          ]),
+          indentUnit.of("\t"),
           markdown(),
           EditorState.readOnly.of(!editable),
           EditorView.editable.of(editable),

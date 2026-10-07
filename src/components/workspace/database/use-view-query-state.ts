@@ -1,7 +1,7 @@
 import * as React from "react"
 import type { DatabaseViewSummary } from "@/lib/storage"
 import { useLegacyHiddenPropertiesMigration } from "./legacy-hidden-properties"
-import { useSavedView } from "./use-saved-view"
+import { useSavedView, type SavedView } from "./use-saved-view"
 import {
   fieldKey,
   fieldRefFromKey,
@@ -11,29 +11,17 @@ import {
 } from "./view-config"
 
 /**
- * The saved settings of the active view and everything the workspace derives
- * from them: hidden fields, filter, sorts, the table layout and the query inputs.
+ * What a view's settings turn into for the UI and the query: hidden fields,
+ * filter, sorts, table layout. It works on any source of settings: a saved view
+ * of the database, or the copy that belongs to a block in a note.
  */
-export function useViewQueryState({
-  databaseId,
-  vaultGeneration,
-  activeView,
-  isDatabaseLocked,
-  onCatalogChanged,
+export function useViewSettingsDerived({
+  savedView,
+  viewId,
 }: {
-  databaseId: string
-  vaultGeneration: number | null
-  activeView: DatabaseViewSummary | undefined
-  isDatabaseLocked: boolean
-  onCatalogChanged?: () => void | Promise<void>
+  savedView: SavedView
+  viewId: string | null
 }) {
-  const savedView = useSavedView({
-    databaseId,
-    vaultGeneration,
-    view: activeView ? { viewId: activeView.viewId, revision: activeView.revision } : null,
-    persist: !isDatabaseLocked,
-    onSaved: () => onCatalogChanged?.(),
-  })
   const { settings: viewSettings, update: updateViewSettings } = savedView
 
   const activeHiddenPropertyIds = React.useMemo(
@@ -45,7 +33,7 @@ export function useViewQueryState({
       targetViewId: string,
       ids: Set<string> | string[] | ((current: Set<string>) => Set<string>),
     ) => {
-      if (targetViewId !== activeView?.viewId) return
+      if (targetViewId !== viewId) return
       const current = new Set(viewSettings.hidden)
       const next = new Set(typeof ids === "function" ? ids(current) : ids)
       // An unchanged list must not become a new settings object: the table's
@@ -53,26 +41,20 @@ export function useViewQueryState({
       if (next.size === current.size && [...next].every((id) => current.has(id))) return
       updateViewSettings({ hidden: Array.from(next) })
     },
-    [activeView?.viewId, updateViewSettings, viewSettings.hidden],
+    [viewId, updateViewSettings, viewSettings.hidden],
   )
   const togglePropertyVisibility = React.useCallback(
     (propertyId: string) => {
-      if (!activeView) return
-      setViewHiddenPropertyIds(activeView.viewId, (current) => {
+      if (!viewId) return
+      setViewHiddenPropertyIds(viewId, (current) => {
         const next = new Set(current)
         if (next.has(propertyId)) next.delete(propertyId)
         else next.add(propertyId)
         return next
       })
     },
-    [activeView, setViewHiddenPropertyIds],
+    [viewId, setViewHiddenPropertyIds],
   )
-  useLegacyHiddenPropertiesMigration({
-    databaseId,
-    viewId: activeView?.viewId ?? null,
-    savedView,
-    persisted: !isDatabaseLocked,
-  })
 
   const savedConditions = React.useMemo(
     () => flatConditions(viewSettings.filter),
@@ -116,8 +98,15 @@ export function useViewQueryState({
   )
   const queryFilter = React.useMemo(() => toQueryFilter(viewSettings.filter), [viewSettings.filter])
   const querySorts = React.useMemo(() => toQuerySorts(viewSettings.sorts), [viewSettings.sorts])
+  // A sort overrides the hand-placed order; the list stays in the view for when it is removed.
+  const queryManualOrder = React.useMemo(
+    () =>
+      viewSettings.sorts.length === 0 && viewSettings.manualOrder.length > 0
+        ? viewSettings.manualOrder
+        : undefined,
+    [viewSettings.manualOrder, viewSettings.sorts.length],
+  )
   return {
-    savedView,
     viewSettings,
     updateViewSettings,
     activeHiddenPropertyIds,
@@ -131,5 +120,40 @@ export function useViewQueryState({
     tableSavedSettings,
     queryFilter,
     querySorts,
+    queryManualOrder,
   }
+}
+
+/**
+ * The saved settings of the active view and everything the workspace derives
+ * from them: hidden fields, filter, sorts, the table layout and the query inputs.
+ */
+export function useViewQueryState({
+  databaseId,
+  vaultGeneration,
+  activeView,
+  isDatabaseLocked,
+  onCatalogChanged,
+}: {
+  databaseId: string
+  vaultGeneration: number | null
+  activeView: DatabaseViewSummary | undefined
+  isDatabaseLocked: boolean
+  onCatalogChanged?: () => void | Promise<void>
+}) {
+  const savedView = useSavedView({
+    databaseId,
+    vaultGeneration,
+    view: activeView ? { viewId: activeView.viewId, revision: activeView.revision } : null,
+    persist: !isDatabaseLocked,
+    onSaved: () => onCatalogChanged?.(),
+  })
+  const derived = useViewSettingsDerived({ savedView, viewId: activeView?.viewId ?? null })
+  useLegacyHiddenPropertiesMigration({
+    databaseId,
+    viewId: activeView?.viewId ?? null,
+    savedView,
+    persisted: !isDatabaseLocked,
+  })
+  return { savedView, ...derived }
 }

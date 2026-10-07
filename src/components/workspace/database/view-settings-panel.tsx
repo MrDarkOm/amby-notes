@@ -7,7 +7,6 @@ import {
   ArrowDownUp,
   Check,
   ChevronLeft,
-  ChevronRight,
   Columns3,
   Copy,
   ExternalLink,
@@ -18,6 +17,7 @@ import {
   Link,
   Lock,
   Plus,
+  Scaling,
   Search,
   Settings2,
   Trash2,
@@ -32,15 +32,27 @@ import { cn } from "@/lib/utils"
 import { cardSpring } from "./database-motion"
 import { IconPickerButton } from "./icon-picker-button"
 import { AmbySelect } from "@/components/ui/amby-select"
+import { StopSlider } from "./stop-slider"
+import { ChoiceRow, Row, Section, SwitchRow } from "./view-settings-rows"
 import { PropertyTypeIcon } from "./property-type-icon"
 import { CardTitleInput } from "./layouts/card-title-input"
 import { getViewLayoutIcon } from "./database-layout-icons"
-import type { CardSize } from "./view-config"
+import type { CardSize, GroupSort } from "./view-config"
+import { GroupSettingsPage } from "./group-settings-page"
 
 /** Width of the panel. */
 const PANEL_WIDTH = 288
 
-type Page = "root" | "layout" | "properties" | "openMode" | "group" | "editProperties" | "property"
+type Page =
+  | "root"
+  | "layout"
+  | "properties"
+  | "openMode"
+  | "group"
+  | "groupSettings"
+  | "groupSort"
+  | "editProperties"
+  | "property"
 
 /** Pages slide in from the side they are reached from, and out the other way. */
 const pageVariants = {
@@ -64,6 +76,10 @@ const PROPERTY_TYPES = [
 ]
 
 const LAYOUTS = ["table", "board", "list", "gallery", "chart"] as const
+
+/** Layouts that can group their cards by a Select or Status property. */
+const GROUPING_LAYOUTS: readonly string[] = ["board", "gallery"]
+const GROUP_SORTS: GroupSort[] = ["manual", "alphabetical", "reverseAlphabetical"]
 const OPEN_MODES = ["sidePeek", "centerPeek", "fullPage"] as const
 const CARD_SIZES: CardSize[] = ["small", "medium", "large"]
 
@@ -76,11 +92,13 @@ export interface ViewSettingsPanelProps {
   database: DatabaseSummary | null | undefined
   mutationBusy: boolean
   searchOpen: boolean
-  isLinkCopied: boolean
+  /** Only with `copyLinkToView`. */
+  isLinkCopied?: boolean
   activeHiddenPropertyIds: Set<string>
   cardSize: CardSize
   openMode: string
-  onOpenModeChange: (mode: string) => void
+  /** Without it the open-mode row is not offered (the host opens records itself). */
+  onOpenModeChange?: (mode: string) => void
   onCardSizeChange: (size: CardSize) => void
   /** Board: the property whose values are the columns; `null` is no grouping. */
   groupPropertyId: string | null
@@ -88,6 +106,18 @@ export interface ViewSettingsPanelProps {
   /** Gallery: whether cards show a cover image. */
   coverVisible: boolean
   onCoverVisibleChange: (visible: boolean) => void
+  /** Board: whether columns are tinted with their option's colour. */
+  colorColumns?: boolean
+  onColorColumnsChange?: (colored: boolean) => void
+  /** Board columns: sort, empty, order and hidden ones. */
+  groupSort?: GroupSort
+  onGroupSortChange?: (sort: GroupSort) => void
+  hideEmptyGroups?: boolean
+  onHideEmptyGroupsChange?: (hide: boolean) => void
+  groupOrder?: string[]
+  onGroupOrderChange?: (order: string[]) => void
+  hiddenGroups?: string[]
+  onHiddenGroupsChange?: (hidden: string[]) => void
   filterCount: number
   sortCount: number
   onOpenFilter: () => void
@@ -95,7 +125,8 @@ export interface ViewSettingsPanelProps {
   openRowDialog: (
     opts: { kind: "default" | "empty" } | { kind: "template"; templateId: string },
   ) => void
-  onToggleSearch: () => void
+  /** Without it (the host draws its own search button) the compact list has no search row. */
+  onToggleSearch?: () => void
   /** Icon chosen for the view; empty for the layout's own icon. */
   viewIcon?: string
   onViewIconChange: (icon: string) => void
@@ -103,138 +134,40 @@ export interface ViewSettingsPanelProps {
   changeActiveViewLayout: (layout: (typeof LAYOUTS)[number]) => void | Promise<void>
   setViewHiddenPropertyIds: (viewId: string, hidden: Set<string>) => void
   togglePropertyVisibility: (propertyId: string) => void
-  onOpenAddProperty: () => void
-  copyLinkToView: () => void | Promise<void>
-  handleToggleLock: () => void
+  /** Without it the add-property rows are not offered. */
+  onOpenAddProperty?: () => void
+  /** Without it the copy-link row is not offered. */
+  copyLinkToView?: () => void | Promise<void>
+  /** Without it the lock row is not offered. */
+  handleToggleLock?: () => void
   mutateView: (action: "duplicate" | "delete", viewId: string) => void | Promise<void>
   /** The settings of a property (options, formats, ...) as the property menu shows them. */
-  renderPropertySettings: (property: DatabasePropertySummary) => React.ReactNode
-  propertyIconOf: (propertyId: string) => string | undefined
-  onPropertyIconChange: (propertyId: string, icon: string) => void
-  onRenameProperty: (propertyId: string, name: string) => Promise<void> | void
-  onChangePropertyType: (propertyId: string, propertyType: string) => Promise<void> | void
-  onDeleteProperty: (propertyId: string) => Promise<void> | void
+  /**
+   * The schema editing of a property. Offered only when all of these are given: a
+   * host that does not own the database's schema leaves them out.
+   */
+  renderPropertySettings?: (property: DatabasePropertySummary) => React.ReactNode
+  propertyIconOf?: (propertyId: string) => string | undefined
+  onPropertyIconChange?: (propertyId: string, icon: string) => void
+  onRenameProperty?: (propertyId: string, name: string) => Promise<void> | void
+  onChangePropertyType?: (propertyId: string, propertyType: string) => Promise<void> | void
+  onDeleteProperty?: (propertyId: string) => Promise<void> | void
+  /** Layouts the host can show; defaults to all of them. */
+  layouts?: readonly (typeof LAYOUTS)[number][]
+  /** Extra rows at the end of the main list (the host's own settings). */
+  extra?: React.ReactNode
+  /** Adds an "Open database" row. */
+  onOpenDatabase?: () => void
+  /**
+   * `floating` is the side sheet of the database tab (positioned by `top`);
+   * `inline` is the same panel without positioning, for a popover.
+   */
+  variant?: "floating" | "inline"
   /** Changes when the name of the view should take focus (Rename in the view's menu). */
   focusNameSignal?: number
   /** Distance from the top of the area the panel floats in, so it starts below the toolbar. */
-  top: number
+  top?: number
   onClose: () => void
-}
-
-/** A settings row: icon, label, current value, and a chevron when it opens a page. */
-function Row({
-  icon,
-  label,
-  value,
-  onClick,
-  disabled,
-  chevron,
-  trailing,
-  danger,
-}: {
-  icon: React.ReactNode
-  label: string
-  value?: React.ReactNode
-  onClick?: () => void
-  disabled?: boolean
-  chevron?: boolean
-  trailing?: React.ReactNode
-  danger?: boolean
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] outline-none hover:bg-accent focus-visible:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
-        danger && "text-destructive hover:bg-destructive/10 focus-visible:bg-destructive/10",
-      )}
-    >
-      <span
-        className={cn(
-          "flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4",
-          danger && "text-destructive",
-        )}
-      >
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {value !== undefined && (
-        <span className="max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">{value}</span>
-      )}
-      {trailing}
-      {chevron && <ChevronRight className="size-4 shrink-0 text-muted-foreground/70" />}
-    </button>
-  )
-}
-
-/** A group of rows; a divider line separates it from the group above. */
-function Section({ divider, children }: { divider?: boolean; children: React.ReactNode }) {
-  return (
-    <section
-      className={cn("space-y-0.5 pb-1.5", divider && "mt-0.5 border-t border-border/60 pt-1.5")}
-    >
-      {children}
-    </section>
-  )
-}
-
-/** A choice in a list page: a label, an optional description and a check on the chosen one. */
-function ChoiceRow({
-  label,
-  description,
-  selected,
-  disabled,
-  onClick,
-}: {
-  label: string
-  description?: string
-  selected: boolean
-  disabled?: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
-        selected && "bg-primary/10",
-      )}
-    >
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px]">{label}</span>
-        {description && (
-          <span className="block text-xs leading-snug text-muted-foreground">{description}</span>
-        )}
-      </span>
-      {selected && <Check className="size-4 shrink-0 text-primary" />}
-    </button>
-  )
-}
-
-/** A property with an on/off switch. */
-function SwitchRow({
-  label,
-  checked,
-  disabled,
-  onChange,
-}: {
-  label: string
-  checked: boolean
-  disabled?: boolean
-  onChange: (checked: boolean) => void
-}) {
-  return (
-    <div className="flex h-8 items-center gap-2.5 rounded-lg px-2.5 hover:bg-accent">
-      <span className="min-w-0 flex-1 truncate text-[13px]">{label}</span>
-      <Switch checked={checked} disabled={disabled} aria-label={label} onCheckedChange={onChange} />
-    </div>
-  )
 }
 
 /**
@@ -261,6 +194,16 @@ export function ViewSettingsPanel({
   onGroupPropertyChange,
   coverVisible,
   onCoverVisibleChange,
+  colorColumns = false,
+  onColorColumnsChange,
+  groupSort = "manual",
+  onGroupSortChange,
+  hideEmptyGroups = false,
+  onHideEmptyGroupsChange,
+  groupOrder = [],
+  onGroupOrderChange,
+  hiddenGroups = [],
+  onHiddenGroupsChange,
   filterCount,
   sortCount,
   onOpenFilter,
@@ -283,8 +226,12 @@ export function ViewSettingsPanel({
   onRenameProperty,
   onChangePropertyType,
   onDeleteProperty,
+  layouts = LAYOUTS,
+  extra,
+  onOpenDatabase,
+  variant = "floating",
   focusNameSignal = 0,
-  top,
+  top = 0,
   onClose,
 }: ViewSettingsPanelProps) {
   const { t } = useTranslation()
@@ -317,7 +264,15 @@ export function ViewSettingsPanel({
     setPage(next)
   }
   // One step back: a property returns to the list of properties, every other page to the list.
-  const back = () => go(page === "property" ? "editProperties" : "root", true)
+  const back = () =>
+    go(
+      page === "property"
+        ? "editProperties"
+        : page === "group" || page === "groupSort"
+          ? "groupSettings"
+          : "root",
+      true,
+    )
 
   const layout = activeView?.layout ?? "table"
   const LayoutIcon = getViewLayoutIcon(layout)
@@ -326,10 +281,29 @@ export function ViewSettingsPanel({
   const groupable = properties.filter((p) => ["select", "status"].includes(p.propertyType))
   const groupName = properties.find((p) => p.propertyId === groupPropertyId)?.name
   const locked = isDatabaseLocked || vaultGeneration === null
+  const schema =
+    renderPropertySettings &&
+    propertyIconOf &&
+    onPropertyIconChange &&
+    onRenameProperty &&
+    onChangePropertyType &&
+    onDeleteProperty
+      ? {
+          renderPropertySettings,
+          propertyIconOf,
+          onPropertyIconChange,
+          onRenameProperty,
+          onChangePropertyType,
+          onDeleteProperty,
+        }
+      : null
 
   // A page that does not apply to the layout (after switching it) goes back to the list.
   React.useEffect(() => {
-    if (page === "group" && layout !== "board") {
+    if (
+      (page === "group" || page === "groupSettings" || page === "groupSort") &&
+      !GROUPING_LAYOUTS.includes(layout)
+    ) {
       setDirection(-1)
       setPage("root")
     }
@@ -350,6 +324,8 @@ export function ViewSettingsPanel({
     properties: t("databaseWorkspace.propertyVisibility"),
     openMode: t("databaseWorkspace.openMode"),
     group: t("databaseWorkspace.groupBy"),
+    groupSettings: t("databaseWorkspace.groupSection"),
+    groupSort: t("databaseWorkspace.groupSort"),
     editProperties: t("databaseProperty.editProperties"),
     property: editedProperty?.name ?? t("databaseProperty.editProperties"),
   }
@@ -358,31 +334,68 @@ export function ViewSettingsPanel({
     switch (page) {
       case "layout":
         return (
-          <div role="radiogroup" aria-label={titles.layout} className="grid grid-cols-2 gap-2 p-1">
-            {LAYOUTS.map((candidate) => {
-              const Icon = getViewLayoutIcon(candidate)
-              const active = layout === candidate
-              return (
-                <button
-                  key={candidate}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  disabled={locked || mutationBusy}
-                  onClick={() => void changeActiveViewLayout(candidate)}
-                  className={cn(
-                    "flex flex-col items-center gap-2 rounded-xl border px-3 py-3 text-xs font-medium outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
-                    active
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border/70 text-foreground",
-                  )}
-                >
-                  <Icon className="size-5" />
-                  {t(`databaseLayouts.${candidate}`)}
-                </button>
-              )
-            })}
-          </div>
+          <>
+            <div
+              role="radiogroup"
+              aria-label={titles.layout}
+              className="grid grid-cols-2 gap-2 p-1"
+            >
+              {layouts.map((candidate) => {
+                const Icon = getViewLayoutIcon(candidate)
+                const active = layout === candidate
+                return (
+                  <button
+                    key={candidate}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    disabled={locked || mutationBusy}
+                    onClick={() => void changeActiveViewLayout(candidate)}
+                    className={cn(
+                      "flex flex-col items-center gap-2 rounded-xl border px-3 py-3 text-xs font-medium outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+                      active
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border/70 text-foreground",
+                    )}
+                  >
+                    <Icon className="size-5" />
+                    {t(`databaseLayouts.${candidate}`)}
+                  </button>
+                )
+              })}
+            </div>
+            {layout === "gallery" && (
+              <div className="mt-2 space-y-0.5 border-t border-border/60 pt-2">
+                <div className="flex h-8 items-center gap-2.5 rounded-lg px-2.5 hover:bg-accent">
+                  <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate text-[13px]">
+                    {t("databaseWorkspace.galleryCover")}
+                  </span>
+                  <Switch
+                    checked={coverVisible}
+                    disabled={isDatabaseLocked}
+                    aria-label={t("databaseWorkspace.galleryCover")}
+                    onCheckedChange={onCoverVisibleChange}
+                  />
+                </div>
+                <div className="flex h-8 items-center gap-2.5 rounded-lg px-2.5 hover:bg-accent">
+                  <Scaling className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate text-[13px]">
+                    {t("databaseWorkspace.cardSize")}
+                  </span>
+                  <StopSlider
+                    stops={CARD_SIZES}
+                    value={cardSize}
+                    ariaLabel={t("databaseWorkspace.cardSize")}
+                    label={(size) => t(`databaseWorkspace.cardSizes.${size}`)}
+                    disabled={isDatabaseLocked}
+                    onChange={onCardSizeChange}
+                    className="w-24"
+                  />
+                </div>
+              </div>
+            )}
+          </>
         )
       case "properties":
         return (
@@ -428,14 +441,16 @@ export function ViewSettingsPanel({
                 {t("databaseWorkspace.noProperties")}
               </p>
             )}
-            <div className="pt-2">
-              <Row
-                icon={<Plus />}
-                label={t("databaseWorkspace.addProperty")}
-                disabled={locked}
-                onClick={onOpenAddProperty}
-              />
-            </div>
+            {onOpenAddProperty && (
+              <div className="pt-2">
+                <Row
+                  icon={<Plus />}
+                  label={t("databaseWorkspace.addProperty")}
+                  disabled={locked}
+                  onClick={onOpenAddProperty}
+                />
+              </div>
+            )}
           </div>
         )
       case "openMode":
@@ -448,7 +463,39 @@ export function ViewSettingsPanel({
                 description={t(`databaseSettings.openModeHints.${mode}`)}
                 selected={openMode === mode}
                 disabled={isDatabaseLocked}
-                onClick={() => onOpenModeChange(mode)}
+                onClick={() => onOpenModeChange?.(mode)}
+              />
+            ))}
+          </div>
+        )
+      case "groupSettings":
+        return (
+          <GroupSettingsPage
+            groupProperty={properties.find((p) => p.propertyId === groupPropertyId)}
+            sort={groupSort}
+            hideEmpty={hideEmptyGroups}
+            colorColumns={colorColumns}
+            order={groupOrder}
+            hidden={hiddenGroups}
+            disabled={isDatabaseLocked}
+            onOpenGroupBy={() => go("group")}
+            onOpenSort={() => go("groupSort")}
+            onHideEmptyChange={(hide) => onHideEmptyGroupsChange?.(hide)}
+            onColorColumnsChange={(colored) => onColorColumnsChange?.(colored)}
+            onOrderChange={(order) => onGroupOrderChange?.(order)}
+            onHiddenChange={(hidden) => onHiddenGroupsChange?.(hidden)}
+          />
+        )
+      case "groupSort":
+        return (
+          <div role="radiogroup" aria-label={titles.groupSort} className="space-y-0.5">
+            {GROUP_SORTS.map((candidate) => (
+              <ChoiceRow
+                key={candidate}
+                label={t(`databaseWorkspace.groupSorts.${candidate}`)}
+                selected={groupSort === candidate}
+                disabled={isDatabaseLocked}
+                onClick={() => onGroupSortChange?.(candidate)}
               />
             ))}
           </div>
@@ -479,6 +526,7 @@ export function ViewSettingsPanel({
           </div>
         )
       case "editProperties":
+        if (!schema) return null
         return (
           <div className="space-y-0.5">
             <p className="px-2.5 pb-1.5 text-xs leading-snug text-muted-foreground">
@@ -489,7 +537,7 @@ export function ViewSettingsPanel({
                 key={property.propertyId}
                 icon={
                   <IconValue
-                    value={propertyIconOf(property.propertyId)}
+                    value={schema.propertyIconOf(property.propertyId)}
                     fallback={<PropertyTypeIcon type={property.propertyType} />}
                   />
                 }
@@ -509,36 +557,38 @@ export function ViewSettingsPanel({
                 {t("databaseWorkspace.noProperties")}
               </p>
             )}
-            <div className="pt-2">
-              <Row
-                icon={<Plus />}
-                label={t("databaseWorkspace.addProperty")}
-                disabled={locked}
-                onClick={onOpenAddProperty}
-              />
-            </div>
+            {onOpenAddProperty && (
+              <div className="pt-2">
+                <Row
+                  icon={<Plus />}
+                  label={t("databaseWorkspace.addProperty")}
+                  disabled={locked}
+                  onClick={onOpenAddProperty}
+                />
+              </div>
+            )}
           </div>
         )
       case "property": {
-        if (!editedProperty) return null
-        const settings = renderPropertySettings(editedProperty)
+        if (!editedProperty || !schema) return null
+        const settings = schema.renderPropertySettings(editedProperty)
         const visible = !activeHiddenPropertyIds.has(editedProperty.propertyId)
         return (
           <div className="space-y-2">
             <div className="flex items-center gap-1.5">
               <IconPickerButton
-                value={propertyIconOf(editedProperty.propertyId)}
+                value={schema.propertyIconOf(editedProperty.propertyId)}
                 fallback={<PropertyTypeIcon type={editedProperty.propertyType} />}
                 label={t("databaseProperty.changeIcon")}
                 disabled={locked}
-                onChange={(icon) => onPropertyIconChange(editedProperty.propertyId, icon)}
+                onChange={(icon) => schema.onPropertyIconChange(editedProperty.propertyId, icon)}
                 className="size-8 rounded-md border border-border bg-background"
                 iconClassName="size-4"
               />
               <CardTitleInput
                 value={editedProperty.name}
                 label={t("databaseProperty.name")}
-                onCommit={(name) => onRenameProperty(editedProperty.propertyId, name)}
+                onCommit={(name) => schema.onRenameProperty(editedProperty.propertyId, name)}
                 className="h-8 flex-1 rounded-md bg-background px-2 text-[13px] font-medium"
               />
             </div>
@@ -559,7 +609,9 @@ export function ViewSettingsPanel({
                     ? []
                     : [{ value: editedProperty.propertyType, label: editedProperty.propertyType }]),
                 ]}
-                onValueChange={(type) => void onChangePropertyType(editedProperty.propertyId, type)}
+                onValueChange={(type) =>
+                  void schema.onChangePropertyType(editedProperty.propertyId, type)
+                }
               />
             </div>
             {settings && <div className="border-t border-border/60 pt-2">{settings}</div>}
@@ -575,7 +627,7 @@ export function ViewSettingsPanel({
                 label={t("databaseProperty.delete")}
                 disabled={locked}
                 onClick={() => {
-                  void Promise.resolve(onDeleteProperty(editedProperty.propertyId))
+                  void Promise.resolve(schema.onDeleteProperty(editedProperty.propertyId))
                 }}
               />
             </div>
@@ -606,11 +658,15 @@ export function ViewSettingsPanel({
               onClick={() => openRowDialog({ kind: "template", templateId: template.templateId })}
             />
           ))}
-          <Row
-            icon={searchOpen ? <X /> : <Search />}
-            label={searchOpen ? t("databaseWorkspace.closeSearch") : t("databaseWorkspace.search")}
-            onClick={onToggleSearch}
-          />
+          {onToggleSearch && (
+            <Row
+              icon={searchOpen ? <X /> : <Search />}
+              label={
+                searchOpen ? t("databaseWorkspace.closeSearch") : t("databaseWorkspace.search")
+              }
+              onClick={onToggleSearch}
+            />
+          )}
         </Section>
       )}
 
@@ -651,75 +707,34 @@ export function ViewSettingsPanel({
             chevron
             onClick={() => go("properties")}
           />
-          {layout === "board" && (
+          {GROUPING_LAYOUTS.includes(layout) && (
             <Row
               icon={<Columns3 />}
-              label={t("databaseWorkspace.groupBy")}
+              label={t("databaseWorkspace.groupSection")}
               value={groupName ?? t("databaseWorkspace.groupByNone")}
               chevron
-              onClick={() => go("group")}
+              onClick={() => go("groupSettings")}
             />
           )}
-          {layout === "gallery" && (
-            <>
-              <div className="flex h-8 items-center gap-2.5 rounded-lg px-2.5 hover:bg-accent">
-                <ImageIcon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate text-sm">
-                  {t("databaseWorkspace.galleryCover")}
-                </span>
-                <Switch
-                  checked={coverVisible}
-                  disabled={isDatabaseLocked}
-                  aria-label={t("databaseWorkspace.galleryCover")}
-                  onCheckedChange={onCoverVisibleChange}
-                />
-              </div>
-              <div className="flex h-8 items-center gap-2.5 rounded-lg px-2.5">
-                <span className="min-w-0 flex-1 truncate pl-[1.625rem] text-[13px]">
-                  {t("databaseWorkspace.cardSize")}
-                </span>
-                <div
-                  role="radiogroup"
-                  aria-label={t("databaseWorkspace.cardSize")}
-                  className="flex rounded-lg bg-muted/60 p-0.5"
-                >
-                  {CARD_SIZES.map((size) => (
-                    <button
-                      key={size}
-                      type="button"
-                      role="radio"
-                      aria-checked={cardSize === size}
-                      disabled={isDatabaseLocked}
-                      onClick={() => onCardSizeChange(size)}
-                      className={cn(
-                        "rounded-md px-2 py-0.5 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50",
-                        cardSize === size
-                          ? "bg-background font-medium shadow-sm"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {t(`databaseWorkspace.cardSizes.${size}`)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
+          {schema && (
+            <Row
+              icon={<Settings2 />}
+              label={t("databaseProperty.editProperties")}
+              chevron
+              onClick={() => go("editProperties")}
+            />
           )}
-          <Row
-            icon={<Settings2 />}
-            label={t("databaseProperty.editProperties")}
-            chevron
-            onClick={() => go("editProperties")}
-          />
-          <Row
-            icon={<ExternalLink />}
-            label={t("databaseWorkspace.openMode")}
-            value={t(`databaseWorkspace.openModes.${openMode}`, {
-              defaultValue: t("databaseWorkspace.openModes.sidePeek"),
-            })}
-            chevron
-            onClick={() => go("openMode")}
-          />
+          {onOpenModeChange && (
+            <Row
+              icon={<ExternalLink />}
+              label={t("databaseWorkspace.openMode")}
+              value={t(`databaseWorkspace.openModes.${openMode}`, {
+                defaultValue: t("databaseWorkspace.openModes.sidePeek"),
+              })}
+              chevron
+              onClick={() => go("openMode")}
+            />
+          )}
           <Row
             icon={<Filter />}
             label={t("databaseWorkspace.filter")}
@@ -735,28 +750,37 @@ export function ViewSettingsPanel({
         </Section>
       )}
 
-      <Section divider>
-        {activeView && (
-          <Row
-            icon={isLinkCopied ? <Check className="text-primary" /> : <Link />}
-            label={
-              isLinkCopied
-                ? t("databaseWorkspace.linkCopied")
-                : t("databaseWorkspace.copyLinkToView")
-            }
-            onClick={() => void copyLinkToView()}
-          />
-        )}
-        <Row
-          icon={isDatabaseLocked ? <Lock className="text-amber-500" /> : <Unlock />}
-          label={
-            isDatabaseLocked
-              ? t("databaseWorkspace.unlockDatabase")
-              : t("databaseWorkspace.lockDatabase")
-          }
-          onClick={handleToggleLock}
-        />
-      </Section>
+      {extra}
+
+      {(onOpenDatabase || copyLinkToView || handleToggleLock) && (
+        <Section divider>
+          {onOpenDatabase && (
+            <Row icon={<ExternalLink />} label={t("databaseEmbed.open")} onClick={onOpenDatabase} />
+          )}
+          {activeView && copyLinkToView && (
+            <Row
+              icon={isLinkCopied ? <Check className="text-primary" /> : <Link />}
+              label={
+                isLinkCopied
+                  ? t("databaseWorkspace.linkCopied")
+                  : t("databaseWorkspace.copyLinkToView")
+              }
+              onClick={() => void copyLinkToView()}
+            />
+          )}
+          {handleToggleLock && (
+            <Row
+              icon={isDatabaseLocked ? <Lock className="text-amber-500" /> : <Unlock />}
+              label={
+                isDatabaseLocked
+                  ? t("databaseWorkspace.unlockDatabase")
+                  : t("databaseWorkspace.lockDatabase")
+              }
+              onClick={handleToggleLock}
+            />
+          )}
+        </Section>
+      )}
 
       {activeView && (
         <Section divider>
@@ -778,6 +802,76 @@ export function ViewSettingsPanel({
     </div>
   )
 
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return
+    event.stopPropagation()
+    if (page === "root") onClose()
+    else back()
+  }
+  const card = (
+    <div className="flex h-full max-h-[inherit] w-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-card-foreground shadow-md">
+      <header className="flex h-10 shrink-0 items-center gap-1 border-b border-border/60 px-2">
+        {page !== "root" && (
+          <button
+            type="button"
+            aria-label={t("databaseSettings.back")}
+            title={t("databaseSettings.back")}
+            onClick={back}
+            className="flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <ChevronLeft className="size-4" />
+          </button>
+        )}
+        <h2
+          className={cn(
+            "min-w-0 flex-1 truncate text-[13px] font-semibold",
+            page === "root" && "pl-2",
+          )}
+        >
+          {titles[page]}
+        </h2>
+        <button
+          type="button"
+          aria-label={t("common.close")}
+          title={t("common.close")}
+          onClick={onClose}
+          className="flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <X className="size-4" />
+        </button>
+      </header>
+      <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 pb-3">
+        <AnimatePresence initial={false} mode="popLayout" custom={direction}>
+          <motion.div
+            key={page}
+            custom={direction}
+            variants={pageVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={motionTransition({ ...cardSpring, opacity: motionTransitions.fast })}
+            className="pt-2"
+          >
+            {page === "root" ? renderRoot() : renderPage()}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </div>
+  )
+
+  if (variant === "inline") {
+    return (
+      <aside
+        aria-label={t("databaseSettings.title")}
+        className="max-h-[min(70vh,34rem)]"
+        style={{ width: PANEL_WIDTH }}
+        onKeyDown={handleKeyDown}
+      >
+        {card}
+      </aside>
+    )
+  }
+
   return (
     <motion.aside
       aria-label={t("databaseSettings.title")}
@@ -788,61 +882,9 @@ export function ViewSettingsPanel({
       animate={{ opacity: 1, x: 0, scale: 1 }}
       exit={{ opacity: 0, x: 28, scale: 0.98 }}
       transition={motionTransition(motionTransitions.panel)}
-      onKeyDown={(event) => {
-        if (event.key !== "Escape" || event.defaultPrevented) return
-        event.stopPropagation()
-        if (page === "root") onClose()
-        else back()
-      }}
+      onKeyDown={handleKeyDown}
     >
-      <div className="flex h-full w-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-card text-card-foreground shadow-md">
-        <header className="flex h-10 shrink-0 items-center gap-1 border-b border-border/60 px-2">
-          {page !== "root" && (
-            <button
-              type="button"
-              aria-label={t("databaseSettings.back")}
-              title={t("databaseSettings.back")}
-              onClick={back}
-              className="flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <ChevronLeft className="size-4" />
-            </button>
-          )}
-          <h2
-            className={cn(
-              "min-w-0 flex-1 truncate text-[13px] font-semibold",
-              page === "root" && "pl-2",
-            )}
-          >
-            {titles[page]}
-          </h2>
-          <button
-            type="button"
-            aria-label={t("common.close")}
-            title={t("common.close")}
-            onClick={onClose}
-            className="flex size-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <X className="size-4" />
-          </button>
-        </header>
-        <div className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2 pb-3">
-          <AnimatePresence initial={false} mode="popLayout" custom={direction}>
-            <motion.div
-              key={page}
-              custom={direction}
-              variants={pageVariants}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              transition={motionTransition({ ...cardSpring, opacity: motionTransitions.fast })}
-              className="pt-2"
-            >
-              {page === "root" ? renderRoot() : renderPage()}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-      </div>
+      {card}
     </motion.aside>
   )
 }

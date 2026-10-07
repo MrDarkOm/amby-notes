@@ -187,9 +187,25 @@ impl VaultContext {
                 recovery_notices.push(format!("recovery:batch:{error}"));
             }
         }
+        // A project creation interrupted before its structure file was written
+        // is cleaned up conditionally; whatever cannot be is quarantined.
+        match crate::project::recovery::recover_pending_projects(&root) {
+            Ok(report) => {
+                for entry in &report.quarantined {
+                    tracing::error!(event = "project_journal_quarantined", detail = %entry);
+                    recovery_notices.push(format!("recovery:project:{entry}"));
+                }
+            }
+            Err(error) => {
+                tracing::error!(event = "project_recovery_failed", error = %error);
+                recovery_notices.push(format!("recovery:project:{error}"));
+            }
+        }
         let mut loaded = vault_index::load_vault(&connection, &root)?;
         loaded.sync.warnings.extend(recovery_notices);
         let _ = crate::database::projection::rebuild_database_projection(&connection, &root);
+        // Files may have changed while the vault was closed.
+        let _ = crate::project::index::rebuild_project_index(&connection, &root);
 
         Ok(PreparedVault {
             root,

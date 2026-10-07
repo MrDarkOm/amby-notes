@@ -219,6 +219,7 @@ describe("MOD-04: Package Manager", () => {
     const catalog = await loadModuleCatalog()
     expect(catalog.modules["amby.excalidraw"]).toBeDefined()
     expect(catalog.modules["amby.canvas"]).toBeDefined()
+    expect(catalog.modules["amby.creative"]).toBeDefined()
     expect(catalog.modules["amby.tags"]).toBeDefined()
   })
 

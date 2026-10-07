@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest"
 import type { DatabasePropertySummary } from "@/lib/storage"
 import {
+  EMBED_AUTO_MAX_HEIGHT,
   combineFilters,
   currentPageFilter,
   currentPageRelations,
   hasOtherConditions,
   pageRelationCandidates,
+  raiseHeightFloor,
 } from "./embedded-view-model"
 
 const status = {
@@ -60,5 +62,14 @@ describe("embedded view model", () => {
       pageRelationCandidates(properties, "projects", "tasks").map((p) => p.propertyId),
     ).toEqual(["project"])
     expect(pageRelationCandidates(properties, null, "tasks")).toEqual([])
+  })
+})
+
+describe("height floor of a shortcut", () => {
+  it("only grows while tabs are switched, up to the automatic limit", () => {
+    expect(raiseHeightFloor(0, 193.4)).toBe(193)
+    expect(raiseHeightFloor(444, 168)).toBe(444)
+    expect(raiseHeightFloor(444, 484)).toBe(484)
+    expect(raiseHeightFloor(0, 5000)).toBe(EMBED_AUTO_MAX_HEIGHT)
   })
 })

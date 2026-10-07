@@ -133,6 +133,7 @@ export const DEFAULT_BUTTONS: ActivityButton[] = [
   { defId: "favorites", side: "left", order: 2 },
   { defId: "databases", side: "left", order: 3 },
   { defId: "archive", side: "left", order: 4 },
+  { defId: "creative", side: "left", order: 5 },
   { defId: "search", side: "left", order: 0 },
   { defId: "network", side: "left", order: 2 },
   { defId: "info", side: "right", order: 0 },

@@ -266,7 +266,11 @@ export function useDocumentMutations({
         .filter((item): item is NonNullable<typeof item> => Boolean(item))
       if (!selectedSources.length) return
       const target = targetId ? findTreeItem(treeItems, targetId) : null
-      if ((targetId && !target) || (target && target.type !== "folder" && target.type !== "file"))
+      // A standalone database is a folder of its own; moving a page into it adds the page to it.
+      if (
+        (targetId && !target) ||
+        (target && target.type !== "folder" && target.type !== "file" && target.type !== "database")
+      )
         return
       const normalize = (path: string) => path.replace(/\\/g, "/")
       const dirname = (path: string) => {

@@ -1,10 +1,13 @@
 import type { Extensions } from "@tiptap/core"
 import { Placeholder } from "@tiptap/extension-placeholder"
 
+import i18n from "@/lib/i18n"
 import { schemaExtensions } from "./schema"
 import { TagsWikilinks, type TagsWikilinksCallbacks } from "./tags-wikilinks"
 import { SlashMenu } from "./slash-menu"
 import { IndentShortcut } from "./indent-shortcut"
+import { LineAfterBlock } from "./line-after-block"
+import { EmptyLineHint } from "./empty-line-hint"
 import { WrapShortcuts } from "./wrap-shortcuts"
 import { MediaDrop } from "./media-drop"
 import { ColumnResize } from "./column-resize"
@@ -20,10 +23,17 @@ export interface BuildExtensionsOptions {
 export function buildExtensions({ placeholder, callbacks }: BuildExtensionsOptions): Extensions {
   return [
     ...schemaExtensions,
-    Placeholder.configure({ placeholder, showOnlyWhenEditable: true }),
+    Placeholder.configure({
+      // The empty note asks to start writing; any other empty top-level line the cursor
+      // is on hints at the slash menu (`EmptyLineHint` does the same for nested lines).
+      placeholder: ({ editor }) => (editor.isEmpty ? placeholder : i18n.t("editor.slashHint")),
+      showOnlyWhenEditable: true,
+    }),
     TagsWikilinks.configure({ callbacks }),
     SlashMenu,
     IndentShortcut,
+    LineAfterBlock,
+    EmptyLineHint,
     WrapShortcuts,
     ColumnResize,
     MediaDrop,

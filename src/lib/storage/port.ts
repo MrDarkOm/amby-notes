@@ -29,8 +29,9 @@ import type {
   DeleteMode,
 } from "./types"
 import type { DatabasePort } from "./database-port"
+import type { ProjectPort } from "./project-port"
 
-export interface StoragePort extends DatabasePort {
+export interface StoragePort extends DatabasePort, ProjectPort {
   // Vault Lifecycle & Index
   openVault(): Promise<string | null>
   startVaultWatcher(vaultPath: string): Promise<void>

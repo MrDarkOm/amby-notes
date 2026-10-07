@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   applySettingsPatch,
   conditionsToFilter,
+  EMPTY_SETTINGS,
   flatConditions,
   mergePatches,
   parseViewSettings,
@@ -248,8 +249,90 @@ describe("board grouping and gallery cover", () => {
     expect(shown.layoutConfig.somethingNew).toBe(true)
   })
 
+  it("keeps board columns uncoloured unless chosen and stores only the chosen state", () => {
+    const text = JSON.stringify({ ...base, layout: "board" })
+    expect(parseViewSettings(text).colorColumns).toBe(false)
+    const colored = applySettingsPatch(text, { colorColumns: true })
+    expect(JSON.parse(colored).layoutConfig.colorColumns).toBe(true)
+    expect(parseViewSettings(colored).colorColumns).toBe(true)
+    const off = JSON.parse(applySettingsPatch(colored, { colorColumns: false }))
+    expect(off.layoutConfig.colorColumns).toBeUndefined()
+    expect(settingsAfter(parseViewSettings(text), { colorColumns: true }).colorColumns).toBe(true)
+  })
+
+  it("stores a board's group settings only when chosen, next to the layout's other fields", () => {
+    const text = JSON.stringify({ ...base, layout: "board" })
+    expect(parseViewSettings(text)).toMatchObject({
+      groupSort: "manual",
+      hideEmptyGroups: false,
+      groupOrder: [],
+      hiddenGroups: [],
+    })
+    let doc = applySettingsPatch(text, {
+      groupSort: "alphabetical",
+      hideEmptyGroups: true,
+      groupOrder: ["a", "b"],
+      hiddenGroups: ["b"],
+    })
+    expect(parseViewSettings(doc)).toMatchObject({
+      groupSort: "alphabetical",
+      hideEmptyGroups: true,
+      groupOrder: ["a", "b"],
+      hiddenGroups: ["b"],
+    })
+    // Back to the defaults leaves nothing of them in the document.
+    doc = applySettingsPatch(doc, {
+      groupSort: "manual",
+      hideEmptyGroups: false,
+      groupOrder: [],
+      hiddenGroups: [],
+    })
+    const layout = JSON.parse(doc).layoutConfig
+    expect(layout.groupSort).toBeUndefined()
+    expect(layout.hideEmptyGroups).toBeUndefined()
+    expect(layout.groupOrder).toBeUndefined()
+    expect(layout.hiddenGroups).toBeUndefined()
+    expect(layout.somethingNew).toBe(true)
+  })
+
+  it("ignores a stored group setting it cannot read", () => {
+    const text = JSON.stringify({
+      ...base,
+      layoutConfig: { groupSort: "sideways", groupOrder: ["a", 3], hiddenGroups: "x" },
+    })
+    expect(parseViewSettings(text)).toMatchObject({
+      groupSort: "manual",
+      groupOrder: ["a"],
+      hiddenGroups: [],
+    })
+  })
+
   it("applies the new settings to the optimistic copy", () => {
     const next = settingsAfter(parseViewSettings(board), { groupBy: "p1", coverVisible: false })
     expect(next).toMatchObject({ groupBy: "p1", coverVisible: false })
+  })
+})
+
+describe("manual row order", () => {
+  it("reads the order stored in the view and writes it back untouched next to other settings", () => {
+    const doc = JSON.stringify({ manualOrder: ["a", "b"], layoutConfig: { cardSize: "large" } })
+    expect(parseViewSettings(doc).manualOrder).toEqual(["a", "b"])
+    const next = JSON.parse(applySettingsPatch(doc, { manualOrder: ["b", "a", "c"] }))
+    expect(next.manualOrder).toEqual(["b", "a", "c"])
+    expect(next.layoutConfig).toEqual({ cardSize: "large" })
+  })
+
+  it("keeps an emptied order as an empty list and leaves it alone when not patched", () => {
+    const doc = JSON.stringify({ manualOrder: ["a"] })
+    expect(JSON.parse(applySettingsPatch(doc, { manualOrder: [] })).manualOrder).toEqual([])
+    expect(JSON.parse(applySettingsPatch(doc, { openMode: "centerPeek" })).manualOrder).toEqual([
+      "a",
+    ])
+    expect(parseViewSettings("{}").manualOrder).toEqual([])
+  })
+
+  it("applies a patch to the local copy of the settings", () => {
+    expect(settingsAfter(EMPTY_SETTINGS, { manualOrder: ["x"] }).manualOrder).toEqual(["x"])
+    expect(settingsAfter({ ...EMPTY_SETTINGS, manualOrder: ["x"] }, {}).manualOrder).toEqual(["x"])
   })
 })

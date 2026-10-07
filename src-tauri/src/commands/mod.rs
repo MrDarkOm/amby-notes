@@ -5,4 +5,5 @@ pub mod history;
 pub mod modules;
 pub mod mutations;
 pub mod notes;
+pub mod project;
 pub mod vault;

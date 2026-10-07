@@ -1,28 +1,67 @@
 import { Fragment, type Mark as PMMark, type Node as PMNode } from "@tiptap/pm/model"
+import MarkdownIt from "markdown-it"
 import { MarkdownSerializerState } from "prosemirror-markdown"
 import { CALLOUT_DEFAULTS } from "./callout-node"
 import { escapeHtml, styleAttrsToCss } from "./constants"
 import { COLUMN_OPEN, COLUMNS_CLOSE, COLUMNS_OPEN } from "./markdown-block-plugins"
 import { editorSchema } from "./schema"
 
-function ambyEsc(str: string, startOfLine?: boolean): string {
-  str = str.replace(/[`*\\~_]/g, (match, index: number) => {
-    if (
-      match === "_" &&
-      index > 0 &&
-      index + 1 < str.length &&
-      /\w/.test(str[index - 1]) &&
-      /\w/.test(str[index + 1])
-    ) {
-      return match
-    }
-    return "\\" + match
-  })
+// A line cannot begin with whitespace in Markdown: a parser drops up to three spaces,
+// and four or more turn the line into a code block. Text the user typed at the start
+// of a line is therefore written with its first whitespace character as a numeric
+// character reference (`&#32;`, `&#9;`, `&#160;`), which a reader turns back into that exact
+// character. Anything that would otherwise open a block (list, quote, heading marker)
+// is backslash-escaped, so what the editor writes is always read back as typed.
+const entityProbe = new MarkdownIt()
+
+// Any whitespace a parser trims counts (tab, no-break space and the other Unicode spaces).
+const referenceFor = (char: string) => `&#${char.codePointAt(0)};`
+
+type EscapeState = {
+  out: string
+  delim: string
+  /** `out.length` right after a heading marker or a hard break was written. */
+  headingStartAt?: number
+  lineStartAt?: number
+}
+
+function ambyEsc(this: EscapeState | void, str: string, startOfLine?: boolean): string {
+  const state = this || undefined
+  // The text right after a heading marker is a line start for whitespace purposes,
+  // though not for block markers (the `#` run already occupies the line). The first
+  // text after a hard break begins a line for both.
+  const afterHeadingMarker = Boolean(state && state.headingStartAt === state.out.length)
+  const tail = state && state.lineStartAt !== undefined ? state.out.slice(state.lineStartAt) : null
+  startOfLine = startOfLine || (tail !== null && (tail === "" || tail === state?.delim))
+  str = str
+    .replace(/[`*\\~_]/g, (match, index: number) => {
+      if (
+        match === "_" &&
+        index > 0 &&
+        index + 1 < str.length &&
+        /\w/.test(str[index - 1]) &&
+        /\w/.test(str[index + 1])
+      ) {
+        return match
+      }
+      return "\\" + match
+    })
+    // A literal `&#32;` or `&amp;` in the text must not be read as a character reference.
+    .replace(/&(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);/g, (reference) =>
+      // Only a reference the Markdown parser really decodes is escaped: `AT&T;` is text.
+      entityProbe.utils.unescapeAll(reference) === reference ? reference : `\\${reference}`,
+    )
+  if (startOfLine || afterHeadingMarker) {
+    const lead = /^[^\S\r\n]/u.exec(str)?.[0]
+    if (lead) return referenceFor(lead) + str.slice(lead.length)
+  }
   if (startOfLine) {
     str = str
       .replace(/^[-*+>]/, "\\$&")
-      .replace(/^(\s*\d+)\./, "$1\\.")
+      .replace(/^(\d+)([.)])/, "$1\\$2")
+      .replace(/^#{1,6}(?=[ \t]|$)/, "\\$&")
       .replace(/^---/, "\\---")
+      .replace(/^</, "\\<")
   }
   return str
 }
@@ -69,7 +108,7 @@ const nodeSerializers: Record<
     state.renderContent(node)
   },
   paragraph(state, node, parent) {
-    if (node.childCount === 0 && parent.type.name === "doc") {
+    if (node.childCount === 0 && (parent.type.name === "doc" || parent.type.name === "column")) {
       // A single empty paragraph is ProseMirror's structural representation of
       // a genuinely empty Markdown document; it must not materialise a newline
       // merely because the editor mounted or received a focus transaction.
@@ -89,7 +128,16 @@ const nodeSerializers: Record<
   },
   heading(state, node) {
     state.write(state.repeat("#", node.attrs.level) + " ")
+    const contentStart = state.out.length
+    ;(state as unknown as EscapeState).headingStartAt = contentStart
     state.renderInline(node, false)
+    // A trailing run of `#` after a space is a closing sequence, not text.
+    const written = state.out.slice(contentStart)
+    const closing = /(^|[ \t])(#+)[ \t]*$/.exec(written)
+    if (closing) {
+      const at = contentStart + closing.index + closing[1].length
+      state.out = `${state.out.slice(0, at)}\\${state.out.slice(at)}`
+    }
     state.closeBlock(node)
   },
   blockquote(state, node) {
@@ -126,7 +174,16 @@ const nodeSerializers: Record<
   columnSet(state, node) {
     const columns: string[] = []
     node.forEach((column) => {
-      columns.push(`${COLUMN_OPEN}\n\n${serializeFragment(column)}`)
+      // Empty paragraphs at the end of a column are written as extra line breaks;
+      // the separator to the next marker already supplies the normal blank line.
+      let trailingEmpty = 0
+      for (let at = column.childCount - 1; at > 0; at--) {
+        const child = column.child(at)
+        if (child.type.name !== "paragraph" || child.childCount !== 0) break
+        trailingEmpty++
+      }
+      const body = serializeFragment(column).replace(/\n+$/u, "") + "\n".repeat(trailingEmpty)
+      columns.push(`${COLUMN_OPEN}\n\n${body}`)
     })
     const open = node.attrs.widths
       ? `<!-- amby:columns widths="${node.attrs.widths as string}" -->`
@@ -187,6 +244,7 @@ const nodeSerializers: Record<
     for (let i = index + 1; i < parent.childCount; i++) {
       if (parent.child(i).type !== node.type) {
         state.write("\\\n")
+        ;(state as unknown as EscapeState).lineStartAt = state.out.length
         return
       }
     }

@@ -60,9 +60,36 @@ export const AmbyBlockNode = Node.create({
   },
 
   addNodeView() {
-    return ReactNodeViewRenderer(AmbyBlockView)
+    return ReactNodeViewRenderer(AmbyBlockView, {
+      stopEvent: ({ event }) => stopsEditorEvent(event),
+    })
   },
 })
+
+const FORM_TAGS = new Set(["INPUT", "BUTTON", "SELECT", "TEXTAREA"])
+const EDITOR_OWNED_EVENTS = new Set([
+  "mousedown",
+  "dragstart",
+  "dragover",
+  "drop",
+  "copy",
+  "cut",
+  "paste",
+])
+
+/**
+ * Whether the block, not the editor, handles this event. Inside a database block
+ * everything is the block's: otherwise a click on a tab or cell would also select
+ * the block as a note object and pop up the text-formatting toolbar. Elsewhere
+ * (the legacy table) form controls keep their events and the rest is the editor's.
+ */
+export function stopsEditorEvent(event: Event): boolean {
+  const target = event.target
+  if (!(target instanceof Element)) return false
+  if (target.closest(".amby-database-host")) return true
+  if (FORM_TAGS.has(target.tagName) || (target as HTMLElement).isContentEditable) return true
+  return !EDITOR_OWNED_EVENTS.has(event.type)
+}
 
 /** Generate a fresh opaque block id (UUID; falls back if crypto is unavailable). */
 export function newBlockId(): string {

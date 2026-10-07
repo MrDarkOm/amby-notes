@@ -35,7 +35,7 @@ export function CardEditToggle({ editing, active, onToggle }: CardEditToggleProp
       whileTap={{ scale: 0.88 }}
       transition={motionTransitions.fast}
       className={cn(
-        "absolute right-1.5 top-1.5 z-10 flex size-6 items-center justify-center rounded-md border border-border/60 bg-card/95 text-muted-foreground shadow-sm outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring",
+        "absolute right-1.5 top-1.5 z-10 flex size-6 items-center justify-center rounded-md border border-border/60 bg-card/95 text-muted-foreground shadow-sm outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
         editing && "border-primary/40 text-primary",
       )}
       onClick={(event) => {

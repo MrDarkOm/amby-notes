@@ -321,6 +321,8 @@ export interface DatabaseOptionInput {
   color: string
   /** Status only. */
   group?: string | null
+  /** New rows start with this option. */
+  isDefault?: boolean
 }
 
 export interface DatabaseOptionResult {
@@ -400,6 +402,14 @@ export interface CreateDatabaseRowRequest {
   databaseId: string
   title: string
   template: DatabaseRowTemplate
+}
+
+export interface DuplicateDatabaseRowRequest {
+  expectedGeneration: number
+  databaseId: string
+  noteId: string
+  /** Title of the copy. */
+  title: string
 }
 
 export interface CreatedDatabaseRow {
@@ -553,6 +563,8 @@ export interface DatabaseQueryRequest {
   page: { limit: number; cursor?: string }
   /** The page this query runs for: replaces `@currentPage` operands in the filter. */
   contextPageId?: string
+  /** Note IDs in the order the user placed them by hand; used only while no sort is active. */
+  manualOrder?: string[]
 }
 
 export interface DatabaseRow {

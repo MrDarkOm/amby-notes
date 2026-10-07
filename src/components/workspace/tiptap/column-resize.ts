@@ -7,6 +7,9 @@ import { removeEmptyColumnAtSelection } from "./columns-transaction"
 const RESIZE_HIT_PX = 14
 const MIN_COLUMN_PX = 120
 const COLUMN_RESIZE_KEY = new PluginKey<LiveResizeState | null>("ambyColumnResize")
+// The column whose left divider the pointer is on. It is a decoration, not a class set on
+// the DOM: ProseMirror takes a changed class for an edit of the column and redraws it.
+const DIVIDER_HOVER_KEY = new PluginKey<{ pos: number } | null>("ambyColumnDividerHover")
 
 interface LiveResizeState {
   pos: number
@@ -46,6 +49,24 @@ function dividerAt(event: MouseEvent) {
   return null
 }
 
+function columnPos(view: EditorView, element: HTMLElement): number | null {
+  try {
+    const pos = view.posAtDOM(element, 0) - 1
+    return view.state.doc.nodeAt(pos)?.type.name === "column" ? pos : null
+  } catch {
+    return null
+  }
+}
+
+function setDividerHover(view: EditorView, pos: number | null) {
+  if ((DIVIDER_HOVER_KEY.getState(view.state)?.pos ?? null) === pos) return
+  view.dispatch(
+    view.state.tr
+      .setMeta(DIVIDER_HOVER_KEY, pos === null ? null : { pos })
+      .setMeta("addToHistory", false),
+  )
+}
+
 function columnSetPos(view: EditorView, element: HTMLElement): number | null {
   try {
     const inside = view.posAtDOM(element, 0)
@@ -75,12 +96,10 @@ export const ColumnResize = Extension.create({
   },
 
   addProseMirrorPlugins() {
-    let hoverColumn: HTMLElement | null = null
     let resizeSession: { cleanup: () => void } | null = null
 
     function clearHover(view: EditorView) {
-      hoverColumn?.classList.remove("is-resize-edge")
-      hoverColumn = null
+      if (!view.isDestroyed) setDividerHover(view, null)
       if (!document.body.classList.contains("amby-resizing-columns")) view.dom.style.cursor = ""
     }
 
@@ -92,7 +111,13 @@ export const ColumnResize = Extension.create({
             destroy() {
               resizeSession?.cleanup()
               resizeSession = null
-              clearHover(view)
+              // The view is going away: no transaction, just take the mark off the DOM.
+              view.dom
+                .querySelectorAll(".is-resize-edge")
+                .forEach((element) => element.classList.remove("is-resize-edge"))
+              if (!document.body.classList.contains("amby-resizing-columns")) {
+                view.dom.style.cursor = ""
+              }
             },
           }
         },
@@ -127,11 +152,7 @@ export const ColumnResize = Extension.create({
               }
               const hit = dividerAt(rawEvent)
               const next = hit?.columns[hit.index + 1] ?? null
-              if (hoverColumn !== next) {
-                hoverColumn?.classList.remove("is-resize-edge")
-                hoverColumn = next
-                hoverColumn?.classList.add("is-resize-edge")
-              }
+              setDividerHover(view, next ? columnPos(view, next) : null)
               view.dom.style.cursor = hit ? "col-resize" : ""
               return false
             },
@@ -266,6 +287,30 @@ export const ColumnResize = Extension.create({
               document.addEventListener("pointercancel", onUp)
               return true
             },
+          },
+        },
+      }),
+      new Plugin<{ pos: number } | null>({
+        key: DIVIDER_HOVER_KEY,
+        state: {
+          init: () => null,
+          apply(transaction, current) {
+            const meta = transaction.getMeta(DIVIDER_HOVER_KEY) as
+              { pos: number } | null | undefined
+            if (meta !== undefined) return meta
+            if (!current || !transaction.docChanged) return current
+            return { pos: transaction.mapping.map(current.pos) }
+          },
+        },
+        props: {
+          decorations(state) {
+            const hover = DIVIDER_HOVER_KEY.getState(state)
+            if (!hover) return null
+            const node = state.doc.nodeAt(hover.pos)
+            if (node?.type.name !== "column") return null
+            return DecorationSet.create(state.doc, [
+              Decoration.node(hover.pos, hover.pos + node.nodeSize, { class: "is-resize-edge" }),
+            ])
           },
         },
       }),

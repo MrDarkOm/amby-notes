@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
+import { Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import type { DatabaseFieldRef, DatabasePropertySummary, DatabaseRow } from "@/lib/storage"
 import { createPortal } from "react-dom"
@@ -9,13 +10,17 @@ import { cardSpring } from "../database-motion"
 import type { CardCellEdit } from "../database-value-cell"
 import { PageIcon } from "../page-icon"
 import { BoardCard } from "./board-card"
+import { LaneColorMenu } from "./lane-color-menu"
+import { useOptionActions } from "../option-actions"
 import { useBoardDrag, type BoardDrag } from "./use-board-drag"
 import { cn } from "@/lib/utils"
 import {
   ALL_BOARD_LANE,
   EMPTY_BOARD_LANE,
+  arrangeLanes,
   groupBoardRows,
   moveRowToBoardLane,
+  type GroupDisplay,
   type BoardLane as BoardLaneModel,
 } from "./board-model"
 
@@ -36,6 +41,12 @@ interface BoardViewProps {
   onRetry?: () => void
   onRowSelect?: (row: DatabaseRow) => void
   onMoveRow?: (row: DatabaseRow, laneKey: string) => Promise<void>
+  /** Adds a page to a lane: the button under its cards. Absent when none can be added. */
+  onCreateCard?: (laneKey: string) => void
+  /** Tint each column with its option's colour (a view setting, off unless chosen). */
+  colorColumns?: boolean
+  /** Which columns show and in what order (view settings); all, in schema order, when absent. */
+  groupDisplay?: GroupDisplay
 }
 
 export function BoardView({
@@ -54,6 +65,9 @@ export function BoardView({
   onRetry,
   onRowSelect,
   onMoveRow,
+  onCreateCard,
+  colorColumns = false,
+  groupDisplay,
 }: BoardViewProps) {
   const { t } = useTranslation()
   const [optimisticRows, setOptimisticRows] = React.useState(rows)
@@ -61,7 +75,11 @@ export function BoardView({
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const nextPagePendingRef = React.useRef(false)
   const lastPageTriggerRef = React.useRef(0)
-  const lanes = providedLanes ?? groupBoardRows(optimisticRows, groupField, properties)
+  const naturalLanes = providedLanes ?? groupBoardRows(optimisticRows, groupField, properties)
+  const lanes = React.useMemo(
+    () => (groupDisplay ? arrangeLanes(naturalLanes, groupDisplay) : naturalLanes),
+    [groupDisplay, naturalLanes],
+  )
 
   React.useEffect(() => {
     if (!loading) nextPagePendingRef.current = false
@@ -148,6 +166,8 @@ export function BoardView({
             consumeClick={consumeClick}
             onMoveRow={moveRow}
             onRowSelect={onRowSelect}
+            onCreateCard={onCreateCard}
+            colorColumns={colorColumns}
             count={lane.count ?? lane.rows.length}
             loading={providedLanes ? lane.status === "loadingMore" : loading}
             hasNextPage={providedLanes ? Boolean(lane.hasMore) : hasNextPage}
@@ -211,6 +231,8 @@ interface BoardLaneProps {
   consumeClick: () => boolean
   onMoveRow: (row: DatabaseRow, laneKey: string) => Promise<void>
   onRowSelect?: (row: DatabaseRow) => void
+  onCreateCard?: (laneKey: string) => void
+  colorColumns: boolean
   count: number
   loading: boolean
   hasNextPage: boolean
@@ -235,12 +257,27 @@ function BoardLane({
   consumeClick,
   onMoveRow,
   onRowSelect,
+  onCreateCard,
+  colorColumns,
   count,
   loading,
   hasNextPage,
   onLoadNextPage,
 }: BoardLaneProps) {
   const { t } = useTranslation()
+  // The colour is the option's own; the column shows it only when the view asks for it.
+  const tint = colorColumns ? color : null
+  // Only a column that stands for a stored option has a colour to change (and only where
+  // the schema can be edited: not in a view embedded in a note).
+  const optionActions = useOptionActions()
+  const recolor =
+    colorColumns &&
+    optionActions?.setOptionColor &&
+    groupPropertyId &&
+    laneKey !== EMPTY_BOARD_LANE &&
+    laneKey !== ALL_BOARD_LANE
+      ? (hex: string) => void optionActions.setOptionColor?.(groupPropertyId, laneKey, hex)
+      : null
   // A card held over a lane other than its own: the lane shows where it would land.
   const dropTarget = drag !== null && drag.overLane === laneKey && drag.sourceLane !== laneKey
   const parentRef = React.useRef<HTMLDivElement>(null)
@@ -262,9 +299,16 @@ function BoardLane({
       aria-label={label}
       data-lane-drop={laneKey}
       className={cn(
-        "flex h-full w-72 shrink-0 flex-col rounded-2xl bg-muted/40",
+        "group/lane flex h-full w-72 shrink-0 flex-col rounded-2xl",
+        !tint && "bg-muted/40",
         dropTarget && "bg-primary/10 ring-2 ring-primary/30",
       )}
+      // The column takes a light tint of its option's colour.
+      style={
+        tint && !dropTarget
+          ? { backgroundColor: `color-mix(in srgb, ${tint} 12%, transparent)` }
+          : undefined
+      }
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0, scale: dropTarget ? 1.012 : 1 }}
       transition={motionTransition({
@@ -282,9 +326,14 @@ function BoardLane({
           />
         )}
         <span className="truncate">{label}</span>
-        <span className="ml-auto shrink-0 rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+        <span className="shrink-0 rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
           {count}
         </span>
+        {recolor && (
+          <span className="ml-auto">
+            <LaneColorMenu color={color} onChange={(hex) => recolor(hex)} />
+          </span>
+        )}
       </header>
       <div
         ref={parentRef}
@@ -356,7 +405,23 @@ function BoardLane({
             </motion.div>
           )}
         </AnimatePresence>
-        {rows.length === 0 && !dropTarget && (
+        {onCreateCard && (
+          <button
+            type="button"
+            onClick={() => onCreateCard(laneKey)}
+            // A quiet dashed card right under the last card, in the lane's own colour.
+            className="mt-1 flex h-10 w-full items-center gap-2 rounded-xl border border-dashed px-3 text-sm text-muted-foreground outline-none hover:bg-background/60 focus-visible:ring-1 focus-visible:ring-ring"
+            style={
+              tint
+                ? { color: tint, borderColor: `color-mix(in srgb, ${tint} 45%, transparent)` }
+                : undefined
+            }
+          >
+            <Plus className="size-4" />
+            {t("databaseWorkspace.newPage")}
+          </button>
+        )}
+        {rows.length === 0 && !dropTarget && !onCreateCard && (
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">
             {t("databaseBoard.emptyLane")}
           </p>

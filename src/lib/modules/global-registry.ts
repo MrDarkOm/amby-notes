@@ -88,6 +88,14 @@ const BUILTIN_MODULES: InstalledModule[] = [
     source: "builtin",
     installedAt: 0,
   },
+  {
+    id: "amby.creative",
+    version: "1.0.0",
+    activeVersion: "1.0.0",
+    signatureStatus: "signed",
+    source: "builtin",
+    installedAt: 0,
+  },
 ]
 
 export function createDefaultGlobalRegistry(): GlobalModulesRegistry {
@@ -145,18 +153,26 @@ export async function loadGlobalModulesRegistry(): Promise<GlobalModulesRegistry
   const uninstalledSet = new Set(uninstalled)
 
   // Ensure built-in modules are registered unless explicitly uninstalled
+  let missingBuiltinAdded = false
   for (const builtin of BUILTIN_MODULES) {
     if (!installed[builtin.id] && !uninstalledSet.has(builtin.id)) {
       installed[builtin.id] = { ...builtin, installedAt: Date.now() }
+      missingBuiltinAdded = true
     }
   }
 
-  return {
+  const registry: GlobalModulesRegistry = {
     schemaVersion:
       typeof raw?.schemaVersion === "number" ? raw.schemaVersion : MODULES_REGISTRY_VERSION,
     installed,
     uninstalled,
   }
+
+  if (missingBuiltinAdded) {
+    void saveGlobalModulesRegistry(registry).catch(() => {})
+  }
+
+  return registry
 }
 
 export function saveGlobalModulesRegistry(registry: GlobalModulesRegistry): Promise<void> {

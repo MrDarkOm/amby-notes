@@ -18,6 +18,8 @@ export interface OptionDraft {
   name: string
   color: string
   group: StatusGroup
+  /** New rows of the database start with this option. */
+  isDefault: boolean
 }
 
 let draftCounter = 0
@@ -47,8 +49,17 @@ function groupOf(value: unknown): StatusGroup {
 /** Option drafts of a property; status groups come from the stored configuration. */
 export function draftsFromProperty(property: DatabasePropertySummary): OptionDraft[] {
   let groups = new Map<string, StatusGroup>()
+  let defaults = new Set<string>()
   try {
-    const config = JSON.parse(property.configJson) as { options?: unknown }
+    const config = JSON.parse(property.configJson) as {
+      options?: unknown
+      defaultOptionIds?: unknown
+    }
+    if (Array.isArray(config.defaultOptionIds)) {
+      defaults = new Set(
+        config.defaultOptionIds.filter((id): id is string => typeof id === "string"),
+      )
+    }
     if (Array.isArray(config.options)) {
       groups = new Map(
         config.options
@@ -65,6 +76,7 @@ export function draftsFromProperty(property: DatabasePropertySummary): OptionDra
     name: option.name,
     color: option.color,
     group: groups.get(option.optionId) ?? "notStarted",
+    isDefault: defaults.has(option.optionId),
   }))
 }
 
@@ -74,6 +86,7 @@ export function draftsToInputs(drafts: OptionDraft[], status: boolean): Database
     name: draft.name.trim(),
     color: draft.color,
     group: status ? draft.group : null,
+    isDefault: draft.isDefault,
   }))
 }
 
@@ -104,7 +117,8 @@ export function draftsChanged(drafts: OptionDraft[], property: DatabasePropertyS
       draft.id !== other.id ||
       draft.name.trim() !== other.name ||
       draft.color.toLowerCase() !== other.color.toLowerCase() ||
-      draft.group !== other.group
+      draft.group !== other.group ||
+      draft.isDefault !== other.isDefault
     )
   })
 }
@@ -116,4 +130,20 @@ export function defaultStatusOptionNames(t: (key: string) => string): string[] {
     t("databaseOptions.statusInProgress"),
     t("databaseOptions.statusDone"),
   ]
+}
+
+/**
+ * The list after one option changes. Making an option the default of a Select or Status takes
+ * the mark from the others; a Multi-select may have several.
+ */
+export function applyDraftPatch(
+  drafts: OptionDraft[],
+  key: string,
+  patch: Partial<OptionDraft>,
+  multiple: boolean,
+): OptionDraft[] {
+  return drafts.map((draft) => {
+    if (draft.key === key) return { ...draft, ...patch }
+    return patch.isDefault && !multiple && draft.isDefault ? { ...draft, isDefault: false } : draft
+  })
 }

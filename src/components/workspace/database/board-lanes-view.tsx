@@ -6,6 +6,7 @@ import type {
   DatabaseSortSpec,
 } from "@/lib/storage"
 import { BoardView } from "./layouts"
+import type { GroupDisplay } from "./layouts/board-model"
 import type { CardCellEdit } from "./database-value-cell"
 import { useBoardLanes } from "./use-board-lanes"
 
@@ -24,6 +25,12 @@ interface BoardLanesViewProps {
   onRowSelect?: (row: DatabaseRow) => void
   /** Persists the new value; rejects when it could not be saved. */
   onMoveRow?: (row: DatabaseRow, laneKey: string) => Promise<void>
+  /** Tint each column with its option's colour (a view setting). */
+  colorColumns?: boolean
+  /** Which columns show and in what order (view settings). */
+  groupDisplay?: GroupDisplay
+  /** Adds a page to a lane; the lanes reload when it settles. */
+  onCreateCard?: (laneKey: string) => void | Promise<void>
 }
 
 /** A board whose lanes come from the whole view: full counts, per-lane paging. */
@@ -41,6 +48,9 @@ export function BoardLanesView({
   enabled,
   onRowSelect,
   onMoveRow,
+  onCreateCard,
+  colorColumns,
+  groupDisplay,
 }: BoardLanesViewProps) {
   const board = useBoardLanes({
     databaseId,
@@ -112,6 +122,15 @@ export function BoardLanesView({
       onRetry={board.reload}
       onRowSelect={onRowSelect}
       onMoveRow={moveRow}
+      colorColumns={colorColumns}
+      groupDisplay={groupDisplay}
+      onCreateCard={
+        onCreateCard
+          ? (laneKey) => {
+              void Promise.resolve(onCreateCard(laneKey)).finally(() => board.reload())
+            }
+          : undefined
+      }
     />
   )
 }

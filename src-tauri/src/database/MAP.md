@@ -9,7 +9,7 @@ are in [commands/database.rs](../commands/database.rs); frontend contracts are i
 | Domain/IPC types                              | [model.rs](model.rs)                                                                                     |
 | Durable parse/validation/discovery            | [format.rs](format.rs), [validation.rs](validation.rs), [discovery.rs](discovery.rs)                     |
 | Schema/value mutations and write coordination | [mutations.rs](mutations.rs), [mutation_state.rs](mutation_state.rs)                                     |
-| Rows and attachments                          | [rows.rs](rows.rs), [assets.rs](assets.rs)                                                               |
+| Rows (create, duplicate) and attachments      | [rows.rs](rows.rs), [assets.rs](assets.rs)                                                               |
 | Saved view operations                         | [views.rs](views.rs)                                                                                     |
 | SQLite projection / incremental publication   | [projection.rs](projection.rs)                                                                           |
 | Query compilation / aggregation               | [query.rs](query.rs)                                                                                     |
@@ -43,6 +43,12 @@ or Status option list in the manifest only (IDs kept, snapshot before the write)
 a renamed option keeps its old name as an alias (records store names). It never
 rewrites records, so a removed option stays in values as a diagnostic name.
 
+`create_database` in `mutations.rs` is `create_database_with_ids` with generated IDs. A caller that must
+repeat or undo a multi-step operation (creative projects) passes `PlannedDatabaseIds` and recognises its own
+untouched manifest by recomputing `new_database_manifest_bytes`; do not copy the manifest literal elsewhere. `build_new_property` is the pure core of
+`create_database_property` (with `PlannedPropertyIds`), and `rows::create_database_row_with_values`
+creates a row that already carries values.
+
 Property rename in `mutations.rs` changes only the manifest. Existing YAML
 bindings stay intact; a legacy stored property's previous name is pinned as its
 storage key before renaming. Do not recursively rename YAML keys in notes or
@@ -68,6 +74,12 @@ done-group Status options over all related pages, in whole hundredths rounded do
 the related database, compatible aggregation, not itself). Legacy `avg`/`countUnique` are
 read as `average`/`unique`. `contextPageId` on a query or aggregate replaces `@currentPage`
 filter operands and is part of the cursor identity.
+
+A query request may carry `manualOrder` (note IDs placed by hand). With no sort active it adds a
+leading rank sort (`json_each` of the list; unlisted rows rank last, then the ordinary sort), and
+the list is part of the cursor hash. `duplicate_database_row` in `rows.rs` copies a row next to
+the original with a new `amby-id`/`amby-title` and everything else verbatim; never copy a row
+file through the generic note path, which would repeat the ID.
 
 `filter_operators.rs` is the only list of filter operators per field kind. Query
 compilation and `validate_view` both go through it (legacy spellings `is`, `gt`, ... map to

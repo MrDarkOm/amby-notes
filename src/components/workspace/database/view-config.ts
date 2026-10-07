@@ -50,7 +50,21 @@ export interface ViewSettings {
   groupBy: string | null
   /** Gallery: show the cover image at the top of each card. */
   coverVisible: boolean
+  /** Board: tint each column with its option's colour. Off unless chosen. */
+  colorColumns: boolean
+  /** Board: how the columns are ordered; `manual` follows `groupOrder`. */
+  groupSort: GroupSort
+  /** Board: leave out columns with no cards. */
+  hideEmptyGroups: boolean
+  /** Board: the columns' order when sorted manually (option IDs, the no-value column too). */
+  groupOrder: string[]
+  /** Board: columns the user hid. */
+  hiddenGroups: string[]
+  /** Note IDs in the order the user placed rows by hand; unlisted rows follow. */
+  manualOrder: string[]
 }
+
+export type GroupSort = "manual" | "alphabetical" | "reverseAlphabetical"
 
 export interface SettingsPatch {
   filter?: DurableFilter | null
@@ -64,6 +78,12 @@ export interface SettingsPatch {
   cardSize?: CardSize
   groupBy?: string | null
   coverVisible?: boolean
+  colorColumns?: boolean
+  groupSort?: GroupSort
+  hideEmptyGroups?: boolean
+  groupOrder?: string[]
+  hiddenGroups?: string[]
+  manualOrder?: string[]
 }
 
 export const EMPTY_SETTINGS: ViewSettings = {
@@ -77,6 +97,12 @@ export const EMPTY_SETTINGS: ViewSettings = {
   cardSize: "medium",
   groupBy: null,
   coverVisible: true,
+  colorColumns: false,
+  groupSort: "manual",
+  hideEmptyGroups: false,
+  groupOrder: [],
+  hiddenGroups: [],
+  manualOrder: [],
 }
 
 function isObject(value: unknown): value is Json {
@@ -170,7 +196,22 @@ export function parseViewSettings(configJson: string): ViewSettings {
       layout.cardSize === "small" || layout.cardSize === "large" ? layout.cardSize : "medium",
     groupBy: isObject(doc.group) ? propertyKey(doc.group.field) : null,
     coverVisible: layout.coverVisible !== false,
+    colorColumns: layout.colorColumns === true,
+    groupSort:
+      layout.groupSort === "alphabetical" || layout.groupSort === "reverseAlphabetical"
+        ? layout.groupSort
+        : "manual",
+    hideEmptyGroups: layout.hideEmptyGroups === true,
+    groupOrder: stringList(layout.groupOrder),
+    hiddenGroups: stringList(layout.hiddenGroups),
+    manualOrder: stringList(doc.manualOrder),
   }
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string")
+    : []
 }
 
 /** The flat list of conditions when the filter is a plain AND of conditions. */
@@ -281,6 +322,8 @@ export function applySettingsPatch(configJson: string, patch: SettingsPatch): st
     }))
   }
   if (patch.openMode) doc.openMode = patch.openMode
+  // The format always carries the list; an emptied order is `[]`, not a missing key.
+  if (patch.manualOrder) doc.manualOrder = patch.manualOrder
   if (patch.groupBy !== undefined) {
     // Keep the rule's other fields (written by newer builds) and change only its field.
     doc.group = patch.groupBy
@@ -319,7 +362,12 @@ export function applySettingsPatch(configJson: string, patch: SettingsPatch): st
     patch.wrapped !== undefined ||
     patch.frozenKey !== undefined ||
     patch.cardSize !== undefined ||
-    patch.coverVisible !== undefined
+    patch.coverVisible !== undefined ||
+    patch.colorColumns !== undefined ||
+    patch.groupSort !== undefined ||
+    patch.hideEmptyGroups !== undefined ||
+    patch.groupOrder !== undefined ||
+    patch.hiddenGroups !== undefined
   ) {
     const layout = isObject(doc.layoutConfig) ? { ...doc.layoutConfig } : {}
     if (patch.wrapped !== undefined) {
@@ -337,6 +385,27 @@ export function applySettingsPatch(configJson: string, patch: SettingsPatch): st
     if (patch.coverVisible !== undefined) {
       if (patch.coverVisible) delete layout.coverVisible
       else layout.coverVisible = false
+    }
+    if (patch.colorColumns !== undefined) {
+      if (patch.colorColumns) layout.colorColumns = true
+      else delete layout.colorColumns
+    }
+    // Only a chosen state is stored; the defaults leave the document as it was.
+    if (patch.groupSort !== undefined) {
+      if (patch.groupSort === "manual") delete layout.groupSort
+      else layout.groupSort = patch.groupSort
+    }
+    if (patch.hideEmptyGroups !== undefined) {
+      if (patch.hideEmptyGroups) layout.hideEmptyGroups = true
+      else delete layout.hideEmptyGroups
+    }
+    if (patch.groupOrder !== undefined) {
+      if (patch.groupOrder.length > 0) layout.groupOrder = patch.groupOrder
+      else delete layout.groupOrder
+    }
+    if (patch.hiddenGroups !== undefined) {
+      if (patch.hiddenGroups.length > 0) layout.hiddenGroups = patch.hiddenGroups
+      else delete layout.hiddenGroups
     }
     doc.layoutConfig = layout
   }
@@ -368,5 +437,11 @@ export function settingsAfter(settings: ViewSettings, patch: SettingsPatch): Vie
     cardSize: patch.cardSize ?? settings.cardSize,
     groupBy: patch.groupBy !== undefined ? patch.groupBy : settings.groupBy,
     coverVisible: patch.coverVisible ?? settings.coverVisible,
+    colorColumns: patch.colorColumns ?? settings.colorColumns,
+    groupSort: patch.groupSort ?? settings.groupSort,
+    hideEmptyGroups: patch.hideEmptyGroups ?? settings.hideEmptyGroups,
+    groupOrder: patch.groupOrder ?? settings.groupOrder,
+    hiddenGroups: patch.hiddenGroups ?? settings.hiddenGroups,
+    manualOrder: patch.manualOrder ?? settings.manualOrder,
   }
 }

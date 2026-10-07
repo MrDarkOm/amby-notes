@@ -10,6 +10,8 @@ export type ReferenceView =
   | { status: "error"; message: string }
 
 const resolvers = new Map<number, BatchResolver<RecordReference>>()
+/** The invalidation each shared resolver was last cleared for (once per change, not per cell). */
+const clearedFor = new WeakMap<BatchResolver<RecordReference>, number>()
 
 function resolverFor(generation: number): BatchResolver<RecordReference> {
   let resolver = resolvers.get(generation)
@@ -53,9 +55,14 @@ export function useRecordReferences(noteIds: string[]): Record<string, Reference
     const ids = key.split(",")
     const resolver = resolverFor(generation)
     // A projection change may rename or restore targets: ask again.
+    // Every cell runs this, but the resolver is shared: clearing it once per change is enough, and
+    // clearing it again would answer the other cells' fresh requests with "unknown".
     if (lastInvalidation.current !== invalidationSeq) {
       lastInvalidation.current = invalidationSeq
-      resolver.clear()
+      if (clearedFor.get(resolver) !== invalidationSeq) {
+        clearedFor.set(resolver, invalidationSeq)
+        resolver.clear()
+      }
     }
     let cancelled = false
     for (const id of ids) {

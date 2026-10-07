@@ -237,6 +237,18 @@ pub fn start_vault_watcher(
         for database_change in database_changes {
             let _ = app_handle.emit("database:changed", database_change);
         }
+        // Projects follow the structure file and whole-folder moves; the
+        // renderer debounces these and asks for `refresh_projects`.
+        for project_change in changes.iter().filter_map(|change| {
+            crate::project::events::classify_path(
+                &watched_vault,
+                Path::new(&change.path),
+                &change.kind,
+                generation,
+            )
+        }) {
+            let _ = app_handle.emit("project:changed", project_change);
+        }
     })
     .map_err(|e| e.to_string())?;
 

@@ -11,6 +11,7 @@ All frontend vault I/O enters through [../storage.ts](../storage.ts) (facade) an
 | Browser implementation                   | [web-adapter.ts](web-adapter.ts), [web-adapter-core.ts](web-adapter-core.ts)                                                                                                                                                                   |
 | Browser format/search/tree helpers       | [web-frontmatter.ts](web-frontmatter.ts), [web-search.ts](web-search.ts), [web-tree.ts](web-tree.ts), [web-metadata.ts](web-metadata.ts), [web-history.ts](web-history.ts)                                                                     |
 | Database boundary                        | [database-port.ts](database-port.ts), [database-types.ts](database-types.ts)                                                                                                                                                                   |
+| Creative project boundary                | [project-port.ts](project-port.ts), [project-types.ts](project-types.ts) (generated types, `ProjectOperationError`)                                                                                                                            |
 | Errors, IPC results, path representation | [operation-error.ts](operation-error.ts), [ipc-result.ts](ipc-result.ts), [storage-path.ts](storage-path.ts), [web-storage-error.ts](web-storage-error.ts)                                                                                     |
 | Debug operations                         | [debug-repository.ts](debug-repository.ts)                                                                                                                                                                                                     |
 | Executable shared contract               | [storage-contract.ts](storage-contract.ts), [storage-contract.test-support.ts](storage-contract.test-support.ts)                                                                                                                               |
@@ -44,6 +45,13 @@ Existing Relation configuration and conversion to/from Relation use one
 `operationId` and `expectedRelatedManifestRevisions` for related databases,
 read through `listDatabases`. Results include all written `manifestRevisions`.
 The renderer submits one intent; Rust plans and journals reciprocal changes.
+
+Project writes (`createProject`, `createProjectSection`) take an `operationId` per user
+intent: repeating the same call returns the recorded answer (`replayed: true`) and never a
+second set, and the same ID with another payload is `operationIdReused`. Sections change
+the structure file only with the `expectedProjectRevision` the caller last read. Paths in
+project results are vault-relative. The browser fallback lists nothing and refuses creation.
+See [project backend map](../../../src-tauri/src/project/MAP.md).
 
 Verification: [storage.test.ts](storage.test.ts), focused repository/port tests,
 [ipc-vault-scope.test.ts](../ipc-vault-scope.test.ts), and relevant live/native

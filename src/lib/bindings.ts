@@ -622,6 +622,14 @@ async createDatabaseRow(request: CreateDatabaseRowRequest) : Promise<Result<Crea
     else return { status: "error", error: e  as any };
 }
 },
+async duplicateDatabaseRow(request: DuplicateDatabaseRowRequest) : Promise<Result<CreatedDatabaseRow, DatabaseError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("duplicate_database_row", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async importDatabaseAsset(request: ImportDatabaseAssetRequest) : Promise<Result<ImportedDatabaseAsset, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("import_database_asset", { request }) };
@@ -841,6 +849,69 @@ async redoDatabaseMutation(databaseId: string) : Promise<Result<DatabaseUndoRedo
 async getDatabaseHistoryStatus(databaseId: string) : Promise<Result<DatabaseHistoryStatus, DatabaseError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_database_history_status", { databaseId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listProjects() : Promise<Result<ProjectCatalog, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_projects") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Rebuilds the project projection from the files, then returns the catalog.
+ * The interface calls this after a `project:changed` event.
+ */
+async refreshProjects(expectedGeneration: number) : Promise<Result<ProjectCatalog, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("refresh_projects", { expectedGeneration }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createProject(request: CreateProjectRequest) : Promise<Result<CreatedProject, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_project", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createProjectSection(request: CreateProjectSectionRequest) : Promise<Result<CreatedSection, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_project_section", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createTextPage(request: CreateTextPageRequest) : Promise<Result<CreatedTextPage, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_text_page", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async moveTextPage(request: MoveTextPageRequest) : Promise<Result<MovedTextPage, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("move_text_page", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The relations of one note in both directions, for the dossier. Read-only.
+ */
+async listNoteReferences(noteId: string) : Promise<Result<NoteReference[], ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_note_references", { noteId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1226,9 +1297,94 @@ export type CreateDatabasePropertyRequest = { expectedGeneration: number; databa
 export type CreateDatabaseRequest = { expectedGeneration: number; mode: DatabaseCreateMode; parentPath: string | null; notePath: string | null; name: string }
 export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; title: string; template: DatabaseRowTemplate }
 export type CreateDatabaseViewRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; layout: string }
+export type CreateProjectRequest = { expectedGeneration: number; 
+/**
+ * One per user intent. Repeating the request with the same ID and payload
+ * never creates a second set.
+ */
+operationId: string; kind: ProjectKind; name: string; 
+/**
+ * Folder that will contain the project folder (absolute inside the vault,
+ * or vault-relative). Empty means the vault root.
+ */
+parentPath?: string | null; 
+/**
+ * Encoded `IconValue`, stored as is.
+ */
+icon?: string | null; tags?: string[]; 
+/**
+ * Create the base sections of the kind: a story gets Text, Notes,
+ * Characters and Locations; a collection gets Characters and Locations (a
+ * universe). A plain collection passes `false`.
+ */
+baseSections: boolean; 
+/**
+ * Names for the base sections and groups, keyed `section:<role>` and
+ * `group:<id>`, and for the text schema of a story, keyed `property:<key>`,
+ * `level:<key>` and `format:<kind>`. Missing keys fall back to Russian defaults.
+ */
+labels?: Partial<{ [key in string]: string }> }
+export type CreateProjectSectionRequest = { expectedGeneration: number; operationId: string; projectId: string; 
+/**
+ * Raw-byte revision of the structure file the caller last saw.
+ */
+expectedProjectRevision: string; name: string; role?: string | null; groupId?: string | null; 
+/**
+ * A starting point for a world section: `characters`, `locations`, `organizations` or
+ * `items`. It sets an icon, starting properties, a gallery view grouped by importance
+ * (or kind) and the starter headings of the page template. Omitted: an empty database.
+ */
+preset?: string | null; 
+/**
+ * Names for the text schema (`property:*`, `level:*`, `format:*`) and for a preset
+ * (`preset:*`, `importance:*`, `kind:*`, `heading:*`, `view:gallery`,
+ * `template:dossier`); read only for those sections. Missing keys fall back to Russian.
+ */
+labels?: Partial<{ [key in string]: string }> }
+export type CreateTextPageRequest = { expectedGeneration: number; projectId: string; title: string; 
+/**
+ * The page it goes under; none puts it at the top of the text.
+ */
+parentNoteId?: string | null; 
+/**
+ * An `id` from `text.levels` (the option ID of the level Select).
+ */
+levelId: string; 
+/**
+ * An `id` from `text.formats`. Omitted: the manuscript format, when the file has one.
+ */
+formatId?: string | null; 
+/**
+ * Where it goes among its siblings. The caller computes it (see `fractional-index.ts`).
+ */
+orderKey: string }
 export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string; notePath: string | null; warnings: string[] }
 export type CreatedDatabaseProperty = { databaseId: string; propertyId: string; name: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
 export type CreatedDatabaseRow = { databaseId: string; noteId: string; title: string; notePath: string; recordPath: string; recordRevision: string; warnings: string[] }
+export type CreatedProject = { operationId: string; projectId: string; kind: ProjectKind; name: string; 
+/**
+ * Vault-relative project folder.
+ */
+path: string; 
+/**
+ * Vault-relative structure file.
+ */
+filePath: string; fileRevision: string; sections: CreatedProjectSection[]; 
+/**
+ * True when this answer was recorded by an earlier identical call.
+ */
+replayed: boolean; warnings: string[] }
+export type CreatedProjectSection = { sectionId: string; role: string | null; groupId: string | null; name: string; databaseId: string; 
+/**
+ * Path relative to the project folder (the hint stored in the file).
+ */
+path: string; 
+/**
+ * Vault-relative container of the new database.
+ */
+containerPath: string; manifestRevision: string }
+export type CreatedSection = { operationId: string; projectId: string; section: CreatedProjectSection; projectRevision: string; replayed: boolean; warnings: string[] }
+export type CreatedTextPage = { databaseId: string; noteId: string; title: string; notePath: string; levelId: string; formatId: string | null; parentNoteId: string | null; orderKey: string; warnings: string[] }
 export type CredentialInfo = { exists: boolean; masked: string | null }
 export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }
 export type DatabaseAffectedNote = { databaseId: string; noteId: string }
@@ -1255,7 +1411,11 @@ id?: string | null; name: string; color: string;
 /**
  * Status only: `notStarted`, `inProgress` or `done`.
  */
-group?: string | null }
+group?: string | null; 
+/**
+ * New rows start with this option. A Select or Status has at most one such option.
+ */
+isDefault?: boolean }
 export type DatabaseOptionResult = { id: string; name: string; color: string; group: string | null }
 export type DatabaseOptionSummary = { optionId: string; name: string; color: string }
 export type DatabasePageRequest = { limit: number; cursor: string | null }
@@ -1265,7 +1425,12 @@ export type DatabaseQueryRequest = { expectedGeneration: number; databaseId: str
  * The page the query runs for. A `@currentPage` operand in the filter is
  * replaced by it; without a page that operand is an error, never a match-all.
  */
-contextPageId?: string | null }
+contextPageId?: string | null; 
+/**
+ * Note IDs in the order the user placed them by hand. Used only while no sort
+ * is active; rows not listed follow in the ordinary order.
+ */
+manualOrder?: string[] | null }
 export type DatabaseQueryResult = { database: DatabaseSummary; projection: ProjectionVersion; rows: DatabaseRow[]; nextCursor: string | null; diagnostics: DatabaseDiagnostic[]; totalCount: number }
 export type DatabaseQuerySource = { kind: "savedView"; view_id: string; expected_revision: string | null } | { kind: "inline"; spec: DatabaseQuerySpec }
 export type DatabaseQuerySpec = { filter: DatabaseFilterNode | null; sorts: DatabaseSortSpec[] }
@@ -1303,6 +1468,11 @@ export type DeleteDatabaseViewRequest = { expectedGeneration: number; databaseId
  */
 export type DeleteMode = "system" | "vault" | "permanent"
 export type DeletedDatabaseProperty = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
+export type DuplicateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; noteId: string; 
+/**
+ * Title of the copy; the caller localizes the "copy" wording.
+ */
+title: string }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 /**
  * Read-only view of a single YAML frontmatter entry. The original YAML stays
@@ -1344,6 +1514,24 @@ export type MigrationPreflightReport = { databaseId: string; databaseName: strin
 export type MigrationResult = { migrationId: string; databaseId: string; backupDir: string; migratedRecords: number; migratedViews: number; warnings: string[] }
 export type ModuleManifest = { formatVersion: number; id: string; name: string; version: string; publisher: string; kind: string; minAppVersion: string; maxAppVersion: string | null; entry: string; permissions: string[]; checksums: Partial<{ [key in string]: string }>; signature: ModuleSignature; dependencies: Partial<{ [key in string]: string }> | null }
 export type ModuleSignature = { keyId: string; sig: string }
+export type MoveTextPageRequest = { expectedGeneration: number; 
+/**
+ * One per intent, as for every write: a repeat does not write twice.
+ */
+operationId: string; projectId: string; noteId: string; 
+/**
+ * None makes the page a top-level one.
+ */
+newParentNoteId?: string | null; orderKey: string; 
+/**
+ * Raw-byte revision of the page the caller last saw.
+ */
+expectedRevision: string }
+export type MovedTextPage = { databaseId: string; noteId: string; parentNoteId: string | null; orderKey: string; 
+/**
+ * The page's revision after the write.
+ */
+revision: string; warnings: string[] }
 /**
  * The filesystem result is authoritative. A cache failure is returned as a
  * recoverable warning rather than turning a completed mutation into an error.
@@ -1359,8 +1547,131 @@ export type NoteProperties = { hasFrontmatter: boolean; frontmatterStatus: Front
  * Unterminated frontmatter is edited as full source; other notes expose body.
  */
 export type NoteReadOutcome = { content: string; revision: string; source: string }
+export type NoteReference = { direction: ReferenceDirection; 
+/**
+ * The relation property, in the database of its source.
+ */
+propertyId: string; propertyName: string; 
+/**
+ * The page on the other end and the database it belongs to.
+ */
+databaseId: string | null; databaseName: string | null; noteId: string; 
+/**
+ * None when the other page is not in the index (deleted or not yet indexed).
+ */
+title: string | null }
 export type OperationWarning = "indexRebuildRequired"
 export type PathChange = { oldPath: string; newPath: string }
+export type ProjectCatalog = { vaultGeneration: number; 
+/**
+ * Changes whenever the index is rebuilt.
+ */
+indexEpoch: string; projects: ProjectSummary[]; diagnostics: ProjectDiagnostic[] }
+export type ProjectDiagnostic = { 
+/**
+ * Stable code the interface localizes, for example `duplicateProjectId`.
+ */
+code: string; 
+/**
+ * `warning` or `error`.
+ */
+severity: string; 
+/**
+ * Vault-relative path of the structure file.
+ */
+path: string; projectId: string | null; detail: string | null }
+/**
+ * Typed failures of every project command. Field names are spelled out so the
+ * generated TypeScript matches `DatabaseError`'s style.
+ */
+export type ProjectError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actualGeneration: number } | { kind: "invalidOperationId" } | 
+/**
+ * The operation ID was already used for a different request.
+ */
+{ kind: "operationIdReused"; operationId: string } | { kind: "invalidName"; field: string; reason: string } | { kind: "invalidParent"; reason: string } | { kind: "pathCollision"; path: string } | { kind: "nestedCollectionUnsupported"; ancestorPath: string } | 
+/**
+ * The enclosing project has a format this build does not know.
+ */
+{ kind: "parentProjectReadOnly"; path: string } | { kind: "projectNotFound"; projectId: string } | 
+/**
+ * The structure file is newer than this build; it opens read-only.
+ */
+{ kind: "projectReadOnly"; formatVersion: number } | { kind: "revisionConflict"; actualRevision: string } | { kind: "unknownGroup"; groupId: string } | { kind: "unsupportedRole"; role: string } | 
+/**
+ * The section preset is not one of the known starting points.
+ */
+{ kind: "unsupportedPreset"; preset: string } | 
+/**
+ * The story has no text schema (no `text` block, or its database is not found).
+ */
+{ kind: "textNotConfigured" } | { kind: "unknownTextLevel"; levelId: string } | { kind: "unknownTextFormat"; formatId: string } | 
+/**
+ * An order key is 1-64 characters of `0-9A-Za-z`, compared bytewise.
+ */
+{ kind: "invalidOrderKey" } | 
+/**
+ * The page, or the parent it should go under, is not a page of the text database.
+ */
+{ kind: "pageNotFound"; noteId: string } | 
+/**
+ * The move would make a page its own ancestor.
+ */
+{ kind: "parentCycle" } | 
+/**
+ * A parent must be on a shallower level than the page: the one named is the same or deeper
+ * in `text.levels` (skipping a level is allowed).
+ */
+{ kind: "parentLevelNotShallower"; parentLevelId: string; levelId: string } | 
+/**
+ * The operation failed and everything it had created was removed.
+ */
+{ kind: "rolledBack"; operationId: string; message: string } | 
+/**
+ * The operation failed and could not clean up completely; the journal is
+ * kept and the leftovers are listed in the message.
+ */
+{ kind: "recoveryRequired"; operationId: string; message: string } | { kind: "failed"; code: string; message: string }
+export type ProjectGroupSummary = { id: string; name: string }
+export type ProjectKind = "collection" | "story"
+export type ProjectSectionSummary = { id: string; role: string | null; groupId: string | null; databaseId: string; 
+/**
+ * The relative path recorded in the structure file (a hint).
+ */
+pathHint: string; state: SectionState; 
+/**
+ * Vault-relative container of the database when it was found.
+ */
+resolvedPath: string | null; databaseName: string | null }
+export type ProjectSummary = { projectId: string; kind: ProjectKind; name: string; icon: string | null; tags: string[]; 
+/**
+ * Vault-relative project folder; empty for a project at the vault root.
+ */
+path: string; 
+/**
+ * Raw-byte revision of the structure file, for `expectedProjectRevision`.
+ */
+fileRevision: string; formatVersion: number; 
+/**
+ * True for a format this build does not know: the file is never rewritten.
+ */
+readOnly: boolean; 
+/**
+ * The nearest collection above a story (by folder nesting).
+ */
+collectionId: string | null; groups: ProjectGroupSummary[]; sections: ProjectSectionSummary[]; 
+/**
+ * The `text` block of a story as JSON, exactly as the file has it.
+ */
+textJson: string | null; 
+/**
+ * The `text` block resolved against the text database.
+ */
+text: ProjectTextSummary | null }
+export type ProjectTextSummary = { 
+/**
+ * The database of the section with the role `text`.
+ */
+databaseId: string | null; properties: TextPropertyIds; levels: TextLevelSummary[]; formats: TextFormatSummary[] }
 /**
  * Version of the rebuildable database projection. DB-02 does not publish a
  * projection yet, but the typed boundary is established now.
@@ -1379,6 +1690,15 @@ export type RecordReferenceState =
 "missing"
 export type RecoveryEntry = { version: number; vaultGeneration: number; documentKind: string; id: string; pathHint: string; savedAtMs: number; content: string; contentHash: string }
 export type RefactorPreview = { notes: number; replacements: number }
+export type ReferenceDirection = 
+/**
+ * Another page's relation points at this note.
+ */
+"in" | 
+/**
+ * This note's own relation points at another page.
+ */
+"out"
 export type RelationCandidate = { noteId: string; title: string; 
 /**
  * Path inside the vault; lets the picker tell equal titles apart.
@@ -1418,11 +1738,66 @@ export type SearchRelationCandidatesRequest = { expectedGeneration: number;
  */
 databaseId: string; search: string | null; cursor: string | null; limit: number | null }
 export type SearchResult = { note: IndexedNote; matchType: string; snippet: string | null; score: number }
+/**
+ * How a declared section relates to the databases of the vault.
+ */
+export type SectionState = 
+/**
+ * The database was found where the structure file says it is.
+ */
+"ok" | 
+/**
+ * The database was found at another path; the entry works as is.
+ */
+"moved" | 
+/**
+ * No database has this ID. The entry is kept and shown as missing.
+ */
+"missing"
 export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }
 export type SnapshotText = { sourcePath: string; content: string }
 export type StagedPackageInfo = { stagingId: string; manifest: ModuleManifest; stagingPath: string }
 export type SyncReport = { inserted: number; updated: number; deleted: number; warnings: string[]; pathToId: Partial<{ [key in string]: string }> }
 export type TagEntry = { tag: string; notes: IndexedNote[] }
+/**
+ * How an entry of the `text` block relates to the text database.
+ */
+export type TextEntryState = 
+/**
+ * The option exists in the database.
+ */
+"ok" | 
+/**
+ * The option was deleted in the database. The entry stays in the file and the
+ * pages that hold the value are not edited.
+ */
+"dangling" | 
+/**
+ * The text database was not found, so nothing could be compared.
+ */
+"unresolved"
+/**
+ * A page format. `kind` is the file's word; an unknown one is passed through and means
+ * plain text.
+ */
+export type TextFormatSummary = { 
+/**
+ * The option ID.
+ */
+id: string; kind: string; name: string | null; color: string | null; state: TextEntryState }
+/**
+ * One level of the work, in the order of `text.levels`. Name and colour come from the
+ * option of the level Select; the file only keeps the order and the icon.
+ */
+export type TextLevelSummary = { 
+/**
+ * The option ID.
+ */
+id: string; icon: string | null; name: string | null; color: string | null; state: TextEntryState }
+/**
+ * The system properties of the text database; each is present only if it exists there.
+ */
+export type TextPropertyIds = { level: string | null; parent: string | null; order: string | null; format: string | null }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
 /**

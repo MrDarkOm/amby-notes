@@ -34,6 +34,10 @@ describe("markdown <-> tiptap round-trip", () => {
     ["link", "A [link](https://example.com) here."],
     ["code block", "```ts\nconst x = 1\n```"],
     ["table", "| a | b |\n| --- | --- |\n| 1 | 2 |"],
+    [
+      "linked database view",
+      '```amby-db\n{"databaseId":"01J00000000000000000000010","viewId":"01J00000000000000000000011","layout":"board"}\n```',
+    ],
   ]
 
   for (const [name, md] of cases) {
@@ -65,6 +69,99 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(restoreSourceFormatting("Text", "Text\n\n")).toBe("Text\n\n")
     expect(roundTripCheck("Text\n").ok).toBe(true)
     expect(roundTripCheck("Text\n\n").ok).toBe(true)
+  })
+
+  describe("whitespace at the end of a paragraph", () => {
+    // markdown-it trims the last line of a paragraph or heading; the serializer writes
+    // text as it is. Typing "word " in Live Preview used to produce a buffer the parser
+    // could not read back, which dropped the note into Source mode on the spot.
+    const kept = [
+      "Начало ",
+      "Начало \n",
+      "# T\n\nНачало ",
+      "A b  ",
+      "A b\t",
+      "a \n\nb ",
+      "- a ",
+      "> a ",
+      "# T ",
+      "**b** ",
+      "- [ ] t ",
+      "Начало \r\n",
+      "Начало \r\n\r\nВторой ",
+    ]
+
+    it.each(kept)("opens %j in Live Preview with the same bytes", (source) => {
+      expect(roundTripCheck(source)).toEqual({ ok: true, result: source })
+    })
+
+    it("keeps the space as text, not as a hard break or a trimmed value", () => {
+      const doc = editorSchema.nodeFromJSON(markdownToDoc("Начало "))
+      expect(doc.childCount).toBe(1)
+      expect(doc.firstChild?.textContent).toBe("Начало ")
+    })
+
+    it("admits what the editor writes while the user types a word and a space", () => {
+      for (const typed of ["Начало", "Начало ", "Начало мир", "Начало мир "]) {
+        const doc = editorSchema.nodeFromJSON({
+          type: "doc",
+          content: [{ type: "paragraph", content: [{ type: "text", text: typed }] }],
+        })
+        const written = docToMarkdown(doc)
+        expect(written).toBe(typed)
+        expect(roundTripCheck(written).ok, JSON.stringify(typed)).toBe(true)
+      }
+    })
+
+    it("writes the bytes it read after parse and serialize, for a note with several paragraphs", () => {
+      const source = "# Глава \n\nПервый абзац \n\nВторой абзац\n\n- пункт \n"
+      expect(roundTripCheck(source)).toEqual({ ok: true, result: source })
+      expect(roundTrip(source)).toBe("# Глава \n\nПервый абзац \n\nВторой абзац\n\n- пункт ")
+    })
+
+    it("still sends what it cannot reproduce byte for byte to Source mode", () => {
+      // Interior trailing space on a soft line break is dropped by the parser.
+      expect(roundTripCheck("a \nb").ok).toBe(false)
+      // A closing `#` run and a setext underline are not the editor's own form.
+      expect(roundTripCheck("# T # ").ok).toBe(false)
+      expect(roundTripCheck("Setext \n===").ok).toBe(false)
+    })
+  })
+
+  describe("whitespace-only lines written by earlier versions of the editor", () => {
+    // A paragraph of nothing but spaces was written as a raw line. The body of a note
+    // found in a real vault, byte for byte.
+    const legacy = "Фев\n\nФлдыовдыф\n\n   \n\n  \n\n     "
+
+    it("opens in Live Preview and gives back the same bytes", () => {
+      expect(roundTripCheck(legacy)).toEqual({ ok: true, result: legacy })
+      for (const source of ["   ", "a\n\n \n\nb", "\t\n\na", "a\r\n\r\n  \r\n\r\nb"]) {
+        expect(roundTripCheck(source), JSON.stringify(source)).toEqual({ ok: true, result: source })
+      }
+    })
+
+    it("keeps those lines when the text changes without changing the number of lines", () => {
+      const doc = editorSchema.nodeFromJSON(markdownToDoc(legacy))
+      const edited = doc.copy(
+        doc.content.replaceChild(
+          0,
+          editorSchema.nodes.paragraph.create(null, editorSchema.text("Февраль")),
+        ),
+      )
+      expect(restoreSourceFormatting(docToMarkdown(edited), legacy)).toBe(
+        legacy.replace("Фев", "Февраль"),
+      )
+    })
+
+    it("does not move the whitespace when lines are added or removed", () => {
+      const result = restoreSourceFormatting("a\n\nb\n\nc", "a\n\n  \n\nb")
+      expect(result).toBe("a\n\nb\n\nc")
+    })
+
+    it("still rejects whitespace the editor cannot place", () => {
+      // Whitespace on a line with other text is content.
+      expect(roundTripCheck("a\n\n  b\n").ok).toBe(false)
+    })
   })
 
   it("preserves content without trailing newlines without appending extraneous newlines", () => {
@@ -164,6 +261,123 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(doc.child(2).type.name).toBe("columnSet")
     expect(doc.child(3).type.name).toBe("paragraph")
     expect(doc.child(3).childCount).toBe(0)
+  })
+
+  describe("empty lines inside columns", () => {
+    const DB = "01M2B5Z6F4XAXBRWPW5B4VTBS0"
+    const block =
+      "```amby-db\n" +
+      `{"version":2,"views":[{"id":"v1","databaseId":"${DB}","title":"","layout":"table","config":{}}]}` +
+      "\n```"
+    const columns = (first: string, second = "Right") =>
+      [
+        '<!-- amby:columns widths="0.4363,0.5637" -->',
+        "",
+        "<!-- amby:column -->",
+        "",
+        first,
+        "",
+        "<!-- amby:column -->",
+        "",
+        second,
+        "",
+        "<!-- /amby:columns -->",
+      ].join("\n")
+    const emptyCount = (md: string, column: number) => {
+      const doc = editorSchema.nodeFromJSON(markdownToDoc(md))
+      const target = doc.child(0).child(column)
+      let count = 0
+      target.forEach((child) => {
+        if (child.type.name === "paragraph" && child.childCount === 0) count++
+      })
+      return count
+    }
+
+    it("keeps a blank line above a database block as an empty paragraph, not as lost Markdown", () => {
+      // A line added above the database in a column: two blank lines before the fence.
+      const source = columns("\n" + block)
+      expect(roundTrip(source)).toBe(source)
+      expect(emptyCount(source, 0)).toBe(1)
+      // It is Live-editable again, not forced into Source.
+      expect(roundTripCheck(source).ok).toBe(true)
+    })
+
+    it("opens the note a user got stuck in Source with, in Live Preview again", () => {
+      // Verbatim from the report: a line above the database in the first column.
+      const source = [
+        '<!-- amby:columns widths="0.4363,0.5637" -->',
+        "",
+        "<!-- amby:column -->",
+        "",
+        "",
+        "```amby-db",
+        '{"height":286,"width":363,"version":2,"views":[{"id":"v1","databaseId":"01M2B5Z6F4XAXBRWPW5B4VTBS0","title":"","layout":"table","config":{}},{"id":"v7f4227bcb1","databaseId":"01M2B5Z6F4XAXBRWPW5B4VTBS0","title":"","layout":"gallery","config":{"layoutConfig":{"cardSize":"small"}}}]}',
+        "```",
+        "",
+        "<!-- amby:column -->",
+        "",
+        "ыфвфывфыв",
+        "",
+        "<!-- /amby:columns -->",
+      ].join("\n")
+      expect(roundTripCheck(source).ok).toBe(true)
+      expect(roundTrip(source)).toBe(source)
+    })
+
+    it("keeps empty paragraphs at the start, between blocks and at the end of a column", () => {
+      for (const body of ["\nA", "A\n\n\nB", "A\n", "\n\nA\n\n\nB\n\n"]) {
+        const source = columns(body)
+        expect(roundTrip(source), JSON.stringify(body)).toBe(source)
+        expect(roundTripCheck(source).ok).toBe(true)
+      }
+      expect(emptyCount(columns("\nA"), 0)).toBe(1)
+      expect(emptyCount(columns("A\n\n\nB"), 0)).toBe(1)
+      expect(emptyCount(columns("\n\nA"), 0)).toBe(2)
+      // The second column counts the same way.
+      expect(emptyCount(columns("Left", "\n" + block), 1)).toBe(1)
+    })
+
+    it("stays stable across repeated Source and Live switches", () => {
+      let text = columns("\n" + block, "\nRight\n")
+      const first = roundTrip(text)
+      for (let index = 0; index < 20; index++) text = roundTrip(first)
+      expect(text).toBe(first)
+      expect(first).toBe(columns("\n" + block, "\nRight\n"))
+    })
+
+    it("reads the long-standing form of an empty column as one empty paragraph", () => {
+      const source =
+        "<!-- amby:columns -->\n\n<!-- amby:column -->\n\nKeep\n\n<!-- amby:column -->\n\n\n\n<!-- /amby:columns -->"
+      expect(emptyCount(source, 1)).toBe(1)
+      expect(roundTrip(source)).toBe(source)
+      // Each blank line beyond that is one more empty paragraph, and survives.
+      const two =
+        "<!-- amby:columns -->\n\n<!-- amby:column -->\n\nKeep\n\n<!-- amby:column -->\n\n\n\n\n<!-- /amby:columns -->"
+      expect(emptyCount(two, 1)).toBe(2)
+      expect(roundTrip(two)).toBe(two)
+    })
+  })
+
+  it("keeps a database block inside a column through a round trip", () => {
+    const block =
+      '```amby-db\n{"version":2,"views":[{"id":"a","databaseId":"01J00000000000000000000010","title":"T","layout":"table","config":{}}],"width":420}\n```'
+    const source = [
+      '<!-- amby:columns widths="0.5000,0.5000" -->',
+      "",
+      "<!-- amby:column -->",
+      "",
+      "Text next to the database",
+      "",
+      "<!-- amby:column -->",
+      "",
+      block,
+      "",
+      "<!-- /amby:columns -->",
+    ].join("\n")
+    expect(roundTrip(source)).toBe(source)
+    const doc = editorSchema.nodeFromJSON(markdownToDoc(source))
+    expect(doc.child(0).type.name).toBe("columnSet")
+    expect(doc.child(0).child(1).child(0).type.name).toBe("ambyBlock")
   })
 
   it("preserves transclusion ![[Note]] as-is (round-trip)", () => {

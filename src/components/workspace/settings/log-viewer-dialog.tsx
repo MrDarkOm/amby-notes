@@ -132,7 +132,7 @@ function EventRow({ entry, repeat }: { entry: LogEntry; repeat?: number }) {
               </span>
             )}
           </div>
-          {hasMetadata && <pre>{safeMetadata(entry.metadata)}</pre>}
+          {hasMetadata && <pre className="select-text">{safeMetadata(entry.metadata)}</pre>}
         </div>
       )}
     </div>
@@ -949,7 +949,7 @@ export function LogViewerDialog({ open, onOpenChange }: LogViewerDialogProps) {
                     ? t("settings.debug.hidePreview")
                     : t("settings.debug.showPreview")}
                 </summary>
-                <pre className="amby-debug-report-preview">{reportPreview}</pre>
+                <pre className="amby-debug-report-preview select-text">{reportPreview}</pre>
               </details>
             )}
           </TabsContent>

@@ -26,6 +26,7 @@ export type ModulePermission =
 
 export interface ModuleManifest {
   permissions: ModulePermission[]
+  dependencies?: Record<string, string>
 }
 
 /** Narrow context handed to lifecycle hooks — widened as modules need more. */
@@ -142,6 +143,17 @@ export const MODULE_REGISTRY: ModuleDef[] = [
     descriptionKey: "settings.modules.descriptions.canvas",
     status: "beta",
     manifest: { permissions: ["ui-panel", "read-notes", "write-notes"] },
+  },
+  {
+    id: "creative",
+    labelKey: "settings.modules.creative",
+    descriptionKey: "settings.modules.descriptions.creative",
+    status: "ready",
+    manifest: {
+      dependencies: { "amby.databases": "^1.0.0" },
+      permissions: ["ui-action", "read-databases", "write-databases", "read-notes", "write-notes"],
+    },
+    actions: ["creative"],
   },
 ]
 

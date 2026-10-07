@@ -21,6 +21,7 @@ export type PanelId =
   | "history"
   | "links"
   | "ai"
+  | "creative"
 
 export interface AttachmentItem {
   id: string
@@ -121,6 +122,10 @@ export interface PanelRenderProps {
   canvasEnabled?: boolean
   sketchEnabled?: boolean
   onOpenDatabase?: (databaseId: string, title: string, inNewTab?: boolean) => void
+  /** Opens a creative project's page, optionally on one of its sections. */
+  onOpenCreativeProject?: (projectId: string, sectionId?: string) => void
+  /** Re-reads the file tree and databases after a project or section was written. */
+  onCreativeChanged?: () => Promise<void>
 
   // Right side
   properties?: DocumentProperties | FolderProperties | null

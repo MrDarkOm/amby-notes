@@ -39,6 +39,28 @@ describe("useRecordReferences", () => {
     await waitFor(() => expect(result.current.x1.status).toBe("error"))
     expect(referenceTitles(result.current)).toEqual({})
   })
+
+  it("keeps every cell answered when a change makes all of them ask again", async () => {
+    useDatabaseStore.getState().reset(7)
+    vi.spyOn(storage, "resolveRecordReferences").mockImplementation(async ({ noteIds }) => ({
+      references: noteIds.map((noteId) => ({
+        noteId,
+        state: "ok" as const,
+        title: `Title of ${noteId}`,
+        path: `${noteId}.md`,
+      })),
+    }))
+    // Two cells, as in a table: each runs its own hook against the one shared resolver.
+    const first = renderHook(() => useRecordReferences(["q1"]))
+    const second = renderHook(() => useRecordReferences(["q2"]))
+    await waitFor(() => expect(first.result.current.q1.status).toBe("ok"))
+    await waitFor(() => expect(second.result.current.q2.status).toBe("ok"))
+    useDatabaseStore.getState().invalidateHosts()
+    await waitFor(() => expect(first.result.current.q1.status).toBe("ok"))
+    await waitFor(() => expect(second.result.current.q2.status).toBe("ok"))
+    expect(first.result.current.q1).toMatchObject({ title: "Title of q1" })
+    expect(second.result.current.q2).toMatchObject({ title: "Title of q2" })
+  })
 })
 
 describe("relationTargetIds", () => {

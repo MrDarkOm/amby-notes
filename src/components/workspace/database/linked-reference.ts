@@ -3,6 +3,8 @@ export interface DatabaseLinkedReference {
   viewId: string
   filter?: unknown
   layout?: string
+  /** Height of the block's content area in px; absent means the default. */
+  height?: number
 }
 
 export interface ParsedDatabaseLinkedReference {
@@ -31,6 +33,7 @@ export function parseDatabaseLinkedReference(raw: string): ParsedDatabaseLinkedR
     return null
   }
   if (reference.layout !== undefined && typeof reference.layout !== "string") return null
+  if (reference.height !== undefined && !Number.isFinite(reference.height)) return null
   return { value: reference as DatabaseLinkedReference, raw }
 }
 

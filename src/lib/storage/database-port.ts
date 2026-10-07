@@ -22,6 +22,7 @@ import {
   type DatabaseValueBatchRequest,
   type DatabaseValueBatchResult,
   type CreateDatabaseRowRequest,
+  type DuplicateDatabaseRowRequest,
   type CreatedDatabaseRow,
   type ImportDatabaseAssetRequest,
   type ImportedDatabaseAsset,
@@ -87,6 +88,7 @@ export interface DatabasePort {
     request: UpdateDatabaseRelationValueRequest,
   ): Promise<UpdateDatabaseRelationValueResult>
   createDatabaseRow(request: CreateDatabaseRowRequest): Promise<CreatedDatabaseRow>
+  duplicateDatabaseRow(request: DuplicateDatabaseRowRequest): Promise<CreatedDatabaseRow>
   importDatabaseAsset(request: ImportDatabaseAssetRequest): Promise<ImportedDatabaseAsset>
   resolveDatabaseAssetPaths(
     request: ResolveDatabaseAssetPathsRequest,

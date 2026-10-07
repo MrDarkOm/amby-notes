@@ -55,7 +55,7 @@ export function CardTitleInput({
       disabled={busy}
       aria-label={label ?? t("databaseCard.title")}
       className={cn(
-        "min-w-0 flex-1 rounded bg-transparent px-1 py-0.5 outline-none ring-1 ring-border focus:ring-2 focus:ring-ring disabled:opacity-60",
+        "min-w-0 flex-1 rounded bg-transparent px-1 py-0.5 outline-none ring-1 ring-border focus:ring-1 focus:ring-ring disabled:opacity-60",
         className,
       )}
       onChange={(event) => setDraft(event.target.value)}

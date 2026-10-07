@@ -40,6 +40,7 @@ const MODULE_SETTINGS_LABEL_KEYS: Record<string, string> = {
   graph: "activityBar.graphSettings",
   sync: "activityBar.syncSettings",
   ai: "activityBar.aiSettings",
+  creative: "activityBar.creativeSettings",
 }
 
 export function settingsLabelKeyForActivityButton(buttonId: string): string {

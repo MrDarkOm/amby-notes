@@ -13,7 +13,7 @@ import type { NoteProperties } from "@/lib/storage"
 import { flattenTree, relativeToVault } from "./document-breadcrumbs-utils"
 import { FilePickerModal, LayerConfirmDialog, type LayerKind } from "./document-actions"
 import { DocumentHeader } from "./document-header"
-import { DocumentBody } from "./document-body"
+import { DocumentBody, type EditorFrameProps } from "./document-body"
 import { NotePdfExport, NotePdfExportDialog, type PdfExportOptions } from "./note-pdf-export"
 import { inspectMarkdownCompatibility, noteEditingPolicy } from "./note-editing-policy"
 import type { DocumentViewMode, EditorLayer } from "./use-document-view-mode"
@@ -102,6 +102,7 @@ export interface DocumentEditorProps {
   onSketchChange?: (json: string) => void
   onEnableModule?: (moduleId: string) => void
   databaseBody?: React.ReactNode
+  editorFrame?: React.ComponentType<EditorFrameProps>
   editorSurfaceOwner?: EditorSurface
   scrollPositionKey?: string
   scrollPosition?: number
@@ -177,6 +178,7 @@ export function DocumentEditor({
   onSketchChange,
   onEnableModule,
   databaseBody,
+  editorFrame,
   editorSurfaceOwner = "document",
   scrollPositionKey,
   scrollPosition,
@@ -194,9 +196,39 @@ export function DocumentEditor({
     buffer.documentId === document?.id && buffer.upstream === document?.content
       ? buffer.value
       : (document?.content ?? "")
+  // The store echoes what this editor just emitted back as `document.content`; anything
+  // else (opening, reload from disk, restore, conflict resolution) is a new load.
+  const isOwnEcho =
+    buffer.documentId === document?.id &&
+    buffer.upstream !== document?.content &&
+    document?.content === buffer.value
   if (buffer.documentId !== document?.id || buffer.upstream !== document?.content) {
     setBuffer({ documentId: document?.id, upstream: document?.content, value: content })
   }
+  // Whether Live Preview may be used is decided when a note is loaded, never by the
+  // user typing: a space typed at the end of a paragraph must not throw the editor into
+  // Source mode. The user leaves Live Preview only by choosing Source themselves.
+  const [admission, setAdmission] = React.useState({
+    documentId: document?.id,
+    content: document?.content ?? "",
+    source: document?.source,
+    seen: document?.content,
+    unlocked: false,
+  })
+  const loadedAnew =
+    admission.documentId !== document?.id || (admission.seen !== document?.content && !isOwnEcho)
+  const currentAdmission = loadedAnew
+    ? {
+        documentId: document?.id,
+        content: document?.content ?? "",
+        source: document?.source,
+        seen: document?.content,
+        unlocked: false,
+      }
+    : admission
+  if (loadedAnew) setAdmission(currentAdmission)
+  else if (admission.seen !== document?.content)
+    setAdmission((current) => ({ ...current, seen: document?.content }))
   const [editingTitle, setEditingTitle] = React.useState(false)
   const [moreActionsOpen, setMoreActionsOpen] = React.useState(false)
   const [viewModeMenuOpen, setViewModeMenuOpen] = React.useState(false)
@@ -214,11 +246,20 @@ export function DocumentEditor({
   const editorSelectionRef = React.useRef<MarkdownSelection | null>(null)
   const editorRef = React.useRef<EditorHandle>(null as unknown as EditorHandle)
   const { t } = useTranslation()
+  // Compatibility of the note as loaded decides whether Live Preview is forced off.
+  const loadedCompatibility = React.useMemo(
+    () => inspectMarkdownCompatibility(currentAdmission.content, currentAdmission.source),
+    [currentAdmission.content, currentAdmission.source],
+  )
+  // Compatibility of the current text only gates the user's own switch back to Live.
   const compatibility = React.useMemo(
     () => inspectMarkdownCompatibility(content, document?.source),
     [content, document?.source],
   )
-  const editingPolicy = noteEditingPolicy(document?.noteProperties, compatibility)
+  const editingPolicy = noteEditingPolicy(
+    document?.noteProperties,
+    currentAdmission.unlocked ? { ok: true } : loadedCompatibility,
+  )
   const documentId = document?.id
   const leaseToken = React.useId()
   const [hasEditorLease, setHasEditorLease] = React.useState(!documentId)
@@ -344,12 +385,23 @@ export function DocumentEditor({
 
   const handleEditorViewModeChange = React.useCallback(
     (mode: DocumentViewMode) => {
-      if (editingPolicy.sourceOnly && mode !== "source") return
+      if (mode !== "source") {
+        // Going to Live is always checked against the text as it is now. An unterminated
+        // frontmatter envelope has no safe body and never allows it.
+        const unterminated = document?.noteProperties?.frontmatterStatus === "unterminated"
+        if (unterminated || !compatibility.ok) return
+        if (editingPolicy.sourceOnly) setAdmission((current) => ({ ...current, unlocked: true }))
+      }
       editorRef.current?.flush()
       setEditorSelection(editorRef.current?.getMarkdownSelection() ?? editorSelectionRef.current)
       onViewModeChange?.(mode)
     },
-    [onViewModeChange, editingPolicy.sourceOnly],
+    [
+      onViewModeChange,
+      editingPolicy.sourceOnly,
+      compatibility.ok,
+      document?.noteProperties?.frontmatterStatus,
+    ],
   )
 
   const headerElement = (
@@ -601,6 +653,7 @@ export function DocumentEditor({
           onSketchChange={onSketchChange}
           onEnableModule={onEnableModule}
           databaseBody={databaseBody}
+          editorFrame={editorFrame}
           editorSelection={editorSelection}
           onEditorSelectionChange={handleEditorSelectionChange}
           editorRef={editorRef}

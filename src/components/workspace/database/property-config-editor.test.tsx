@@ -169,60 +169,86 @@ describe("PropertyConfigEditor", () => {
       ])
     })
 
+    const openMenu = (name: string) =>
+      fireEvent.click(screen.getByRole("button", { name: `Изменить вариант: ${name}` }))
+
     it("renames, removes and reorders options, each saved at once", async () => {
       const { onSaveOptions } = editor(select())
-      const name = screen.getAllByLabelText("Название варианта")[0]
+      openMenu("Todo")
+      const name = await screen.findByLabelText("Название варианта")
       fireEvent.change(name, { target: { value: "To do" } })
       fireEvent.blur(name)
       await vi.waitFor(() => expect(onSaveOptions).toHaveBeenCalledTimes(1))
-      await enabled(screen.getAllByRole("button", { name: "Удалить вариант" })[1])
-      fireEvent.click(screen.getAllByRole("button", { name: "Удалить вариант" })[1])
+      expect(onSaveOptions.mock.calls[0][1].map((d) => d.name)).toEqual(["To do", "Done"])
+      if (!screen.queryByRole("button", { name: "Удалить" })) openMenu("Todo")
+      fireEvent.click(await screen.findByRole("button", { name: "Удалить" }))
       await vi.waitFor(() => expect(onSaveOptions).toHaveBeenCalledTimes(2))
-      const afterDelete = onSaveOptions.mock.calls[1][1]
-      expect(afterDelete.map((d) => d.name)).toEqual(["Todo"])
+      expect(onSaveOptions.mock.calls[1][1].map((d) => d.name)).toEqual(["Done"])
+    })
+
+    it("recolors an option from the color list of its menu", async () => {
+      const { onSaveOptions } = editor(select())
+      openMenu("Todo")
+      fireEvent.click(await screen.findByRole("button", { name: "Красный" }))
+      await vi.waitFor(() => expect(onSaveOptions).toHaveBeenCalledTimes(1))
+      expect((onSaveOptions.mock.calls[0][1][0] as { color?: string }).color).toBe("#ef4444")
+    })
+
+    it("reorders options with the keys on the grip", async () => {
+      const { onSaveOptions } = editor(select())
       const handle = screen.getAllByRole("button", { name: /Перетащить вариант/ })[0]
       await enabled(handle)
       fireEvent.keyDown(handle, { key: "ArrowDown" })
-      await vi.waitFor(() => expect(onSaveOptions).toHaveBeenCalledTimes(3))
-      const reordered = onSaveOptions.mock.calls[2][1]
-      expect(reordered.map((d) => d.name)).toEqual(["Done", "Todo"])
+      await vi.waitFor(() => expect(onSaveOptions).toHaveBeenCalledTimes(1))
+      expect(onSaveOptions.mock.calls[0][1].map((d) => d.name)).toEqual(["Done", "Todo"])
     })
 
     it("does not save a repeated name and says so", async () => {
       const { onSaveOptions } = editor(select())
-      const name = screen.getAllByLabelText("Название варианта")[0]
+      openMenu("Todo")
+      const name = await screen.findByLabelText("Название варианта")
       fireEvent.change(name, { target: { value: "done" } })
       fireEvent.blur(name)
       expect((await screen.findByRole("alert")).textContent).toContain("повторяться")
       expect(onSaveOptions).not.toHaveBeenCalled()
     })
 
-    it("offers a group for status options only", () => {
-      const { unmount } = render(
-        <PropertyConfigEditor
-          property={select()}
-          databases={[]}
-          databaseTitle="Tasks"
-          onUpdateConfig={noop}
-          onSaveOptions={noop}
-          onSaveRelation={noop}
-          onSaveRollup={noop}
-        />,
-      )
-      expect(screen.queryAllByLabelText("Группа статуса")).toHaveLength(0)
+    it("offers a group for status options only", async () => {
+      const common = {
+        databases: [],
+        databaseTitle: "Tasks",
+        onUpdateConfig: noop,
+        onSaveOptions: noop,
+        onSaveRelation: noop,
+        onSaveRollup: noop,
+      }
+      const { unmount } = render(<PropertyConfigEditor property={select()} {...common} />)
+      openMenu("Todo")
+      await screen.findByLabelText("Название варианта")
+      expect(screen.queryByText("Группа статуса")).toBeNull()
       unmount()
       render(
         <PropertyConfigEditor
           property={property("status", { options: [] }, options)}
-          databases={[]}
-          databaseTitle="Tasks"
-          onUpdateConfig={noop}
-          onSaveOptions={noop}
-          onSaveRelation={noop}
-          onSaveRollup={noop}
+          {...common}
         />,
       )
-      expect(screen.getAllByLabelText("Группа статуса")).toHaveLength(2)
+      openMenu("Todo")
+      expect(await screen.findByText("Группа статуса")).toBeTruthy()
+    })
+
+    it("adds an option to the stage whose plus was pressed", async () => {
+      const { onSaveOptions } = editor(property("status", { options: [] }, options))
+      fireEvent.click(screen.getByRole("button", { name: /Добавить вариант: В процессе/ }))
+      const input = await screen.findByLabelText("Новый вариант")
+      fireEvent.change(input, { target: { value: "Review" } })
+      fireEvent.keyDown(input, { key: "Enter" })
+      await vi.waitFor(() => expect(onSaveOptions).toHaveBeenCalledTimes(1))
+      const saved = onSaveOptions.mock.calls[0][1] as unknown as Array<{
+        name: string
+        group: string
+      }>
+      expect(saved.find((d) => d.name === "Review")?.group).toBe("inProgress")
     })
 
     it("disables everything for a locked database", () => {
@@ -230,7 +256,7 @@ describe("PropertyConfigEditor", () => {
       expect((screen.getByLabelText("Новый вариант") as HTMLInputElement).disabled).toBe(true)
       expect(
         screen
-          .getAllByRole("button", { name: "Удалить вариант" })
+          .getAllByRole("button", { name: /Изменить вариант:/ })
           .every((b) => (b as HTMLButtonElement).disabled),
       ).toBe(true)
     })

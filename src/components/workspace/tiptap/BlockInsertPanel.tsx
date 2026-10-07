@@ -8,16 +8,18 @@ import { motion } from "motion/react"
 import {
   getPlusItems,
   getSlashItems,
+  insertDatabaseView,
   type BlockInsertItem,
   type BlockMediaContext,
 } from "./block-insert-items"
+import { DatabaseViewPicker } from "@/components/workspace/database/database-view-picker"
 import { SLASH_MENU_KEY_EVENT, type SlashMenuKey } from "./slash-menu"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { isTauri } from "@/lib/storage"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
 import { motionTransitions } from "@/lib/motion-config"
 
-type Mode = "list" | "url" | "emoji"
+type Mode = "list" | "url" | "emoji" | "database"
 
 interface Props {
   editor: Editor
@@ -98,14 +100,19 @@ export function BlockInsertPanel({
     setMode("emoji")
   }, [maybeDeleteSlashRange])
 
+  // The slash text stays until a view is chosen: removing it would end the
+  // suggestion and unmount this panel, and Escape must leave the note untouched.
+  const requestDatabasePicker = React.useCallback(() => setMode("database"), [])
+
   const ctx = React.useMemo<BlockMediaContext>(
     () => ({
       vaultPath,
       notePath,
       requestUrlInput,
       requestEmojiPicker,
+      requestDatabasePicker,
     }),
-    [notePath, requestEmojiPicker, requestUrlInput, vaultPath],
+    [notePath, requestDatabasePicker, requestEmojiPicker, requestUrlInput, vaultPath],
   )
 
   const itemDisabled = React.useCallback(
@@ -121,7 +128,7 @@ export function BlockInsertPanel({
   const choose = React.useCallback(
     (item: BlockInsertItem) => {
       if (itemDisabled(item)) return
-      if (item.id === "image-url" || item.id === "emoji") {
+      if (item.id === "image-url" || item.id === "emoji" || item.id === "database-view") {
         // These items take over the panel; no slash-range delete yet (they may bail).
         void item.inline(editor, ctx)
         return
@@ -289,6 +296,17 @@ export function BlockInsertPanel({
             </button>
           </div>
         </div>
+      )}
+
+      {mode === "database" && (
+        <DatabaseViewPicker
+          className="amby-block-panel-database"
+          onCancel={() => setMode("list")}
+          onSelect={(choice) => {
+            void insertDatabaseView(editor, choice, source === "slash" ? range : undefined)
+            onClose()
+          }}
+        />
       )}
 
       {mode === "emoji" && (

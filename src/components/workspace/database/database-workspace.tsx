@@ -62,8 +62,10 @@ import { useDatabaseQuery } from "./use-database-query"
 import { TableView } from "./table-view"
 import { DatabaseSidePeek } from "./peek/database-side-peek"
 import { BoardView, GalleryView, ListView } from "./layouts"
+import { placeNewRecordInLane } from "./new-record-lane"
 import { useViewQueryState } from "./use-view-query-state"
 import { BoardLanesView } from "./board-lanes-view"
+import { GalleryLanesView } from "./gallery-lanes-view"
 import { ViewFilterEditor } from "./view-filter-editor"
 import { ViewSortEditor } from "./view-sort-editor"
 import { conditionsToFilter } from "./view-config"
@@ -71,9 +73,16 @@ import { EMPTY_ROLLUP_DRAFT, type RollupDraft } from "./rollup-model"
 import type { CardCellEdit } from "./database-value-cell"
 import { applyCellValue } from "./database-cell-value"
 import { PeekProperties } from "./peek/peek-properties"
+import { SortResetDialog } from "./sort-reset-dialog"
+import { applyManualOrder } from "./row-order"
+import {
+  useDeleteRows,
+  useRowMenu,
+  useRowReorderConfig,
+  type DatabaseRowActions,
+} from "./use-row-menu"
 import { BoardGroupPrompt } from "./board-group-prompt"
 import { OptionActionsProvider, type OptionActions } from "./option-actions"
-import { PropertyOptionsDialog } from "./property-options-dialog"
 import { databaseErrorText } from "./database-error"
 import { PropertyConfigEditor, type PropertyConfigPatch } from "./property-config-editor"
 import { hasPropertySettings, type RelationConfigState } from "./property-settings"
@@ -116,6 +125,7 @@ import { DatabaseFloatingToolbar } from "./database-floating-toolbar"
 import { QueryPanelButton } from "./database-view-menu"
 import { ViewSettingsPanel } from "./view-settings-panel"
 import { ViewIcon } from "./view-icon"
+import { readLastView, rememberLastView } from "./last-view-memory"
 import { ViewTabItem, type ViewTabDrag } from "./view-tab-item"
 import { databasePropertyIconKey, databaseViewIconKey } from "./property-icon"
 import { useViewStateStore } from "../use-view-state-store"
@@ -144,6 +154,10 @@ interface DatabaseWorkspaceProps {
   onTitleColumnNameChange?: (name: string) => void
   onRenameProperty?: (propertyId: string, name: string) => Promise<void> | void
   onOpenNote?: (noteId: string) => void
+  /** Favourites, windows, delete and move of the pages: what the row menu offers beyond the database. */
+  rowActions?: DatabaseRowActions
+  /** The title and icon are shown by the host (a project page), so the database does not repeat them. */
+  hideHeader?: boolean
 }
 
 const EMPTY_PROPERTIES: DatabasePropertySummary[] = []
@@ -207,6 +221,8 @@ export function DatabaseWorkspace({
   onTitleColumnNameChange,
   onRenameProperty,
   onOpenNote,
+  rowActions,
+  hideHeader = false,
 }: DatabaseWorkspaceProps) {
   const { t } = useTranslation()
   const handleOpenNote = React.useCallback(
@@ -236,7 +252,23 @@ export function DatabaseWorkspace({
     ),
   )
   const databases = useDatabaseStore((state) => state.databases)
-  const [selectedViewId, setSelectedViewId] = React.useState<string | null>(null)
+  const [selectedViewId, setSelectedViewIdState] = React.useState<string | null>(() =>
+    readLastView(databaseId),
+  )
+  // The choice is kept per database, so reopening it (or the app) shows the same view.
+  const setSelectedViewId = React.useCallback(
+    (next: string | null) => {
+      setSelectedViewIdState(next)
+      if (next) rememberLastView(databaseId, next)
+    },
+    [databaseId],
+  )
+  // A workspace reused for another database starts from that database's last view.
+  const [viewScope, setViewScope] = React.useState(databaseId)
+  if (viewScope !== databaseId) {
+    setViewScope(databaseId)
+    setSelectedViewIdState(readLastView(databaseId))
+  }
   const [activeViewMenuOpen, setActiveViewMenuOpen] = React.useState(false)
   const [viewDisplayModes, setViewDisplayModes] = React.useState<
     Record<string, "both" | "icon" | "text">
@@ -274,6 +306,8 @@ export function DatabaseWorkspace({
   const [rowDialogOpen, setRowDialogOpen] = React.useState(false)
   const [rowTitle, setRowTitle] = React.useState("")
   const [rowTemplate, setRowTemplate] = React.useState<DatabaseRowTemplate>({ kind: "empty" })
+  // Set when the page is added from a board lane: it is created in that lane.
+  const [rowLaneKey, setRowLaneKey] = React.useState<string | null>(null)
   const [databaseTitle, setDatabaseTitle] = React.useState(title)
   const [editingDatabaseTitle, setEditingDatabaseTitle] = React.useState(false)
   const [databaseIcon, setDatabaseIcon] = React.useState(() => normalizeDatabaseIcon(icon) ?? "")
@@ -341,7 +375,6 @@ export function DatabaseWorkspace({
   const [propertyType, setPropertyType] = React.useState("text")
   const [formulaExpression, setFormulaExpression] = React.useState("0")
   const [rollupDraft, setRollupDraft] = React.useState<RollupDraft>(EMPTY_ROLLUP_DRAFT)
-  const [optionsPropertyId, setOptionsPropertyId] = React.useState<string | null>(null)
   const [relationTargetDatabaseId, setRelationTargetDatabaseId] = React.useState(databaseId)
   const [relationMaxItems, setRelationMaxItems] = React.useState<number | null>(null)
   const [relationTwoWay, setRelationTwoWay] = React.useState(false)
@@ -355,7 +388,13 @@ export function DatabaseWorkspace({
     error: string | null
     result: DatabaseYamlSyncResult | null
   } | null>(null)
-  const viewId = selectedViewId ?? database?.views[0]?.viewId ?? null
+  // A remembered view that no longer exists (deleted elsewhere) falls back to the first one.
+  const viewId =
+    (selectedViewId && database?.views.some((view) => view.viewId === selectedViewId)
+      ? selectedViewId
+      : null) ??
+    database?.views[0]?.viewId ??
+    null
   const selectedView = database?.views.find((view) => view.viewId === viewId)
   const activeView = selectedView ?? database?.views[0]
   const iconOverrides = useViewStateStore((state) => state.iconOverrides)
@@ -406,6 +445,7 @@ export function DatabaseWorkspace({
     tableSavedSettings,
     queryFilter,
     querySorts,
+    queryManualOrder,
   } = useViewQueryState({
     databaseId,
     vaultGeneration,
@@ -435,16 +475,32 @@ export function DatabaseWorkspace({
     }
     return selectedView?.groupField ?? null
   }, [savedView.ready, selectedView?.groupField, viewSettings.groupBy])
+  const groupDisplay = React.useMemo(
+    () => ({
+      sort: viewSettings.groupSort,
+      order: viewSettings.groupOrder,
+      hidden: viewSettings.hiddenGroups,
+      hideEmpty: viewSettings.hideEmptyGroups,
+    }),
+    [
+      viewSettings.groupSort,
+      viewSettings.groupOrder,
+      viewSettings.hiddenGroups,
+      viewSettings.hideEmptyGroups,
+    ],
+  )
+  // Board columns and gallery groups both need a Select or Status property to group by.
+  const groupingLayout = selectedView?.layout === "board" || selectedView?.layout === "gallery"
   const boardGroupProperty = React.useMemo(() => {
     const group = groupField
-    if (selectedView?.layout !== "board" || !group || group.kind !== "property") return null
+    if (!groupingLayout || !group || group.kind !== "property") return null
     const property = database?.properties.find(
       (candidate) => candidate.propertyId === group.propertyId,
     )
     return property && (property.propertyType === "select" || property.propertyType === "status")
       ? property
       : null
-  }, [database?.properties, groupField, selectedView?.layout])
+  }, [database?.properties, groupField, groupingLayout])
 
   const queriesEnabled =
     Boolean(runtime?.enabled) && catalogStatus === "ready" && Boolean(database) && savedView.ready
@@ -463,6 +519,7 @@ export function DatabaseWorkspace({
     search: searchQuery,
     filter: queryFilter,
     sorts: querySorts,
+    manualOrder: queryManualOrder,
   })
   const activeHost = queriedHost
   const computedErrors = React.useMemo(() => {
@@ -564,7 +621,12 @@ export function DatabaseWorkspace({
   // Search and sorting are backend query inputs. Never filter or reorder only
   // the currently loaded page: doing so makes page counts and distant rows
   // incorrect on large databases.
-  const displayRows = React.useMemo(() => activeHost?.rows ?? EMPTY_ROWS, [activeHost?.rows])
+  // The one exception is the order the user placed rows in by hand: it is applied here as well,
+  // so a drop shows at once and the backend returns the same sequence for the next query.
+  const displayRows = React.useMemo(() => {
+    const loaded = activeHost?.rows ?? EMPTY_ROWS
+    return queryManualOrder ? applyManualOrder(loaded, queryManualOrder) : loaded
+  }, [activeHost?.rows, queryManualOrder])
 
   const relationReferences = useRecordReferences(
     React.useMemo(() => relationTargetIds(displayRows.map((row) => row.valuesJson)), [displayRows]),
@@ -646,7 +708,7 @@ export function DatabaseWorkspace({
       }
       if (viewIdToSelect) setSelectedViewId(viewIdToSelect)
     },
-    [onCatalogChanged, retry],
+    [onCatalogChanged, retry, setSelectedViewId],
   )
 
   // The order of the view tabs while one is dragged; it follows the catalog otherwise.
@@ -928,10 +990,19 @@ export function DatabaseWorkspace({
 
   const openRowDialog = React.useCallback((template: DatabaseRowTemplate) => {
     setRowTemplate(template)
+    setRowLaneKey(null)
     setRowTitle("")
     setMutationError(null)
     setRowDialogOpen(true)
   }, [])
+
+  const openRowDialogInLane = React.useCallback(
+    (laneKey: string) => {
+      openRowDialog({ kind: "empty" })
+      setRowLaneKey(laneKey)
+    },
+    [openRowDialog],
+  )
 
   const displayedDatabaseIcon =
     normalizeDatabaseIcon(databaseIcon) ?? normalizeDatabaseIcon(database?.icon)
@@ -951,12 +1022,15 @@ export function DatabaseWorkspace({
   )
   // The view's own menu (Rename, Configure) opens the settings panel on that view; Rename also
   // puts the cursor in the view's name.
-  const openViewSettings = React.useCallback((targetViewId: string, focusName: boolean) => {
-    setSelectedViewId(targetViewId)
-    setSelectedRowId(null)
-    setSettingsOpen(true)
-    if (focusName) setSettingsFocusSignal((signal) => signal + 1)
-  }, [])
+  const openViewSettings = React.useCallback(
+    (targetViewId: string, focusName: boolean) => {
+      setSelectedViewId(targetViewId)
+      setSelectedRowId(null)
+      setSettingsOpen(true)
+      if (focusName) setSettingsFocusSignal((signal) => signal + 1)
+    },
+    [setSelectedViewId],
+  )
   const toggleSettings = React.useCallback(() => {
     setSettingsOpen((open) => {
       if (!open) setSelectedRowId(null)
@@ -990,6 +1064,21 @@ export function DatabaseWorkspace({
         title: rowTitle.trim(),
         template: rowTemplate.kind,
       })
+      // A page added from a board lane belongs to that lane.
+      if (rowLaneKey && groupField?.kind === "property") {
+        const groupProperty = database?.properties.find(
+          (candidate) => candidate.propertyId === groupField.propertyId,
+        )
+        if (groupProperty) {
+          await placeNewRecordInLane({
+            vaultGeneration,
+            databaseId,
+            created,
+            groupProperty,
+            laneKey: rowLaneKey,
+          })
+        }
+      }
       setSelectedRowId(created.noteId)
       setRowTitle("")
       setRowDialogOpen(false)
@@ -1012,7 +1101,18 @@ export function DatabaseWorkspace({
     } finally {
       setMutationBusy(false)
     }
-  }, [databaseId, mutationBusy, onRowCreated, retry, rowTemplate, rowTitle, vaultGeneration])
+  }, [
+    database?.properties,
+    databaseId,
+    groupField,
+    mutationBusy,
+    onRowCreated,
+    retry,
+    rowLaneKey,
+    rowTemplate,
+    rowTitle,
+    vaultGeneration,
+  ])
 
   const createProperty = React.useCallback(async () => {
     const currentGeneration = vaultGeneration ?? useDatabaseStore.getState().vaultGeneration
@@ -1072,8 +1172,6 @@ export function DatabaseWorkspace({
         propertyName: propertyName.trim(),
         propertyType,
       })
-      const openOptionsFor =
-        propertyType === "select" || propertyType === "multiSelect" ? created.propertyId : null
       setPropertyName("")
       setPropertyType("text")
       setFormulaExpression("0")
@@ -1098,8 +1196,6 @@ export function DatabaseWorkspace({
         )
       }
       setMutationError(notices.length ? notices.join("; ") : null)
-      // A new Select has no options yet: let the user add them right away.
-      if (openOptionsFor) setOptionsPropertyId(openOptionsFor)
     } catch (error) {
       logger.error("database.create_property_failed", {
         databaseId,
@@ -1343,7 +1439,9 @@ export function DatabaseWorkspace({
   const optionActions = React.useMemo<OptionActions | null>(() => {
     if (isDatabaseLocked || vaultGeneration === null) return null
     return {
-      editOptions: setOptionsPropertyId,
+      saveOptions: async (propertyId, drafts) => {
+        await saveOptionDrafts(propertyId, drafts)
+      },
       createOption: async (propertyId, name) => {
         const property = database?.properties.find(
           (candidate) => candidate.propertyId === propertyId,
@@ -1364,12 +1462,31 @@ export function DatabaseWorkspace({
               name: trimmed,
               color: nextOptionColor(drafts),
               group: "notStarted",
+              isDefault: false,
             },
           ])
           return saved[saved.length - 1]?.id ?? null
         } catch (error) {
           setMutationError(error instanceof Error ? error.message : String(error))
           return null
+        }
+      },
+      setOptionColor: async (propertyId, optionId, hex) => {
+        const property = database?.properties.find(
+          (candidate) => candidate.propertyId === propertyId,
+        )
+        if (!property) return
+        const drafts = draftsFromProperty(property)
+        if (!drafts.some((draft) => draft.id === optionId && draft.color.toLowerCase() !== hex)) {
+          return
+        }
+        try {
+          await saveOptionDrafts(
+            propertyId,
+            drafts.map((draft) => (draft.id === optionId ? { ...draft, color: hex } : draft)),
+          )
+        } catch (error) {
+          setMutationError(error instanceof Error ? error.message : String(error))
         }
       },
     }
@@ -1470,6 +1587,7 @@ export function DatabaseWorkspace({
         setMutationError(outcome.result.warnings.join("; "))
       }
       await retry()
+      if (outcome.ok) useDatabaseStore.getState().invalidateHosts()
       if (outcome.ok) void refreshHistoryStatus()
     },
   })
@@ -1627,6 +1745,63 @@ export function DatabaseWorkspace({
     [commitCell],
   )
 
+  // The grip of a row: drag to place it by hand (while no sort decides the order), press for its menu.
+  const renderRowProperties = React.useCallback(
+    (row: DatabaseRow) => (
+      <PeekProperties
+        row={row}
+        properties={database?.properties ?? EMPTY_PROPERTIES}
+        databases={databases}
+        currentDatabaseId={databaseId}
+        pendingCells={pendingCells}
+        cellErrors={cellErrors}
+        disabled={isDatabaseLocked}
+        onCommit={commitPeekCell}
+        onOpenNote={handleOpenNote}
+        onCreateRelationRow={handleCreateRelationRow}
+      />
+    ),
+    [
+      cellErrors,
+      commitPeekCell,
+      database?.properties,
+      databaseId,
+      databases,
+      handleCreateRelationRow,
+      handleOpenNote,
+      isDatabaseLocked,
+      pendingCells,
+    ],
+  )
+  const rowMenu = useRowMenu({
+    databaseId,
+    databases,
+    openMode: viewSettings.openMode,
+    locked: isDatabaseLocked,
+    vaultGeneration,
+    actions: rowActions,
+    openRow,
+    onRenameRow,
+    refresh: retry,
+    onError: setMutationError,
+    renderProperties: renderRowProperties,
+  })
+  const deleteRows = useDeleteRows({
+    actions: rowActions,
+    locked: isDatabaseLocked,
+    refresh: retry,
+  })
+  const [sortPromptOpen, setSortPromptOpen] = React.useState(false)
+  const sorted = viewSettings.sorts.length > 0
+  const rowReorder = useRowReorderConfig({
+    rows: displayRows,
+    manualOrder: viewSettings.manualOrder,
+    enabled: !isDatabaseLocked && !sorted,
+    onChange: (manualOrder) => updateViewSettings({ manualOrder }),
+    // Dragging while a sort decides the order offers to drop the sort for a custom order.
+    onBlockedDrag: !isDatabaseLocked && sorted ? () => setSortPromptOpen(true) : undefined,
+  })
+
   const syncYamlForRow = React.useCallback(
     async (row: DatabaseRow) => {
       if (vaultGeneration === null) return
@@ -1725,6 +1900,8 @@ export function DatabaseWorkspace({
         ],
       })
       retry()
+      // The other views (table, list, gallery) hold their own copy of the rows: they reload too.
+      useDatabaseStore.getState().invalidateHosts()
       void refreshHistoryStatus()
     },
     [database?.properties, databaseId, groupField, refreshHistoryStatus, retry, t, vaultGeneration],
@@ -1784,69 +1961,72 @@ export function DatabaseWorkspace({
           })}
         </div>
         <div
-          className="mx-auto flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden px-3 sm:px-8 lg:px-10"
+          // The left padding leaves room for the row grips that hang beside the table.
+          className="mx-auto flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden pl-[4.5rem] pr-3 sm:pr-8 lg:pr-12"
           style={{ maxWidth: EDITOR_CONTENT_WIDTH[contentWidth] }}
         >
-          <header className="flex shrink-0 items-center gap-3 px-0 py-4">
-            <div className="relative shrink-0">
-              <motion.button
-                ref={iconTriggerRef}
-                type="button"
-                className="text-3xl leading-none focus:outline-none dark:text-foreground"
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.96 }}
-                transition={motionTransitions.default}
-                title={t("databaseWorkspace.changeIcon")}
-                aria-label={t("databaseWorkspace.changeIcon")}
-                onClick={() => setIconPickerOpen((open) => !open)}
-              >
-                <IconValue
-                  value={displayedDatabaseIcon}
-                  fallback={<Database className="size-8" strokeWidth={1.7} />}
-                  className="size-8 rounded-md"
-                />
-              </motion.button>
-              {iconPickerOpen && (
-                <div className="absolute left-0 top-full z-50 mt-1">
-                  <EmojiPickerPanel
-                    triggerRef={iconTriggerRef}
-                    onSelect={(next) => {
-                      setDatabaseIcon(next.native)
-                      onIconChange?.(next.native)
-                      setIconPickerOpen(false)
-                    }}
-                    onClear={() => {
-                      setDatabaseIcon("")
-                      onIconChange?.("")
-                      setIconPickerOpen(false)
-                    }}
-                    clearLabel={t("tree.resetIcon")}
-                    onClose={() => setIconPickerOpen(false)}
+          {!hideHeader && (
+            <header className="flex shrink-0 items-center gap-3 px-0 py-4">
+              <div className="relative shrink-0">
+                <motion.button
+                  ref={iconTriggerRef}
+                  type="button"
+                  className="text-3xl leading-none focus:outline-none dark:text-foreground"
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.96 }}
+                  transition={motionTransitions.default}
+                  title={t("databaseWorkspace.changeIcon")}
+                  aria-label={t("databaseWorkspace.changeIcon")}
+                  onClick={() => setIconPickerOpen((open) => !open)}
+                >
+                  <IconValue
+                    value={displayedDatabaseIcon}
+                    fallback={<Database className="size-8" strokeWidth={1.7} />}
+                    className="size-8 rounded-md"
                   />
-                </div>
-              )}
-            </div>
-            <div className="flex min-w-0 flex-1 items-center">
-              <input
-                value={databaseTitle}
-                readOnly={!editingDatabaseTitle}
-                aria-label={t("databaseWorkspace.renameTitle")}
-                onFocus={() => {
-                  if (!editingDatabaseTitle) setEditingDatabaseTitle(true)
-                }}
-                onChange={(event) => setDatabaseTitle(event.target.value)}
-                onBlur={commitDatabaseTitle}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") commitDatabaseTitle()
-                  if (event.key === "Escape") {
-                    setDatabaseTitle(title)
-                    setEditingDatabaseTitle(false)
-                  }
-                }}
-                className="h-8 min-w-0 w-full cursor-text border-0 bg-transparent p-0 text-2xl font-semibold leading-none tracking-tight text-foreground outline-none sm:h-10 sm:text-3xl"
-              />
-            </div>
-          </header>
+                </motion.button>
+                {iconPickerOpen && (
+                  <div className="absolute left-0 top-full z-50 mt-1">
+                    <EmojiPickerPanel
+                      triggerRef={iconTriggerRef}
+                      onSelect={(next) => {
+                        setDatabaseIcon(next.native)
+                        onIconChange?.(next.native)
+                        setIconPickerOpen(false)
+                      }}
+                      onClear={() => {
+                        setDatabaseIcon("")
+                        onIconChange?.("")
+                        setIconPickerOpen(false)
+                      }}
+                      clearLabel={t("tree.resetIcon")}
+                      onClose={() => setIconPickerOpen(false)}
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="flex min-w-0 flex-1 items-center">
+                <input
+                  value={databaseTitle}
+                  readOnly={!editingDatabaseTitle}
+                  aria-label={t("databaseWorkspace.renameTitle")}
+                  onFocus={() => {
+                    if (!editingDatabaseTitle) setEditingDatabaseTitle(true)
+                  }}
+                  onChange={(event) => setDatabaseTitle(event.target.value)}
+                  onBlur={commitDatabaseTitle}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") commitDatabaseTitle()
+                    if (event.key === "Escape") {
+                      setDatabaseTitle(title)
+                      setEditingDatabaseTitle(false)
+                    }
+                  }}
+                  className="h-8 min-w-0 w-full cursor-text border-0 bg-transparent p-0 text-2xl font-semibold leading-none tracking-tight text-foreground outline-none sm:h-10 sm:text-3xl"
+                />
+              </div>
+            </header>
+          )}
           <div
             ref={toolbarContainerRef}
             className="flex min-h-10 shrink-0 min-w-0 items-center justify-between gap-2 sm:gap-4 px-0 py-1"
@@ -2194,7 +2374,7 @@ export function DatabaseWorkspace({
                   </Reorder.Group>
                   <button
                     type="button"
-                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-slate-500 opacity-0 group-hover/views:opacity-100 hover:bg-slate-100 dark:text-muted-foreground dark:hover:bg-accent/50"
+                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-slate-500 opacity-0 group-hover/views:opacity-100 focus-visible:opacity-100 hover:bg-slate-100 dark:text-muted-foreground dark:hover:bg-accent/50"
                     aria-label={t("databaseWorkspace.addView")}
                     title={t("databaseWorkspace.addView")}
                     disabled={isDatabaseLocked || vaultGeneration === null}
@@ -2218,23 +2398,37 @@ export function DatabaseWorkspace({
                   <PopoverAnchor asChild>
                     <div ref={actionsRef} className="ml-auto flex shrink-0 items-center gap-1">
                       {isCompactToolbar ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 gap-1.5 rounded-full px-3 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-muted-foreground dark:hover:bg-accent dark:hover:text-foreground"
-                          aria-label={t("databaseWorkspace.settings")}
-                          aria-pressed={settingsOpen}
-                          title={t("databaseWorkspace.settings")}
-                          onClick={toggleSettings}
-                        >
-                          <SlidersHorizontal className="size-3.5 shrink-0" />
-                          <span className="truncate max-w-[100px]">
-                            {t("databaseWorkspace.settings")}
-                          </span>
-                          {(filterCount > 0 || viewSettings.sorts.length > 0) && (
-                            <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-                          )}
-                        </Button>
+                        // Folded: search and settings as two icons; the rest is in the panel.
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className="text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground"
+                            title={t("databaseWorkspace.search")}
+                            aria-label={t("databaseWorkspace.search")}
+                            aria-pressed={searchOpen}
+                            onClick={() => setSearchOpen((open) => !open)}
+                          >
+                            {searchOpen ? <X className="size-4" /> : <Search className="size-4" />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            className={cn(
+                              "relative text-slate-500 hover:text-slate-900 dark:text-muted-foreground dark:hover:text-foreground",
+                              settingsOpen && "bg-accent text-foreground",
+                            )}
+                            aria-label={t("databaseWorkspace.settings")}
+                            aria-pressed={settingsOpen}
+                            title={t("databaseWorkspace.settings")}
+                            onClick={toggleSettings}
+                          >
+                            <SlidersHorizontal className="size-4" />
+                            {(filterCount > 0 || viewSettings.sorts.length > 0) && (
+                              <span className="absolute right-1 top-1 size-1.5 rounded-full bg-primary" />
+                            )}
+                          </Button>
+                        </>
                       ) : (
                         <>
                           <QueryPanelButton
@@ -2408,7 +2602,14 @@ export function DatabaseWorkspace({
                 <motion.div
                   // A new view (or layout) fades and rises in instead of snapping.
                   key={`${viewId ?? "none"}:${selectedView?.layout ?? "table"}`}
-                  className="flex min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--note-surface)]"
+                  className={cn(
+                    "flex min-w-0 flex-1 rounded-xl bg-[var(--note-surface)]",
+                    // The grips of a table or list hang outside this surface.
+                    selectedView &&
+                      selectedView.layout !== "list" &&
+                      selectedView.layout !== "table" &&
+                      "overflow-hidden",
+                  )}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={motionTransition(motionTransitions.enter)}
@@ -2435,6 +2636,38 @@ export function DatabaseWorkspace({
                       onLoadNextPage={loadNextPage}
                       onRetry={retry}
                       onRowSelect={openRow}
+                      rowMenu={rowMenu}
+                      rowReorder={rowReorder}
+                      onCreateCard={
+                        onCreateRowAvailable(isDatabaseLocked, vaultGeneration)
+                          ? () => openRowDialog({ kind: "empty" })
+                          : undefined
+                      }
+                    />
+                  ) : selectedView?.layout === "gallery" && boardGroupProperty ? (
+                    <GalleryLanesView
+                      databaseId={databaseId}
+                      groupProperty={boardGroupProperty}
+                      properties={database?.properties ?? EMPTY_PROPERTIES}
+                      relationTitles={relationTitles}
+                      cardFields={cardFieldIds}
+                      cardEdit={cardEdit}
+                      cardSize={viewSettings.cardSize}
+                      coverVisible={viewSettings.coverVisible}
+                      vaultGeneration={vaultGeneration}
+                      filter={queryFilter}
+                      sorts={querySorts}
+                      search={searchQuery}
+                      enabled={boardEnabled}
+                      onRowSelect={openRow}
+                      rowMenu={rowMenu}
+                      colorColumns={viewSettings.colorColumns}
+                      groupDisplay={groupDisplay}
+                      onCreateCard={
+                        onCreateRowAvailable(isDatabaseLocked, vaultGeneration)
+                          ? openRowDialogInLane
+                          : undefined
+                      }
                     />
                   ) : selectedView?.layout === "gallery" ? (
                     <GalleryView
@@ -2453,6 +2686,13 @@ export function DatabaseWorkspace({
                       onLoadNextPage={loadNextPage}
                       onRetry={retry}
                       onRowSelect={openRow}
+                      rowMenu={rowMenu}
+                      rowReorder={rowReorder}
+                      onCreateCard={
+                        onCreateRowAvailable(isDatabaseLocked, vaultGeneration)
+                          ? () => openRowDialog({ kind: "empty" })
+                          : undefined
+                      }
                     />
                   ) : selectedView?.layout === "board" ? (
                     boardGroupProperty ? (
@@ -2469,6 +2709,13 @@ export function DatabaseWorkspace({
                         enabled={boardEnabled}
                         onRowSelect={openRow}
                         onMoveRow={moveRowToGroup}
+                        colorColumns={viewSettings.colorColumns}
+                        groupDisplay={groupDisplay}
+                        onCreateCard={
+                          onCreateRowAvailable(isDatabaseLocked, vaultGeneration)
+                            ? openRowDialogInLane
+                            : undefined
+                        }
                       />
                     ) : (
                       <>
@@ -2497,6 +2744,11 @@ export function DatabaseWorkspace({
                           onRetry={retry}
                           onRowSelect={openRow}
                           onMoveRow={moveRowToGroup}
+                          onCreateCard={
+                            onCreateRowAvailable(isDatabaseLocked, vaultGeneration)
+                              ? () => openRowDialog({ kind: "empty" })
+                              : undefined
+                          }
                         />
                       </>
                     )
@@ -2543,6 +2795,9 @@ export function DatabaseWorkspace({
                       onLoadNextPage={loadNextPage}
                       onRetry={retry}
                       onRowSelect={openRow}
+                      rowMenu={rowMenu}
+                      rowReorder={rowReorder}
+                      onDeleteRows={deleteRows}
                       onAddProperty={
                         isDatabaseLocked
                           ? undefined
@@ -2671,6 +2926,11 @@ export function DatabaseWorkspace({
             )}
           </div>
         </div>
+        <SortResetDialog
+          open={sortPromptOpen}
+          onOpenChange={setSortPromptOpen}
+          onConfirm={() => updateViewSettings({ sorts: [] })}
+        />
         <DatabaseViewDialog
           open={viewDialogOpen}
           onOpenChange={setViewDialogOpen}
@@ -2735,17 +2995,6 @@ export function DatabaseWorkspace({
           mutationError={mutationError}
           onCreate={() => void createProperty()}
         />
-        <PropertyOptionsDialog
-          property={
-            optionsPropertyId
-              ? (database?.properties.find(
-                  (candidate) => candidate.propertyId === optionsPropertyId,
-                ) ?? null)
-              : null
-          }
-          onSave={saveOptionDrafts}
-          onClose={() => setOptionsPropertyId(null)}
-        />
         <AnimatePresence>
           {settingsOpen && (
             <ViewSettingsPanel
@@ -2766,7 +3015,6 @@ export function DatabaseWorkspace({
               onOpenFilter={() => setQueryPanel("filter")}
               onOpenSort={() => setQueryPanel("sort")}
               openRowDialog={openRowDialog}
-              onToggleSearch={() => setSearchOpen((open) => !open)}
               viewIcon={
                 activeView
                   ? iconOverrides[databaseViewIconKey(databaseId, activeView.viewId)]
@@ -2797,6 +3045,18 @@ export function DatabaseWorkspace({
               onGroupPropertyChange={(groupBy) => updateViewSettings({ groupBy })}
               coverVisible={viewSettings.coverVisible}
               onCoverVisibleChange={(coverVisible) => updateViewSettings({ coverVisible })}
+              colorColumns={viewSettings.colorColumns}
+              onColorColumnsChange={(colorColumns) => updateViewSettings({ colorColumns })}
+              groupSort={viewSettings.groupSort}
+              onGroupSortChange={(groupSort) => updateViewSettings({ groupSort })}
+              hideEmptyGroups={viewSettings.hideEmptyGroups}
+              onHideEmptyGroupsChange={(hideEmptyGroups) => updateViewSettings({ hideEmptyGroups })}
+              groupOrder={viewSettings.groupOrder}
+              onGroupOrderChange={(groupOrder) =>
+                updateViewSettings({ groupOrder, groupSort: "manual" })
+              }
+              hiddenGroups={viewSettings.hiddenGroups}
+              onHiddenGroupsChange={(hiddenGroups) => updateViewSettings({ hiddenGroups })}
               setViewHiddenPropertyIds={setViewHiddenPropertyIds}
               togglePropertyVisibility={togglePropertyVisibility}
               onOpenAddProperty={() => {

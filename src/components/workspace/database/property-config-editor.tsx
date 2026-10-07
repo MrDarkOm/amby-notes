@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Reorder } from "motion/react"
 import { AmbySelect } from "@/components/ui/amby-select"
-import { Plus, Trash2 } from "lucide-react"
+import { ChevronRight, Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import type {
   DatabasePropertySummary,
@@ -10,9 +10,12 @@ import type {
 } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { CardTitleInput } from "./layouts/card-title-input"
-import { ColorSwatch } from "./option-color-swatch"
+import { OptionMenuTrigger } from "./option-edit-menu"
+import { StatusBadge } from "./property-value"
+import { safeOptionColor } from "./value-format"
 import {
   STATUS_GROUPS,
+  applyDraftPatch,
   draftsFromProperty,
   findDraftProblem,
   isOptionProperty,
@@ -48,9 +51,8 @@ interface OptionRowProps {
   draft: OptionDraft
   status: boolean
   locked: boolean
-  onName: (name: string) => Promise<void>
-  onColor: (color: string) => void
-  onGroup: (group: StatusGroup) => void
+  /** Saves a change made in the option's menu; rejects with the reason. */
+  onChange: (patch: Partial<OptionDraft>) => Promise<void>
   onRemove: () => void
   /** Moves the row one place with the keyboard. */
   onMove: (offset: -1 | 1) => void
@@ -58,14 +60,12 @@ interface OptionRowProps {
   onDropped: () => void
 }
 
-/** One option: a grip to drag it, its color, name (and status group), and a remove button. */
+/** One option: a grip to drag it and its label; pressing it opens the option's own menu. */
 function OptionRow({
   draft,
   status,
   locked,
-  onName,
-  onColor,
-  onGroup,
+  onChange,
   onRemove,
   onMove,
   onDropped,
@@ -77,45 +77,42 @@ function OptionRow({
       disabled={locked}
       onMove={onMove}
       onDropped={onDropped}
-      className="group/option rounded-lg bg-card px-1 py-1 hover:bg-accent/50"
+      className="group/option rounded-lg px-1 py-0.5 hover:bg-accent/50"
     >
-      <ColorSwatch
-        color={draft.color}
-        label={t("databaseOptions.color")}
-        disabled={locked}
-        onChange={onColor}
+      <OptionMenuTrigger
+        draft={draft}
+        status={status}
+        onChange={onChange}
+        onRemove={onRemove}
+        trigger={
+          <button
+            type="button"
+            disabled={locked}
+            aria-label={`${t("databaseOptions.moreActions")}: ${draft.name}`}
+            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-1 pr-1 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default"
+          >
+            <StatusBadge
+              chip={{
+                key: draft.key,
+                kind: "option",
+                label: draft.name,
+                color: safeOptionColor(draft.color),
+              }}
+            />
+            {draft.isDefault && (
+              <span className="ml-auto text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                {t("databaseOptions.defaultBadge")}
+              </span>
+            )}
+            <ChevronRight
+              className={cn(
+                "size-4 shrink-0 text-muted-foreground",
+                draft.isDefault ? "" : "ml-auto",
+              )}
+            />
+          </button>
+        }
       />
-      <CardTitleInput
-        value={draft.name}
-        label={t("databaseOptions.name")}
-        className="h-7 bg-transparent text-[13px] ring-0 hover:ring-1 focus:bg-background focus:ring-2"
-        onCommit={onName}
-      />
-      {status && (
-        <AmbySelect
-          value={draft.group}
-          disabled={locked}
-          size="sm"
-          variant="bare"
-          aria-label={t("databaseOptions.group")}
-          className="w-[5.5rem] shrink-0 text-[11px] text-muted-foreground"
-          options={STATUS_GROUPS.map((group) => ({
-            value: group,
-            label: t(`databaseOptions.group_${group}`),
-          }))}
-          onValueChange={(group) => onGroup(group as StatusGroup)}
-        />
-      )}
-      <button
-        type="button"
-        disabled={locked}
-        aria-label={t("databaseOptions.remove")}
-        title={t("databaseOptions.remove")}
-        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 outline-none hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover/option:opacity-100 disabled:opacity-0"
-        onClick={onRemove}
-      >
-        <Trash2 className="size-3.5" />
-      </button>
     </ReorderableRow>
   )
 }
@@ -161,7 +158,14 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
     }
   }
   const update = (index: number, patch: Partial<OptionDraft>) =>
-    save(drafts.map((draft, position) => (position === index ? { ...draft, ...patch } : draft)))
+    save(
+      applyDraftPatch(
+        drafts,
+        drafts[index]?.key ?? "",
+        patch,
+        property.propertyType === "multiSelect",
+      ),
+    )
   const changed = (next: OptionDraft[]) => void save(next).catch(() => {})
   const moveBy = (index: number, offset: -1 | 1) => {
     const next = [...orderRef.current]
@@ -182,12 +186,149 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
     if (!name) return
     void save([
       ...drafts,
-      { key: newDraftKey(), id: null, name, color: nextOptionColor(drafts), group: "notStarted" },
+      {
+        key: newDraftKey(),
+        id: null,
+        name,
+        color: nextOptionColor(drafts),
+        group: "notStarted",
+        isDefault: false,
+      },
     ])
       .then(() => setNewName(""))
       .catch(() => {})
   }
+  // A Status is shown by stage: each stage has its own rows, its own "+", and rows are dragged
+  // within their stage. Whatever changes, the saved list is kept stage by stage.
+  const [addingGroup, setAddingGroup] = React.useState<StatusGroup | null>(null)
+  const [groupName, setGroupName] = React.useState("")
+  const byGroup = (list: OptionDraft[], group: StatusGroup, replacement?: OptionDraft[]) =>
+    STATUS_GROUPS.flatMap((candidate) =>
+      candidate === group && replacement ? replacement : list.filter((d) => d.group === candidate),
+    )
+  const addToGroup = (group: StatusGroup) => {
+    const name = groupName.trim()
+    if (!name) {
+      setAddingGroup(null)
+      return
+    }
+    void save(
+      byGroup(
+        [
+          ...drafts,
+          {
+            key: newDraftKey(),
+            id: null,
+            name,
+            color: nextOptionColor(drafts),
+            group,
+            isDefault: false,
+          },
+        ],
+        group,
+      ),
+    )
+      .then(() => {
+        setGroupName("")
+        setAddingGroup(null)
+      })
+      .catch(() => {})
+  }
+  const moveInGroup = (group: StatusGroup, draft: OptionDraft, offset: -1 | 1) => {
+    const items = orderRef.current.filter((d) => d.group === group)
+    const index = items.indexOf(draft)
+    const target = index + offset
+    if (index === -1 || target < 0 || target >= items.length) return
+    ;[items[index], items[target]] = [items[target], items[index]]
+    const next = byGroup(orderRef.current, group, items)
+    setOrder(next)
+    changed(next)
+  }
   const locked = disabled || busy
+
+  if (status) {
+    return (
+      <div className="space-y-1">
+        {STATUS_GROUPS.map((group) => {
+          const items = order.filter((d) => d.group === group)
+          return (
+            <section key={group} aria-label={t(`databaseOptions.group_${group}`)}>
+              <div className="flex items-center justify-between px-1 pt-2">
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  {t(`databaseOptions.group_${group}`)}
+                </span>
+                <button
+                  type="button"
+                  disabled={locked}
+                  aria-label={`${t("databaseOptions.add")}: ${t(`databaseOptions.group_${group}`)}`}
+                  title={t("databaseOptions.add")}
+                  className="flex size-6 items-center justify-center rounded text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-40"
+                  onClick={() => {
+                    setGroupName("")
+                    setAddingGroup(group)
+                  }}
+                >
+                  <Plus className="size-4" />
+                </button>
+              </div>
+              {items.length > 0 && (
+                <Reorder.Group
+                  axis="y"
+                  values={items}
+                  onReorder={(next) => setOrder(byGroup(orderRef.current, group, next))}
+                  className="space-y-0.5"
+                >
+                  {items.map((draft) => (
+                    <OptionRow
+                      key={draft.key}
+                      draft={draft}
+                      status
+                      locked={Boolean(locked)}
+                      onChange={(patch) => save(applyDraftPatch(drafts, draft.key, patch, false))}
+                      onRemove={() => changed(drafts.filter((d) => d.key !== draft.key))}
+                      onMove={(offset) => moveInGroup(group, draft, offset)}
+                      onDropped={dropped}
+                    />
+                  ))}
+                </Reorder.Group>
+              )}
+              {addingGroup === group && (
+                <input
+                  autoFocus
+                  value={groupName}
+                  maxLength={80}
+                  aria-label={t("databaseOptions.newOption")}
+                  placeholder={t("databaseOptions.newOption")}
+                  className="mt-0.5 h-8 w-full rounded-lg border border-input bg-transparent px-2 text-[13px] outline-none focus:border-ring"
+                  onChange={(event) => setGroupName(event.target.value)}
+                  onBlur={() => addToGroup(group)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault()
+                      addToGroup(group)
+                    }
+                    if (event.key === "Escape") {
+                      event.preventDefault()
+                      setGroupName("")
+                      setAddingGroup(null)
+                    }
+                  }}
+                />
+              )}
+            </section>
+          )
+        })}
+        {problem && (
+          <p role="alert" className="text-xs leading-snug text-destructive">
+            {problem}
+          </p>
+        )}
+        <p className="pt-1 text-[11px] leading-snug text-muted-foreground">
+          {t("databaseOptions.removeHint")}
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-2">
@@ -204,13 +345,7 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
               draft={draft}
               status={status}
               locked={Boolean(locked)}
-              onName={(name) => update(index, { name })}
-              onColor={(color) =>
-                changed(drafts.map((d, i) => (i === index ? { ...d, color } : d)))
-              }
-              onGroup={(group) =>
-                changed(drafts.map((d, i) => (i === index ? { ...d, group } : d)))
-              }
+              onChange={(patch) => update(index, patch)}
               onRemove={() => changed(drafts.filter((_, position) => position !== index))}
               onMove={(offset) => moveBy(index, offset)}
               onDropped={dropped}
@@ -235,7 +370,7 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
             maxLength={80}
             aria-label={t("databaseOptions.newOption")}
             placeholder={t("databaseOptions.newOption")}
-            className="h-8 w-full rounded-lg border border-dashed border-input bg-transparent pl-7 pr-2 text-[13px] outline-none placeholder:text-muted-foreground hover:border-foreground/30 focus:border-solid focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+            className="h-8 w-full rounded-lg border border-dashed border-input bg-transparent pl-7 pr-2 text-[13px] outline-none placeholder:text-muted-foreground hover:border-foreground/30 focus:border-solid focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
             onChange={(event) => setNewName(event.target.value)}
             onKeyDown={(event) => {
               if (event.key !== "Enter") return
@@ -250,7 +385,7 @@ function InstantOptionsEditor({ property, disabled, onSave }: InstantOptionsEdit
           aria-label={t("databaseOptions.add")}
           title={t("databaseOptions.add")}
           className={cn(
-            "flex h-8 shrink-0 items-center rounded-lg border border-input px-2.5 text-xs outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40",
+            "flex h-8 shrink-0 items-center rounded-lg border border-input px-2.5 text-xs outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-40",
           )}
           onClick={add}
         >
