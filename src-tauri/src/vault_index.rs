@@ -243,6 +243,50 @@ mod tests {
         fs::remove_dir_all(vault).unwrap();
     }
 
+    // Before CRLF frontmatter was recognized (2026-08-19), every ID pass over a note with
+    // Windows line endings saw no frontmatter and put a new `id` block on top of it. Such
+    // a note is left as it is: its first block is its identity, no further block is
+    // added, and no pass repairs it silently — the repair is the owner's to approve.
+    #[test]
+    fn a_note_left_with_stacked_id_blocks_keeps_its_first_identity_and_its_bytes() {
+        let vault = temp_vault("stacked-id-blocks");
+        let note = vault.join("Clipping.md");
+        let trusted = Ulid::generate().to_string();
+        let mut original = format!("---\r\namby-id: {trusted}\r\nid: {trusted}\r\n---\r\n");
+        for _ in 0..8 {
+            original.push_str(&format!("---\r\nid: {}\r\n---\r\n", Ulid::generate()));
+        }
+        original.push_str(
+            "---\r\ntitle: \"Clipping\"\r\ntags:\r\n  - \"clippings\"\r\n---\r\nBody\r\n",
+        );
+        fs::write(&note, &original).unwrap();
+
+        let preflight = preflight_vault(&vault).unwrap();
+        assert!(preflight.planned_id_writes.is_empty());
+        assert!(preflight.duplicate_ids.is_empty());
+        assert!(preflight.malformed_frontmatter.is_empty());
+        assert!(apply_id_migration(&vault)
+            .unwrap()
+            .modified_paths
+            .is_empty());
+
+        let conn = open_conn(&vault);
+        let loaded = load_vault(&conn, &vault).unwrap();
+        assert_eq!(loaded.notes.len(), 1);
+        assert_eq!(loaded.notes[0].id, trusted);
+        // A second load, as on the next start of the application.
+        assert_eq!(load_vault(&conn, &vault).unwrap().notes[0].id, trusted);
+        assert_eq!(fs::read_to_string(&note).unwrap(), original);
+
+        // What the earlier passes buried is body now: the note's own properties are not read.
+        let parsed = crate::frontmatter::parse_markdown(&original);
+        assert_eq!(parsed.note_id(), Some(trusted.as_str()));
+        assert!(parsed.body.starts_with("---\r\nid: "));
+        assert!(parsed.frontmatter_tags.is_empty());
+        drop(conn);
+        fs::remove_dir_all(vault).unwrap();
+    }
+
     #[test]
     fn id_insertion_persists_exact_bytes_in_sync_incremental_and_migration_paths() {
         for operation in ["sync", "incremental", "migration"] {
