@@ -40,9 +40,19 @@ when kept text would change what its neighbours mean in their new place (an
 indented paragraph moved under a list, an unclosed code fence before a new
 block), the note is written in the editor's own form throughout.
 
-The unit is the top-level block. Editing one item of a list rewrites the whole
-list; editing one cell rewrites the table (a table also keeps its own source
-until its cells change). Finer units are a later step.
+The unit is the top-level block; a top-level list has a finer one, its items.
+Editing one item rewrites that item (with whatever is nested in it) and leaves
+the other items as the lines they were read from. The mix is used only when it
+reads back as the same list, for the editor's parser and for the independent
+reading; otherwise the whole list is written in the editor's form (a numbered
+list whose numbers changed, `1)` beside `1.`, a task list written with `*`).
+Editing one cell rewrites the table (a table also keeps its own source until its
+cells change).
+
+Two bullet or task lists one after the other are one list to every Markdown
+reader when they use the same bullet. The second is written with another bullet
+(`-` after `*`, `*` after `-`), with one blank line between them, so the two stay
+two after the paragraph between them is deleted.
 
 The matrix certifies compatibility and data preservation, not necessarily a
 special visual widget for every construct. For example, Mermaid and math may

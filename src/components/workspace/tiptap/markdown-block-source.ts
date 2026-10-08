@@ -3,7 +3,9 @@ import { blockSourceKey } from "./markdown-block-plugins"
 import { markdownMeaning } from "./markdown-meaning"
 import { getMarkdownParser } from "./markdown-parser"
 import {
+  bulletAfterList,
   createSerializerState,
+  normalizedListItems,
   serializeFragment,
   transformForSerialization,
 } from "./markdown-serializer"
@@ -27,6 +29,10 @@ const SPELLING_ATTRIBUTES = new Set([
   "markdownBlockSignature",
   "markdownBlockGap",
   "markdownBlockPrev",
+  "markdownItemSource",
+  "markdownItemSignature",
+  "markdownItemGap",
+  "markdownItemPrev",
   // A table keeps its own source and delimiter row; its alignment is compared by
   // markdown-meaning.ts when a note is admitted.
   "markdownSource",
@@ -87,6 +93,34 @@ function keptSource(block: PMNode): string | null {
   return normalizedBlock(block) === signature ? source : null
 }
 
+const hasItemSources = (list: PMNode) =>
+  isList(list) &&
+  list.childCount > 0 &&
+  typeof list.firstChild?.attrs.markdownItemSource === "string"
+
+const BULLET_LISTS = new Set(["bulletList", "taskList"])
+/** The bullet a bullet or task list is written with in its source text. */
+const sourceBullet = (source: string) => /^[ \t]*([-*+])(?:[ \t]|$)/u.exec(source)?.[1] ?? null
+
+/** Records, for every item of a list that has source text, what the editor writes for it. */
+function withItemSignatures(list: PMNode, prepared: PMNode): Fragment {
+  if (!hasItemSources(list)) return list.content
+  const { items } = normalizedListItems(prepared)
+  const children: PMNode[] = []
+  list.forEach((item, _offset, index) => {
+    children.push(
+      typeof item.attrs.markdownItemSource === "string"
+        ? item.type.create(
+            { ...item.attrs, markdownItemSignature: items[index] ?? null },
+            item.content,
+            item.marks,
+          )
+        : item,
+    )
+  })
+  return Fragment.fromArray(children)
+}
+
 /** Records, for every block that has source text, what the editor would write for it. */
 export function attachBlockSignatures(doc: PMNode): PMNode {
   const prepared = transformForSerialization(doc)
@@ -100,7 +134,7 @@ export function attachBlockSignatures(doc: PMNode): PMNode {
     children.push(
       child.type.create(
         { ...child.attrs, markdownBlockSignature: signature },
-        child.content,
+        withItemSignatures(child, prepared.child(index)),
         child.marks,
       ),
     )
@@ -108,7 +142,62 @@ export function attachBlockSignatures(doc: PMNode): PMNode {
   return doc.copy(Fragment.fromArray(children))
 }
 
-function writeWithKeptSource(doc: PMNode, kept: Array<string | null>): string {
+// An edited list, item by item: an item the editor would still write as it did when it
+// read it is written as its own lines, the others in the editor's form. The result is
+// used only when it reads back as the same list, for the editor's parser and for the
+// independent one; otherwise the whole list is written in the editor's form, as before.
+const listsByItems = new WeakMap<PMNode, string | null>()
+
+function composeListByItems(prepared: PMNode, list: PMNode): string | null {
+  const cached = listsByItems.get(list)
+  if (cached !== undefined) return cached
+  let result: string | null = null
+  let anySource = false
+  list.forEach((item) => {
+    if (typeof item.attrs.markdownItemSource === "string") anySource = true
+  })
+  if (anySource) {
+    const normalized = normalizedListItems(prepared)
+    let out = ""
+    let keptAny = false
+    let previousKept: string | null = null
+    prepared.forEach((item, _offset, index) => {
+      const source = item.attrs.markdownItemSource
+      const kept =
+        typeof source === "string" && item.attrs.markdownItemSignature === normalized.items[index]
+          ? source
+          : null
+      const gap = item.attrs.markdownItemGap
+      const joinsAsRead =
+        kept !== null &&
+        previousKept !== null &&
+        typeof gap === "string" &&
+        item.attrs.markdownItemPrev === blockSourceKey(previousKept)
+      if (index > 0) out += joinsAsRead ? `\n${gap}` : "\n"
+      out += kept ?? normalized.items[index]
+      if (kept !== null) keptAny = true
+      previousKept = kept
+    })
+    if (keptAny && out !== normalized.text) {
+      const reread = getMarkdownParser().parse(out)
+      if (
+        reread.childCount === 1 &&
+        sameDocument(reread.child(0), list) &&
+        markdownMeaning(out).content === markdownMeaning(normalized.text).content
+      ) {
+        result = out
+      }
+    }
+  }
+  listsByItems.set(list, result)
+  return result
+}
+
+function writeWithKeptSource(
+  doc: PMNode,
+  kept: Array<string | null>,
+  byItems: Array<string | null>,
+): string {
   const state = createSerializerState()
   let last: { index: number; end: number; kept: string | null } | null = null
   doc.forEach((child, _offset, index) => {
@@ -132,10 +221,34 @@ function writeWithKeptSource(doc: PMNode, kept: Array<string | null>): string {
       // the text between them is written exactly as it was.
       state.out = `${state.out.slice(0, last.end)}\n${gap}${source}`
       state.closed = null
+    } else if (
+      BULLET_LISTS.has(child.type.name) &&
+      state.closed &&
+      BULLET_LISTS.has(state.closed.type.name) &&
+      sourceBullet(source ?? byItems[index] ?? "") === (state.lastBullet ?? null)
+    ) {
+      // Right after a list with the same bullet its own lines would join that list: the
+      // serializer writes it with another bullet instead.
+      state.render(child, doc, index)
+      last = { index, end: state.out.length, kept: null }
+      return
     } else if (source !== null) {
       // Two lists in a row are kept apart the way `renderList` does it.
       if (isList(child) && state.closed && state.closed.type === child.type) state.flushClose(3)
+      else if (BULLET_LISTS.has(child.type.name))
+        bulletAfterList(state, sourceBullet(source) ?? "-")
       state.write(source)
+      if (BULLET_LISTS.has(child.type.name)) state.lastBullet = sourceBullet(source) ?? undefined
+    } else if (byItems[index] !== null) {
+      // An edited list whose untouched items keep their own lines.
+      if (state.closed && state.closed.type === child.type) state.flushClose(3)
+      state.write(byItems[index]!)
+      if (BULLET_LISTS.has(child.type.name)) {
+        state.lastBullet = sourceBullet(byItems[index]!) ?? undefined
+      }
+      state.closeBlock(child)
+      last = { index, end: state.out.length, kept: null }
+      return
     } else {
       state.render(child, doc, index)
       last = { index, end: state.out.length, kept: null }
@@ -161,12 +274,16 @@ export function composeMarkdown(doc: PMNode): ComposedMarkdown {
   const prepared = transformForSerialization(doc)
   const normalized = serializeFragment(prepared)
   const kept: Array<string | null> = []
+  const byItems: Array<string | null> = []
   let anyKept = false
   let mayRewriteSource = false
-  prepared.forEach((child) => {
+  prepared.forEach((child, _offset, index) => {
     const source = isEmptyParagraph(child) ? null : keptSource(child)
     kept.push(source)
-    if (source !== null) anyKept = true
+    const itemwise =
+      source === null && isList(child) ? composeListByItems(child, doc.child(index)) : null
+    byItems.push(itemwise)
+    if (source !== null || itemwise !== null) anyKept = true
     const original = child.attrs.markdownBlockSource
     if (typeof original === "string") {
       const gap = child.attrs.markdownBlockGap
@@ -178,7 +295,7 @@ export function composeMarkdown(doc: PMNode): ComposedMarkdown {
   })
   if (!anyKept) return { markdown: normalized, mayRewriteSource }
 
-  const composed = writeWithKeptSource(prepared, kept)
+  const composed = writeWithKeptSource(prepared, kept, byItems)
   if (composed === normalized) return { markdown: normalized, mayRewriteSource }
   // Kept text in a new place can read differently (an indented paragraph moved under a
   // list, an unclosed fence before a new block). Read the result back before using it.

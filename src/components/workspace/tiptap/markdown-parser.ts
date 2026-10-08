@@ -172,7 +172,15 @@ function withBlockSource(spec: ParseSpec): ParseSpec {
   return {
     ...spec,
     getAttrs: (tok, tokens, index) => {
-      const attrs = spec.getAttrs?.(tok, tokens, index) ?? null
+      let attrs = spec.getAttrs?.(tok, tokens, index) ?? null
+      if (typeof tok.meta?.itemSource === "string") {
+        attrs = {
+          ...attrs,
+          markdownItemSource: tok.meta.itemSource as string,
+          markdownItemGap: (tok.meta.itemGap as string | null) ?? null,
+          markdownItemPrev: (tok.meta.itemPrev as string | null) ?? null,
+        }
+      }
       if (typeof tok.meta?.blockSource !== "string") return attrs
       return {
         ...attrs,

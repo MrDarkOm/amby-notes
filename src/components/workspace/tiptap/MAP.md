@@ -32,7 +32,8 @@ The insert menu's "Database view" item opens the database picker inside
 `BlockInsertPanel`; the slash text is removed only together with the insertion.
 
 A top-level block keeps the text it was read from and is written as that text
-until it is edited; `docToMarkdown` reads its result back before trusting kept
+until it is edited; the items of a top-level list keep theirs too, so an edited list is
+written item by item when that reads back as the same list (`composeListByItems`); `docToMarkdown` reads its result back before trusting kept
 text in a new place. `docToNormalizedMarkdown` is the editor's own form of every
 block. A note is admitted to Live only when that form reads back as the same
 document, also for the independent reading in `markdown-meaning.ts`; teach that

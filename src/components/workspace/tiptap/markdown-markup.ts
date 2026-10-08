@@ -58,6 +58,17 @@ export const MarkdownMarkup = Extension.create({
         },
       },
       {
+        // An item of a top-level list keeps its own lines, what the editor would write
+        // for it in its list, and the lines between it and the item before it.
+        types: ["listItem", "taskItem"],
+        attributes: {
+          markdownItemSource: blockSourceAttribute,
+          markdownItemSignature: blockSourceAttribute,
+          markdownItemGap: blockSourceAttribute,
+          markdownItemPrev: blockSourceAttribute,
+        },
+      },
+      {
         types: ["link"],
         attributes: { markdownTitleMarkup: { default: null, rendered: false } },
       },

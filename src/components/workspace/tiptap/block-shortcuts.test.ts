@@ -88,10 +88,14 @@ describe("typing a task, a numbered list and a rule", () => {
     expect(target.state.selection.$from.parent.textContent).toBe("two")
     expect(target.state.selection.$from.parentOffset).toBe(0)
     const markdown = docToMarkdown(target.state.doc)
-    expect(markdown).toContain("- [ ] two")
-    expect(markdown).toContain("- one")
-    expect(markdown).toContain("- three")
+    // A list right after a list takes another bullet, or the three would read as one.
+    expect(markdown).toBe("- one\n\n* [ ] two\n\n- three")
     expect(roundTripCheck(markdown).ok).toBe(true)
+    const reread: string[] = []
+    editorSchema
+      .nodeFromJSON(markdownToDoc(markdown))
+      .forEach((child) => reread.push(child.type.name))
+    expect(reread).toEqual(["bulletList", "taskList", "bulletList"])
   })
 
   it("keeps what is nested under the item", () => {
@@ -184,7 +188,9 @@ describe("duplicating and moving a block", () => {
 
   it("duplicates a whole list and a selected block without text", () => {
     const list = run(duplicateBlock, open("- a\n- b", 4))
-    expect(docToMarkdown(list.state.doc)).toBe("- a\n- b\n\n\n- a\n- b")
+    // The copy is a list of its own, so it is written with another bullet.
+    expect(docToMarkdown(list.state.doc)).toBe("- a\n- b\n\n* a\n* b")
+    expect(editorSchema.nodeFromJSON(markdownToDoc("- a\n- b\n\n* a\n* b")).childCount).toBe(2)
 
     const base = open("One\n\n---\n\nTwo", 1)
     const rule = base.apply(base.tr.setSelection(NodeSelection.create(base.doc, 5)))

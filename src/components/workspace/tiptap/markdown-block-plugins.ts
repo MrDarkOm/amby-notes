@@ -511,6 +511,57 @@ function attachBlockSources(state: StateCore) {
       blockPrev: previous ? blockSourceKey(previous.source) : null,
     }
     previous = { end, source }
+    attachItemSources(state.tokens, token, lines, start, end)
+  })
+}
+
+const LIST_OPEN = new Set(["bullet_list_open", "ordered_list_open", "task_list_open"])
+const ITEM_OPEN = new Set(["list_item_open", "task_item_open"])
+
+// The items of a top-level list keep their own lines too, so that an edit to one item
+// leaves the others as they were written. Only a list whose items lie one after another
+// inside the list's own lines is recorded; anything else is written as a whole.
+function attachItemSources(
+  tokens: Token[],
+  list: Token,
+  lines: string[],
+  listStart: number,
+  listEnd: number,
+) {
+  if (!LIST_OPEN.has(list.type)) return
+  const items: Token[] = []
+  let depth = 0
+  for (let index = tokens.indexOf(list); index < tokens.length; index++) {
+    const token = tokens[index]
+    if (depth === 1 && ITEM_OPEN.has(token.type)) items.push(token)
+    depth += token.nesting
+    if (depth === 0) break
+  }
+  const ranges: Array<{ start: number; end: number }> = []
+  for (let index = 0; index < items.length; index++) {
+    const map = items[index].map
+    if (!map) return
+    const start = map[0]
+    let end = Math.min(map[1], items[index + 1]?.map?.[0] ?? listEnd, listEnd)
+    while (end > start && BLANK_LINE.test(lines[end - 1])) end--
+    const previousEnd = ranges[index - 1]?.end ?? listStart
+    if (end <= start || start < previousEnd || (index === 0 && start !== listStart)) return
+    ranges.push({ start, end })
+  }
+  let previousSource: string | null = null
+  ranges.forEach((range, index) => {
+    const source = lines.slice(range.start, range.end).join("\n")
+    const between = lines.slice(ranges[index - 1]?.end ?? listStart, range.start)
+    // Only blank lines may stand between two items; anything else is not ours to keep.
+    const blank = between.every((line) => BLANK_LINE.test(line))
+    items[index].meta = {
+      ...(items[index].meta ?? {}),
+      itemSource: source,
+      itemGap:
+        previousSource !== null && blank ? between.map((line) => `${line}\n`).join("") : null,
+      itemPrev: previousSource !== null && blank ? blockSourceKey(previousSource) : null,
+    }
+    previousSource = source
   })
 }
 

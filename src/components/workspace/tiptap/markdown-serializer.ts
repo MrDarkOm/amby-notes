@@ -124,11 +124,68 @@ type MarkSerializerSpec = {
 
 export type SerializerState = MarkdownSerializerState & {
   esc: typeof ambyEsc
+  /** Where each item of one list begins in `out`, when a caller asks for it. */
+  itemOffsets?: { list: PMNode; offsets: number[] }
+  /** The bullet the last bullet or task list was written with. */
+  lastBullet?: string
   out: string
   flushClose: (size?: number) => void
   closed: PMNode | null
   inTightList: boolean
   options: { tightLists?: boolean }
+}
+
+const BULLET_FAMILY = new Set(["bulletList", "taskList"])
+
+/**
+ * The bullet for a bullet or task list. Two such lists one after the other would be one
+ * list to every Markdown reader if they used the same bullet; a different bullet is what
+ * starts a new list. The first list keeps its bullet, the one after it takes another.
+ */
+export function bulletAfterList(state: SerializerState, wanted: string): string {
+  const previous = state.closed
+  if (!previous || !BULLET_FAMILY.has(previous.type.name)) return wanted
+  // One blank line between the two: more would read as an empty block between them.
+  state.flushClose(2)
+  if (state.lastBullet !== wanted) return wanted
+  return wanted === "-" ? "*" : "-"
+}
+
+/**
+ * Writes the items of a list: `renderList` of the stock serializer, with a marker and an
+ * indent per item, and with the place of every item noted for a caller that asked.
+ */
+function renderItems(
+  state: SerializerState,
+  node: PMNode,
+  marker: (index: number) => string,
+  indent: (index: number) => string,
+) {
+  if (state.closed && state.closed.type === node.type) state.flushClose(3)
+  else if (state.inTightList) state.flushClose(1)
+  const isTight =
+    typeof node.attrs.tight !== "undefined" ? node.attrs.tight : state.options.tightLists
+  const prevTight = state.inTightList
+  state.inTightList = isTight
+  node.forEach((child, _offset, index) => {
+    if (index && isTight) state.flushClose(1)
+    if (state.itemOffsets?.list === node) state.itemOffsets.offsets.push(state.out.length)
+    state.wrapBlock(indent(index), marker(index), node, () => state.render(child, node, index))
+  })
+  state.inTightList = prevTight
+}
+
+/** A list written on its own in the editor's form, and the part of it that is each item. */
+export function normalizedListItems(list: PMNode): { text: string; items: string[] } {
+  const state = createSerializerState()
+  const offsets: number[] = []
+  state.itemOffsets = { list, offsets }
+  state.render(list, editorSchema.topNodeType.create(null, list), 0)
+  const text = state.out
+  const items = offsets.map((from, index) =>
+    text.slice(from, index + 1 < offsets.length ? offsets[index + 1] - 1 : text.length),
+  )
+  return { text, items }
 }
 
 const MATH_HOLD_OPEN = "\uE000"
@@ -300,35 +357,36 @@ const nodeSerializers: Record<
     state.closeBlock(node)
   },
   bulletList(state, node) {
-    const bullet = node.attrs.markdownMarkup || "-"
-    state.renderList(node, "  ", () => bullet + " ")
+    const bullet = bulletAfterList(state, node.attrs.markdownMarkup || "-")
+    renderItems(
+      state,
+      node,
+      () => `${bullet} `,
+      () => "  ",
+    )
+    state.lastBullet = bullet
   },
   orderedList(state, node) {
     const start = node.attrs.start || 1
     // Numbers are right-aligned only in a list that was read that way from disk.
     const maxWidth = node.attrs.markdownPadded ? String(start + node.childCount - 1).length : 0
-    // `renderList` with one difference: what follows the first line of an item is
-    // indented by the width of that item's own marker (`9. ` and `10. ` differ).
-    if (state.closed && state.closed.type === node.type) state.flushClose(3)
-    else if (state.inTightList) state.flushClose(1)
-    const isTight =
-      typeof node.attrs.tight !== "undefined" ? node.attrs.tight : state.options.tightLists
-    const prevTight = state.inTightList
-    state.inTightList = isTight
-    node.forEach((child, _offset, index) => {
-      if (index && isTight) state.flushClose(1)
-      const marker = String(start + index).padStart(maxWidth) + ". "
-      state.wrapBlock(state.repeat(" ", marker.length), marker, node, () =>
-        state.render(child, node, index),
-      )
-    })
-    state.inTightList = prevTight
+    // What follows the first line of an item is indented by the width of that item's
+    // own marker (`9. ` and `10. ` differ).
+    const marker = (index: number) => String(start + index).padStart(maxWidth) + ". "
+    renderItems(state, node, marker, (index) => state.repeat(" ", marker(index).length))
   },
   listItem(state, node) {
     state.renderContent(node)
   },
   taskList(state, node) {
-    state.renderList(node, "  ", (index) => `- [${node.child(index).attrs.checked ? "x" : " "}] `)
+    const bullet = bulletAfterList(state, "-")
+    renderItems(
+      state,
+      node,
+      (index) => `${bullet} [${node.child(index).attrs.checked ? "x" : " "}] `,
+      () => "  ",
+    )
+    state.lastBullet = bullet
   },
   taskItem(state, node) {
     state.renderContent(node)
