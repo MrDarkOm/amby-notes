@@ -1168,6 +1168,108 @@
   line-height: 1.6;
 }
 
+/* A code block: the language and Copy sit over its top edge, outside the note's text. */
+.amby-tiptap .ProseMirror .amby-code-block {
+  position: relative;
+  margin: 1rem 0;
+}
+
+.amby-tiptap .ProseMirror .amby-code-block > pre {
+  margin: 0;
+  padding-top: 1.75rem;
+}
+
+.amby-tiptap .ProseMirror .amby-code-block-bar {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.5rem;
+  left: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.68rem;
+  line-height: 1;
+  color: var(--panel-hint-fg);
+  user-select: none;
+}
+
+.amby-tiptap .ProseMirror .amby-code-block-language {
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+.amby-tiptap .ProseMirror .amby-code-block-copy {
+  padding: 0.2rem 0.45rem;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.amby-tiptap .ProseMirror .amby-code-block:hover .amby-code-block-copy,
+.amby-tiptap .ProseMirror .amby-code-block-copy:focus-visible {
+  opacity: 1;
+}
+
+.amby-tiptap .ProseMirror .amby-code-block-copy:hover {
+  border-color: var(--pre-border);
+  color: var(--pre-fg);
+}
+
+/* Syntax colours, from the palette of the theme. */
+.amby-tiptap .ProseMirror pre .hljs-comment,
+.amby-tiptap .ProseMirror pre .hljs-quote,
+.amby-tiptap .ProseMirror pre .hljs-meta {
+  color: var(--blockquote-fg);
+  font-style: italic;
+}
+
+.amby-tiptap .ProseMirror pre .hljs-keyword,
+.amby-tiptap .ProseMirror pre .hljs-selector-tag,
+.amby-tiptap .ProseMirror pre .hljs-literal,
+.amby-tiptap .ProseMirror pre .hljs-doctag {
+  color: var(--code-fg);
+}
+
+.amby-tiptap .ProseMirror pre .hljs-string,
+.amby-tiptap .ProseMirror pre .hljs-regexp,
+.amby-tiptap .ProseMirror pre .hljs-addition,
+.amby-tiptap .ProseMirror pre .hljs-attribute {
+  color: var(--editor-em);
+}
+
+.amby-tiptap .ProseMirror pre .hljs-number,
+.amby-tiptap .ProseMirror pre .hljs-built_in,
+.amby-tiptap .ProseMirror pre .hljs-type,
+.amby-tiptap .ProseMirror pre .hljs-symbol,
+.amby-tiptap .ProseMirror pre .hljs-variable {
+  color: var(--link-hover-color);
+}
+
+.amby-tiptap .ProseMirror pre .hljs-title,
+.amby-tiptap .ProseMirror pre .hljs-section,
+.amby-tiptap .ProseMirror pre .hljs-name,
+.amby-tiptap .ProseMirror pre .hljs-attr,
+.amby-tiptap .ProseMirror pre .hljs-selector-id,
+.amby-tiptap .ProseMirror pre .hljs-selector-class {
+  color: var(--link-color);
+}
+
+.amby-tiptap .ProseMirror pre .hljs-deletion {
+  color: var(--editor-del);
+}
+
+.amby-tiptap .ProseMirror pre .hljs-emphasis {
+  font-style: italic;
+}
+
+.amby-tiptap .ProseMirror pre .hljs-strong {
+  font-weight: 700;
+}
+
 .amby-tiptap .ProseMirror pre code {
   background: transparent;
   border: none;
@@ -1706,7 +1808,7 @@ body.amby-resizing-columns * {
 }
 
 .amby-block-panel--insert[data-mode="list"] {
-  height: 250px;
+  height: 280px;
 }
 
 .amby-block-panel--insert[data-mode="url"] {
@@ -1757,6 +1859,15 @@ body.amby-resizing-columns * {
   flex: 1 1 auto;
   overflow-y: auto;
   padding: 4px;
+}
+
+.amby-block-panel-group {
+  padding: 6px 8px 2px;
+  color: var(--panel-section-fg);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .amby-block-panel-footer {

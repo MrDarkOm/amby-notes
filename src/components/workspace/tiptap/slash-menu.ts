@@ -21,6 +21,8 @@ export interface SlashMenuKey {
   shiftKey: boolean
 }
 
+const SLASH_MENU_KEYS = new Set(["ArrowDown", "ArrowUp", "Enter", "Tab"])
+
 function notify() {
   if (typeof window === "undefined") return
   window.dispatchEvent(new Event(SLASH_TRIGGER_EVENT))
@@ -85,9 +87,9 @@ export const SlashMenu = Extension.create({
                 dismissSlashMenu(editor)
                 return true
               }
-              // The React panel normally owns focus. If ProseMirror briefly
-              // reclaims it while opening, keep the next key out of the note
-              // and forward it to the panel as a fallback.
+              // The note keeps the focus: what is typed after the slash stays in the
+              // text and narrows the list. Only the keys that drive the list go to it.
+              if (!SLASH_MENU_KEYS.has(event.key)) return false
               notifyKey(event)
               return true
             },

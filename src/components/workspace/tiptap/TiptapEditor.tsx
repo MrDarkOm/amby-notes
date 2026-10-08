@@ -38,6 +38,7 @@ import { OPEN_LINK_PANEL_EVENT } from "./block-shortcuts"
 import { InlineSuggestPanel } from "./InlineSuggestPanel"
 import { dismissInlineSuggest } from "./inline-suggest"
 import { FindBar } from "./FindBar"
+import { TableControls } from "./TableControls"
 import { OPEN_FIND_EVENT } from "./find-in-note"
 import {
   SLASH_TRIGGER_EVENT,
@@ -757,6 +758,7 @@ export function TiptapEditor({
         />
       )}
       {editor && editable && <InlineSuggestPanel editor={editor} />}
+      {editor && editable && !isReadOnly && <TableControls editor={editor} />}
       {editor && editable && slashState?.open && slashState.range && slashAnchor && (
         <BlockInsertPanel
           editor={editor}
@@ -764,6 +766,7 @@ export function TiptapEditor({
           notePath={notePath}
           source="slash"
           range={slashState.range}
+          slashQuery={slashState.query}
           anchorRect={slashAnchor}
           onClose={() => dismissSlashMenu(editor)}
         />

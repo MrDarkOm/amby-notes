@@ -19,6 +19,8 @@ Read [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 | Inline toolbar / slash menu                  | [BubbleToolbar.tsx](BubbleToolbar.tsx), [slash-menu.ts](slash-menu.ts)                                                                                                                                                                                                                         |
 | Suggestions while typing `[[` and `#`        | [inline-suggest.ts](inline-suggest.ts), [InlineSuggestPanel.tsx](InlineSuggestPanel.tsx), [link-suggestions.ts](link-suggestions.ts) (sources registered by [the workspace hook](../orchestration/use-link-suggestion-sources.ts))                                                             |
 | Find in note (Live / Read)                   | [find-in-note.ts](find-in-note.ts), [FindBar.tsx](FindBar.tsx); Source uses CodeMirror search in [source-editor.tsx](../source-editor.tsx)                                                                                                                                                     |
+| Tables: rows and columns                     | [table-commands.ts](table-commands.ts), [TableControls.tsx](TableControls.tsx), [markdown-table.ts](markdown-table.ts)                                                                                                                                                                         |
+| Code block: colours, language, Copy          | [code-block.ts](code-block.ts)                                                                                                                                                                                                                                                                 |
 | Tags / wiki links / transclusions            | [tags-wikilinks.ts](tags-wikilinks.ts), [WikiLinkContextMenu.tsx](WikiLinkContextMenu.tsx), [transclusion-node.ts](transclusion-node.ts), [transclusion-view.tsx](transclusion-view.tsx)                                                                                                       |
 | Images / drops / asset URLs                  | [amby-image.ts](amby-image.ts), [media-drop.ts](media-drop.ts), [asset-resolver.ts](asset-resolver.ts)                                                                                                                                                                                         |
 | Amby blocks and callouts                     | [amby-block-node.ts](amby-block-node.ts), [AmbyBlockView.tsx](AmbyBlockView.tsx), [callout-node.ts](callout-node.ts)                                                                                                                                                                           |
@@ -50,6 +52,11 @@ set, an edit maps it and looks again only at the text blocks it touched
 (`changedTextRanges`). A decoration therefore outlives the position it was made at:
 never write a position into its DOM or a closure, ask `inlineTokenRange` / `getPos`
 when it is needed, and check the text before replacing it.
+
+A GFM table has exactly one header row and keeps column alignment in its delimiter
+row (`markdownSeparator`): change rows and columns through `table-commands.ts`, which
+keeps both. Anything drawn inside a node view outside its content (the code block bar)
+needs `ignoreMutation`, or a change to it makes the editor draw the node again.
 
 Tests start with [markdown.test.ts](markdown.test.ts) and [fixtures/](fixtures/).
 The no-edit and edit invariants live in

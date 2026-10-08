@@ -15,6 +15,7 @@ import { OpaqueHtmlBlock } from "./opaque-html-node"
 import { MarkdownTable } from "./markdown-table"
 import { OpaqueMarkdownBlock } from "./opaque-markdown-node"
 import { Column, ColumnSet } from "./columns-node"
+import { AmbyCodeBlock } from "./code-block"
 
 // Schema-defining extensions — identical for Live and Read, and the source of
 // truth for the standalone schema used by the markdown conversion layer.
@@ -27,12 +28,15 @@ export const schemaExtensions: Extensions = [
     // Clicks must not navigate away inside the Tauri webview.
     link: { openOnClick: false, autolink: true },
     heading: { levels: [1, 2, 3, 4, 5, 6] },
+    // The note's own code block: the same node, drawn with colours and a Copy button.
+    codeBlock: false,
     // No blinking dash beside blocks without text (a database, an image, columns).
     gapcursor: false,
     // The note may end with such a block; `line-after-block.ts` brings back a line to
     // write on when the area below it is clicked.
     trailingNode: false,
   }),
+  AmbyCodeBlock,
   MarkdownTable.configure({ resizable: true }),
   TableRow,
   TableHeader,

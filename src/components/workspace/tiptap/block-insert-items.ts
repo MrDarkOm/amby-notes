@@ -580,3 +580,47 @@ export function getTurnIntoItems(): BlockInsertItem[] {
     (i) => i.availableIn.includes("turn-into") && !TURN_INTO_BLACKLIST.has(i.id),
   )
 }
+
+const CATEGORY_ORDER: ReadonlyArray<BlockItemCategory> = ["text", "list", "media", "embed"]
+
+/**
+ * The items a query leaves, in the order the menu shows them: group by group; inside a
+ * group a title that starts with the query comes before one that only contains it, and
+ * a match in the Markdown hint or the id comes last.
+ */
+export function filterBlockItems(
+  items: ReadonlyArray<BlockInsertItem>,
+  query: string,
+  title: (item: BlockInsertItem) => string,
+  hint: (item: BlockInsertItem) => string,
+): BlockInsertItem[] {
+  const needle = query.trim().toLocaleLowerCase()
+  const ranked: Array<{ item: BlockInsertItem; rank: number; index: number }> = []
+  items.forEach((item, index) => {
+    if (!needle) {
+      ranked.push({ item, rank: 0, index })
+      return
+    }
+    const name = title(item).toLocaleLowerCase()
+    const words = name.split(/\s+/u)
+    const other = `${item.id} ${item.shortcut ?? ""} ${hint(item)}`.toLocaleLowerCase()
+    const rank = name.startsWith(needle)
+      ? 0
+      : words.some((word) => word.startsWith(needle))
+        ? 1
+        : name.includes(needle)
+          ? 2
+          : other.includes(needle)
+            ? 3
+            : -1
+    if (rank >= 0) ranked.push({ item, rank, index })
+  })
+  return ranked
+    .sort(
+      (a, b) =>
+        CATEGORY_ORDER.indexOf(a.item.category) - CATEGORY_ORDER.indexOf(b.item.category) ||
+        a.rank - b.rank ||
+        a.index - b.index,
+    )
+    .map((entry) => entry.item)
+}

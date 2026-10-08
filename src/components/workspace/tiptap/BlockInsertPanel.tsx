@@ -6,6 +6,7 @@ import type { Editor, Range } from "@tiptap/core"
 import { motion } from "motion/react"
 
 import {
+  filterBlockItems,
   getPlusItems,
   getSlashItems,
   insertDatabaseView,
@@ -29,6 +30,11 @@ interface Props {
   source?: "plus" | "slash"
   /** Range to delete before applying an item (slash trigger only). */
   range?: Range
+  /**
+   * What was typed after the `/` in the note. The slash menu has no field of its own:
+   * the text stays in the note, keeps the focus, and narrows the list as it is typed.
+   */
+  slashQuery?: string
   /** Viewport-coords anchor. Panel auto-flips above when overflowing below. */
   anchorRect: AnchorRect
   onClose: () => void
@@ -40,48 +46,68 @@ export function BlockInsertPanel({
   notePath,
   source = "plus",
   range,
+  slashQuery,
   anchorRect,
   onClose,
 }: Props) {
   const [mode, setMode] = React.useState<Mode>("list")
-  const [query, setQuery] = React.useState("")
+  const [typedQuery, setQuery] = React.useState("")
+  const typesInNote = source === "slash"
+  const query = typesInNote ? (slashQuery ?? "") : typedQuery
   const [active, setActive] = React.useState(0)
   const [urlValue, setUrlValue] = React.useState("")
   const searchRef = React.useRef<HTMLInputElement>(null)
   const urlRef = React.useRef<HTMLInputElement>(null)
   const panelRef = React.useRef<HTMLDivElement>(null)
+  const activeRowRef = React.useRef<HTMLButtonElement>(null)
   const placementStyle = useSmartPlacement(anchorRect, panelRef)
   const { t } = useTranslation()
   const tauri = isTauri()
 
   const all = React.useMemo(() => (source === "slash" ? getSlashItems() : getPlusItems()), [source])
 
-  const filtered = React.useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const list = q
-      ? all.filter((i) =>
-          `${i.id} ${i.shortcut ?? ""} ${t(`blockItems.${i.id}.title`)} ${t(`blockItems.${i.id}.hint`)}`
-            .toLowerCase()
-            .includes(q),
-        )
-      : all
-    return list
-  }, [all, query, t])
+  // The list in the order it is shown: group by group, and inside a group the items
+  // whose name starts with the query before those that only contain it.
+  const filtered = React.useMemo(
+    () =>
+      filterBlockItems(
+        all,
+        query,
+        (item) => t(`blockItems.${item.id}.title`),
+        (item) => t(`blockItems.${item.id}.hint`),
+      ),
+    [all, query, t],
+  )
 
   React.useLayoutEffect(() => {
     if (mode === "list") {
+      // The slash menu leaves the focus in the note, where the query is typed.
+      if (typesInNote) return
       searchRef.current?.focus()
-      // Tiptap can restore its selection just after a suggestion opens. Focus
-      // once more on the next frame so the first query character reaches here.
       const frame = requestAnimationFrame(() => searchRef.current?.focus())
       return () => cancelAnimationFrame(frame)
     }
     if (mode === "url") urlRef.current?.focus()
-  }, [mode])
+  }, [mode, typesInNote])
+
+  // Typed text that matches no block is ordinary text ("a / b"): the menu gets out of
+  // the way so that Enter and the arrows belong to the note again.
+  React.useEffect(() => {
+    if (typesInNote && mode === "list" && query.trim() && filtered.length === 0) onClose()
+  }, [filtered.length, mode, onClose, query, typesInNote])
 
   React.useEffect(() => {
     setActive(0)
   }, [query, mode])
+
+  // The arrows can move the choice below the fold of the list. Hovering must not
+  // scroll it: the row would slide from under the pointer just before the click.
+  const movedByKeyRef = React.useRef(false)
+  React.useEffect(() => {
+    if (!movedByKeyRef.current) return
+    movedByKeyRef.current = false
+    activeRowRef.current?.scrollIntoView?.({ block: "nearest" })
+  }, [active])
 
   const maybeDeleteSlashRange = React.useCallback(() => {
     if (source === "slash" && range) {
@@ -152,37 +178,25 @@ export function BlockInsertPanel({
   }
 
   const handleListKey = React.useCallback(
-    (event: SlashMenuKey, captureText = false): boolean => {
+    (event: SlashMenuKey): boolean => {
       if (event.key === "Escape") {
         if (mode !== "list") setMode("list")
         else onClose()
         return true
       }
-      if (event.key === "Enter") {
+      if (event.key === "Enter" || event.key === "Tab") {
         const item = filtered[active]
         if (item) choose(item)
         return true
       }
       if (event.key === "ArrowDown") {
-        if (filtered.length > 0) setActive((a) => Math.min(a + 1, filtered.length - 1))
+        movedByKeyRef.current = true
+        if (filtered.length > 0) setActive((a) => (a + 1) % filtered.length)
         return true
       }
       if (event.key === "ArrowUp") {
-        if (filtered.length > 0) setActive((a) => Math.max(a - 1, 0))
-        return true
-      }
-      if (captureText && event.key === "Backspace") {
-        setQuery((value) => value.slice(0, -1))
-        return true
-      }
-      if (
-        captureText &&
-        event.key.length === 1 &&
-        !event.altKey &&
-        !event.ctrlKey &&
-        !event.metaKey
-      ) {
-        setQuery((value) => value + event.key)
+        movedByKeyRef.current = true
+        if (filtered.length > 0) setActive((a) => (a - 1 + filtered.length) % filtered.length)
         return true
       }
       return false
@@ -191,13 +205,13 @@ export function BlockInsertPanel({
   )
 
   function onListKeyDown(e: React.KeyboardEvent<HTMLInputElement | HTMLDivElement>) {
-    if (handleListKey(e, false)) e.preventDefault()
+    if (handleListKey(e)) e.preventDefault()
   }
 
   React.useEffect(() => {
     if (source !== "slash" || mode !== "list") return
     const onSlashMenuKey = (event: Event) => {
-      handleListKey((event as CustomEvent<SlashMenuKey>).detail, true)
+      handleListKey((event as CustomEvent<SlashMenuKey>).detail)
     }
     window.addEventListener(SLASH_MENU_KEY_EVENT, onSlashMenuKey)
     return () => window.removeEventListener(SLASH_MENU_KEY_EVENT, onSlashMenuKey)
@@ -226,44 +240,63 @@ export function BlockInsertPanel({
     >
       {mode === "list" && (
         <>
-          <div className="amby-block-panel-header">
-            <input
-              ref={searchRef}
-              autoFocus
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={onListKeyDown}
-              placeholder={t("blockPanel.searchPlaceholder")}
-              className="amby-block-panel-search"
-            />
-          </div>
-          <div className="amby-block-panel-body" onKeyDown={onListKeyDown} tabIndex={-1}>
+          {!typesInNote && (
+            <div className="amby-block-panel-header">
+              <input
+                ref={searchRef}
+                autoFocus
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={onListKeyDown}
+                placeholder={t("blockPanel.searchPlaceholder")}
+                className="amby-block-panel-search"
+              />
+            </div>
+          )}
+          <div
+            className="amby-block-panel-body"
+            role="listbox"
+            onKeyDown={onListKeyDown}
+            tabIndex={-1}
+          >
             {filtered.length === 0 ? (
               <div className="amby-block-panel-empty">{t("blockPanel.notFound")}</div>
             ) : (
               filtered.map((item, idx) => {
                 const disabled = itemDisabled(item)
+                const opensGroup = idx === 0 || filtered[idx - 1].category !== item.category
                 return (
-                  <motion.button
-                    key={item.id}
-                    type="button"
-                    disabled={disabled}
-                    className={
-                      "amby-block-row" +
-                      (active === idx ? " is-active" : "") +
-                      (disabled ? " is-disabled" : "")
-                    }
-                    onMouseEnter={() => setActive(idx)}
-                    whileHover={disabled ? undefined : { x: 2 }}
-                    whileTap={disabled ? undefined : { scale: 0.99 }}
-                    transition={motionTransitions.fast}
-                    onClick={() => choose(item)}
-                  >
-                    <item.icon className="amby-block-row-icon" />
-                    <span className="amby-block-row-label">{t(`blockItems.${item.id}.title`)}</span>
-                    <span className="amby-block-row-hint">{t(`blockItems.${item.id}.hint`)}</span>
-                  </motion.button>
+                  <React.Fragment key={item.id}>
+                    {opensGroup && (
+                      <div className="amby-block-panel-group" role="presentation">
+                        {t(`blockPanel.groups.${item.category}`)}
+                      </div>
+                    )}
+                    <motion.button
+                      ref={active === idx ? activeRowRef : undefined}
+                      type="button"
+                      role="option"
+                      aria-selected={active === idx}
+                      disabled={disabled}
+                      className={
+                        "amby-block-row" +
+                        (active === idx ? " is-active" : "") +
+                        (disabled ? " is-disabled" : "")
+                      }
+                      onMouseEnter={() => setActive(idx)}
+                      whileHover={disabled ? undefined : { x: 2 }}
+                      whileTap={disabled ? undefined : { scale: 0.99 }}
+                      transition={motionTransitions.fast}
+                      onClick={() => choose(item)}
+                    >
+                      <item.icon className="amby-block-row-icon" />
+                      <span className="amby-block-row-label">
+                        {t(`blockItems.${item.id}.title`)}
+                      </span>
+                      <span className="amby-block-row-hint">{t(`blockItems.${item.id}.hint`)}</span>
+                    </motion.button>
+                  </React.Fragment>
                 )
               })
             )}
