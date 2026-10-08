@@ -18,6 +18,7 @@ import {
 } from "./markdown-selection"
 import {
   WIKILINK_CONTEXT_EVENT,
+  inlineTokenRange,
   type TagsWikilinksCallbacks,
   type WikiLinkContextDetail,
 } from "./tags-wikilinks"
@@ -34,6 +35,10 @@ import { bindTauriFileDrop, getTauriDropPosForView } from "./media-drop"
 import { CLOSE_BLOCK_MENUS_EVENT, CLOSE_EDITOR_MENUS_EVENT } from "./floating-menu-events"
 import { registerEditorSerialization } from "./editor-serialization-lifecycle"
 import { OPEN_LINK_PANEL_EVENT } from "./block-shortcuts"
+import { InlineSuggestPanel } from "./InlineSuggestPanel"
+import { dismissInlineSuggest } from "./inline-suggest"
+import { FindBar } from "./FindBar"
+import { OPEN_FIND_EVENT } from "./find-in-note"
 import {
   SLASH_TRIGGER_EVENT,
   dismissSlashMenu,
@@ -74,6 +79,8 @@ interface MenuState {
 interface InlineUnlinkState {
   from: number
   to: number
+  /** The token as it is written in the note; checked again before it is replaced. */
+  source: string
   replacement: string
   left: number
   top: number
@@ -328,6 +335,50 @@ export function TiptapEditor({
     return () => editorDom.removeEventListener(OPEN_LINK_PANEL_EVENT, openLinkPanel)
   }, [editor])
 
+  // Find in note (Mod-F), in Live and in Read. The selected text, when it is on one line,
+  // is what the bar starts with.
+  const [find, setFind] = React.useState<{ request: number; query: string } | null>(null)
+  const wrapperRef = React.useRef<HTMLDivElement>(null)
+  const openFind = React.useCallback(() => {
+    if (!editor || editor.isDestroyed) return
+    const { from, to } = editor.state.selection
+    const selected = editor.state.doc.textBetween(from, to, "\n")
+    const query = selected && !selected.includes("\n") ? selected : ""
+    setFind((prev) => ({ request: (prev?.request ?? 0) + 1, query: query || (prev?.query ?? "") }))
+  }, [editor])
+  React.useEffect(() => {
+    if (!editor || editor.isDestroyed) return
+    const editorDom = editor.view.dom
+    editorDom.addEventListener(OPEN_FIND_EVENT, openFind)
+    // The same key when the focus is not in the text: nowhere, or elsewhere in this
+    // editor. Another editor or a field that has the focus keeps the key for itself.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.shiftKey) return
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") return
+      const wrapper = wrapperRef.current
+      if (!wrapper || wrapper.offsetParent === null) return
+      const target = event.target instanceof Element ? event.target : null
+      const inside = Boolean(target && wrapper.contains(target))
+      const elsewhere = target?.closest(
+        "input, textarea, select, [contenteditable=true], .cm-editor, .amby-tiptap",
+      )
+      if (!inside && elsewhere) return
+      // With the focus nowhere, the first editor on screen answers (tabs in the
+      // background stay mounted but are not displayed).
+      const onScreen = Array.from(document.querySelectorAll<HTMLElement>(".amby-tiptap")).find(
+        (element) => element.offsetParent !== null,
+      )
+      if (!inside && onScreen !== wrapper) return
+      event.preventDefault()
+      openFind()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => {
+      editorDom.removeEventListener(OPEN_FIND_EVENT, openFind)
+      window.removeEventListener("keydown", onKeyDown)
+    }
+  }, [editor, openFind])
+
   // Sync external `value` changes when a mounted tab changes its document
   // (history navigation) or a parent-driven content reset arrives.
   React.useEffect(() => {
@@ -522,7 +573,10 @@ export function TiptapEditor({
       closeMenu()
       setWikiLinkContext(null)
       setInlineUnlink(null)
-      if (editor && !editor.isDestroyed) dismissSlashMenu(editor)
+      if (editor && !editor.isDestroyed) {
+        dismissSlashMenu(editor)
+        dismissInlineSuggest(editor)
+      }
     }
     window.addEventListener(CLOSE_EDITOR_MENUS_EVENT, closeEditorMenus)
     return () => window.removeEventListener(CLOSE_EDITOR_MENUS_EVENT, closeEditorMenus)
@@ -560,14 +614,15 @@ export function TiptapEditor({
       const token = source.closest<HTMLElement>("[data-amby-inline-unlink=true]")
       if (!token || !editorDom.contains(token)) return
       keepInlineUnlinkOpen()
-      const from = Number(token.dataset.ambyFrom)
-      const to = Number(token.dataset.ambyTo)
+      const range = inlineTokenRange(editor.view, token)
       const replacement = token.dataset.ambyReplacement
-      if (!Number.isInteger(from) || !Number.isInteger(to) || replacement == null) return
+      const written = token.dataset.ambySource
+      if (!range || replacement == null || written == null) return
       const rect = token.getBoundingClientRect()
       setInlineUnlink({
-        from,
-        to,
+        from: range.from,
+        to: range.to,
+        source: written,
         replacement,
         left: clamp((rect.left + rect.right) / 2, 70, window.innerWidth - 70),
         top: Math.min(rect.bottom + 6, window.innerHeight - 38),
@@ -593,8 +648,14 @@ export function TiptapEditor({
 
   function unlinkInlineToken() {
     if (!editor || editor.isDestroyed || !inlineUnlink) return
-    const { from, to, replacement } = inlineUnlink
-    if (from < 0 || to <= from || to > editor.state.doc.content.size) {
+    const { from, to, source, replacement } = inlineUnlink
+    if (
+      from < 0 ||
+      to <= from ||
+      to > editor.state.doc.content.size ||
+      // The note changed since the control appeared: never replace other text.
+      editor.state.doc.textBetween(from, to) !== source
+    ) {
       setInlineUnlink(null)
       return
     }
@@ -619,6 +680,7 @@ export function TiptapEditor({
 
   return (
     <div
+      ref={wrapperRef}
       className="amby-tiptap relative min-h-[360px] pb-24"
       data-editor-readonly={isReadOnly ? "true" : "false"}
       onClick={(event) => {
@@ -644,6 +706,14 @@ export function TiptapEditor({
         userInteractedRef.current = true
       }}
     >
+      {editor && find && (
+        <FindBar
+          editor={editor}
+          initialQuery={find.query}
+          request={find.request}
+          onClose={() => setFind(null)}
+        />
+      )}
       {editor && editable && menu.open && (
         <BubbleToolbar
           key={menu.linkRequest ?? 0}
@@ -686,6 +756,7 @@ export function TiptapEditor({
           onClose={() => setWikiLinkContext(null)}
         />
       )}
+      {editor && editable && <InlineSuggestPanel editor={editor} />}
       {editor && editable && slashState?.open && slashState.range && slashAnchor && (
         <BlockInsertPanel
           editor={editor}

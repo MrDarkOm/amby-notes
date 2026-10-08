@@ -133,6 +133,13 @@ export function BubbleToolbar({ editor, left, top, initialPanel = null }: Bubble
   const [linkHasSelection, setLinkHasSelection] = React.useState(
     () => initialPanel === "link" && !editor.state.selection.empty,
   )
+  // The selection the link panel was opened for. The address field takes the focus, and
+  // the webview may collapse the editor's selection on the way; the link goes here.
+  const linkRangeRef = React.useRef(
+    initialPanel === "link" && !editor.state.selection.empty
+      ? { from: editor.state.selection.from, to: editor.state.selection.to }
+      : null,
+  )
   const [aiBusy, setAiBusy] = React.useState(false)
   const [aiError, setAiError] = React.useState<string | null>(null)
   const mountedRef = React.useRef(true)
@@ -235,6 +242,9 @@ export function BubbleToolbar({ editor, left, top, initialPanel = null }: Bubble
       return
     }
     const isEmpty = editor.state.selection.empty
+    linkRangeRef.current = isEmpty
+      ? null
+      : { from: editor.state.selection.from, to: editor.state.selection.to }
     setLinkHasSelection(!isEmpty)
     setInputValue("")
     setLinkLabel("")
@@ -256,7 +266,10 @@ export function BubbleToolbar({ editor, left, top, initialPanel = null }: Bubble
         })
         .run()
     } else {
-      editor.chain().focus().extendMarkRange("link").setLink({ href: url }).run()
+      const range = linkRangeRef.current
+      const chain = editor.chain().focus()
+      if (range && range.to <= editor.state.doc.content.size) chain.setTextSelection(range)
+      chain.extendMarkRange("link").setLink({ href: url }).run()
     }
   }
 

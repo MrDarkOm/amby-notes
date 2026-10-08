@@ -2434,6 +2434,17 @@ em-emoji-picker {
   pointer-events: none;
 }
 
+/* Find in note: every match, and the one the user is on. */
+.amby-tiptap .amby-find-match {
+  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--highlight-yellow) 55%, transparent);
+}
+
+.amby-tiptap .amby-find-match.amby-find-current {
+  background-color: var(--highlight-orange);
+  box-shadow: 0 0 0 1px var(--highlight-orange);
+}
+
 .amby-tiptap .amby-live-tag {
   border-radius: 999px;
   background: var(--tag-bg);

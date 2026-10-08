@@ -22,6 +22,8 @@ import {
   redo,
   undo,
 } from "@codemirror/commands"
+import { search, searchKeymap } from "@codemirror/search"
+import i18n from "@/lib/i18n"
 import { CODE_EDITOR_THEME } from "@/lib/themes"
 import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language"
 import { markdown } from "@codemirror/lang-markdown"
@@ -69,6 +71,63 @@ const theme = EditorView.theme(
       backgroundColor: CODE_EDITOR_THEME.selectionBackground,
     },
     ".cm-line": { padding: "0" },
+    // Find in note (Mod-F): the panel and the matches follow the application theme.
+    ".cm-panels": {
+      backgroundColor: "var(--popover)",
+      color: "var(--foreground)",
+      borderColor: "var(--border)",
+      borderRadius: "0.5rem",
+      zIndex: "20",
+    },
+    ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--border)" },
+    ".cm-panel.cm-search": {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: "0.25rem",
+      padding: "0.375rem 2rem 0.375rem 0.5rem",
+      fontFamily: "inherit",
+      fontSize: "0.75rem",
+    },
+    ".cm-panel.cm-search br": { flexBasis: "100%", height: "0" },
+    ".cm-panel.cm-search label": {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "0.25rem",
+      fontSize: "0.6875rem",
+      color: "var(--muted-foreground)",
+    },
+    ".cm-panel.cm-search .cm-textfield": {
+      margin: "0",
+      padding: "0.125rem 0.375rem",
+      border: "1px solid var(--border)",
+      borderRadius: "0.375rem",
+      backgroundColor: "transparent",
+      color: "var(--foreground)",
+      fontSize: "0.8125rem",
+    },
+    ".cm-panel.cm-search .cm-button": {
+      margin: "0",
+      padding: "0.125rem 0.5rem",
+      border: "1px solid var(--border)",
+      borderRadius: "0.375rem",
+      backgroundImage: "none",
+      backgroundColor: "transparent",
+      color: "var(--foreground)",
+      fontSize: "0.75rem",
+    },
+    ".cm-panel.cm-search .cm-button:hover": { backgroundColor: "var(--accent)" },
+    ".cm-panel.cm-search [name=close]": {
+      top: "0.25rem",
+      right: "0.5rem",
+      color: "var(--muted-foreground)",
+      fontSize: "1rem",
+    },
+    ".cm-searchMatch": {
+      backgroundColor: "color-mix(in srgb, var(--highlight-yellow) 55%, transparent)",
+      outline: "none",
+    },
+    ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--highlight-orange)" },
     ".cm-amby-tag": {
       borderRadius: "999px",
       backgroundColor: "var(--tag-bg)",
@@ -122,6 +181,21 @@ const tokenDecorations = ViewPlugin.fromClass(
   },
   { decorations: (plugin) => plugin.decorations },
 )
+
+// The labels of the CodeMirror search panel in the language of the interface.
+const searchPhrases = () => ({
+  Find: i18n.t("editor.find.placeholder"),
+  Replace: i18n.t("editor.find.replace"),
+  next: i18n.t("editor.find.next"),
+  previous: i18n.t("editor.find.previous"),
+  all: i18n.t("editor.find.all"),
+  "match case": i18n.t("editor.find.matchCase"),
+  regexp: i18n.t("editor.find.regexp"),
+  "by word": i18n.t("editor.find.wholeWord"),
+  replace: i18n.t("editor.find.replace"),
+  "replace all": i18n.t("editor.find.replaceAll"),
+  close: i18n.t("editor.find.close"),
+})
 
 const editableCompartment = new Compartment()
 const editableExtension = (editable: boolean) => [
@@ -262,11 +336,15 @@ export function SourceEditor({
           // Tab types a tab character (or indents the selected lines), Shift+Tab outdents.
           // Ctrl+M (Alt+Shift+M on macOS) hands Tab back to the browser for keyboard navigation.
           keymap.of([
+            // Find in note first: Mod-F opens the panel, Escape closes it.
+            ...searchKeymap,
             ...defaultKeymap,
             { key: "Tab", run: insertTab },
             { key: "Shift-Tab", run: indentLess },
             ...historyKeymap,
           ]),
+          search({ top: true }),
+          EditorState.phrases.of(searchPhrases()),
           indentUnit.of("\t"),
           markdown(),
           editableCompartment.of(editableExtension(editable)),

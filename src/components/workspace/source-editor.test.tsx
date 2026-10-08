@@ -67,3 +67,23 @@ it("keeps the same editor, its text and its history when the lock changes", () =
   expect(view.state.readOnly).toBe(true)
   expect(view.state.doc.toString()).toBe("text typed")
 })
+
+it("opens a find panel on Mod-F, in the language of the interface", () => {
+  const { container } = render(<SourceEditor value={"one two\ntwo three"} onChange={vi.fn()} />)
+  const view = EditorView.findFromDOM(container.querySelector(".cm-editor")!)!
+  view.focus()
+  expect(container.querySelector(".cm-search")).toBeNull()
+  act(() => {
+    view.contentDOM.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "f", code: "KeyF", ctrlKey: true, bubbles: true }),
+    )
+  })
+  const panel = container.querySelector(".cm-search")!
+  expect(panel).not.toBeNull()
+  const field = panel.querySelector<HTMLInputElement>("input[name=search]")!
+  expect(field.placeholder).toBe("Найти в заметке")
+
+  // Typing a query and stepping through matches is covered in the browser suite.
+  // Searching is not an edit.
+  expect(view.state.doc.toString()).toBe("one two\ntwo three")
+})
