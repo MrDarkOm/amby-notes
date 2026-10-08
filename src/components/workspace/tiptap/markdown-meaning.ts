@@ -1,4 +1,5 @@
 import MarkdownIt from "markdown-it"
+import { referenceUnlessFootnote } from "./markdown-footnotes"
 import type Token from "markdown-it/lib/token.mjs"
 
 // A second, independent reading of Markdown. The editor's own parser decides what a note
@@ -7,6 +8,10 @@ import type Token from "markdown-it/lib/token.mjs"
 // editor's rules: when a note and the text the editor would write for it read the same
 // here, rewriting a block changes how it is spelled and nothing else.
 const reader = new MarkdownIt("default", { html: true, linkify: false, breaks: false })
+// The one thing this reading shares with the editor: `[^label]: text` is a footnote, not
+// a link definition that vanishes from the note (see markdown-footnotes.ts). It stays
+// text here, so a change to it is seen like a change to any other text.
+reader.block.ruler.at("reference", referenceUnlessFootnote, { alt: ["paragraph"] })
 
 type Segment = [kind: string, value: string, marks: string]
 

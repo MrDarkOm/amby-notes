@@ -90,6 +90,20 @@ const parserTokens: { [token: string]: ParseSpec } = {
     },
   },
   hardbreak: { node: "hardBreak" },
+  footnote_ref: {
+    node: "footnoteReference",
+    noCloseToken: true,
+    getAttrs: (tok) => ({ label: (tok.meta?.label as string) ?? "" }),
+  },
+  footnote_inline: {
+    node: "footnoteInline",
+    noCloseToken: true,
+    getAttrs: (tok) => ({ value: (tok.meta?.value as string) ?? "" }),
+  },
+  footnote_def: {
+    block: "footnoteDefinition",
+    getAttrs: (tok) => ({ label: (tok.meta?.label as string) ?? "" }),
+  },
   table: {
     block: "table",
     getAttrs: (tok) => ({

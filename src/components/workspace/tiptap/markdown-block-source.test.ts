@@ -82,7 +82,6 @@ const AUDIT_CASES: Array<[string, string]> = [
 
 /** Notes that must stay in Source: something in them would be lost by rebuilding a block. */
 const SOURCE_ONLY: Array<[string, string]> = [
-  ["a footnote", "Text.[^1]\n\n[^1]: Body."],
   ["a link definition between blocks", "Read [a][b].\n\n[b]: http://a.b\n\nMore text."],
   ["a link definition at the end", "Read [a][b].\n\n[b]: http://a.b"],
   ["a link definition at the start", "[b]: http://a.b\n\nRead [a][b]."],
@@ -96,8 +95,6 @@ const SOURCE_ONLY: Array<[string, string]> = [
  * such a block shown as its own source text; everything else stays editable.
  */
 const KEPT_AS_SOURCE: Array<[string, string, string]> = [
-  ["an inline footnote", "Before.\n\nText.^[Inline.]\n\nAfter.", "Text.^[Inline.]"],
-  ["a footnote reference", "Before.\n\nText.[^note]\n\nAfter.", "Text.[^note]"],
   [
     "a code fence with more than a language",
     'Before.\n\n```js title="example.js"\ncode\n```\n\nAfter.',

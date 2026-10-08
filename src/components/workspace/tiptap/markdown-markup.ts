@@ -20,6 +20,7 @@ const BLOCK_SOURCE_TYPES = [
   "codeBlock",
   "horizontalRule",
   "table",
+  "footnoteDefinition",
   "opaqueHtmlBlock",
   "opaqueMarkdownBlock",
   "ambyBlock",

@@ -70,13 +70,18 @@ describe("Live Preview admission for text with a space at the end", () => {
     expect(noteEditingPolicy(undefined, compatibility).sourceOnly).toBe(false)
   })
 
+  it("opens a note with footnotes in Live Preview", () => {
+    expect(inspectMarkdownCompatibility("Text.[^1]\n\n[^1]: Note.")).toEqual({ ok: true })
+    expect(inspectMarkdownCompatibility("Text.^[Inline note.]")).toEqual({ ok: true })
+  })
+
   it("opens a note the editor would write differently in Live Preview", () => {
     expect(inspectMarkdownCompatibility("a \nb", "a \nb")).toEqual({ ok: true })
     expect(inspectMarkdownCompatibility("* * *\n\n1) one\n2) two")).toEqual({ ok: true })
   })
 
   it("still opens a note whose block cannot be rewritten safely in Source mode", () => {
-    const compatibility = inspectMarkdownCompatibility("Text.[^1]\n\n[^1]: Note.")
+    const compatibility = inspectMarkdownCompatibility("Read [a][b].\n\n[b]: https://example.com")
     expect(compatibility).toEqual({ ok: false, reason: "round_trip_mismatch" })
     expect(noteEditingPolicy(undefined, compatibility)).toMatchObject({
       sourceOnly: true,

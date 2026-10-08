@@ -1,7 +1,5 @@
 import type { Node as PMNode } from "@tiptap/pm/model"
 
-const FOOTNOTE_SYNTAX_RE = /(?:\[\^[^\]\r\n]+\]|\^\[[^\]\r\n]+\])/u
-
 function restoreLineEndings(serialized: string, original: string): string {
   // An all-blank document has no text nodes in ProseMirror. Preserve its exact
   // count and style of line endings instead of trying to derive overlapping
@@ -50,8 +48,6 @@ export function restoreSourceFormatting(serialized: string, original: string): s
 }
 
 export type LiveAdmissionRefusal =
-  /** A footnote: the editor has no node for it. */
-  | "footnote"
   /** A link definition, which the parser consumes without leaving a block. */
   | "link_definition"
   /** Text between blocks that belongs to no block. */
@@ -100,18 +96,6 @@ export function roundTripCheck(markdown: string, tools: RoundTripTools): RoundTr
     result: normalized,
     refusal,
   })
-  // A block with a footnote is kept as its source text by the parser. One that reached
-  // the document as an ordinary block could be rewritten, so the note stays in Source.
-  let editableFootnote = false
-  doc.forEach((block) => {
-    const source = block.attrs.markdownBlockSource
-    if (block.type.name === "opaqueMarkdownBlock") return
-    if (typeof source === "string" ? FOOTNOTE_SYNTAX_RE.test(source) : false)
-      editableFootnote = true
-  })
-  if (editableFootnote || (doc.childCount === 0 && FOOTNOTE_SYNTAX_RE.test(original))) {
-    return refuse("footnote")
-  }
   const meaning = tools.meaning(original)
   if (meaning.hasDefinitions) return refuse("link_definition")
   let textOutsideBlocks = false

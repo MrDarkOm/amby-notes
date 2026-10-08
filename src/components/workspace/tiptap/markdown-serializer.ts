@@ -270,6 +270,20 @@ const nodeSerializers: Record<
     state.write(fence)
     state.closeBlock(node)
   },
+  footnoteReference(state, node) {
+    state.write(`[^${node.attrs.label as string}]`)
+  },
+  footnoteInline(state, node) {
+    state.write(`^[${node.attrs.value as string}]`)
+  },
+  footnoteDefinition(state, node) {
+    state.write(`[^${node.attrs.label as string}]:${node.childCount > 0 ? " " : ""}`)
+    // The text of a note begins a line of its own for a reader that knows footnotes:
+    // a leading space or a block marker typed there is written so that it stays text.
+    ;(state as unknown as EscapeState).lineStartAt = state.out.length
+    state.renderInline(node, false)
+    state.closeBlock(node)
+  },
   horizontalRule(state, node) {
     state.write("---")
     state.closeBlock(node)

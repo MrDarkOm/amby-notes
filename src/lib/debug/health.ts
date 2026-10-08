@@ -70,8 +70,8 @@ export function projectDebugDocuments(
     inspectedChars += document.content.length
     try {
       if (!roundTrip(document.content).ok) {
-        if (/\[\^[^\]\r\n]+\]|\^\[/u.test(document.content)) addReason("footnotes")
-        else if (/^ {0,3}\[[^\]\r\n]+\]:\s*\S/mu.test(document.content))
+        // Footnotes are part of Live Preview now; `[^label]: text` is not a link definition.
+        if (/^ {0,3}\[(?!\^)[^\]\r\n]+\]:\s*\S/mu.test(document.content))
           addReason("reference_links")
         else if (
           /\r(?!\n)/u.test(document.content) ||

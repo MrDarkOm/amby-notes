@@ -23,11 +23,13 @@ import {
   Pilcrow,
   Quote,
   Smile,
+  Superscript,
 } from "lucide-react"
 import type { ElementType } from "react"
 
 import { CALLOUT_DEFAULTS } from "./callout-node"
 import { newBlockId } from "./amby-block-node"
+import { insertFootnote } from "./footnote-nodes"
 import { importImageFromClipboard } from "./media-drop"
 import { importAsset, pickAssetFile } from "@/lib/storage"
 import type { DatabaseViewChoice } from "@/components/workspace/database/database-view-picker-model"
@@ -271,6 +273,14 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     availableIn: COMMON,
     insertAfter: (e, pos) => insertAfterBlock(e, pos, { type: "codeBlock" }),
     inline: (e) => e.chain().focus().setCodeBlock().run(),
+  },
+  {
+    id: "footnote",
+    icon: Superscript,
+    category: "text",
+    availableIn: SLASH_ONLY,
+    insertAfter: () => undefined,
+    inline: (e) => insertFootnote(e.state, e.view.dispatch),
   },
   {
     id: "callout",

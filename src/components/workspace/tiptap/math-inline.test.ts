@@ -165,10 +165,11 @@ describe("display math", () => {
   })
 
   it("draws other source blocks as their text", () => {
-    const target = mount("A claim.[^1]\n\n[^1]: The note.")
+    const fence = '```js title="a.js"\nlet a\n```'
+    const target = mount(`Text.\n\n${fence}`)
     const blocks = target.view.dom.querySelectorAll("pre.amby-opaque-markdown")
-    expect(blocks.length).toBeGreaterThan(0)
+    expect(blocks).toHaveLength(1)
     expect(target.view.dom.querySelector(".amby-math-block")).toBeNull()
-    expect(blocks[blocks.length - 1].textContent).toBe("[^1]: The note.")
+    expect(blocks[0].textContent).toBe(fence)
   })
 })

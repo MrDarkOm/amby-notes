@@ -1299,6 +1299,59 @@
   cursor: text;
 }
 
+/* Footnotes: a raised reference, an inline note in brackets, and the definition with
+   its label in front (the label is drawn from the node, it is not text of the note). */
+.amby-tiptap .ProseMirror .amby-footnote-ref {
+  padding: 0 0.2em;
+  border-radius: 4px;
+  background: var(--wikilink-bg);
+  color: var(--wikilink-fg);
+  font-size: 0.72em;
+  font-weight: 600;
+  cursor: default;
+}
+
+.amby-tiptap .ProseMirror .amby-footnote-inline {
+  padding: 0 0.25em;
+  border-radius: 4px;
+  background: var(--wikilink-bg);
+  color: var(--blockquote-fg);
+  font-size: 0.78em;
+}
+
+.amby-tiptap .ProseMirror .amby-footnote-inline::before {
+  content: "^ ";
+  color: var(--wikilink-fg);
+  font-weight: 600;
+}
+
+.amby-tiptap .ProseMirror .amby-footnote-ref.ProseMirror-selectednode,
+.amby-tiptap .ProseMirror .amby-footnote-inline.ProseMirror-selectednode {
+  outline: 1px solid var(--primary);
+}
+
+.amby-tiptap .ProseMirror .amby-footnote-def {
+  position: relative;
+  margin: 0.35rem 0;
+  padding-left: 2.6em;
+  color: var(--blockquote-fg);
+  font-size: 0.9em;
+  min-height: 1.5em;
+}
+
+.amby-tiptap .ProseMirror .amby-footnote-def::before {
+  content: attr(data-footnote-def);
+  position: absolute;
+  left: 0;
+  max-width: 2.3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--wikilink-fg);
+  font-size: 0.85em;
+  font-weight: 600;
+}
+
 /* Syntax colours, from the palette of the theme. */
 .amby-tiptap .ProseMirror pre .hljs-comment,
 .amby-tiptap .ProseMirror pre .hljs-quote,

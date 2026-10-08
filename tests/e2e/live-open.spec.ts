@@ -57,11 +57,13 @@ test("web-clipper escapes, sparse lists, rules, setext headings, callouts and ne
   await expect(editor.locator("pre.amby-opaque-markdown")).toHaveCount(0)
 })
 
-test("a footnote opens in Live with its blocks kept as source text", async ({ page }) => {
+test("a note with footnotes opens in Live with footnotes as its own elements", async ({ page }) => {
   await openInLive(page, "Footnote")
-  const opaque = liveEditor(page).locator("pre.amby-opaque-markdown")
-  await expect(opaque.filter({ hasText: "[^1]: The note itself." })).toHaveCount(1)
-  await expect(liveEditor(page).getByText("Closing paragraph.")).toBeVisible()
+  const editor = liveEditor(page)
+  await expect(editor.locator("sup.amby-footnote-ref")).toHaveText("1")
+  await expect(editor.locator(".amby-footnote-def")).toHaveText("The note itself.")
+  await expect(editor.locator("pre.amby-opaque-markdown")).toHaveCount(0)
+  await expect(editor.getByText("Closing paragraph.")).toBeVisible()
 })
 
 test("opening notes and saving nothing leaves every stored note byte-identical", async ({

@@ -44,27 +44,27 @@ afterEach(() => {
 })
 
 describe("DocumentEditor lossless boundary", () => {
-  it.each(["Footnote[^1]\n\n[^1]: definition\n", "[label][ref]\n\n[ref]: https://example.com\n"])(
-    "never mounts incompatible Markdown in Live Preview",
-    (content) => {
-      const changeMode = vi.fn()
-      const save = vi.fn()
-      const ui = render(
-        <DocumentEditor
-          document={note(content)}
-          viewMode="live"
-          onViewModeChange={changeMode}
-          onContentChange={save}
-        />,
-      )
-      expect(
-        rendered.bodies.every((body) => body.viewMode === "source" && body.content === content),
-      ).toBe(true)
-      fireEvent.click(ui.getByText("Live"))
-      expect(changeMode).not.toHaveBeenCalled()
-      expect(save).not.toHaveBeenCalled()
-    },
-  )
+  it.each([
+    "Unused definition.\n\n[ref]: https://example.com\n",
+    "[label][ref]\n\n[ref]: https://example.com\n",
+  ])("never mounts incompatible Markdown in Live Preview", (content) => {
+    const changeMode = vi.fn()
+    const save = vi.fn()
+    const ui = render(
+      <DocumentEditor
+        document={note(content)}
+        viewMode="live"
+        onViewModeChange={changeMode}
+        onContentChange={save}
+      />,
+    )
+    expect(
+      rendered.bodies.every((body) => body.viewMode === "source" && body.content === content),
+    ).toBe(true)
+    fireEvent.click(ui.getByText("Live"))
+    expect(changeMode).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+  })
 
   it("checks raw source line endings even when IPC normalized the editor body", () => {
     const ui = render(<DocumentEditor document={note("One\nTwo\n", { source: "One\r\nTwo\n" })} />)
@@ -83,7 +83,7 @@ describe("DocumentEditor lossless boundary", () => {
   it("rechecks before the first render of a new document or external revision", () => {
     const ui = render(<DocumentEditor document={note("# Safe\n")} />)
     rendered.bodies.length = 0
-    const incompatible = "Text[^x]\n\n[^x]: note\n"
+    const incompatible = "Text [x][ref]\n\n[ref]: https://example.com\n"
     ui.rerender(<DocumentEditor document={note(incompatible, { id: "note-b" })} />)
     expect(
       rendered.bodies.every((body) => body.viewMode === "source" && body.content === incompatible),
@@ -106,7 +106,7 @@ describe("DocumentEditor lossless boundary", () => {
         onContentChange={save}
       />,
     )
-    const incompatible = "Text[^x]\n\n[^x]: note\n"
+    const incompatible = "Text [x][ref]\n\n[ref]: https://example.com\n"
     fireEvent.change(ui.getByRole("textbox"), { target: { value: incompatible } })
     fireEvent.click(ui.getByText("Live"))
     expect(changeMode).not.toHaveBeenCalled()
@@ -119,9 +119,13 @@ describe("DocumentEditor lossless boundary", () => {
   it("never leaves Live Preview because of what the user types", () => {
     const ui = render(<DocumentEditor document={note("Начало")} viewMode="live" />)
     expect(ui.getByTestId("mode").textContent).toBe("live")
-    // Text the parser cannot read back (an interior trailing space, a footnote), as the
-    // store echoes it after each keystroke.
-    for (const typed of ["Начало ", "Начало \nмир", "Сноска[^1]\n\n[^1]: текст\n"]) {
+    // Text the parser cannot read back (an interior trailing space, a link definition),
+    // as the store echoes it after each keystroke.
+    for (const typed of [
+      "Начало ",
+      "Начало \nмир",
+      "Ссылка [а][б]\n\n[б]: https://example.com\n",
+    ]) {
       fireEvent.change(ui.getByRole("textbox"), { target: { value: typed } })
       ui.rerender(<DocumentEditor document={note(typed)} viewMode="live" />)
       expect(ui.getByTestId("mode").textContent, JSON.stringify(typed)).toBe("live")
@@ -131,7 +135,7 @@ describe("DocumentEditor lossless boundary", () => {
 
   it("keeps a note forced into Source there while it is edited, until the user switches", () => {
     const changeMode = vi.fn()
-    const incompatible = "Text[^x]\n\n[^x]: note\n"
+    const incompatible = "Text [x][ref]\n\n[ref]: https://example.com\n"
     const ui = render(
       <DocumentEditor
         document={note(incompatible)}

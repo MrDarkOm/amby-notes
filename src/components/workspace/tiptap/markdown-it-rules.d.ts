@@ -6,3 +6,10 @@ declare module "markdown-it/lib/rules_inline/link.mjs" {
   const link: RuleInline
   export default link
 }
+
+declare module "markdown-it/lib/rules_block/reference.mjs" {
+  import type { RuleBlock } from "markdown-it/lib/parser_block.mjs"
+
+  const reference: RuleBlock
+  export default reference
+}

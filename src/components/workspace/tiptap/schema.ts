@@ -16,6 +16,7 @@ import { MarkdownTable } from "./markdown-table"
 import { OpaqueMarkdownBlock } from "./opaque-markdown-node"
 import { Column, ColumnSet } from "./columns-node"
 import { AmbyCodeBlock } from "./code-block"
+import { FootnoteDefinition, FootnoteInline, FootnoteReference } from "./footnote-nodes"
 
 // Schema-defining extensions — identical for Live and Read, and the source of
 // truth for the standalone schema used by the markdown conversion layer.
@@ -48,6 +49,9 @@ export const schemaExtensions: Extensions = [
   AmbyTextStyle,
   AmbyUnderline,
   AmbyHtml,
+  FootnoteReference,
+  FootnoteInline,
+  FootnoteDefinition,
   OpaqueHtmlBlock,
   OpaqueMarkdownBlock,
   ColumnSet,

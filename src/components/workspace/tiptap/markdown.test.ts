@@ -452,8 +452,8 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(roundTripCheck(obsidianCompatFixture).ok).toBe(false)
   })
 
-  // A block with a footnote is never rebuilt: it is kept as its source text, and the rest
-  // of the note opens in Live Preview.
+  // Footnotes are nodes of the note (see markdown-footnotes.test.ts for the details):
+  // a note with them opens in Live Preview with nothing kept as source text.
   const sourceBlocks = (markdown: string) => {
     const kept: string[] = []
     editorSchema.nodeFromJSON(markdownToDoc(markdown)).forEach((block) => {
@@ -462,22 +462,13 @@ describe("markdown <-> tiptap round-trip", () => {
     return kept
   }
 
-  it("opens a complex body with footnotes in Live, keeping the footnote blocks as source", () => {
+  it("opens a complex body with footnotes in Live and saves it unchanged", () => {
     const body = obsidianCompatFixture.replace(/^---\n[\s\S]*?\n---\n/u, "")
     expect(roundTripCheck(body)).toEqual({ ok: true, result: body })
-    expect(sourceBlocks(body).some((block) => block.includes("[^"))).toBe(true)
+    expect(sourceBlocks(body).some((block) => block.includes("[^"))).toBe(false)
     expect(
       restoreSourceFormatting(docToMarkdown(editorSchema.nodeFromJSON(markdownToDoc(body))), body),
     ).toBe(body)
-  })
-
-  it("keeps footnote blocks as source text before citation tokens exist", () => {
-    const footnote = "Footnote reference.[^one]\n\n[^one]: The footnote body."
-    expect(roundTripCheck(footnote)).toEqual({ ok: true, result: footnote })
-    expect(sourceBlocks(footnote)).toEqual([
-      "Footnote reference.[^one]",
-      "[^one]: The footnote body.",
-    ])
   })
 
   it.each([
@@ -485,16 +476,18 @@ describe("markdown <-> tiptap round-trip", () => {
     ["footnote reference without a definition", "Text.[^note]"],
     ["footnote definition without a reference", "Text.\n\n[^1]: The footnote body."],
     ["inline footnote", "Text.^[An inline footnote.]"],
-  ])("opens in Live with the footnote kept as source text: %s", (_name, markdown) => {
+    ["footnote in a list item", "1. one[^1]\n2. two\n\n[^1]: Body."],
+    ["footnote beside a titled link", '[a](http://a.b "T")[^1]\n\n[^1]: Body.'],
+  ])("opens in Live with the footnote as a node: %s", (_name, markdown) => {
     expect(roundTripCheck(markdown)).toEqual({ ok: true, result: markdown })
-    const kept = sourceBlocks(markdown)
-    expect(kept.length).toBeGreaterThan(0)
-    for (const block of kept) expect(block).toMatch(/\[\^|\^\[/u)
-    // No block that can be edited holds a footnote.
-    editorSchema.nodeFromJSON(markdownToDoc(markdown)).forEach((block) => {
-      if (block.type.name !== "opaqueMarkdownBlock")
-        expect(block.textContent).not.toMatch(/\[\^|\^\[/u)
+    expect(sourceBlocks(markdown)).toEqual([])
+    const kinds = new Set<string>()
+    editorSchema.nodeFromJSON(markdownToDoc(markdown)).descendants((node) => {
+      if (node.type.name.startsWith("footnote")) kinds.add(node.type.name)
+      // No footnote is left behind as text that only looks like one.
+      if (node.isText) expect(node.text).not.toMatch(/\[\^[^\]\s]+\]|\^\[[^\]]+\]/u)
     })
+    expect(kinds.size).toBeGreaterThan(0)
   })
 
   it("routes reference-style links to Source mode rather than expanding them", () => {
@@ -502,11 +495,9 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(roundTripCheck(referenceLink).ok).toBe(false)
   })
 
-  // Link titles and unpadded ordered lists are admitted to Live Preview; footnotes and
-  // link definitions next to them must still keep the note in Source.
+  // Link titles, unpadded ordered lists and footnotes are admitted to Live Preview; link
+  // definitions next to them must still keep the note in Source.
   it.each([
-    ["footnote in a list item", "1. one[^1]\n2. two\n\n[^1]: Body."],
-    ["footnote beside a titled link", '[a](http://a.b "T")[^1]\n\n[^1]: Body.'],
     ["full reference link", "Read [Amby][project].\n\n[project]: https://example.com"],
     ["collapsed reference link", "Read [project][].\n\n[project]: https://example.com"],
     ["shortcut reference link", "Read [project].\n\n[project]: https://example.com"],

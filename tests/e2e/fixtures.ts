@@ -56,7 +56,7 @@ export const ODD_SPELLINGS = lines(
   "Last   paragraph   with   spaces.",
 )
 
-/** A footnote reference and its definition: Live with the blocks kept as source text. */
+/** A footnote reference and its definition. */
 export const FOOTNOTE = lines(
   "# Footnote",
   "",

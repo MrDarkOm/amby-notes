@@ -1,3 +1,9 @@
+import {
+  detectFootnoteDefinitions,
+  footnoteInlineRule,
+  footnoteReferenceRule,
+  referenceUnlessFootnote,
+} from "./markdown-footnotes"
 import { inlineMathRule } from "./markdown-math"
 import MarkdownIt from "markdown-it"
 import type StateCore from "markdown-it/lib/rules_core/state_core.mjs"
@@ -548,6 +554,10 @@ function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.inline.ruler.at("link", linkWithTitleMarkup)
   // Before escapes and emphasis: nothing between the dollars of a formula is Markdown.
   md.inline.ruler.before("escape", "amby_math", inlineMathRule)
+  md.block.ruler.at("reference", referenceUnlessFootnote, { alt: ["paragraph"] })
+  md.inline.ruler.before("link", "amby_footnote_ref", footnoteReferenceRule)
+  md.inline.ruler.before("link", "amby_footnote_inline", footnoteInlineRule)
+  md.core.ruler.push("amby_footnote_definitions", detectFootnoteDefinitions)
   md.core.ruler.push("amby_nested_emphasis", flattenNestedEmphasis)
   md.core.ruler.push("amby_tables", normalizeTables)
   md.core.ruler.push("amby_columns", detectColumns)

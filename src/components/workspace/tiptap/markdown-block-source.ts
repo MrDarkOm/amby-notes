@@ -191,15 +191,12 @@ export function composeMarkdown(doc: PMNode): ComposedMarkdown {
   return { markdown: sound ? composed : normalized, mayRewriteSource }
 }
 
-const FOOTNOTE_SYNTAX = /(?:\[\^[^\]\r\n]+\]|\^\[[^\]\r\n]+\])/u
-
 /**
  * Whether writing this block in the editor's own form would change more than how it is
  * spelled. The block is judged on its own: its source and the editor's form of it must
  * read as the same block, for the editor's parser and for an independent one.
  */
 function rewriteChangesMeaning(block: PMNode, source: string, signature: string): boolean {
-  if (FOOTNOTE_SYNTAX.test(source)) return true
   if (source === signature) return false
   const reread = getMarkdownParser().parse(signature)
   if (reread.childCount !== 1 || !sameDocument(reread.child(0), block)) return true
@@ -214,15 +211,23 @@ function rewriteChangesMeaning(block: PMNode, source: string, signature: string)
 function isolateUnsafeBlocks(doc: PMNode): PMNode {
   const opaque = editorSchema.nodes.opaqueMarkdownBlock
   let changed = false
+  let afterFootnote = false
   const children: PMNode[] = []
   doc.forEach((child) => {
     const source = child.attrs.markdownBlockSource
     const signature = child.attrs.markdownBlockSignature
+    // An indented block right under a footnote definition is the rest of that footnote
+    // for a reader that knows footnotes; as a fenced code block it would not be.
+    const continuesFootnote =
+      afterFootnote && child.type.name === "codeBlock" && /^(?: {4}|\t)/u.test(String(source))
+    if (!isEmptyParagraph(child)) {
+      afterFootnote = child.type.name === "footnoteDefinition" || continuesFootnote
+    }
     if (
       child.type === opaque ||
       typeof source !== "string" ||
       typeof signature !== "string" ||
-      !rewriteChangesMeaning(child, source, signature)
+      (!continuesFootnote && !rewriteChangesMeaning(child, source, signature))
     ) {
       children.push(child)
       return

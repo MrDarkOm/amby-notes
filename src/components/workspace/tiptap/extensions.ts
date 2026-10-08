@@ -8,6 +8,7 @@ import { SlashMenu } from "./slash-menu"
 import { InlineSuggest } from "./inline-suggest"
 import { FindInNote } from "./find-in-note"
 import { InlineMathView } from "./math-inline"
+import { FootnoteTyping } from "./footnote-nodes"
 import { IndentShortcut } from "./indent-shortcut"
 import { LineAfterBlock } from "./line-after-block"
 import { EmptyLineHint } from "./empty-line-hint"
@@ -36,6 +37,7 @@ export function buildExtensions({ placeholder, callbacks }: BuildExtensionsOptio
     }),
     TagsWikilinks.configure({ callbacks }),
     InlineMathView,
+    FootnoteTyping,
     SlashMenu,
     InlineSuggest,
     FindInNote,

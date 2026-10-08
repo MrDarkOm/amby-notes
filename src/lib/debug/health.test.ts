@@ -17,7 +17,7 @@ describe("debug health projection", () => {
       check,
     )
     expect(result.documents).toEqual({ open: 2, dirty: 1, conflicts: 1, source: 1, livePreview: 1 })
-    expect(result.editorReasons).toEqual({ footnotes: 1 })
+    expect(result.editorReasons).toEqual({ round_trip_mismatch: 1 })
     expect(JSON.stringify(result)).not.toMatch(/private|sensitive|secret|expose/iu)
     expect(documents["sensitive-id"].content).toBe("footnote [^secret]")
   })
