@@ -1646,6 +1646,7 @@ const ru = {
       copied: "Скопировано",
       copyFailed: "Не удалось",
       plain: "текст",
+      diagramError: "Схему не удалось нарисовать: проверьте её текст.",
     },
   },
   editorToolbar: {
@@ -4117,6 +4118,7 @@ const en: typeof ru = {
       copied: "Copied",
       copyFailed: "Failed",
       plain: "text",
+      diagramError: "The diagram could not be drawn: check its text.",
     },
   },
   editorToolbar: {

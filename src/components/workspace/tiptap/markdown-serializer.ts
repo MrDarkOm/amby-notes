@@ -2,6 +2,7 @@ import { Fragment, type Mark as PMMark, type Node as PMNode } from "@tiptap/pm/m
 import MarkdownIt from "markdown-it"
 import { MarkdownSerializerState } from "prosemirror-markdown"
 import { CALLOUT_DEFAULTS } from "./callout-node"
+import { splitInlineMath } from "./markdown-math"
 import { escapeHtml, styleAttrsToCss } from "./constants"
 import { COLUMN_OPEN, COLUMNS_CLOSE, COLUMNS_OPEN } from "./markdown-block-plugins"
 import { editorSchema } from "./schema"
@@ -130,6 +131,37 @@ export type SerializerState = MarkdownSerializerState & {
   options: { tightLists?: boolean }
 }
 
+const MATH_HOLD_OPEN = "\uE000"
+const MATH_HOLD_CLOSE = "\uE001"
+const MATH_HOLD = /\uE000(\d+)\uE001/gu
+
+/**
+ * Writes text whose formulas (`$…$`) stand as they are: their backslashes are TeX, not
+ * Markdown escapes. The text is still escaped as one piece, so what surrounds a formula
+ * is treated exactly as if the formula were a word: each one is held by a placeholder
+ * while the text is escaped and put back afterwards.
+ */
+function writeTextKeepingMath(state: SerializerState, text: string) {
+  const parts = splitInlineMath(text)
+  if (!parts.some((part) => part.math) || text.includes(MATH_HOLD_OPEN)) {
+    state.text(text)
+    return
+  }
+  const formulas: string[] = []
+  const held = parts
+    .map((part) => {
+      if (!part.math) return part.text
+      formulas.push(part.text)
+      return `${MATH_HOLD_OPEN}${formulas.length - 1}${MATH_HOLD_CLOSE}`
+    })
+    .join("")
+  const from = state.out.length
+  state.text(held)
+  state.out =
+    state.out.slice(0, from) +
+    state.out.slice(from).replace(MATH_HOLD, (_match, index: string) => formulas[Number(index)])
+}
+
 const nodeSerializers: Record<
   string,
   (state: SerializerState, node: PMNode, parent: PMNode, index: number) => void
@@ -154,7 +186,12 @@ const nodeSerializers: Record<
     state.closeBlock(node)
   },
   text(state, node) {
-    state.text(node.text ?? "")
+    const text = node.text ?? ""
+    if (!text.includes("$")) {
+      state.text(text)
+      return
+    }
+    writeTextKeepingMath(state, text)
   },
   heading(state, node) {
     state.write(state.repeat("#", node.attrs.level) + " ")

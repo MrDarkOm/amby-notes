@@ -7,6 +7,7 @@ import { TagsWikilinks, type TagsWikilinksCallbacks } from "./tags-wikilinks"
 import { SlashMenu } from "./slash-menu"
 import { InlineSuggest } from "./inline-suggest"
 import { FindInNote } from "./find-in-note"
+import { InlineMathView } from "./math-inline"
 import { IndentShortcut } from "./indent-shortcut"
 import { LineAfterBlock } from "./line-after-block"
 import { EmptyLineHint } from "./empty-line-hint"
@@ -34,6 +35,7 @@ export function buildExtensions({ placeholder, callbacks }: BuildExtensionsOptio
       showOnlyWhenEditable: true,
     }),
     TagsWikilinks.configure({ callbacks }),
+    InlineMathView,
     SlashMenu,
     InlineSuggest,
     FindInNote,

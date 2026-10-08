@@ -1,3 +1,4 @@
+import { inlineMathRule } from "./markdown-math"
 import MarkdownIt from "markdown-it"
 import type StateCore from "markdown-it/lib/rules_core/state_core.mjs"
 import type Token from "markdown-it/lib/token.mjs"
@@ -545,6 +546,8 @@ export function createAmbyTokenizer(): MarkdownIt {
 function ambyMarkdownItPlugin(md: MarkdownIt) {
   md.inline.ruler.before("html_inline", "amby_html", ambyInlineRule)
   md.inline.ruler.at("link", linkWithTitleMarkup)
+  // Before escapes and emphasis: nothing between the dollars of a formula is Markdown.
+  md.inline.ruler.before("escape", "amby_math", inlineMathRule)
   md.core.ruler.push("amby_nested_emphasis", flattenNestedEmphasis)
   md.core.ruler.push("amby_tables", normalizeTables)
   md.core.ruler.push("amby_columns", detectColumns)

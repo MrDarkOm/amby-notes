@@ -1219,6 +1219,86 @@
   color: var(--pre-fg);
 }
 
+/* A Mermaid block: the diagram above its code. */
+.amby-tiptap .ProseMirror .amby-mermaid-render {
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem;
+  border: 1px solid var(--pre-border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: var(--pre-bg);
+  overflow-x: auto;
+  user-select: none;
+}
+
+.amby-tiptap .ProseMirror .amby-mermaid-render:empty {
+  display: none;
+}
+
+.amby-tiptap .ProseMirror .amby-mermaid-render svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.amby-tiptap .ProseMirror .amby-mermaid-render.is-error {
+  color: var(--panel-hint-fg);
+  font-size: 0.75rem;
+}
+
+.amby-tiptap .ProseMirror .amby-mermaid-render.is-error svg {
+  opacity: 0.45;
+}
+
+.amby-tiptap .ProseMirror .amby-code-block.has-diagram > pre {
+  border-radius: 0 0 8px 8px;
+}
+
+.amby-tiptap .ProseMirror .amby-code-block.has-diagram .amby-code-block-bar {
+  position: static;
+  padding: 0.3rem 0.5rem 0.3rem 0.75rem;
+}
+
+.amby-tiptap .ProseMirror .amby-code-block.has-diagram > pre {
+  padding-top: 1rem;
+}
+
+/* Display math: the formula; its source shows when the block is selected or the
+   formula could not be drawn. */
+.amby-tiptap .ProseMirror .amby-math-block {
+  margin: 0.75rem 0;
+  border-radius: 6px;
+}
+
+.amby-tiptap .ProseMirror .amby-math-block .amby-math-render {
+  display: none;
+  padding: 0.25rem 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.amby-tiptap .ProseMirror .amby-math-block.is-drawn .amby-math-render {
+  display: block;
+}
+
+.amby-tiptap .ProseMirror .amby-math-block.is-drawn:not(.is-selected) > pre {
+  display: none;
+}
+
+.amby-tiptap .ProseMirror .amby-math-block.is-selected {
+  outline: 1px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* An inline formula: drawn in place of its text until the cursor touches it. */
+.amby-tiptap .ProseMirror .amby-math-source {
+  display: none;
+}
+
+.amby-tiptap .ProseMirror .amby-math-inline {
+  cursor: text;
+}
+
 /* Syntax colours, from the palette of the theme. */
 .amby-tiptap .ProseMirror pre .hljs-comment,
 .amby-tiptap .ProseMirror pre .hljs-quote,
