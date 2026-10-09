@@ -93,6 +93,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ulid",
+ "url",
  "walkdir",
  "windows-sys 0.61.2",
 ]

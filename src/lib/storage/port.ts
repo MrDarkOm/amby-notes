@@ -10,6 +10,7 @@ import type {
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
+  PageInfo,
   LayerKind,
   LayerResult,
   LinkGraph,
@@ -144,6 +145,8 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   openAttachment(notePath: string, attachmentPath: string): Promise<void>
   /** Opens an http(s) address in the system browser; the backend decides if it may be. */
   openWebAddress(address: string): Promise<void>
+  /** Asks one web page for its title and description; the backend decides if it may be asked. */
+  fetchPageInfo(address: string): Promise<PageInfo>
   pickAssetFile(imagesOnly: boolean): Promise<string | null>
   importAsset(
     vaultPath: string,

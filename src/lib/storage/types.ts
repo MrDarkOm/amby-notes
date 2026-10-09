@@ -239,6 +239,12 @@ export interface VaultTagEntry {
   notes: IndexedNote[]
 }
 
+/** The title and the description of a web page, as plain one-line text. */
+export interface PageInfo {
+  title: string
+  description: string | null
+}
+
 export interface ImportedAsset {
   relPath: string
   absPath: string

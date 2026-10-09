@@ -186,6 +186,17 @@ pub fn open_web_address(address: String) -> Result<(), String> {
     hand_to_system(std::ffi::OsStr::new(&address)).map_err(|code| code.to_string())
 }
 
+/// The title and the description of the page at a web address, fetched once because the
+/// person asked for it. The rules (public addresses only, size, time, plain text) are in
+/// [`crate::page_info`].
+#[tauri::command]
+#[specta::specta]
+pub async fn fetch_page_info(address: String) -> Result<crate::page_info::PageInfo, String> {
+    crate::page_info::fetch_page_info(&address, &crate::page_info::Limits::production())
+        .await
+        .map_err(|code| code.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

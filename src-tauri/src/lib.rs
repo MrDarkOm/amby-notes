@@ -11,6 +11,7 @@ pub mod index;
 pub mod logging;
 mod model;
 pub mod package_manager;
+mod page_info;
 mod paths;
 mod project;
 mod property_store;
@@ -156,6 +157,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::assets::open_in_explorer,
         commands::external::open_attachment,
         commands::external::open_web_address,
+        commands::external::fetch_page_info,
         commands::assets::import_asset,
         commands::assets::import_asset_bytes,
         commands::assets::pick_asset_file,

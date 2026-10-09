@@ -947,6 +947,19 @@ async openWebAddress(address: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The title and the description of the page at a web address, fetched once because the
+ * person asked for it. The rules (public addresses only, size, time, plain text) are in
+ * [`crate::page_info`].
+ */
+async fetchPageInfo(address: string) : Promise<Result<PageInfo, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("fetch_page_info", { address }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async importAsset(notePath: string, sourcePath: string) : Promise<Result<ImportedAsset, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("import_asset", { notePath, sourcePath }) };
@@ -1583,6 +1596,7 @@ databaseId: string | null; databaseName: string | null; noteId: string;
  */
 title: string | null }
 export type OperationWarning = "indexRebuildRequired"
+export type PageInfo = { title: string; description: string | null }
 export type PathChange = { oldPath: string; newPath: string }
 export type ProjectCatalog = { vaultGeneration: number; 
 /**

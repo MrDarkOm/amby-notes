@@ -33,7 +33,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 semver = "1"
 serde_yaml = { package = "serde_yaml_ng", version = "0.10" }
-tokio = { version = "1", features = ["sync", "macros"] }
+tokio = { version = "1", features = ["sync", "macros", "net", "time", "rt", "io-util"] }
+url = "2"
 reqwest = { version = "0.13", features = ["json", "rustls", "stream", "webpki-roots"], default-features = false }
 rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
 futures-util = "0.3"

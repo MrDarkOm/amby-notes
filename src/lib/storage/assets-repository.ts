@@ -1,5 +1,5 @@
 import type { StoragePort } from "./port"
-import type { ImportedAsset } from "./types"
+import type { ImportedAsset, PageInfo } from "./types"
 
 export class AssetsRepository {
   constructor(private readonly port: () => StoragePort) {}
@@ -43,6 +43,10 @@ export class AssetsRepository {
 
   async openWebAddress(address: string): Promise<void> {
     return this.port().openWebAddress(address)
+  }
+
+  async fetchPageInfo(address: string): Promise<PageInfo> {
+    return this.port().fetchPageInfo(address)
   }
 
   async openInExplorer(path: string): Promise<void> {

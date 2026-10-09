@@ -38,6 +38,28 @@ outside, so the rule is a list of what may be opened, not a list of what may not
 - No Tauri plugin that opens paths or runs programs is added to any window's
   capabilities (`tauri-capabilities.test.ts` guards this).
 
+## Fetching the title of a web page
+
+The "Fetch title" button of a bookmark card is the only place where a note leads the app
+to make a network request, and it is made by the backend (`fetch_page_info`,
+`src-tauri/src/page_info.rs`), not by the webview, whose CSP still allows no remote
+address. One press is one request, to one page the person has already written in the note:
+
+- Only `http`/`https`; no credentials in the address; no cookies, no proxy, a neutral
+  `User-Agent`, nothing about the user or the vault is sent.
+- No address of this computer or of a local network: loopback, private (10/8, 172.16/12,
+  192.168/16), link-local, unique-local IPv6, shared (100.64/10), documentation and
+  reserved ranges, IPv4 inside IPv6 (mapped, NAT64, 6to4), and names such as `localhost`,
+  `*.local`, `*.lan`, single-label names. The name is resolved by the backend, every address
+  it resolves to must be public, and the connection is pinned to the checked address, so
+  a second lookup cannot give another one. Every redirect (at most 5) is checked again.
+- Ten seconds in all; the first 256 KB of the answer only; only `text/html` in UTF-8.
+- Title and description are cut out as plain text: one line, no control or invisible
+  characters, at most 200 and 300 characters. Brackets and angle brackets of a title are
+  replaced by look-alikes so that it cannot become a link or an HTML tag. Nothing from the
+  answer is run, shown as HTML or fetched (no images, icons or scripts).
+- A refusal changes nothing in the note; the person gets a short message.
+
 ## Residual TOCTOU risk
 
 Pathname validation cannot prevent a privileged concurrent process from

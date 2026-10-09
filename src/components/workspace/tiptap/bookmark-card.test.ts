@@ -1,7 +1,17 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest"
 
-import { bookmarkOf, bookmarkParagraph, parseBookmarkAddress, webHost } from "./bookmark-card"
+import type { Node as PMNode } from "@tiptap/pm/model"
+
+import {
+  bookmarkOf,
+  bookmarkParagraph,
+  bookmarkWithPageInfo,
+  neutralizeMarkup,
+  parseBookmarkAddress,
+  plainLine,
+  webHost,
+} from "./bookmark-card"
 import { docToNormalizedMarkdown, editorSchema, markdownToDoc, roundTripCheck } from "./markdown"
 import { markdownMeaning } from "./markdown-meaning"
 
@@ -116,5 +126,108 @@ describe("a bookmark in Markdown", () => {
     const markdown = written("https://example.com/a_(b)", "example.com")
     expect(bookmarks(markdown)).toMatchObject([{ href: "https://example.com/a_(b)" }])
     expect(markdownMeaning(markdown).content).toContain("https://example.com/a_(b)")
+  })
+})
+
+describe("what a page tells about itself", () => {
+  const card = (markdown: string) => {
+    let found: PMNode | null = null
+    parse(markdown).descendants((node, _pos, parent) => {
+      if (!found && bookmarkOf(node, parent)) found = node
+    })
+    return found as unknown as PMNode
+  }
+  const base = '[example.com](https://example.com/a "example.com")'
+
+  it("turns a title and a description into the link text and the hint", () => {
+    const rewritten = bookmarkWithPageInfo(card(base), {
+      title: "  A\nTitle\t ",
+      description: "About\r\nit",
+    })!
+    expect(rewritten.textContent).toBe("A Title")
+    expect(bookmarkOf(rewritten, parse(base))).toEqual({
+      href: "https://example.com/a",
+      host: "example.com",
+      hint: "About it",
+    })
+  })
+
+  it("keeps the hint when the page has no description, and refuses an empty title", () => {
+    const kept = bookmarkWithPageInfo(card(base), { title: "Title", description: null })!
+    expect(bookmarkOf(kept, parse(base))?.hint).toBe("example.com")
+    expect(bookmarkWithPageInfo(card(base), { title: " ​\n ", description: "x" })).toBeNull()
+  })
+
+  it("cuts long text short and strips control and invisible characters", () => {
+    expect(plainLine("a\u0007b‮c​d\u0000e", 50)).toBe("a b c d e")
+    expect(Array.from(plainLine("я".repeat(500), 200))).toHaveLength(200)
+    expect(plainLine("я".repeat(500), 200).endsWith("…")).toBe(true)
+  })
+
+  // Text from a page can look like anything. In the note it must stay the text of one link
+  // in one paragraph, and be read back as the same text by the editor and by the second reader.
+  it.each([
+    "# Heading",
+    "## Not a heading ##",
+    "[x](http://evil.example) and ![i](a.png)",
+    "<script>alert(1)</script> <b>bold</b> <img src=x onerror=alert(1)>",
+    "\"double\" 'single' (paren) )( ] [ \\ backslash",
+    "*bold* _italic_ ~~strike~~ `code` ``double``",
+    "---",
+    "> quote",
+    "- item",
+    "1. item",
+    "+ item",
+    "$$ x $$ and $y$",
+    "[^1] and [[wiki link]] and #tag and @mention",
+    "| a | b |",
+    "<!-- comment -->",
+    "&amp; &lt; &#35; &nbsp;",
+    "```fence```",
+    "    indented code",
+    "[ref]: http://evil.example",
+    "***",
+    "Ünïcödé — тест ✓",
+  ])("keeps %j as the text of one link, in one paragraph", (text) => {
+    for (const info of [
+      { title: text, description: "desc" },
+      { title: "Title", description: text },
+      { title: text, description: text },
+    ]) {
+      const rewritten = bookmarkWithPageInfo(card(base), info)!
+      const doc = editorSchema.nodeFromJSON({ type: "doc", content: [rewritten.toJSON()] })
+      const written = docToNormalizedMarkdown(doc)
+      expect(written, "one line").not.toMatch(/\n/u)
+
+      const expectedTitle = plainLine(neutralizeMarkup(info.title), 200)
+      const expectedHint = plainLine(info.description, 300)
+      const read = parse(written)
+      expect(read.childCount, written).toBe(1)
+      expect(read.firstChild!.type.name).toBe("paragraph")
+      expect(read.firstChild!.textContent, written).toBe(expectedTitle)
+      expect(bookmarkOf(read.firstChild!, read), written).toEqual({
+        href: "https://example.com/a",
+        host: "example.com",
+        hint: expectedHint,
+      })
+
+      // The second reader finds the same: one paragraph, one link, the same text and hint.
+      const meaning = JSON.parse(markdownMeaning(written).content) as unknown[]
+      const kinds = (meaning as unknown[][]).map((entry) =>
+        typeof entry[0] === "string" ? entry[0] : "inline",
+      )
+      expect(kinds, written).toEqual(["paragraph_open", "inline", "paragraph_close"])
+      const segments = meaning[1] as Array<[string, string, string]>
+      expect(
+        segments.map((segment) => segment[0]),
+        written,
+      ).toEqual(["text"])
+      expect(segments[0][1], written).toBe(expectedTitle)
+      expect(segments[0][2], written).toContain("https://example.com/a")
+      expect(segments[0][2], written).toContain(JSON.stringify(expectedHint).slice(1, -1))
+
+      // Saved again without an edit, the note keeps its bytes.
+      expect(roundTripCheck(written), written).toEqual({ ok: true, result: written })
+    }
   })
 })

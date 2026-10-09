@@ -31,6 +31,7 @@ import type {
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
+  PageInfo,
   LayerKind,
   LayerResult,
   LinkGraph,
@@ -1412,6 +1413,11 @@ export class WebAdapterCore implements StoragePort {
   async openAttachment(_notePath: string, _attachmentPath: string): Promise<void> {
     // Browser development has no files on disk to hand to a system program.
     throw new Error("AttachmentOpenUnavailable")
+  }
+
+  async fetchPageInfo(_address: string): Promise<PageInfo> {
+    // A page cannot ask another site for its title; only the desktop app does.
+    throw new Error("FetchUnavailable")
   }
 
   async openWebAddress(address: string): Promise<void> {

@@ -1,6 +1,12 @@
 import i18n from "@/lib/i18n"
 import { errorType, logger } from "@/lib/logger"
-import { openAttachment, openWebAddress, showErrorMessage } from "@/lib/storage"
+import {
+  fetchPageInfo,
+  openAttachment,
+  openWebAddress,
+  showErrorMessage,
+  type PageInfo,
+} from "@/lib/storage"
 
 // The backend decides what may be opened and answers with one of these codes; the person
 // sees a sentence about it, never the code or a path.
@@ -10,6 +16,15 @@ const MESSAGES: Array<[code: string, key: string]> = [
   ["AttachmentTypeNotAllowed", "externalOpen.attachmentTypeNotAllowed"],
   ["AddressNotAllowed", "externalOpen.addressNotAllowed"],
   ["AttachmentOpenUnavailable", "externalOpen.unavailable"],
+  ["FetchUnavailable", "externalOpen.unavailable"],
+  ["PrivateAddress", "externalOpen.privateAddress"],
+  ["TooManyRedirects", "externalOpen.tooManyRedirects"],
+  ["PageNotHtml", "externalOpen.pageNotHtml"],
+  ["PageBadStatus", "externalOpen.pageBadStatus"],
+  ["PageEncodingUnsupported", "externalOpen.pageEncoding"],
+  ["PageHasNoTitle", "externalOpen.pageNoTitle"],
+  ["PageNetworkFailed", "externalOpen.pageNetwork"],
+  ["PageTimeout", "externalOpen.pageTimeout"],
 ]
 
 export function openErrorMessage(error: unknown): string {
@@ -47,5 +62,18 @@ export async function openWebAddressInBrowser(address: string) {
     await openWebAddress(address)
   } catch (error) {
     await report(error)
+  }
+}
+
+/**
+ * The person's click on "fetch the title": one request to the page, made by the backend.
+ * A refusal is explained to the person and gives `null`; nothing in a note changes.
+ */
+export async function fetchPageInfoOnce(address: string): Promise<PageInfo | null> {
+  try {
+    return await fetchPageInfo(address)
+  } catch (error) {
+    await report(error)
+    return null
   }
 }

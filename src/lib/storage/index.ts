@@ -58,6 +58,7 @@ import type {
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
+  PageInfo,
   LayerKind,
   LayerResult,
   LinkGraph,
@@ -559,6 +560,8 @@ export const openAttachment = (notePath: string, attachmentPath: string): Promis
   assetsRepository.openAttachment(notePath, attachmentPath)
 export const openWebAddress = (address: string): Promise<void> =>
   assetsRepository.openWebAddress(address)
+export const fetchPageInfo = (address: string): Promise<PageInfo> =>
+  assetsRepository.fetchPageInfo(address)
 export const pickAssetFile = (imagesOnly: boolean): Promise<string | null> =>
   assetsRepository.pickAssetFile(imagesOnly)
 export const importAsset = (

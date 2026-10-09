@@ -4,7 +4,8 @@ import { Plugin, PluginKey } from "@tiptap/pm/state"
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view"
 
 import i18n from "@/lib/i18n"
-import { openWebAddressInBrowser } from "./external-open"
+import { isTauri, type PageInfo } from "@/lib/storage"
+import { fetchPageInfoOnce, openWebAddressInBrowser } from "./external-open"
 
 // A bookmark is not a new kind of block and has no syntax of its own. It is an ordinary
 // paragraph that holds nothing but one web link which has a title (the hint in quotes):
@@ -79,6 +80,80 @@ export function bookmarkOf(paragraph: PMNode, parent: PMNode | null): Bookmark |
   return href && hint && host ? { href, host, hint } : null
 }
 
+// What a page tells about itself is somebody else's text. It becomes the text of the link
+// and its hint, as plain text on one line, cut short, and nothing else: the backend has
+// already done the same, and this does it once more because the note is what is at risk.
+const MAX_TITLE_CHARS = 200
+const MAX_HINT_CHARS = 300
+
+export function plainLine(raw: string, maxChars: number): string {
+  const clean = raw
+    // control characters, invisible formatting marks (zero width, bidi controls, soft
+    // hyphen), line and paragraph separators, object and replacement characters
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\uFFFC\uFFFD]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+  const chars = Array.from(clean)
+  return chars.length > maxChars
+    ? `${chars
+        .slice(0, maxChars - 1)
+        .join("")
+        .trimEnd()}…`
+    : clean
+}
+
+/**
+ * Brackets and angle brackets of a page's title are replaced by look-alikes: written as
+ * they are, `[x](address)` in a title would become a second link, and `<b>` or a comment
+ * an HTML tag, because the editor does not escape them in the text of a link.
+ */
+export function neutralizeMarkup(text: string): string {
+  return text.replace(/\[/gu, "(").replace(/\]/gu, ")").replace(/</gu, "‹").replace(/>/gu, "›")
+}
+
+/**
+ * The bookmark paragraph with the title of the page as the text of its link and, when the
+ * page has a description, that as the hint; without one the hint stays as it was.
+ */
+export function bookmarkWithPageInfo(paragraph: PMNode, info: PageInfo): PMNode | null {
+  const first = paragraph.firstChild
+  const link = first?.marks.find((mark) => mark.type.name === "link")
+  if (!first || !link) return null
+  const title = plainLine(neutralizeMarkup(info.title), MAX_TITLE_CHARS)
+  if (!title) return null
+  const description = info.description ? plainLine(info.description, MAX_HINT_CHARS) : ""
+  const mark = link.type.create({ ...link.attrs, title: description || link.attrs.title })
+  return paragraph.type.create(
+    paragraph.attrs,
+    paragraph.type.schema.text(title, [mark]),
+    paragraph.marks,
+  )
+}
+
+/** Finds the paragraph the button was pressed in again, after the document may have moved. */
+function findBookmark(
+  doc: PMNode,
+  wanted: { href: string; text: string; hint: string },
+  near: number,
+) {
+  let best: { pos: number; node: PMNode } | null = null
+  doc.descendants((node, pos, parent) => {
+    if (node.type.name !== "paragraph") return node.isTextblock ? false : true
+    const bookmark = bookmarkOf(node, parent)
+    if (
+      bookmark &&
+      bookmark.href === wanted.href &&
+      bookmark.hint === wanted.hint &&
+      node.textContent === wanted.text &&
+      (!best || Math.abs(pos - near) < Math.abs(best.pos - near))
+    ) {
+      best = { pos, node }
+    }
+    return false
+  })
+  return best as { pos: number; node: PMNode } | null
+}
+
 /**
  * The buttons on a card. What a button acts on is read from the paragraph it stands in at
  * the moment of the click, not from anything captured when it was drawn.
@@ -101,7 +176,44 @@ function actionsOf(view: EditorView, getPos: () => number | undefined): HTMLElem
     if (bookmark) void openWebAddressInBrowser(bookmark.href)
   })
   bar.append(open)
+  if (view.editable && isTauri()) bar.append(fetchButton(view, getPos))
   return bar
+}
+
+function fetchButton(view: EditorView, getPos: () => number | undefined): HTMLElement {
+  const button = document.createElement("button")
+  button.type = "button"
+  button.textContent = i18n.t("externalOpen.fetchTitle")
+  button.addEventListener("mousedown", (event) => event.preventDefault())
+  button.addEventListener("click", async (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (button.disabled) return
+    const pos = getPos()
+    if (pos === undefined) return
+    const $pos = view.state.doc.resolve(pos)
+    const bookmark = bookmarkOf($pos.parent, $pos.node(Math.max(0, $pos.depth - 1)))
+    if (!bookmark) return
+    const wanted = { href: bookmark.href, text: $pos.parent.textContent, hint: bookmark.hint }
+    const paragraphPos = $pos.before()
+    // One request for one press: the button waits for the answer.
+    button.disabled = true
+    button.textContent = i18n.t("externalOpen.fetching")
+    try {
+      const info = await fetchPageInfoOnce(bookmark.href)
+      if (!info || view.isDestroyed) return
+      const found = findBookmark(view.state.doc, wanted, paragraphPos)
+      const rewritten = found && bookmarkWithPageInfo(found.node, info)
+      if (!found || !rewritten) return
+      view.dispatch(
+        view.state.tr.replaceWith(found.pos, found.pos + found.node.nodeSize, rewritten),
+      )
+    } finally {
+      button.disabled = false
+      button.textContent = i18n.t("externalOpen.fetchTitle")
+    }
+  })
+  return button
 }
 
 function cards(doc: PMNode): DecorationSet {

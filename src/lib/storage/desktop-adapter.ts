@@ -92,6 +92,7 @@ import type {
   IdMigrationRecovery,
   IdMigrationRecoveryAction,
   ImportedAsset,
+  PageInfo,
   LayerKind,
   LayerResult,
   LinkGraph,
@@ -955,6 +956,10 @@ export class DesktopAdapter implements StoragePort {
 
   async openWebAddress(address: string): Promise<void> {
     await unwrapCommand(commands.openWebAddress(address))
+  }
+
+  async fetchPageInfo(address: string): Promise<PageInfo> {
+    return unwrapCommand(commands.fetchPageInfo(address))
   }
 
   async pickAssetFile(imagesOnly: boolean): Promise<string | null> {
