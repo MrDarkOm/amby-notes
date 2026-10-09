@@ -89,7 +89,9 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      // Agent worktrees live inside the project folder: a build or a test run in one of
+      // them must not reload the window of the application running from this checkout.
+      ignored: ["**/src-tauri/**", "**/.claude/**"],
     },
   },
 }))
