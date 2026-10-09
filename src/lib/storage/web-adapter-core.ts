@@ -1409,6 +1409,16 @@ export class WebAdapterCore implements StoragePort {
 
   async openInExplorer(_path: string): Promise<void> {}
 
+  async openAttachment(_notePath: string, _attachmentPath: string): Promise<void> {
+    // Browser development has no files on disk to hand to a system program.
+    throw new Error("AttachmentOpenUnavailable")
+  }
+
+  async openWebAddress(address: string): Promise<void> {
+    if (!/^https?:\/\//iu.test(address)) throw new Error("AddressNotAllowed")
+    window.open(address, "_blank", "noopener,noreferrer")
+  }
+
   async pickAssetFile(_imagesOnly: boolean): Promise<string | null> {
     return null
   }

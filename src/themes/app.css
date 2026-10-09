@@ -2503,6 +2503,22 @@ body.amby-resizing-columns * {
   min-width: 0;
 }
 
+.amby-attachment-open {
+  flex: none;
+  margin-left: 0.5rem;
+  padding: 0.25rem 0.625rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.amby-attachment-open:hover {
+  background: hsl(var(--accent));
+}
+
 .amby-attachment-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2519,9 +2535,10 @@ body.amby-resizing-columns * {
 /* ── Bookmark cards (a paragraph that is one titled web link) ────────────── */
 
 .ProseMirror p.amby-bookmark {
+  position: relative;
   max-width: 640px;
   margin: 0.5rem 0;
-  padding: 0.625rem 0.875rem;
+  padding: 0.625rem 6rem 0.625rem 0.875rem;
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
   background: hsl(var(--card));
@@ -2546,6 +2563,28 @@ body.amby-resizing-columns * {
 .ProseMirror p.amby-bookmark::after {
   content: attr(data-bookmark-hint);
   margin-top: 0.125rem;
+}
+
+.amby-bookmark-actions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.625rem;
+  display: flex;
+  gap: 0.375rem;
+}
+
+.amby-bookmark-actions button {
+  padding: 0.25rem 0.625rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: transparent;
+  color: hsl(var(--foreground));
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.amby-bookmark-actions button:hover {
+  background: hsl(var(--accent));
 }
 
 .ProseMirror p.amby-bookmark a {

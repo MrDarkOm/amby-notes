@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
+import { localeResources } from "../../src/locales/resources"
 import {
   expectEditorSettles,
   expectResponsive,
@@ -104,4 +105,21 @@ test("an address that is not a web address inserts nothing", async ({ page }) =>
   await page.keyboard.press("Enter")
   await expect(liveEditor(page).locator("p.amby-bookmark")).toHaveCount(0)
   expect(await storedMarkdown(page, "Empty")).toBe("")
+})
+
+test("the card's Open button hands the address of its own link to the browser", async ({
+  page,
+}) => {
+  await seedVault(page, { Links: NOTE })
+  await openInLive(page, "Links")
+  const card = liveEditor(page).locator("p.amby-bookmark")
+  const [popup] = await Promise.all([
+    page.waitForEvent("popup"),
+    card.getByRole("button", { name: localeResources.ru.translation.externalOpen.open }).click(),
+  ])
+  expect(popup.url()).toBe("https://example.com/page")
+  await popup.close()
+  // Pressing the button is not an edit.
+  await waitForAutosaveWindow(page)
+  expect(await storedMarkdown(page, "Links")).toBe(NOTE)
 })

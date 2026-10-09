@@ -37,6 +37,14 @@ export class AssetsRepository {
     return this.port().importTextFile()
   }
 
+  async openAttachment(notePath: string, attachmentPath: string): Promise<void> {
+    return this.port().openAttachment(notePath, attachmentPath)
+  }
+
+  async openWebAddress(address: string): Promise<void> {
+    return this.port().openWebAddress(address)
+  }
+
   async openInExplorer(path: string): Promise<void> {
     return this.port().openInExplorer(path)
   }

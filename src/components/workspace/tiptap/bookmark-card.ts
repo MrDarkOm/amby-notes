@@ -1,7 +1,10 @@
 import { Extension } from "@tiptap/core"
 import type { Node as PMNode } from "@tiptap/pm/model"
 import { Plugin, PluginKey } from "@tiptap/pm/state"
-import { Decoration, DecorationSet } from "@tiptap/pm/view"
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view"
+
+import i18n from "@/lib/i18n"
+import { openWebAddressInBrowser } from "./external-open"
 
 // A bookmark is not a new kind of block and has no syntax of its own. It is an ordinary
 // paragraph that holds nothing but one web link which has a title (the hint in quotes):
@@ -76,6 +79,31 @@ export function bookmarkOf(paragraph: PMNode, parent: PMNode | null): Bookmark |
   return href && hint && host ? { href, host, hint } : null
 }
 
+/**
+ * The buttons on a card. What a button acts on is read from the paragraph it stands in at
+ * the moment of the click, not from anything captured when it was drawn.
+ */
+function actionsOf(view: EditorView, getPos: () => number | undefined): HTMLElement {
+  const bar = document.createElement("span")
+  bar.className = "amby-bookmark-actions"
+  bar.contentEditable = "false"
+  const open = document.createElement("button")
+  open.type = "button"
+  open.textContent = i18n.t("externalOpen.open")
+  open.addEventListener("mousedown", (event) => event.preventDefault())
+  open.addEventListener("click", (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    const pos = getPos()
+    if (pos === undefined) return
+    const $pos = view.state.doc.resolve(pos)
+    const bookmark = bookmarkOf($pos.parent, $pos.node(Math.max(0, $pos.depth - 1)))
+    if (bookmark) void openWebAddressInBrowser(bookmark.href)
+  })
+  bar.append(open)
+  return bar
+}
+
 function cards(doc: PMNode): DecorationSet {
   const decorations: Decoration[] = []
   doc.descendants((node, pos, parent) => {
@@ -87,6 +115,12 @@ function cards(doc: PMNode): DecorationSet {
           class: "amby-bookmark",
           "data-bookmark-host": bookmark.host,
           "data-bookmark-hint": bookmark.hint,
+        }),
+        Decoration.widget(pos + node.nodeSize - 1, actionsOf, {
+          side: 1,
+          key: `bookmark-actions-${bookmark.href}`,
+          stopEvent: () => true,
+          ignoreSelection: true,
         }),
       )
     }

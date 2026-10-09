@@ -5,7 +5,10 @@ import { FileMusic, FileText, FileVideo } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { isRemoteAddress, type AttachmentKind } from "./attachment-kind"
+import { isTauri } from "@/lib/storage"
+import { openAttachmentWithSystem } from "./external-open"
 import {
+  getAssetContext,
   getAssetResolverRevision,
   primeAssetConverter,
   resolveAssetSrcCandidates,
@@ -23,6 +26,8 @@ interface AttachmentPlayerProps {
   name: string
   /** The address points outside the vault: nothing is loaded for it. */
   remote?: boolean
+  /** What the "Open" button of a card hands to the system: the note and the file as written. */
+  open?: { notePath: string; address: string } | null
 }
 
 /**
@@ -30,7 +35,7 @@ interface AttachmentPlayerProps {
  * the webview cannot play, a file that is missing, an address outside the vault). The
  * note's text is not touched: this only decides how the address is shown.
  */
-export function AttachmentPlayer({ kind, candidates, name, remote }: AttachmentPlayerProps) {
+export function AttachmentPlayer({ kind, candidates, name, remote, open }: AttachmentPlayerProps) {
   const { t } = useTranslation()
   const [index, setIndex] = React.useState(0)
   const key = candidates.join("\n")
@@ -74,6 +79,21 @@ export function AttachmentPlayer({ kind, candidates, name, remote }: AttachmentP
         <span className="amby-attachment-name">{name}</span>
         {note && <span className="amby-attachment-note">{note}</span>}
       </span>
+      {open && !remote && (
+        <button
+          type="button"
+          className="amby-attachment-open"
+          // The editor must neither move its cursor nor start a drag from the button.
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            void openAttachmentWithSystem(open.notePath, open.address)
+          }}
+        >
+          {t("externalOpen.open")}
+        </button>
+      )}
     </span>
   )
 }
@@ -89,6 +109,12 @@ function useAssetResolverRevision(editor: Editor | null) {
   React.useEffect(() => {
     void primeAssetConverter()
   }, [])
+}
+
+/** The Open button exists where the system can open files: the desktop app, in a saved note. */
+function openRequest(editor: Editor | null, address: string) {
+  const notePath = editor ? getAssetContext(editor)?.notePath : undefined
+  return isTauri() && notePath ? { notePath, address } : null
 }
 
 function fileName(address: string): string {
@@ -124,6 +150,7 @@ export function AttachmentImageView({
         candidates={remote ? [] : resolveAssetSrcCandidates(editor ?? null, src)}
         name={alt}
         remote={remote}
+        open={openRequest(editor ?? null, src)}
       />
     </NodeViewWrapper>
   )
@@ -145,6 +172,7 @@ export function EmbeddedAttachment({
       kind={kind}
       candidates={resolveEmbeddedFileCandidates(editor, target)}
       name={fileName(target)}
+      open={openRequest(editor, target)}
     />
   )
 }

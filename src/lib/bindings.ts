@@ -925,6 +925,28 @@ async openInExplorer(path: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Opens an attachment of a note with the system's program for its type.
+ */
+async openAttachment(notePath: string, attachmentPath: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_attachment", { notePath, attachmentPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Opens a web address in the system's browser.
+ */
+async openWebAddress(address: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_web_address", { address }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async importAsset(notePath: string, sourcePath: string) : Promise<Result<ImportedAsset, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("import_asset", { notePath, sourcePath }) };

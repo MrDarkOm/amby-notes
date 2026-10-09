@@ -154,6 +154,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::project::move_text_page,
         commands::project::list_note_references,
         commands::assets::open_in_explorer,
+        commands::external::open_attachment,
+        commands::external::open_web_address,
         commands::assets::import_asset,
         commands::assets::import_asset_bytes,
         commands::assets::pick_asset_file,

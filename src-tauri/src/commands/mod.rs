@@ -1,6 +1,7 @@
 pub mod assets;
 pub mod database;
 pub mod debug;
+pub mod external;
 pub mod history;
 pub mod modules;
 pub mod mutations;

@@ -2108,6 +2108,16 @@ const ru = {
     defaultColumn: "Колонка {{n}}",
   },
   transclusion: { notFound: "Заметка не найдена:" },
+  externalOpen: {
+    open: "Открыть",
+    attachmentNotFound: "Файл не найден: проверьте, что он лежит в папке assets.",
+    attachmentOutsideAssets: "Из заметки открываются только файлы из папки assets хранилища.",
+    attachmentTypeNotAllowed:
+      "Файлы такого типа не открываются из заметки: это может быть программа или скрипт.",
+    addressNotAllowed: "Из заметки открываются только веб-адреса http и https.",
+    openFailed: "Не удалось открыть файл или адрес.",
+    unavailable: "В браузерной версии это недоступно.",
+  },
   attachment: {
     pdf: "Документ PDF",
     unplayable: "Не удалось воспроизвести файл",
@@ -4600,6 +4610,16 @@ const en: typeof ru = {
     defaultColumn: "Column {{n}}",
   },
   transclusion: { notFound: "Note not found:" },
+  externalOpen: {
+    open: "Open",
+    attachmentNotFound: "File not found: check that it is in the assets folder.",
+    attachmentOutsideAssets: "Only files from the vault's assets folder are opened from a note.",
+    attachmentTypeNotAllowed:
+      "Files of this type are not opened from a note: it could be a program or a script.",
+    addressNotAllowed: "Only http and https web addresses are opened from a note.",
+    openFailed: "Could not open the file or address.",
+    unavailable: "This is not available in the browser version.",
+  },
   attachment: {
     pdf: "PDF document",
     unplayable: "This file cannot be played",

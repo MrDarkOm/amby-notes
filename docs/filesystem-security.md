@@ -17,6 +17,27 @@ the path is accepted, so a traversal or symlink cannot escape the active vault.
 directories derived from the application data root. Vault deletion is a rename
 into `.amby/trash`, not a recursive deletion.
 
+## Opening files and addresses with the system
+
+A click on an attachment card or a bookmark card asks the backend (`open_attachment`,
+`open_web_address` in `src-tauri/src/commands/external.rs`) to hand it to the system's
+own program. Opening a program or a script means running it, and a note can come from
+outside, so the rule is a list of what may be opened, not a list of what may not:
+
+- A file is opened only if its real path (symbolic links followed) lies inside the vault,
+  under an `assets` folder, in no hidden folder, and its real extension is on the
+  list of documents and media (`OPENABLE_EXTENSIONS`: pdf, txt, csv, docx, xlsx, pptx, odt,
+  ods, odp, common audio, video and image formats). Archives, SVG, macro-enabled Office
+  files and everything that runs are not on it. The extension is judged in any letter
+  case and only the last one counts, so `file.pdf.command` is refused.
+- An address is opened only if it is an `http` or `https` one with a host and no
+  credentials.
+- The webview sends the note and the address as written in the node it was clicked on;
+  the refusal is a code (`AttachmentOutsideAssets`, `AttachmentTypeNotAllowed`, ...) that
+  the webview turns into a sentence.
+- No Tauri plugin that opens paths or runs programs is added to any window's
+  capabilities (`tauri-capabilities.test.ts` guards this).
+
 ## Residual TOCTOU risk
 
 Pathname validation cannot prevent a privileged concurrent process from

@@ -949,6 +949,14 @@ export class DesktopAdapter implements StoragePort {
     await unwrapCommand(commands.openInExplorer(path))
   }
 
+  async openAttachment(notePath: string, attachmentPath: string): Promise<void> {
+    await unwrapCommand(commands.openAttachment(notePath, attachmentPath))
+  }
+
+  async openWebAddress(address: string): Promise<void> {
+    await unwrapCommand(commands.openWebAddress(address))
+  }
+
   async pickAssetFile(imagesOnly: boolean): Promise<string | null> {
     return unwrapCommand(commands.pickAssetFile(imagesOnly))
   }

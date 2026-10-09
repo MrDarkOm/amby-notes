@@ -555,6 +555,10 @@ export const previewMoveRefactor = (
 
 // Assets, Dialogs & System
 export const openInExplorer = (path: string): Promise<void> => assetsRepository.openInExplorer(path)
+export const openAttachment = (notePath: string, attachmentPath: string): Promise<void> =>
+  assetsRepository.openAttachment(notePath, attachmentPath)
+export const openWebAddress = (address: string): Promise<void> =>
+  assetsRepository.openWebAddress(address)
 export const pickAssetFile = (imagesOnly: boolean): Promise<string | null> =>
   assetsRepository.pickAssetFile(imagesOnly)
 export const importAsset = (

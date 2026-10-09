@@ -31,4 +31,17 @@ describe("Tauri window capabilities", () => {
       expect(capability.permissions).toContain("core:window:allow-destroy")
     }
   })
+
+  // Opening a note's attachment or a web address is done by Amby's own commands
+  // (`open_attachment`, `open_web_address`), which check the file type, the folder and the
+  // address themselves. No window may be given a plugin that opens arbitrary paths, runs
+  // programs, or reads and writes files or the network on its own.
+  it("gives no window a permission to open, run, read or fetch on its own", () => {
+    for (const capability of [defaultCapability, noteWindowCapability, settingsWindowCapability]) {
+      for (const permission of capability.permissions) {
+        expect(permission, permission).not.toMatch(/^(opener|shell|fs|http|os|process:allow-exit)/u)
+        expect(permission, permission).not.toMatch(/allow-open-path|allow-open-url|allow-execute/u)
+      }
+    }
+  })
 })

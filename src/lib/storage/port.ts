@@ -140,6 +140,10 @@ export interface StoragePort extends DatabasePort, ProjectPort {
 
   // System & Assets
   openInExplorer(path: string): Promise<void>
+  /** Opens an attachment of a note with the system program; the backend decides if it may be. */
+  openAttachment(notePath: string, attachmentPath: string): Promise<void>
+  /** Opens an http(s) address in the system browser; the backend decides if it may be. */
+  openWebAddress(address: string): Promise<void>
   pickAssetFile(imagesOnly: boolean): Promise<string | null>
   importAsset(
     vaultPath: string,
