@@ -118,16 +118,13 @@ export function BlockInsertPanel({
     }
   }, [editor, range, source])
 
-  const requestUrlInput = React.useCallback(
-    (purpose: UrlPurpose = "image") => {
-      // The typed slash text stays until the address is inserted: removing it would end
-      // the suggestion and unmount this panel, and Escape must leave the note untouched.
-      setUrlValue("")
-      setUrlPurpose(purpose)
-      setMode("url")
-    },
-    [maybeDeleteSlashRange],
-  )
+  const requestUrlInput = React.useCallback((purpose: UrlPurpose = "image") => {
+    // The typed slash text stays until the address is inserted: removing it would end
+    // the suggestion and unmount this panel, and Escape must leave the note untouched.
+    setUrlValue("")
+    setUrlPurpose(purpose)
+    setMode("url")
+  }, [])
 
   const requestEmojiPicker = React.useCallback(() => {
     maybeDeleteSlashRange()
