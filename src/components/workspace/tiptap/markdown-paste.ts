@@ -25,7 +25,40 @@ const INLINE_SYNTAX =
 
 /** Whether pasted plain text should be read as Markdown rather than as lines of text. */
 export function looksLikeMarkdown(text: string): boolean {
-  return BLOCK_SYNTAX.some((pattern) => pattern.test(text)) || INLINE_SYNTAX.test(text)
+  return (
+    BLOCK_SYNTAX.some((pattern) => pattern.test(text)) ||
+    INLINE_SYNTAX.test(text) ||
+    // A wikilink alone is the same text either way; with other lines it marks Markdown.
+    (/\[\[[^\]\n]+\]\]/u.test(text) && text.includes("\n"))
+  )
+}
+
+// Markdown as it is written, which a rendered page does not show as text: a heading
+// marker, a fence, a table delimiter, a link or an image, a wikilink, a callout, a task,
+// bold. A bare `- item` is not in the list: rendered lists are copied that way too.
+const SOURCE_ONLY_SYNTAX = [
+  /^ {0,3}#{1,6}[ \t]+\S/mu,
+  /^ {0,3}(?:```|~~~)/mu,
+  /^[ \t]*\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)+\|?[ \t]*$/mu,
+  /!?\[[^\]\n]*\]\([^)\s]+[^)\n]*\)/u,
+  /\[\[[^\]\n]+\]\]/u,
+  /^ {0,3}>[ \t]?\[![^\]\n]+\]/mu,
+  /^[ \t]*[-*+][ \t]+\[[ xX]\][ \t]/mu,
+  /\*\*[^\s*][^*\n]*\*\*/u,
+]
+
+/**
+ * Whether a paste is read from its plain text as Markdown. With plain text alone that is
+ * any text written as Markdown. An application that knows Markdown (Obsidian, Notion)
+ * puts both the Markdown and a rendered copy on the clipboard; the rendered copy has
+ * lost what only Markdown says — a wikilink is an ordinary link there, a callout a line
+ * of text — so the Markdown is taken. Code copied from a code editor or a code block
+ * stays code, and a page that was simply selected in a browser stays rich text.
+ */
+export function pastesAsMarkdown(text: string, html: string, types: readonly string[]): boolean {
+  if (!html) return looksLikeMarkdown(text)
+  if (types.includes("vscode-editor-data") || /<pre[\s>]/iu.test(html)) return false
+  return SOURCE_ONLY_SYNTAX.some((pattern) => pattern.test(text))
 }
 
 const KEPT_SOURCE_ATTRIBUTES = [
@@ -104,9 +137,14 @@ export const MarkdownPaste = Extension.create({
           handlePaste(view, event) {
             const data = event.clipboardData
             if (!data) return false
-            // Rich text and files have their own handling; this is for plain text only.
-            if (data.files.length > 0 || data.getData("text/html")) return false
-            const tr = pasteMarkdown(view.state, data.getData("text/plain"))
+            // Files have their own handling; rich text stays rich unless it came with
+            // the Markdown it was rendered from.
+            if (data.files.length > 0) return false
+            const text = data.getData("text/plain")
+            if (!pastesAsMarkdown(text, data.getData("text/html"), Array.from(data.types))) {
+              return false
+            }
+            const tr = pasteMarkdown(view.state, text)
             if (!tr) return false
             view.dispatch(tr)
             return true

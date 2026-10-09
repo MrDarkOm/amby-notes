@@ -5,7 +5,12 @@ import { Editor } from "@tiptap/core"
 import { EditorState, TextSelection } from "@tiptap/pm/state"
 
 import { docToMarkdown, editorSchema, markdownToDoc, roundTripCheck } from "./markdown"
-import { looksLikeMarkdown, markdownPasteContent, pasteMarkdown } from "./markdown-paste"
+import {
+  looksLikeMarkdown,
+  markdownPasteContent,
+  pasteMarkdown,
+  pastesAsMarkdown,
+} from "./markdown-paste"
 import { schemaExtensions } from "./schema"
 
 const open = (markdown: string, anchor: number, head = anchor) => {
@@ -41,6 +46,38 @@ describe("pasting plain text written as Markdown", () => {
     expect(looksLikeMarkdown("a * b * c and 2 - 1")).toBe(false)
     expect(looksLikeMarkdown("#tag at the start")).toBe(false)
     expect(looksLikeMarkdown("https://example.com/a_b_c")).toBe(false)
+  })
+
+  it("takes the Markdown when a paste carries both Markdown and its rendered copy", () => {
+    // What Obsidian puts on the clipboard: the note's Markdown and the page as HTML.
+    const markdown = "### Plans\n\n[[Finance]]\n[[Schedule]]\n\n> [!ask]\n> Why?"
+    const rendered = '<h3>Plans</h3><p><a href="Finance">Finance</a></p><div>Ask</div>'
+    expect(pastesAsMarkdown(markdown, rendered, ["text/plain", "text/html"])).toBe(true)
+    expect(pastesAsMarkdown("See [site](https://a.b)", "<a href>site</a>", [])).toBe(true)
+    expect(pastesAsMarkdown("- [ ] task", "<ul><li>task</li></ul>", [])).toBe(true)
+    expect(pastesAsMarkdown("a **bold** word", "<p>a <b>bold</b> word</p>", [])).toBe(true)
+  })
+
+  it("keeps rich text rich when its plain text is not Markdown source", () => {
+    expect(pastesAsMarkdown("Title\n\nSome text", "<h1>Title</h1><p>Some text</p>", [])).toBe(false)
+    // A rendered list is copied as lines with dashes by many applications.
+    expect(pastesAsMarkdown("- one\n- two", "<ul><li>one</li><li>two</li></ul>", [])).toBe(false)
+    expect(pastesAsMarkdown("1. one\n2. two", "<ol><li>one</li></ol>", [])).toBe(false)
+  })
+
+  it("keeps code copied from a code editor or a code block as code", () => {
+    const code = "# install\nnpm run build\n## then\n- [ ] done"
+    expect(pastesAsMarkdown(code, "<div><span>…</span></div>", ["vscode-editor-data"])).toBe(false)
+    expect(pastesAsMarkdown(code, "<pre><code># install</code></pre>", [])).toBe(false)
+  })
+
+  it("reads wikilinks, a hard break and a callout from pasted Markdown", () => {
+    const state = paste(open("", 1), "### Plans\n\n[[Finance]]\n[[Schedule]]\n\n> [!ask]\n> Why?")
+    expect(blockTypes(state!)).toEqual(["heading", "paragraph", "callout"])
+    const written = docToMarkdown(state!.doc)
+    expect(written).toContain("[[Finance]]\n[[Schedule]]")
+    expect(written).toContain("> [!ASK]")
+    expect(written).not.toContain("](Finance)")
   })
 
   it("leaves ordinary text to the editor's own paste", () => {

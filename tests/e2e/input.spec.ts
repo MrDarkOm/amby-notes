@@ -158,3 +158,22 @@ test("pasted plain text and pasted HTML keep working", async ({ page }) => {
   await waitForAutosaveWindow(page)
   expect(await storedMarkdown(page, "Empty")).toBe("Just a sentence.\n\nRich **bold** text")
 })
+
+test("a paste that carries Markdown and its rendered copy keeps wikilinks and callouts", async ({
+  page,
+}) => {
+  await openEmpty(page)
+  // What Obsidian puts on the clipboard for a copied part of a note.
+  const markdown = "### Plans\n\n[[Finance]]\n[[Schedule]]\n\n> [!ask]\n> Why?"
+  const rendered =
+    '<h3>Plans</h3><p><a class="internal-link" href="Finance">Finance</a><br>' +
+    '<a class="internal-link" href="Schedule">Schedule</a></p><div class="callout">Ask</div>'
+  await pasteHtml(page, rendered, markdown)
+  const editor = liveEditor(page)
+  await expect(editor.locator("h3")).toHaveText("Plans")
+  await expect(editor.locator(".amby-live-wikilink-button")).toHaveText(["Finance", "Schedule"])
+  // The callout is checked by what is saved: a callout again, not the word "Ask".
+  await expect
+    .poll(() => storedMarkdown(page, "Empty"))
+    .toBe("### Plans\n\n[[Finance]]\n[[Schedule]]\n\n> [!ASK]\n> Why?")
+})
