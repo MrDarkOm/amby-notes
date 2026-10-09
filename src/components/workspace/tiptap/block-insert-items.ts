@@ -1,6 +1,7 @@
 import type { Editor, Range } from "@tiptap/core"
 import {
   AtSign,
+  Bookmark,
   CheckSquare,
   Code2,
   Heading1,
@@ -46,8 +47,8 @@ export type BlockItemSurface = "plus" | "slash" | "turn-into"
 export interface BlockMediaContext {
   vaultPath?: string
   notePath?: string
-  /** Panel-provided overlay: request inline URL input mode. */
-  requestUrlInput?: () => void
+  /** Panel-provided overlay: request inline URL input mode (for an image or a bookmark). */
+  requestUrlInput?: (purpose?: "image" | "bookmark") => void
   /** Panel-provided overlay: request emoji-picker mode. */
   requestEmojiPicker?: () => void
   /** Panel-provided overlay: request the database view picker. */
@@ -483,6 +484,18 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     },
   },
   {
+    id: "bookmark",
+    icon: Bookmark,
+    category: "embed",
+    availableIn: PLUS_SLASH,
+    insertAfter: (_e, _pos, ctx) => {
+      ctx?.requestUrlInput?.("bookmark")
+    },
+    inline: (_e, ctx) => {
+      ctx?.requestUrlInput?.("bookmark")
+    },
+  },
+  {
     id: "tag",
     icon: AtSign,
     category: "embed",
@@ -588,6 +601,7 @@ const TURN_INTO_BLACKLIST = new Set([
   "image-clipboard",
   "image-url",
   "file-local",
+  "bookmark",
 ])
 
 export function getPlusItems(): BlockInsertItem[] {

@@ -16,11 +16,13 @@ import {
 import { DatabaseViewPicker } from "@/components/workspace/database/database-view-picker"
 import { SLASH_MENU_KEY_EVENT, type SlashMenuKey } from "./slash-menu"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
+import { bookmarkParagraph, parseBookmarkAddress } from "./bookmark-card"
 import { isTauri } from "@/lib/storage"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
 import { motionTransitions } from "@/lib/motion-config"
 
 type Mode = "list" | "url" | "emoji" | "database"
+type UrlPurpose = "image" | "bookmark"
 
 interface Props {
   editor: Editor
@@ -56,6 +58,7 @@ export function BlockInsertPanel({
   const query = typesInNote ? (slashQuery ?? "") : typedQuery
   const [active, setActive] = React.useState(0)
   const [urlValue, setUrlValue] = React.useState("")
+  const [urlPurpose, setUrlPurpose] = React.useState<UrlPurpose>("image")
   const searchRef = React.useRef<HTMLInputElement>(null)
   const urlRef = React.useRef<HTMLInputElement>(null)
   const panelRef = React.useRef<HTMLDivElement>(null)
@@ -115,11 +118,17 @@ export function BlockInsertPanel({
     }
   }, [editor, range, source])
 
-  const requestUrlInput = React.useCallback(() => {
-    maybeDeleteSlashRange()
-    setUrlValue("")
-    setMode("url")
-  }, [maybeDeleteSlashRange])
+  const requestUrlInput = React.useCallback(
+    (purpose: UrlPurpose = "image") => {
+      // A bookmark keeps the typed slash text until it is inserted: removing it would end
+      // the suggestion and unmount this panel, and Escape must leave the note untouched.
+      if (purpose !== "bookmark") maybeDeleteSlashRange()
+      setUrlValue("")
+      setUrlPurpose(purpose)
+      setMode("url")
+    },
+    [maybeDeleteSlashRange],
+  )
 
   const requestEmojiPicker = React.useCallback(() => {
     maybeDeleteSlashRange()
@@ -154,7 +163,12 @@ export function BlockInsertPanel({
   const choose = React.useCallback(
     (item: BlockInsertItem) => {
       if (itemDisabled(item)) return
-      if (item.id === "image-url" || item.id === "emoji" || item.id === "database-view") {
+      if (
+        item.id === "image-url" ||
+        item.id === "bookmark" ||
+        item.id === "emoji" ||
+        item.id === "database-view"
+      ) {
         // These items take over the panel; no slash-range delete yet (they may bail).
         void item.inline(editor, ctx)
         return
@@ -167,6 +181,17 @@ export function BlockInsertPanel({
   )
 
   function applyUrl() {
+    if (urlPurpose === "bookmark") {
+      // The card starts as the site name; the person can rename the link text and the
+      // hint afterwards. Nothing is fetched from the address.
+      const bookmark = parseBookmarkAddress(urlValue)
+      if (!bookmark) return
+      const chain = editor.chain().focus()
+      if (source === "slash" && range) chain.deleteRange(range)
+      chain.insertContent(bookmarkParagraph(bookmark.href, bookmark.host)).run()
+      onClose()
+      return
+    }
     const url = urlValue.trim()
     if (!url) return
     editor
@@ -317,7 +342,11 @@ export function BlockInsertPanel({
             value={urlValue}
             onChange={(e) => setUrlValue(e.target.value)}
             onKeyDown={onUrlKeyDown}
-            placeholder={t("blockPanel.imageUrlPlaceholder")}
+            placeholder={t(
+              urlPurpose === "bookmark"
+                ? "blockPanel.bookmarkUrlPlaceholder"
+                : "blockPanel.imageUrlPlaceholder",
+            )}
             onMouseDown={(e) => e.stopPropagation()}
           />
           <div className="amby-block-panel-url-actions">
