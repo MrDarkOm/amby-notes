@@ -31,6 +31,38 @@ jobs:
       - run: npm run format:check
       - run: npm run knip
 
+  # The editor in a real browser engine: WebKit, the engine of the desktop webview. Runs on
+  # macOS because the suite types with macOS keys (Cmd+arrows) the way the owner does.
+  browser:
+    name: Editor in WebKit
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Read the Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache the WebKit build
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: playwright-webkit-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - run: npm run test:browser:install
+      - run: npm run test:browser
+      - name: Keep the traces of failed cases
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-suite-traces
+          path: node_modules/.cache/amby-e2e/
+          if-no-files-found: ignore
+          retention-days: 7
+
   rust:
     name: Rust check and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -61,7 +93,7 @@ jobs:
   windows-bundle:
     name: Windows bundle
     runs-on: windows-latest
-    needs: [frontend, rust]
+    needs: [frontend, rust, browser]
     if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v5

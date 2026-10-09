@@ -16,8 +16,10 @@ export default defineConfig({
   testMatch: "**/*.spec.ts",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
-  retries: 0,
-  reporter: [["list"]],
+  // A shared CI machine stalls now and then: one retry there, reported as "flaky" so that
+  // it is seen. Locally a case passes the first time or fails.
+  retries: process.env.CI ? 1 : 0,
+  reporter: process.env.CI ? [["list"], ["github"]] : [["list"]],
   timeout: 60_000,
   expect: { timeout: 10_000 },
   use: {
