@@ -120,9 +120,8 @@ export function BlockInsertPanel({
 
   const requestUrlInput = React.useCallback(
     (purpose: UrlPurpose = "image") => {
-      // A bookmark keeps the typed slash text until it is inserted: removing it would end
+      // The typed slash text stays until the address is inserted: removing it would end
       // the suggestion and unmount this panel, and Escape must leave the note untouched.
-      if (purpose !== "bookmark") maybeDeleteSlashRange()
       setUrlValue("")
       setUrlPurpose(purpose)
       setMode("url")
@@ -194,11 +193,9 @@ export function BlockInsertPanel({
     }
     const url = urlValue.trim()
     if (!url) return
-    editor
-      .chain()
-      .focus()
-      .insertContent({ type: "image", attrs: { src: url } })
-      .run()
+    const chain = editor.chain().focus()
+    if (source === "slash" && range) chain.deleteRange(range)
+    chain.insertContent({ type: "image", attrs: { src: url } }).run()
     onClose()
   }
 

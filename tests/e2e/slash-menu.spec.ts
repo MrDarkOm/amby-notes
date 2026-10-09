@@ -66,3 +66,28 @@ test("a block can be picked with the mouse", async ({ page }) => {
   await page.keyboard.type("todo")
   await expect.poll(() => storedMarkdown(page, "Empty")).toBe("- [ ] todo")
 })
+
+test("the image-from-address item asks for the address in the menu itself", async ({ page }) => {
+  await page.keyboard.type("/url")
+  await expect(rows(page)).toHaveCount(1)
+  await page.keyboard.press("Enter")
+  const field = panel(page).locator(".amby-block-panel-url input")
+  await expect(field).toBeVisible()
+  await field.fill("https://example.com/pic.png")
+  await page.keyboard.press("Enter")
+  await expect(liveEditor(page).locator(".amby-image-wrap img")).toHaveCount(1)
+  await expect.poll(() => storedMarkdown(page, "Empty")).toBe("![](https://example.com/pic.png)")
+})
+
+test("Escape in the address field goes back to the list and leaves the typed text", async ({
+  page,
+}) => {
+  await page.keyboard.type("/url")
+  await page.keyboard.press("Enter")
+  const field = panel(page).locator(".amby-block-panel-url input")
+  await expect(field).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(field).toHaveCount(0)
+  await expect(panel(page)).toBeVisible()
+  await expect(liveEditor(page).locator("p")).toHaveText("/url")
+})
