@@ -113,6 +113,15 @@ export function resolveAssetSrcCandidates(editor: Editor | null, src: string): s
 }
 
 /**
+ * Candidates for the file named by an Obsidian embed (`![[song.mp3]]`). Amby keeps what it
+ * imports in `assets/`; a bare name is looked for there and next to the note.
+ */
+export function resolveEmbeddedFileCandidates(editor: Editor | null, name: string): string[] {
+  const addresses = /[\\/]/u.test(name) ? [name] : [name, `assets/${name}`]
+  return [...new Set(addresses.flatMap((src) => resolveAssetSrcCandidates(editor, src)))]
+}
+
+/**
  * URL for an absolute path the backend already validated (for example a
  * database asset). Only meaningful in the desktop runtime; `null` elsewhere.
  */

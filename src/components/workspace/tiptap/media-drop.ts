@@ -3,6 +3,7 @@ import { Plugin, PluginKey, Selection } from "@tiptap/pm/state"
 import type { EditorView } from "@tiptap/pm/view"
 
 import { getAssetContext } from "./asset-resolver"
+import { attachmentKind } from "./attachment-kind"
 import { importAsset, importAssetBytes, isTauri, type ImportedAsset } from "@/lib/storage"
 import { errorType, logger } from "@/lib/logger"
 
@@ -16,10 +17,10 @@ function extFromMime(mime: string): string {
   return "png"
 }
 
-function createImageNode(view: EditorView, src: string) {
+function createImageNode(view: EditorView, src: string, alt: string | null = null) {
   const node = view.state.schema.nodes.image
   if (!node) return null
-  return node.create({ src })
+  return node.create({ src, alt })
 }
 
 function inlineInsertionPos(view: EditorView, requestedPos: number): number | null {
@@ -52,8 +53,14 @@ export function insertImportedAssets(
   const insertionAnchor = insertPos
   for (const asset of assets) {
     if (signal?.aborted) return false
-    if (asset.kind === "image") {
-      const image = createImageNode(view, asset.relPath)
+    if (asset.kind === "image" || attachmentKind(asset.relPath)) {
+      // An audio, video or PDF file is written like an image, `![name](assets/file)`, and
+      // shown as a player or a card because of its extension.
+      const image = createImageNode(
+        view,
+        asset.relPath,
+        asset.kind === "image" ? null : asset.fileName,
+      )
       if (!image) continue
       tr.insert(insertPos, image)
     } else {

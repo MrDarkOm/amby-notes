@@ -2453,6 +2453,69 @@ body.amby-resizing-columns * {
   text-align: right;
 }
 
+/* ── Attachments (audio, video, PDF) ─────────────────────────────────────── */
+
+.amby-attachment-wrap {
+  display: block;
+  line-height: normal;
+}
+
+.amby-attachment {
+  display: block;
+  max-width: 100%;
+}
+
+.amby-attachment audio {
+  display: block;
+  width: min(100%, 480px);
+}
+
+.amby-attachment video {
+  display: block;
+  max-width: 100%;
+  max-height: min(70vh, 720px);
+  border-radius: 8px;
+}
+
+.amby-attachment--card {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  color: hsl(var(--foreground));
+}
+
+.amby-attachment-icon {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.amby-attachment-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.amby-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.amby-attachment-note {
+  font-size: 0.6875rem;
+  color: hsl(var(--muted-foreground));
+}
+
 .amby-image-container {
   position: relative;
   display: inline-block;

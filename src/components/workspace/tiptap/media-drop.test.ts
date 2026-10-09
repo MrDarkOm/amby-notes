@@ -74,18 +74,63 @@ describe("media insertion context", () => {
     expect(
       insertImportedAssets(view, 5, [
         { relPath: "assets/photo.png", fileName: "photo.png", kind: "image", absPath: "" },
-        { relPath: "assets/report.pdf", fileName: "report.pdf", kind: "file", absPath: "" },
+        { relPath: "assets/notes.zip", fileName: "notes.zip", kind: "file", absPath: "" },
         { relPath: "assets/diagram.webp", fileName: "diagram.webp", kind: "image", absPath: "" },
       ]),
     ).toBe(true)
 
     expect(operations).toEqual([
       ["image", 5],
-      ["file", 6, "report.pdf"],
-      ["mark", 6, 16, { href: "assets/report.pdf" }],
-      ["image", 16],
+      ["file", 6, "notes.zip"],
+      ["mark", 6, 15, { href: "assets/notes.zip" }],
+      ["image", 15],
     ])
     expect(dispatched).toEqual([tr])
+  })
+
+  it("inserts an audio, video or PDF file as an image node named after the file", () => {
+    const created: unknown[] = []
+    const tr = {
+      docChanged: false,
+      insert() {
+        this.docChanged = true
+        return this
+      },
+      mapping: { map: (pos: number) => pos },
+    }
+    const view = {
+      state: {
+        doc: {
+          content: { size: 50 },
+          resolve: () => ({ parent: { inlineContent: true } }),
+        },
+        tr,
+        schema: {
+          nodes: {
+            image: {
+              create: (attrs: unknown) => {
+                created.push(attrs)
+                return { nodeSize: 1 }
+              },
+            },
+          },
+          marks: {},
+        },
+      },
+      dispatch: () => undefined,
+    } as unknown as EditorView
+
+    insertImportedAssets(view, 5, [
+      { relPath: "assets/song.mp3", fileName: "song.mp3", kind: "file", absPath: "" },
+      { relPath: "assets/report.pdf", fileName: "report.pdf", kind: "file", absPath: "" },
+      { relPath: "assets/photo.png", fileName: "photo.png", kind: "image", absPath: "" },
+    ])
+
+    expect(created).toEqual([
+      { src: "assets/song.mp3", alt: "song.mp3" },
+      { src: "assets/report.pdf", alt: "report.pdf" },
+      { src: "assets/photo.png", alt: null },
+    ])
   })
 
   it("does not dispatch an imported batch after its session is aborted", () => {
@@ -135,15 +180,15 @@ describe("media insertion context", () => {
     expect(
       insertImportedAssets(view, state.doc.content.size, [
         {
-          relPath: "assets/report.pdf",
-          fileName: "report.pdf",
+          relPath: "assets/notes.zip",
+          fileName: "notes.zip",
           kind: "file",
           absPath: "",
         },
       ]),
     ).toBe(true)
-    expect(state.doc.textContent).toBe("beforereport.pdf")
-    expect(state.doc.firstChild?.lastChild?.marks[0]?.attrs.href).toBe("assets/report.pdf")
+    expect(state.doc.textContent).toBe("beforenotes.zip")
+    expect(state.doc.firstChild?.lastChild?.marks[0]?.attrs.href).toBe("assets/notes.zip")
   })
 
   it("inserts an ordered mixed batch at the document boundary", () => {

@@ -33,6 +33,7 @@ import { newBlockId } from "./amby-block-node"
 import { insertFootnote } from "./footnote-nodes"
 import { insertMathBlock } from "./math-block"
 import { importImageFromClipboard } from "./media-drop"
+import { attachmentKind } from "./attachment-kind"
 import { importAsset, pickAssetFile } from "@/lib/storage"
 import type { DatabaseViewChoice } from "@/components/workspace/database/database-view-picker-model"
 import { useDatabaseStore } from "@/components/workspace/database/database-store"
@@ -139,6 +140,21 @@ async function pickAndImportFile(
   const result = await importAsset(ctx.vaultPath, ctx.notePath, src)
   if (!result) return null
   return { relPath: result.relPath, fileName: result.fileName }
+}
+
+/**
+ * An audio, video or PDF file is written like an image, `![name](assets/file)`, and shown
+ * as a player or a card; any other file is a link to it.
+ */
+function fileContent(picked: { relPath: string; fileName: string }) {
+  if (attachmentKind(picked.relPath)) {
+    return { type: "image", attrs: { src: picked.relPath, alt: picked.fileName } }
+  }
+  return {
+    type: "text",
+    marks: [{ type: "link", attrs: { href: picked.relPath } }],
+    text: picked.fileName,
+  }
 }
 
 const COMMON: ReadonlyArray<BlockItemSurface> = ["plus", "slash", "turn-into"]
@@ -455,27 +471,14 @@ export const INLINE_INSERT_ITEMS: BlockInsertItem[] = [
     insertAfter: async (e, pos, ctx) => {
       const picked = await pickAndImportFile(ctx)
       if (!picked) return
-      insertAfterBlock(e, pos, {
-        type: "paragraph",
-        content: [
-          {
-            type: "text",
-            marks: [{ type: "link", attrs: { href: picked.relPath } }],
-            text: picked.fileName,
-          },
-        ],
-      })
+      insertAfterBlock(e, pos, { type: "paragraph", content: [fileContent(picked)] })
     },
     inline: async (e, ctx) => {
       const picked = await pickAndImportFile(ctx)
       if (!picked) return
       e.chain()
         .focus()
-        .insertContent({
-          type: "text",
-          marks: [{ type: "link", attrs: { href: picked.relPath } }],
-          text: picked.fileName,
-        } as never)
+        .insertContent(fileContent(picked) as never)
         .run()
     },
   },

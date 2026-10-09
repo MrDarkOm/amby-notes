@@ -1,6 +1,8 @@
 import * as React from "react"
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
 
+import { attachmentKind } from "./attachment-kind"
+import { AttachmentImageView } from "./attachment-view"
 import {
   getAssetResolverRevision,
   primeAssetConverter,
@@ -8,7 +10,13 @@ import {
   subscribeAssetResolver,
 } from "./asset-resolver"
 
-export function AmbyImageView({ node, selected, editor, updateAttributes }: NodeViewProps) {
+/** An image node shows a player or a card when its address is an audio, video or PDF file. */
+export function AmbyImageView(props: NodeViewProps) {
+  const kind = attachmentKind(props.node.attrs.src as string | null)
+  return kind ? <AttachmentImageView {...props} kind={kind} /> : <AmbyImageContent {...props} />
+}
+
+function AmbyImageContent({ node, selected, editor, updateAttributes }: NodeViewProps) {
   // The editor context and Tauri's file URL converter are registered just
   // after the first editor render. Subscribe so a relative source is retried
   // immediately instead of waiting for a selection/click to refresh it.

@@ -2106,6 +2106,11 @@ const ru = {
     defaultColumn: "Колонка {{n}}",
   },
   transclusion: { notFound: "Заметка не найдена:" },
+  attachment: {
+    pdf: "Документ PDF",
+    unplayable: "Не удалось воспроизвести файл",
+    remote: "Адрес вне хранилища: файл не загружается",
+  },
   palette: {
     clear: "Очистить",
     textColor: "Цвет текста {{color}}",
@@ -4591,6 +4596,11 @@ const en: typeof ru = {
     defaultColumn: "Column {{n}}",
   },
   transclusion: { notFound: "Note not found:" },
+  attachment: {
+    pdf: "PDF document",
+    unplayable: "This file cannot be played",
+    remote: "Address outside the vault: the file is not loaded",
+  },
   palette: {
     clear: "Clear",
     textColor: "Text color {{color}}",

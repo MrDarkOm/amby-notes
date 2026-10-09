@@ -4,13 +4,35 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
 
+import { attachmentKind } from "./attachment-kind"
+import { EmbeddedAttachment } from "./attachment-view"
 import { markdownToSafeReadonlyHtml, type SafeReadonlyHtml } from "./markdown"
 import { getTransclusionFetcher } from "./transclusion-context"
 
 type LoadState = "idle" | "loading" | "done" | "error"
 
-/** Renders an Obsidian-compatible transclusion as a read-only preview. */
-export function TransclusionView({ node, editor }: NodeViewProps) {
+/**
+ * Renders an Obsidian-compatible transclusion as a read-only preview. `![[file.mp3]]`
+ * embeds a file, not a note: it is played (or shown as a card) and no note is looked up.
+ */
+export function TransclusionView(props: NodeViewProps) {
+  const target = props.node.attrs.target as string
+  const kind = attachmentKind(target)
+  if (!kind) return <TransclusionNote {...props} />
+  return (
+    <NodeViewWrapper
+      as="div"
+      data-type="transclusion"
+      data-target={target}
+      contentEditable={false}
+      className="my-2 select-none"
+    >
+      <EmbeddedAttachment kind={kind} editor={props.editor ?? null} target={target} />
+    </NodeViewWrapper>
+  )
+}
+
+function TransclusionNote({ node, editor }: NodeViewProps) {
   const { t } = useTranslation()
   const target = node.attrs.target as string
   const [html, setHtml] = React.useState<SafeReadonlyHtml | null>(null)
