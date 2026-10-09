@@ -1286,8 +1286,58 @@
 }
 
 .amby-tiptap .ProseMirror .amby-math-block.is-selected {
-  outline: 1px solid var(--primary);
+  outline: 1px solid hsl(var(--primary));
   outline-offset: 2px;
+}
+
+.amby-tiptap .ProseMirror .amby-math-block:not(.is-writing) .amby-math-render {
+  cursor: pointer;
+}
+
+.amby-tiptap .ProseMirror .amby-math-block.is-empty .amby-math-render {
+  color: var(--placeholder-color);
+  font-size: 0.875em;
+}
+
+/* The TeX of a formula while it is being written: the formula above follows it. */
+.amby-tiptap .ProseMirror .amby-math-block.is-writing {
+  outline: 1px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+
+.amby-tiptap .ProseMirror .amby-math-block.is-writing > pre {
+  display: none;
+}
+
+.amby-tiptap .ProseMirror .amby-math-editor {
+  padding: 0.25rem 0.5rem 0.5rem;
+}
+
+.amby-tiptap .ProseMirror .amby-math-input {
+  display: block;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: var(--pre-bg);
+  color: var(--pre-fg);
+  padding: 0.5rem 0.75rem;
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 0.875em;
+  line-height: 1.6;
+  outline: none;
+}
+
+.amby-tiptap .ProseMirror .amby-math-hint,
+.amby-tiptap .ProseMirror .amby-math-error {
+  margin: 0.25rem 0 0;
+  font-size: 0.75em;
+  line-height: 1.4;
+  color: hsl(var(--muted-foreground));
+}
+
+.amby-tiptap .ProseMirror .amby-math-error {
+  color: hsl(var(--destructive));
 }
 
 /* An inline formula: drawn in place of its text until the cursor touches it. */
@@ -1327,7 +1377,7 @@
 
 .amby-tiptap .ProseMirror .amby-footnote-ref.ProseMirror-selectednode,
 .amby-tiptap .ProseMirror .amby-footnote-inline.ProseMirror-selectednode {
-  outline: 1px solid var(--primary);
+  outline: 1px solid hsl(var(--primary));
 }
 
 .amby-tiptap .ProseMirror .amby-footnote-def {

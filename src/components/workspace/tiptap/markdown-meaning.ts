@@ -89,3 +89,19 @@ export function markdownMeaning(markdown: string): MarkdownMeaning {
     hasDefinitions: Object.keys(env.references ?? {}).length > 0,
   }
 }
+
+/**
+ * Whether this reading takes the text for one paragraph that holds every line of it:
+ * no line of it starts another block, ends the paragraph or vanishes as a definition.
+ */
+export function isOneParagraph(markdown: string): boolean {
+  const env: { references?: Record<string, unknown> } = {}
+  const tokens = reader.parse(markdown, env)
+  return (
+    tokens.length === 3 &&
+    tokens[0].type === "paragraph_open" &&
+    tokens[1].type === "inline" &&
+    tokens[1].content === markdown &&
+    Object.keys(env.references ?? {}).length === 0
+  )
+}

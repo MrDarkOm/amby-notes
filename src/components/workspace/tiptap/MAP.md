@@ -61,6 +61,11 @@ row (`markdownSeparator`): change rows and columns through `table-commands.ts`, 
 keeps both. Anything drawn inside a node view outside its content (the code block bar)
 needs `ignoreMutation`, or a change to it makes the editor draw the node again.
 
+A display formula is made and changed through [math-block.ts](math-block.ts):
+`mathBlockValue` refuses TeX that would not read back as the same block, also as one
+paragraph for `markdown-meaning.ts`. The TeX being written is in the node view's text
+area, not in the document, until it is applied.
+
 Tests start with [markdown.test.ts](markdown.test.ts) and [fixtures/](fixtures/).
 The no-edit and edit invariants live in
 [markdown-block-source.test.ts](markdown-block-source.test.ts). Link titles ([markdown-link-title.test.ts](markdown-link-title.test.ts)), ordered-list

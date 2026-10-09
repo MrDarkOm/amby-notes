@@ -1648,6 +1648,14 @@ const ru = {
       plain: "текст",
       diagramError: "Схему не удалось нарисовать: проверьте её текст.",
     },
+    math: {
+      empty: "Пустая формула — нажмите, чтобы написать её",
+      label: "Текст формулы (TeX)",
+      placeholder: "Например: \\frac{a}{b}",
+      hint: "⌘↵ или щелчок вне блока — применить · Esc — отменить",
+      cannotWrite:
+        "Так формулу нельзя сохранить в файл: в ней есть пустая строка или строка, которая начинается с «-», «+», «#», «>» или цифры с точкой. Уберите пустую строку или перенесите знак в конец предыдущей строки.",
+    },
   },
   editorToolbar: {
     bold: "Полужирный",
@@ -2068,6 +2076,7 @@ const ru = {
     ordered: { title: "Нумерованный список", hint: "1. элемент" },
     task: { title: "Список задач", hint: "[ ] задача" },
     code: { title: "Блок кода", hint: "``` код" },
+    math: { title: "Формула", hint: "$$ TeX" },
     callout: { title: "Выноска", hint: "> [!NOTE]" },
     footnote: { title: "Сноска", hint: "[^1]" },
     database: { title: "Простая таблица", hint: "Без базы данных" },
@@ -4121,6 +4130,14 @@ const en: typeof ru = {
       plain: "text",
       diagramError: "The diagram could not be drawn: check its text.",
     },
+    math: {
+      empty: "Empty formula — click to write it",
+      label: "Formula text (TeX)",
+      placeholder: "For example: \\frac{a}{b}",
+      hint: "⌘↵ or a click outside — apply · Esc — cancel",
+      cannotWrite:
+        "The formula cannot be saved to the file like this: it has a blank line, or a line that starts with “-”, “+”, “#”, “>” or a number with a dot. Remove the blank line or move the sign to the end of the previous line.",
+    },
   },
   editorToolbar: {
     bold: "Bold",
@@ -4540,6 +4557,7 @@ const en: typeof ru = {
     ordered: { title: "Numbered list", hint: "1. item" },
     task: { title: "Task list", hint: "[ ] task" },
     code: { title: "Code block", hint: "``` code" },
+    math: { title: "Formula", hint: "$$ TeX" },
     callout: { title: "Callout", hint: "> [!NOTE]" },
     footnote: { title: "Footnote", hint: "[^1]" },
     database: { title: "Simple table", hint: "No database" },
