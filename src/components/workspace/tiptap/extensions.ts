@@ -17,6 +17,7 @@ import { MediaDrop } from "./media-drop"
 import { ColumnResize } from "./column-resize"
 import { MarkdownPaste } from "./markdown-paste"
 import { BlockShortcuts } from "./block-shortcuts"
+import { TableAlignment } from "./table-alignment"
 
 export interface BuildExtensionsOptions {
   placeholder: string
@@ -46,6 +47,7 @@ export function buildExtensions({ placeholder, callbacks }: BuildExtensionsOptio
     EmptyLineHint,
     WrapShortcuts,
     ColumnResize,
+    TableAlignment,
     BlockShortcuts,
     // Files and image addresses first; plain text written as Markdown after them.
     MediaDrop,

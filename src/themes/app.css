@@ -2701,6 +2701,23 @@ em-emoji-picker {
   border: 1px solid var(--table-cell-border);
 }
 
+/* The alignment of a column, as the delimiter row of the table says (`:---`, `:---:`,
+   `---:`). */
+.amby-tiptap .ProseMirror th.amby-cell-left,
+.amby-tiptap .ProseMirror td.amby-cell-left {
+  text-align: left;
+}
+
+.amby-tiptap .ProseMirror th.amby-cell-center,
+.amby-tiptap .ProseMirror td.amby-cell-center {
+  text-align: center;
+}
+
+.amby-tiptap .ProseMirror th.amby-cell-right,
+.amby-tiptap .ProseMirror td.amby-cell-right {
+  text-align: right;
+}
+
 .amby-tiptap .ProseMirror tr:nth-child(even) {
   background: var(--table-row-even);
 }

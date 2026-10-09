@@ -19,7 +19,7 @@ Read [Markdown compatibility](../../../../docs/markdown-compatibility.md) and
 | Inline toolbar / slash menu                  | [BubbleToolbar.tsx](BubbleToolbar.tsx), [slash-menu.ts](slash-menu.ts)                                                                                                                                                                                                                                                  |
 | Suggestions while typing `[[` and `#`        | [inline-suggest.ts](inline-suggest.ts), [InlineSuggestPanel.tsx](InlineSuggestPanel.tsx), [link-suggestions.ts](link-suggestions.ts) (sources registered by [the workspace hook](../orchestration/use-link-suggestion-sources.ts))                                                                                      |
 | Find in note (Live / Read)                   | [find-in-note.ts](find-in-note.ts), [FindBar.tsx](FindBar.tsx); Source uses CodeMirror search in [source-editor.tsx](../source-editor.tsx)                                                                                                                                                                              |
-| Tables: rows and columns                     | [table-commands.ts](table-commands.ts), [TableControls.tsx](TableControls.tsx), [markdown-table.ts](markdown-table.ts)                                                                                                                                                                                                  |
+| Tables: rows, columns, alignment             | [table-commands.ts](table-commands.ts), [TableControls.tsx](TableControls.tsx), [markdown-table.ts](markdown-table.ts), [table-alignment.ts](table-alignment.ts)                                                                                                                                                        |
 | Code block: colours, language, Copy          | [code-block.ts](code-block.ts)                                                                                                                                                                                                                                                                                          |
 | Formulas and diagrams                        | [markdown-math.ts](markdown-math.ts) (what an inline formula is, for parser, serializer and drawing), [math-inline.ts](math-inline.ts), [rendered-source.ts](rendered-source.ts) (lazy KaTeX / Mermaid), display math in [opaque-markdown-node.ts](opaque-markdown-node.ts), diagrams in [code-block.ts](code-block.ts) |
 | Footnotes                                    | [markdown-footnotes.ts](markdown-footnotes.ts) (reading), [footnote-nodes.ts](footnote-nodes.ts) (nodes, typing, insert), writing in [markdown-serializer.ts](markdown-serializer.ts)                                                                                                                                   |
@@ -57,14 +57,13 @@ never write a position into its DOM or a closure, ask `inlineTokenRange` / `getP
 when it is needed, and check the text before replacing it.
 
 A GFM table has exactly one header row and keeps column alignment in its delimiter
-row (`markdownSeparator`): change rows and columns through `table-commands.ts`, which
-keeps both. Anything drawn inside a node view outside its content (the code block bar)
+row (`markdownSeparator`): change rows, columns and alignment through `table-commands.ts`,
+which keeps both; cells are drawn aligned from that row only. Anything drawn inside a node view outside its content (the code block bar)
 needs `ignoreMutation`, or a change to it makes the editor draw the node again.
 
-A display formula is made and changed through [math-block.ts](math-block.ts):
-`mathBlockValue` refuses TeX that would not read back as the same block, also as one
-paragraph for `markdown-meaning.ts`. The TeX being written is in the node view's text
-area, not in the document, until it is applied.
+A display formula is made and changed through [math-block.ts](math-block.ts), which
+refuses TeX that would not read back as the same block. The TeX being written is in the
+node view's text area, not in the document, until it is applied.
 
 Tests start with [markdown.test.ts](markdown.test.ts) and [fixtures/](fixtures/).
 The no-edit and edit invariants live in

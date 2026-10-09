@@ -1,6 +1,6 @@
 import { getSchema, type Extensions } from "@tiptap/core"
 import StarterKit from "@tiptap/starter-kit"
-import { TableCell, TableHeader, TableRow } from "@tiptap/extension-table"
+import { TableRow } from "@tiptap/extension-table"
 import { TaskList } from "@tiptap/extension-task-list"
 import { TaskItem } from "@tiptap/extension-task-item"
 import { AmbyTextStyle } from "./marks/amby-text-style"
@@ -12,7 +12,7 @@ import { AmbyBlockNode } from "./amby-block-node"
 import { AmbyImage } from "./amby-image"
 import { TransclusionNode } from "./transclusion-node"
 import { OpaqueHtmlBlock } from "./opaque-html-node"
-import { MarkdownTable } from "./markdown-table"
+import { MarkdownTable, MarkdownTableCell, MarkdownTableHeader } from "./markdown-table"
 import { OpaqueMarkdownBlock } from "./opaque-markdown-node"
 import { Column, ColumnSet } from "./columns-node"
 import { AmbyCodeBlock } from "./code-block"
@@ -40,8 +40,8 @@ export const schemaExtensions: Extensions = [
   AmbyCodeBlock,
   MarkdownTable.configure({ resizable: true }),
   TableRow,
-  TableHeader,
-  TableCell,
+  MarkdownTableHeader,
+  MarkdownTableCell,
   TaskList,
   TaskItem.configure({ nested: true }),
   AmbyImage.configure({ inline: true }),

@@ -47,6 +47,26 @@ function alignments(table: PMNode, columnCount: number): Alignment[] {
   })
 }
 
+export type ColumnAlignment = "left" | "center" | "right" | "none"
+
+const DELIMITER: Record<ColumnAlignment, Alignment> = {
+  left: ":---",
+  center: ":---:",
+  right: "---:",
+  none: "---",
+}
+const NAMED: Record<Alignment, ColumnAlignment> = {
+  ":---": "left",
+  ":---:": "center",
+  "---:": "right",
+  "---": "none",
+}
+
+/** How every column of a table is aligned: what its delimiter row says, nothing else. */
+export function columnAlignments(table: PMNode): ColumnAlignment[] {
+  return alignments(table, table.firstChild?.childCount ?? 0).map((mark) => NAMED[mark])
+}
+
 /**
  * After rows or columns changed: the first row is the header, the others are not, and
  * the delimiter row has one cell per column. The table's own source text no longer
@@ -190,6 +210,38 @@ export function editTable(edit: TableEdit) {
     dispatch?.(tr.scrollIntoView())
     return true
   }
+}
+
+/**
+ * Aligns the column of the current cell (every column of a selection of cells) by
+ * rewriting the delimiter row. Like any change of the table, it drops the table's own
+ * source text, so the new delimiter row is what is written.
+ */
+export function alignColumn(to: ColumnAlignment) {
+  return (state: EditorState, dispatch?: Dispatch): boolean => {
+    if (!isInTable(state)) return false
+    const rect = selectedRect(state)
+    const aligned = alignments(rect.table, rect.map.width)
+    const next = aligned.map((mark, column) =>
+      column >= rect.left && column < rect.right ? DELIMITER[to] : mark,
+    )
+    // Already so: the table is not touched and keeps the text it was read from.
+    if (next.every((mark, column) => mark === aligned[column])) return true
+    const tr = state.tr
+    settle(tr, rect.tableStart - 1, next)
+    dispatch?.(tr)
+    return true
+  }
+}
+
+/** The alignment of the column of the current cell; null outside a table or when the selected columns differ. */
+export function alignmentAtSelection(state: EditorState): ColumnAlignment | null {
+  if (!isInTable(state)) return null
+  const rect = selectedRect(state)
+  const selected = columnAlignments(rect.table).slice(rect.left, rect.right)
+  return selected.length > 0 && selected.every((value) => value === selected[0])
+    ? selected[0]
+    : null
 }
 
 /** The position of the table the selection is in, or null. */

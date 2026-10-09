@@ -2,7 +2,18 @@ import { describe, expect, it } from "vitest"
 import { EditorState, TextSelection } from "@tiptap/pm/state"
 
 import { docToMarkdown, editorSchema, markdownToDoc, roundTripCheck } from "./markdown"
-import { appendToTable, editTable, tableAtSelection, type TableEdit } from "./table-commands"
+import { history, undo } from "@tiptap/pm/history"
+import { CellSelection } from "@tiptap/pm/tables"
+import {
+  alignColumn,
+  alignmentAtSelection,
+  appendToTable,
+  columnAlignments,
+  editTable,
+  tableAtSelection,
+  type ColumnAlignment,
+  type TableEdit,
+} from "./table-commands"
 
 const TABLE = [
   "| Name | Age | City |",
@@ -19,7 +30,7 @@ function inCell(markdown: string, text: string): EditorState {
     if (node.isText && node.text === text) at = pos
   })
   expect(at, `cell "${text}"`).toBeGreaterThan(-1)
-  const base = EditorState.create({ schema: editorSchema, doc })
+  const base = EditorState.create({ schema: editorSchema, doc, plugins: [history()] })
   return base.apply(base.tr.setSelection(TextSelection.create(doc, at)))
 }
 
@@ -147,5 +158,115 @@ describe("rows and columns of a Markdown table", () => {
     expect(tableAtSelection(row)).toBe(0)
     const column = run(inCell(TABLE, "Bob"), "columnAfter")
     expect(column.selection.$from.parent.textContent).toBe("")
+  })
+})
+
+describe("the alignment of a table column", () => {
+  const ODD = ["Before", "", "|Name|Age|City|", "|:-|-:|-|", "|Ann|30|Oslo|", "", "After"].join(
+    "\n",
+  )
+
+  function align(state: EditorState, to: ColumnAlignment): EditorState {
+    let next = state
+    expect(alignColumn(to)(state, (tr) => (next = state.apply(tr)))).toBe(true)
+    return next
+  }
+
+  it("is read from the delimiter row, whatever its spelling", () => {
+    const table = (markdown: string) => editorSchema.nodeFromJSON(markdownToDoc(markdown)).child(0)
+    expect(columnAlignments(table(TABLE))).toEqual(["left", "right", "center"])
+    expect(columnAlignments(table("|a|b|c|d|\n|:-|-:|:-:|-|\n|1|2|3|4|"))).toEqual([
+      "left",
+      "right",
+      "center",
+      "none",
+    ])
+    expect(columnAlignments(table("a | b\n---: | :---\n1 | 2"))).toEqual(["right", "left"])
+    expect(alignmentAtSelection(inCell(TABLE, "30"))).toBe("right")
+    expect(alignmentAtSelection(inCell(`${TABLE}\n\nText`, "Text"))).toBeNull()
+  })
+
+  it("rewrites the delimiter cell of the current column only", () => {
+    const cases: Array<[ColumnAlignment, string]> = [
+      ["left", "| :--- | :--- | :---: |"],
+      ["center", "| :--- | :---: | :---: |"],
+      ["none", "| :--- | --- | :---: |"],
+    ]
+    for (const [to, delimiter] of cases) {
+      const state = align(inCell(TABLE, "41"), to)
+      const lines = written(state).split("\n")
+      expect(lines[1], to).toBe(delimiter)
+      expect([lines[0], ...lines.slice(2)], to).toEqual([
+        "| Name | Age | City |",
+        "| Ann | 30 | Oslo |",
+        "| Bob | 41 | Rome |",
+      ])
+      expect(alignmentAtSelection(state), to).toBe(to)
+      expect(state.selection.$from.parent.textContent, to).toBe("41")
+      sound(state)
+      // The file says what the editor shows.
+      const reread = editorSchema.nodeFromJSON(markdownToDoc(written(state))).child(0)
+      expect(columnAlignments(reread), to).toEqual(columnAlignments(state.doc.child(0)))
+    }
+    expect(written(align(inCell(TABLE, "Name"), "right")).split("\n")[1]).toBe(
+      "| ---: | ---: | :---: |",
+    )
+  })
+
+  it("writes the change for a table that kept its own spelling, and only that table", () => {
+    const state = align(inCell(ODD, "Oslo"), "center")
+    expect(written(state)).toBe(
+      [
+        "Before",
+        "",
+        "| Name | Age | City |",
+        "| :--- | ---: | :---: |",
+        "| Ann | 30 | Oslo |",
+        "",
+        "After",
+      ].join("\n"),
+    )
+    sound(state)
+  })
+
+  it("does not touch a table that is already aligned so", () => {
+    const state = inCell(ODD, "30")
+    let dispatched = 0
+    expect(alignColumn("right")(state, () => dispatched++)).toBe(true)
+    expect(dispatched).toBe(0)
+    expect(written(state)).toBe(ODD)
+    expect(alignColumn("left")(inCell(ODD, "Before"))).toBe(false)
+  })
+
+  it("is one step: undo gives back the table as it was written", () => {
+    const state = align(inCell(ODD, "Ann"), "right")
+    expect(written(state)).not.toBe(ODD)
+    let undone = state
+    expect(undo(state, (tr) => (undone = state.apply(tr)))).toBe(true)
+    expect(written(undone)).toBe(ODD)
+    expect(undo(undone)).toBe(false)
+  })
+
+  it("aligns every column of a selection of cells", () => {
+    const base = inCell(TABLE, "Ann")
+    const cellAt = (text: string) => {
+      const at = inCell(TABLE, text).selection.$from
+      return at.before(at.depth - 1)
+    }
+    const selected = base.apply(
+      base.tr.setSelection(CellSelection.create(base.doc, cellAt("Ann"), cellAt("41"))),
+    )
+    expect(alignmentAtSelection(selected)).toBeNull()
+    const state = align(selected, "center")
+    expect(written(state).split("\n")[1]).toBe("| :---: | :---: | :---: |")
+    expect(alignmentAtSelection(state)).toBe("center")
+  })
+
+  it("stays with its column when columns are added and removed", () => {
+    const centered = align(inCell(TABLE, "Ann"), "center")
+    const wider = run(centered, "columnBefore")
+    expect(columnAlignments(wider.doc.child(0))).toEqual(["none", "center", "right", "center"])
+    const narrower = run(wider, "deleteColumn")
+    expect(columnAlignments(narrower.doc.child(0))).toEqual(["center", "right", "center"])
   })
 })

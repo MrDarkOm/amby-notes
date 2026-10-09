@@ -4,17 +4,31 @@ import * as React from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   BetweenHorizontalEnd,
   BetweenHorizontalStart,
   BetweenVerticalEnd,
   BetweenVerticalStart,
   Plus,
+  RemoveFormatting,
   Trash2,
 } from "lucide-react"
 import type { Editor } from "@tiptap/react"
 import type { EditorState, Transaction } from "@tiptap/pm/state"
 
-import { appendToTable, editTable, tableAtSelection, type TableEdit } from "./table-commands"
+import { cn } from "@/lib/utils"
+
+import {
+  alignColumn,
+  alignmentAtSelection,
+  appendToTable,
+  editTable,
+  tableAtSelection,
+  type ColumnAlignment,
+  type TableEdit,
+} from "./table-commands"
 
 interface Box {
   tablePos: number
@@ -22,7 +36,16 @@ interface Box {
   top: number
   right: number
   bottom: number
+  /** How the column of the current cell is aligned; null when the selected columns differ. */
+  align: ColumnAlignment | null
 }
+
+const ALIGNMENTS = [
+  { to: "left", label: "tableControls.alignLeft", icon: AlignLeft },
+  { to: "center", label: "tableControls.alignCenter", icon: AlignCenter },
+  { to: "right", label: "tableControls.alignRight", icon: AlignRight },
+  { to: "none", label: "tableControls.alignNone", icon: RemoveFormatting },
+] as const
 
 const TOOLBAR_HEIGHT = 30
 const EDGE = 16
@@ -37,7 +60,14 @@ function locate(editor: Editor): Box | null {
   if (!table) return null
   const rect = table.getBoundingClientRect()
   if (rect.width === 0 || rect.bottom < 0 || rect.top > window.innerHeight) return null
-  return { tablePos, left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+  return {
+    tablePos,
+    left: rect.left,
+    top: rect.top,
+    right: rect.right,
+    bottom: rect.bottom,
+    align: alignmentAtSelection(editor.state),
+  }
 }
 
 const same = (a: Box | null, b: Box | null) =>
@@ -48,7 +78,8 @@ const same = (a: Box | null, b: Box | null) =>
     a.left === b.left &&
     a.top === b.top &&
     a.right === b.right &&
-    a.bottom === b.bottom)
+    a.bottom === b.bottom &&
+    a.align === b.align)
 
 /**
  * Row and column controls of the table the cursor is in: a bar above it for the row and
@@ -149,6 +180,20 @@ export function TableControls({ editor }: { editor: Editor }) {
         >
           <BetweenVerticalEnd className="size-3.5" />
         </button>
+        <span className="mx-0.5 h-4 w-px bg-border" />
+        {ALIGNMENTS.map(({ to, label, icon: Icon }) => (
+          <button
+            key={to}
+            type="button"
+            data-table-align={to}
+            aria-pressed={box.align === to}
+            className={cn(button, box.align === to && "bg-accent text-foreground")}
+            title={t(label)}
+            onClick={() => apply(alignColumn(to))}
+          >
+            <Icon className="size-3.5" />
+          </button>
+        ))}
         <span className="mx-0.5 h-4 w-px bg-border" />
         <button
           type="button"
