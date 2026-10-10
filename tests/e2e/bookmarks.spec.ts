@@ -60,8 +60,10 @@ test("a titled link alone in a paragraph is a card, and the note is not changed"
 test("typing in a card keeps it a card and changes only that line", async ({ page }) => {
   await seedVault(page, { Links: NOTE })
   await openInLive(page, "Links")
-  await liveEditor(page).getByRole("link", { name: "Example page" }).click()
+  // A click on a link opens it, so the cursor goes into the card from the line above.
+  await liveEditor(page).getByText("Intro line.").click()
   await expect(liveEditor(page)).toBeFocused()
+  await page.keyboard.press("ArrowDown")
   // The cursor is in the link before the keys go to it (a busy machine may be late).
   await expect
     .poll(() =>
@@ -134,7 +136,7 @@ test("the card's Open button hands the address of its own link to the browser", 
   expect(await storedMarkdown(page, "Links")).toBe(NOTE)
 })
 
-test("Cmd or Ctrl and a click on a card, its link or its hint opens the address", async ({
+test("a click on a link, and Cmd or Ctrl and a click anywhere on a card, opens the address", async ({
   page,
 }) => {
   await seedVault(page, { Links: NOTE })
@@ -148,12 +150,28 @@ test("Cmd or Ctrl and a click on a card, its link or its hint opens the address"
     expect(popup.url()).toBe("https://example.com/page")
     await popup.close()
   }
-  // A plain click only puts the cursor in the link: nothing opens, the note is the same.
+  // A plain click on the link opens it too; a plain click on the card beside it does not.
+  const [plain] = await Promise.all([
+    page.waitForEvent("popup"),
+    card.getByRole("link", { name: "Example page" }).click(),
+  ])
+  expect(plain.url()).toBe("https://example.com/page")
+  await plain.close()
   let opened = false
   page.on("popup", () => (opened = true))
-  await card.getByRole("link", { name: "Example page" }).click()
+  await card.click({ position: { x: 4, y: 4 } })
   await page.waitForTimeout(300)
   expect(opened).toBe(false)
   await waitForAutosaveWindow(page)
   expect(await storedMarkdown(page, "Links")).toBe(NOTE)
+})
+
+test("links show a pointer under the mouse", async ({ page }) => {
+  await seedVault(page, { Links: NOTE })
+  await openInLive(page, "Links")
+  const cursors = await liveEditor(page)
+    .locator("a")
+    .evaluateAll((links) => links.map((link) => getComputedStyle(link).cursor))
+  expect(cursors.length).toBeGreaterThan(2)
+  expect(new Set(cursors)).toEqual(new Set(["pointer"]))
 })

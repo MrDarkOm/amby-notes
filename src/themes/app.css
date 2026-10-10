@@ -1129,6 +1129,8 @@
   color: var(--link-color);
   text-decoration: underline;
   text-underline-offset: 2px;
+  /* A click on a link opens it (see link-open.ts). */
+  cursor: pointer;
 }
 
 .amby-tiptap .ProseMirror a:hover {
