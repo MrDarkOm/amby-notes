@@ -2083,7 +2083,8 @@ body.amby-resizing-columns * {
 }
 
 .amby-block-row:hover,
-.amby-block-row.is-active {
+.amby-block-row.is-active,
+.amby-block-row[data-kbd-active="true"] {
   background: var(--panel-row-hover-bg);
   color: var(--panel-row-hover-fg);
 }
@@ -2097,7 +2098,8 @@ body.amby-resizing-columns * {
   color: #f87171;
 }
 
-.amby-block-row.is-danger:hover {
+.amby-block-row.is-danger:hover,
+.amby-block-row.is-danger[data-kbd-active="true"] {
   background: rgba(239, 68, 68, 0.12);
   color: #ef4444;
 }

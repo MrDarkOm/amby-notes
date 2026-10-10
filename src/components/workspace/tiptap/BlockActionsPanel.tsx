@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 
 import { getTurnIntoItems, type BlockInsertItem } from "./block-insert-items"
+import { markActiveRow, pointerReallyMoved, revealRow, stepIndex } from "./menu-keyboard"
 import { convertBlockToParagraph, convertBlockWrapper } from "./block-conversion"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
 import { importAsset, pickAssetFile } from "@/lib/storage"
@@ -142,11 +143,25 @@ export function BlockActionsPanel({
   const turnIntoBtnRef = React.useRef<HTMLButtonElement>(null)
   const searchRef = React.useRef<HTMLInputElement>(null)
   const panelRef = React.useRef<HTMLDivElement>(null)
+  const turnIntoMenuRef = React.useRef<HTMLDivElement>(null)
+  const pointerRef = React.useRef<{ x: number; y: number } | null>(null)
+  const [active, setActive] = React.useState(0)
+  const [subActive, setSubActive] = React.useState(0)
   const placementStyle = useSmartPlacement(anchorRect, panelRef)
 
+  // The grip that opened the panel hands the focus back to the note a moment later:
+  // the search field takes it again, so that typing narrows the rows.
   React.useEffect(() => {
     searchRef.current?.focus()
+    const frame = requestAnimationFrame(() => searchRef.current?.focus())
+    return () => cancelAnimationFrame(frame)
   }, [])
+
+  // What is typed narrows the rows: the choice starts again at the first of them.
+  React.useEffect(() => {
+    setActive(0)
+    setSubActive(0)
+  }, [query])
 
   const matches = React.useCallback(
     (s: string) => {
@@ -158,6 +173,7 @@ export function BlockActionsPanel({
   )
 
   const turnIntoItems = React.useMemo(() => getTurnIntoItems(), [])
+  const shownTurnIntoItems = turnIntoItems.filter((i) => matches(t(`blockItems.${i.id}.title`)))
   const canSplitParagraph = React.useMemo(() => {
     const paragraph = nodeType === "paragraph" ? editor.state.doc.nodeAt(nodePos) : null
     if (!paragraph) return false
@@ -245,6 +261,99 @@ export function BlockActionsPanel({
     onClose()
   }
 
+  // The rows the arrow keys move over: every action button of the panel, in the order shown.
+  const panelRows = () =>
+    Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>("button.amby-block-row") ?? [])
+  const submenuRows = () =>
+    Array.from(
+      turnIntoMenuRef.current?.querySelectorAll<HTMLButtonElement>("button.amby-block-row") ?? [],
+    )
+
+  // Shows the row the keyboard is on. Runs after every render: rows come and go as the
+  // query changes, and the marking is only an attribute on them.
+  React.useLayoutEffect(() => {
+    const rows = panelRows()
+    markActiveRow(rows, turnIntoOpen ? -1 : Math.min(active, rows.length - 1))
+    markActiveRow(
+      submenuRows(),
+      turnIntoOpen ? Math.min(subActive, shownTurnIntoItems.length - 1) : -1,
+    )
+  })
+
+  function closeTurnInto() {
+    setTurnIntoOpen(false)
+  }
+
+  function onMenuKey(event: KeyboardEvent) {
+    const key = event.key
+    if (event.isComposing) return
+    const handled = () => {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    if (turnIntoOpen) {
+      const count = shownTurnIntoItems.length
+      if (key === "ArrowDown" || key === "ArrowUp") {
+        handled()
+        const next = stepIndex(subActive, count, key === "ArrowDown" ? 1 : -1)
+        setSubActive(next)
+        revealRow(submenuRows()[next])
+      } else if (key === "Enter") {
+        handled()
+        const item = shownTurnIntoItems[Math.min(subActive, count - 1)]
+        if (item) chooseTurnInto(item)
+      } else if (key === "ArrowLeft" || key === "Escape") {
+        handled()
+        closeTurnInto()
+      }
+      return
+    }
+    const rows = panelRows()
+    if (key === "ArrowDown" || key === "ArrowUp") {
+      handled()
+      const next = stepIndex(active, rows.length, key === "ArrowDown" ? 1 : -1)
+      setActive(next)
+      revealRow(rows[next])
+    } else if (key === "Home" || key === "End") {
+      if (query) return
+      handled()
+      const next = key === "Home" ? 0 : rows.length - 1
+      setActive(next)
+      revealRow(rows[next])
+    } else if (key === "Enter") {
+      handled()
+      rows[Math.min(active, rows.length - 1)]?.click()
+      if (rows[Math.min(active, rows.length - 1)] === turnIntoBtnRef.current) setSubActive(0)
+    } else if (key === "ArrowRight") {
+      if (rows[Math.min(active, rows.length - 1)] === turnIntoBtnRef.current) {
+        handled()
+        if (!turnIntoOpen) turnIntoBtnRef.current?.click()
+        setSubActive(0)
+      }
+    } else if (key === "Escape") {
+      handled()
+      onClose()
+    }
+  }
+
+  // The keys belong to the menu while it is open, wherever the focus is (the search field,
+  // or the note when the focus went back to it); another text field keeps its own keys.
+  const onMenuKeyRef = React.useRef(onMenuKey)
+  onMenuKeyRef.current = onMenuKey
+  React.useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      const target = event.target
+      const ours =
+        target === searchRef.current ||
+        target === document.body ||
+        (target instanceof Node && editor.view.dom.contains(target))
+      if (!ours || event.metaKey || event.ctrlKey || event.altKey) return
+      onMenuKeyRef.current(event)
+    }
+    document.addEventListener("keydown", listener, true)
+    return () => document.removeEventListener("keydown", listener, true)
+  }, [editor])
+
   const isListItem = nodeType === "listItem" || nodeType === "taskItem"
   const hasContext =
     nodeType === "callout" ||
@@ -262,6 +371,14 @@ export function BlockActionsPanel({
       transition={motionTransitions.enter}
       style={placementStyle}
       onMouseDown={(e) => e.preventDefault()}
+      onMouseMove={(event) => {
+        // The row under a pointer that really moved is the choice; one that arrived under
+        // a resting pointer because the list scrolled is not.
+        if (!pointerReallyMoved(pointerRef, event) || !(event.target instanceof Element)) return
+        const row = event.target.closest("button.amby-block-row")
+        const index = panelRows().findIndex((candidate) => candidate === row)
+        if (index >= 0) setActive(index)
+      }}
     >
       <div className="amby-block-panel-header">
         <input
@@ -394,8 +511,10 @@ export function BlockActionsPanel({
       {turnIntoOpen && turnIntoAnchor && (
         <TurnIntoMenu
           anchorRect={turnIntoAnchor}
-          items={turnIntoItems.filter((i) => matches(t(`blockItems.${i.id}.title`)))}
+          items={shownTurnIntoItems}
           onChoose={chooseTurnInto}
+          containerRef={turnIntoMenuRef}
+          onPointerOver={setSubActive}
         />
       )}
     </motion.div>
@@ -408,20 +527,31 @@ function TurnIntoMenu({
   anchorRect,
   items,
   onChoose,
+  containerRef,
+  onPointerOver,
 }: {
   anchorRect: AnchorRect
   items: BlockInsertItem[]
   onChoose: (item: BlockInsertItem) => void
+  /** Owned by the panel, which marks and scrolls the rows as the arrow keys move. */
+  containerRef: React.RefObject<HTMLDivElement | null>
+  onPointerOver: (index: number) => void
 }) {
   const { t } = useTranslation()
-  const ref = React.useRef<HTMLDivElement>(null)
-  const style = useSmartPlacement(anchorRect, ref)
+  const style = useSmartPlacement(anchorRect, containerRef)
+  const pointerRef = React.useRef<{ x: number; y: number } | null>(null)
   return createPortal(
     <div
-      ref={ref}
+      ref={containerRef}
       className="amby-turn-into-menu"
       style={style}
       onMouseDown={(e) => e.preventDefault()}
+      onMouseMove={(event) => {
+        if (!pointerReallyMoved(pointerRef, event) || !(event.target instanceof Element)) return
+        const rows = Array.from(event.currentTarget.querySelectorAll("button.amby-block-row"))
+        const index = rows.indexOf(event.target.closest("button.amby-block-row") as Element)
+        if (index >= 0) onPointerOver(index)
+      }}
     >
       {items.map((item) => (
         <MotionRowButton

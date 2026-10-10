@@ -16,6 +16,7 @@ import {
 import { DatabaseViewPicker } from "@/components/workspace/database/database-view-picker"
 import { SLASH_MENU_KEY_EVENT, type SlashMenuKey } from "./slash-menu"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
+import { pointerReallyMoved, revealRow } from "./menu-keyboard"
 import { bookmarkParagraph, parseBookmarkAddress } from "./bookmark-card"
 import { isTauri } from "@/lib/storage"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
@@ -62,7 +63,8 @@ export function BlockInsertPanel({
   const searchRef = React.useRef<HTMLInputElement>(null)
   const urlRef = React.useRef<HTMLInputElement>(null)
   const panelRef = React.useRef<HTMLDivElement>(null)
-  const activeRowRef = React.useRef<HTMLButtonElement>(null)
+  const bodyRef = React.useRef<HTMLDivElement>(null)
+  const pointerRef = React.useRef<{ x: number; y: number } | null>(null)
   const placementStyle = useSmartPlacement(anchorRect, panelRef)
   const { t } = useTranslation()
   const tauri = isTauri()
@@ -104,12 +106,13 @@ export function BlockInsertPanel({
   }, [query, mode])
 
   // The arrows can move the choice below the fold of the list. Hovering must not
-  // scroll it: the row would slide from under the pointer just before the click.
+  // scroll it: the row would slide from under the pointer just before the click. The row
+  // is found in the list itself: a ref on the motion button stayed on the first row.
   const movedByKeyRef = React.useRef(false)
   React.useEffect(() => {
     if (!movedByKeyRef.current) return
     movedByKeyRef.current = false
-    activeRowRef.current?.scrollIntoView?.({ block: "nearest" })
+    revealRow(bodyRef.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]'))
   }, [active])
 
   const maybeDeleteSlashRange = React.useCallback(() => {
@@ -274,6 +277,7 @@ export function BlockInsertPanel({
             </div>
           )}
           <div
+            ref={bodyRef}
             className="amby-block-panel-body"
             role="listbox"
             onKeyDown={onListKeyDown}
@@ -293,7 +297,6 @@ export function BlockInsertPanel({
                       </div>
                     )}
                     <motion.button
-                      ref={active === idx ? activeRowRef : undefined}
                       type="button"
                       role="option"
                       aria-selected={active === idx}
@@ -303,7 +306,9 @@ export function BlockInsertPanel({
                         (active === idx ? " is-active" : "") +
                         (disabled ? " is-disabled" : "")
                       }
-                      onMouseEnter={() => setActive(idx)}
+                      onMouseMove={(event) => {
+                        if (pointerReallyMoved(pointerRef, event)) setActive(idx)
+                      }}
                       whileHover={disabled ? undefined : { x: 2 }}
                       whileTap={disabled ? undefined : { scale: 0.99 }}
                       transition={motionTransitions.fast}
