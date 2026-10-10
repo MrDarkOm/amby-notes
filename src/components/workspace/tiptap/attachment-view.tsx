@@ -50,7 +50,6 @@ export function AttachmentPlayer({ kind, candidates, name, remote, open }: Attac
 
   if (playable && !failed) {
     const common = {
-      key: source,
       src: source,
       controls: true,
       preload: "metadata" as const,
@@ -59,7 +58,12 @@ export function AttachmentPlayer({ kind, candidates, name, remote, open }: Attac
     }
     return (
       <span className={`amby-attachment amby-attachment--${kind}`} data-attachment={kind}>
-        {kind === "audio" ? <audio {...common} /> : <video {...common} playsInline />}
+        {/* A new address is a new player: the element is rebuilt, not reused. */}
+        {kind === "audio" ? (
+          <audio key={source} {...common} />
+        ) : (
+          <video key={source} {...common} playsInline />
+        )}
       </span>
     )
   }

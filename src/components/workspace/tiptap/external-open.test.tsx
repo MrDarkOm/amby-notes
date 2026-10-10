@@ -62,6 +62,22 @@ describe("the Open button of an attachment card", () => {
   })
 })
 
+describe("a player", () => {
+  it("is drawn without React warnings, and a new address rebuilds it", () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { container, rerender } = render(
+      <AttachmentPlayer kind="audio" candidates={["a.mp3"]} name="a.mp3" />,
+    )
+    const first = container.querySelector("audio")
+    rerender(<AttachmentPlayer kind="audio" candidates={["b.mp3"]} name="a.mp3" />)
+    rerender(<AttachmentPlayer kind="video" candidates={["c.mp4"]} name="c.mp4" />)
+    expect(container.querySelector("video")?.getAttribute("src")).toBe("c.mp4")
+    expect(first?.isConnected).toBe(false)
+    expect(errors).not.toHaveBeenCalled()
+    errors.mockRestore()
+  })
+})
+
 describe("a refusal", () => {
   it("is explained to the person in words, not shown as a code or a path", async () => {
     calls.openAttachment.mockRejectedValue(new Error("AttachmentTypeNotAllowed"))
