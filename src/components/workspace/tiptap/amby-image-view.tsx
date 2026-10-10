@@ -1,7 +1,7 @@
 import * as React from "react"
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
 
-import { attachmentKind } from "./attachment-kind"
+import { attachmentKind, localFileKind } from "./attachment-kind"
 import { AttachmentImageView } from "./attachment-view"
 import {
   getAssetResolverRevision,
@@ -12,7 +12,8 @@ import {
 
 /** An image node shows a player or a card when its address is an audio, video or PDF file. */
 export function AmbyImageView(props: NodeViewProps) {
-  const kind = attachmentKind(props.node.attrs.src as string | null)
+  const src = props.node.attrs.src as string | null
+  const kind = attachmentKind(src) ?? localFileKind(src)
   return kind ? <AttachmentImageView {...props} kind={kind} /> : <AmbyImageContent {...props} />
 }
 

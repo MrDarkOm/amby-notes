@@ -25,6 +25,8 @@ describe("attachments in Markdown", () => {
     '![song](assets/song.mp3 "Live, 1999")',
     "Listen: ![song.mp3](assets/song.mp3) now.\n",
     "- ![song.mp3](assets/song.mp3)\n- ![report.pdf](assets/report.pdf)\n",
+    "![tool.pdf.command](assets/tool.pdf.command)",
+    "![archive.zip](assets/archive.zip)",
     "![[report.pdf]]",
     "![[song.mp3]]\n",
     "![[report.pdf#page=3]]",

@@ -225,7 +225,6 @@ function cards(doc: PMNode): DecorationSet {
       decorations.push(
         Decoration.node(pos, pos + node.nodeSize, {
           class: "amby-bookmark",
-          "data-bookmark-host": bookmark.host,
           "data-bookmark-hint": bookmark.hint,
         }),
         Decoration.widget(pos + node.nodeSize - 1, actionsOf, {

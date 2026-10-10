@@ -42,7 +42,8 @@ test("a titled link alone in a paragraph is a card, and the note is not changed"
   const cards = editor.locator("p.amby-bookmark")
   await expect(cards).toHaveCount(1)
   await expect(cards.getByRole("link", { name: "Example page" })).toBeVisible()
-  expect(await shown(page, "p.amby-bookmark", "::before")).toBe('"example.com"')
+  // The site name is not repeated above the link: only the hint under it.
+  expect(await shown(page, "p.amby-bookmark", "::before")).toBe("none")
   expect(await shown(page, "p.amby-bookmark", "::after")).toBe('"A short description"')
 
   // Links without a hint, in a list or in a line of text stay links.
@@ -61,6 +62,15 @@ test("typing in a card keeps it a card and changes only that line", async ({ pag
   await openInLive(page, "Links")
   await liveEditor(page).getByRole("link", { name: "Example page" }).click()
   await expect(liveEditor(page)).toBeFocused()
+  // The cursor is in the link before the keys go to it (a busy machine may be late).
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const node = getSelection()?.anchorNode
+        return Boolean((node instanceof Element ? node : node?.parentElement)?.closest("a"))
+      }),
+    )
+    .toBe(true)
   await page.keyboard.press("Meta+ArrowRight")
   await page.keyboard.type("!")
   await expect
@@ -120,6 +130,30 @@ test("the card's Open button hands the address of its own link to the browser", 
   expect(popup.url()).toBe("https://example.com/page")
   await popup.close()
   // Pressing the button is not an edit.
+  await waitForAutosaveWindow(page)
+  expect(await storedMarkdown(page, "Links")).toBe(NOTE)
+})
+
+test("Cmd or Ctrl and a click on a card, its link or its hint opens the address", async ({
+  page,
+}) => {
+  await seedVault(page, { Links: NOTE })
+  await openInLive(page, "Links")
+  const card = liveEditor(page).locator("p.amby-bookmark")
+  for (const target of [card.getByRole("link", { name: "Example page" }), card]) {
+    const [popup] = await Promise.all([
+      page.waitForEvent("popup"),
+      target.click({ modifiers: ["ControlOrMeta"], position: { x: 20, y: 10 } }),
+    ])
+    expect(popup.url()).toBe("https://example.com/page")
+    await popup.close()
+  }
+  // A plain click only puts the cursor in the link: nothing opens, the note is the same.
+  let opened = false
+  page.on("popup", () => (opened = true))
+  await card.getByRole("link", { name: "Example page" }).click()
+  await page.waitForTimeout(300)
+  expect(opened).toBe(false)
   await waitForAutosaveWindow(page)
   expect(await storedMarkdown(page, "Links")).toBe(NOTE)
 })

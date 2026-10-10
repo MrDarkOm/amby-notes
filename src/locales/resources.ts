@@ -2130,6 +2130,7 @@ const ru = {
   },
   attachment: {
     pdf: "Документ PDF",
+    file: "Файл",
     unplayable: "Не удалось воспроизвести файл",
     remote: "Адрес вне хранилища: файл не загружается",
   },
@@ -4642,6 +4643,7 @@ const en: typeof ru = {
   },
   attachment: {
     pdf: "PDF document",
+    file: "File",
     unplayable: "This file cannot be played",
     remote: "Address outside the vault: the file is not loaded",
   },

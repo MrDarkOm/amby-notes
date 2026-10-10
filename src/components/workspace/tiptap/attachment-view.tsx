@@ -1,10 +1,10 @@
 import * as React from "react"
 import type { Editor } from "@tiptap/core"
 import { NodeViewWrapper, type NodeViewProps } from "@tiptap/react"
-import { FileMusic, FileText, FileVideo } from "lucide-react"
+import { File as FileIcon, FileMusic, FileText, FileVideo } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-import { isRemoteAddress, type AttachmentKind } from "./attachment-kind"
+import { isRemoteAddress, type CardKind } from "./attachment-kind"
 import { isTauri } from "@/lib/storage"
 import { openAttachmentWithSystem } from "./external-open"
 import {
@@ -16,10 +16,40 @@ import {
   subscribeAssetResolver,
 } from "./asset-resolver"
 
-const ICONS = { audio: FileMusic, video: FileVideo, pdf: FileText } as const
+const ICONS = { audio: FileMusic, video: FileVideo, pdf: FileText, file: FileIcon } as const
+
+// WebKit draws the first frame of a video as its poster only when asked to start there.
+const FIRST_FRAME = "#t=0.001"
+
+// The element that holds the node view of an image is draggable. A press and a move on a
+// player's controls (the scrubber, the volume) therefore start a drag of the whole node, and
+// that drag takes the mouse: the scrubber stays glued to it until a click elsewhere. The
+// controls keep their presses to themselves, so the only sign is the drag itself: a drag
+// whose source holds a player is cancelled before the editor sees it.
+const PLAYER_SELECTOR = '[data-attachment="audio"], [data-attachment="video"]'
+let dragGuardInstalled = false
+
+function installDragGuard() {
+  if (dragGuardInstalled || typeof document === "undefined") return
+  dragGuardInstalled = true
+  document.addEventListener(
+    "dragstart",
+    (event) => {
+      const source = event.target
+      if (!(source instanceof Element) || !source.querySelector(PLAYER_SELECTOR)) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    },
+    true,
+  )
+}
+
+function keepDragsOffPlayer(element: HTMLElement | null) {
+  if (element) installDragGuard()
+}
 
 interface AttachmentPlayerProps {
-  kind: AttachmentKind
+  kind: CardKind
   /** Addresses to try in turn; the first one the webview can load is used. */
   candidates: string[]
   /** The file name shown on the card and used to label the player. */
@@ -57,12 +87,16 @@ export function AttachmentPlayer({ kind, candidates, name, remote, open }: Attac
       onError,
     }
     return (
-      <span className={`amby-attachment amby-attachment--${kind}`} data-attachment={kind}>
+      <span
+        ref={keepDragsOffPlayer}
+        className={`amby-attachment amby-attachment--${kind}`}
+        data-attachment={kind}
+      >
         {/* A new address is a new player: the element is rebuilt, not reused. */}
         {kind === "audio" ? (
           <audio key={source} {...common} />
         ) : (
-          <video key={source} {...common} playsInline />
+          <video key={source} {...common} src={`${source}${FIRST_FRAME}`} playsInline />
         )}
       </span>
     )
@@ -73,11 +107,23 @@ export function AttachmentPlayer({ kind, candidates, name, remote, open }: Attac
     ? t("attachment.remote")
     : kind === "pdf"
       ? t("attachment.pdf")
-      : playable
-        ? t("attachment.unplayable")
-        : null
+      : kind === "file"
+        ? t("attachment.file")
+        : playable
+          ? t("attachment.unplayable")
+          : null
   return (
-    <span className="amby-attachment amby-attachment--card" data-attachment={kind}>
+    <span
+      className="amby-attachment amby-attachment--card"
+      data-attachment={kind}
+      onClick={(event) => {
+        // Cmd or Ctrl and a click anywhere on the card opens the file, as the button does.
+        if (!(event.metaKey || event.ctrlKey) || !open || remote) return
+        event.preventDefault()
+        event.stopPropagation()
+        void openAttachmentWithSystem(open.notePath, open.address)
+      }}
+    >
       <Icon className="amby-attachment-icon" aria-hidden />
       <span className="amby-attachment-text">
         <span className="amby-attachment-name">{name}</span>
@@ -137,7 +183,7 @@ export function AttachmentImageView({
   node,
   editor,
   selected,
-}: NodeViewProps & { kind: AttachmentKind }) {
+}: NodeViewProps & { kind: CardKind }) {
   useAssetResolverRevision(editor ?? null)
   const src = node.attrs.src as string
   const remote = isRemoteAddress(src)
@@ -166,7 +212,7 @@ export function EmbeddedAttachment({
   editor,
   target,
 }: {
-  kind: AttachmentKind
+  kind: CardKind
   editor: Editor | null
   target: string
 }) {

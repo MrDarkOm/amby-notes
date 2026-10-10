@@ -29,6 +29,10 @@ const NOTE = [
   "",
   "[plain.pdf](assets/plain.pdf)",
   "",
+  "![tool.pdf.command](assets/tool.pdf.command)",
+  "",
+  "![photo](assets/photo.png)",
+  "",
   "Closing line.",
   "",
 ].join("\n")
@@ -102,6 +106,12 @@ test("audio is played in place, a PDF is a card, and the note keeps its bytes", 
   await expect(remote).toContainText(text.remote)
   expect(outside).toEqual([])
 
+  // Any other file in the vault is a card as well, not a broken picture; whether it may be
+  // opened is decided when the button is pressed (and `.command` never is).
+  const other = editor.locator('[data-attachment="file"]', { hasText: "tool.pdf.command" })
+  await expect(other).toContainText(text.file)
+  await expect(editor.locator(".amby-image-wrap img")).toHaveCount(1)
+
   // A plain link stays a link.
   await expect(editor.getByRole("link", { name: "plain.pdf" })).toBeVisible()
   await expect(editor.locator('[data-attachment="pdf"]', { hasText: "plain.pdf" })).toHaveCount(0)
@@ -111,6 +121,35 @@ test("audio is played in place, a PDF is a card, and the note keeps its bytes", 
   await waitForAutosaveWindow(page)
   expect(await storedMarkdown(page, "Files")).toBe(NOTE)
   await expectResponsive(page)
+})
+
+test("a drag that starts on a player's controls is not a drag of the node", async ({ page }) => {
+  await serveFiles(page, [])
+  await seedVault(page, { Files: NOTE })
+  await openInLive(page, "Files")
+  const audio = liveEditor(page).locator("audio").first()
+  await expect(audio).toBeVisible()
+  // The node view's element is draggable, so a press and a move on the controls started a
+  // drag of the whole node, which took the mouse and left the scrubber glued to it.
+  await liveEditor(page).evaluate((editor) => {
+    const seen: string[] = []
+    ;(window as unknown as { __seen: string[] }).__seen = seen
+    for (const type of ["mousedown", "dragstart"]) {
+      editor.addEventListener(type, () => seen.push(type))
+    }
+  })
+  const box = (await audio.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 4 })
+  await page.mouse.up()
+  const seen = () => page.evaluate(() => (window as unknown as { __seen: string[] }).__seen)
+  expect((await seen()).filter((type) => type === "dragstart")).toEqual([])
+  // A press beside the player still reaches the editor.
+  await liveEditor(page).getByText("Intro line.").click()
+  expect(await seen()).toContain("mousedown")
+  await waitForAutosaveWindow(page)
+  expect(await storedMarkdown(page, "Files")).toBe(NOTE)
 })
 
 test("typing next to attachments rewrites only the edited paragraph", async ({ page }) => {

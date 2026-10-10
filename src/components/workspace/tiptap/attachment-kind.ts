@@ -38,3 +38,39 @@ export function attachmentKind(address: string | null | undefined): AttachmentKi
 export function isRemoteAddress(address: string): boolean {
   return /^[a-z][a-z0-9+.-]+:/iu.test(address) || address.startsWith("//")
 }
+
+/** What a card can be drawn for: the three kinds above, or any other local file. */
+export type CardKind = AttachmentKind | "file"
+
+const IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "jpe",
+  "jfif",
+  "gif",
+  "webp",
+  "bmp",
+  "avif",
+  "apng",
+  "svg",
+  "ico",
+  "tif",
+  "tiff",
+  "heic",
+  "heif",
+])
+
+/**
+ * `![name](assets/file.zip)`: a file inside the vault that is not an image. It is drawn as
+ * a card, so that it is seen and can be opened (or refused, if it could run something),
+ * instead of as a broken picture. A web address and a path without an extension stay images.
+ */
+export function localFileKind(address: string | null | undefined): "file" | null {
+  if (!address || isRemoteAddress(address)) return null
+  const path = address.split(/[?#]/u, 1)[0] ?? ""
+  const name = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1)
+  const dot = name.lastIndexOf(".")
+  if (dot < 1 || dot === name.length - 1) return null
+  return IMAGE_EXTENSIONS.has(name.slice(dot + 1).toLowerCase()) ? null : "file"
+}

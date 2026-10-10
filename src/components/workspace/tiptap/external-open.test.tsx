@@ -71,10 +71,41 @@ describe("a player", () => {
     const first = container.querySelector("audio")
     rerender(<AttachmentPlayer kind="audio" candidates={["b.mp3"]} name="a.mp3" />)
     rerender(<AttachmentPlayer kind="video" candidates={["c.mp4"]} name="c.mp4" />)
-    expect(container.querySelector("video")?.getAttribute("src")).toBe("c.mp4")
+    expect(container.querySelector("video")?.getAttribute("src")).toBe("c.mp4#t=0.001")
     expect(first?.isConnected).toBe(false)
     expect(errors).not.toHaveBeenCalled()
     errors.mockRestore()
+  })
+})
+
+describe("a video", () => {
+  it("asks for its first frame, so that a picture is shown before it is played", () => {
+    const { container } = render(
+      <AttachmentPlayer kind="video" candidates={["a/b.mp4"]} name="b.mp4" />,
+    )
+    expect(container.querySelector("video")?.getAttribute("src")).toBe("a/b.mp4#t=0.001")
+    expect(container.querySelector("video")?.getAttribute("preload")).toBe("metadata")
+  })
+})
+
+describe("a file card", () => {
+  it("opens with Cmd or Ctrl and a click anywhere on it, and not with a plain click", async () => {
+    calls.openAttachment.mockResolvedValue()
+    render(
+      <AttachmentPlayer
+        kind="file"
+        candidates={["a"]}
+        name="x.zip"
+        open={{ notePath: "/vault/Note.md", address: "assets/x.zip" }}
+      />,
+    )
+    const card = screen.getByText("x.zip")
+    fireEvent.click(card)
+    expect(calls.openAttachment).not.toHaveBeenCalled()
+    fireEvent.click(card, { metaKey: true })
+    await waitFor(() =>
+      expect(calls.openAttachment).toHaveBeenCalledWith("/vault/Note.md", "assets/x.zip"),
+    )
   })
 })
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { attachmentKind, isRemoteAddress } from "./attachment-kind"
+import { attachmentKind, isRemoteAddress, localFileKind } from "./attachment-kind"
 
 describe("attachmentKind", () => {
   it("tells audio, video and PDF apart by extension, in any letter case", () => {
@@ -52,5 +52,36 @@ describe("isRemoteAddress", () => {
     expect(isRemoteAddress("assets/a.mp4")).toBe(false)
     expect(isRemoteAddress("../a.mp4")).toBe(false)
     expect(isRemoteAddress("C:\\files\\a.mp4")).toBe(false)
+  })
+})
+
+describe("localFileKind", () => {
+  it("is a card for a local file that is not an image", () => {
+    for (const address of [
+      "assets/archive.zip",
+      "assets/tool.command",
+      "assets/tool.pdf.command",
+      "assets/Report.DOCX",
+      "assets/data.csv#x",
+    ]) {
+      expect(localFileKind(address), address).toBe("file")
+    }
+  })
+
+  it("leaves images, extensionless paths and web addresses as they are", () => {
+    for (const address of [
+      "assets/photo.png",
+      "assets/Photo.JPEG",
+      "assets/drawing.svg",
+      "assets/photo",
+      "assets/photo.",
+      "assets/.hidden",
+      "https://example.com/file.zip",
+      "data:image/png;base64,AAAA",
+      "",
+      null,
+    ]) {
+      expect(localFileKind(address), String(address)).toBeNull()
+    }
   })
 })

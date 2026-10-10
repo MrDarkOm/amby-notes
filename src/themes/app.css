@@ -2544,7 +2544,6 @@ body.amby-resizing-columns * {
   background: hsl(var(--card));
 }
 
-.ProseMirror p.amby-bookmark::before,
 .ProseMirror p.amby-bookmark::after {
   display: block;
   overflow: hidden;
@@ -2555,14 +2554,9 @@ body.amby-resizing-columns * {
   color: hsl(var(--muted-foreground));
 }
 
-.ProseMirror p.amby-bookmark::before {
-  content: attr(data-bookmark-host);
-  margin-bottom: 0.125rem;
-}
-
 .ProseMirror p.amby-bookmark::after {
   content: attr(data-bookmark-hint);
-  margin-top: 0.125rem;
+  margin-top: 0.25rem;
 }
 
 .amby-bookmark-actions {

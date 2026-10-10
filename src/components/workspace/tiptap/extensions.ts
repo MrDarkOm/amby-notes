@@ -19,6 +19,7 @@ import { MarkdownPaste } from "./markdown-paste"
 import { BlockShortcuts } from "./block-shortcuts"
 import { TableAlignment } from "./table-alignment"
 import { BookmarkCards } from "./bookmark-card"
+import { LinkOpen } from "./link-open"
 
 export interface BuildExtensionsOptions {
   placeholder: string
@@ -50,6 +51,7 @@ export function buildExtensions({ placeholder, callbacks }: BuildExtensionsOptio
     ColumnResize,
     TableAlignment,
     BookmarkCards,
+    LinkOpen,
     BlockShortcuts,
     // Files and image addresses first; plain text written as Markdown after them.
     MediaDrop,
