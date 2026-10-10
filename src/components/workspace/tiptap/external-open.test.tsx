@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
+import { isKnownDebugEvent } from "@/lib/debug/event-codes"
 
 const calls = vi.hoisted(() => ({
   openAttachment: vi.fn<(note: string, attachment: string) => Promise<void>>(),
@@ -98,5 +99,12 @@ describe("attachmentFilePath", () => {
     expect(attachmentFilePath("assets/a.pdf#page=2")).toBe("assets/a.pdf")
     expect(attachmentFilePath("assets/a.mp4?t=5")).toBe("assets/a.mp4")
     expect(attachmentFilePath("assets/a.pdf")).toBe("assets/a.pdf")
+  })
+})
+
+describe("diagnostics", () => {
+  it("knows the events of a refused open, so they are not logged as invalid ones", () => {
+    expect(isKnownDebugEvent("external_open.refused")).toBe(true)
+    expect(isKnownDebugEvent("external_open.dialog_failed")).toBe(true)
   })
 })
