@@ -1,6 +1,6 @@
 [package]
 name = "amby-notes"
-version = "0.1.6"
+version = "0.1.7"
 description = "Local-first desktop knowledge workspace"
 authors = ["Amby Authors"]
 edition = "2021"
