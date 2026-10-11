@@ -1,5 +1,12 @@
-import { expect, test } from "@playwright/test"
-import { liveEditor, openInLive, seedVault, storedMarkdown, waitForAutosaveWindow } from "./support"
+import { expect } from "@playwright/test"
+import {
+  liveEditor,
+  openInLive,
+  seedVault,
+  storedMarkdown,
+  waitForAutosaveWindow,
+  test,
+} from "./support"
 
 // A list as a web clipper leaves it: sparse, with escapes, nested with four spaces.
 const LIST = [

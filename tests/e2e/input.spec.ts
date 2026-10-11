@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, type Page } from "@playwright/test"
 import {
   expectResponsive,
   liveEditor,
@@ -6,6 +6,7 @@ import {
   seedVault,
   storedMarkdown,
   waitForAutosaveWindow,
+  test,
 } from "./support"
 
 const START = "First line\n\n## Title\n\nLast line\n"
@@ -50,6 +51,23 @@ test("typing `- [ ] ` makes a task, not a bullet with `[ ] ` as text", async ({ 
   await page.keyboard.type("- [ ] buy milk")
   await expect(liveEditor(page).locator('ul[data-type="taskList"] li')).toHaveCount(1)
   await expect.poll(() => storedMarkdown(page, "Empty")).toBe("- [ ] buy milk")
+})
+
+test("a new note saved between Enter and the next line gets no blank lines at its end", async ({
+  page,
+}) => {
+  await openEmpty(page)
+  await page.keyboard.type("First")
+  await page.keyboard.press("Enter")
+  // The save that falls into the pause before the second line: the empty line under the
+  // cursor is not part of the file.
+  await expect.poll(() => storedMarkdown(page, "Empty")).toBe("First")
+  await waitForAutosaveWindow(page)
+  expect(await storedMarkdown(page, "Empty")).toBe("First")
+  await page.keyboard.type("Second")
+  await expect.poll(() => storedMarkdown(page, "Empty")).toBe("First\n\nSecond")
+  await waitForAutosaveWindow(page)
+  expect(await storedMarkdown(page, "Empty")).toBe("First\n\nSecond")
 })
 
 test("typing `1) ` starts a numbered list and `*** ` draws a rule", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, type Page } from "@playwright/test"
 import { HEAVY_TABLE, HEAVY_TABLE_CELLS, SOURCE_LINES } from "./fixtures"
 import {
   EDITORS_PER_MOUNT,
@@ -9,6 +9,7 @@ import {
   seedVault,
   sourceEditor,
   switchMode,
+  test,
 } from "./support"
 
 // Generous on purpose: the budget is there to catch a regression of the kind "the editor

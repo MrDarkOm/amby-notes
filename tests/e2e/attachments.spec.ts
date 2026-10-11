@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, type Page } from "@playwright/test"
 import { localeResources } from "../../src/locales/resources"
 import {
   expectEditorSettles,
@@ -8,6 +8,7 @@ import {
   seedVault,
   storedMarkdown,
   waitForAutosaveWindow,
+  test,
 } from "./support"
 
 const text = localeResources.ru.translation.attachment

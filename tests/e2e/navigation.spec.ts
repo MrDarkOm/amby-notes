@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect } from "@playwright/test"
 import {
   expectResponsive,
   liveEditor,
@@ -8,6 +8,7 @@ import {
   storedMarkdown,
   switchMode,
   waitForAutosaveWindow,
+  test,
 } from "./support"
 
 const WORK = "Intro line\n\nSecond paragraph mentions talo and Talo.\n\n- talossa\n"

@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test"
-import { liveEditor, openInLive, seedVault, storedMarkdown } from "./support"
+import { expect } from "@playwright/test"
+import { liveEditor, openInLive, seedVault, storedMarkdown, test } from "./support"
 
 test.beforeEach(async ({ page }) => {
   await seedVault(page, { Empty: "" })

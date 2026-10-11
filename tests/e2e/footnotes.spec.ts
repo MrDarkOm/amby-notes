@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect } from "@playwright/test"
 import { FOOTNOTE } from "./fixtures"
 import {
   expectEditorSettles,
@@ -7,6 +7,7 @@ import {
   seedVault,
   storedMarkdown,
   waitForAutosaveWindow,
+  test,
 } from "./support"
 
 const INLINE = "Start.\n\nA claim.^[Said in passing.] And on.\n"

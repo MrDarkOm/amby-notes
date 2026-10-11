@@ -35,7 +35,12 @@ the desktop webview; `AMBY_E2E_DEV=1` targets the dev server instead. happy-dom 
 see a frozen main thread, a redraw loop, real typing or an editor built twice — add a
 case in [e2e/](e2e/) when a change is about any of those. Notes are synthetic strings in
 [e2e/fixtures.ts](e2e/fixtures.ts) (never `.md` files Prettier could rewrite, never
-personal notes); every case seeds its own vault in a fresh browser context. The suite is not part of `npm run verify` (it needs the browser binary); CI runs it on
+personal notes); every case seeds its own vault in a fresh browser context. Specs take `test`
+from [e2e/support.ts](e2e/support.ts), not from Playwright: its keyboard waits until the rich
+editor is ready for keys (ProseMirror re-applies its selection 20 ms after a focus and learns
+of a click from a later `selectionchange`), so a case never needs a pause after a click.
+`AMBY_E2E_JANK=<ms>` keeps the page's main thread busy in bursts and reproduces a loaded
+machine; run it with `--repeat-each` before trusting a new case that types. The suite is not part of `npm run verify` (it needs the browser binary); CI runs it on
 macOS as the "Editor in WebKit" job of [verify.yml](../.github/workflows/verify.yml), with
 one retry and the traces of failed cases kept as an artifact. It does not cover the native
 window, the Rust side or the system webview's own painting.

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect } from "@playwright/test"
 import {
   FOOTNOTE,
   HEAVY_TABLE,
@@ -14,6 +14,7 @@ import {
   seedVault,
   storedMarkdown,
   waitForAutosaveWindow,
+  test,
 } from "./support"
 
 const NOTES = {

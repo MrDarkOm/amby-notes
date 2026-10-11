@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect } from "@playwright/test"
 import { ODD_SPELLINGS } from "./fixtures"
 import {
   expectResponsive,
@@ -9,6 +9,7 @@ import {
   storedMarkdown,
   switchMode,
   waitForAutosaveWindow,
+  test,
 } from "./support"
 
 test.beforeEach(async ({ page }) => {

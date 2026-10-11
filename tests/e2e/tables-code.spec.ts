@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect } from "@playwright/test"
 import {
   expectEditorSettles,
   expectResponsive,
@@ -7,6 +7,7 @@ import {
   seedVault,
   storedMarkdown,
   waitForAutosaveWindow,
+  test,
 } from "./support"
 
 const TABLE = [

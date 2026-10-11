@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from "@playwright/test"
+import { expect, test as base, type Locator, type Page } from "@playwright/test"
 import { localeResources } from "../../src/locales/resources"
 
 // The browser build starts in Russian; labels are read from the same table the app uses.
@@ -6,6 +6,108 @@ export const labels = localeResources.ru.translation.docEditor
 
 /** React StrictMode in the dev server runs every mount effect twice; the bundle does not. */
 export const EDITORS_PER_MOUNT = process.env.AMBY_E2E_DEV === "1" ? 2 : 1
+
+/**
+ * `AMBY_E2E_JANK=<ms>` keeps the page's main thread busy in bursts of that length. This is
+ * how a loaded machine looks from inside the page (plain CPU load outside it does not
+ * reproduce it): timers and events arrive late and in a different order. Use it to check
+ * that a case does not depend on the page being quick, e.g. `AMBY_E2E_JANK=100`.
+ */
+const JANK_MS = Number(process.env.AMBY_E2E_JANK ?? 0)
+
+/** Longer than the 20 ms ProseMirror waits after a focus before it re-applies its selection. */
+const FOCUS_SETTLE_MS = 40
+
+declare global {
+  interface Window {
+    __ambyE2eFocusSettling?: number
+  }
+}
+
+/**
+ * Keys must not reach a rich editor that is not ready for them, or they are lost:
+ *
+ * - 20 ms after it receives the focus, ProseMirror puts the selection it remembers back
+ *   into the page when the two differ. A caret key pressed in that window moves the caret
+ *   and is then undone.
+ * - ProseMirror learns where a click put the caret from a `selectionchange` event that
+ *   comes later. A shortcut pressed before it acts on the previous selection.
+ *
+ * Nobody types that soon after a click; a test does, and on a busy machine both windows
+ * grow. So every key waits for the editor instead of for a fixed time. This is a wait for
+ * a state, never a skipped check: if the state does not come, the key is sent anyway and
+ * the case fails on its own assertion.
+ */
+async function installKeyGate(page: Page) {
+  await page.addInitScript(
+    ({ settleMs, jankMs }) => {
+      window.__ambyE2eFocusSettling = 0
+      // Capture on the document runs before ProseMirror's own focus handler, and a timer
+      // with a later deadline fires after its 20 ms one however late both are.
+      document.addEventListener(
+        "focus",
+        (event) => {
+          if (!(event.target instanceof Element) || !event.target.matches(".ProseMirror")) return
+          window.__ambyE2eFocusSettling = (window.__ambyE2eFocusSettling ?? 0) + 1
+          setTimeout(() => {
+            window.__ambyE2eFocusSettling = (window.__ambyE2eFocusSettling ?? 1) - 1
+          }, settleMs)
+        },
+        true,
+      )
+      if (jankMs > 0) {
+        const burn = () => {
+          const until = performance.now() + jankMs
+          while (performance.now() < until);
+          setTimeout(burn, jankMs / 2)
+        }
+        setTimeout(burn, 0)
+      }
+    },
+    { settleMs: FOCUS_SETTLE_MS, jankMs: JANK_MS },
+  )
+
+  const ready = () =>
+    page
+      .waitForFunction(
+        () => {
+          if (window.__ambyE2eFocusSettling) return false
+          const active = document.activeElement
+          if (!active?.matches(".ProseMirror")) return true
+          // Tiptap leaves its editor on the element. The observer is ProseMirror's own
+          // record of the selection it has read from the page.
+          const view = (active as { editor?: { view?: ProseMirrorViewProbe } }).editor?.view
+          const observer = view?.domObserver
+          if (!view || !observer) return true
+          return observer.flushingSoon < 0 && observer.currentSelection.eq(view.domSelectionRange())
+        },
+        undefined,
+        { timeout: 5_000 },
+      )
+      .catch(() => undefined)
+
+  const keyboard = page.keyboard
+  for (const method of ["press", "type", "down", "insertText"] as const) {
+    const send = keyboard[method].bind(keyboard) as (...args: unknown[]) => Promise<void>
+    ;(keyboard[method] as unknown) = async (...args: unknown[]) => {
+      await ready()
+      await send(...args)
+    }
+  }
+}
+
+interface ProseMirrorViewProbe {
+  domSelectionRange(): unknown
+  domObserver?: { flushingSoon: number; currentSelection: { eq(range: unknown): boolean } }
+}
+
+/** The suite's `test`: the same as Playwright's, with keys that wait for the editor. */
+export const test = base.extend({
+  page: async ({ page }, run) => {
+    await installKeyGate(page)
+    await run(page)
+  },
+})
 
 const VAULT = "web-vault"
 const fileKey = (name: string) => `amby:file:${VAULT}/${name}.md`

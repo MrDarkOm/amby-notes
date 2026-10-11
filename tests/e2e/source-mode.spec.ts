@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, type Page } from "@playwright/test"
 import { SOURCE_LINES, SOURCE_ONLY } from "./fixtures"
 import {
   labels,
@@ -8,6 +8,7 @@ import {
   sourceEditor,
   storedMarkdown,
   switchMode,
+  test,
 } from "./support"
 
 test.beforeEach(async ({ page }) => {
