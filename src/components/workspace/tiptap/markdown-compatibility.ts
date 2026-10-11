@@ -8,7 +8,11 @@ function restoreLineEndings(serialized: string, original: string): string {
     return /^(?:\r?\n)*$/u.test(original) ? original : serialized
   }
   if (/^(?:\r?\n)*$/u.test(original)) {
-    return original.includes("\r\n") ? serialized.replace(/\n/g, "\r\n") : serialized
+    // A blank note has no edge of its own to give back, and an empty paragraph at the
+    // edge of the document is a place to type, not blank lines of the file. Written out,
+    // they would be read on the next save as the note's own ending and stay for good.
+    const body = serialized.replace(/^\n+/, "").replace(/\n+$/, "")
+    return original.includes("\r\n") ? body.replace(/\n/g, "\r\n") : body
   }
   const hasCrLf = original.includes("\r\n")
   const hasLoneLf = /(^|[^\r])\n/.test(original)

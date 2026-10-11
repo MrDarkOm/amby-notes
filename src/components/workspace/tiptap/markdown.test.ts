@@ -189,6 +189,11 @@ describe("markdown <-> tiptap round-trip", () => {
     expect(restoreSourceFormatting("Hello world", "")).toBe("Hello world")
     expect(restoreSourceFormatting("Hello world", "\n")).toBe("Hello world")
     expect(restoreSourceFormatting("Hello world", "\r\n\r\n")).toBe("Hello world")
+    // An empty paragraph after the first line is where the next one is typed. It is not
+    // written, or the next save would take it for the note's own ending.
+    expect(restoreSourceFormatting("First\n\n\n", "")).toBe("First")
+    expect(restoreSourceFormatting("\nFirst", "")).toBe("First")
+    expect(restoreSourceFormatting("First\n\nSecond\n\n\n", "\r\n")).toBe("First\r\n\r\nSecond")
   })
 
   it("preserves intentional empty paragraphs between and after blocks", () => {
