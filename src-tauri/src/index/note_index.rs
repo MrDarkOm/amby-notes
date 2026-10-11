@@ -831,7 +831,9 @@ mod tests {
             before_rewrite.as_slice()
         );
         assert_eq!(snapshots.len(), 2);
-        fs::remove_dir_all(vault).expect("cleanup");
+        // Windows does not remove a folder while the index in it is open.
+        drop(conn);
+        let _ = fs::remove_dir_all(vault);
     }
 
     #[test]
