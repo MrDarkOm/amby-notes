@@ -74,7 +74,6 @@ function createWikiLinkButton(
   button.type = "button"
   button.className = "amby-live-wikilink-button"
   button.textContent = visibleLabel
-  button.title = resolvedTarget
   button.dataset.ambyInlineUnlink = "true"
   button.dataset.ambyReplacement = label
   button.dataset.ambySource = `[[${raw}]]`
