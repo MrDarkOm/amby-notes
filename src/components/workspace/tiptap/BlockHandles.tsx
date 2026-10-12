@@ -18,6 +18,8 @@ import {
   type ColumnDropSide,
 } from "./columns-transaction"
 
+const HANDLE_APPEAR_DELAY_S = 0.3
+
 const DRAGGABLE_TYPES = new Set([
   "paragraph",
   "heading",
@@ -157,6 +159,12 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
 
   const handlesRef = React.useRef<HTMLDivElement>(null)
   const posRef = React.useRef({ top: 0, left: 0 })
+  // The delayed appearance of the handle: the block it was last placed at, the running
+  // fade, whether one of its menus is open, and a counter that restarts the fade.
+  const placedAtRef = React.useRef<string | null>(null)
+  const appearRef = React.useRef<{ stop: () => void } | null>(null)
+  const menuOpenRef = React.useRef(false)
+  const [appearTick, setAppearTick] = React.useState(0)
 
   const dragRef = React.useRef<{
     srcPos: number
@@ -319,6 +327,18 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           : anchorRect.top + 1
     }
 
+    // At another block the handle is hidden before it is moved there, or it would be seen
+    // jumping after the pointer for a frame before the fade starts over.
+    const placedAt = `${target.mode}:${target.nodePos}:${target.insertPos ?? -1}`
+    if (placedAt !== placedAtRef.current) {
+      placedAtRef.current = placedAt
+      if (!menuOpenRef.current) {
+        appearRef.current?.stop()
+        appearRef.current = null
+        if (handlesRef.current) handlesRef.current.style.opacity = "0"
+        setAppearTick((tick) => tick + 1)
+      }
+    }
     posRef.current = { top, left }
     if (handlesRef.current) {
       handlesRef.current.style.top = `${top}px`
@@ -565,9 +585,23 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       const localColumnX = projectedColumnX(x, y, geometry)
       // Beside the editor (the page margin) the row's text is found at the content edge.
       const besideEditor = x < editorRect.left || x > editorRect.right
+      // Between two blocks the pointer belongs to the nearer one, the upper one when they
+      // are equally far: the same rule a click there follows (`nearestLinePos`), so the
+      // handle is shown at the line the cursor would go to.
+      let rowY = y
+      let nearestGap = Infinity
+      for (const child of Array.from(editorDom.children)) {
+        const rect = child.getBoundingClientRect()
+        if (rect.height <= 0) continue
+        const gap = Math.max(rect.top - y, y - rect.bottom, 0)
+        if (gap < nearestGap) {
+          nearestGap = gap
+          rowY = gap === 0 ? y : y < rect.top ? rect.top + 1 : rect.bottom - 1
+        }
+      }
       const pos = view.posAtCoords({
         left: localColumnX ?? (withinGutter || besideEditor ? contentLeft + 1 : x),
-        top: y,
+        top: rowY,
       })
       if (!pos) {
         dropHover()
@@ -1286,6 +1320,40 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     },
     [editor, handle.nodePos, handle.nodeType],
   )
+
+  // The handle waits 0.3 s and then fades in, at its first block and at every next one
+  // (`applyVisibility` restarts it), so that it does not flash under a pointer that only
+  // crosses the text. With a
+  // menu of the handle open it stays as it is: the block under it may change its position.
+  const menuOpen = actionsOpen || insertPanel.open
+  React.useLayoutEffect(() => {
+    menuOpenRef.current = menuOpen
+    // A press on a handle that is still fading in shows it in full at once.
+    if (!menuOpen) return
+    appearRef.current?.stop()
+    appearRef.current = null
+    handlesRef.current?.style.removeProperty("opacity")
+  }, [menuOpen])
+  React.useLayoutEffect(() => {
+    const element = handlesRef.current
+    if (!handle.visible || !element || menuOpenRef.current || dragRef.current.active) return
+    element.style.opacity = "0"
+    try {
+      const controls = animate(
+        element,
+        { opacity: [0, 1] },
+        { ...motionTransition(motionTransitions.default), delay: HANDLE_APPEAR_DELAY_S },
+      )
+      appearRef.current = controls
+      return () => {
+        controls.stop()
+        if (appearRef.current === controls) appearRef.current = null
+        element.style.removeProperty("opacity")
+      }
+    } catch {
+      element.style.removeProperty("opacity")
+    }
+  }, [handle.visible, appearTick])
 
   if (!handle.visible || !editor.isEditable) return null
 
