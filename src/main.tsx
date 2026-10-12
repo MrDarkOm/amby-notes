@@ -15,6 +15,10 @@ window.addEventListener("unhandledrejection", (event) => {
   logger.error("unhandled_promise_rejection", { errorType: errorType(event.reason) })
 })
 
+window.addEventListener("contextmenu", (event) => {
+  event.preventDefault()
+})
+
 logger.info("frontend_started", { runtime: isTauri() ? "desktop" : "browser" })
 void initBackendLogListener().then(() => syncBackendLogs())
 void import("./lib/debug/health")

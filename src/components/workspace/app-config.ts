@@ -382,6 +382,8 @@ export const DEFAULT_DEBUG_PREFS: DebugPrefs = {
 export interface DockPreferences {
   leftPinned: boolean
   rightPinned: boolean
+  /** Off removes the right dock, its panel and its toggle; its buttons join the left dock. */
+  rightEnabled: boolean
 }
 
 export const PANEL_WIDTH_MIN = 250
@@ -433,7 +435,7 @@ export const DEFAULT_PREFS: AppPreferences = {
   files: { deleteMode: "system" },
   updates: { autoUpdate: true },
   debug: { ...DEFAULT_DEBUG_PREFS },
-  docks: { leftPinned: true, rightPinned: true },
+  docks: { leftPinned: true, rightPinned: true, rightEnabled: true },
   window: {
     width: 1280,
     height: 800,
@@ -529,6 +531,7 @@ export function normalizeAppPreferences(
     docks: {
       leftPinned: typeof dk.leftPinned === "boolean" ? dk.leftPinned : true,
       rightPinned: typeof dk.rightPinned === "boolean" ? dk.rightPinned : true,
+      rightEnabled: typeof dk.rightEnabled === "boolean" ? dk.rightEnabled : true,
     },
     window: {
       width: boundedNumber(wi.width, 640, 8192, DEFAULT_PREFS.window.width),

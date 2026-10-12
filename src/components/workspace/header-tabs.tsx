@@ -142,6 +142,8 @@ interface HeaderTabsProps {
   onTabClose: (key: string) => void
   onToggleLeftSidebar?: () => void
   onToggleRightSidebar?: () => void
+  /** False removes the right toggle and the space kept for the right dock. */
+  rightPanelEnabled?: boolean
   isLeftSidebarOpen?: boolean
   isRightSidebarOpen?: boolean
   isLeftDockPinned?: boolean
@@ -299,6 +301,7 @@ export function HeaderTabs({
   onTabClose,
   onToggleLeftSidebar,
   onToggleRightSidebar,
+  rightPanelEnabled = true,
   isLeftSidebarOpen = true,
   isRightSidebarOpen = true,
   isLeftDockPinned = true,
@@ -329,7 +332,7 @@ export function HeaderTabs({
   // The left header dock ends on the same divider as the left body panel.
   // On macOS the 80px traffic-light region already consumes 36px more than the
   // 44px activity rail, so subtract that difference from the panel header.
-  const rightDockWidth = isRightDockPinned ? ACTIVITY_BAR_WIDTH : 0
+  const rightDockWidth = rightPanelEnabled && isRightDockPinned ? ACTIVITY_BAR_WIDTH : 0
   // When the right panel is hidden, edge controls still occupy the end of the
   // header: the system window controls on Windows/Linux or the right-sidebar
   // toggle on macOS. Keep the view controls to their left.
@@ -337,7 +340,7 @@ export function HeaderTabs({
     ? `max(0px, calc(var(--amby-left-panel-width, ${leftTreeWidth}px) - ${80 - ACTIVITY_BAR_WIDTH}px))`
     : `var(--amby-left-panel-width, ${leftTreeWidth}px)`
   const rightHeaderInsetCss =
-    isRightSidebarOpen && isRightDockPinned
+    rightPanelEnabled && isRightSidebarOpen && isRightDockPinned
       ? `max(${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px, calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}px))`
       : `${isMac ? MACOS_SIDEBAR_TOGGLE_WIDTH : WINDOW_CONTROLS_WIDTH}px`
   const [isMaximized, setIsMaximized] = React.useState(false)
@@ -638,7 +641,7 @@ export function HeaderTabs({
       <div
         style={{
           width:
-            isRightSidebarOpen && isRightDockPinned
+            rightPanelEnabled && isRightSidebarOpen && isRightDockPinned
               ? `calc(var(--amby-right-panel-width, ${rightPanelWidth}px) + ${rightDockWidth}px)`
               : isMac
                 ? 0
@@ -649,7 +652,7 @@ export function HeaderTabs({
       />
 
       {/* macOS: right panel toggle in the former logo position */}
-      {isMac && (
+      {isMac && rightPanelEnabled && (
         <div
           className="flex w-11 shrink-0 items-center justify-center"
           onMouseDown={handleDragStart}
@@ -662,9 +665,11 @@ export function HeaderTabs({
           controls instead of jumping to the opposite side of the header. */}
       {!isMac && (
         <div className="amby-window-controls absolute right-0 top-0 flex h-11 w-48 items-center justify-end">
-          <div className="flex h-11 w-12 shrink-0 items-center justify-center">
-            {rightSidebarToggle}
-          </div>
+          {rightPanelEnabled && (
+            <div className="flex h-11 w-12 shrink-0 items-center justify-center">
+              {rightSidebarToggle}
+            </div>
+          )}
           <button
             type="button"
             aria-label={t("settings.window.minimize")}

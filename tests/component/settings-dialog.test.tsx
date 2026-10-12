@@ -71,6 +71,9 @@ describe("SettingsDialog component", () => {
   })
 
   it("updates theme preference in useSettingsStore", async () => {
+    // A store that has not read the file yet waits for it before writing (see
+    // use-settings-store.test.ts), so the preference is changed on a hydrated one.
+    useSettingsStore.setState({ hydrated: true })
     act(() => {
       useSettingsStore.getState().setPrefs({ theme: "dark" })
     })

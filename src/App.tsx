@@ -58,6 +58,14 @@ function PreferencesGate() {
 }
 
 export default function App() {
+  React.useEffect(() => {
+    const preventSystemContextMenu = (event: MouseEvent) => {
+      event.preventDefault()
+    }
+    window.addEventListener("contextmenu", preventSystemContextMenu)
+    return () => window.removeEventListener("contextmenu", preventSystemContextMenu)
+  }, [])
+
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={true}>
       <MotionConfig reducedMotion="user" transition={motionTransitions.default}>

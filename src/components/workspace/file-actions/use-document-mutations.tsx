@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useDatabaseStore } from "../database/database-store"
 import i18n from "@/lib/i18n"
 import { logger } from "@/lib/logger"
 import { saveRecoveryDraft } from "@/lib/recovery-drafts"
@@ -242,6 +243,8 @@ export function useDocumentMutations({
         finishLocalMutation = beginLocalTreeMutation()
         const result = await renameItem(vault ?? "", path, newName)
         handleApplyMutation(result)
+        // A page that databases list changed its title: their lists read it again.
+        useDatabaseStore.getState().invalidateHosts()
         finishLocalMutation()
         patchDoc(id, { title: newName, path: result.primaryPath ?? item.path ?? id })
         setTabs((previous) =>

@@ -1,22 +1,14 @@
 import { describe, expect, it } from "vitest"
-import { buildProjectTree, groupSections, sectionName } from "./project-tree-model"
+import {
+  groupSections,
+  listScopes,
+  resolveScope,
+  sectionName,
+  writableCollection,
+} from "./project-tree-model"
 import { catalog, project, section, universeCatalog } from "./project-fixtures.test-support"
 
 describe("project tree model", () => {
-  it("puts stories under their collection and keeps stand-alone stories at the top", () => {
-    const tree = buildProjectTree(universeCatalog())
-    expect(tree.map((node) => node.project.projectId)).toEqual(["palooverse", "tale"])
-    expect(tree[0].stories.map((node) => node.project.projectId)).toEqual(["molehills"])
-    expect(tree[1].stories).toEqual([])
-  })
-
-  it("shows a story whose collection is missing from the catalog instead of hiding it", () => {
-    const orphan = project("orphan", { collectionId: "gone" })
-    expect(buildProjectTree(catalog([orphan])).map((node) => node.project.projectId)).toEqual([
-      "orphan",
-    ])
-  })
-
   it("gathers sections under the file's groups in the file's order, loose ones last", () => {
     const story = universeCatalog().projects.find((entry) => entry.projectId === "molehills")!
     const groups = groupSections(story)
@@ -41,5 +33,47 @@ describe("project tree model", () => {
     expect(sectionName(section("a", { databaseName: " Имя " }))).toBe("Имя")
     expect(sectionName(section("a", { databaseName: null, pathHint: "Dir/Folder" }))).toBe("Folder")
     expect(sectionName(section("a", { databaseName: null, pathHint: "" }))).toBe("a")
+  })
+})
+
+describe("creative scopes", () => {
+  it("lists the top-level collections in catalog order, not the nested ones", () => {
+    const scopes = catalog([
+      project("first", { kind: "collection" }),
+      project("story"),
+      project("inner", { kind: "collection", collectionId: "first" }),
+      project("second", { kind: "collection", collectionId: "gone" }),
+    ])
+    expect(listScopes(scopes).map((entry) => entry.projectId)).toEqual(["first", "second"])
+  })
+
+  it("keeps a wanted collection that exists and falls back from one that does not", () => {
+    const universe = universeCatalog()
+    expect(resolveScope(universe, "palooverse")).toBe("palooverse")
+    expect(resolveScope(universe, "gone")).toBe("palooverse")
+  })
+
+  it("keeps the stand-alone bucket the author chose, even an empty one", () => {
+    expect(resolveScope(universeCatalog(), null)).toBeNull()
+    const onlyCollection = catalog([project("c", { kind: "collection" })])
+    expect(resolveScope(onlyCollection, null)).toBeNull()
+  })
+
+  it("starts on the first collection before any choice", () => {
+    expect(resolveScope(universeCatalog(), undefined)).toBe("palooverse")
+    expect(resolveScope(catalog([project("tale")]), undefined)).toBeNull()
+  })
+
+  it("shows the stand-alone bucket when there is no collection, even empty", () => {
+    expect(resolveScope(catalog([project("tale")]), "palooverse")).toBeNull()
+    expect(resolveScope(catalog([]), null)).toBeNull()
+  })
+
+  it("offers no writable collection for a read-only one", () => {
+    const universe = universeCatalog()
+    const palooverse = universe.projects.find((entry) => entry.projectId === "palooverse")!
+    expect(writableCollection(palooverse)?.projectId).toBe("palooverse")
+    expect(writableCollection({ ...palooverse, readOnly: true })).toBeNull()
+    expect(writableCollection(null)).toBeNull()
   })
 })

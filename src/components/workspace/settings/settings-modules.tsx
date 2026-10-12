@@ -48,6 +48,7 @@ import {
 import { ModelsManager } from "../models-manager"
 import { isModuleAvailable, MODULE_REGISTRY, type ModuleDef } from "../modules"
 import { useSettingsStore } from "../use-settings-store"
+import { CreativeSettings } from "../creative/creative-settings"
 import { Row } from "./settings-common"
 import { ModulePackageManager } from "./settings-package-manager"
 import type { Preset } from "../presets"
@@ -958,6 +959,8 @@ export function ModulesTab({
               <AiTab />
             ) : selected.id === "history" ? (
               <HistorySettings />
+            ) : selected.id === "creative" ? (
+              <CreativeSettings />
             ) : (
               <ModuleMessage
                 title={t("settings.modules.readyTitle")}

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { AlertTriangle, FilePlus, FolderOpen } from "lucide-react"
+import { AlertTriangle } from "lucide-react"
 
 import type { EditorHandle } from "../tiptap/constants"
 import type { MarkdownSelection } from "../tiptap/markdown-selection"
@@ -13,6 +13,7 @@ import type { NoteProperties } from "@/lib/storage"
 import { flattenTree, relativeToVault } from "./document-breadcrumbs-utils"
 import { FilePickerModal, LayerConfirmDialog, type LayerKind } from "./document-actions"
 import { DocumentHeader } from "./document-header"
+import { EmptyTab } from "./empty-tab"
 import { DocumentBody, type EditorFrameProps } from "./document-body"
 import { NotePdfExport, NotePdfExportDialog, type PdfExportOptions } from "./note-pdf-export"
 import { inspectMarkdownCompatibility, noteEditingPolicy } from "./note-editing-policy"
@@ -57,6 +58,16 @@ export interface DocumentEditorProps {
   onFocusCloseAllTabs?: () => void
   fileIcon?: string
   onNewFile?: () => void
+  onNewDatabase?: () => void
+  onNewCanvas?: () => void
+  onNewSketch?: () => void
+  onQuickOpen?: () => void
+  /** Creative actions the empty tab offers; absent while the creative module is off. */
+  creativeActions?: {
+    onNewStory: () => void
+    onNewUniverse: () => void
+    onOpenWorkshop: () => void
+  }
   onOpenVault?: () => void
   onTagClick?: (tag: string) => void
   onWikiLinkClick?: (target: string) => void
@@ -133,6 +144,11 @@ export function DocumentEditor({
   onFocusCloseAllTabs,
   fileIcon,
   onNewFile,
+  onNewDatabase,
+  onNewCanvas,
+  onNewSketch,
+  onQuickOpen,
+  creativeActions,
   onOpenVault,
   onTagClick,
   onWikiLinkClick,
@@ -568,29 +584,18 @@ export function DocumentEditor({
   if (!document) {
     return (
       <div className="flex h-full flex-1 flex-col bg-background">
-        {headerElement}
-        <div className="flex flex-1 flex-col items-center justify-center gap-6">
-          <div className="text-center">
-            <p className="text-lg font-medium text-foreground">{t("docEditor.noNotes")}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{t("docEditor.noNotesHint")}</p>
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={onNewFile}
-              className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm text-foreground hover:bg-accent hover:border-border"
-            >
-              <FilePlus className="size-4 text-muted-foreground" />
-              {t("docEditor.createNote")}
-            </button>
-            <button
-              onClick={onOpenVault}
-              className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm text-muted-foreground hover:bg-card hover:text-foreground"
-            >
-              <FolderOpen className="size-4" />
-              {t("docEditor.openVault")}
-            </button>
-          </div>
-        </div>
+        {/* A tab with no file needs no back/forward or menu; focus mode keeps it for its tabs. */}
+        {isFocusMode ? headerElement : null}
+        <EmptyTab
+          hasVault={Boolean(vault)}
+          onNewNote={onNewFile}
+          onNewDatabase={databasesEnabled ? onNewDatabase : undefined}
+          onNewCanvas={canvasEnabled ? onNewCanvas : undefined}
+          onNewSketch={sketchEnabled ? onNewSketch : undefined}
+          creative={creativeActions}
+          onQuickOpen={onQuickOpen}
+          onOpenVault={onOpenVault}
+        />
       </div>
     )
   }

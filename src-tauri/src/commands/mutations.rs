@@ -272,6 +272,66 @@ pub fn sync_path_changes(
 mod failure_tests {
     use super::*;
 
+    fn scratch_vault(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("amby-{label}-{}", ulid::Ulid::generate()));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[test]
+    fn a_renamed_page_keeps_its_explicit_title_in_step_and_nothing_else() {
+        let vault = scratch_vault("retitle");
+        let note = vault.join("Дмитрий.md");
+        fs::write(
+            &note,
+            "---\namby-id: 01M4QNH4T7BJ3BNBMPAD63TZQ9\namby-title: \"Без названия\"\nx-other: keep\n---\n## Основное\n",
+        )
+        .unwrap();
+
+        let changed = retitle_renamed_note(&vault, &note, "Дмитрий").unwrap();
+        assert_eq!(changed.as_deref(), Some(note.as_path()));
+        let after = fs::read_to_string(&note).unwrap();
+        assert!(after.contains("amby-title: Дмитрий"), "{after}");
+        assert!(after.contains("amby-id: 01M4QNH4T7BJ3BNBMPAD63TZQ9"));
+        assert!(after.contains("x-other: keep"));
+        assert!(after.ends_with("## Основное\n"));
+
+        // Already in step: nothing is written again.
+        assert!(retitle_renamed_note(&vault, &note, "Дмитрий")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn a_page_without_an_explicit_title_or_with_a_broken_header_is_left_alone() {
+        let vault = scratch_vault("retitle-none");
+        let plain = vault.join("Plain.md");
+        fs::write(
+            &plain,
+            "---\namby-id: 01M4QNH4T7BJ3BNBMPAD63TZQ9\n---\nbody\n",
+        )
+        .unwrap();
+        assert!(retitle_renamed_note(&vault, &plain, "Other")
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            fs::read_to_string(&plain).unwrap(),
+            "---\namby-id: 01M4QNH4T7BJ3BNBMPAD63TZQ9\n---\nbody\n"
+        );
+
+        let broken = vault.join("Broken.md");
+        fs::write(&broken, "---\namby-title: \"Old\"\nno closing fence\n").unwrap();
+        assert!(retitle_renamed_note(&vault, &broken, "New")
+            .unwrap()
+            .is_none());
+
+        let folder = vault.join("Folder");
+        fs::create_dir_all(&folder).unwrap();
+        assert!(retitle_renamed_note(&vault, &folder, "New")
+            .unwrap()
+            .is_none());
+    }
+
     #[test]
     fn child_note_creation_is_registered_before_every_watcher_visible_change() {
         let root = std::env::temp_dir().join(format!(
@@ -698,27 +758,38 @@ pub fn move_item(
     if conn.generation != generation {
         return Err("Vault changed while applying move".to_string());
     }
-    if runtime.state(Some(conn.generation)).enabled {
-        match crate::database::projection::rebuild_database_projection(&conn.connection, &conn.root)
-        {
-            Ok(report) => {
-                runtime.set_projection(
-                    conn.generation,
-                    Some(crate::database::model::ProjectionVersion {
-                        epoch: report.epoch,
-                        seq: report.seq,
-                    }),
-                );
-            }
-            Err(error) => {
-                tracing::warn!(event = "database_projection_rebuild_failed", %error);
-                outcome
-                    .warnings
-                    .push(OperationWarning::IndexRebuildRequired);
-            }
+    refresh_database_projection(&runtime, conn, &mut outcome);
+    Ok(outcome)
+}
+
+/// A move or a rename changes the title or the place of pages that databases list, and the
+/// projection they read is not rebuilt by the filesystem watcher for writes the app made itself.
+/// Without this the lists would keep showing the old name until the next full refresh.
+fn refresh_database_projection(
+    runtime: &DatabaseRuntimeState,
+    conn: &crate::vault_context::ActiveVault,
+    outcome: &mut MutationOutcome,
+) {
+    if !runtime.state(Some(conn.generation)).enabled {
+        return;
+    }
+    match crate::database::projection::rebuild_database_projection(&conn.connection, &conn.root) {
+        Ok(report) => {
+            runtime.set_projection(
+                conn.generation,
+                Some(crate::database::model::ProjectionVersion {
+                    epoch: report.epoch,
+                    seq: report.seq,
+                }),
+            );
+        }
+        Err(error) => {
+            tracing::warn!(event = "database_projection_rebuild_failed", %error);
+            outcome
+                .warnings
+                .push(OperationWarning::IndexRebuildRequired);
         }
     }
-    Ok(outcome)
 }
 
 #[tauri::command]
@@ -776,10 +847,47 @@ pub fn create_folder(
     }
 }
 
+/// A page renamed from the tree is renamed as a page. A note's explicit display title
+/// (`amby-title`) wins over its file name, so when it has one the title follows the new name;
+/// otherwise a database would keep listing the old title while the file and the editor show the
+/// new one. Nothing else in the file is touched, and a note with no explicit title, a malformed
+/// frontmatter or a title that already matches is left as it is.
+fn retitle_renamed_note(
+    vault: &Path,
+    note_path: &Path,
+    new_name: &str,
+) -> Result<Option<PathBuf>, String> {
+    if !crate::vault::scan::is_markdown(note_path) || !note_path.is_file() {
+        return Ok(None);
+    }
+    let original = fs::read_to_string(note_path).map_err(|error| error.to_string())?;
+    let parsed = frontmatter::parse_markdown(&original);
+    if parsed.frontmatter_status.is_malformed() {
+        return Ok(None);
+    }
+    match parsed.display_title.as_deref() {
+        None => return Ok(None),
+        Some(title) if title == new_name => return Ok(None),
+        Some(_) => {}
+    }
+    let next = frontmatter::replace_yaml_binding_lossless(
+        &original,
+        frontmatter::AMBY_TITLE_FIELD,
+        &serde_yaml::Value::String(new_name.to_owned()),
+    )?;
+    if next == original {
+        return Ok(None);
+    }
+    crate::history::snapshot_before_write(vault, note_path, next.as_bytes(), "rename")?;
+    frontmatter::atomic_write_bytes(note_path, next.as_bytes())?;
+    Ok(Some(note_path.to_path_buf()))
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn rename_item(
     db: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher_state: tauri::State<'_, WatcherState>,
     path: String,
     new_name: String,
@@ -813,7 +921,7 @@ pub fn rename_item(
             return Err(error);
         }
     };
-    let rewritten = match vault_index::apply_planned_wiki_rewrites(&vault_root, &plan) {
+    let mut rewritten = match vault_index::apply_planned_wiki_rewrites(&vault_root, &plan) {
         Ok(rewritten) => rewritten,
         Err(error) => {
             watcher_state.cancel_prepared_write(&prepared_rename);
@@ -827,6 +935,15 @@ pub fn rename_item(
             ));
         }
     };
+    // The rename itself is done. Keeping the page's own title in step is best effort: a failure
+    // here leaves the old title, which is what the page showed before.
+    if let Some(note_path) = result.primary_path.as_deref().map(PathBuf::from) {
+        match retitle_renamed_note(&vault_root, &note_path, &new_name) {
+            Ok(Some(changed)) => rewritten.push(changed),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(event = "rename_retitle_failed", %error),
+        }
+    }
     watcher_state.mark_write(rewritten.iter());
     let rewritten_changes = rewritten
         .into_iter()
@@ -853,6 +970,7 @@ pub fn rename_item(
     if conn.generation != generation {
         return Err("Vault changed while applying rename".to_string());
     }
+    refresh_database_projection(&runtime, conn, &mut outcome);
     tracing::info!(
         event = "rename_item",
         path = %path.display(),

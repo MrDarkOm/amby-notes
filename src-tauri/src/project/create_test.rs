@@ -853,6 +853,21 @@ fn a_section_request_is_checked_before_anything_is_created() {
 }
 
 #[test]
+fn an_anchors_section_is_a_known_role_and_is_kept_in_the_structure_file() {
+    let fixture = Fixture::new();
+    let created = fixture.create(&story("MoleHills")).unwrap();
+    let mut request = section_request(&created, "Якоря");
+    request.role = Some("anchors".to_owned());
+
+    let added = fixture.add_section(&request).unwrap();
+    let doc = parse_project_file(&fixture.project_bytes("MoleHills")).unwrap();
+    let section = doc.sections.last().unwrap();
+    assert_eq!(section.id, added.section.section_id);
+    assert_eq!(section.role.as_deref(), Some("anchors"));
+    assert_eq!(section.path_hint, "Якоря");
+}
+
+#[test]
 fn a_failure_or_crash_while_adding_a_section_keeps_the_structure_file_intact() {
     let steps = [
         Step::JournalWritten,

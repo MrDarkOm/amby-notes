@@ -18,13 +18,6 @@ export interface SidebarGroup {
   sections: SidebarSection[]
 }
 
-export interface SidebarProject {
-  project: ProjectSummary
-  groups: SidebarGroup[]
-  /** The stories of a collection, by folder nesting. */
-  stories: SidebarProject[]
-}
-
 export function sectionName(section: ProjectSectionSummary): string {
   return section.databaseName?.trim() || section.pathHint.split("/").pop() || section.id
 }
@@ -57,25 +50,43 @@ export function groupSections(project: ProjectSummary): SidebarGroup[] {
   return [...groups, loose].filter((group) => group.sections.length > 0)
 }
 
-function toSidebarProject(project: ProjectSummary, stories: SidebarProject[]): SidebarProject {
-  return { project, groups: groupSections(project), stories }
+/** A project no other project in the catalog contains: a collection or a stand-alone story. */
+function topLevelProjects(catalog: ProjectCatalog): ProjectSummary[] {
+  const ids = new Set(catalog.projects.map((project) => project.projectId))
+  return catalog.projects.filter(
+    (project) => project.collectionId === null || !ids.has(project.collectionId),
+  )
 }
 
 /**
- * Collections and stand-alone stories at the top, the stories of a collection
- * beneath it. The Rust catalog already decided membership by folder nesting.
+ * A scope is the one part of the catalog the sidebar shows: a top-level collection
+ * (by its project ID) or the bucket of stand-alone stories (`STANDALONE_SCOPE`).
  */
-export function buildProjectTree(catalog: ProjectCatalog): SidebarProject[] {
-  const ids = new Set(catalog.projects.map((project) => project.projectId))
-  const storiesOf = (collectionId: string) =>
-    catalog.projects
-      .filter((project) => project.collectionId === collectionId)
-      .map((project) => toSidebarProject(project, []))
-  return catalog.projects
-    .filter((project) => project.collectionId === null || !ids.has(project.collectionId))
-    .map((project) =>
-      toSidebarProject(project, project.kind === "collection" ? storiesOf(project.projectId) : []),
-    )
+export const STANDALONE_SCOPE = null
+
+/** The top-level collections, in catalog order: the choices of the scope switcher. */
+export function listScopes(catalog: ProjectCatalog): ProjectSummary[] {
+  return topLevelProjects(catalog).filter((project) => project.kind === "collection")
+}
+
+/**
+ * The scope to show for a wanted one. The stand-alone bucket the author chose (`null`) and a
+ * wanted collection that still exists are kept. With no choice yet (`undefined`) or a
+ * collection that is gone, the first collection is shown, or the bucket when there is none.
+ */
+export function resolveScope(
+  catalog: ProjectCatalog,
+  wanted: string | null | undefined,
+): string | null {
+  if (wanted === STANDALONE_SCOPE) return STANDALONE_SCOPE
+  const scopes = listScopes(catalog)
+  if (scopes.some((scope) => scope.projectId === wanted)) return wanted ?? STANDALONE_SCOPE
+  return scopes[0]?.projectId ?? STANDALONE_SCOPE
+}
+
+/** The collection a new section or story can go into: none for a read-only collection. */
+export function writableCollection(scope: ProjectSummary | null): ProjectSummary | null {
+  return scope && scope.kind === "collection" && !scope.readOnly ? scope : null
 }
 
 export function findProject(catalog: ProjectCatalog | null, projectId: string) {

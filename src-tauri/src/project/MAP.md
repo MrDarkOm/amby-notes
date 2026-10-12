@@ -4,8 +4,8 @@ Owns discovery of creative projects (`amby-project.json`), their rebuildable SQL
 index, and the journaled creation of projects and sections. The contract is
 [creative format](../../../docs/creative-format.md); IPC is
 [commands/project.rs](../commands/project.rs); the renderer port is
-[project-port.ts](../../../src/lib/storage/project-port.ts). There is no interface
-for it yet: the creative module still shows a placeholder.
+[project-port.ts](../../../src/lib/storage/project-port.ts). The interface is
+[the creative map](../../../src/components/workspace/creative/MAP.md).
 
 | Concern                                              | Owner                                                  |
 | ---------------------------------------------------- | ------------------------------------------------------ |

@@ -123,4 +123,32 @@ describe("CreateSectionDialog", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("Файл проекта изменился")
     expect(onCreated).not.toHaveBeenCalled()
   })
+
+  it("opens with the name and the anchors role of a section asked for from the works tab", async () => {
+    createProjectSection.mockResolvedValue(created)
+    const onCreated = vi.fn()
+    render(
+      <CreateSectionDialog
+        open
+        onClose={vi.fn()}
+        vaultGeneration={2}
+        project={project("p", {
+          name: "Saga",
+          fileRevision: "f".repeat(64),
+          groups: [{ id: "work", name: "Произведение" }],
+        })}
+        initial={{ name: "Якоря", choice: "anchors" }}
+        onCreated={onCreated}
+      />,
+    )
+    expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("Якоря")
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
+    await waitFor(() => expect(createProjectSection).toHaveBeenCalledTimes(1))
+    expect(createProjectSection.mock.calls[0][0]).toMatchObject({
+      name: "Якоря",
+      role: "anchors",
+      preset: null,
+      groupId: "work",
+    })
+  })
 })

@@ -27,6 +27,8 @@ interface UseSidebarLayoutParams {
   onDockPrefsChange: (patch: Partial<DockPreferences>) => void
   windowPrefs: WindowPreferences
   onWindowPrefsChange: (patch: Partial<WindowPreferences>) => void
+  /** The right dock is switched off in the settings: it is never visible or toggled. */
+  rightPanelEnabled?: boolean
 }
 
 /**
@@ -47,6 +49,7 @@ export function useSidebarLayout({
   onDockPrefsChange,
   windowPrefs,
   onWindowPrefsChange,
+  rightPanelEnabled = true,
 }: UseSidebarLayoutParams) {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = React.useState(true)
   const [isRightSidebarOpen, setIsRightSidebarOpen] = React.useState(true)
@@ -400,10 +403,12 @@ export function useSidebarLayout({
   // from the context menu. `isSidebarOpen` remains the manual/header state,
   // while hover is the source of truth for the temporary overlay visibility.
   const isLeftSidebarVisible = isDockPinned("left") ? isLeftSidebarOpen : isLeftSidebarHover
-  const isRightSidebarVisible = isDockPinned("right") ? isRightSidebarOpen : isRightSidebarHover
+  const isRightSidebarVisible =
+    rightPanelEnabled && (isDockPinned("right") ? isRightSidebarOpen : isRightSidebarHover)
 
   const toggleSidebar = React.useCallback(
     (side: Side) => {
+      if (side === "right" && !rightPanelEnabled) return
       const open = side === "left" ? isLeftSidebarOpen : isRightSidebarOpen
       const visible = side === "left" ? isLeftSidebarVisible : isRightSidebarVisible
       const pinned = isDockPinned(side)
@@ -422,6 +427,7 @@ export function useSidebarLayout({
       isLeftSidebarVisible,
       isRightSidebarOpen,
       isRightSidebarVisible,
+      rightPanelEnabled,
       hideSidebarHoverNow,
       setSidebarHover,
     ],

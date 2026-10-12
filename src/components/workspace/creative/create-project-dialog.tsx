@@ -25,6 +25,10 @@ interface CreateProjectDialogProps {
   vaultGeneration: number | null
   /** The collection the project is created inside; none means the vault root. */
   parent?: ProjectSummary | null
+  /** The kinds offered instead of the default for the parent. */
+  kinds?: NewProjectKind[]
+  /** The kind selected on open; the first offered kind when absent. */
+  initialKind?: NewProjectKind
   onCreated: (created: CreatedProject) => void
 }
 
@@ -33,13 +37,17 @@ export function CreateProjectDialog({
   onClose,
   vaultGeneration,
   parent = null,
+  kinds: offeredKinds,
+  initialKind,
   onCreated,
 }: CreateProjectDialogProps) {
   const { t } = useTranslation()
   // Inside a collection only a story makes sense: a collection cannot nest.
-  const kinds: NewProjectKind[] = parent ? ["story"] : ["story", "universe", "collection"]
+  const kinds: NewProjectKind[] =
+    offeredKinds ?? (parent ? ["story"] : ["story", "universe", "collection"])
+  const startKind: NewProjectKind = initialKind ?? kinds[0] ?? "story"
   const [name, setName] = React.useState("")
-  const [kind, setKind] = React.useState<NewProjectKind>("story")
+  const [kind, setKind] = React.useState<NewProjectKind>(startKind)
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const parentPath = parent?.path ?? null
@@ -49,11 +57,11 @@ export function CreateProjectDialog({
   React.useEffect(() => {
     if (open) {
       setName("")
-      setKind("story")
+      setKind(startKind)
       setError(null)
       setPending(false)
     }
-  }, [open])
+  }, [open, startKind])
 
   const submit = async (event?: React.FormEvent) => {
     event?.preventDefault()

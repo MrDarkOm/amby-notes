@@ -62,6 +62,8 @@ import {
 import { useVaultData } from "./use-vault-data"
 import { useFileActions } from "./use-file-actions"
 import { useSidebarLayout } from "./use-sidebar-layout"
+import { collapseButtonsToLeft } from "./activity-buttons"
+import { cn } from "@/lib/utils"
 import { useLayers } from "./use-layers"
 import { useTabActions } from "./use-tab-actions"
 import { canRenderSplit } from "./document-buffer-lifecycle"
@@ -71,6 +73,7 @@ import {
   sketchLayerPath,
   newTabKey,
   formatModified,
+  nextAvailableNoteName,
 } from "./workspace-tree-utils"
 import {
   recordLocalTreeMutation,
@@ -85,6 +88,8 @@ import { useDatabaseController } from "./database/use-database-controller"
 import { useProjectController } from "./creative/use-project-controller"
 import { DossierFrame } from "./creative/dossier/dossier-frame"
 import { useProjectStore } from "./creative/project-store"
+import { useCollectionFolderSelect } from "./creative/use-collection-folder-select"
+import { useCreativeTreeItems } from "./creative/use-creative-tree-items"
 import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative/creative-nav-store"
 import { useDatabaseStore } from "./database/database-store"
 import type { DatabaseRowActions } from "./database/use-row-menu"
@@ -503,6 +508,12 @@ export function WorkspaceOrchestration() {
     vaultGeneration: backendGeneration,
   })
   const projectCatalog = useProjectStore((state) => state.catalog)
+  // The module presents its folders in the file panel only while it is on.
+  const fileTreeItems = useCreativeTreeItems(
+    displayTreeItems,
+    vault,
+    databasesEnabled && creativeEnabled,
+  )
   const presetOptions = React.useMemo(
     () =>
       presets.map((p) => ({
@@ -689,6 +700,25 @@ export function WorkspaceOrchestration() {
     onOpenSettings: openSettings,
   }
 
+  // With the right panel switched off its buttons join the left dock. That is a view of the
+  // stored buttons, so switching the panel back on returns each one to its own side.
+  const rightPanelEnabled = dockPrefs.rightEnabled
+  const shownButtons = React.useMemo(
+    () => (rightPanelEnabled ? activityButtons : collapseButtonsToLeft(activityButtons)),
+    [activityButtons, rightPanelEnabled],
+  )
+  const setShownButtons = React.useCallback<
+    React.Dispatch<React.SetStateAction<typeof activityButtons>>
+  >(
+    (update) => {
+      setActivityButtons((stored) => {
+        const current = rightPanelEnabled ? stored : collapseButtonsToLeft(stored)
+        return typeof update === "function" ? update(current) : update
+      })
+    },
+    [rightPanelEnabled, setActivityButtons],
+  )
+
   const {
     isLeftSidebarOpen,
     isRightSidebarOpen,
@@ -715,8 +745,9 @@ export function WorkspaceOrchestration() {
     isDockPinned,
     setDockPinned,
   } = useSidebarLayout({
-    activityButtons,
-    setActivityButtons,
+    activityButtons: shownButtons,
+    setActivityButtons: setShownButtons,
+    rightPanelEnabled,
     activeBySide,
     setActiveBySide,
     actionContext,
@@ -1408,12 +1439,29 @@ export function WorkspaceOrchestration() {
   // panelRenderProps is memoised so that sidebar panels don't re-render when only
   // the editor content changes (openDocs/currentDoc). The deps list covers every value
   // the sidebar panels actually *display* or *act on*.
+  // The folder of a universe opens the workshop on it; everything else selects as usual.
+  const itemById = React.useCallback((id: string) => treeItemById.get(id), [treeItemById])
+  const showCreativePanel = React.useCallback(
+    () => activatePanelAnywhere("creative"),
+    [activatePanelAnywhere],
+  )
+  const handleTreeSelect = useCollectionFolderSelect({
+    enabled: databasesEnabled && creativeEnabled,
+    vault,
+    catalog: projectCatalog,
+    itemById,
+    fallback: handleSelect,
+    showPanel: showCreativePanel,
+    openProject: openCreativeTab,
+  })
+
   const panelRenderProps: PanelRenderProps = React.useMemo(
     () => ({
       treeItems: displayTreeItems,
+      fileTreeItems,
       selectedId,
       vault,
-      onSelect: handleSelect,
+      onSelect: handleTreeSelect,
       onOpenVault: handleOpenVault,
       onRename: handleRenameFile,
       onDelete: handleDeleteFile,
@@ -1444,6 +1492,7 @@ export function WorkspaceOrchestration() {
       onOpenDatabase: openDatabaseTab,
       onOpenCreativeProject: openCreativeTab,
       onCreativeChanged: refreshAfterCreativeWrite,
+      onOpenSettings: openSettings,
       properties: currentProperties,
       attachments,
       attachmentImages,
@@ -1499,9 +1548,11 @@ export function WorkspaceOrchestration() {
     }),
     [
       displayTreeItems,
+      fileTreeItems,
       selectedId,
       vault,
       handleSelect,
+      handleTreeSelect,
       handleOpenVault,
       handleRenameFile,
       handleDeleteFile,
@@ -1537,6 +1588,7 @@ export function WorkspaceOrchestration() {
       openDatabaseTab,
       openCreativeTab,
       refreshAfterCreativeWrite,
+      openSettings,
       handleUpsertCustomProperty,
       handleDeleteCustomProperty,
       handleReorderCustomProperties,
@@ -1554,8 +1606,8 @@ export function WorkspaceOrchestration() {
     ],
   )
 
-  const leftButtons = buttonsForSide(activityButtons, "left")
-  const rightButtons = buttonsForSide(activityButtons, "right")
+  const leftButtons = buttonsForSide(shownButtons, "left")
+  const rightButtons = buttonsForSide(shownButtons, "right")
 
   // Build editor props for a given tab. The primary pane (active tab) keeps full
   // functionality; a secondary (split) pane gets editing + view-mode + autosave,
@@ -1680,6 +1732,29 @@ export function WorkspaceOrchestration() {
       onFileIconChange:
         isPrimary && doc ? (emoji: string) => handleSetIcon(doc.id, emoji) : undefined,
       onNewFile: () => handleNewFileIn(null),
+      onNewCanvas: () => handleNewCanvasIn(null),
+      onNewSketch: () => handleNewSketchIn(null),
+      creativeActions:
+        databasesEnabled && creativeEnabled
+          ? {
+              onNewStory: () => {
+                activatePanelAnywhere("creative")
+                useCreativeNavStore.getState().requestCreate("story")
+              },
+              onNewUniverse: () => {
+                activatePanelAnywhere("creative")
+                useCreativeNavStore.getState().requestCreate("universe")
+              },
+              onOpenWorkshop: () => activatePanelAnywhere("creative"),
+            }
+          : undefined,
+      onNewDatabase: () =>
+        void handleNewDatabase(
+          null,
+          // Made without asking for a name, so it must not collide with what is at the root.
+          nextAvailableNoteName(displayTreeItems, vault ?? "", t("defaults.untitled")),
+        ),
+      onQuickOpen: () => setQuickOpenMode("current"),
       onOpenVault: handleOpenVault,
       onTagClick: (_tag: string) => {
         activatePanelAnywhere("tags")
@@ -2280,7 +2355,9 @@ export function WorkspaceOrchestration() {
               activeView={activeBySide.left}
               isPanelOpen={focusShowLeft}
               onActivate={handleActivate}
-              onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
+              onMoveToOtherSide={
+                rightPanelEnabled ? (defId) => moveButtonToSide(defId, "right") : undefined
+              }
               onPointerDownButton={dnd.onPointerDown}
               draggingId={dnd.draggingId}
               {...activityBarPresetProps}
@@ -2298,31 +2375,38 @@ export function WorkspaceOrchestration() {
         </motion.div>
 
         {/* Right sidebar overlay */}
-        <motion.div
-          className="fixed inset-y-0 right-0 z-40 flex shadow-2xl"
-          initial={false}
-          animate={{ x: focusShowRight ? 0 : "100%" }}
-          transition={motionTransitions.panel}
-          onMouseLeave={() => setFocusShowRight(false)}
-        >
-          <div style={{ width: "var(--amby-right-panel-width, 300px)" }} className="shrink-0">
-            <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} flush />
-          </div>
-          <ActivityBar
-            side="right"
-            buttons={rightButtons}
-            activeView={activeBySide.right}
-            isPanelOpen={focusShowRight}
-            onActivate={handleActivate}
-            onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
-            onPointerDownButton={dnd.onPointerDown}
-            draggingId={dnd.draggingId}
-            {...activityBarPresetProps}
-            {...activityDockProps("right")}
-            autoHideReveal={focusShowRight}
-            helpContext={currentHelpContext}
-          />
-        </motion.div>
+        {rightPanelEnabled && (
+          <motion.div
+            className="fixed inset-y-0 right-0 z-40 flex shadow-2xl"
+            initial={false}
+            animate={{ x: focusShowRight ? 0 : "100%" }}
+            transition={motionTransitions.panel}
+            onMouseLeave={() => setFocusShowRight(false)}
+          >
+            <div style={{ width: "var(--amby-right-panel-width, 300px)" }} className="shrink-0">
+              <PanelHost
+                side="right"
+                activeId={activeBySide.right}
+                props={panelRenderProps}
+                flush
+              />
+            </div>
+            <ActivityBar
+              side="right"
+              buttons={rightButtons}
+              activeView={activeBySide.right}
+              isPanelOpen={focusShowRight}
+              onActivate={handleActivate}
+              onMoveToOtherSide={(defId) => moveButtonToSide(defId, "left")}
+              onPointerDownButton={dnd.onPointerDown}
+              draggingId={dnd.draggingId}
+              {...activityBarPresetProps}
+              {...activityDockProps("right")}
+              autoHideReveal={focusShowRight}
+              helpContext={currentHelpContext}
+            />
+          </motion.div>
+        )}
 
         <QuickOpenModal
           open={quickOpenMode !== null}
@@ -2405,7 +2489,8 @@ export function WorkspaceOrchestration() {
         onOpenVaultInExplorer={openInExplorer}
         onCloseAllTabs={handleCloseAllTabs}
         leftTreeWidth={isCompactLayout ? 0 : leftWidth}
-        rightPanelWidth={isCompactLayout || !rightDockPinned ? 0 : rightWidth}
+        rightPanelWidth={isCompactLayout || !rightDockPinned || !rightPanelEnabled ? 0 : rightWidth}
+        rightPanelEnabled={rightPanelEnabled}
         activeFileId={activeTab?.fileId}
         favorites={favorites}
         onToggleFavorite={handleToggleFavorite}
@@ -2422,7 +2507,9 @@ export function WorkspaceOrchestration() {
             activeView={activeBySide.left}
             isPanelOpen={isLeftSidebarVisible}
             onActivate={handleActivate}
-            onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
+            onMoveToOtherSide={
+              rightPanelEnabled ? (defId) => moveButtonToSide(defId, "right") : undefined
+            }
             onPointerDownButton={dnd.onPointerDown}
             draggingId={dnd.draggingId}
             {...activityBarPresetProps}
@@ -2482,7 +2569,9 @@ export function WorkspaceOrchestration() {
                   activeView={activeBySide.left}
                   isPanelOpen={isLeftSidebarVisible}
                   onActivate={handleActivate}
-                  onMoveToOtherSide={(defId) => moveButtonToSide(defId, "right")}
+                  onMoveToOtherSide={
+                    rightPanelEnabled ? (defId) => moveButtonToSide(defId, "right") : undefined
+                  }
                   onPointerDownButton={dnd.onPointerDown}
                   draggingId={dnd.draggingId}
                   {...activityBarPresetProps}
@@ -2509,7 +2598,7 @@ export function WorkspaceOrchestration() {
           </div>
         )}
 
-        <main className="flex flex-1 gap-0 overflow-hidden">
+        <main className={cn("flex flex-1 gap-0 overflow-hidden", !rightPanelEnabled && "pr-2")}>
           {activeTab?.kind === "graph" ? (
             graphEnabled ? (
               <React.Suspense fallback={<LazyEditorFallback />}>
@@ -2561,7 +2650,7 @@ export function WorkspaceOrchestration() {
           )}
         </main>
 
-        {rightDockPinned && isRightSidebarOpen && (
+        {rightPanelEnabled && rightDockPinned && isRightSidebarOpen && (
           <>
             <div
               style={{
@@ -2590,7 +2679,7 @@ export function WorkspaceOrchestration() {
           </>
         )}
 
-        {rightDockPinned && (
+        {rightPanelEnabled && rightDockPinned && (
           <ActivityBar
             side="right"
             buttons={rightButtons}
@@ -2606,7 +2695,7 @@ export function WorkspaceOrchestration() {
           />
         )}
 
-        {!rightDockPinned && (
+        {rightPanelEnabled && !rightDockPinned && (
           <div
             className="amby-sidebar-overlay--right fixed bottom-0 right-0 top-11 z-40 rounded-l-2xl"
             style={{

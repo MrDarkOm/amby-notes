@@ -133,4 +133,15 @@ describe("workspace startup update gate", () => {
     expect(startup.run).not.toHaveBeenCalled()
     expect(screen.queryByTestId("workspace")).toBeNull()
   })
+
+  it("suppresses the default system context menu across the window", async () => {
+    startup.autoUpdate = false
+    const { default: App } = await import("@/App")
+    render(<App />)
+    await act(async () => {})
+    const workspace = screen.getByTestId("workspace")
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true })
+    workspace.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+  })
 })

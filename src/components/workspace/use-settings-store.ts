@@ -82,6 +82,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set({ prefs: s.prefs, experimental: s.experimental, themes: s.themes, hydrated: true })
   },
   setPrefs: async (patch) => {
+    // A store that has not read the file yet holds defaults, and writing those back would reset
+    // every setting the author made (the theme, the tree colours) on the next panel drag.
+    if (!get().hydrated) await get().hydrate()
     const prefs = { ...get().prefs, ...patch }
     if (prefs.debug) {
       configureLogger(prefs.debug)
@@ -96,6 +99,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     }
   },
   setExperimental: async (patch) => {
+    if (!get().hydrated) await get().hydrate()
     const experimental = { ...get().experimental, ...patch }
     set({ experimental, lastSaveError: null })
     try {
@@ -107,6 +111,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     }
   },
   setThemes: async (themes) => {
+    if (!get().hydrated) await get().hydrate()
     set({ themes, lastSaveError: null })
     try {
       await saveSettingsPatch({ themes })

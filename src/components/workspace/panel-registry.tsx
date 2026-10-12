@@ -126,6 +126,14 @@ export interface PanelRenderProps {
   onOpenCreativeProject?: (projectId: string, sectionId?: string) => void
   /** Re-reads the file tree and databases after a project or section was written. */
   onCreativeChanged?: () => Promise<void>
+  /**
+   * The tree the file panel lists, when a module presents it differently from the vault's
+   * (marked or hidden folders). Search, quick open, other panels and file actions keep using
+   * `treeItems`, so a presentation never changes what can be found or acted on.
+   */
+  fileTreeItems?: TreeItem[]
+  /** Opens Settings, optionally on one part of it (a module's page). */
+  onOpenSettings?: (target?: SettingsNavigationTarget) => void
 
   // Right side
   properties?: DocumentProperties | FolderProperties | null

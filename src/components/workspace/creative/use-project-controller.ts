@@ -3,6 +3,11 @@ import { listen } from "@tauri-apps/api/event"
 import { isTauri, listProjects, refreshProjects, type ProjectChangedPayload } from "@/lib/storage"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
 import { useDatabaseStore } from "../database/database-store"
+import {
+  CREATIVE_SETTINGS_CHANGED_EVENT,
+  useCreativeSettingsStore,
+  type CreativeSettingsChangedPayload,
+} from "./creative-settings-store"
 import { useProjectStore } from "./project-store"
 
 interface ProjectControllerOptions {
@@ -31,8 +36,28 @@ export function useProjectController({ enabled, vaultGeneration }: ProjectContro
   const databaseStatus = useDatabaseStore((state) => state.catalogStatus)
   const databases = useDatabaseStore((state) => state.databases)
   const ready = enabled && vaultGeneration !== null && databaseStatus === "ready"
+  const loadSettings = useCreativeSettingsStore((state) => state.load)
   const generationRef = React.useRef(vaultGeneration)
   generationRef.current = vaultGeneration
+
+  // The preferences are those of the vault that is open.
+  React.useEffect(() => {
+    if (enabled && vaultGeneration !== null) void loadSettings()
+  }, [enabled, loadSettings, vaultGeneration])
+
+  // Settings live in their own window: a change made there arrives as an event.
+  React.useEffect(() => {
+    if (!enabled || !isTauri()) return undefined
+    const registration = listen<CreativeSettingsChangedPayload>(
+      CREATIVE_SETTINGS_CHANGED_EVENT,
+      (event) => {
+        if (typeof event.payload.showInTree === "boolean") {
+          useCreativeSettingsStore.setState({ showInTree: event.payload.showInTree })
+        }
+      },
+    )
+    return adoptAsyncDisposer(registration, () => {})
+  }, [enabled])
 
   React.useEffect(() => {
     reset()

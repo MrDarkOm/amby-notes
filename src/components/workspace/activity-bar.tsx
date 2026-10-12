@@ -38,7 +38,8 @@ interface ActivityBarProps {
   activeView: PanelId | null
   isPanelOpen: boolean
   onActivate: (defId: string) => void
-  onMoveToOtherSide: (defId: string) => void
+  /** Absent while the other dock is off: there is nowhere to move a button to. */
+  onMoveToOtherSide?: (defId: string) => void
   onPointerDownButton: (defId: string) => (event: React.PointerEvent<HTMLElement>) => void
   draggingId: string | null
   presets?: { id: string; label: string }[]
@@ -261,18 +262,22 @@ export function ActivityBar({
               <Settings2 className="size-4 text-muted-foreground" />
               {t(settingsLabelKey)}
             </ContextMenuItem>
-            <ContextMenuSeparator />
-            <ContextMenuItem
-              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
-              onSelect={() => onMoveToOtherSide(def.id)}
-            >
-              {side === "left" ? (
-                <ArrowRight className="size-4 text-muted-foreground" />
-              ) : (
-                <ArrowLeft className="size-4 text-muted-foreground" />
-              )}
-              {side === "left" ? t("activityBar.moveRight") : t("activityBar.moveLeft")}
-            </ContextMenuItem>
+            {onMoveToOtherSide && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+                  onSelect={() => onMoveToOtherSide(def.id)}
+                >
+                  {side === "left" ? (
+                    <ArrowRight className="size-4 text-muted-foreground" />
+                  ) : (
+                    <ArrowLeft className="size-4 text-muted-foreground" />
+                  )}
+                  {side === "left" ? t("activityBar.moveRight") : t("activityBar.moveLeft")}
+                </ContextMenuItem>
+              </>
+            )}
             {dockMenuItems()}
           </ContextMenuContent>
         </ContextMenu>

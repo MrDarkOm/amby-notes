@@ -30,84 +30,44 @@ export function NewItemModal({
   sketchEnabled = true,
 }: NewItemModalProps) {
   const { t } = useTranslation()
+  // What a switched-off module would create is not offered at all.
+  const items = [
+    { id: "note", icon: FileText, desc: t("newItem.noteDesc"), run: onCreateNote },
+    { id: "folder", icon: FolderPlus, desc: t("newItem.folderDesc"), run: onCreateFolder },
+    canvasEnabled
+      ? { id: "canvas", icon: LayoutGrid, desc: t("newItem.canvasDesc"), run: onCreateCanvas }
+      : null,
+    sketchEnabled
+      ? { id: "sketch", icon: PenLine, desc: t("newItem.sketchDesc"), run: onCreateSketch }
+      : null,
+    canCreateDatabase && onCreateDatabase
+      ? { id: "database", icon: Database, desc: t("newItem.databaseDesc"), run: onCreateDatabase }
+      : null,
+  ].filter((item) => item !== null)
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="w-[calc(100vw-2rem)] max-w-sm border-border bg-background p-0 text-foreground shadow-2xl">
-        <DialogHeader className="border-b border-border px-4 py-3">
-          <DialogTitle className="text-sm font-medium text-foreground">
-            {t("newItem.title")}
-          </DialogTitle>
+      <DialogContent className="w-[calc(100vw-2rem)] max-w-md border-border bg-background text-foreground">
+        <DialogHeader>
+          <DialogTitle>{t("newItem.title")}</DialogTitle>
         </DialogHeader>
-
-        <div className="grid grid-cols-5 gap-2 p-4">
-          {/* Note */}
-          <button
-            onClick={() => {
-              onClose()
-              onCreateNote()
-            }}
-            title={t("newItem.note")}
-            aria-label={t("newItem.note")}
-            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center hover:border-border hover:bg-accent"
-          >
-            <FileText className="size-5 text-foreground" />
-          </button>
-
-          <button
-            onClick={() => {
-              onClose()
-              onCreateFolder()
-            }}
-            title={t("newItem.folder")}
-            aria-label={t("newItem.folder")}
-            className="flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center hover:border-border hover:bg-accent"
-          >
-            <FolderPlus className="size-5 text-foreground" />
-          </button>
-
-          <button
-            type="button"
-            disabled={!canvasEnabled}
-            onClick={() => {
-              if (!canvasEnabled) return
-              onClose()
-              onCreateCanvas()
-            }}
-            title={t("newItem.canvas")}
-            aria-label={t("newItem.canvas")}
-            className={`flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center ${canvasEnabled ? "hover:border-border hover:bg-accent" : "cursor-not-allowed opacity-50"}`}
-          >
-            <LayoutGrid className="size-5 text-foreground" />
-          </button>
-
-          <button
-            type="button"
-            disabled={!sketchEnabled}
-            onClick={() => {
-              if (!sketchEnabled) return
-              onClose()
-              onCreateSketch()
-            }}
-            title={t("newItem.sketch")}
-            aria-label={t("newItem.sketch")}
-            className={`flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-center ${sketchEnabled ? "hover:border-border hover:bg-accent" : "cursor-not-allowed opacity-50"}`}
-          >
-            <PenLine className="size-5 text-foreground" />
-          </button>
-
-          <button
-            type="button"
-            disabled={!canCreateDatabase}
-            onClick={() => {
-              onClose()
-              onCreateDatabase?.()
-            }}
-            title={t("newItem.database")}
-            aria-label={t("newItem.database")}
-            className={`flex size-12 justify-self-center items-center justify-center rounded-lg border border-border bg-card text-muted-foreground ${canCreateDatabase ? "hover:border-border hover:bg-accent" : "cursor-not-allowed opacity-50"}`}
-          >
-            <Database className="size-5" />
-          </button>
+        <div className="grid gap-2">
+          {items.map(({ id, icon: Icon, desc, run }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                onClose()
+                run()
+              }}
+              className="flex items-start gap-3 rounded-lg border border-border p-3 text-left hover:border-primary/40 hover:bg-accent/30"
+            >
+              <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              <span className="flex min-w-0 flex-col gap-0.5">
+                <span className="truncate text-sm font-medium">{t(`newItem.${id}`)}</span>
+                <span className="truncate text-xs text-muted-foreground">{desc}</span>
+              </span>
+            </button>
+          ))}
         </div>
       </DialogContent>
     </Dialog>

@@ -10,7 +10,6 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from "@/components/ui/command"
 import { useTranslation } from "react-i18next"
 import type { TreeItem } from "./sidebar-tree"
@@ -78,28 +77,12 @@ export function QuickOpenModal({
               {t("quickOpen.noFiles")}
             </CommandEmpty>
 
-            <CommandGroup
-              heading={t("quickOpen.actionsHeading")}
-              className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
-            >
-              <CommandItem
-                onSelect={handleNewNote}
-                className="flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] text-foreground aria-selected:bg-accent aria-selected:text-white cursor-pointer"
-              >
-                <div className="flex size-6 items-center justify-center rounded bg-accent">
-                  <Plus className="size-3.5 text-muted-foreground" />
-                </div>
-                {t("quickOpen.createNote")}
-              </CommandItem>
-            </CommandGroup>
-
             {visibleFiles.length === 0 && query.trim() ? (
               <div className="py-6 text-center text-sm text-muted-foreground">
                 {t("quickOpen.noFiles")}
               </div>
             ) : visibleFiles.length > 0 ? (
               <>
-                <CommandSeparator className="bg-accent" />
                 <CommandGroup
                   heading={t("quickOpen.filesHeading")}
                   className="[&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5"
@@ -124,6 +107,20 @@ export function QuickOpenModal({
               </>
             ) : null}
           </CommandList>
+          {/* Pinned under the list: it does not scroll away with the files. */}
+          <div className="border-t border-border p-1">
+            <CommandGroup>
+              <CommandItem
+                onSelect={handleNewNote}
+                className="flex items-center gap-2.5 rounded-md px-2 py-2 text-[13px] text-foreground aria-selected:bg-accent aria-selected:text-white cursor-pointer"
+              >
+                <div className="flex size-6 items-center justify-center rounded bg-accent">
+                  <Plus className="size-3.5 text-muted-foreground" />
+                </div>
+                {t("quickOpen.createNote")}
+              </CommandItem>
+            </CommandGroup>
+          </div>
         </Command>
       </DialogContent>
     </Dialog>

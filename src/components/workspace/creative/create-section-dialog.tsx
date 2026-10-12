@@ -28,6 +28,8 @@ const CHOICES = [
   { value: "locations", role: "locations", preset: "locations" },
   { value: "organizations", role: null, preset: "organizations" },
   { value: "items", role: null, preset: "items" },
+  // The key, unchanging events of a story: an ordinary database whose role the Works tab reads.
+  { value: "anchors", role: "anchors", preset: null },
 ] as const
 
 interface CreateSectionDialogProps {
@@ -35,6 +37,8 @@ interface CreateSectionDialogProps {
   onClose: () => void
   vaultGeneration: number | null
   project: ProjectSummary
+  /** The name and the starting point to put in the form when it opens. */
+  initial?: { name?: string; choice?: string }
   onCreated: (created: CreatedSection) => void
 }
 
@@ -43,6 +47,7 @@ export function CreateSectionDialog({
   onClose,
   vaultGeneration,
   project,
+  initial,
   onCreated,
 }: CreateSectionDialogProps) {
   const { t } = useTranslation()
@@ -62,13 +67,18 @@ export function CreateSectionDialog({
 
   React.useEffect(() => {
     if (open) {
-      setName("")
-      setGroup(NO_VALUE)
-      setChoice(NO_VALUE)
+      setName(initial?.name ?? "")
+      // Anchors belong to the work, not the world.
+      setGroup(
+        initial?.choice === "anchors" && project.groups.some((entry) => entry.id === "work")
+          ? "work"
+          : NO_VALUE,
+      )
+      setChoice(initial?.choice ?? NO_VALUE)
       setError(null)
       setPending(false)
     }
-  }, [open])
+  }, [open, initial, project.groups])
 
   const submit = async (event?: React.FormEvent) => {
     event?.preventDefault()
@@ -145,7 +155,9 @@ export function CreateSectionDialog({
               onValueChange={setChoice}
               options={[
                 { value: NO_VALUE, label: t("creative.preset.choices.plain") },
-                ...CHOICES.map((entry) => ({
+                ...CHOICES.filter(
+                  (entry) => entry.value !== "anchors" || project.kind === "story",
+                ).map((entry) => ({
                   value: entry.value,
                   label: t(`creative.preset.choices.${entry.value}`),
                 })),

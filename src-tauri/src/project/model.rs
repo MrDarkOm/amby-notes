@@ -14,7 +14,16 @@ pub const ROLE_TEXT: &str = "text";
 pub const ROLE_NOTES: &str = "notes";
 pub const ROLE_CHARACTERS: &str = "characters";
 pub const ROLE_LOCATIONS: &str = "locations";
-pub const KNOWN_ROLES: [&str; 4] = [ROLE_TEXT, ROLE_NOTES, ROLE_CHARACTERS, ROLE_LOCATIONS];
+/// The key, unchanging events of a story. A hint like the others: the section is an ordinary
+/// database, and a story may have none.
+pub const ROLE_ANCHORS: &str = "anchors";
+pub const KNOWN_ROLES: [&str; 5] = [
+    ROLE_TEXT,
+    ROLE_NOTES,
+    ROLE_CHARACTERS,
+    ROLE_LOCATIONS,
+    ROLE_ANCHORS,
+];
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]

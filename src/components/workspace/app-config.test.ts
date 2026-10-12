@@ -361,4 +361,19 @@ describe("app-config & settings storage resilience (WP-19)", () => {
       logToFile: false,
     })
   })
+
+  it("keeps the right panel on unless the settings turned it off", () => {
+    expect(normalizeAppPreferences({}).docks.rightEnabled).toBe(true)
+    // A file written before the setting existed has no such field.
+    expect(
+      normalizeAppPreferences({ docks: { leftPinned: false, rightPinned: true } }).docks,
+    ).toEqual({ leftPinned: false, rightPinned: true, rightEnabled: true })
+    expect(normalizeAppPreferences({ docks: { rightEnabled: false } }).docks.rightEnabled).toBe(
+      false,
+    )
+    expect(
+      normalizeAppPreferences({ docks: { rightEnabled: "no" as unknown as boolean } }).docks
+        .rightEnabled,
+    ).toBe(true)
+  })
 })

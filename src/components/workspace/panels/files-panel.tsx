@@ -13,6 +13,7 @@ import {
   FolderPlus,
   History,
   LayoutGrid,
+  ListFilter,
   ListOrdered,
   LocateFixed,
   PenLine,
@@ -54,6 +55,12 @@ import {
   type TreeSortDirection,
   type TreeSortKey,
 } from "../tree-sort"
+import {
+  TREE_TYPE_KINDS,
+  filterTreeByType,
+  isTreeTypeKind,
+  type TreeTypeKind,
+} from "../tree-type-filter"
 import { useViewStateStore } from "../use-view-state-store"
 import { NewItemModal } from "../new-item-modal"
 import type { PanelRenderProps } from "../panel-registry"
@@ -75,6 +82,23 @@ const TREE_SORT_OPTIONS: Array<{
 ]
 
 const TREE_SORT_STORAGE_KEY = "amby:tree-sort"
+const TREE_TYPE_FILTER_STORAGE_KEY = "amby:tree-type-filter"
+
+function readTreeTypeFilter(): TreeTypeKind[] {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(TREE_TYPE_FILTER_STORAGE_KEY) ?? "[]")
+    return Array.isArray(saved) ? saved.filter(isTreeTypeKind) : []
+  } catch {
+    return []
+  }
+}
+
+const TYPE_FILTER_LABELS: Record<TreeTypeKind, { key: string; icon: typeof FileText }> = {
+  file: { key: "filesPanel.filterNotes", icon: FileText },
+  database: { key: "filesPanel.filterDatabases", icon: Database },
+  canvas: { key: "filesPanel.filterCanvases", icon: LayoutGrid },
+  sketch: { key: "filesPanel.filterSketches", icon: PenLine },
+}
 const TREE_ORDER_STORAGE_PREFIX = "amby:tree-order:"
 
 function readTreeSortSelection(): { key: TreeSortKey; direction: TreeSortDirection } {
@@ -129,7 +153,8 @@ function filterTreeItems(items: TreeItem[], query: string): TreeItem[] {
 export function FilesPanel(props: PanelRenderProps) {
   const { t } = useTranslation()
   const {
-    treeItems,
+    treeItems: vaultTreeItems,
+    fileTreeItems,
     selectedId,
     vault,
     onSelect,
@@ -161,6 +186,8 @@ export function FilesPanel(props: PanelRenderProps) {
     canvasEnabled = true,
     sketchEnabled = true,
   } = props
+  // A module may present the tree differently here; the other panels keep the vault's own.
+  const treeItems = fileTreeItems ?? vaultTreeItems
   const canCreateDatabase = Boolean(databaseRuntimeEnabled ?? canCreateDatabaseLayer)
   const [newItemModalOpen, setNewItemModalOpen] = React.useState(false)
   const [databaseDialogOpen, setDatabaseDialogOpen] = React.useState(false)
@@ -189,12 +216,37 @@ export function FilesPanel(props: PanelRenderProps) {
     if (!vault || sortKey !== "manual") return
     localStorage.setItem(`${TREE_ORDER_STORAGE_PREFIX}${vault}`, JSON.stringify(manualOrder))
   }, [manualOrder, sortKey, vault])
+  const [typeFilter, setTypeFilter] = React.useState<TreeTypeKind[]>(readTreeTypeFilter)
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(TREE_TYPE_FILTER_STORAGE_KEY, JSON.stringify(typeFilter))
+    } catch {
+      // The filter is a convenience; the tree works without remembering it.
+    }
+  }, [typeFilter])
+  // Only the kinds of file whose module is on can be chosen, and only those narrow the tree.
+  const availableKinds = TREE_TYPE_KINDS.filter(
+    (kind) =>
+      kind === "file" ||
+      (kind === "database" && canCreateDatabase) ||
+      (kind === "canvas" && canvasEnabled) ||
+      (kind === "sketch" && sketchEnabled),
+  )
+  const activeKinds = React.useMemo(
+    () => new Set(typeFilter.filter((kind) => availableKinds.includes(kind))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [typeFilter, canCreateDatabase, canvasEnabled, sketchEnabled],
+  )
+  const typeFilteredItems = React.useMemo(
+    () => filterTreeByType(treeItems, activeKinds),
+    [activeKinds, treeItems],
+  )
   const sortedTreeItems = React.useMemo(
     () =>
       sortKey === "manual"
-        ? applyManualTreeOrder(treeItems, manualOrder)
-        : sortTreeItems(treeItems, sortKey, sortDirection),
-    [manualOrder, sortDirection, sortKey, treeItems],
+        ? applyManualTreeOrder(typeFilteredItems, manualOrder)
+        : sortTreeItems(typeFilteredItems, sortKey, sortDirection),
+    [manualOrder, sortDirection, sortKey, typeFilteredItems],
   )
   const visibleTreeItems = React.useMemo(
     () => filterTreeItems(sortedTreeItems, query),
@@ -298,6 +350,64 @@ export function FilesPanel(props: PanelRenderProps) {
                     </DropdownMenuItem>
                   </React.Fragment>
                 ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="relative size-7 text-muted-foreground hover:bg-accent hover:text-white"
+                  title={t("filesPanel.filter")}
+                  aria-label={t("filesPanel.filter")}
+                >
+                  <ListFilter className="size-3.5" />
+                  {activeKinds.size > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute right-1 top-1 size-1.5 rounded-full bg-primary"
+                    />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="start"
+                className="w-56 border-border bg-popover text-foreground"
+              >
+                {availableKinds.map((kind) => {
+                  const { key, icon: Icon } = TYPE_FILTER_LABELS[kind]
+                  const checked = activeKinds.has(kind)
+                  return (
+                    <DropdownMenuItem
+                      key={kind}
+                      className="relative flex items-center gap-2 pr-8 text-[13px] focus:bg-accent focus:text-white"
+                      // Several kinds can be chosen in a row, so the menu stays open.
+                      onSelect={(event) => {
+                        event.preventDefault()
+                        setTypeFilter((current) =>
+                          current.includes(kind)
+                            ? current.filter((entry) => entry !== kind)
+                            : [...current, kind],
+                        )
+                      }}
+                    >
+                      <Icon className="size-3.5 text-muted-foreground" />
+                      <span className="flex-1">{t(key)}</span>
+                      {checked && <Check className="absolute right-2 size-3.5 text-primary" />}
+                    </DropdownMenuItem>
+                  )
+                })}
+                {activeKinds.size > 0 && (
+                  <>
+                    <DropdownMenuSeparator className="bg-accent" />
+                    <DropdownMenuItem
+                      className="text-[13px] focus:bg-accent focus:text-white"
+                      onSelect={() => setTypeFilter([])}
+                    >
+                      {t("filesPanel.filterReset")}
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
             <Button

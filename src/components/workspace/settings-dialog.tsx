@@ -640,6 +640,18 @@ export function SettingsDialog({
                       </SelectContent>
                     </Select>
                   </Row>
+                  <Row
+                    label={t("settings.interface.rightPanel")}
+                    hint={t("settings.interface.rightPanelHint")}
+                  >
+                    <Switch
+                      checked={prefs.docks.rightEnabled}
+                      onCheckedChange={(rightEnabled) =>
+                        setPrefs({ docks: { ...prefs.docks, rightEnabled } })
+                      }
+                      aria-label={t("settings.interface.rightPanel")}
+                    />
+                  </Row>
                   <Row label={t("settings.interface.tooltipDelay")}>
                     <Select
                       value={String(prefs.tooltipDelayMs)}

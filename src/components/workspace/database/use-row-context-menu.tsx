@@ -6,7 +6,7 @@ import { RowMenuPopover, type RowMenuModel } from "./row-menu"
 
 /**
  * The same menu on a right click anywhere on a row. Render `element` once; call `open` from the
- * rows' `onContextMenu`. Fields that edit text keep the browser's own menu.
+ * rows' `onContextMenu`. Fields that edit text do not open the row menu.
  */
 export function useRowContextMenu({
   rows,

@@ -4,6 +4,11 @@ export interface TreeItem {
   name: string
   type: "folder" | "file" | "canvas" | "sketch" | "database"
   icon?: string
+  /**
+   * UI only, never stored: replaces the glyph at the right end of a folder's row. A module that
+   * presents a folder as something else (a universe) sets it in its view of the tree.
+   */
+  statusIcon?: string
   /** Filesystem timestamps in Unix seconds, used by the file-panel sorter. */
   created?: number
   modified?: number

@@ -185,7 +185,13 @@ export function TreeItemStatusIcon({
         className,
       )}
     >
-      {isFavoriteItem ? <FileStarIcon Icon={Icon} /> : <Icon className="size-3.5" />}
+      {isFavoriteItem ? (
+        <FileStarIcon Icon={Icon} />
+      ) : item.statusIcon ? (
+        <TreeIcon icon={item.statusIcon} className="size-3.5" />
+      ) : (
+        <Icon className="size-3.5" />
+      )}
     </span>
   )
 }
