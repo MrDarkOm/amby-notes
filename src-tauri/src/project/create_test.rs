@@ -121,6 +121,7 @@ pub(super) fn story(name: &str) -> CreateProjectRequest {
         tags: Vec::new(),
         base_sections: true,
         labels: BTreeMap::new(),
+        text_levels: None,
     }
 }
 
@@ -134,6 +135,7 @@ pub(super) fn section_request(created: &CreatedProject, name: &str) -> CreatePro
         role: None,
         group_id: None,
         labels: BTreeMap::new(),
+        text_levels: None,
         preset: None,
     }
 }
@@ -1038,6 +1040,7 @@ fn a_project_of_an_unknown_format_version_is_listed_read_only_and_never_rewritte
         role: None,
         group_id: None,
         labels: BTreeMap::new(),
+        text_levels: None,
         preset: None,
     };
     let before = fixture.tree();

@@ -672,6 +672,34 @@ struct NewProjectFile<'a> {
     text: Option<&'a Value>,
 }
 
+/// The text levels a request names, normalized, or `None` for the template's four. Naming them
+/// where no text section is created is a mistake of the caller, refused before any write.
+fn resolve_text_levels(
+    raw: Option<&[String]>,
+    creates_text: bool,
+) -> Result<Option<Vec<String>>, ProjectError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    if !creates_text {
+        return Err(ProjectError::InvalidName {
+            field: "textLevels".to_owned(),
+            reason: "no text section".to_owned(),
+        });
+    }
+    text_schema::normalize_text_levels(raw).map(Some)
+}
+
+/// Puts the named levels into the payload a request's revision is computed from. A request that
+/// names none hashes exactly as it did before the field existed, so an operation journaled by an
+/// older build still matches its repeat.
+fn with_text_levels(mut payload: Value, levels: Option<&[String]>) -> Value {
+    if let (Some(levels), Some(object)) = (levels, payload.as_object_mut()) {
+        object.insert("textLevels".to_owned(), json!(levels));
+    }
+    payload
+}
+
 /// Fixes what a section is created with: the text schema for a story's text, a preset for a
 /// world section. When an earlier attempt of the same operation is resumed, its journal wins,
 /// so the IDs are the ones already planned. Returns the `text` block for the structure file.
@@ -681,6 +709,7 @@ fn plan_contents(
     preset: Option<&str>,
     earlier: Option<&PlannedSection>,
     labels: &BTreeMap<String, String>,
+    text_levels: Option<&[String]>,
 ) -> Result<Option<Value>, ProjectError> {
     if let Some(earlier) = earlier {
         section.extras = earlier.extras.clone();
@@ -688,7 +717,13 @@ fn plan_contents(
         return Ok(None);
     }
     if section.role.as_deref() == Some(ROLE_TEXT) {
-        let schema = text_schema::plan(env.vault, &section.name, &planned_ids(section), labels)?;
+        let schema = text_schema::plan(
+            env.vault,
+            &section.name,
+            &planned_ids(section),
+            labels,
+            text_levels,
+        )?;
         section.extras.properties = schema.properties;
         return Ok(Some(schema.text_block));
     }
@@ -715,22 +750,29 @@ pub fn create_project(
     let tags = normalize_tags(&request.tags)?;
     let icon = normalize_icon(request.icon.as_deref())?;
     let (groups, specs) = base_layout(request.kind, request.base_sections, &request.labels)?;
+    let text_levels = resolve_text_levels(
+        request.text_levels.as_deref(),
+        request.kind == ProjectKind::Story && request.base_sections,
+    )?;
     let parent_hint = request
         .parent_path
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty());
 
-    let revision = request_revision(&json!({
-        "kind": request.kind.as_str(),
-        "name": name,
-        "parentPath": parent_hint,
-        "icon": icon,
-        "tags": tags,
-        "groups": groups.iter().map(|group| json!([group.id, group.name])).collect::<Vec<_>>(),
-        "sections": specs.iter().map(|spec| json!([spec.role, spec.group, spec.name])).collect::<Vec<_>>(),
-        "labels": request.labels,
-    }))?;
+    let revision = request_revision(&with_text_levels(
+        json!({
+            "kind": request.kind.as_str(),
+            "name": name,
+            "parentPath": parent_hint,
+            "icon": icon,
+            "tags": tags,
+            "groups": groups.iter().map(|group| json!([group.id, group.name])).collect::<Vec<_>>(),
+            "sections": specs.iter().map(|spec| json!([spec.role, spec.group, spec.name])).collect::<Vec<_>>(),
+            "labels": request.labels,
+        }),
+        text_levels.as_deref(),
+    ))?;
 
     let resumed = match replay(env, &request.operation_id, OP_CREATE_PROJECT, &revision)? {
         Replay::Done(value) => {
@@ -815,9 +857,14 @@ pub fn create_project(
                 .iter()
                 .find(|earlier| earlier.id == section.id)
         });
-        if let Some(block) =
-            plan_contents(env, section, preset.as_deref(), earlier, &request.labels)?
-        {
+        if let Some(block) = plan_contents(
+            env,
+            section,
+            preset.as_deref(),
+            earlier,
+            &request.labels,
+            text_levels.as_deref(),
+        )? {
             text_block = Some(block);
         }
     }
@@ -964,15 +1011,19 @@ pub fn create_project_section(
             });
         }
     }
-    let revision = request_revision(&json!({
-        "projectId": request.project_id,
-        "expectedProjectRevision": request.expected_project_revision,
-        "name": name,
-        "role": role,
-        "groupId": group_id,
-        "labels": request.labels,
-        "preset": preset,
-    }))?;
+    let text_levels = resolve_text_levels(request.text_levels.as_deref(), role == Some(ROLE_TEXT))?;
+    let revision = request_revision(&with_text_levels(
+        json!({
+            "projectId": request.project_id,
+            "expectedProjectRevision": request.expected_project_revision,
+            "name": name,
+            "role": role,
+            "groupId": group_id,
+            "labels": request.labels,
+            "preset": preset,
+        }),
+        text_levels.as_deref(),
+    ))?;
 
     let resumed = match replay(env, &request.operation_id, OP_CREATE_SECTION, &revision)? {
         Replay::Done(value) => {
@@ -1052,7 +1103,14 @@ pub fn create_project_section(
     let mut text_block: Option<Value> = resumed
         .as_ref()
         .and_then(|journal| journal.plan.text_block.clone());
-    if let Some(block) = plan_contents(env, &mut planned, preset, earlier, &request.labels)? {
+    if let Some(block) = plan_contents(
+        env,
+        &mut planned,
+        preset,
+        earlier,
+        &request.labels,
+        text_levels.as_deref(),
+    )? {
         text_block = Some(block);
     }
     let mut after = with_section_appended(

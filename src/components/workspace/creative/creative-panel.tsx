@@ -30,10 +30,10 @@ import type { NewProjectKind } from "./project-labels"
 import { useProjectStore } from "./project-store"
 import {
   defaultSource,
-  isWorksSection,
   entityTabs,
   selectedStoryOf,
   workshopScope,
+  worksSectionsFromPrefs,
 } from "./workshop/workshop-model"
 import { WorkshopPane } from "./workshop/workshop-pane"
 
@@ -86,6 +86,7 @@ function DiagnosticsNotice({ diagnostics }: { diagnostics: ProjectDiagnostic[] }
 export function CreativePanel({
   databaseRuntimeEnabled,
   vault,
+  selectedId,
   onSelect,
   onDelete,
   onDeleteMany,
@@ -114,7 +115,6 @@ export function CreativePanel({
   } | null>(null)
   const setSectionFor = (project: ProjectSummary | null) =>
     setSectionRequest(project ? { project } : null)
-  const [actionError, setActionError] = React.useState<string | null>(null)
 
   // What was last chosen in this vault: the scope, and what the lists were showing.
   React.useEffect(() => {
@@ -124,12 +124,9 @@ export function CreativePanel({
     const prefs = readWorkshopPrefs(vault)
     nav.setStoryFilter(prefs.story ?? null)
     nav.setWorldScope(prefs.world ?? "story")
-    const open = Array.isArray(prefs.works)
-      ? prefs.works.filter(isWorksSection)
-      : ["books" as const]
+    const open = worksSectionsFromPrefs(prefs.works)
     nav.setWorksOpen({
-      books: open.includes("books"),
-      arcs: open.includes("arcs"),
+      text: open.includes("text"),
       anchors: open.includes("anchors"),
       notes: open.includes("notes"),
     })
@@ -223,22 +220,22 @@ export function CreativePanel({
   }
   const chooserOptions = useChooserOptions(scopeProject, extra)
 
-  const createEntity = async (categoryKey: string) => {
+  /** Creates a world page under the name the author typed in its row; a failure goes back to it. */
+  const createEntity = async (categoryKey: string, title: string) => {
     const source = sourceOf(categoryKey)
     if (!source || vaultGeneration === null) return
-    setActionError(null)
     try {
       const created = await createDatabaseRow({
         expectedGeneration: vaultGeneration,
         databaseId: source.section.databaseId,
-        title: t("creative.workshop.untitled"),
+        title,
         template: { kind: "default" },
       })
       bumpData()
       openNote(created.noteId)
     } catch (caught) {
       bumpData()
-      setActionError(caught instanceof Error ? caught.message : String(caught))
+      throw caught
     }
   }
 
@@ -249,7 +246,7 @@ export function CreativePanel({
     setChooserOpen(false)
     const collection = writableCollection(scopeProject)
     if (choice.startsWith("entity:")) {
-      void createEntity(choice.slice("entity:".length))
+      useCreativeNavStore.getState().requestEntity(choice.slice("entity:".length))
     } else if (choice === "page") {
       useCreativeNavStore.getState().requestPage(selectedStory?.projectId ?? null)
     } else if (choice.startsWith("section:")) {
@@ -332,20 +329,16 @@ export function CreativePanel({
     body = (
       <div className="flex min-h-0 flex-1 flex-col">
         <DiagnosticsNotice diagnostics={catalog.diagnostics} />
-        {actionError && (
-          <p role="alert" className="mx-3 mb-2 break-words text-[11px] text-destructive">
-            {actionError}
-          </p>
-        )}
         <WorkshopPane
           catalog={catalog}
           scopeId={resolvedScope}
           vault={vault ?? null}
           vaultGeneration={vaultGeneration}
           onOpenNote={openNote}
+          activeNoteId={selectedId}
           onOpenProject={openProject}
           onAddSection={(project, options) => setSectionRequest({ project, initial: options })}
-          onAddEntity={(key) => void createEntity(key)}
+          onCreateEntity={createEntity}
           itemActions={{
             onOpenInNewTab,
             onRename,

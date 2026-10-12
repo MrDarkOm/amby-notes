@@ -11,7 +11,7 @@ describe("project labels", () => {
       "section:notes": "Заметки",
       "section:characters": "Персонажи",
       "section:locations": "Локации",
-      "group:work": "Произведение",
+      "group:work": "История",
       "group:world": "Мир",
       "property:level": "Уровень",
       "property:parent": "Родитель",

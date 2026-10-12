@@ -10,6 +10,12 @@ interface PageRequest {
   id: number
 }
 
+interface EntityRequest {
+  /** The world category (`workshop-model` tab key) a page is asked for in. */
+  categoryKey: string
+  id: number
+}
+
 interface CreativeNavState {
   /** The section each project's page shows: `overview` or a section id. */
   sectionByProject: Record<string, string>
@@ -20,7 +26,7 @@ interface CreativeNavState {
   /** The collection the sidebar shows, `null` for the stand-alone stories, `undefined` before a choice. */
   scope: string | null | undefined
   setScope: (scope: string | null | undefined) => void
-  /** Which folding parts of the works tab are unfolded: books, arcs, anchors, notes. */
+  /** Which folding parts of the works tab are unfolded: text, anchors, notes. */
   worksOpen: Record<WorksSection, boolean>
   setWorksOpen: (open: Record<WorksSection, boolean>) => void
   toggleWorksSection: (section: WorksSection) => void
@@ -38,6 +44,9 @@ interface CreativeNavState {
   bumpData: () => void
   pageRequest: PageRequest | null
   requestPage: (storyId: string | null) => void
+  /** A page of a world category asked for from outside the lists (the "Create" button). */
+  entityRequest: EntityRequest | null
+  requestEntity: (categoryKey: string) => void
   /** A project to create, asked for from outside the panel (the empty tab); the panel clears it. */
   createRequest: "story" | "universe" | null
   requestCreate: (kind: "story" | "universe") => void
@@ -49,7 +58,7 @@ export const useCreativeNavStore = create<CreativeNavState>((set) => ({
   collapsed: {},
   scope: undefined,
   setScope: (scope) => set({ scope }),
-  worksOpen: { books: true, arcs: false, anchors: false, notes: false },
+  worksOpen: { text: true, anchors: false, notes: false },
   setWorksOpen: (worksOpen) => set({ worksOpen }),
   toggleWorksSection: (section) =>
     set((state) => ({ worksOpen: { ...state.worksOpen, [section]: !state.worksOpen[section] } })),
@@ -62,6 +71,11 @@ export const useCreativeNavStore = create<CreativeNavState>((set) => ({
   dataNonce: 0,
   bumpData: () => set((state) => ({ dataNonce: state.dataNonce + 1 })),
   pageRequest: null,
+  entityRequest: null,
+  requestEntity: (categoryKey) =>
+    set((state) => ({
+      entityRequest: { categoryKey, id: (state.entityRequest?.id ?? 0) + 1 },
+    })),
   createRequest: null,
   requestCreate: (createRequest) => set({ createRequest }),
   clearCreateRequest: () => set({ createRequest: null }),

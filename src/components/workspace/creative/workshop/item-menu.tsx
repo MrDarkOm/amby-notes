@@ -56,7 +56,7 @@ function InlineRename({
           }
           event.stopPropagation()
         }}
-        className="w-full rounded border border-primary/50 bg-background px-1.5 py-1 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="w-full rounded border border-primary/50 bg-background px-1.5 py-0.5 text-[13px] outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
     </div>
   )
@@ -71,7 +71,7 @@ export function ItemMenu({
   noteId,
   title,
   nested = [],
-  indent = 8,
+  indent = 30,
   children,
 }: {
   noteId: string

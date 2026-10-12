@@ -91,7 +91,10 @@ export default defineConfig(async () => ({
     watch: {
       // Agent worktrees live inside the project folder: a build or a test run in one of
       // them must not reload the window of the application running from this checkout.
-      ignored: ["**/src-tauri/**", "**/.claude/**"],
+      // The folder is named from this checkout's own root: a worktree's path itself goes
+      // through `.claude`, and a pattern matching it anywhere would stop the application
+      // started from a worktree from seeing any change at all.
+      ignored: ["**/src-tauri/**", `${path.resolve(import.meta.dirname, ".claude")}/**`],
     },
   },
 }))

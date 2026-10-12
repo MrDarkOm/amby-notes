@@ -154,6 +154,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::project::create_text_page,
         commands::project::move_text_page,
         commands::project::list_note_references,
+        commands::project::list_text_stats,
         commands::assets::open_in_explorer,
         commands::external::open_attachment,
         commands::external::open_web_address,

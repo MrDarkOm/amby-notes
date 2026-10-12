@@ -1,110 +1,111 @@
-import { describe, it, expect, vi } from "vitest"
-import { stripYamlFrontmatter, compileManuscript, type ManuscriptNode } from "./manuscript-compiler"
+import { describe, expect, it, vi } from "vitest"
+import {
+  compileManuscript,
+  ManuscriptReadError,
+  stripYamlFrontmatter,
+  type ManuscriptPage,
+} from "./manuscript-compiler"
 
-describe("manuscript-compiler (CR-12, CR-13, CR-19)", () => {
-  describe("stripYamlFrontmatter", () => {
-    it("strips standard YAML frontmatter", () => {
-      const raw = `---
-title: Глава 1
-status: in-progress
----
-Это основной текст главы.
-Вторая строка текста.`
+const page = (noteId: string, title: string, children: ManuscriptPage[] = []): ManuscriptPage => ({
+  noteId,
+  title,
+  children,
+})
 
-      const stripped = stripYamlFrontmatter(raw)
-      expect(stripped).toBe("Это основной текст главы.\nВторая строка текста.")
+describe("stripYamlFrontmatter", () => {
+  it("drops a frontmatter block and keeps the body", () => {
+    const raw = "---\ntitle: Глава 1\nstatus: draft\n---\nПервая строка.\nВторая строка."
+    expect(stripYamlFrontmatter(raw)).toBe("Первая строка.\nВторая строка.")
+  })
+
+  it("handles CRLF, a BOM and an empty block", () => {
+    expect(stripYamlFrontmatter("\uFEFF---\r\na: 1\r\n---\r\nТекст")).toBe("Текст")
+    expect(stripYamlFrontmatter("---\n---\nТекст")).toBe("Текст")
+  })
+
+  it("leaves a note without frontmatter as it is, a horizontal rule included", () => {
+    expect(stripYamlFrontmatter("Просто текст")).toBe("Просто текст")
+    expect(stripYamlFrontmatter("Абзац\n\n---\n\nДальше")).toBe("Абзац\n\n---\n\nДальше")
+    expect(stripYamlFrontmatter("")).toBe("")
+  })
+})
+
+describe("compileManuscript", () => {
+  const notes: Record<string, string> = {
+    book: "---\ntitle: Книга\n---\n",
+    ch1: "---\nstatus: draft\n---\nНачало.",
+    sc1: "Сцена в таверне.",
+    sc2: "Побег.",
+    ch2: "Конец.",
+  }
+  const read = (noteId: string) => Promise.resolve(notes[noteId] ?? "")
+
+  it("reads the tree in order and makes the heading depth follow the depth in the tree", async () => {
+    const roots = [
+      page("book", "Книга первая", [
+        page("ch1", "Глава 1", [page("sc1", "Таверна"), page("sc2", "Побег")]),
+        page("ch2", "Глава 2"),
+      ]),
+    ]
+    const result = await compileManuscript({ roots, readNoteContent: read })
+    expect(result.pages).toBe(5)
+    expect(result.markdown).toBe(
+      [
+        "# Книга первая",
+        "## Глава 1",
+        "Начало.",
+        "### Таверна",
+        "Сцена в таверне.",
+        "### Побег",
+        "Побег.",
+        "## Глава 2",
+        "Конец.",
+      ].join("\n\n") + "\n",
+    )
+  })
+
+  it("puts the story's name on top and moves the pages one level down", async () => {
+    const result = await compileManuscript({
+      roots: [page("ch1", "Глава 1")],
+      readNoteContent: read,
+      title: "MoleHills",
     })
+    expect(result.markdown).toBe("# MoleHills\n\n## Глава 1\n\nНачало.\n")
+  })
 
-    it("returns plain markdown unchanged when no frontmatter", () => {
-      const raw = "Простой текст без метаданных."
-      expect(stripYamlFrontmatter(raw)).toBe("Простой текст без метаданных.")
-    })
+  it("caps the heading depth at six and gives an untitled page a dash", async () => {
+    let deep = page("ch2", "")
+    for (let level = 0; level < 7; level += 1) deep = page("sc1", `Уровень ${level}`, [deep])
+    const result = await compileManuscript({ roots: [deep], readNoteContent: read })
+    const headings = result.markdown.split("\n").filter((line) => line.startsWith("#"))
+    expect(headings).toHaveLength(8)
+    expect(headings.every((line) => line.indexOf(" ") <= 6)).toBe(true)
+    expect(headings[headings.length - 1]).toBe("###### —")
+  })
 
-    it("handles empty or whitespace strings", () => {
-      expect(stripYamlFrontmatter("")).toBe("")
+  it("is an empty document for an empty text", async () => {
+    await expect(compileManuscript({ roots: [], readNoteContent: read })).resolves.toEqual({
+      markdown: "",
+      pages: 0,
     })
   })
 
-  describe("compileManuscript", () => {
-    it("compiles book, chapters in body mode, and chapters in scenes mode", async () => {
-      const notes: Record<string, string> = {
-        chap_1: `---
-title: Пролог
----
-Начало великой истории.`,
-        scene_1: `---
-title: Встреча в таверне
----
-За столом сидели трое.`,
-        scene_2: `---
-title: Побег
----
-Они выбежали в темноту.`,
-      }
-
-      const readNoteContent = vi.fn(async (_vault: string, noteId: string) => {
-        return notes[noteId] || ""
-      })
-
-      const tree: ManuscriptNode[] = [
-        {
-          noteId: "book_1",
-          title: "Пепельный берег",
-          type: "book",
-          order: "a0",
-          children: [
-            {
-              noteId: "chap_1",
-              title: "Пролог",
-              type: "chapter",
-              order: "a0",
-              chapterMode: "body",
-              children: [],
-            },
-            {
-              noteId: "chap_2",
-              title: "Глава 1: Тени",
-              type: "chapter",
-              order: "a1",
-              chapterMode: "scenes",
-              children: [
-                {
-                  noteId: "scene_1",
-                  title: "Встреча в таверне",
-                  type: "scene",
-                  order: "a0",
-                  children: [],
-                },
-                {
-                  noteId: "scene_2",
-                  title: "Побег",
-                  type: "scene",
-                  order: "a1",
-                  children: [],
-                },
-              ],
-            },
-          ],
-        },
-      ]
-
-      const compiled = await compileManuscript({
-        vaultPath: "/vault",
-        rootNodes: tree,
-        readNoteContent,
-        includeSceneHeaders: true,
-      })
-
-      expect(compiled).toContain("# Пепельный берег")
-      expect(compiled).toContain("## Пролог")
-      expect(compiled).toContain("Начало великой истории.")
-      expect(compiled).toContain("## Глава 1: Тени")
-      expect(compiled).toContain("### Встреча в таверне")
-      expect(compiled).toContain("За столом сидели трое.")
-      expect(compiled).toContain("### Побег")
-      expect(compiled).toContain("Они выбежали в темноту.")
-      // Verifies frontmatter markers are stripped
-      expect(compiled).not.toContain("---")
+  it("stops and names the page it could not read instead of skipping it", async () => {
+    const readNoteContent = vi.fn(async (noteId: string) => {
+      if (noteId === "sc1") throw new Error("disk")
+      return notes[noteId] ?? ""
     })
+    const roots = [page("ch1", "Глава 1", [page("sc1", "Таверна"), page("sc2", "Побег")])]
+    const failure = await compileManuscript({ roots, readNoteContent }).catch((error) => error)
+    expect(failure).toBeInstanceOf(ManuscriptReadError)
+    expect(failure).toMatchObject({ noteId: "sc1", pageTitle: "Таверна" })
+    expect(readNoteContent).not.toHaveBeenCalledWith("sc2")
+  })
+
+  it("never writes: the only call it makes is the read", async () => {
+    const readNoteContent = vi.fn(read)
+    await compileManuscript({ roots: [page("ch1", "Глава 1")], readNoteContent })
+    expect(readNoteContent).toHaveBeenCalledTimes(1)
+    expect(readNoteContent).toHaveBeenCalledWith("ch1")
   })
 })

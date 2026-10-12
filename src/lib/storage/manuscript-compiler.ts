@@ -1,117 +1,91 @@
 /**
- * Manuscript tree builder and Markdown compiler for Amby Creative Studio.
- * Complies with docs/creative-format.md (CR-12, CR-13, CR-19).
+ * Manuscript compiler: the text of a story, read in the order of its tree, as one Markdown
+ * document (`docs/creative-format.md` §5). It only reads: the notes are never changed, and the
+ * result is given back as a string for the caller to save as a new file.
+ *
+ * The tree is the story's own, whatever its levels are called: a page's heading depth is its
+ * depth in the tree, so a one-level story and a four-level one compile the same way.
  */
 
-export interface ManuscriptNode {
+/** What the compiler needs of a page; the workshop's `TextNode` fits it as it is. */
+export interface ManuscriptPage {
   noteId: string
   title: string
-  type: string // "book" | "chapter" | "scene"
-  order: string
-  chapterMode?: "body" | "scenes"
-  synopsis?: string
-  status?: string
-  children: ManuscriptNode[]
+  children: ManuscriptPage[]
 }
 
 export interface CompileManuscriptOptions {
-  vaultPath: string
-  rootNodes: ManuscriptNode[]
-  readNoteContent: (vaultPath: string, noteId: string) => Promise<string>
-  includeSceneHeaders?: boolean
-  sceneSeparator?: string
+  /** The top-level pages, already in the author's order (children likewise). */
+  roots: ManuscriptPage[]
+  /** The Markdown of one note, frontmatter included. */
+  readNoteContent: (noteId: string) => Promise<string>
+  /** The document's own heading; the pages then start one level below it. */
+  title?: string
 }
 
-/**
- * Strips YAML frontmatter block from markdown text.
- */
+export interface CompiledManuscript {
+  markdown: string
+  /** How many pages went in. */
+  pages: number
+}
+
+/** A page could not be read: the compile stops instead of leaving a hole in the manuscript. */
+export class ManuscriptReadError extends Error {
+  readonly noteId: string
+  readonly pageTitle: string
+  /** What the read failed with. */
+  readonly reason: unknown
+
+  constructor(noteId: string, pageTitle: string, reason: unknown) {
+    super(`Could not read "${pageTitle}" for the manuscript`)
+    this.name = "ManuscriptReadError"
+    this.noteId = noteId
+    this.pageTitle = pageTitle
+    this.reason = reason
+  }
+}
+
+const FRONTMATTER = /^\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/
+
+/** The body of a note: the YAML frontmatter block, a BOM and the outer blank lines dropped. */
 export function stripYamlFrontmatter(markdown: string): string {
   if (!markdown) return ""
-  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)
-  if (match) {
-    return markdown.slice(match[0].length).trim()
-  }
-  return markdown.trim()
+  const match = FRONTMATTER.exec(markdown)
+  const body = match ? markdown.slice(match[0].length) : markdown.replace(/^\uFEFF/, "")
+  return body.trim()
 }
 
-/**
- * Compiles a manuscript tree into a single clean Markdown document.
- */
-export async function compileManuscript(options: CompileManuscriptOptions): Promise<string> {
-  const {
-    vaultPath,
-    rootNodes,
-    readNoteContent,
-    includeSceneHeaders = true,
-    sceneSeparator = "\n\n* * *\n\n",
-  } = options
+const MAX_HEADING = 6
 
-  const parts: string[] = []
+function heading(depth: number, title: string): string {
+  const level = Math.min(Math.max(depth, 1), MAX_HEADING)
+  return `${"#".repeat(level)} ${title.trim() || "—"}`
+}
 
-  const sortedRoots = [...rootNodes].sort((a, b) => (a.order || "").localeCompare(b.order || ""))
+/** Compiles a story's text tree into one Markdown document. */
+export async function compileManuscript(
+  options: CompileManuscriptOptions,
+): Promise<CompiledManuscript> {
+  const { roots, readNoteContent, title } = options
+  const blocks: string[] = []
+  const offset = title?.trim() ? 1 : 0
+  if (title?.trim()) blocks.push(heading(1, title))
+  let pages = 0
 
-  for (const root of sortedRoots) {
-    if (root.type === "book") {
-      parts.push(`# ${root.title}\n\n`)
-
-      const sortedChapters = [...root.children].sort((a, b) =>
-        (a.order || "").localeCompare(b.order || ""),
-      )
-
-      for (const chapter of sortedChapters) {
-        await compileChapter(chapter, parts)
-      }
-    } else if (root.type === "chapter") {
-      await compileChapter(root, parts)
-    } else if (root.type === "scene") {
-      await compileScene(root, parts, false)
-    }
-  }
-
-  return parts.join("").trim() + "\n"
-
-  async function compileChapter(chapter: ManuscriptNode, output: string[]) {
-    output.push(`## ${chapter.title}\n\n`)
-
-    if (chapter.chapterMode === "body") {
-      try {
-        const rawContent = await readNoteContent(vaultPath, chapter.noteId)
-        const cleanContent = stripYamlFrontmatter(rawContent)
-        if (cleanContent) {
-          output.push(`${cleanContent}\n\n`)
-        }
-      } catch (err) {
-        console.warn(`Failed to read chapter note ${chapter.noteId}:`, err)
-      }
-    } else {
-      // "scenes" mode: compile child scenes in order
-      const sortedScenes = [...chapter.children].sort((a, b) =>
-        (a.order || "").localeCompare(b.order || ""),
-      )
-
-      for (let i = 0; i < sortedScenes.length; i++) {
-        const scene = sortedScenes[i]
-        if (i > 0 && !includeSceneHeaders) {
-          output.push(sceneSeparator)
-        }
-        await compileScene(scene, output, includeSceneHeaders)
-      }
-    }
-  }
-
-  async function compileScene(scene: ManuscriptNode, output: string[], withHeader: boolean) {
-    if (withHeader) {
-      output.push(`### ${scene.title}\n\n`)
-    }
-
+  const visit = async (page: ManuscriptPage, depth: number): Promise<void> => {
+    blocks.push(heading(depth + 1 + offset, page.title))
+    let content: string
     try {
-      const rawContent = await readNoteContent(vaultPath, scene.noteId)
-      const cleanContent = stripYamlFrontmatter(rawContent)
-      if (cleanContent) {
-        output.push(`${cleanContent}\n\n`)
-      }
-    } catch (err) {
-      console.warn(`Failed to read scene note ${scene.noteId}:`, err)
+      content = await readNoteContent(page.noteId)
+    } catch (error) {
+      throw new ManuscriptReadError(page.noteId, page.title, error)
     }
+    const body = stripYamlFrontmatter(content)
+    if (body) blocks.push(body)
+    pages += 1
+    for (const child of page.children) await visit(child, depth + 1)
   }
+
+  for (const root of roots) await visit(root, 0)
+  return { markdown: blocks.length ? `${blocks.join("\n\n")}\n` : "", pages }
 }

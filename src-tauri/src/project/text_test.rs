@@ -11,9 +11,11 @@ use super::create::{clear_step_hook, set_step_hook, Fault, Step};
 use super::create_test::{section_request, story, Fixture};
 use super::discovery::discover_projects;
 use super::index::{load_catalog, rebuild_project_index};
+use super::journal::read_journal;
 use super::model::{
-    CreateProjectSectionRequest, CreateTextPageRequest, CreatedProject, MoveTextPageRequest,
-    ProjectError, ProjectKind, SectionState, TextEntryState, PROJECT_FILE_NAME,
+    CreateProjectRequest, CreateProjectSectionRequest, CreateTextPageRequest, CreatedProject,
+    MoveTextPageRequest, ProjectError, ProjectKind, SectionState, TextEntryState,
+    PROJECT_FILE_NAME,
 };
 use super::recovery::recover_pending_projects;
 use super::text::{create_page, move_page, valid_order_key};
@@ -34,8 +36,13 @@ struct Text {
 
 impl Text {
     fn new() -> Self {
+        Self::from_request(story("Saga"))
+    }
+
+    /// A story created by `request`, which must be named "Saga" (the helpers read that folder).
+    fn from_request(request: CreateProjectRequest) -> Self {
         let fixture = Fixture::new();
-        let created = fixture.create(&story("Saga")).unwrap();
+        let created = fixture.create(&request).unwrap();
         let connection = Connection::open_in_memory().unwrap();
         init_schema(&connection).unwrap();
         let text = Self {
@@ -1086,4 +1093,384 @@ fn manifest_database_id(text: &Text, container: &str, name: &str) -> String {
         .unwrap()
         .value
         .database_id
+}
+
+// ---------------------------------------------------------------------------
+// The levels the author chose
+// ---------------------------------------------------------------------------
+
+fn story_with_levels(names: &[&str]) -> CreateProjectRequest {
+    let mut request = story("Saga");
+    request.text_levels = Some(names.iter().map(|name| (*name).to_owned()).collect());
+    request
+}
+
+fn level_names(text: &Text) -> Vec<String> {
+    let manifest = text.manifest();
+    let block = text.block();
+    let property = manifest
+        .properties
+        .iter()
+        .find(|p| p.id() == block["properties"]["level"].as_str())
+        .unwrap();
+    block["levels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            property
+                .find_option_name(entry["id"].as_str().unwrap())
+                .unwrap()
+                .to_owned()
+        })
+        .collect()
+}
+
+fn page_request(
+    text: &Text,
+    parent: Option<&str>,
+    level: usize,
+    key: &str,
+) -> CreateTextPageRequest {
+    CreateTextPageRequest {
+        expected_generation: 1,
+        project_id: text.created.project_id.clone(),
+        title: "Страница".to_owned(),
+        parent_note_id: parent.map(str::to_owned),
+        level_id: text.level(level),
+        format_id: None,
+        order_key: key.to_owned(),
+    }
+}
+
+#[test]
+fn a_story_is_created_with_the_levels_the_author_chose() {
+    let text = Text::from_request(story_with_levels(&[" Часть ", "Глава", "Сцена"]));
+    assert_eq!(level_names(&text), ["Часть", "Глава", "Сцена"]);
+
+    // Only the levels differ: the properties and formats are the template's, and a level is still
+    // just the option's ID in the file, with no name.
+    let block = text.block();
+    assert_eq!(block["formats"].as_array().unwrap().len(), 4);
+    for entry in block["levels"].as_array().unwrap() {
+        assert_eq!(
+            entry.as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["id"]
+        );
+        assert!(ulid::Ulid::from_string(entry["id"].as_str().unwrap()).is_ok());
+    }
+    let file = String::from_utf8(text.fixture.project_bytes("Saga")).unwrap();
+    assert!(
+        !file.contains("Сцена"),
+        "names are not stored in the structure file"
+    );
+
+    let catalog = load_catalog(&text.connection, &text.fixture.vault, 1).unwrap();
+    let summary = catalog.projects[0].text.as_ref().unwrap();
+    assert_eq!(
+        summary
+            .levels
+            .iter()
+            .map(|level| level.name.clone().unwrap())
+            .collect::<Vec<_>>(),
+        ["Часть", "Глава", "Сцена"]
+    );
+    assert!(summary
+        .levels
+        .iter()
+        .all(|level| level.state == TextEntryState::Ok));
+
+    // The rule of the parent follows the chosen order: a level may be skipped, not repeated.
+    let part = text.page("Часть I", None, 0, "a0");
+    text.page("Сцена 1", Some(&part), 2, "a0");
+    let refused = create_page(
+        &text.fixture.env(),
+        &text.connection,
+        &page_request(&text, Some(&part), 0, "a1"),
+    );
+    assert!(matches!(
+        refused,
+        Err(ProjectError::ParentLevelNotShallower { .. })
+    ));
+}
+
+#[test]
+fn a_one_level_story_takes_its_pages_in_a_row_at_the_top() {
+    let text = Text::from_request(story_with_levels(&["Страница"]));
+    assert_eq!(level_names(&text), ["Страница"]);
+
+    let first = text.page("Раз", None, 0, "a0");
+    let second = text.page("Два", None, 0, "a1");
+    let third = text.page("Три", None, 0, "a2");
+
+    // The only level is not shallower than itself, so nothing goes under a page ...
+    let nested = create_page(
+        &text.fixture.env(),
+        &text.connection,
+        &page_request(&text, Some(&first), 0, "a0"),
+    );
+    assert!(matches!(
+        nested,
+        Err(ProjectError::ParentLevelNotShallower { .. })
+    ));
+    let moved_under = text.move_page(&text.movement(&second, Some(&first), "a0"));
+    assert!(matches!(
+        moved_under,
+        Err(ProjectError::ParentLevelNotShallower { .. })
+    ));
+
+    // ... but the pages keep their order among the roots and can be reordered there.
+    let moved = text.move_page(&text.movement(&third, None, "a05")).unwrap();
+    assert_eq!(moved.parent_note_id, None);
+    assert_eq!(moved.order_key, "a05");
+}
+
+#[test]
+fn a_request_without_levels_hashes_as_it_did_before_the_field_existed() {
+    // An operation journaled by an older build is still the same request when it is repeated.
+    let fixture = Fixture::new();
+    let request = story("Saga");
+    fixture.create(&request).unwrap();
+    let journal = read_journal(&fixture.vault, &request.operation_id)
+        .unwrap()
+        .unwrap();
+    let old_payload = json!({
+        "kind": "story",
+        "name": "Saga",
+        "parentPath": null,
+        "icon": null,
+        "tags": [],
+        "groups": [["work", "Произведение"], ["world", "Мир"]],
+        "sections": [
+            ["text", "work", "Текст"],
+            ["notes", "work", "Заметки"],
+            ["characters", "world", "Персонажи"],
+            ["locations", "world", "Локации"],
+        ],
+        "labels": {},
+    });
+    assert_eq!(
+        journal.request_revision,
+        raw_revision(&serde_json::to_vec(&old_payload).unwrap())
+    );
+}
+
+#[test]
+fn repeating_a_create_with_levels_replays_and_another_list_under_the_same_id_is_refused() {
+    let fixture = Fixture::new();
+    let request = story_with_levels(&["Книга", "Сцена"]);
+    let first = fixture.create(&request).unwrap();
+    let before = fixture.tree();
+
+    let again = fixture.create(&request).unwrap();
+    assert!(again.replayed);
+    assert_eq!(
+        CreatedProject {
+            replayed: false,
+            ..again
+        },
+        first
+    );
+    assert_eq!(fixture.tree(), before, "a repeat writes nothing");
+
+    // The list is part of the request: another one, or none, is another request.
+    let mut other = request.clone();
+    other.text_levels = Some(vec!["Книга".to_owned(), "Глава".to_owned()]);
+    assert!(matches!(
+        fixture.create(&other),
+        Err(ProjectError::OperationIdReused { .. })
+    ));
+    other.text_levels = None;
+    assert!(matches!(
+        fixture.create(&other),
+        Err(ProjectError::OperationIdReused { .. })
+    ));
+    assert_eq!(fixture.tree(), before);
+}
+
+#[test]
+fn a_text_section_added_later_takes_the_levels_too() {
+    let fixture = Fixture::new();
+    let mut bare = story("Saga");
+    bare.base_sections = false;
+    let created = fixture.create(&bare).unwrap();
+    let mut request = section_request(&created, "Текст");
+    request.role = Some("text".to_owned());
+    request.text_levels = Some(vec!["Глава".to_owned(), "Сцена".to_owned()]);
+
+    let added = fixture.add_section(&request).unwrap();
+    let again = fixture.add_section(&request).unwrap();
+    assert!(again.replayed);
+    assert_eq!(again.section.database_id, added.section.database_id);
+
+    let doc: Value = serde_json::from_slice(&fixture.project_bytes("Saga")).unwrap();
+    assert_eq!(doc["text"]["levels"].as_array().unwrap().len(), 2);
+    let manifest =
+        parse_manifest(&fs::read(fixture.vault.join("Saga/Текст/Текст.json")).unwrap()).unwrap();
+    let level = manifest
+        .value
+        .properties
+        .iter()
+        .find(|p| p.id() == doc["text"]["properties"]["level"].as_str())
+        .unwrap();
+    let names = doc["text"]["levels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| {
+            level
+                .find_option_name(entry["id"].as_str().unwrap())
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, ["Глава", "Сцена"]);
+
+    let mut other = request.clone();
+    other.text_levels = Some(vec!["Глава".to_owned()]);
+    assert!(matches!(
+        fixture.add_section(&other),
+        Err(ProjectError::OperationIdReused { .. })
+    ));
+}
+
+fn assert_levels_refused(
+    fixture: &Fixture,
+    outcome: Result<CreatedProject, ProjectError>,
+    why: &str,
+) {
+    assert!(
+        matches!(&outcome, Err(ProjectError::InvalidName { field, .. }) if field == "textLevels"),
+        "{why}: {outcome:?}"
+    );
+    assert!(fixture.tree().is_empty(), "{why}: nothing was written");
+    assert!(fixture.journal_files().is_empty(), "{why}: no journal");
+}
+
+#[test]
+fn a_bad_list_of_levels_is_refused_before_anything_is_written() {
+    let fixture = Fixture::new();
+    let too_long = "я".repeat(101);
+    let seven = ["1", "2", "3", "4", "5", "6", "7"];
+    for (why, names) in [
+        ("no level", Vec::<&str>::new()),
+        ("seven levels", seven.to_vec()),
+        ("blank name", vec!["Глава", "  "]),
+        ("a name that is too long", vec!["Глава", too_long.as_str()]),
+        ("a repeated name", vec!["Глава", "Сцена", "Глава"]),
+        ("a name repeated in other case", vec!["Глава", "ГЛАВА"]),
+        ("a control character", vec!["Гла\nва"]),
+    ] {
+        let outcome = fixture.create(&story_with_levels(&names));
+        assert_levels_refused(&fixture, outcome, why);
+    }
+
+    // Six levels are the most there can be.
+    let six = Fixture::new();
+    six.create(&story_with_levels(&seven[..6])).unwrap();
+}
+
+#[test]
+fn levels_are_refused_where_no_text_is_created() {
+    let fixture = Fixture::new();
+    // A universe, and a story without its base sections, have no text to give levels to.
+    let mut universe = story_with_levels(&["Глава"]);
+    universe.kind = ProjectKind::Collection;
+    assert_levels_refused(&fixture, fixture.create(&universe), "a universe");
+    let mut bare = story_with_levels(&["Глава"]);
+    bare.base_sections = false;
+    assert_levels_refused(&fixture, fixture.create(&bare), "a story without sections");
+
+    // A section that is not the text.
+    let host = Fixture::new();
+    let created = host.create(&story("Saga")).unwrap();
+    let before = host.tree();
+    let mut request = section_request(&created, "Организации");
+    request.text_levels = Some(vec!["Глава".to_owned()]);
+    assert!(matches!(
+        host.add_section(&request),
+        Err(ProjectError::InvalidName { field, .. }) if field == "textLevels"
+    ));
+    assert_eq!(host.tree(), before);
+
+    // A bad list for the text section is refused the same way.
+    let mut text = section_request(&created, "Текст 2");
+    text.role = Some("text".to_owned());
+    text.text_levels = Some(Vec::new());
+    assert!(matches!(
+        host.add_section(&text),
+        Err(ProjectError::InvalidName { field, .. }) if field == "textLevels"
+    ));
+    assert_eq!(host.tree(), before);
+}
+
+#[test]
+fn chosen_levels_survive_a_failure_or_a_crash_and_the_cleanup_leaves_nothing() {
+    let steps = [
+        Step::FolderCreated,
+        Step::BeforeDatabase(0),
+        Step::DatabaseCreated(0),
+        Step::DatabaseCreated(1),
+        Step::BeforeProjectFile,
+    ];
+    for crash in [false, true] {
+        for target in steps.clone() {
+            let fixture = Fixture::new();
+            fs::write(fixture.vault.join("Existing.md"), b"# keep\n").unwrap();
+            let before = fixture.tree();
+            let request = story_with_levels(&["Часть", "Сцена"]);
+
+            let wanted = target.clone();
+            set_step_hook(move |step| {
+                (*step == wanted).then(|| {
+                    if crash {
+                        Fault::Crash
+                    } else {
+                        Fault::Fail("injected".to_owned())
+                    }
+                })
+            });
+            let outcome = fixture.create(&request);
+            clear_step_hook();
+            assert!(outcome.is_err(), "{target:?} crash={crash}");
+            if crash {
+                // The journal remembers the planned manifest, so cleanup can prove it is ours.
+                let report = recover_pending_projects(&fixture.vault).unwrap();
+                assert!(report.quarantined.is_empty(), "{target:?}: {report:?}");
+            }
+            assert_eq!(
+                fixture.tree(),
+                before,
+                "{target:?} crash={crash}: the vault is as before"
+            );
+            assert!(fixture.journal_files().is_empty());
+
+            let created = fixture.create(&request).unwrap();
+            assert!(!created.replayed);
+            let doc: Value = serde_json::from_slice(&fixture.project_bytes("Saga")).unwrap();
+            assert_eq!(doc["text"]["levels"].as_array().unwrap().len(), 2);
+        }
+    }
+}
+
+#[test]
+fn a_repeat_after_an_unrecovered_crash_reuses_the_planned_levels() {
+    let fixture = Fixture::new();
+    let request = story_with_levels(&["Часть", "Сцена"]);
+    set_step_hook(|step| (*step == Step::DatabaseCreated(0)).then_some(Fault::Crash));
+    assert!(fixture.create(&request).is_err());
+    clear_step_hook();
+
+    // The journal of the dead process holds the plan, IDs of the levels included.
+    let planned = read_journal(&fixture.vault, &request.operation_id)
+        .unwrap()
+        .unwrap()
+        .plan
+        .text_block
+        .unwrap();
+    assert_eq!(planned["levels"].as_array().unwrap().len(), 2);
+
+    // Repeating the same intent cleans up after the crash and finishes with the planned IDs.
+    fixture.create(&request).unwrap();
+    let doc: Value = serde_json::from_slice(&fixture.project_bytes("Saga")).unwrap();
+    assert_eq!(doc["text"]["levels"], planned["levels"]);
 }

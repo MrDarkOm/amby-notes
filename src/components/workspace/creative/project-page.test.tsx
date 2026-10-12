@@ -61,7 +61,11 @@ describe("ProjectPage", () => {
     fireEvent.click(
       Array.from(nav.querySelectorAll("button")).find((b) => b.textContent === "Текст")!,
     )
-    expect(renderDatabase).toHaveBeenLastCalledWith({ databaseId: "db_text", title: "Текст" })
+    expect(renderDatabase).toHaveBeenLastCalledWith({
+      databaseId: "db_text",
+      title: "Текст",
+      readOnly: false,
+    })
     expect(screen.getByTestId("database").textContent).toBe("Текст:db_text")
     expect(useCreativeNavStore.getState().sectionByProject.molehills).toBe("text")
   })
@@ -102,7 +106,7 @@ describe("ProjectPage", () => {
     })
     const { renderDatabase } = mount("p")
     expect(renderDatabase).not.toHaveBeenCalled()
-    expect(screen.getByText("База не найдена")).toBeTruthy()
+    expect(screen.getByText("Раздел не найден")).toBeTruthy()
   })
 
   it("is read-only for a project of an unknown format", () => {

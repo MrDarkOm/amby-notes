@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest"
 import type { DatabaseRow } from "@/lib/storage"
 import {
+  ancestorIds,
   buildTextTree,
+  canHaveChildPage,
+  countNodes,
   defaultLevelId,
   descendantIds,
   findNode,
   lastOrderKey,
-  nodesAtLevel,
   planMove,
+  startLevelId,
+  type TextNode,
 } from "./text-tree-model"
 
 const PROPS = { level: "lvl", parent: "par", order: "ord" }
@@ -118,14 +122,67 @@ describe("planMove", () => {
   })
 })
 
-describe("nodesAtLevel", () => {
-  it("lists the pages of one level wherever they sit, each with what is under it", () => {
-    const tree = buildTextTree(rows, PROPS)
-    expect(nodesAtLevel(tree, "book").map((n) => n.noteId)).toEqual(["b1", "b2"])
-    const chapters = nodesAtLevel(tree, "chapter")
-    expect(chapters.map((n) => n.noteId)).toEqual(["c1", "c2"])
-    expect(chapters[0].children.map((n) => n.noteId)).toEqual(["p1"])
-    expect(nodesAtLevel(tree, "nope")).toEqual([])
+/** Every page of a tree in the order it is shown, each exactly where it appears. */
+function flatten(nodes: TextNode[]): string[] {
+  return nodes.flatMap((node) => [node.noteId, ...flatten(node.children)])
+}
+
+describe("the whole text as one tree", () => {
+  const strays = [
+    ...rows,
+    // A chapter made at the top of the text and a page with no level at all.
+    row("loose-chapter", "chapter", null, "a2"),
+    row("no-level", null, null, "a3"),
+    row("dead-level", "deleted-option", null, "a4"),
+  ]
+
+  it("shows a page without a parent, or without a known level, once among the roots", () => {
+    const tree = buildTextTree(strays, PROPS)
+    const shown = flatten(tree)
+    expect(shown.sort()).toEqual(strays.map((r) => r.noteId).sort())
+    expect(new Set(shown).size).toBe(shown.length)
+    expect(tree.map((n) => n.noteId)).toEqual([
+      "b1",
+      "b2",
+      "loose-chapter",
+      "no-level",
+      "dead-level",
+    ])
+  })
+
+  it("counts every page at any depth", () => {
+    expect(countNodes(buildTextTree(rows, PROPS))).toBe(rows.length)
+    expect(countNodes(buildTextTree(strays, PROPS))).toBe(strays.length)
+    expect(countNodes([])).toBe(0)
+  })
+})
+
+describe("canHaveChildPage", () => {
+  const tree = buildTextTree(
+    [...rows, row("no-level", null, null, "a3"), row("dead", "gone", null, "a4")],
+    PROPS,
+  )
+
+  it("allows a page inside only above the last level of the schema", () => {
+    expect(canHaveChildPage(LEVELS, findNode(tree, "b1")!)).toBe(true)
+    expect(canHaveChildPage(LEVELS, findNode(tree, "c1")!)).toBe(true)
+    expect(canHaveChildPage(LEVELS, findNode(tree, "p1")!)).toBe(false)
+  })
+
+  it("does not limit a page the schema does not list", () => {
+    expect(canHaveChildPage(LEVELS, findNode(tree, "no-level")!)).toBe(true)
+    expect(canHaveChildPage(LEVELS, findNode(tree, "dead")!)).toBe(true)
+  })
+
+  it("lets nothing go under a page of a one-level schema, but pages follow at the top", () => {
+    const story = [{ id: "page" }]
+    const pages = buildTextTree([row("a", "page", null, "a0"), row("b", "page", null, "a1")], PROPS)
+    expect(canHaveChildPage(story, pages[0])).toBe(false)
+    // New pages of such a story always start at the one level, at the top.
+    expect(defaultLevelId(story, null)).toBe("page")
+    // Reordering the roots works, nesting does not.
+    expect(planMove(pages, story, "b", "a", "before")?.newParentId).toBeNull()
+    expect(planMove(pages, story, "b", "a", "inside")).toBeNull()
   })
 })
 
@@ -135,5 +192,51 @@ describe("descendantIds", () => {
     expect(descendantIds(findNode(tree, "b1")!).sort()).toEqual(["c1", "c2", "p1"])
     expect(descendantIds(findNode(tree, "c1")!)).toEqual(["p1"])
     expect(descendantIds(findNode(tree, "b2")!)).toEqual([])
+  })
+})
+
+describe("ancestorIds", () => {
+  const tree = buildTextTree(rows, PROPS)
+
+  it("lists the pages above a page, outermost first", () => {
+    expect(ancestorIds(tree, "p1")).toEqual(["b1", "c1"])
+    expect(ancestorIds(tree, "c2")).toEqual(["b1"])
+  })
+
+  it("is empty for a root and null for a page the tree does not hold", () => {
+    expect(ancestorIds(tree, "b2")).toEqual([])
+    expect(ancestorIds(tree, "nobody")).toBeNull()
+  })
+})
+
+describe("startLevelId", () => {
+  const levels = [
+    { id: "book", state: "ok" },
+    { id: "chapter", state: "dangling" },
+    { id: "page", state: "ok" },
+  ]
+  const node = (levelId: string | null) =>
+    ({
+      noteId: "n",
+      title: "n",
+      levelId,
+      parentId: null,
+      orderKey: null,
+      revision: "r",
+      children: [],
+    }) as TextNode
+
+  it("is the default level: the top one at the root, one below a parent", () => {
+    expect(startLevelId(levels, null)).toBe("book")
+    expect(startLevelId([{ id: "a" }, { id: "b" }], node("a"))).toBe("b")
+  })
+
+  it("skips a level the database no longer has, taking the next usable one below the parent", () => {
+    expect(startLevelId(levels, node("book"))).toBe("page")
+  })
+
+  it("is null when no level is usable", () => {
+    expect(startLevelId([{ id: "x", state: "dangling" }], null)).toBeNull()
+    expect(startLevelId([], null)).toBeNull()
   })
 })

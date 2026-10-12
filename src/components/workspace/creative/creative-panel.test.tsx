@@ -14,6 +14,9 @@ import { useProjectStore } from "./project-store"
 const queryDatabase = vi.fn()
 const createDatabaseRow = vi.fn()
 const moveTextPage = vi.fn()
+const createTextPage = vi.fn()
+const listTextStats = vi.fn()
+const resolveDatabaseAssetPaths = vi.fn()
 
 vi.mock("@/lib/storage", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/storage")>()
@@ -22,6 +25,9 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     queryDatabase: (...args: unknown[]) => queryDatabase(...args),
     createDatabaseRow: (...args: unknown[]) => createDatabaseRow(...args),
     moveTextPage: (...args: unknown[]) => moveTextPage(...args),
+    createTextPage: (...args: unknown[]) => createTextPage(...args),
+    listTextStats: (...args: unknown[]) => listTextStats(...args),
+    resolveDatabaseAssetPaths: (...args: unknown[]) => resolveDatabaseAssetPaths(...args),
   }
 })
 vi.mock("./create-project-dialog", () => ({
@@ -160,6 +166,9 @@ const ROWS: Record<string, DatabaseRow[]> = {
   ],
 }
 
+/** The text as it starts, for tests that empty it and put it back. */
+const TEXT_ROWS = [...ROWS.db_text]
+
 describe("CreativePanel", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("ru")
@@ -174,18 +183,26 @@ describe("CreativePanel", () => {
       }))
     createDatabaseRow.mockReset().mockResolvedValue({ noteId: "new-note" })
     moveTextPage.mockReset().mockResolvedValue({})
+    createTextPage.mockReset().mockResolvedValue({ noteId: "new-page" })
+    listTextStats.mockReset().mockResolvedValue([])
+    resolveDatabaseAssetPaths
+      .mockReset()
+      .mockImplementation(async ({ relativePaths }: { relativePaths: string[] }) => ({
+        paths: relativePaths.map(() => null),
+      }))
     useProjectStore.getState().reset()
     useDatabaseStore.setState({ vaultGeneration: 1, databases: DATABASES, invalidationSeq: 0 })
     useCreativeNavStore.setState({
       sectionByProject: {},
       collapsed: {},
       scope: null,
-      worksOpen: { books: true, arcs: false, anchors: false, notes: false },
+      worksOpen: { text: true, anchors: false, notes: false },
       storyFilter: null,
       worldScope: "story",
       dataNonce: 0,
       search: "",
       pageRequest: null,
+      entityRequest: null,
       createRequest: null,
     })
   })
@@ -226,13 +243,14 @@ describe("CreativePanel", () => {
     it("shows one story from a list of the stories, with its parts as folding sections", async () => {
       render(<CreativePanel {...props()} />)
       // The first story is chosen until another is picked; the others are in the list.
-      expect(selectedText("Произведение")).toContain("MoleHills")
+      expect(selectedText("История")).toContain("MoleHills")
       expect(screen.queryByRole("button", { name: "Рассказ" })).toBeNull()
-      // The template's level names read as plurals; the author's own are shown as they are.
-      for (const name of [/Книги/, /Глава/, /Якоря/, /Заметки/]) {
+      // The text is one part, whatever the levels of the schema are called.
+      for (const name of [/Текст/, /Якоря/, /Заметки/]) {
         expect(part(name)).toBeTruthy()
       }
-      // Books are unfolded at first, with what is under them.
+      expect(screen.queryByRole("button", { name: /Книги|Арки/ })).toBeNull()
+      // The text is unfolded at first, with what is under it.
       expect(await screen.findByText("Книга первая")).toBeTruthy()
       expect(screen.getByText("Глава первая")).toBeTruthy()
       expect(screen.queryByText("Идея")).toBeNull()
@@ -250,18 +268,250 @@ describe("CreativePanel", () => {
       expect(onSelect).toHaveBeenLastCalledWith("a1")
     })
 
-    it("lists the pages of the second level wherever they sit", async () => {
+    it("shows every page of the text once, even one without a parent or without a level", async () => {
+      const withStrays = [
+        ...ROWS.db_text,
+        // A chapter made at the top of the text, and a page whose level was deleted.
+        row("c0", "Глава без родителя", {
+          lvl: { type: "select", optionId: "chapter" },
+          ord: { type: "text", value: "a2" },
+        }),
+        row("x1", "Страница без уровня", { ord: { type: "text", value: "a3" } }),
+      ]
+      queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => {
+        const rows = databaseId === "db_text" ? withStrays : (ROWS[databaseId] ?? [])
+        return { rows, nextCursor: null, totalCount: rows.length, diagnostics: [] }
+      })
       render(<CreativePanel {...props()} />)
-      fireEvent.click(part(/Свернуть: Книги/))
-      fireEvent.click(part(/Глава/))
-      expect(await screen.findByText("Глава первая")).toBeTruthy()
-      expect(screen.queryByText("Книга первая")).toBeNull()
+      for (const title of [
+        "Книга первая",
+        "Глава первая",
+        "Книга вторая",
+        "Глава без родителя",
+        "Страница без уровня",
+      ]) {
+        expect(await screen.findAllByText(title)).toHaveLength(1)
+      }
+      // The count of the part is the number of pages of the text.
+      expect(part(/Свернуть: Текст/).textContent).toContain("5")
+    })
+
+    const PAGE_FIELD = "Название страницы — Enter, чтобы создать"
+
+    it("names a page at the top level on a row of its own and creates it on Enter", async () => {
+      const onSelect = vi.fn()
+      render(<CreativePanel {...props({ onSelect })} />)
+      await screen.findByText("Книга первая")
+      const header = part(/Свернуть: Текст/).parentElement as HTMLElement
+      fireEvent.click(within(header).getByRole("button", { name: "Добавить" }))
+      const field = await screen.findByRole("textbox", { name: PAGE_FIELD })
+      fireEvent.change(field, { target: { value: "  Пролог  " } })
+      fireEvent.keyDown(field, { key: "Enter" })
+      await waitFor(() => expect(createTextPage).toHaveBeenCalledTimes(1))
+      // The first level of the schema is the start; the format is the manuscript one, unasked.
+      expect(createTextPage.mock.calls[0][0]).toMatchObject({
+        projectId: "hills",
+        title: "Пролог",
+        parentNoteId: null,
+        levelId: "book",
+        formatId: "ms",
+      })
+      await waitFor(() => expect(onSelect).toHaveBeenCalledWith("new-page"))
+      expect(screen.queryByRole("textbox", { name: PAGE_FIELD })).toBeNull()
+    })
+
+    it("puts a page under a page one level deeper, among its pages", async () => {
+      render(<CreativePanel {...props()} />)
+      await screen.findByText("Глава первая")
+      const book = screen.getByText("Книга первая").closest("[data-text-page]") as HTMLElement
+      fireEvent.click(within(book).getByRole("button", { name: "Добавить страницу внутрь" }))
+      const field = await screen.findByRole("textbox", { name: PAGE_FIELD })
+      // The row stands in the book's children, not at the top.
+      expect(book.parentElement?.contains(field)).toBe(true)
+      fireEvent.change(field, { target: { value: "Глава вторая" } })
+      fireEvent.keyDown(field, { key: "Enter" })
+      await waitFor(() => expect(createTextPage).toHaveBeenCalledTimes(1))
+      expect(createTextPage.mock.calls[0][0]).toMatchObject({
+        parentNoteId: "b1",
+        levelId: "chapter",
+      })
+    })
+
+    it("cancels with Escape or an empty field, creating nothing", async () => {
+      render(<CreativePanel {...props()} />)
+      await screen.findByText("Книга первая")
+      const header = part(/Свернуть: Текст/).parentElement as HTMLElement
+      fireEvent.click(within(header).getByRole("button", { name: "Добавить" }))
+      const field = await screen.findByRole("textbox", { name: PAGE_FIELD })
+      fireEvent.change(field, { target: { value: "Нечто" } })
+      fireEvent.keyDown(field, { key: "Escape" })
+      expect(screen.queryByRole("textbox", { name: PAGE_FIELD })).toBeNull()
+
+      fireEvent.click(within(header).getByRole("button", { name: "Добавить" }))
+      const empty = await screen.findByRole("textbox", { name: PAGE_FIELD })
+      // A blur right after the row appears is the closing menu taking focus, not the author.
+      fireEvent.blur(empty)
+      expect(screen.getByRole("textbox", { name: PAGE_FIELD })).toBeTruthy()
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 350))
+      })
+      fireEvent.blur(screen.getByRole("textbox", { name: PAGE_FIELD }))
+      expect(screen.queryByRole("textbox", { name: PAGE_FIELD })).toBeNull()
+      expect(createTextPage).not.toHaveBeenCalled()
+    })
+
+    it("keeps the typed name and shows the failure on the row", async () => {
+      createTextPage.mockRejectedValue(new Error("Диск недоступен"))
+      render(<CreativePanel {...props()} />)
+      await screen.findByText("Книга первая")
+      const header = part(/Свернуть: Текст/).parentElement as HTMLElement
+      fireEvent.click(within(header).getByRole("button", { name: "Добавить" }))
+      const field = await screen.findByRole("textbox", { name: PAGE_FIELD })
+      fireEvent.change(field, { target: { value: "Пролог" } })
+      fireEvent.keyDown(field, { key: "Enter" })
+      const alert = await screen.findByRole("alert")
+      expect(alert.textContent).toContain("Диск недоступен")
+      expect((screen.getByRole("textbox", { name: PAGE_FIELD }) as HTMLInputElement).value).toBe(
+        "Пролог",
+      )
+    })
+
+    it("shows the add button of a part without hovering", async () => {
+      render(<CreativePanel {...props()} />)
+      await screen.findByText("Книга первая")
+      const button = within(part(/Свернуть: Текст/).parentElement as HTMLElement).getByRole(
+        "button",
+        { name: "Добавить" },
+      )
+      expect(button.className).not.toContain("opacity-0")
+    })
+
+    it("marks the open page, unfolds its parents and shows its words", async () => {
+      listTextStats.mockResolvedValue([{ noteId: "c1", wordCount: 1240, modified: 1_700_000_000 }])
+      act(() => useCreativeNavStore.setState({ collapsed: { "page:b1": true } }))
+      render(<CreativePanel {...props({ selectedId: "c1" })} />)
+      // The book was folded; the open page is inside it, so it unfolds.
+      const chapter = (await screen.findByText("Глава первая")).closest("button") as HTMLElement
+      expect(chapter.getAttribute("aria-current")).toBe("true")
+      expect(await within(chapter).findByText(/^1\D?240$/)).toBeTruthy()
+      expect(
+        (screen.getByText("Книга первая").closest("button") as HTMLElement).getAttribute(
+          "aria-current",
+        ),
+      ).toBeNull()
+    })
+
+    it("offers the page changed last as the place to go on from, unless it is the open one", async () => {
+      listTextStats.mockResolvedValue([
+        { noteId: "b1", wordCount: 0, modified: 1_700_000_000, created: 1 },
+        { noteId: "c1", wordCount: 240, modified: 1_700_000_500, created: 2 },
+      ])
+      const onSelect = vi.fn()
+      const view = render(<CreativePanel {...props({ onSelect })} />)
+      fireEvent.click(await screen.findByRole("button", { name: /Продолжить: Глава первая/ }))
+      expect(onSelect).toHaveBeenCalledWith("c1")
+      view.rerender(<CreativePanel {...props({ onSelect, selectedId: "c1" })} />)
+      await waitFor(() => expect(screen.queryByRole("button", { name: /Продолжить:/ })).toBeNull())
+    })
+
+    it("heads the story with its name and one quiet line of its numbers, shown once read", async () => {
+      listTextStats.mockResolvedValue([
+        { noteId: "b1", wordCount: 100, modified: 1, created: 1 },
+        { noteId: "c1", wordCount: 240, modified: 2, created: 2 },
+      ])
+      render(<CreativePanel {...props()} />)
+      const header = screen.getByRole("combobox", { name: "История" })
+      expect(header.textContent).toContain("MoleHills")
+      // Three pages and 340 words, read from the text and the note index.
+      await waitFor(() => expect(header.textContent).toContain("3 стр."))
+      await waitFor(() => expect(header.textContent).toContain("340 сл."))
+    })
+
+    it("shows no numbers under the name until they are read, not a zero", async () => {
+      queryDatabase.mockImplementation(() => new Promise(() => {}))
+      listTextStats.mockImplementation(() => new Promise(() => {}))
+      render(<CreativePanel {...props()} />)
+      const header = screen.getByRole("combobox", { name: "История" })
+      expect(header.textContent).toBe("MoleHills")
+    })
+
+    it("ends the list of stories with 'New story', the same action as in Create", async () => {
+      render(<CreativePanel {...props()} />)
+      fireEvent.click(screen.getByRole("combobox", { name: "История" }))
+      const options = await screen.findAllByRole("option")
+      expect(options[options.length - 1].textContent).toContain("Новая история")
+      fireEvent.click(options[options.length - 1])
+      expect(await screen.findByTestId("project-dialog")).toBeTruthy()
+    })
+
+    it("names the groups quietly: the story's parts and the world", async () => {
+      render(<CreativePanel {...props()} />)
+      await screen.findByText("Книга первая")
+      expect(screen.getByText("История", { selector: "h3" })).toBeTruthy()
+      expect(screen.getByText("Мир", { selector: "h3" })).toBeTruthy()
+    })
+
+    it("offers to add the first page where the text is empty, as a row you can press", async () => {
+      ROWS.db_text.splice(0)
+      try {
+        render(<CreativePanel {...props()} />)
+        fireEvent.click(await screen.findByRole("button", { name: "Добавить первую страницу" }))
+        expect(await screen.findByRole("textbox", { name: PAGE_FIELD })).toBeTruthy()
+      } finally {
+        ROWS.db_text.push(...TEXT_ROWS)
+      }
+    })
+
+    it("offers the first anchor and the first note the same way", async () => {
+      ROWS.db_anchors.splice(0)
+      ROWS.db_notes.splice(0)
+      try {
+        render(<CreativePanel {...props()} />)
+        fireEvent.click(part(/Якоря/))
+        fireEvent.click(await screen.findByRole("button", { name: "Добавить первый якорь" }))
+        expect(
+          await screen.findByRole("textbox", { name: "Название якоря — Enter, чтобы создать" }),
+        ).toBeTruthy()
+        fireEvent.click(part(/Заметки/))
+        fireEvent.click(await screen.findByRole("button", { name: "Добавить первую заметку" }))
+        expect(
+          await screen.findByRole("textbox", { name: "Название заметки — Enter, чтобы создать" }),
+        ).toBeTruthy()
+      } finally {
+        ROWS.db_anchors.push(row("a1", "Гибель наставника"))
+        ROWS.db_notes.push(row("n1", "Идея"))
+      }
+    })
+
+    it("keeps the old words for a story that cannot be written to", async () => {
+      ROWS.db_text.splice(0)
+      try {
+        const base = world()
+        base.projects.find((entry) => entry.projectId === "hills")!.readOnly = true
+        act(() => useProjectStore.getState().setCatalog(base))
+        render(<CreativePanel {...props()} />)
+        expect(await screen.findByText("Страниц пока нет.")).toBeTruthy()
+        const text = part(/Свернуть: Текст/).closest("section") as HTMLElement
+        expect(within(text).queryByRole("button", { name: "Добавить первую страницу" })).toBeNull()
+      } finally {
+        ROWS.db_text.push(...TEXT_ROWS)
+      }
+    })
+
+    it("offers a page inside only where a deeper level exists", async () => {
+      render(<CreativePanel {...props()} />)
+      await screen.findByText("Глава первая")
+      const book = screen.getByText("Книга первая").closest("[data-text-page]") as HTMLElement
+      const chapter = screen.getByText("Глава первая").closest("[data-text-page]") as HTMLElement
+      expect(within(book).getByRole("button", { name: "Добавить страницу внутрь" })).toBeTruthy()
+      // The chapter is the last level of this schema: nothing can go under it.
+      expect(within(chapter).queryByRole("button", { name: "Добавить страницу внутрь" })).toBeNull()
     })
 
     it("switches to another story and offers to make its missing anchors section", async () => {
       render(<CreativePanel {...props()} />)
-      await chooseOption("Произведение", "River")
-      expect(selectedText("Произведение")).toContain("River")
+      await chooseOption("История", "River")
+      expect(selectedText("История")).toContain("River")
       expect(screen.queryByText("Книга первая")).toBeNull()
       fireEvent.click(part(/Якоря/))
       fireEvent.click(await screen.findByRole("button", { name: "Создать раздел «Якоря»" }))
@@ -274,9 +524,17 @@ describe("CreativePanel", () => {
       await screen.findByText("Гибель наставника")
       const header = part(/Якоря/).parentElement as HTMLElement
       fireEvent.click(within(header).getByRole("button", { name: "Добавить" }))
+      // Nothing is made until it has a name.
+      expect(createDatabaseRow).not.toHaveBeenCalled()
+      const field = await screen.findByRole("textbox", {
+        name: "Название якоря — Enter, чтобы создать",
+      })
+      fireEvent.change(field, { target: { value: "Свадьба" } })
+      fireEvent.keyDown(field, { key: "Enter" })
       await waitFor(() => expect(createDatabaseRow).toHaveBeenCalledTimes(1))
       expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({
         databaseId: "db_anchors",
+        title: "Свадьба",
         template: { kind: "default" },
       })
     })
@@ -340,9 +598,9 @@ describe("CreativePanel", () => {
 
     it("sits under the story's parts, with a folding list for each category", async () => {
       render(<CreativePanel {...props()} />)
-      // The world has no visible name and does not fold; it is a region for screen readers.
+      // The world is a region with a quiet caption of its own; it does not fold.
       expect(screen.getByRole("region", { name: "Мир" })).toBeTruthy()
-      expect(screen.queryByText("Мир", { selector: "h3" })).toBeNull()
+      expect(screen.getByText("Мир", { selector: "h3" })).toBeTruthy()
       expect(screen.queryByRole("button", { name: /(Свернуть|Развернуть): Мир/ })).toBeNull()
       expect(screen.getByRole("button", { name: /Свернуть: Персонажи/ })).toBeTruthy()
       expect(screen.getByRole("button", { name: /Свернуть: Организации/ })).toBeTruthy()
@@ -351,12 +609,100 @@ describe("CreativePanel", () => {
       await title(/Борис/)
     })
 
-    it("shows only the chosen story's pages: its own and those its text names", async () => {
+    it("shows the chosen story's pages and those its text names, not another story's", async () => {
       render(<CreativePanel {...props()} />)
       await title(/Борис/)
       expect(screen.getByRole("button", { name: /Зоя/ })).toBeTruthy()
+      // River's own character belongs to another story.
       expect(screen.queryByRole("button", { name: /Вера/ })).toBeNull()
-      expect(screen.queryByRole("button", { name: /Анна/ })).toBeNull()
+    })
+
+    it("gives each page a round face where a category has pictures: initials where a page has none", async () => {
+      const portrait = { type: "files", items: [{ relativePath: "img/zoya.png" }] }
+      const original = ROWS.db_uc[0]
+      ROWS.db_uc[0] = row("zoya", "Зоя Белая", { portrait })
+      // Every row counts as near the viewport, so the lookup is the thing under test.
+      vi.stubGlobal(
+        "IntersectionObserver",
+        class {
+          constructor(private readonly callback: (entries: unknown[]) => void) {}
+          observe() {
+            this.callback([{ isIntersecting: true }])
+          }
+          disconnect() {}
+        },
+      )
+      try {
+        render(<CreativePanel {...props()} />)
+        const zoya = await title(/Зоя/)
+        const boris = await title(/Борис/)
+        expect(zoya.querySelector('[aria-hidden="true"]')?.textContent).toBe("ЗБ")
+        expect(boris.querySelector('[aria-hidden="true"]')?.textContent).toBe("Б")
+        // The picture is asked for once, through the batched resolver of its database.
+        await waitFor(() => expect(resolveDatabaseAssetPaths).toHaveBeenCalledTimes(1))
+        expect(resolveDatabaseAssetPaths.mock.calls[0][0]).toMatchObject({
+          databaseId: "db_uc",
+          relativePaths: ["img/zoya.png"],
+        })
+      } finally {
+        vi.unstubAllGlobals()
+        ROWS.db_uc[0] = original
+      }
+    })
+
+    it("gives a character the initials of the name until a portrait is set, reading no file", async () => {
+      render(<CreativePanel {...props()} />)
+      const boris = await title(/Борис/)
+      expect(boris.querySelector('[aria-hidden="true"]')?.textContent).toBe("Б")
+      expect(resolveDatabaseAssetPaths).not.toHaveBeenCalled()
+    })
+
+    it("does not look pictures up for a category that is folded", async () => {
+      const portrait = { type: "files", items: [{ relativePath: "img/zoya.png" }] }
+      const original = ROWS.db_uc[0]
+      ROWS.db_uc[0] = row("zoya", "Зоя", { portrait })
+      act(() => useCreativeNavStore.setState({ collapsed: { "category:characters": true } }))
+      try {
+        render(<CreativePanel {...props()} />)
+        await waitFor(() => expect(queryDatabase).toHaveBeenCalled())
+        await act(async () => {})
+        expect(screen.queryByRole("button", { name: /Зоя/ })).toBeNull()
+        expect(resolveDatabaseAssetPaths).not.toHaveBeenCalled()
+      } finally {
+        ROWS.db_uc[0] = original
+      }
+    })
+
+    it("keeps a shared page no text names yet in its own group, marked 'not in the text'", async () => {
+      render(<CreativePanel {...props()} />)
+      await title(/Борис/)
+      // Anna lives in the universe and no chapter of this story names her: she stands in her
+      // importance group among the others, with a quiet mark; there is no group of her own.
+      const anna = await title(/Анна/)
+      expect(within(anna).getByText("не в тексте")).toBeTruthy()
+      expect(screen.queryByText("Ещё не в тексте")).toBeNull()
+      // A page the text names carries no such mark.
+      expect(
+        within(screen.getByRole("button", { name: /Зоя/ })).queryByText("не в тексте"),
+      ).toBeNull()
+    })
+
+    it("lists a character just made in the shared section right away", async () => {
+      selectScope("verse")
+      // The story has no characters section of its own here: the new page goes to the shared one.
+      const base = world()
+      const hills = base.projects.find((entry) => entry.projectId === "hills")!
+      hills.sections = hills.sections.filter((entry) => entry.databaseId !== "db_hc")
+      act(() => useProjectStore.getState().setCatalog(base))
+      render(<CreativePanel {...props()} />)
+      await title(/Анна/)
+      ROWS.db_uc.push(row("nina", "Нина"))
+      try {
+        act(() => useCreativeNavStore.getState().bumpData())
+        expect(await title(/Нина/)).toBeTruthy()
+      } finally {
+        ROWS.db_uc.pop()
+      }
     })
 
     it("widens to the whole universe with the switch beside it, and labels the stories", async () => {
@@ -406,9 +752,13 @@ describe("CreativePanel", () => {
       render(<CreativePanel {...props({ onSelect })} />)
       await title(/Борис/)
       fireEvent.click(screen.getByRole("button", { name: "Добавить: Персонажи" }))
+      const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
+      fireEvent.change(field, { target: { value: "Марта" } })
+      fireEvent.keyDown(field, { key: "Enter" })
       await waitFor(() => expect(createDatabaseRow).toHaveBeenCalledTimes(1))
       expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({
         databaseId: "db_hc",
+        title: "Марта",
         template: { kind: "default" },
       })
       await waitFor(() => expect(onSelect).toHaveBeenCalledWith("new-note"))
@@ -420,16 +770,41 @@ describe("CreativePanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "Вселенная" }))
       fireEvent.click(screen.getByRole("button", { name: "Создать" }))
       fireEvent.click(
-        within(screen.getByRole("dialog")).getByRole("button", { name: /Новая запись: Персонажи/ }),
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: /Новая страница: Персонажи/,
+        }),
       )
+      const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
+      fireEvent.change(field, { target: { value: "Нина" } })
+      fireEvent.keyDown(field, { key: "Enter" })
       await waitFor(() => expect(createDatabaseRow).toHaveBeenCalledTimes(1))
-      expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({ databaseId: "db_uc" })
+      expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({
+        databaseId: "db_uc",
+        title: "Нина",
+      })
+    })
+
+    it("offers the frequent things first in the chooser and the rare ones after a heading", async () => {
+      render(<CreativePanel {...props()} />)
+      await title(/Борис/)
+      fireEvent.click(screen.getByRole("button", { name: "Создать" }))
+      const dialog = within(screen.getByRole("dialog"))
+      const names = dialog.getAllByRole("button").map((button) => button.textContent ?? "")
+      const at = (pattern: RegExp) => names.findIndex((name) => pattern.test(name))
+      expect(at(/^Новая страница(?!:)/)).toBeGreaterThanOrEqual(0)
+      expect(at(/^Новая страница: Персонажи/)).toBeGreaterThanOrEqual(0)
+      expect(dialog.getByText("Нужно реже")).toBeTruthy()
+      // A story, a section and a universe come after the frequent ones.
+      const rareStart = Math.min(at(/^История/), at(/^Раздел/), at(/^Вселенная/))
+      expect(Math.max(at(/^Новая страница(?!:)/), at(/^Новая страница: Персонажи/))).toBeLessThan(
+        rareStart,
+      )
     })
 
     it("has one search above everything that looks through every list at once", async () => {
       render(<CreativePanel {...props()} />)
       const search = screen.getByRole("textbox", { name: "Поиск" })
-      const selector = screen.getByRole("combobox", { name: "Произведение" })
+      const selector = screen.getByRole("combobox", { name: "История" })
       // Above the story list and the world, not under them.
       expect(
         search.compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -444,14 +819,14 @@ describe("CreativePanel", () => {
       fireEvent.change(search, { target: { value: "перв" } })
       expect(await title(/Книга первая/)).toBeTruthy()
       expect(screen.getByRole("button", { name: /Глава первая/ })).toBeTruthy()
-      expect(screen.getByText("Произведения", { selector: "h3 span" })).toBeTruthy()
+      expect(screen.getByText("Истории", { selector: "h3 span" })).toBeTruthy()
       // Anchors and notes are searched too.
       fireEvent.change(search, { target: { value: "наставн" } })
       expect(await title(/Гибель наставника/)).toBeTruthy()
 
       // Cleared, the story and its parts come back.
       fireEvent.change(search, { target: { value: "" } })
-      await waitFor(() => expect(selectedText("Произведение")).toContain("MoleHills"))
+      await waitFor(() => expect(selectedText("История")).toContain("MoleHills"))
     })
 
     it("says so when nothing is found", async () => {
@@ -570,20 +945,26 @@ describe("CreativePanel", () => {
       expect(onOpenInNewTab).toHaveBeenCalledWith("b1")
     })
 
-    it("creates on the spot from the menu of the empty space", async () => {
+    it("starts a named row from the menu of the empty space", async () => {
       render(<CreativePanel {...props()} />)
       await screen.findByRole("button", { name: /Борис/ })
       fireEvent.contextMenu(screen.getByRole("region", { name: "Мир" }))
-      fireEvent.click(await screen.findByRole("menuitem", { name: /Новая запись: Персонажи/ }))
+      fireEvent.click(await screen.findByRole("menuitem", { name: /Новая страница: Персонажи/ }))
+      const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
+      fireEvent.change(field, { target: { value: "Лев" } })
+      fireEvent.keyDown(field, { key: "Enter" })
       await waitFor(() => expect(createDatabaseRow).toHaveBeenCalledTimes(1))
-      expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({ databaseId: "db_hc" })
+      expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({
+        databaseId: "db_hc",
+        title: "Лев",
+      })
     })
 
     it("opens only the menu of the row, not the menu of the empty space as well", async () => {
       render(<CreativePanel {...props({ onDelete: vi.fn() })} />)
       fireEvent.contextMenu(await screen.findByRole("button", { name: /Борис/ }))
       await screen.findByRole("menuitem", { name: "Удалить" })
-      expect(screen.queryByRole("menuitem", { name: /Новая запись/ })).toBeNull()
+      expect(screen.queryByRole("menuitem", { name: /Новая страница: / })).toBeNull()
     })
   })
 
@@ -626,15 +1007,16 @@ describe("CreativePanel", () => {
   it("switches the scope from the switcher and shows that scope's stories", async () => {
     act(() => useProjectStore.getState().setCatalog(world()))
     render(<CreativePanel {...props()} />)
-    expect(selectedText("Произведение")).toContain("Рассказ")
+    // Even one story opens the list: "New story" is its last item.
+    expect(selectedText("История")).toContain("Рассказ")
 
     fireEvent.pointerDown(screen.getByRole("button", { name: "Сменить вселенную или сборник" }), {
       button: 0,
       ctrlKey: false,
     })
     fireEvent.click(screen.getByRole("menuitem", { name: /Verse/ }))
-    expect(selectedText("Произведение")).toContain("MoleHills")
-    expect(selectedText("Произведение")).not.toContain("Рассказ")
+    expect(selectedText("История")).toContain("MoleHills")
+    expect(selectedText("История")).not.toContain("Рассказ")
   })
 
   it("remembers the scope, the chosen story and what the world shows per vault", async () => {

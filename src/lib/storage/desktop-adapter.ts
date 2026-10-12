@@ -17,6 +17,7 @@ import type {
   MoveTextPageRequest,
   MovedTextPage,
   NoteReference,
+  TextPageStat,
   ProjectCatalog,
 } from "./project-types"
 import type {
@@ -506,6 +507,10 @@ export class DesktopAdapter implements StoragePort {
 
   async listNoteReferences(noteId: string): Promise<NoteReference[]> {
     return unwrapProjectCommand(await commands.listNoteReferences(noteId))
+  }
+
+  async listTextStats(databaseId: string): Promise<TextPageStat[]> {
+    return unwrapProjectCommand(await commands.listTextStats(databaseId))
   }
 
   async moveTextPage(request: MoveTextPageRequest): Promise<MovedTextPage> {

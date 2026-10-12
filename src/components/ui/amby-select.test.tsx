@@ -136,4 +136,38 @@ describe("AmbySelect", () => {
     fireEvent.click(await screen.findByRole("option", { name: "Delta" }))
     expect(onOuterClick).not.toHaveBeenCalled()
   })
+  it("shows the content it is given for the closed control, and still opens as a list", async () => {
+    render(
+      <AmbySelect
+        aria-label="Letter"
+        value="a"
+        options={options}
+        onValueChange={vi.fn()}
+        renderValue={(active) => <b data-testid="custom">{active?.label}!</b>}
+      />,
+    )
+    expect(screen.getByTestId("custom").textContent).toBe("Alpha!")
+    fireEvent.click(screen.getByRole("combobox", { name: "Letter" }))
+    expect((await screen.findAllByRole("option"))[0].textContent).toBe("Alpha")
+  })
+
+  it("ends the list with an action that acts instead of choosing a value", async () => {
+    const onSelect = vi.fn()
+    const onValueChange = vi.fn()
+    render(
+      <AmbySelect
+        aria-label="Letter"
+        value="a"
+        options={options}
+        onValueChange={onValueChange}
+        action={{ label: "New letter", onSelect }}
+      />,
+    )
+    fireEvent.click(screen.getByRole("combobox", { name: "Letter" }))
+    const items = await screen.findAllByRole("option")
+    expect(items[items.length - 1].textContent).toBe("New letter")
+    fireEvent.click(items[items.length - 1])
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(onValueChange).not.toHaveBeenCalled()
+  })
 })

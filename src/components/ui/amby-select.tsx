@@ -15,6 +15,13 @@ export interface AmbySelectOption {
   group?: string
 }
 
+/** A last item that runs an action instead of choosing a value ("New story"). */
+export interface AmbySelectAction {
+  label: string
+  icon?: React.ReactNode
+  onSelect: () => void
+}
+
 interface AmbySelectProps {
   value: string
   onValueChange: (value: string) => void
@@ -31,6 +38,10 @@ interface AmbySelectProps {
   className?: string
   /** Extra classes of the list itself. */
   listClassName?: string
+  /** What the closed control shows for the active choice, instead of its label. */
+  renderValue?: (active: AmbySelectOption | undefined) => React.ReactNode
+  /** A last, separate item of the list that acts instead of choosing. */
+  action?: AmbySelectAction
 }
 
 /**
@@ -50,6 +61,8 @@ export function AmbySelect({
   size = "md",
   className,
   listClassName,
+  renderValue,
+  action,
   ...rest
 }: AmbySelectProps) {
   const [open, setOpen] = React.useState(false)
@@ -129,9 +142,13 @@ export function AmbySelect({
             if (event.key !== "Tab" && event.key !== "Escape") event.stopPropagation()
           }}
         >
-          <span className={cn("min-w-0 flex-1 truncate", !active && "text-muted-foreground")}>
-            {active?.label ?? placeholder ?? ""}
-          </span>
+          {renderValue ? (
+            <span className="flex min-w-0 flex-1 items-center">{renderValue(active)}</span>
+          ) : (
+            <span className={cn("min-w-0 flex-1 truncate", !active && "text-muted-foreground")}>
+              {active?.label ?? placeholder ?? ""}
+            </span>
+          )}
           <ChevronDown
             aria-hidden="true"
             className={cn("size-3.5 shrink-0 text-muted-foreground", open && "rotate-180")}
@@ -184,6 +201,29 @@ export function AmbySelect({
             </div>
           ))}
           {options.length === 0 && <p className="px-2 py-1.5 text-xs text-muted-foreground">—</p>}
+          {action && (
+            <>
+              <div className="mx-1 my-1 border-t border-border/60" />
+              <button
+                type="button"
+                role="option"
+                aria-selected={false}
+                tabIndex={-1}
+                onClick={() => {
+                  setOpen(false)
+                  action.onSelect()
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13px] outline-none hover:bg-accent focus-visible:bg-accent"
+              >
+                {action.icon && (
+                  <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+                    {action.icon}
+                  </span>
+                )}
+                <span className="min-w-0 flex-1 truncate">{action.label}</span>
+              </button>
+            </>
+          )}
         </div>
       </PopoverContent>
     </Popover>

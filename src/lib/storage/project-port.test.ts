@@ -8,6 +8,7 @@ import {
   createTextPage,
   listNoteReferences,
   listProjects,
+  listTextStats,
   moveTextPage,
   refreshProjects,
   setStorageAdapter,
@@ -108,6 +109,12 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
       labels: {},
     })
 
+    // The levels the author chose travel with the request, untouched.
+    await createProject({ ...request, operationId: "op-levels", textLevels: ["Книга", "Сцена"] })
+    expect(create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ operationId: "op-levels", textLevels: ["Книга", "Сцена"] }),
+    )
+
     const section = vi.spyOn(commands, "createProjectSection").mockResolvedValue({
       status: "error",
       error: { kind: "pathCollision", path: "MoleHills/Текст" },
@@ -176,6 +183,15 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
     await expect(listNoteReferences("01ABC")).resolves.toEqual([])
     expect(references).toHaveBeenCalledWith("01ABC")
 
+    const stats = vi.spyOn(commands, "listTextStats").mockResolvedValue({
+      status: "ok",
+      data: [{ noteId: "n1", wordCount: 120, modified: 1_700_000_000, created: 1_699_999_000 }],
+    })
+    await expect(listTextStats("db_text")).resolves.toEqual([
+      { noteId: "n1", wordCount: 120, modified: 1_700_000_000, created: 1_699_999_000 },
+    ])
+    expect(stats).toHaveBeenCalledWith("db_text")
+
     vi.spyOn(commands, "listProjects").mockResolvedValue({ status: "ok", data: catalog })
     const refresh = vi
       .spyOn(commands, "refreshProjects")
@@ -191,6 +207,7 @@ describe("WebAdapter projects", () => {
     setStorageAdapter(new WebAdapter())
     await expect(listProjects()).resolves.toMatchObject({ projects: [], diagnostics: [] })
     await expect(refreshProjects(0)).resolves.toMatchObject({ projects: [] })
+    await expect(listTextStats("db_text")).resolves.toEqual([])
     await expect(
       createProject({
         expectedGeneration: 0,

@@ -22,6 +22,8 @@ pub const LEVEL_KEYS: [&str; 4] = ["book", "arc", "chapter", "page"];
 /// The format kinds the format Select is created with.
 pub const FORMAT_KINDS: [&str; 4] = ["manuscript", "screenplay", "comic", "note"];
 pub const PROPERTY_KEYS: [&str; 4] = ["level", "parent", "order", "format"];
+/// How many levels a story's text may have.
+pub const MAX_TEXT_LEVELS: usize = 6;
 
 fn default_label(key: &str) -> &'static str {
     match key {
@@ -61,6 +63,33 @@ fn label(labels: &BTreeMap<String, String>, key: &str) -> Result<String, Project
     )
 }
 
+/// The levels a request names, checked before anything is written: 1 to [`MAX_TEXT_LEVELS`]
+/// names, each a valid title, none repeated (case-insensitively, as option names are).
+pub fn normalize_text_levels(raw: &[String]) -> Result<Vec<String>, ProjectError> {
+    let invalid = |reason: &str| ProjectError::InvalidName {
+        field: "textLevels".to_owned(),
+        reason: reason.to_owned(),
+    };
+    if raw.is_empty() {
+        return Err(invalid("empty"));
+    }
+    if raw.len() > MAX_TEXT_LEVELS {
+        return Err(invalid("too many"));
+    }
+    let mut names: Vec<String> = Vec::with_capacity(raw.len());
+    for name in raw {
+        let name = normalize_title("textLevels", name)?;
+        if names
+            .iter()
+            .any(|existing| existing.to_lowercase() == name.to_lowercase())
+        {
+            return Err(invalid("duplicate"));
+        }
+        names.push(name);
+    }
+    Ok(names)
+}
+
 /// What `create` produced: the property definitions that go into the new manifest and
 /// the `text` block for the structure file. Both are journaled, so a repeat or a
 /// cleanup rebuilds byte-identical files.
@@ -70,17 +99,23 @@ pub struct TextSchema {
     pub text_block: Value,
 }
 
-/// Plans the schema for a text database that does not exist yet.
+/// Plans the schema for a text database that does not exist yet. `levels` are the names the
+/// request chose (already normalized); without them the four levels of the template are named
+/// from `labels`.
 pub fn plan(
     vault: &Path,
     section_name: &str,
     ids: &PlannedDatabaseIds,
     labels: &BTreeMap<String, String>,
+    levels: Option<&[String]>,
 ) -> Result<TextSchema, ProjectError> {
-    let level_names = LEVEL_KEYS
-        .iter()
-        .map(|key| label(labels, &format!("level:{key}")))
-        .collect::<Result<Vec<_>, _>>()?;
+    let level_names = match levels {
+        Some(names) => names.to_vec(),
+        None => LEVEL_KEYS
+            .iter()
+            .map(|key| label(labels, &format!("level:{key}")))
+            .collect::<Result<Vec<_>, _>>()?,
+    };
     let format_names = FORMAT_KINDS
         .iter()
         .map(|kind| label(labels, &format!("format:{kind}")))

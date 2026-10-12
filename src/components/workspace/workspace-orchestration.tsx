@@ -132,6 +132,8 @@ const EMPTY_CONTENT_WIDTHS: Record<string, ContentWidth> = {}
 const EMPTY_DATABASE_TITLE_LABELS: Record<string, string> = {}
 const EMPTY_LAYERS = { canvas: false, sketch: false, database: false }
 const NOOP = () => {}
+/** A section of a story is first shown as cards that open as whole pages. */
+const CREATIVE_SECTION_PRESENTATION = { layout: "gallery", openMode: "fullPage" } as const
 
 /** Spinner shown while a lazy chunk (Canvas / Graph) is being fetched. */
 function LazyEditorFallback() {
@@ -2195,8 +2197,10 @@ export function WorkspaceOrchestration() {
       <ProjectPage
         projectId={activeTab.fileId.replace(/^creative:/u, "")}
         onOpenProject={openCreativeTab}
+        onOpenNote={(noteId) => handleSelect(noteId)}
+        vaultPath={vault ?? null}
         onChanged={refreshAfterCreativeWrite}
-        renderDatabase={({ databaseId, title }) => (
+        renderDatabase={({ databaseId, title, readOnly }) => (
           <React.Suspense fallback={<LazyEditorFallback />}>
             <DatabaseWorkspace
               databaseId={databaseId}
@@ -2205,12 +2209,9 @@ export function WorkspaceOrchestration() {
               hideHeader
               hostKind="tab"
               hostId={`creative:${databaseId}`}
-              contentWidth={
-                contentWidths[databaseContentWidthKey(databaseId)] ?? defaultContentWidth
-              }
-              onContentWidthChange={(width: ContentWidth) =>
-                setContentWidth(databaseContentWidthKey(databaseId), width)
-              }
+              // A section fills the page of its story: the whole width, cards, whole pages.
+              contentWidth="full"
+              initialPresentation={readOnly ? undefined : CREATIVE_SECTION_PRESENTATION}
               titleColumnName={databaseTitleLabels[databaseContentWidthKey(databaseId)]}
               onTitleColumnNameChange={(name) =>
                 setDatabaseTitleLabel(databaseContentWidthKey(databaseId), name)

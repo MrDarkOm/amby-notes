@@ -1,36 +1,49 @@
 import * as React from "react"
 import {
   Anchor,
-  ChevronDown,
+  BookText,
   ChevronRight,
-  ExternalLink,
   FileText,
-  Library,
   Plus,
   StickyNote,
-  Waypoints,
   type LucideIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { AmbySelect } from "@/components/ui/amby-select"
 import { Button } from "@/components/ui/button"
 import {
   moveTextPage,
   type DatabaseRow,
   type ProjectSummary,
   type TextLevelSummary,
+  type TextPageStat,
 } from "@/lib/storage"
+import { motion } from "motion/react"
+import { motionTransitions } from "@/lib/motion-config"
 import { cn } from "@/lib/utils"
 import { IconValue } from "../../icon-value"
 import { Accordion } from "./accordion"
+import { treeIndent } from "./tree-indent"
+import { EmptyAction } from "./empty-action"
+import { InlineCreateRow } from "./inline-create-row"
+import { StoryHeader } from "./story-header"
 import { ItemMenu } from "./item-menu"
 import { useCreativeNavStore } from "../creative-nav-store"
 import { projectErrorText } from "../project-error"
-import { levelIndexOfSection, storySection, type WorksSection } from "./workshop-model"
+import { formatModified } from "../../workspace-tree-utils"
+import { moveRowInOrder, type RowDropPlacement } from "../../database/row-order"
 import {
+  orderByAuthor,
+  storySection,
+  WORKS_SECTIONS,
+  type WorkshopDraft,
+  type WorksSection,
+} from "./workshop-model"
+import {
+  ancestorIds,
   buildTextTree,
+  canHaveChildPage,
+  countNodes,
   descendantIds,
-  nodesAtLevel,
   planMove,
   type DropZone,
   type TextNode,
@@ -50,14 +63,32 @@ interface WorksTabProps {
   vaultGeneration: number | null
   onOpenNote: (noteId: string) => void
   onOpenProject: (projectId: string) => void
-  /** `levelId` names the level the page starts at when it is not the parent's next one. */
-  onAddPage: (story: ProjectSummary, parent: TextNode | null, levelId?: string | null) => void
+  /** Makes a new story: the last item of the header's list. */
+  onNewStory: () => void
+  /** Pages and words of the chosen story's text; `null` while not loaded. */
+  totals: { pages: number | null; words: number | null }
+  /** A page under `parent`, or at the top of the text for `null`. */
+  onAddPage: (story: ProjectSummary, parent: TextNode | null) => void
   onAddNote: (story: ProjectSummary) => void
   onAddAnchor: (story: ProjectSummary) => void
   /** The story has no anchors section: offers making one. */
   onCreateAnchors: (story: ProjectSummary) => void
   /** A page moved or a move was refused: the lists read the files again. */
   onMoved: () => void
+  /** The page open in the editor: its row is marked and its parents are unfolded. */
+  activeNoteId: string | null
+  /** Words and last-change time of the text's pages, from the note index. */
+  stats: Record<string, TextPageStat>
+  /** Anchors in the order the author placed them by hand, and when each was made. */
+  anchorOrder: string[]
+  anchorCreated: Record<string, number | null>
+  /** The anchors in a new order (note IDs); rejects when it could not be saved. */
+  onReorderAnchors: (next: string[]) => Promise<void>
+  /** The row being named where it will stand, if any. */
+  draft: WorkshopDraft | null
+  /** Creates what the draft names; a rejection is shown on the row. */
+  onCommitDraft: (title: string) => Promise<void>
+  onCancelDraft: () => void
   /** What goes under the story's parts: the world. */
   children?: React.ReactNode
 }
@@ -79,6 +110,15 @@ interface TreeContext {
   onToggle: (noteId: string) => void
   onOpenNote: (noteId: string) => void
   onAddPage: (parent: TextNode) => void
+  /** Whether a page may have pages under it (the last level of the schema may not). */
+  canAddChild: (node: TextNode) => boolean
+  activeNoteId: string | null
+  stats: Record<string, TextPageStat>
+  /** Words of a page together with every page below it. */
+  wordsOf: (node: TextNode) => number
+  /** Whose children the new page's row goes among: a page, `null` for the top, none for no row. */
+  draftParentId: string | null | undefined
+  renderDraft: (depth: number) => React.ReactNode
   dragId: string | null
   hint: DropHint | null
   onDragStart: (noteId: string) => void
@@ -103,13 +143,17 @@ function TreeRows({
         const open = !context.collapsed[`page:${node.noteId}`]
         const level = context.levels.find((entry) => entry.id === node.levelId)
         const hint = context.hint?.noteId === node.noteId ? context.hint.zone : null
+        const active = context.activeNoteId === node.noteId
+        const leaf = node.children.length === 0
+        const words = context.wordsOf(node)
+        const draftHere = context.draftParentId === node.noteId
         return (
           <React.Fragment key={node.noteId}>
             <ItemMenu
               noteId={node.noteId}
               title={node.title}
               nested={descendantIds(node)}
-              indent={depth * 14 + 24}
+              indent={treeIndent(depth + 1) - 6}
             >
               <div
                 draggable
@@ -123,53 +167,95 @@ function TreeRows({
                 onDrop={(event) => context.onDrop(event, node.noteId)}
                 onDragEnd={context.onDragEnd}
                 className={cn(
-                  "group flex items-center gap-1 rounded-md border-y-2 border-transparent pr-1 hover:bg-accent/40",
+                  "amby-tree-row group flex items-center gap-1.5 rounded border-y-2 border-transparent py-0 pr-1 text-[13px] hover:bg-accent",
+                  active && "bg-accent",
                   context.dragId === node.noteId && "opacity-50",
                   hint === "before" && "border-t-primary",
                   hint === "after" && "border-b-primary",
                   hint === "inside" && "bg-primary/10",
                 )}
-                style={{ paddingLeft: `${depth * 14}px` }}
+                style={{ paddingLeft: treeIndent(depth + 1) }}
               >
-                <button
-                  type="button"
-                  className="flex size-5 shrink-0 items-center justify-center text-muted-foreground disabled:opacity-0"
-                  disabled={node.children.length === 0}
-                  aria-label={open ? t("creative.panel.collapse") : t("creative.panel.expand")}
-                  aria-expanded={node.children.length > 0 ? open : undefined}
-                  onClick={() => context.onToggle(node.noteId)}
-                >
-                  {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-                </button>
+                {leaf ? (
+                  <span className="flex size-4 shrink-0 items-center justify-center">
+                    {/* A page with nothing under it shows whether it has been written yet. */}
+                    <span
+                      aria-hidden="true"
+                      title={t(
+                        words > 0 ? "creative.workshop.pageWritten" : "creative.workshop.pageBlank",
+                      )}
+                      className={cn(
+                        "size-2 rounded-full",
+                        words > 0 ? "bg-primary" : "border border-muted-foreground/50",
+                      )}
+                    />
+                  </span>
+                ) : (
+                  <span className="amby-tree-folder-icon relative inline-flex size-4 shrink-0 items-center justify-center">
+                    <span className="amby-tree-main-icon flex text-muted-foreground">
+                      <IconValue
+                        value={level?.icon ?? undefined}
+                        fallback={<FileText className="size-4" />}
+                        className="size-4"
+                      />
+                    </span>
+                    <button
+                      type="button"
+                      className="amby-tree-folder-toggle absolute inset-0 z-10 flex size-4 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      aria-label={open ? t("creative.panel.collapse") : t("creative.panel.expand")}
+                      aria-expanded={open}
+                      onClick={() => context.onToggle(node.noteId)}
+                    >
+                      <motion.span
+                        className="flex"
+                        initial={false}
+                        animate={{ rotate: open ? 90 : 0 }}
+                        transition={motionTransitions.default}
+                      >
+                        <ChevronRight className="size-3" />
+                      </motion.span>
+                    </button>
+                  </span>
+                )}
                 <button
                   type="button"
                   title={level?.name ?? undefined}
+                  aria-current={active ? "true" : undefined}
                   onClick={() => context.onOpenNote(node.noteId)}
-                  className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 text-left text-xs"
+                  className="flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-left"
                 >
-                  <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-                    <IconValue
-                      value={level?.icon ?? undefined}
-                      fallback={<FileText className="size-3.5" />}
-                      className="size-3.5"
-                    />
-                  </span>
                   <span className="min-w-0 truncate">{node.title}</span>
+                  {(leaf || words > 0) && (
+                    <span
+                      className={cn(
+                        "ml-auto shrink-0 pl-2 text-[11px] tabular-nums text-muted-foreground",
+                        words === 0 && "opacity-60",
+                      )}
+                      title={t("docEditor.wordCount", { count: words })}
+                    >
+                      {words.toLocaleString()}
+                    </span>
+                  )}
                 </button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="size-6 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
-                  title={t("creative.workshop.addChildPage")}
-                  aria-label={t("creative.workshop.addChildPage", { name: node.title })}
-                  onClick={() => context.onAddPage(node)}
-                >
-                  <Plus className="size-3.5" />
-                </Button>
+                {context.canAddChild(node) && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-5 text-muted-foreground opacity-50 hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-100"
+                    title={t("creative.workshop.addChildPage")}
+                    aria-label={t("creative.workshop.addChildPage", { name: node.title })}
+                    onClick={() => context.onAddPage(node)}
+                  >
+                    <Plus className="size-3.5" />
+                  </Button>
+                )}
               </div>
             </ItemMenu>
-            {open && node.children.length > 0 && (
-              <TreeRows nodes={node.children} depth={depth + 1} context={context} />
+            {open && (node.children.length > 0 || draftHere) && (
+              <>
+                <TreeRows nodes={node.children} depth={depth + 1} context={context} />
+                {draftHere && context.renderDraft(depth + 1)}
+              </>
             )}
           </React.Fragment>
         )
@@ -179,28 +265,15 @@ function TreeRows({
 }
 
 const SECTION_ICONS: Record<WorksSection, LucideIcon> = {
-  books: Library,
-  arcs: Waypoints,
+  text: BookText,
   anchors: Anchor,
   notes: StickyNote,
 }
 
-/** A part's own name: the story's level name, with the template's names read as plurals. */
-function sectionLabel(
-  story: ProjectSummary,
-  section: WorksSection,
-  t: (key: string) => string,
-): string {
-  if (section === "anchors") return t("creative.workshop.sections.anchors")
-  if (section === "notes") return t("creative.sections.notes")
-  const index = levelIndexOfSection(section) ?? 0
-  const name = story.text?.levels[index]?.name?.trim()
-  const schemaKey = section === "books" ? "book" : "arc"
-  const plural = t(`creative.workshop.sections.${section}`)
-  return !name ||
-    name.toLocaleLowerCase() === t(`creative.schema.levels.${schemaKey}`).toLocaleLowerCase()
-    ? plural
-    : name
+const SECTION_LABEL_KEYS: Record<WorksSection, string> = {
+  text: "creative.sections.text",
+  anchors: "creative.workshop.sections.anchors",
+  notes: "creative.sections.notes",
 }
 
 function StoryWorks({
@@ -215,6 +288,14 @@ function StoryWorks({
   onAddAnchor,
   onCreateAnchors,
   onMoved,
+  activeNoteId,
+  stats,
+  anchorOrder,
+  anchorCreated,
+  onReorderAnchors,
+  draft,
+  onCommitDraft,
+  onCancelDraft,
 }: {
   story: ProjectSummary
   open: Record<WorksSection, boolean>
@@ -222,11 +303,19 @@ function StoryWorks({
   rows: Record<string, DatabaseRow[]>
   vaultGeneration: number | null
   onOpenNote: (noteId: string) => void
-  onAddPage: (story: ProjectSummary, parent: TextNode | null, levelId?: string | null) => void
+  onAddPage: (story: ProjectSummary, parent: TextNode | null) => void
   onAddNote: (story: ProjectSummary) => void
   onAddAnchor: (story: ProjectSummary) => void
   onCreateAnchors: (story: ProjectSummary) => void
   onMoved: () => void
+  activeNoteId: string | null
+  stats: Record<string, TextPageStat>
+  anchorOrder: string[]
+  anchorCreated: Record<string, number | null>
+  onReorderAnchors: (next: string[]) => Promise<void>
+  draft: WorkshopDraft | null
+  onCommitDraft: (title: string) => Promise<void>
+  onCancelDraft: () => void
 }) {
   const { t } = useTranslation()
   const collapsed = useCreativeNavStore((state) => state.collapsed)
@@ -247,6 +336,45 @@ function StoryWorks({
   const anchorsSection = storySection(story, "anchors")
   const anchorRows = anchorsSection ? (rows[anchorsSection.databaseId] ?? []) : []
   const canWrite = !story.readOnly
+  const rootRef = React.useRef<HTMLDivElement>(null)
+
+  // The open page is found in the text: its parents unfold, the part opens, the row scrolls into
+  // view. Only when the open page changes, so folding a part by hand afterwards is not undone.
+  const revealed = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    if (!activeNoteId) {
+      revealed.current = null
+      return
+    }
+    if (revealed.current === activeNoteId) return
+    const path = ancestorIds(roots, activeNoteId)
+    if (path === null) return
+    revealed.current = activeNoteId
+    if (!open.text) onToggleSection("text")
+    const folded = useCreativeNavStore.getState().collapsed
+    for (const id of path) if (folded[`page:${id}`]) toggle(`page:${id}`)
+    requestAnimationFrame(() => {
+      const row = Array.from(
+        rootRef.current?.querySelectorAll<HTMLElement>("[data-text-page]") ?? [],
+      ).find((element) => element.dataset.textPage === activeNoteId)
+      row?.scrollIntoView?.({ block: "nearest" })
+    })
+    // `open` and the callbacks are read at the moment of the reveal, not tracked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeNoteId, roots])
+
+  // A page's words with those of the pages below it, counted once per read of the text.
+  const subtreeWords = React.useMemo(() => {
+    const result = new Map<string, number>()
+    const visit = (node: TextNode): number => {
+      let sum = stats[node.noteId]?.wordCount ?? 0
+      for (const child of node.children) sum += visit(child)
+      result.set(node.noteId, sum)
+      return sum
+    }
+    roots.forEach(visit)
+    return result
+  }, [roots, stats])
 
   const reset = () => {
     setDragId(null)
@@ -261,6 +389,20 @@ function StoryWorks({
     onToggle: (noteId) => toggle(`page:${noteId}`),
     onOpenNote,
     onAddPage: (parent) => onAddPage(story, parent),
+    canAddChild: (node) => canHaveChildPage(levels, node),
+    activeNoteId,
+    stats,
+    wordsOf: (node) => subtreeWords.get(node.noteId) ?? 0,
+    draftParentId: draft?.kind === "page" ? draft.parentId : undefined,
+    renderDraft: (depth) => (
+      <InlineCreateRow
+        depth={depth}
+        icon={<FileText className="size-3.5" />}
+        placeholder={t("creative.workshop.newPagePlaceholder")}
+        onSubmit={onCommitDraft}
+        onCancel={onCancelDraft}
+      />
+    ),
     dragId,
     hint,
     onDragStart: setDragId,
@@ -305,35 +447,135 @@ function StoryWorks({
 
   const byTitle = (a: DatabaseRow, b: DatabaseRow) =>
     a.title.localeCompare(b.title, undefined, { sensitivity: "base" })
-  const rowList = (list: DatabaseRow[], icon: React.ReactNode) =>
-    [...list].sort(byTitle).map((row) => (
-      <ItemMenu key={row.noteId} noteId={row.noteId} title={row.title}>
-        <button
-          type="button"
-          onClick={() => onOpenNote(row.noteId)}
-          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent/50"
-        >
-          {icon}
-          <span className="min-w-0 truncate">{row.title}</span>
-        </button>
-      </ItemMenu>
-    ))
-  const hintText = (key: string) => (
-    <p className="px-2 py-1.5 text-[11px] text-muted-foreground">{t(key)}</p>
-  )
 
-  const levelPart = (section: "books" | "arcs") => {
-    const index = levelIndexOfSection(section) ?? 0
-    const level = levels[index] ?? null
-    const nodes = level ? nodesAtLevel(roots, level.id) : []
+  // Anchors are events, so they keep the author's order and can be moved: dropped on another
+  // one, a row goes before or after it. The order is the first view's own `manualOrder`.
+  const [anchorDrag, setAnchorDrag] = React.useState<{
+    id: string
+    overId: string | null
+    placement: RowDropPlacement
+  } | null>(null)
+  const orderedAnchors = orderByAuthor(anchorRows, anchorOrder, (noteId) => anchorCreated[noteId])
+  const dropAnchor = (targetId: string, placement: RowDropPlacement) => {
+    const moved = anchorDrag?.id
+    setAnchorDrag(null)
+    if (!moved) return
+    const next = moveRowInOrder(
+      anchorOrder,
+      orderedAnchors.map((row) => row.noteId),
+      moved,
+      targetId,
+      placement,
+    )
+    if (!next) return
+    setMoveError(null)
+    onReorderAnchors(next).catch((error: unknown) => setMoveError(projectErrorText(t, error)))
+  }
+
+  const rowList = (list: DatabaseRow[], icon: React.ReactNode, reorder = false) =>
+    (reorder ? list : [...list].sort(byTitle)).map((row) => {
+      const over = reorder && anchorDrag?.overId === row.noteId ? anchorDrag.placement : null
+      return (
+        <ItemMenu key={row.noteId} noteId={row.noteId} title={row.title}>
+          <button
+            type="button"
+            draggable={reorder && canWrite}
+            aria-current={activeNoteId === row.noteId ? "true" : undefined}
+            onClick={() => onOpenNote(row.noteId)}
+            onDragStart={
+              reorder && canWrite
+                ? (event) => {
+                    event.dataTransfer.setData("text/plain", row.noteId)
+                    event.dataTransfer.effectAllowed = "move"
+                    setAnchorDrag({ id: row.noteId, overId: null, placement: "after" })
+                  }
+                : undefined
+            }
+            onDragOver={
+              reorder && canWrite
+                ? (event) => {
+                    if (!anchorDrag || anchorDrag.id === row.noteId) return
+                    event.preventDefault()
+                    event.dataTransfer.dropEffect = "move"
+                    const rect = event.currentTarget.getBoundingClientRect()
+                    const placement: RowDropPlacement =
+                      event.clientY < rect.top + rect.height / 2 ? "before" : "after"
+                    if (anchorDrag.overId !== row.noteId || anchorDrag.placement !== placement) {
+                      setAnchorDrag({ ...anchorDrag, overId: row.noteId, placement })
+                    }
+                  }
+                : undefined
+            }
+            onDrop={
+              reorder && canWrite
+                ? (event) => {
+                    event.preventDefault()
+                    dropAnchor(row.noteId, anchorDrag?.placement ?? "after")
+                  }
+                : undefined
+            }
+            onDragEnd={reorder ? () => setAnchorDrag(null) : undefined}
+            style={{ paddingLeft: treeIndent(1) }}
+            className={cn(
+              "amby-tree-row flex w-full items-center gap-1.5 rounded border-y-2 border-transparent py-0.5 pr-3 text-left text-[13px] hover:bg-accent",
+              activeNoteId === row.noteId && "bg-accent",
+              reorder && anchorDrag?.id === row.noteId && "opacity-50",
+              over === "before" && "border-t-primary",
+              over === "after" && "border-b-primary",
+            )}
+          >
+            {icon}
+            <span className="min-w-0 truncate">{row.title}</span>
+          </button>
+        </ItemMenu>
+      )
+    })
+  const hintText = (key: string) => (
+    <p className="py-1 pr-3 text-xs text-muted-foreground" style={{ paddingLeft: treeIndent(1) }}>
+      {t(key)}
+    </p>
+  )
+  const draftRow = (kind: "note" | "anchor", icon: React.ReactNode) =>
+    draft?.kind === kind ? (
+      <InlineCreateRow
+        depth={0}
+        icon={icon}
+        placeholder={t(
+          kind === "note"
+            ? "creative.workshop.newNotePlaceholder"
+            : "creative.workshop.newAnchorPlaceholder",
+        )}
+        onSubmit={onCommitDraft}
+        onCancel={onCancelDraft}
+      />
+    ) : null
+
+  // The whole text, as the tree buildTextTree makes: every page once, a page without a parent or
+  // a level among the roots.
+  const textPart = () => {
+    const topDraft = draft?.kind === "page" && draft.parentId === null
     let content: React.ReactNode
     if (!text?.databaseId) content = hintText("creative.workshop.noText")
-    else if (!level) content = hintText("creative.workshop.noLevel")
-    else if (nodes.length === 0) content = hintText("creative.workshop.noPages")
-    else content = <TreeRows nodes={nodes} depth={0} context={context} />
+    else if (roots.length === 0 && !topDraft) {
+      content = canWrite ? (
+        <EmptyAction
+          label={t("creative.workshop.addFirstPage")}
+          onClick={() => onAddPage(story, null)}
+        />
+      ) : (
+        hintText("creative.workshop.noPages")
+      )
+    } else {
+      content = (
+        <>
+          <TreeRows nodes={roots} depth={0} context={context} />
+          {topDraft && context.renderDraft(0)}
+        </>
+      )
+    }
     return {
-      count: level ? nodes.length : null,
-      add: canWrite && level && text?.databaseId ? () => onAddPage(story, null, level.id) : null,
+      count: text?.databaseId ? countNodes(roots) : null,
+      add: canWrite && text?.databaseId ? () => onAddPage(story, null) : null,
       content,
     }
   }
@@ -342,60 +584,87 @@ function StoryWorks({
     WorksSection,
     { count: number | null; add: (() => void) | null; content: React.ReactNode }
   > = {
-    books: levelPart("books"),
-    arcs: levelPart("arcs"),
+    text: textPart(),
     anchors: {
       count: anchorsSection ? anchorRows.length : null,
       add: canWrite && anchorsSection ? () => onAddAnchor(story) : null,
       content: !anchorsSection ? (
-        <div className="flex flex-col items-start gap-1.5 px-2 py-1.5">
-          <p className="text-[11px] text-muted-foreground">{t("creative.workshop.noAnchors")}</p>
+        <div
+          className="flex flex-col items-start gap-1.5 py-1 pr-3"
+          style={{ paddingLeft: treeIndent(1) }}
+        >
+          <p className="text-xs text-muted-foreground">{t("creative.workshop.noAnchors")}</p>
           {canWrite && (
             <Button variant="outline" size="sm" onClick={() => onCreateAnchors(story)}>
               {t("creative.workshop.createAnchors")}
             </Button>
           )}
         </div>
-      ) : anchorRows.length === 0 ? (
-        hintText("creative.workshop.noAnchorsYet")
       ) : (
-        rowList(anchorRows, <Anchor className="size-3.5 shrink-0 text-muted-foreground" />)
+        <>
+          {anchorRows.length === 0 && draft?.kind !== "anchor" ? (
+            canWrite ? (
+              <EmptyAction
+                label={t("creative.workshop.addFirstAnchor")}
+                onClick={() => onAddAnchor(story)}
+              />
+            ) : (
+              hintText("creative.workshop.noAnchorsYet")
+            )
+          ) : (
+            rowList(
+              orderedAnchors,
+              <Anchor className="size-4 shrink-0 text-muted-foreground" />,
+              true,
+            )
+          )}
+          {draftRow("anchor", <Anchor className="size-3.5" />)}
+        </>
       ),
     },
     notes: {
       count: notesSection ? noteRows.length : null,
       add: canWrite && notesSection ? () => onAddNote(story) : null,
-      content: !notesSection
-        ? hintText("creative.workshop.noNotesSection")
-        : noteRows.length === 0
-          ? hintText("creative.workshop.noNotesYet")
-          : rowList(noteRows, <FileText className="size-3.5 shrink-0 text-muted-foreground" />),
+      content: !notesSection ? (
+        hintText("creative.workshop.noNotesSection")
+      ) : (
+        <>
+          {noteRows.length === 0 && draft?.kind !== "note" ? (
+            canWrite ? (
+              <EmptyAction
+                label={t("creative.workshop.addFirstNote")}
+                onClick={() => onAddNote(story)}
+              />
+            ) : (
+              hintText("creative.workshop.noNotesYet")
+            )
+          ) : (
+            rowList(noteRows, <FileText className="size-4 shrink-0 text-muted-foreground" />)
+          )}
+          {draftRow("note", <FileText className="size-3.5" />)}
+        </>
+      ),
     },
   }
 
-  // The second level is a part only for a story whose schema has one.
-  const shown: WorksSection[] = [
-    "books",
-    ...(levels.length > 1 ? (["arcs"] as const) : []),
-    "anchors",
-    "notes",
-  ]
-
   return (
-    <div>
+    <div ref={rootRef}>
       {moveError && (
         <p role="alert" className="px-2 py-1 text-[11px] text-destructive">
           {moveError}
         </p>
       )}
-      {shown.map((section) => {
+      <h3 className="pb-0.5 pl-3.5 pt-1 text-[11px] text-muted-foreground">
+        {t("creative.groups.work")}
+      </h3>
+      {WORKS_SECTIONS.map((section) => {
         const part = parts[section]
-        const label = sectionLabel(story, section, t)
         return (
           <Accordion
             key={section}
             icon={SECTION_ICONS[section]}
-            label={label}
+            label={t(SECTION_LABEL_KEYS[section])}
+            hint={section === "anchors" ? t("creative.workshop.anchorsHint") : undefined}
             count={part.count}
             open={open[section]}
             onToggle={() => onToggleSection(section)}
@@ -412,7 +681,7 @@ function StoryWorks({
 
 /**
  * The works tab: a list of the stories and, for the chosen one, its parts as folding sections —
- * books, arcs, anchors and notes.
+ * the text, anchors and notes.
  */
 export function WorksTab({
   stories,
@@ -426,42 +695,56 @@ export function WorksTab({
   vaultGeneration,
   onOpenNote,
   onOpenProject,
+  onNewStory,
+  totals,
   onAddPage,
   onAddNote,
   onAddAnchor,
   onCreateAnchors,
   onMoved,
+  activeNoteId,
+  stats,
+  anchorOrder,
+  anchorCreated,
+  onReorderAnchors,
+  draft,
+  onCommitDraft,
+  onCancelDraft,
   children,
 }: WorksTabProps) {
   const { t } = useTranslation()
   const story = stories.find((candidate) => candidate.projectId === selectedStoryId) ?? null
+  // Where to go on from: the page of the text changed last, unless it is the one already open.
+  const textRows = story?.text?.databaseId ? rows[story.text.databaseId] : undefined
+  const resume = React.useMemo(() => {
+    let latest: DatabaseRow | null = null
+    let latestAt = 0
+    for (const row of textRows ?? []) {
+      const at = stats[row.noteId]?.modified ?? 0
+      if (at > latestAt) {
+        latest = row
+        latestAt = at
+      }
+    }
+    if (!latest || latest.noteId === activeNoteId) return null
+    return { noteId: latest.noteId, title: latest.title, when: formatModified(latestAt) ?? "" }
+  }, [activeNoteId, stats, textRows])
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {stories.length > 0 && (
-        <div className="flex shrink-0 items-center gap-1 px-4 pb-2">
-          <div className="min-w-0 flex-1">
-            <AmbySelect
-              aria-label={t("creative.workshop.chooseStory")}
-              value={story?.projectId ?? ""}
-              onValueChange={onSelectStory}
-              options={stories.map((entry) => ({ value: entry.projectId, label: entry.name }))}
-            />
-          </div>
-          {story && (
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="shrink-0 text-muted-foreground"
-              title={t("creative.workshop.openStory")}
-              aria-label={t("creative.workshop.openStory")}
-              onClick={() => onOpenProject(story.projectId)}
-            >
-              <ExternalLink className="size-4" />
-            </Button>
-          )}
-        </div>
+      {story && (
+        <StoryHeader
+          story={story}
+          stories={stories}
+          pages={totals.pages}
+          words={totals.words}
+          onSelectStory={onSelectStory}
+          onNewStory={onNewStory}
+          onOpenStory={onOpenProject}
+          resume={resume}
+          onOpenNote={onOpenNote}
+        />
       )}
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {status === "error" && (
           <p role="alert" className="px-2 py-3 text-xs text-destructive">
             {t("creative.workshop.loadFailed")}
@@ -487,6 +770,14 @@ export function WorksTab({
             onAddAnchor={onAddAnchor}
             onCreateAnchors={onCreateAnchors}
             onMoved={onMoved}
+            activeNoteId={activeNoteId}
+            stats={stats}
+            anchorOrder={anchorOrder}
+            anchorCreated={anchorCreated}
+            onReorderAnchors={onReorderAnchors}
+            draft={draft}
+            onCommitDraft={onCommitDraft}
+            onCancelDraft={onCancelDraft}
           />
         )}
         {children}

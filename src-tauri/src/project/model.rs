@@ -413,6 +413,11 @@ pub struct CreateProjectRequest {
     /// `level:<key>` and `format:<kind>`. Missing keys fall back to Russian defaults.
     #[serde(default)]
     pub labels: BTreeMap<String, String>,
+    /// The levels of the story's text, outermost first: 1 to 6 distinct names. Omitted: the
+    /// four of the template (Book, Arc, Chapter, Page, named by `level:*`). Only a story that
+    /// gets its text section may pass it. The IDs of the levels are issued by the backend.
+    #[serde(default)]
+    pub text_levels: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
@@ -471,6 +476,10 @@ pub struct CreateProjectSectionRequest {
     /// `template:dossier`); read only for those sections. Missing keys fall back to Russian.
     #[serde(default)]
     pub labels: BTreeMap<String, String>,
+    /// The levels of the text, outermost first (1 to 6 distinct names); only for a section with
+    /// the `text` role. Omitted: the four of the template, named by `level:*`.
+    #[serde(default)]
+    pub text_levels: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]

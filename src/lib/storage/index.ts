@@ -410,6 +410,7 @@ export const moveTextPage = (request: MoveTextPageRequest) => {
   return getAdapter().moveTextPage(request)
 }
 export const listNoteReferences = (noteId: string) => getAdapter().listNoteReferences(noteId)
+export const listTextStats = (databaseId: string) => getAdapter().listTextStats(databaseId)
 export const listDatabases = () => getAdapter().listDatabases()
 export const getDatabaseNoteContext = (noteId: string) =>
   getAdapter().getDatabaseNoteContext(noteId)

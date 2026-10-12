@@ -7,6 +7,7 @@ import type { ProjectSummary } from "@/lib/storage"
 import { IconValue } from "../icon-value"
 import { useDatabaseStore } from "../database/database-store"
 import { CreateSectionDialog } from "./create-section-dialog"
+import { ProjectDesk } from "./project-desk"
 import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative-nav-store"
 import { useProjectStore } from "./project-store"
 import { groupSections, storiesOfCollection, type SidebarSection } from "./project-tree-model"
@@ -15,6 +16,8 @@ import { sectionRoleIcon } from "./section-icons"
 export interface SectionDatabaseProps {
   databaseId: string
   title: string
+  /** The project is open for reading only: nothing about the section may be written. */
+  readOnly: boolean
 }
 
 interface ProjectPageProps {
@@ -22,6 +25,10 @@ interface ProjectPageProps {
   /** Renders one section as the ordinary database workspace (supplied by the shell). */
   renderDatabase: (database: SectionDatabaseProps) => React.ReactNode
   onOpenProject: (projectId: string, sectionId?: string) => void
+  /** Opens one page of the text (the desk's "continue with"). */
+  onOpenNote?: (noteId: string) => void
+  /** The vault the story lives in: what the manuscript is read from. */
+  vaultPath?: string | null
   /** Refreshes the file tree and the databases after a section was written. */
   onChanged?: () => Promise<void>
 }
@@ -79,6 +86,8 @@ export function ProjectPage({
   projectId,
   renderDatabase,
   onOpenProject,
+  onOpenNote,
+  vaultPath = null,
   onChanged,
 }: ProjectPageProps) {
   const { t } = useTranslation()
@@ -92,7 +101,7 @@ export function ProjectPage({
 
   if (!project) {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-background p-8">
+      <div className="flex h-full w-full items-center justify-center bg-[var(--note-surface)] p-8">
         <div className="flex max-w-sm flex-col items-center gap-3 text-center">
           <Feather className="size-7 text-muted-foreground" />
           <h2 className="text-base font-semibold">
@@ -115,6 +124,9 @@ export function ProjectPage({
   const activeSection = sections.find((section) => section.id === active)
   const stories =
     project.kind === "collection" && catalog ? storiesOfCollection(catalog, project.projectId) : []
+  // A story with a text gets its desk; the sections are in the tabs above, as in the panel.
+  const hasDesk =
+    project.kind === "story" && Boolean(project.text?.databaseId) && Boolean(onOpenNote)
 
   const tabClass = (isActive: boolean) =>
     cn(
@@ -125,7 +137,7 @@ export function ProjectPage({
     )
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-col bg-background">
+    <div className="flex h-full min-h-0 w-full flex-col bg-[var(--note-surface)]">
       <header className="flex shrink-0 flex-col gap-3 px-8 pb-2 pt-6">
         <div className="flex items-center gap-3">
           <span className="flex size-9 shrink-0 items-center justify-center text-muted-foreground">
@@ -174,9 +186,11 @@ export function ProjectPage({
           {groups.map((group) => (
             <React.Fragment key={group.id ?? "loose"}>
               {group.name && (
-                <span className="mx-1 shrink-0 self-center text-[10px] uppercase tracking-wide text-muted-foreground">
-                  {group.name}
-                </span>
+                <span
+                  aria-hidden="true"
+                  title={group.name}
+                  className="mx-1.5 h-4 w-px shrink-0 self-center bg-border"
+                />
               )}
               {group.sections.map((section) => {
                 const Icon = sectionRoleIcon(section.role)
@@ -210,7 +224,11 @@ export function ProjectPage({
             </div>
           ) : (
             <div key={activeSection.databaseId} className="flex min-h-0 flex-1 flex-col">
-              {renderDatabase({ databaseId: activeSection.databaseId, title: activeSection.name })}
+              {renderDatabase({
+                databaseId: activeSection.databaseId,
+                title: activeSection.name,
+                readOnly: project.readOnly,
+              })}
             </div>
           )
         ) : (
@@ -239,21 +257,34 @@ export function ProjectPage({
                 </div>
               </section>
             )}
-            {groups.map((group) => (
-              <section key={group.id ?? "loose"} className="mb-8">
-                {group.name && <h2 className="mb-3 text-sm font-semibold">{group.name}</h2>}
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {group.sections.map((section) => (
-                    <SectionCard
-                      key={section.id}
-                      section={section}
-                      onOpen={(opened) => showSection(projectId, opened.id)}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-            {sections.length === 0 && stories.length === 0 && (
+            {hasDesk && onOpenNote && (
+              <ProjectDesk
+                project={project}
+                vaultPath={vaultPath}
+                onOpenNote={onOpenNote}
+                onOpenSection={(ownerId, sectionId) =>
+                  ownerId === projectId
+                    ? showSection(projectId, sectionId)
+                    : onOpenProject(ownerId, sectionId)
+                }
+              />
+            )}
+            {!hasDesk &&
+              groups.map((group) => (
+                <section key={group.id ?? "loose"} className="mb-8">
+                  {group.name && <h2 className="mb-3 text-sm font-semibold">{group.name}</h2>}
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {group.sections.map((section) => (
+                      <SectionCard
+                        key={section.id}
+                        section={section}
+                        onOpen={(opened) => showSection(projectId, opened.id)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            {!hasDesk && sections.length === 0 && stories.length === 0 && (
               <p className="text-sm text-muted-foreground">{t("creative.page.noSections")}</p>
             )}
           </div>

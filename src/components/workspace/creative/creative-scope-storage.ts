@@ -33,8 +33,11 @@ export interface WorkshopPrefs {
   story?: string | null
   /** Whether the world showed the chosen story's pages or the whole universe's. */
   world?: "story" | "universe"
-  /** The folding parts of the works tab that were unfolded. */
-  works?: ("books" | "arcs" | "anchors" | "notes")[]
+  /**
+   * The folding parts of the works tab that were unfolded: "text", "anchors", "notes". Older
+   * saves hold "books" and "arcs", which are read as "text" (`worksSectionsFromPrefs`).
+   */
+  works?: string[]
 }
 
 export function readWorkshopPrefs(vault: string): WorkshopPrefs {

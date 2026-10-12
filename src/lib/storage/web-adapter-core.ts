@@ -120,6 +120,7 @@ import type {
   MoveTextPageRequest,
   MovedTextPage,
   NoteReference,
+  TextPageStat,
   ProjectCatalog,
 } from "./project-types"
 
@@ -526,6 +527,10 @@ export class WebAdapterCore implements StoragePort {
   }
 
   async listNoteReferences(_noteId: string): Promise<NoteReference[]> {
+    return []
+  }
+
+  async listTextStats(_databaseId: string): Promise<TextPageStat[]> {
     return []
   }
 

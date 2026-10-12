@@ -917,6 +917,18 @@ async listNoteReferences(noteId: string) : Promise<Result<NoteReference[], Proje
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Words and last-change time of every page of one database (a story's text), from the note
+ * index. Read-only; the numbers are as fresh as the index, which the watcher keeps current.
+ */
+async listTextStats(databaseId: string) : Promise<Result<TextPageStat[], ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_text_stats", { databaseId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async openInExplorer(path: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("open_in_explorer", { path }) };
@@ -1358,7 +1370,13 @@ baseSections: boolean;
  * `group:<id>`, and for the text schema of a story, keyed `property:<key>`,
  * `level:<key>` and `format:<kind>`. Missing keys fall back to Russian defaults.
  */
-labels?: Partial<{ [key in string]: string }> }
+labels?: Partial<{ [key in string]: string }>; 
+/**
+ * The levels of the story's text, outermost first: 1 to 6 distinct names. Omitted: the
+ * four of the template (Book, Arc, Chapter, Page, named by `level:*`). Only a story that
+ * gets its text section may pass it. The IDs of the levels are issued by the backend.
+ */
+textLevels?: string[] | null }
 export type CreateProjectSectionRequest = { expectedGeneration: number; operationId: string; projectId: string; 
 /**
  * Raw-byte revision of the structure file the caller last saw.
@@ -1375,7 +1393,12 @@ preset?: string | null;
  * (`preset:*`, `importance:*`, `kind:*`, `heading:*`, `view:gallery`,
  * `template:dossier`); read only for those sections. Missing keys fall back to Russian.
  */
-labels?: Partial<{ [key in string]: string }> }
+labels?: Partial<{ [key in string]: string }>; 
+/**
+ * The levels of the text, outermost first (1 to 6 distinct names); only for a section with
+ * the `text` role. Omitted: the four of the template, named by `level:*`.
+ */
+textLevels?: string[] | null }
 export type CreateTextPageRequest = { expectedGeneration: number; projectId: string; title: string; 
 /**
  * The page it goes under; none puts it at the top of the text.
@@ -1830,6 +1853,19 @@ export type TextLevelSummary = {
  * The option ID.
  */
 id: string; icon: string | null; name: string | null; color: string | null; state: TextEntryState }
+export type TextPageStat = { noteId: string; 
+/**
+ * Words of the note's body as the index counted them when it last read the file.
+ */
+wordCount: number; 
+/**
+ * Last modification time of the file, as the index keeps it.
+ */
+modified: number | null; 
+/**
+ * When the note was made, as the index keeps it: the order events were added in.
+ */
+created: number | null }
 /**
  * The system properties of the text database; each is present only if it exists there.
  */

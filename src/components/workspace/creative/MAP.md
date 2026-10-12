@@ -16,8 +16,10 @@ and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The 
 | Panel state (scope, tab, filter), prefs | [creative-nav-store.ts](creative-nav-store.ts), [creative-scope-storage.ts](creative-scope-storage.ts)         |
 | Scopes, section grouping (pure)         | [project-tree-model.ts](project-tree-model.ts)                                                                 |
 | Workshop: tabs, lists, text tree        | [workshop/](workshop/): `workshop-pane.tsx` composes; models are `workshop-model.ts`, `text-tree-model.ts`     |
-| Project tab: header, sections, overview | [project-page.tsx](project-page.tsx)                                                                           |
+| Project tab: header, sections, overview | [project-page.tsx](project-page.tsx); a story's desk: [project-desk.tsx](project-desk.tsx)                     |
+| Words and last-change time of pages     | [use-text-stats.ts](use-text-stats.ts) (one read-only call over the note index)                                |
 | Create project / section                | [create-project-dialog.tsx](create-project-dialog.tsx), [create-section-dialog.tsx](create-section-dialog.tsx) |
+| Text schema of a new story (levels)     | [text-schema-presets.ts](text-schema-presets.ts); chosen in `create-project-dialog.tsx`                        |
 | Names in the active language            | [project-labels.ts](project-labels.ts); `creative.*` keys of `locales/resources.ts`                            |
 | Errors, operation IDs                   | [project-error.ts](project-error.ts), [use-operation-id.ts](use-operation-id.ts)                               |
 | Dossier of a world page                 | [dossier/](dossier/)                                                                                           |
@@ -48,27 +50,48 @@ its row); selecting it brings the workshop forward with that collection chosen a
 Every other folder, and every folder while the module is off, selects as before.
 
 **Workshop panel.** One column under the one search (`search-results.tsx` replaces it while it has
-text, looking through every list; session state). A drop-down of the scope's stories (a collection
-with its stories, or the stand-alone ones; the choice is `storyFilter`, per vault), and for the chosen
-story four folding parts with icons: _books_ and _arcs_ list the pages of the first two text levels
-(the story's own level names; the template's names read as plurals; arcs are absent for a one-level
-schema), each with the pages below it and drag-and-drop (`move_text_page`: parent and order key in
-one write, after `planMove` refused what the backend would refuse); _anchors_ lists the story's
-`anchors` section, _notes_ its `notes` section. Under them the **world** (`world-section.tsx`): one
-folding list per category, merged by role or, for a section the author made, by name, so a universe's
-"Organizations" and a story's are one list. A switch beside it narrows every list to the chosen story
-(its own pages and those its text relates to) or widens it to the whole universe, with story labels;
-without a collection there is no switch. Lists read the databases through the ordinary database query;
-nothing keeps a copy of a page. Which parts are unfolded and the switch are remembered per vault.
-Every page row has its own context menu (`item-menu.tsx`: open, open in a new tab, rename, delete through
-the workspace's file-tree delete; a page of the text with pages below it is deleted together with them,
-the menu says how many and the one confirmation names them all) and the empty space has one that creates on the spot, with the same
-options as the "Create" button (`useChooserOptions`). The world has no "+" of its own: pages are added
-from their category, sections from "Create" or that menu.
+text; session state). Top: the chosen story's header (`story-header.tsx`: icon, name, one quiet line
+of label, pages, words, each shown once read; a list of the scope's stories when there are several,
+ending with "New story"; the choice is `storyFilter`, per vault). Then "Story" with three folding
+parts: _text_ is the whole text as one tree from `buildTextTree`, every page once (a page without a
+parent or a level is a root), with the level icon and word count (`use-text-stats.ts`) on each row, the
+open page marked, its parents unfolded and the row scrolled into view once per change, and drag-and-drop
+(`move_text_page`, after `planMove` refused what the backend would). Its "+" makes a top-level page
+(`defaultLevelId`), a row's "+" one inside; a last-level page has none (`canHaveChildPage`). _anchors_
+and _notes_ list their sections; anchors keep the author's order: the first view's `manualOrder`
+(`use-view-order.ts`, dragging writes it through `updateDatabaseViewConfig`), else creation order
+(`orderByAuthor`). An empty list offers "Add the first …" (`empty-action.tsx`) in place of a plain
+sentence, unless the story is read-only. Under them the **world** (`world-section.tsx`, caption "World"
+with the compact story/universe switch): one folding list per category, merged by role or, for an
+author's section, by name; the switch narrows lists to the story's own pages and those its text
+relates to, or widens them to the universe, with story labels; a shared page no text names yet stays
+in its importance group marked "not in the text" (`isUnplaced`). A category where some page has a
+picture shows a 20 px round face on every row (`portrait-dot.tsx`: `resolveGalleryPreview`, else
+initials; one batched resolver per database, only rows of unfolded categories). Lists read the
+databases through the ordinary query; nothing keeps a copy of a page. Unfolded parts and the switch are
+remembered per vault (`works`: "text", "anchors", "notes"; the older "books"/"arcs" read as "text").
+Every page row has a context menu (`item-menu.tsx`: open, open in a new tab, rename, delete; a page with
+pages below it is deleted with them, after one confirmation naming them); the empty space has one that
+creates with the "Create" options (`useChooserOptions`: a page or a world page first, a story, section,
+universe, collection after).
+
+**Creating where it will stand.** A page, note, anchor or world page is named on a row of its own
+(`inline-create-row.tsx`, one `WorkshopDraft` in `workshop-pane.tsx`): Enter creates, Escape cancels, a
+failure stays on the row under the typed name. A page starts one level below its parent
+(`startLevelId`) in the manuscript format, not asked for. The field ignores a blur in its first 300 ms:
+the menu or dialog it came from is still closing and takes focus back.
 
 **Names.** The folder of a base section is named once, at creation, so the dialog resolves
 the names from the active language and sends them as `labels`; the backend only has Russian
 fallbacks. Add a language by adding the `creative.*` keys, not by touching Rust.
+
+**Levels of a new story.** For a story the dialog also asks for the text schema: Novel (Book →
+Chapter → Scene, the default), Short story (one level, Page), Comic (Book → Arc → Chapter → Page) or
+Custom (an editable list, 1 to 6 names; it starts from the schema chosen before). The chain is shown
+under the choice, and the names are sent as `textLevels` already resolved in the active language (not
+as `level:*` labels, which the backend limits to the template's four). `levelsProblem` mirrors what
+the backend refuses (empty, repeated, more than six) so Create stays disabled; the list is part of
+the operation-ID payload. Nothing in the panel assumes four levels.
 
 **Operation IDs.** One per intent: a retry of the same request reuses it (Rust then returns
 the recorded answer), a changed request gets a new one because Rust refuses to reuse an ID
@@ -81,8 +104,13 @@ only when projects exist, shows nothing for notes outside the world sections, an
 blocks out by the width of its own pane.
 
 [fractional-index.ts](../../../lib/storage/fractional-index.ts) orders the pages of the text;
-[manuscript-compiler.ts](../../../lib/storage/manuscript-compiler.ts) is kept for the manuscript
-export and is used only by its tests so far.
+[manuscript-compiler.ts](../../../lib/storage/manuscript-compiler.ts) turns the tree into one Markdown
+document by tree depth (it reads, it never writes; a page it cannot read stops it, naming the page).
+
+**Story desk.** The overview of a story with a text is `ProjectDesk`: the pages changed last
+("continue with"), pages and words of the text and of each top-level page, and "Compile manuscript":
+`readNote` for every page in tree order, then `exportTextFile` (the save dialog), so a new file is the
+only thing written. The numbers come from `list_text_stats` (note index), not from reading files.
 
 Do not reintroduce a single entities database, type overlays, `.amby-creative/` metadata or
 project creation from the renderer; discovery and creation belong in Rust.

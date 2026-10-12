@@ -91,17 +91,22 @@ export function findNode(nodes: TextNode[], noteId: string): TextNode | null {
   return null
 }
 
-/** Every page on one level, wherever it sits, each with the pages below it. In tree order. */
-export function nodesAtLevel(roots: TextNode[], levelId: string): TextNode[] {
-  const found: TextNode[] = []
-  const visit = (nodes: TextNode[]) => {
+/** The IDs of the pages above a page, outermost first; `null` when the tree does not hold it. */
+export function ancestorIds(roots: TextNode[], noteId: string): string[] | null {
+  const walk = (nodes: TextNode[], path: string[]): string[] | null => {
     for (const node of nodes) {
-      if (node.levelId === levelId) found.push(node)
-      visit(node.children)
+      if (node.noteId === noteId) return path
+      const inner = walk(node.children, [...path, node.noteId])
+      if (inner) return inner
     }
+    return null
   }
-  visit(roots)
-  return found
+  return walk(roots, [])
+}
+
+/** How many pages the tree holds, at any depth. */
+export function countNodes(nodes: TextNode[]): number {
+  return nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0)
 }
 
 /** The IDs of every page below a page, at any depth: what deleting it would take with it. */
@@ -120,12 +125,41 @@ export function levelIndex(levels: { id: string }[], levelId: string | null): nu
   return index === -1 ? null : index
 }
 
+/**
+ * Whether a page can have pages under it: a parent must be on a shallower level, so the last
+ * level of the schema cannot. A page on a level the schema does not list is not limited.
+ */
+export function canHaveChildPage(levels: { id: string }[], node: TextNode): boolean {
+  const index = levelIndex(levels, node.levelId)
+  return index === null || index < levels.length - 1
+}
+
 /** The level a page added under `parent` starts at: one deeper, or the top one at the root. */
 export function defaultLevelId(levels: { id: string }[], parent: TextNode | null): string | null {
   if (levels.length === 0) return null
   if (!parent) return levels[0].id
   const index = levelIndex(levels, parent.levelId)
   return levels[Math.min(index === null ? 0 : index + 1, levels.length - 1)].id
+}
+
+/**
+ * The level a page added under `parent` starts at: the default one, unless that level is gone
+ * from the database (`state` is not "ok"), then the first usable level below the parent. `null`
+ * when the story has no usable level at all.
+ */
+export function startLevelId(
+  levels: { id: string; state?: string }[],
+  parent: TextNode | null,
+): string | null {
+  const wanted = defaultLevelId(levels, parent)
+  const usable = (level: { state?: string }) => level.state === undefined || level.state === "ok"
+  const chosen = levels.find((level) => level.id === wanted)
+  if (chosen && usable(chosen)) return chosen.id
+  const parentIndex = parent ? levelIndex(levels, parent.levelId) : null
+  const below = levels.find(
+    (level, at) => usable(level) && (parentIndex === null || at > parentIndex),
+  )
+  return (below ?? levels.find(usable))?.id ?? null
 }
 
 /** The key that puts a page last among the children of `parent` (or the roots). */

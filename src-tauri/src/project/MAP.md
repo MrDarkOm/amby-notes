@@ -20,6 +20,7 @@ index, and the journaled creation of projects and sections. The contract is
 | Relations of one note, both ways (dossier)           | [references.rs](references.rs)                         |
 | Text schema (4 properties, `text` block)             | [text_schema.rs](text_schema.rs)                       |
 | Text pages: create, move, loop check                 | [text.rs](text.rs)                                     |
+| Words, modified and created times of a database's pages | [text_stats.rs](text_stats.rs)                      |
 | Folder-name, tag and icon validation                 | [names.rs](names.rs)                                   |
 | Watcher path classification (`project:changed`)      | [events.rs](events.rs)                                 |
 
@@ -67,7 +68,21 @@ names. The catalog resolves them against `db_options` at read time: a deleted op
 `dangling` with a diagnostic and the file is not touched. `create_text_page` goes through
 `rows::create_database_row_with_values` (values and note in one write); `move_text_page` goes
 through `apply_value_batch` (parent and order of one page in one write) after a loop check on
-the projection's parent edges. Nothing here branches on a format `kind`.
+the projection's parent edges. Nothing here branches on a format `kind`. **Levels.** The four of
+the template are only the default: `textLevels` on `create_project` (a story with base sections)
+or `create_project_section` (role `text`) is an ordered list of 1 to 6 names, normalized and
+checked for case-insensitive repeats by `text_schema::normalize_text_levels` before any write
+(`InvalidName` with field `textLevels`; naming them where no text is created is refused too). They
+become the options of the level Select in that order, IDs issued as always. The list joins the
+request revision (`with_text_levels`, only when present, so a request without it hashes as it
+did before) and the journal already holds the planned manifest and `text` block, so a repeat,
+a replay and a rollback recompute the same bytes. A one-level schema is valid: the parent rule
+(a parent on a shallower level) then allows no nesting and pages go in a row at the top.
+
+**Page numbers.** `list_text_stats(databaseId)` joins `db_members` to `notes` and returns, per page,
+`word_count`, `mtime` and `created_at` as the note index keeps them. Read-only, nothing is stored:
+the panel's word counts, the story desk's "continue with" and the order of anchors made
+(by creation time) come from it without reading a file. It is as fresh as the index.
 
 **Presets.** `presets.rs` plans what a world section starts with (icon, two properties, a
 gallery grouped by one of them, the page template) through `props.rs`, which builds properties

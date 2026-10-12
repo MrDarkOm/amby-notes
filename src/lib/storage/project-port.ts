@@ -13,6 +13,7 @@ import {
   type NoteReference,
   type ProjectCatalog,
   type ProjectError,
+  type TextPageStat,
 } from "./project-types"
 
 /**
@@ -33,6 +34,8 @@ export interface ProjectPort {
   moveTextPage(request: MoveTextPageRequest): Promise<MovedTextPage>
   /** The relations of one note, both ways: the dossier's "Appears in" and "Connections". */
   listNoteReferences(noteId: string): Promise<NoteReference[]>
+  /** Words and last-change time of every page of one database, from the note index. */
+  listTextStats(databaseId: string): Promise<TextPageStat[]>
 }
 
 /** Convert typed domain errors while keeping transport failures untouched. */

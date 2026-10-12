@@ -61,6 +61,7 @@ impl Vault {
                 tags: vec!["Комикс".to_owned()],
                 base_sections: true,
                 labels: Default::default(),
+                text_levels: None,
             },
         )
         .unwrap()

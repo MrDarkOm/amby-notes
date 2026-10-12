@@ -158,6 +158,13 @@ interface DatabaseWorkspaceProps {
   rowActions?: DatabaseRowActions
   /** The title and icon are shown by the host (a project page), so the database does not repeat them. */
   hideHeader?: boolean
+  /**
+   * How the host wants a database shown the first time it shows it: a plain table becomes a
+   * gallery and a view that never chose how rows open opens them as whole pages. It is written
+   * to the first view once per database (remembered on this device) and never again, so what the
+   * author picks afterwards stays.
+   */
+  initialPresentation?: { layout: "gallery"; openMode: "fullPage" }
 }
 
 const EMPTY_PROPERTIES: DatabasePropertySummary[] = []
@@ -223,6 +230,7 @@ export function DatabaseWorkspace({
   onOpenNote,
   rowActions,
   hideHeader = false,
+  initialPresentation,
 }: DatabaseWorkspaceProps) {
   const { t } = useTranslation()
   const handleOpenNote = React.useCallback(
@@ -804,6 +812,73 @@ export function DatabaseWorkspace({
       vaultGeneration,
     ],
   )
+
+  // The host's first-time presentation (see `initialPresentation`): one write to the view,
+  // through the same commands as the layout menu, and a mark so it is not repeated.
+  const presentedRef = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    const currentGeneration = vaultGeneration
+    if (
+      !initialPresentation ||
+      currentGeneration === null ||
+      !database?.manifestRevision ||
+      isDatabaseLocked ||
+      mutationBusy ||
+      !activeView ||
+      presentedRef.current === databaseId
+    )
+      return
+    const markKey = `amby:database:initial-presentation:${databaseId}`
+    try {
+      if (window.localStorage.getItem(markKey)) {
+        presentedRef.current = databaseId
+        return
+      }
+    } catch {
+      // Without storage the mark cannot be kept, so nothing is rewritten at every opening.
+      return
+    }
+    presentedRef.current = databaseId
+    const view = activeView
+    void (async () => {
+      try {
+        const doc = await getDatabaseView({
+          expectedGeneration: currentGeneration,
+          databaseId,
+          viewId: view.viewId,
+          expectedViewRevision: view.revision,
+        })
+        const config = JSON.parse(doc.configJson) as Record<string, unknown>
+        const toGallery = view.layout === "table"
+        const toFullPage = typeof config.openMode !== "string"
+        if (toGallery) config.layout = initialPresentation.layout
+        if (toFullPage) config.openMode = initialPresentation.openMode
+        if (toGallery || toFullPage) {
+          await updateDatabaseViewConfig({
+            expectedGeneration: currentGeneration,
+            databaseId,
+            viewId: view.viewId,
+            expectedViewRevision: doc.revision,
+            configJson: JSON.stringify(config),
+          })
+          await refreshDatabaseViews(view.viewId)
+        }
+        window.localStorage.setItem(markKey, "1")
+      } catch {
+        // Left as it was; the next opening tries again.
+        presentedRef.current = null
+      }
+    })()
+  }, [
+    activeView,
+    database?.manifestRevision,
+    databaseId,
+    initialPresentation,
+    isDatabaseLocked,
+    mutationBusy,
+    refreshDatabaseViews,
+    vaultGeneration,
+  ])
 
   const copyLinkToView = React.useCallback(async () => {
     if (!activeView) return

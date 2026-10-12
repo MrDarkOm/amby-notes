@@ -16,6 +16,7 @@ pub mod recovery;
 pub mod references;
 pub mod text;
 pub mod text_schema;
+pub mod text_stats;
 
 #[cfg(test)]
 #[path = "create_test.rs"]

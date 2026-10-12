@@ -14,6 +14,7 @@ use crate::project::model::{
 };
 use crate::project::references::{self, NoteReference};
 use crate::project::text;
+use crate::project::text_stats::{self, TextPageStat};
 use crate::vault_context::VaultContext;
 use crate::watcher::WatcherState;
 
@@ -281,4 +282,26 @@ pub fn list_note_references(
     let active = context.conn.lock().expect("vault context poisoned");
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     references::list_references(&active.connection, &note_id)
+}
+
+/// Words and last-change time of every page of one database (a story's text), from the note
+/// index. Read-only; the numbers are as fresh as the index, which the watcher keeps current.
+#[tauri::command]
+#[specta::specta]
+pub fn list_text_stats(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    database_id: String,
+) -> Result<Vec<TextPageStat>, ProjectError> {
+    let generation = active_generation(&context).ok_or(ProjectError::VaultNotOpen)?;
+    require_enabled(&runtime, generation)?;
+    if database_id.is_empty() || database_id.len() > 128 {
+        return Err(ProjectError::failed(
+            "invalidDatabaseId",
+            "databaseId must be a database ID",
+        ));
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    text_stats::list_text_stats(&active.connection, &database_id)
 }

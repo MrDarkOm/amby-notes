@@ -11,20 +11,39 @@ const WORK_ROLES = new Set(["text", "notes", "anchors"])
 const ROLE_ORDER = ["characters", "locations"]
 
 /**
- * The four parts of the works tab: the pages of the first two levels of the text (books and arcs
- * by default), the anchors (the key, unchanging events) and the notes.
+ * The three parts of the works tab: the whole text as one tree (every page once, whatever its
+ * level), the anchors (the key, unchanging events) and the notes.
  */
-export type WorksSection = "books" | "arcs" | "anchors" | "notes"
-export const WORKS_SECTIONS: readonly WorksSection[] = ["books", "arcs", "anchors", "notes"]
+export type WorksSection = "text" | "anchors" | "notes"
+export const WORKS_SECTIONS: readonly WorksSection[] = ["text", "anchors", "notes"]
 
-export function isWorksSection(value: unknown): value is WorksSection {
-  return WORKS_SECTIONS.some((section) => section === value)
+/**
+ * The parts that were unfolded, from what was saved. The text used to be two parts, "books" and
+ * "arcs"; either of them is the text now, so an author who had them open keeps it open. Nothing
+ * saved: the text is unfolded.
+ */
+export function worksSectionsFromPrefs(saved: unknown): WorksSection[] {
+  if (!Array.isArray(saved)) return ["text"]
+  const open = new Set<WorksSection>()
+  for (const entry of saved) {
+    if (entry === "books" || entry === "arcs") open.add("text")
+    else {
+      const section = WORKS_SECTIONS.find((candidate) => candidate === entry)
+      if (section) open.add(section)
+    }
+  }
+  return [...open]
 }
 
-/** The text level a section lists: the first for books, the second for arcs. */
-export function levelIndexOfSection(section: WorksSection): number | null {
-  return section === "books" ? 0 : section === "arcs" ? 1 : null
-}
+/**
+ * An item being named where it will stand: a row with an empty field, created on Enter. A page
+ * goes under `parentId` (the top of the text for `null`); a note or an anchor into its list of the
+ * story; a world page into the category.
+ */
+export type WorkshopDraft =
+  | { kind: "page"; storyId: string; parentId: string | null }
+  | { kind: "note" | "anchor"; storyId: string }
+  | { kind: "entity"; categoryKey: string }
 
 export interface WorkshopSource {
   project: ProjectSummary
@@ -152,6 +171,56 @@ export function storiesOfEntity(
 /** Whether an entity shows with a story filter: it lives in the story or its text names it. */
 export function inStory(item: EntityItem, storyId: string, references: TextReferences): boolean {
   return item.projectId === storyId || Boolean(references.get(storyId)?.has(item.noteId))
+}
+
+/**
+ * Whether a page of the shared world is still in no story's text: it lives in the collection, and
+ * no story's relations name it. A page just made there is such a page, so the story's list shows
+ * it (apart, as "not in the text yet") instead of letting it vanish until some chapter names it.
+ */
+export function isUnplaced(
+  item: EntityItem,
+  sharedProjectId: string | null,
+  references: TextReferences,
+): boolean {
+  if (!sharedProjectId || item.projectId !== sharedProjectId) return false
+  for (const targets of references.values()) if (targets.has(item.noteId)) return false
+  return true
+}
+
+/**
+ * Pages in the author's order: those placed by hand first, in the order they were placed; the
+ * rest in the order they were made (a page without a time last), then by title. For anchors,
+ * which are events: an alphabetical list would tear them out of the story's order.
+ */
+export function orderByAuthor<T extends { noteId: string; title: string }>(
+  rows: readonly T[],
+  manualOrder: readonly string[],
+  createdOf: (noteId: string) => number | null | undefined,
+): T[] {
+  const rank = new Map(manualOrder.map((id, index) => [id, index]))
+  return [...rows].sort((a, b) => {
+    const placedA = rank.get(a.noteId)
+    const placedB = rank.get(b.noteId)
+    if (placedA !== undefined && placedB !== undefined) return placedA - placedB
+    if (placedA !== undefined) return -1
+    if (placedB !== undefined) return 1
+    const madeA = createdOf(a.noteId) ?? Number.POSITIVE_INFINITY
+    const madeB = createdOf(b.noteId) ?? Number.POSITIVE_INFINITY
+    if (madeA !== madeB) return madeA < madeB ? -1 : 1
+    return a.title.localeCompare(b.title, undefined, { sensitivity: "base" })
+  })
+}
+
+/** The letters a page's round face shows when it has no picture: its first two words' initials. */
+export function initialsOf(title: string): string {
+  const letters = title
+    .split(/\s+/u)
+    .map((word) => Array.from(word.replace(/^[^\p{L}\p{N}]+/u, ""))[0] ?? "")
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+  return letters.toLocaleUpperCase() || "?"
 }
 
 export type GroupMode = "importance" | "story" | "none"

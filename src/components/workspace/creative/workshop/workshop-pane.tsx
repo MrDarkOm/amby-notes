@@ -2,6 +2,7 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
   createDatabaseRow,
+  createTextPage,
   type CreatedTextPage,
   type ProjectCatalog,
   type ProjectSummary,
@@ -11,17 +12,26 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuLabel,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { PanelSearch } from "../../panels/panel-header"
-import type { ChooserOption, CreateChoice } from "../chooser-options"
+import { splitChooserOptions, type ChooserOption, type CreateChoice } from "../chooser-options"
 import { useDatabaseStore } from "../../database/database-store"
 import { useCreativeNavStore } from "../creative-nav-store"
 import { writeWorkshopPrefs } from "../creative-scope-storage"
-import { CreatePageDialog } from "./create-page-dialog"
+import { useTextStats } from "../use-text-stats"
 import { SearchResults } from "./search-results"
-import { buildTextTree, type TextNode } from "./text-tree-model"
+import {
+  buildTextTree,
+  countNodes,
+  findNode,
+  lastOrderKey,
+  startLevelId,
+  type TextNode,
+} from "./text-tree-model"
 import { useDatabaseRows } from "./use-database-rows"
+import { useViewManualOrder } from "./use-view-order"
 import { WorksTab } from "./works-tab"
 import { WorldSection } from "./world-section"
 import { ItemActionsContext, type ItemActions } from "./item-actions"
@@ -37,6 +47,8 @@ import {
   type EntityItem,
   type GroupContext,
   type TextReferences,
+  type WorkshopDraft,
+  type WorksSection,
 } from "./workshop-model"
 
 interface WorkshopPaneProps {
@@ -46,11 +58,13 @@ interface WorkshopPaneProps {
   vault: string | null
   vaultGeneration: number | null
   onOpenNote: (noteId: string) => void
+  /** The page open in the editor, to mark in the lists. */
+  activeNoteId: string | null
   onOpenProject: (projectId: string) => void
   /** `options` prefill the dialog: the anchors section a story does not have yet. */
   onAddSection: (project: ProjectSummary, options?: { choice: "anchors"; name: string }) => void
-  /** Adds a page to a world category: asked for from the "+" of its row. */
-  onAddEntity: (categoryKey: string) => void
+  /** Creates a page in a world category under the name the author typed; rejects on failure. */
+  onCreateEntity: (categoryKey: string, title: string) => Promise<void>
   /** What a page's own menu can do besides opening it. */
   itemActions: Pick<ItemActions, "onOpenInNewTab" | "onRename" | "onDelete" | "onDeleteMany">
   /** The menu of the empty space: what can be created from here, the "Create" button's list. */
@@ -60,7 +74,7 @@ interface WorkshopPaneProps {
 
 /**
  * The body of the workshop panel, as one column: the search, the chosen story with its parts
- * (books, arcs, anchors, notes) and under them the world (characters, locations and the author's
+ * (the text, anchors, notes) and under them the world (characters, locations and the author's
  * own categories), which a switch narrows to the story or widens to the whole universe.
  */
 export function WorkshopPane({
@@ -69,9 +83,10 @@ export function WorkshopPane({
   vault,
   vaultGeneration,
   onOpenNote,
+  activeNoteId,
   onOpenProject,
   onAddSection,
-  onAddEntity,
+  onCreateEntity,
   itemActions,
   createOptions,
   onCreate,
@@ -91,6 +106,7 @@ export function WorkshopPane({
   const setSearch = useCreativeNavStore((state) => state.setSearch)
   const bumpData = useCreativeNavStore((state) => state.bumpData)
   const pageRequest = useCreativeNavStore((state) => state.pageRequest)
+  const entityRequest = useCreativeNavStore((state) => state.entityRequest)
 
   const scope = React.useMemo(() => workshopScope(catalog, scopeId), [catalog, scopeId])
   const categories = React.useMemo(() => entityTabs(scope), [scope])
@@ -117,6 +133,20 @@ export function WorkshopPane({
     return ids
   }, [categories, scope.stories, searching, selectedStory])
   const data = useDatabaseRows(databaseIds, dataNonce)
+  const stats = useTextStats(selectedStory?.text?.databaseId, dataNonce)
+  // Anchors keep the author's order: placed by hand in the view, else the order they were made.
+  const anchorsDatabaseId = selectedStory
+    ? storySection(selectedStory, "anchors")?.databaseId
+    : null
+  const anchorStats = useTextStats(anchorsDatabaseId, dataNonce)
+  const anchorCreated = React.useMemo(
+    () => Object.fromEntries(Object.entries(anchorStats).map(([id, stat]) => [id, stat.created])),
+    [anchorStats],
+  )
+  const anchorView = useViewManualOrder(
+    databases.find((database) => database.databaseId === anchorsDatabaseId),
+    dataNonce,
+  )
 
   const itemsByCategory = React.useMemo(() => {
     const result: Record<string, EntityItem[]> = {}
@@ -199,21 +229,8 @@ export function WorkshopPane({
     ])
   }, [categories, data.rows, itemsByCategory, scope.stories, search, searching, t])
 
-  // A page asked for from outside (the "Create" button) opens the dialog here, where the text is.
-  const [pageDialog, setPageDialog] = React.useState<{
-    storyId: string | null
-    parent: TextNode | null
-    levelId?: string | null
-  } | null>(null)
-  const handledRequest = React.useRef(pageRequest?.id ?? 0)
-  React.useEffect(() => {
-    if (!pageRequest || pageRequest.id === handledRequest.current) return
-    handledRequest.current = pageRequest.id
-    setPageDialog({
-      storyId: pageRequest.storyId ?? selectedStory?.projectId ?? null,
-      parent: null,
-    })
-  }, [pageRequest, selectedStory])
+  // What is being named in the lists: a row with an empty field where the item will stand.
+  const [draft, setDraft] = React.useState<WorkshopDraft | null>(null)
 
   const rootsOf = React.useCallback(
     (storyId: string): TextNode[] => {
@@ -224,24 +241,112 @@ export function WorkshopPane({
     [data.rows, scope.stories],
   )
 
+  // What the header says under the story's name; nothing until it is read, not "0".
+  const totals = React.useMemo(() => {
+    const textDatabaseId = selectedStory?.text?.databaseId
+    const loaded = textDatabaseId ? data.rows[textDatabaseId] !== undefined : false
+    const known = Object.values(stats)
+    return {
+      pages: selectedStory && loaded ? countNodes(rootsOf(selectedStory.projectId)) : null,
+      words: known.length > 0 ? known.reduce((sum, stat) => sum + stat.wordCount, 0) : null,
+    }
+  }, [data.rows, rootsOf, selectedStory, stats])
+
   const remember = (patch: Parameters<typeof writeWorkshopPrefs>[1]) => {
     if (vault) writeWorkshopPrefs(vault, patch)
   }
 
-  const createIn = async (databaseId: string | undefined) => {
-    if (!databaseId || vaultGeneration === null) return
-    try {
-      const created = await createDatabaseRow({
-        expectedGeneration: vaultGeneration,
-        databaseId,
-        title: t("creative.workshop.untitled"),
-        template: { kind: "default" },
-      })
-      bumpData()
-      onOpenNote(created.noteId)
-    } catch {
-      bumpData()
+  const showPart = (section: WorksSection) => {
+    if (useCreativeNavStore.getState().worksOpen[section]) return
+    toggleWorksSection(section)
+    const next = useCreativeNavStore.getState().worksOpen
+    remember({ works: WORKS_SECTIONS.filter((entry) => next[entry]) })
+  }
+  const unfold = (key: string) => {
+    if (useCreativeNavStore.getState().collapsed[key]) toggleCollapsed(key)
+  }
+
+  const startPage = (storyId: string, parentId: string | null) => {
+    setSearch("")
+    setStoryFilter(storyId)
+    showPart("text")
+    if (parentId) unfold(`page:${parentId}`)
+    setDraft({ kind: "page", storyId, parentId })
+  }
+  const startListItem = (kind: "note" | "anchor", story: ProjectSummary) => {
+    setSearch("")
+    showPart(kind === "note" ? "notes" : "anchors")
+    setDraft({ kind, storyId: story.projectId })
+  }
+  const startEntity = (categoryKey: string) => {
+    setSearch("")
+    unfold(`category:${categoryKey}`)
+    setDraft({ kind: "entity", categoryKey })
+  }
+
+  // A page or a world page asked for from outside (the "Create" button) starts its row here,
+  // where the lists are.
+  const handledPage = React.useRef(pageRequest?.id ?? 0)
+  React.useEffect(() => {
+    if (!pageRequest || pageRequest.id === handledPage.current) return
+    handledPage.current = pageRequest.id
+    const storyId = pageRequest.storyId ?? selectedStory?.projectId ?? null
+    if (storyId) startPage(storyId, null)
+    // The request is the trigger; the helpers read the stores at call time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageRequest])
+  const handledEntity = React.useRef(entityRequest?.id ?? 0)
+  React.useEffect(() => {
+    if (!entityRequest || entityRequest.id === handledEntity.current) return
+    handledEntity.current = entityRequest.id
+    startEntity(entityRequest.categoryKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entityRequest])
+
+  /** Creates what the draft row names. A rejection stays on the row; success closes it. */
+  const commitDraft = async (title: string) => {
+    if (!draft || vaultGeneration === null) return
+    if (draft.kind === "entity") {
+      await onCreateEntity(draft.categoryKey, title)
+      setDraft(null)
+      return
     }
+    const story = scope.stories.find((candidate) => candidate.projectId === draft.storyId)
+    if (!story) throw new Error(t("creative.errors.projectNotFound"))
+    if (draft.kind === "page") {
+      const text = story.text
+      if (!text?.databaseId) throw new Error(t("creative.workshop.noText"))
+      const roots = rootsOf(story.projectId)
+      const parent = draft.parentId ? findNode(roots, draft.parentId) : null
+      const levelId = startLevelId(text.levels, parent)
+      if (!levelId) throw new Error(t("creative.workshop.noLevels"))
+      // The format is not asked for in daily use: the manuscript one unless the story lacks it.
+      const formats = text.formats.filter((format) => format.state === "ok")
+      const format = formats.find((entry) => entry.kind === "manuscript") ?? formats[0]
+      const created = await createTextPage({
+        expectedGeneration: vaultGeneration,
+        projectId: story.projectId,
+        title,
+        parentNoteId: parent?.noteId ?? null,
+        levelId,
+        formatId: format?.id ?? null,
+        orderKey: lastOrderKey(parent ? parent.children : roots),
+      })
+      setDraft(null)
+      afterPage(created)
+      return
+    }
+    const databaseId = storySection(story, draft.kind === "note" ? "notes" : "anchors")?.databaseId
+    if (!databaseId) throw new Error(t("creative.errors.projectNotFound"))
+    const created = await createDatabaseRow({
+      expectedGeneration: vaultGeneration,
+      databaseId,
+      title,
+      template: { kind: "default" },
+    })
+    setDraft(null)
+    bumpData()
+    onOpenNote(created.noteId)
   }
 
   const afterPage = (created: CreatedTextPage) => {
@@ -251,6 +356,8 @@ export function WorkshopPane({
 
   const iconOf = (databaseId: string) =>
     databases.find((database) => database.databaseId === databaseId)?.icon ?? null
+
+  const { common, rare } = splitChooserOptions(createOptions)
 
   const actions = React.useMemo<ItemActions>(
     () => ({ onOpen: onOpenNote, ...itemActions }),
@@ -282,6 +389,7 @@ export function WorkshopPane({
                   stories={scope.stories}
                   selectedStoryId={selectedStory?.projectId ?? null}
                   onSelectStory={(storyId) => {
+                    setDraft(null)
                     setStoryFilter(storyId)
                     remember({ story: storyId })
                   }}
@@ -297,11 +405,11 @@ export function WorkshopPane({
                   vaultGeneration={vaultGeneration}
                   onOpenNote={onOpenNote}
                   onOpenProject={onOpenProject}
-                  onAddPage={(story, parent, levelId) =>
-                    setPageDialog({ storyId: story.projectId, parent, levelId })
-                  }
-                  onAddNote={(story) => void createIn(storySection(story, "notes")?.databaseId)}
-                  onAddAnchor={(story) => void createIn(storySection(story, "anchors")?.databaseId)}
+                  onNewStory={() => onCreate("story")}
+                  totals={totals}
+                  onAddPage={(story, parent) => startPage(story.projectId, parent?.noteId ?? null)}
+                  onAddNote={(story) => startListItem("note", story)}
+                  onAddAnchor={(story) => startListItem("anchor", story)}
                   onCreateAnchors={(story) =>
                     onAddSection(story, {
                       choice: "anchors",
@@ -309,6 +417,14 @@ export function WorkshopPane({
                     })
                   }
                   onMoved={bumpData}
+                  activeNoteId={activeNoteId}
+                  stats={stats}
+                  anchorOrder={anchorView.order}
+                  anchorCreated={anchorCreated}
+                  onReorderAnchors={anchorView.save}
+                  draft={draft}
+                  onCommitDraft={commitDraft}
+                  onCancelDraft={() => setDraft(null)}
                 >
                   <WorldSection
                     categories={categories}
@@ -318,6 +434,7 @@ export function WorkshopPane({
                     references={references}
                     groupContext={groupContext}
                     hasUniverse={scope.collection !== null}
+                    sharedProjectId={scope.collection?.projectId ?? null}
                     worldScope={worldScope}
                     onWorldScope={(next) => {
                       setWorldScope(next)
@@ -326,21 +443,31 @@ export function WorkshopPane({
                     collapsed={collapsed}
                     onToggle={toggleCollapsed}
                     iconOf={iconOf}
+                    vaultGeneration={vaultGeneration}
                     status={data.status}
                     truncated={data.truncated}
                     onOpen={onOpenNote}
-                    onAddEntity={onAddEntity}
+                    activeNoteId={activeNoteId}
+                    onAddEntity={startEntity}
+                    draftCategoryKey={draft?.kind === "entity" ? draft.categoryKey : null}
+                    onCommitDraft={commitDraft}
+                    onCancelDraft={() => setDraft(null)}
                   />
                 </WorksTab>
               )}
             </div>
           </ContextMenuTrigger>
           {/* Right-click on empty space: make something right there. */}
-          <ContextMenuContent className="w-64 border-border bg-popover text-foreground">
+          {/* Focus is not given back to the row on close: the item picked may start a row to type
+              in, and a restored focus would take it away and cancel that row. */}
+          <ContextMenuContent
+            className="w-64 border-border bg-popover text-foreground"
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
             <ContextMenuLabel className="text-[11px] text-muted-foreground">
               {t("creative.workshop.menu.create")}
             </ContextMenuLabel>
-            {createOptions.map(({ value, icon: Icon, title }) => (
+            {common.map(({ value, icon: Icon, title }) => (
               <ContextMenuItem
                 key={value}
                 className="gap-2 text-[13px]"
@@ -350,19 +477,19 @@ export function WorkshopPane({
                 <span className="truncate">{title}</span>
               </ContextMenuItem>
             ))}
+            {common.length > 0 && rare.length > 0 && <ContextMenuSeparator />}
+            {rare.map(({ value, icon: Icon, title }) => (
+              <ContextMenuItem
+                key={value}
+                className="gap-2 text-[13px] text-muted-foreground"
+                onSelect={() => onCreate(value)}
+              >
+                <Icon className="size-3.5" />
+                <span className="truncate">{title}</span>
+              </ContextMenuItem>
+            ))}
           </ContextMenuContent>
         </ContextMenu>
-        <CreatePageDialog
-          open={pageDialog !== null}
-          onClose={() => setPageDialog(null)}
-          vaultGeneration={vaultGeneration}
-          stories={scope.stories.filter((story) => !story.readOnly && story.text?.databaseId)}
-          storyId={pageDialog?.storyId ?? null}
-          parent={pageDialog?.parent ?? null}
-          levelId={pageDialog?.levelId ?? null}
-          rootsOf={rootsOf}
-          onCreated={afterPage}
-        />
       </div>
     </ItemActionsContext.Provider>
   )

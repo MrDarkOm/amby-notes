@@ -144,6 +144,9 @@ export function CreateSectionDialog({
                   ...project.groups.map((entry) => ({ value: entry.id, label: entry.name })),
                 ]}
               />
+              <span className="text-[11px] font-normal text-muted-foreground">
+                {t("creative.createSection.groupHint")}
+              </span>
             </div>
           )}
 

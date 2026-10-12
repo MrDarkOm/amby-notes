@@ -7,11 +7,15 @@ import {
   entityTabs,
   groupEntities,
   groupPropertyOf,
+  initialsOf,
   inStory,
+  isUnplaced,
+  orderByAuthor,
   relationTargets,
   sectionTabKey,
   storiesOfEntity,
   workshopScope,
+  worksSectionsFromPrefs,
   type EntityItem,
 } from "./workshop-model"
 
@@ -227,5 +231,98 @@ describe("buildSearchGroups", () => {
 
   it("finds nothing for an empty query", () => {
     expect(buildSearchGroups("   ", sources)).toEqual([])
+  })
+})
+
+describe("worksSectionsFromPrefs", () => {
+  it("unfolds the text when nothing was saved or the save is not a list", () => {
+    expect(worksSectionsFromPrefs(undefined)).toEqual(["text"])
+    expect(worksSectionsFromPrefs("books")).toEqual(["text"])
+  })
+
+  it("reads the old books and arcs parts as the text, once", () => {
+    expect(worksSectionsFromPrefs(["books"])).toEqual(["text"])
+    expect(worksSectionsFromPrefs(["arcs", "notes"])).toEqual(["text", "notes"])
+    expect(worksSectionsFromPrefs(["books", "arcs", "anchors"])).toEqual(["text", "anchors"])
+  })
+
+  it("keeps what the author folded and drops what it does not know", () => {
+    expect(worksSectionsFromPrefs([])).toEqual([])
+    expect(worksSectionsFromPrefs(["notes", "nonsense", 3, "text"])).toEqual(["notes", "text"])
+  })
+})
+
+describe("isUnplaced", () => {
+  const item = (noteId: string, projectId: string): EntityItem => ({
+    noteId,
+    title: noteId,
+    databaseId: "db",
+    projectId,
+    valuesJson: "{}",
+  })
+  const references = new Map([
+    ["s1", new Set(["named"])],
+    ["s2", new Set<string>()],
+  ])
+
+  it("is a page of the shared section that no story's text names", () => {
+    expect(isUnplaced(item("fresh", "pv"), "pv", references)).toBe(true)
+  })
+
+  it("is not a page some story names, even another story", () => {
+    expect(isUnplaced(item("named", "pv"), "pv", references)).toBe(false)
+  })
+
+  it("is not a page of a story's own section, nor anything without a shared world", () => {
+    expect(isUnplaced(item("own", "s1"), "pv", references)).toBe(false)
+    expect(isUnplaced(item("fresh", "pv"), null, references)).toBe(false)
+  })
+})
+
+describe("orderByAuthor", () => {
+  const rows = [
+    { noteId: "late", title: "Поздний" },
+    { noteId: "early", title: "Ранний" },
+    { noteId: "pinned", title: "Закреплённый" },
+    { noteId: "unknown", title: "Без времени" },
+    { noteId: "twin", title: "Близнец" },
+  ]
+  const made: Record<string, number> = { late: 300, early: 100, pinned: 500, twin: 100 }
+
+  it("puts what the author placed first, in their order, then the rest as they were made", () => {
+    const ordered = orderByAuthor(rows, ["pinned", "late"], (id) => made[id])
+    expect(ordered.map((row) => row.noteId)).toEqual([
+      "pinned",
+      "late",
+      // Made at the same moment: by title.
+      "twin",
+      "early",
+      "unknown",
+    ])
+  })
+
+  it("is the order they were made when nothing was placed, and leaves its input alone", () => {
+    const input = [...rows]
+    const ordered = orderByAuthor(input, [], (id) => made[id])
+    expect(ordered.map((row) => row.noteId)).toEqual(["twin", "early", "late", "pinned", "unknown"])
+    expect(input).toEqual(rows)
+  })
+
+  it("ignores placed IDs that are no longer there", () => {
+    expect(orderByAuthor(rows, ["gone", "late"], (id) => made[id])[0].noteId).toBe("late")
+  })
+})
+
+describe("initialsOf", () => {
+  it("takes the first letter of the first two words, upper case", () => {
+    expect(initialsOf("Борис")).toBe("Б")
+    expect(initialsOf("зоя белая")).toBe("ЗБ")
+    expect(initialsOf("Анна Мария фон Берг")).toBe("АМ")
+  })
+
+  it("skips leading marks and whole symbols, and has a fallback for nothing", () => {
+    expect(initialsOf("«Тихий» порт")).toBe("ТП")
+    expect(initialsOf("  ")).toBe("?")
+    expect(initialsOf("***")).toBe("?")
   })
 })

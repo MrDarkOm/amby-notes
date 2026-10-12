@@ -34,6 +34,19 @@ export interface ChooserOption {
   icon: LucideIcon
   title: string
   hint: string
+  /** What is made often (a page, a world page) comes first; the rest is offered after it. */
+  group: "common" | "rare"
+}
+
+/** The options split into the frequent ones and the rare ones, each in its own order. */
+export function splitChooserOptions(options: ChooserOption[]): {
+  common: ChooserOption[]
+  rare: ChooserOption[]
+} {
+  return {
+    common: options.filter((option) => option.group === "common"),
+    rare: options.filter((option) => option.group === "rare"),
+  }
 }
 
 /**
@@ -47,13 +60,15 @@ export function useChooserOptions(
   const { t } = useTranslation()
   const collection = writableCollection(scope)
   return [
-    ...extra.map((entry) => ({
+    ...extra.map((entry): ChooserOption => ({
       ...entry,
       icon:
         entry.value === "page" ? FileText : entry.value.startsWith("section:") ? Section : FilePlus,
+      group: entry.value === "page" || entry.value.startsWith("entity:") ? "common" : "rare",
     })),
     {
       value: "story",
+      group: "rare" as const,
       icon: BookOpen,
       title: t("creative.chooser.story"),
       hint: collection
@@ -64,6 +79,7 @@ export function useChooserOptions(
       ? [
           {
             value: "section" as const,
+            group: "rare" as const,
             icon: Section,
             title: t("creative.chooser.section"),
             hint: t("creative.chooser.sectionHint", { name: collection.name }),
@@ -72,12 +88,14 @@ export function useChooserOptions(
       : []),
     {
       value: "universe",
+      group: "rare" as const,
       icon: Globe2,
       title: t("creative.kind.universe"),
       hint: t("creative.kind.universeHint"),
     },
     {
       value: "collection",
+      group: "rare" as const,
       icon: Layers,
       title: t("creative.kind.collection"),
       hint: t("creative.kind.collectionHint"),

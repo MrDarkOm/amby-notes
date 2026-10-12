@@ -26,6 +26,7 @@ export type {
   TextEntryState,
   TextFormatSummary,
   TextLevelSummary,
+  TextPageStat,
   TextPropertyIds,
 } from "@/lib/bindings"
 
