@@ -111,6 +111,8 @@ import type {
 import { DatabaseOperationError } from "./database-types"
 import { ProjectOperationError } from "./project-types"
 import type {
+  AddTextStatusRequest,
+  AddedTextStatus,
   CreateProjectRequest,
   CreateProjectSectionRequest,
   CreatedProject,
@@ -120,7 +122,15 @@ import type {
   MoveTextPageRequest,
   MovedTextPage,
   NoteReference,
+  RemoveProjectSectionRequest,
+  RemovedProjectSection,
+  ReorderProjectSectionsRequest,
+  ReorderedProjectSections,
   TextPageStat,
+  UpdateProjectRequest,
+  UpdateTextLevelsRequest,
+  UpdatedProject,
+  UpdatedTextLevels,
   ProjectCatalog,
 } from "./project-types"
 
@@ -520,6 +530,36 @@ export class WebAdapterCore implements StoragePort {
       "failed",
       "Project section creation requires the desktop runtime",
     )
+  }
+
+  async updateProject(_request: UpdateProjectRequest): Promise<UpdatedProject> {
+    throw new ProjectOperationError("failed", "Project update requires the desktop runtime")
+  }
+
+  async removeProjectSection(
+    _request: RemoveProjectSectionRequest,
+  ): Promise<RemovedProjectSection> {
+    throw new ProjectOperationError(
+      "failed",
+      "Project section removal requires the desktop runtime",
+    )
+  }
+
+  async reorderProjectSections(
+    _request: ReorderProjectSectionsRequest,
+  ): Promise<ReorderedProjectSections> {
+    throw new ProjectOperationError(
+      "failed",
+      "Project section reordering requires the desktop runtime",
+    )
+  }
+
+  async updateTextLevels(_request: UpdateTextLevelsRequest): Promise<UpdatedTextLevels> {
+    throw new ProjectOperationError("failed", "Updating text levels requires the desktop runtime")
+  }
+
+  async addTextStatus(_request: AddTextStatusRequest): Promise<AddedTextStatus> {
+    throw new ProjectOperationError("failed", "Adding text status requires the desktop runtime")
   }
 
   async createTextPage(_request: CreateTextPageRequest): Promise<CreatedTextPage> {

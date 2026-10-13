@@ -40,10 +40,15 @@ import type {
   UpdateDatabaseRelationValueRequest,
 } from "./database-types"
 import type {
+  AddTextStatusRequest,
   CreateProjectRequest,
   CreateProjectSectionRequest,
   CreateTextPageRequest,
   MoveTextPageRequest,
+  RemoveProjectSectionRequest,
+  ReorderProjectSectionsRequest,
+  UpdateProjectRequest,
+  UpdateTextLevelsRequest,
 } from "./project-types"
 import type {
   CredentialInfo,
@@ -392,6 +397,44 @@ export const createProjectSection = (request: CreateProjectSectionRequest) => {
     operationId: request.operationId,
   })
   return getAdapter().createProjectSection(request)
+}
+export const updateProject = (request: UpdateProjectRequest) => {
+  logger.info("storage.update_project", {
+    projectId: request.projectId,
+    operationId: request.operationId,
+  })
+  return getAdapter().updateProject(request)
+}
+export const removeProjectSection = (request: RemoveProjectSectionRequest) => {
+  logger.info("storage.remove_project_section", {
+    projectId: request.projectId,
+    sectionId: request.sectionId,
+    operationId: request.operationId,
+  })
+  return getAdapter().removeProjectSection(request)
+}
+export const reorderProjectSections = (request: ReorderProjectSectionsRequest) => {
+  logger.info("storage.reorder_project_sections", {
+    projectId: request.projectId,
+    count: request.sectionIds.length,
+    operationId: request.operationId,
+  })
+  return getAdapter().reorderProjectSections(request)
+}
+export const updateTextLevels = (request: UpdateTextLevelsRequest) => {
+  logger.info("storage.update_text_levels", {
+    projectId: request.projectId,
+    count: request.levels.length,
+    operationId: request.operationId,
+  })
+  return getAdapter().updateTextLevels(request)
+}
+export const addTextStatus = (request: AddTextStatusRequest) => {
+  logger.info("storage.add_text_status", {
+    projectId: request.projectId,
+    operationId: request.operationId,
+  })
+  return getAdapter().addTextStatus(request)
 }
 export const createTextPage = (request: CreateTextPageRequest) => {
   logger.info("storage.create_text_page", {

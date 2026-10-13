@@ -9,7 +9,9 @@ import {
   descendantIds,
   findNode,
   lastOrderKey,
+  pageStatusDotClass,
   planMove,
+  resolvePageStatus,
   startLevelId,
   type TextNode,
 } from "./text-tree-model"
@@ -220,6 +222,7 @@ describe("startLevelId", () => {
       noteId: "n",
       title: "n",
       levelId,
+      statusOptionId: null,
       parentId: null,
       orderKey: null,
       revision: "r",
@@ -238,5 +241,38 @@ describe("startLevelId", () => {
   it("is null when no level is usable", () => {
     expect(startLevelId([{ id: "x", state: "dangling" }], null)).toBeNull()
     expect(startLevelId([], null)).toBeNull()
+  })
+})
+
+describe("page status", () => {
+  const statusOptions = [
+    { id: "st_draft", name: "Черновик", color: "gray", group: "notStarted" },
+    { id: "st_wip", name: "В работе", color: "amber", group: "inProgress" },
+    { id: "st_done", name: "Готово", color: "green", group: "done" },
+  ]
+
+  it("extracts statusOptionId when the status property is configured", () => {
+    const customRow: DatabaseRow = {
+      ...row("p1", "page", null, "a0"),
+      valuesJson: JSON.stringify({
+        lvl: { type: "select", optionId: "page" },
+        ord: { type: "text", value: "a0" },
+        stat: { type: "status", optionId: "st_done" },
+      }),
+    }
+    const tree = buildTextTree([customRow], { ...PROPS, status: "stat" })
+    expect(tree[0].statusOptionId).toBe("st_done")
+    expect(resolvePageStatus(statusOptions, tree[0].statusOptionId)?.group).toBe("done")
+  })
+
+  it("colors the dot by status group when status is configured, or by words when not", () => {
+    expect(pageStatusDotClass(statusOptions, "st_done", 0)).toBe("bg-emerald-500")
+    expect(pageStatusDotClass(statusOptions, "st_wip", 0)).toBe("bg-amber-500")
+    expect(pageStatusDotClass(statusOptions, "st_draft", 500)).toBe(
+      "border border-muted-foreground/50",
+    )
+    expect(pageStatusDotClass(statusOptions, null, 500)).toBe("border border-muted-foreground/50")
+    expect(pageStatusDotClass([], null, 500)).toBe("bg-primary")
+    expect(pageStatusDotClass([], null, 0)).toBe("border border-muted-foreground/50")
   })
 })

@@ -271,3 +271,79 @@ pub fn with_section_appended(raw: &Value, entry: Value) -> Result<Value, String>
     }
     Ok(document)
 }
+
+/// Updates project metadata (`name`, `icon`, `tags`) in `raw`, keeping every other field.
+/// For `icon`: `None` leaves it untouched, `Some(None)` removes the key, `Some(Some(v))` sets it.
+pub fn with_project_metadata(
+    raw: &Value,
+    name: Option<&str>,
+    icon: Option<Option<&str>>,
+    tags: Option<&[String]>,
+) -> Result<Value, String> {
+    let mut document = raw.clone();
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| "The document is not an object".to_owned())?;
+    if let Some(name) = name {
+        object.insert("name".to_owned(), json!(name));
+    }
+    if let Some(icon) = icon {
+        match icon {
+            Some(value) => {
+                object.insert("icon".to_owned(), json!(value));
+            }
+            None => {
+                object.remove("icon");
+            }
+        }
+    }
+    if let Some(tags) = tags {
+        object.insert("tags".to_owned(), json!(tags));
+    }
+    Ok(document)
+}
+
+/// Removes the section entry with `id == section_id` from `raw["sections"]`, keeping every other
+/// entry and field untouched.
+pub fn with_section_removed(raw: &Value, section_id: &str) -> Result<Value, String> {
+    let mut document = raw.clone();
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| "The document is not an object".to_owned())?;
+    let Some(Value::Array(sections)) = object.get_mut("sections") else {
+        return Err("sections is not an array".to_owned());
+    };
+    sections.retain(|entry| entry.get("id").and_then(Value::as_str) != Some(section_id));
+    Ok(document)
+}
+
+/// Reorders the known sections in `raw["sections"]` to match `section_ids`, keeping every entry's
+/// full JSON object (including unknown fields) and preserving any skipped/unrecognized entries at
+/// the end.
+pub fn with_sections_reordered(raw: &Value, section_ids: &[String]) -> Result<Value, String> {
+    let mut document = raw.clone();
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| "The document is not an object".to_owned())?;
+    let Some(Value::Array(sections)) = object.get_mut("sections") else {
+        return Err("sections is not an array".to_owned());
+    };
+    let original = std::mem::take(sections);
+    let mut reordered = Vec::with_capacity(original.len());
+    let mut used = vec![false; original.len()];
+    for wanted in section_ids {
+        if let Some((index, _)) = original.iter().enumerate().find(|(idx, entry)| {
+            !used[*idx] && entry.get("id").and_then(Value::as_str) == Some(wanted.as_str())
+        }) {
+            used[index] = true;
+            reordered.push(original[index].clone());
+        }
+    }
+    for (index, entry) in original.into_iter().enumerate() {
+        if !used[index] {
+            reordered.push(entry);
+        }
+    }
+    *sections = reordered;
+    Ok(document)
+}

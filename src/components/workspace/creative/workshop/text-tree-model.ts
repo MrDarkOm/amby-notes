@@ -1,4 +1,4 @@
-import type { DatabaseRow, ProjectTextSummary } from "@/lib/storage"
+import type { DatabaseRow, ProjectTextSummary, TextStatusOptionSummary } from "@/lib/storage"
 import { generateFractionalIndex } from "@/lib/storage/fractional-index"
 
 export interface TextNode {
@@ -7,11 +7,41 @@ export interface TextNode {
   levelId: string | null
   parentId: string | null
   orderKey: string | null
+  statusOptionId: string | null
   revision: string
   children: TextNode[]
 }
 
-type PropertyIds = Pick<ProjectTextSummary["properties"], "level" | "parent" | "order">
+type PropertyIds = Pick<ProjectTextSummary["properties"], "level" | "parent" | "order"> & {
+  status?: string | null
+}
+
+/** Resolves a page's status option from the text database's status options. */
+export function resolvePageStatus(
+  statusOptions: TextStatusOptionSummary[] | null | undefined,
+  statusOptionId: string | null,
+): TextStatusOptionSummary | null {
+  if (!statusOptions || !statusOptionId) return null
+  return statusOptions.find((option) => option.id === statusOptionId) ?? null
+}
+
+/**
+ * Dot class for a page in the tree or outline: colored by status group when the story has page
+ * status configured, or by whether the page has words when status is not configured.
+ */
+export function pageStatusDotClass(
+  statusOptions: TextStatusOptionSummary[] | null | undefined,
+  statusOptionId: string | null,
+  words: number,
+): string {
+  if (statusOptions && statusOptions.length > 0) {
+    const option = resolvePageStatus(statusOptions, statusOptionId)
+    if (option?.group === "done") return "bg-emerald-500"
+    if (option?.group === "inProgress") return "bg-amber-500"
+    return "border border-muted-foreground/50"
+  }
+  return words > 0 ? "bg-primary" : "border border-muted-foreground/50"
+}
 
 function parse(valuesJson: string): Record<string, unknown> {
   try {
@@ -48,12 +78,14 @@ export function buildTextTree(rows: DatabaseRow[], properties: PropertyIds): Tex
     const level = field(values, properties.level)?.optionId
     const parent = field(values, properties.parent)?.targetNoteIds
     const order = field(values, properties.order)?.value
+    const status = field(values, properties.status ?? null)?.optionId
     nodes.set(row.noteId, {
       noteId: row.noteId,
       title: row.title,
       levelId: typeof level === "string" ? level : null,
       parentId: Array.isArray(parent) && typeof parent[0] === "string" ? parent[0] : null,
       orderKey: typeof order === "string" && order ? order : null,
+      statusOptionId: typeof status === "string" ? status : null,
       revision: row.rowRevision,
       children: [],
     })

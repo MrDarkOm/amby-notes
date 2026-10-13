@@ -17,6 +17,7 @@ const moveTextPage = vi.fn()
 const createTextPage = vi.fn()
 const listTextStats = vi.fn()
 const resolveDatabaseAssetPaths = vi.fn()
+const applyDatabaseValueBatch = vi.fn()
 
 vi.mock("@/lib/storage", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/storage")>()
@@ -28,6 +29,7 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     createTextPage: (...args: unknown[]) => createTextPage(...args),
     listTextStats: (...args: unknown[]) => listTextStats(...args),
     resolveDatabaseAssetPaths: (...args: unknown[]) => resolveDatabaseAssetPaths(...args),
+    applyDatabaseValueBatch: (...args: unknown[]) => applyDatabaseValueBatch(...args),
   }
 })
 vi.mock("./create-project-dialog", () => ({
@@ -61,12 +63,13 @@ function row(noteId: string, title: string, values: Record<string, unknown> = {}
 
 const TEXT = {
   databaseId: "db_text",
-  properties: { level: "lvl", parent: "par", order: "ord", format: null },
+  properties: { level: "lvl", parent: "par", order: "ord", format: null, status: null },
   levels: [
     { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },
     { id: "chapter", icon: null, name: "Глава", color: null, state: "ok" as const },
   ],
   formats: [{ id: "ms", kind: "manuscript", name: "Рукопись", color: null, state: "ok" as const }],
+  statusOptions: [],
 }
 
 /** A universe with shared characters, one story with its own, and a stand-alone story. */
@@ -190,6 +193,7 @@ describe("CreativePanel", () => {
       .mockImplementation(async ({ relativePaths }: { relativePaths: string[] }) => ({
         paths: relativePaths.map(() => null),
       }))
+    applyDatabaseValueBatch.mockReset().mockResolvedValue({ revisions: [], warnings: [] })
     useProjectStore.getState().reset()
     useDatabaseStore.setState({ vaultGeneration: 1, databases: DATABASES, invalidationSeq: 0 })
     useCreativeNavStore.setState({
@@ -965,6 +969,38 @@ describe("CreativePanel", () => {
       fireEvent.contextMenu(await screen.findByRole("button", { name: /Борис/ }))
       await screen.findByRole("menuitem", { name: "Удалить" })
       expect(screen.queryByRole("menuitem", { name: /Новая страница: / })).toBeNull()
+    })
+
+    it("changes a text page's status from its context menu when status is configured", async () => {
+      const base = world()
+      const hills = base.projects.find((entry) => entry.projectId === "hills")!
+      hills.text = {
+        ...TEXT,
+        properties: { ...TEXT.properties, status: "stat" },
+        statusOptions: [
+          { id: "st_draft", name: "Черновик", color: "gray", group: "notStarted" },
+          { id: "st_wip", name: "В работе", color: "amber", group: "inProgress" },
+          { id: "st_done", name: "Готово", color: "green", group: "done" },
+        ],
+      }
+      act(() => useProjectStore.getState().setCatalog(base))
+      render(<CreativePanel {...props()} />)
+
+      fireEvent.contextMenu(await screen.findByText("Глава первая"))
+      fireEvent.click(await screen.findByRole("menuitem", { name: "Готово" }))
+
+      await waitFor(() => expect(applyDatabaseValueBatch).toHaveBeenCalledTimes(1))
+      expect(applyDatabaseValueBatch.mock.calls[0][0]).toMatchObject({
+        databaseId: "db_text",
+        cells: [
+          {
+            noteId: "c1",
+            propertyId: "stat",
+            valueJson: JSON.stringify({ type: "status", optionId: "st_done" }),
+            expectedRevision: "rev-c1",
+          },
+        ],
+      })
     })
   })
 

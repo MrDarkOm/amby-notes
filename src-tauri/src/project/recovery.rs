@@ -61,6 +61,30 @@ pub fn rollback(vault: &Path, journal: &Journal) -> Result<Rollback, ProjectErro
         .map_err(|message| ProjectError::failed("projectJournal", message))?;
     let mut leftovers = Vec::new();
 
+    if let Some(mw) = &journal.plan.manifest_write {
+        let manifest_path = durable::guarded_path(vault, &mw.manifest_path, LABEL)
+            .map_err(|message| ProjectError::failed("projectJournal", message))?;
+        if let Some(parent) = manifest_path.parent() {
+            remove_temporary_files(parent);
+        }
+        match fs::read(&manifest_path) {
+            Ok(bytes) if bytes == mw.pre_text.as_bytes() => {}
+            Ok(bytes) if bytes == mw.post_text.as_bytes() => {
+                if let Err(error) =
+                    crate::frontmatter::atomic_write_bytes(&manifest_path, mw.pre_text.as_bytes())
+                {
+                    leftovers.push(format!("{}: {error}", mw.manifest_path));
+                }
+            }
+            Ok(_) => {
+                leftovers.push(format!("{}: the database was changed", mw.manifest_path));
+            }
+            Err(error) => {
+                leftovers.push(format!("{}: {error}", mw.manifest_path));
+            }
+        }
+    }
+
     for section in journal.plan.sections.iter().rev() {
         let container = project_dir.join(&section.path);
         match fs::symlink_metadata(&container) {

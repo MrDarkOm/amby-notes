@@ -23,7 +23,13 @@ import { useTextStats } from "./use-text-stats"
 import { PortraitDot } from "./workshop/portrait-dot"
 import { useDatabaseRows } from "./workshop/use-database-rows"
 import { usePortraitResolvers } from "./workshop/use-portrait-resolvers"
-import { buildTextTree, countNodes, type TextNode } from "./workshop/text-tree-model"
+import {
+  buildTextTree,
+  countNodes,
+  pageStatusDotClass,
+  resolvePageStatus,
+  type TextNode,
+} from "./workshop/text-tree-model"
 import { initialsOf } from "./workshop/workshop-model"
 
 const CONTINUE_COUNT = 3
@@ -185,9 +191,24 @@ export function ProjectDesk({ project, vaultPath, onOpenNote, onOpenSection }: P
     cards
       .filter((entry) => entry.section.role === role)
       .reduce((total, entry) => total + (data.rows[entry.section.databaseId]?.length ?? 0), 0)
-  const tiles = [
+  const statusOptions = text?.properties.status ? (text.statusOptions ?? []) : []
+  const donePages =
+    statusOptions.length > 0
+      ? all.filter(
+          (node) => resolvePageStatus(statusOptions, node.statusOptionId)?.group === "done",
+        ).length
+      : null
+  const tiles: { label: string; value: number | string }[] = [
     { label: t("creative.page.desk.pages"), value: all.length },
     { label: t("creative.page.desk.words"), value: totalWords },
+    ...(donePages !== null
+      ? [
+          {
+            label: t("creative.schema.properties.status"),
+            value: t("creative.page.desk.doneOf", { done: donePages, total: all.length }),
+          },
+        ]
+      : []),
     ...(["characters", "locations"] as const)
       .filter((role) => cards.some((entry) => entry.section.role === role))
       .map((role) => ({ label: t(`creative.sections.${role}`), value: countOf(role) })),
@@ -285,7 +306,7 @@ export function ProjectDesk({ project, vaultPath, onOpenNote, onOpenSection }: P
           <div key={tile.label} className="rounded-2xl bg-accent/50 px-4 py-3">
             <dt className="text-xs text-muted-foreground">{tile.label}</dt>
             <dd className="text-2xl font-semibold tabular-nums tracking-tight">
-              {tile.value.toLocaleString()}
+              {typeof tile.value === "number" ? tile.value.toLocaleString() : tile.value}
             </dd>
           </div>
         ))}
@@ -333,6 +354,7 @@ export function ProjectDesk({ project, vaultPath, onOpenNote, onOpenSection }: P
                     <ul className="mb-1 ml-2 grid border-l border-border pl-2">
                       {part.node.children.map((child) => {
                         const words = wordsOf(child, stats)
+                        const statusOption = resolvePageStatus(statusOptions, child.statusOptionId)
                         return (
                           <li key={child.noteId}>
                             <button
@@ -342,9 +364,10 @@ export function ProjectDesk({ project, vaultPath, onOpenNote, onOpenSection }: P
                             >
                               <span
                                 aria-hidden="true"
+                                title={statusOption?.name}
                                 className={cn(
                                   "size-2 shrink-0 rounded-full",
-                                  words > 0 ? "bg-primary" : "border border-muted-foreground/50",
+                                  pageStatusDotClass(statusOptions, child.statusOptionId, words),
                                 )}
                               />
                               <span className="min-w-0 flex-1 truncate">{child.title}</span>

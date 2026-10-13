@@ -27,6 +27,7 @@ export interface ChooserExtra {
   value: CreateChoice
   title: string
   hint: string
+  icon?: LucideIcon
 }
 
 export interface ChooserOption {
@@ -63,7 +64,12 @@ export function useChooserOptions(
     ...extra.map((entry): ChooserOption => ({
       ...entry,
       icon:
-        entry.value === "page" ? FileText : entry.value.startsWith("section:") ? Section : FilePlus,
+        entry.icon ??
+        (entry.value === "page"
+          ? FileText
+          : entry.value.startsWith("section:")
+            ? Section
+            : FilePlus),
       group: entry.value === "page" || entry.value.startsWith("entity:") ? "common" : "rare",
     })),
     {

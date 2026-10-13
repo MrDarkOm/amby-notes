@@ -21,7 +21,9 @@ use crate::database::mutations::PlannedDatabaseIds;
 pub const LEVEL_KEYS: [&str; 4] = ["book", "arc", "chapter", "page"];
 /// The format kinds the format Select is created with.
 pub const FORMAT_KINDS: [&str; 4] = ["manuscript", "screenplay", "comic", "note"];
-pub const PROPERTY_KEYS: [&str; 4] = ["level", "parent", "order", "format"];
+/// The status options the status property is created with (`notStarted`, `inProgress`, `done`).
+pub const STATUS_KEYS: [&str; 3] = ["draft", "inProgress", "done"];
+pub const PROPERTY_KEYS: [&str; 5] = ["level", "parent", "order", "format", "status"];
 /// How many levels a story's text may have.
 pub const MAX_TEXT_LEVELS: usize = 6;
 
@@ -31,6 +33,7 @@ fn default_label(key: &str) -> &'static str {
         "property:parent" => "Родитель",
         "property:order" => "Порядок",
         "property:format" => "Формат",
+        "property:status" => "Статус",
         "level:book" => "Книга",
         "level:arc" => "Арка",
         "level:chapter" => "Глава",
@@ -38,6 +41,9 @@ fn default_label(key: &str) -> &'static str {
         "format:manuscript" => "Рукопись",
         "format:screenplay" => "Сценарий",
         "format:comic" => "Комикс",
+        "status:draft" => "Черновик",
+        "status:inProgress" => "В работе",
+        "status:done" => "Готово",
         _ => "Заметка",
     }
 }
@@ -51,6 +57,7 @@ pub fn is_schema_label(key: &str) -> bool {
     known("property:", &PROPERTY_KEYS)
         || known("level:", &LEVEL_KEYS)
         || known("format:", &FORMAT_KINDS)
+        || known("status:", &STATUS_KEYS)
 }
 
 fn label(labels: &BTreeMap<String, String>, key: &str) -> Result<String, ProjectError> {
@@ -61,6 +68,28 @@ fn label(labels: &BTreeMap<String, String>, key: &str) -> Result<String, Project
             .map(String::as_str)
             .unwrap_or_else(|| default_label(key)),
     )
+}
+
+/// Resolves the property name and three option names (`notStarted`, `inProgress`, `done`) for the
+/// page status property from `labels` or the Russian defaults.
+pub fn resolve_status_labels(
+    labels: &BTreeMap<String, String>,
+) -> Result<(String, Vec<String>), ProjectError> {
+    for key in labels.keys() {
+        if !is_schema_label(key) {
+            return Err(ProjectError::InvalidName {
+                field: "labels".to_owned(),
+                reason: format!("unknown label {key}"),
+            });
+        }
+    }
+    let property_name = label(labels, "property:status")?;
+    let status_names = STATUS_KEYS
+        .iter()
+        .map(|key| label(labels, &format!("status:{key}")))
+        .collect::<Result<Vec<_>, _>>()?;
+    ensure_distinct(&status_names)?;
+    Ok((property_name, status_names))
 }
 
 /// The levels a request names, checked before anything is written: 1 to [`MAX_TEXT_LEVELS`]
@@ -120,11 +149,15 @@ pub fn plan(
         .iter()
         .map(|kind| label(labels, &format!("format:{kind}")))
         .collect::<Result<Vec<_>, _>>()?;
+    let status_names = STATUS_KEYS
+        .iter()
+        .map(|key| label(labels, &format!("status:{key}")))
+        .collect::<Result<Vec<_>, _>>()?;
     let property_names = PROPERTY_KEYS
         .iter()
         .map(|key| label(labels, &format!("property:{key}")))
         .collect::<Result<Vec<_>, _>>()?;
-    for names in [&level_names, &format_names, &property_names] {
+    for names in [&level_names, &format_names, &status_names, &property_names] {
         ensure_distinct(names)?;
     }
 
@@ -138,6 +171,7 @@ pub fn plan(
     })?;
     let (order, order_ids) = builder.add("text", &property_names[2], &[], &|_| {})?;
     let (format, format_ids) = builder.add("select", &property_names[3], &format_names, &|_| {})?;
+    let (status, status_ids) = builder.add("status", &property_names[4], &status_names, &|_| {})?;
     builder.validate()?;
 
     let text_block = json!({
@@ -152,10 +186,11 @@ pub fn plan(
             "parent": parent_ids.property_id,
             "order": order_ids.property_id,
             "format": format_ids.property_id,
+            "status": status_ids.property_id,
         },
     });
     Ok(TextSchema {
-        properties: vec![level, parent, order, format],
+        properties: vec![level, parent, order, format, status],
         text_block,
     })
 }
@@ -167,5 +202,68 @@ pub fn with_text_block(raw: &Value, text_block: &Value) -> Result<Value, String>
         .as_object_mut()
         .ok_or_else(|| "The document is not an object".to_owned())?;
     object.insert("text".to_owned(), text_block.clone());
+    Ok(document)
+}
+
+/// Replaces `text.levels` in `raw` with `(id, icon)` entries in the given order, preserving any
+/// unknown fields on existing level objects and all other fields of `text` and `raw`.
+pub fn with_text_levels_updated(
+    raw: &Value,
+    levels: &[(String, Option<String>)],
+) -> Result<Value, String> {
+    let mut document = raw.clone();
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| "The document is not an object".to_owned())?;
+    let text = object
+        .get_mut("text")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "The text block is not an object".to_owned())?;
+    let existing = text
+        .get("levels")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut next = Vec::with_capacity(levels.len());
+    for (id, icon) in levels {
+        let mut entry = existing
+            .iter()
+            .find(|item| item.get("id").and_then(Value::as_str) == Some(id.as_str()))
+            .cloned()
+            .unwrap_or_else(|| json!({"id": id}));
+        let Some(entry_obj) = entry.as_object_mut() else {
+            return Err("A level entry is not an object".to_owned());
+        };
+        entry_obj.insert("id".to_owned(), json!(id));
+        match icon {
+            Some(icon) => {
+                entry_obj.insert("icon".to_owned(), json!(icon));
+            }
+            None => {
+                entry_obj.remove("icon");
+            }
+        }
+        next.push(entry);
+    }
+    text.insert("levels".to_owned(), Value::Array(next));
+    Ok(document)
+}
+
+/// Sets `text.properties.status` in `raw`, keeping all other fields of `text` and `raw`.
+pub fn with_text_status_property(raw: &Value, property_id: &str) -> Result<Value, String> {
+    let mut document = raw.clone();
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| "The document is not an object".to_owned())?;
+    let text = object
+        .get_mut("text")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "The text block is not an object".to_owned())?;
+    let properties = text
+        .entry("properties")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "text.properties is not an object".to_owned())?;
+    properties.insert("status".to_owned(), json!(property_id));
     Ok(document)
 }

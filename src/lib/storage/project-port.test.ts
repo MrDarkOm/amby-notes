@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { commands, type ProjectError } from "@/lib/bindings"
 import { DesktopAdapter } from "./desktop-adapter"
 import {
+  addTextStatus,
   createProject,
   createProjectSection,
   createTextPage,
@@ -11,7 +12,11 @@ import {
   listTextStats,
   moveTextPage,
   refreshProjects,
+  removeProjectSection,
+  reorderProjectSections,
   setStorageAdapter,
+  updateProject,
+  updateTextLevels,
 } from "./index"
 import { unwrapProjectCommand } from "./project-port"
 import { projectErrorMessage, ProjectOperationError } from "./project-types"
@@ -68,7 +73,10 @@ describe("project port errors", () => {
       { kind: "revisionConflict", actualRevision: "x" },
       { kind: "unknownGroup", groupId: "g" },
       { kind: "unsupportedRole", role: "galaxy" },
+      { kind: "sectionNotFound", sectionId: "s" },
+      { kind: "cannotRemoveTextSection" },
       { kind: "textNotConfigured" },
+      { kind: "statusAlreadyConfigured" },
       { kind: "unknownTextLevel", levelId: "l" },
       { kind: "unknownTextFormat", formatId: "f" },
       { kind: "invalidOrderKey" },
@@ -137,6 +145,115 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
         name: "Текст",
       }),
     )
+
+    const update = vi.spyOn(commands, "updateProject").mockResolvedValue({
+      status: "ok",
+      data: {
+        operationId: "op-upd",
+        projectId: "p1",
+        name: "Новое имя",
+        icon: null,
+        tags: [],
+        projectRevision: "r2",
+        replayed: false,
+        warnings: [],
+      },
+    })
+    await updateProject({
+      expectedGeneration: 3,
+      operationId: "op-upd",
+      projectId: "p1",
+      expectedProjectRevision: "r1",
+      name: "Новое имя",
+    })
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Новое имя", icon: null, tags: null }),
+    )
+
+    const removeSec = vi.spyOn(commands, "removeProjectSection").mockResolvedValue({
+      status: "ok",
+      data: {
+        operationId: "op-rm",
+        projectId: "p1",
+        sectionId: "s1",
+        projectRevision: "r2",
+        replayed: false,
+        warnings: [],
+      },
+    })
+    await removeProjectSection({
+      expectedGeneration: 3,
+      operationId: "op-rm",
+      projectId: "p1",
+      expectedProjectRevision: "r1",
+      sectionId: "s1",
+    })
+    expect(removeSec).toHaveBeenCalledWith(expect.objectContaining({ sectionId: "s1" }))
+
+    const reorderSec = vi.spyOn(commands, "reorderProjectSections").mockResolvedValue({
+      status: "ok",
+      data: {
+        operationId: "op-ord",
+        projectId: "p1",
+        sectionIds: ["s2", "s1"],
+        projectRevision: "r2",
+        replayed: false,
+        warnings: [],
+      },
+    })
+    await reorderProjectSections({
+      expectedGeneration: 3,
+      operationId: "op-ord",
+      projectId: "p1",
+      expectedProjectRevision: "r1",
+      sectionIds: ["s2", "s1"],
+    })
+    expect(reorderSec).toHaveBeenCalledWith(expect.objectContaining({ sectionIds: ["s2", "s1"] }))
+
+    const updLevels = vi.spyOn(commands, "updateTextLevels").mockResolvedValue({
+      status: "ok",
+      data: {
+        operationId: "op-lvl",
+        projectId: "p1",
+        projectRevision: "r2",
+        manifestRevision: "m2",
+        levelIds: ["l1"],
+        replayed: false,
+        warnings: [],
+      },
+    })
+    await updateTextLevels({
+      expectedGeneration: 3,
+      operationId: "op-lvl",
+      projectId: "p1",
+      expectedProjectRevision: "r1",
+      levels: [{ name: "Глава" }],
+    })
+    expect(updLevels).toHaveBeenCalledWith(
+      expect.objectContaining({
+        levels: [{ id: null, name: "Глава", icon: null }],
+      }),
+    )
+
+    const addStat = vi.spyOn(commands, "addTextStatus").mockResolvedValue({
+      status: "ok",
+      data: {
+        operationId: "op-stat",
+        projectId: "p1",
+        propertyId: "prop-stat",
+        projectRevision: "r2",
+        manifestRevision: "m2",
+        replayed: false,
+        warnings: [],
+      },
+    })
+    await addTextStatus({
+      expectedGeneration: 3,
+      operationId: "op-stat",
+      projectId: "p1",
+      expectedProjectRevision: "r1",
+    })
+    expect(addStat).toHaveBeenCalledWith(expect.objectContaining({ labels: {} }))
 
     const page = vi.spyOn(commands, "createTextPage").mockResolvedValue({
       status: "ok",
@@ -244,6 +361,50 @@ describe("WebAdapter projects", () => {
         projectId: "p",
         expectedProjectRevision: "r",
         name: "x",
+      }),
+    ).rejects.toBeInstanceOf(ProjectOperationError)
+    await expect(
+      updateProject({
+        expectedGeneration: 0,
+        operationId: "op",
+        projectId: "p",
+        expectedProjectRevision: "r",
+        name: "x",
+      }),
+    ).rejects.toBeInstanceOf(ProjectOperationError)
+    await expect(
+      removeProjectSection({
+        expectedGeneration: 0,
+        operationId: "op",
+        projectId: "p",
+        expectedProjectRevision: "r",
+        sectionId: "s",
+      }),
+    ).rejects.toBeInstanceOf(ProjectOperationError)
+    await expect(
+      reorderProjectSections({
+        expectedGeneration: 0,
+        operationId: "op",
+        projectId: "p",
+        expectedProjectRevision: "r",
+        sectionIds: [],
+      }),
+    ).rejects.toBeInstanceOf(ProjectOperationError)
+    await expect(
+      updateTextLevels({
+        expectedGeneration: 0,
+        operationId: "op",
+        projectId: "p",
+        expectedProjectRevision: "r",
+        levels: [{ name: "x" }],
+      }),
+    ).rejects.toBeInstanceOf(ProjectOperationError)
+    await expect(
+      addTextStatus({
+        expectedGeneration: 0,
+        operationId: "op",
+        projectId: "p",
+        expectedProjectRevision: "r",
       }),
     ).rejects.toBeInstanceOf(ProjectOperationError)
   })

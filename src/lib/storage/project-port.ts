@@ -2,6 +2,8 @@ import type { Result } from "@/lib/bindings"
 import {
   projectErrorMessage,
   ProjectOperationError,
+  type AddTextStatusRequest,
+  type AddedTextStatus,
   type CreateProjectRequest,
   type CreateProjectSectionRequest,
   type CreatedProject,
@@ -13,7 +15,15 @@ import {
   type NoteReference,
   type ProjectCatalog,
   type ProjectError,
+  type RemoveProjectSectionRequest,
+  type RemovedProjectSection,
+  type ReorderProjectSectionsRequest,
+  type ReorderedProjectSections,
   type TextPageStat,
+  type UpdateProjectRequest,
+  type UpdateTextLevelsRequest,
+  type UpdatedProject,
+  type UpdatedTextLevels,
 } from "./project-types"
 
 /**
@@ -28,6 +38,16 @@ export interface ProjectPort {
   refreshProjects(expectedGeneration: number): Promise<ProjectCatalog>
   createProject(request: CreateProjectRequest): Promise<CreatedProject>
   createProjectSection(request: CreateProjectSectionRequest): Promise<CreatedSection>
+  /** Updates a project's display name, icon, or tags in `amby-project.json`. */
+  updateProject(request: UpdateProjectRequest): Promise<UpdatedProject>
+  /** Unlinks a section from `amby-project.json` without deleting its database on disk. */
+  removeProjectSection(request: RemoveProjectSectionRequest): Promise<RemovedProjectSection>
+  /** Reorders `sections` in `amby-project.json`. */
+  reorderProjectSections(request: ReorderProjectSectionsRequest): Promise<ReorderedProjectSections>
+  /** Renames, re-icons, reorders or adds levels of a story's text schema. */
+  updateTextLevels(request: UpdateTextLevelsRequest): Promise<UpdatedTextLevels>
+  /** Adds the optional `status` property to an existing story's text database. */
+  addTextStatus(request: AddTextStatusRequest): Promise<AddedTextStatus>
   /** A page of a story's text with its level, format, parent and place, in one write. */
   createTextPage(request: CreateTextPageRequest): Promise<CreatedTextPage>
   /** Moves a page: parent and order in one write, refused when it would make a loop. */

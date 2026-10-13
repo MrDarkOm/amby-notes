@@ -11,11 +11,13 @@ import {
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import {
+  applyDatabaseValueBatch,
   moveTextPage,
   type DatabaseRow,
   type ProjectSummary,
   type TextLevelSummary,
   type TextPageStat,
+  type TextStatusOptionSummary,
 } from "@/lib/storage"
 import { motion } from "motion/react"
 import { motionTransitions } from "@/lib/motion-config"
@@ -44,7 +46,9 @@ import {
   canHaveChildPage,
   countNodes,
   descendantIds,
+  pageStatusDotClass,
   planMove,
+  resolvePageStatus,
   type DropZone,
   type TextNode,
 } from "./text-tree-model"
@@ -106,6 +110,8 @@ function zoneOf(event: React.DragEvent<HTMLElement>): DropZone {
 
 interface TreeContext {
   levels: TextLevelSummary[]
+  statusOptions: TextStatusOptionSummary[]
+  onSetStatus?: (node: TextNode, optionId: string | null) => void
   collapsed: Record<string, boolean>
   onToggle: (noteId: string) => void
   onOpenNote: (noteId: string) => void
@@ -147,6 +153,11 @@ function TreeRows({
         const leaf = node.children.length === 0
         const words = context.wordsOf(node)
         const draftHere = context.draftParentId === node.noteId
+        const statusOption = resolvePageStatus(context.statusOptions, node.statusOptionId)
+        const dotClass = pageStatusDotClass(context.statusOptions, node.statusOptionId, words)
+        const dotTitle =
+          statusOption?.name ??
+          t(words > 0 ? "creative.workshop.pageWritten" : "creative.workshop.pageBlank")
         return (
           <React.Fragment key={node.noteId}>
             <ItemMenu
@@ -154,6 +165,13 @@ function TreeRows({
               title={node.title}
               nested={descendantIds(node)}
               indent={treeIndent(depth + 1) - 6}
+              statusOptions={context.statusOptions}
+              statusOptionId={node.statusOptionId}
+              onSelectStatus={
+                context.onSetStatus
+                  ? (optionId) => context.onSetStatus?.(node, optionId)
+                  : undefined
+              }
             >
               <div
                 draggable
@@ -178,16 +196,11 @@ function TreeRows({
               >
                 {leaf ? (
                   <span className="flex size-4 shrink-0 items-center justify-center">
-                    {/* A page with nothing under it shows whether it has been written yet. */}
+                    {/* A page with nothing under it shows its status or whether it has been written yet. */}
                     <span
                       aria-hidden="true"
-                      title={t(
-                        words > 0 ? "creative.workshop.pageWritten" : "creative.workshop.pageBlank",
-                      )}
-                      className={cn(
-                        "size-2 rounded-full",
-                        words > 0 ? "bg-primary" : "border border-muted-foreground/50",
-                      )}
+                      title={dotTitle}
+                      className={cn("size-2 rounded-full", dotClass)}
                     />
                   </span>
                 ) : (
@@ -383,8 +396,33 @@ function StoryWorks({
   const plan = (targetId: string, zone: DropZone) =>
     dragId ? planMove(roots, levels, dragId, targetId, zone) : null
 
+  const statusOptions = text?.properties.status ? (text.statusOptions ?? []) : []
+
   const context: TreeContext = {
     levels,
+    statusOptions,
+    onSetStatus:
+      canWrite && text?.databaseId && text.properties.status && statusOptions.length > 0
+        ? (node, optionId) => {
+            if (!text.databaseId || !text.properties.status || vaultGeneration === null) return
+            setMoveError(null)
+            void applyDatabaseValueBatch({
+              expectedGeneration: vaultGeneration,
+              databaseId: text.databaseId,
+              operationId: `status-${crypto.randomUUID()}`,
+              cells: [
+                {
+                  noteId: node.noteId,
+                  propertyId: text.properties.status,
+                  valueJson: optionId ? JSON.stringify({ type: "status", optionId }) : undefined,
+                  expectedRevision: node.revision,
+                },
+              ],
+            })
+              .catch((error: unknown) => setMoveError(projectErrorText(t, error)))
+              .finally(onMoved)
+          }
+        : undefined,
     collapsed,
     onToggle: (noteId) => toggle(`page:${noteId}`),
     onOpenNote,

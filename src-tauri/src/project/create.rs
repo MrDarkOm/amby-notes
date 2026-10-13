@@ -120,11 +120,11 @@ fn checkpoint(step: Step) -> Result<(), Interrupt> {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-fn io_failure(code: &str, error: impl ToString) -> ProjectError {
+pub(super) fn io_failure(code: &str, error: impl ToString) -> ProjectError {
     ProjectError::failed(code, error.to_string())
 }
 
-fn validate_operation_id(value: &str) -> Result<(), ProjectError> {
+pub(super) fn validate_operation_id(value: &str) -> Result<(), ProjectError> {
     if valid_operation_id(value) {
         Ok(())
     } else {
@@ -132,12 +132,12 @@ fn validate_operation_id(value: &str) -> Result<(), ProjectError> {
     }
 }
 
-fn request_revision(value: &Value) -> Result<String, ProjectError> {
+pub(super) fn request_revision(value: &Value) -> Result<String, ProjectError> {
     let bytes = serde_json::to_vec(value).map_err(|error| io_failure("serialize", error))?;
     Ok(raw_revision(&bytes))
 }
 
-fn join_relative(parent: &str, name: &str) -> String {
+pub(super) fn join_relative(parent: &str, name: &str) -> String {
     if parent.is_empty() {
         name.to_owned()
     } else {
@@ -183,7 +183,7 @@ fn created_section(
 }
 
 /// Replays an earlier operation recorded under the same ID.
-enum Replay {
+pub(super) enum Replay {
     /// No journal: a new operation.
     Fresh,
     /// Finished before; the recorded answer stands.
@@ -192,7 +192,7 @@ enum Replay {
     Resume(Box<Journal>),
 }
 
-fn replay(
+pub(super) fn replay(
     env: &Env,
     operation_id: &str,
     operation: &str,
@@ -229,7 +229,7 @@ fn replay(
 // Applying a plan
 // ---------------------------------------------------------------------------
 
-enum ProjectWrite {
+pub(super) enum ProjectWrite {
     /// The structure file does not exist yet.
     New { bytes: Vec<u8> },
     /// Replace the file the caller last saw, after a history snapshot.
@@ -336,6 +336,42 @@ fn write_template(
     }
 }
 
+fn write_manifest(env: &Env, mw: &super::journal::PlannedManifestWrite) -> Result<(), Interrupt> {
+    if mw.pre_revision == mw.post_revision {
+        return Ok(());
+    }
+    let path = guarded(env.vault, &mw.manifest_path)
+        .map_err(|error| Interrupt::Error(error.to_string()))?;
+    let current = fs::read(&path).map_err(|error| Interrupt::Error(error.to_string()))?;
+    let actual = raw_revision(&current);
+    if actual == mw.post_revision {
+        return Ok(());
+    }
+    if actual != mw.pre_revision {
+        return Err(Interrupt::Error("Manifest revision conflict".to_owned()));
+    }
+    let bytes = mw.post_text.as_bytes();
+    crate::history::snapshot_before_write(env.vault, &path, bytes, "database-schema")
+        .map_err(Interrupt::Error)?;
+    let prepared = env
+        .watcher
+        .prepare_write([(&path, watcher::fingerprint_for_bytes(bytes))]);
+    match frontmatter::atomic_write_bytes(&path, bytes) {
+        Ok(()) => {
+            env.watcher.confirm_prepared_write(&prepared);
+            Ok(())
+        }
+        Err(error) => {
+            env.watcher.cancel_prepared_write(&prepared);
+            if committed(&path, &mw.post_revision) {
+                Ok(())
+            } else {
+                Err(Interrupt::Error(error))
+            }
+        }
+    }
+}
+
 fn apply(env: &Env, journal: &Journal, write: &ProjectWrite) -> Result<(), Interrupt> {
     let plan = &journal.plan;
     let project_dir = guarded(env.vault, &plan.project_path)
@@ -366,6 +402,9 @@ fn apply(env: &Env, journal: &Journal, write: &ProjectWrite) -> Result<(), Inter
         }
         checkpoint(Step::DatabaseCreated(index))?;
     }
+    if let Some(mw) = &plan.manifest_write {
+        write_manifest(env, mw)?;
+    }
     checkpoint(Step::BeforeProjectFile)?;
     write_project_file(env, &project_dir, write, &plan.project_file_revision)?;
     checkpoint(Step::ProjectFileWritten)?;
@@ -374,7 +413,7 @@ fn apply(env: &Env, journal: &Journal, write: &ProjectWrite) -> Result<(), Inter
 
 /// Publishes the journal (unless resuming), applies the plan, and either
 /// finishes the journal or cleans up. Returns the final journal and warnings.
-fn run(
+pub(super) fn run(
     env: &Env,
     mut journal: Journal,
     journal_exists: bool,
@@ -437,7 +476,7 @@ fn run(
     Ok((journal, warnings))
 }
 
-fn finish<T: serde::de::DeserializeOwned>(
+pub(super) fn finish<T: serde::de::DeserializeOwned>(
     value: Value,
     replayed: bool,
     warnings: Vec<String>,
@@ -907,6 +946,7 @@ pub fn create_project(
         project_file_revision: file_revision.clone(),
         sections,
         text_block: text_block.clone(),
+        manifest_write: None,
     };
     let expected = CreatedProject {
         operation_id: request.operation_id.clone(),
@@ -952,7 +992,7 @@ pub fn create_project(
 // Create section
 // ---------------------------------------------------------------------------
 
-fn find_project(env: &Env, project_id: &str) -> Result<DiscoveredProject, ProjectError> {
+pub(super) fn find_project(env: &Env, project_id: &str) -> Result<DiscoveredProject, ProjectError> {
     discover_projects(env.vault)
         .map_err(|message| ProjectError::failed("discoveryFailed", message))?
         .projects
@@ -1139,6 +1179,7 @@ pub fn create_project_section(
         project_file_revision: project_revision.clone(),
         sections: vec![planned],
         text_block,
+        manifest_write: None,
     };
     let expected = CreatedSection {
         operation_id: request.operation_id.clone(),

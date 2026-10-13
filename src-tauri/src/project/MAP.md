@@ -13,16 +13,17 @@ index, and the journaled creation of projects and sections. The contract is
 | Structure file parse/rewrite (unknown fields kept)   | [format.rs](format.rs)                                 |
 | Read-only discovery, nesting, diagnostics            | [discovery.rs](discovery.rs)                           |
 | SQLite projection and catalog read                   | [index.rs](index.rs); tables in `index/schema.rs`      |
-| Create project / section, preflight, apply           | [create.rs](create.rs)                                 |
-| Operation journal (`.amby/recovery/projects/`)       | [journal.rs](journal.rs)                               |
-| Conditional cleanup and activation recovery          | [recovery.rs](recovery.rs)                             |
-| Section presets (properties, gallery view, dossier template) | [presets.rs](presets.rs), [props.rs](props.rs)                                       |
-| Relations of one note, both ways (dossier)           | [references.rs](references.rs)                         |
-| Text schema (4 properties, `text` block)             | [text_schema.rs](text_schema.rs)                       |
-| Text pages: create, move, loop check                 | [text.rs](text.rs)                                     |
-| Words, modified and created times of a database's pages | [text_stats.rs](text_stats.rs)                      |
-| Folder-name, tag and icon validation                 | [names.rs](names.rs)                                   |
-| Watcher path classification (`project:changed`)      | [events.rs](events.rs)                                 |
+| Create project / section, preflight, apply                   | [create.rs](create.rs)                                 |
+| Project settings, section order/remove, levels, text status  | [settings.rs](settings.rs)                             |
+| Operation journal (`.amby/recovery/projects/`)               | [journal.rs](journal.rs)                               |
+| Conditional cleanup and activation recovery                  | [recovery.rs](recovery.rs)                             |
+| Section presets (properties, gallery view, dossier template) | [presets.rs](presets.rs), [props.rs](props.rs)         |
+| Relations of one note, both ways (dossier)                   | [references.rs](references.rs)                         |
+| Text schema (5 properties, `text` block)                     | [text_schema.rs](text_schema.rs)                       |
+| Text pages: create, move, loop check                         | [text.rs](text.rs)                                     |
+| Words, modified and created times of a database's pages      | [text_stats.rs](text_stats.rs)                         |
+| Folder-name, tag and icon validation                         | [names.rs](names.rs)                                   |
+| Watcher path classification (`project:changed`)              | [events.rs](events.rs)                                 |
 
 **Discovery.** Any `amby-project.json` outside hidden/service folders is a project. A
 story belongs to the nearest collection above it by folder nesting; there is no list of
@@ -53,6 +54,15 @@ request returns the recorded answer without writing; a different request under t
 is `OperationIdReused`. A new section rewrites the file through a history snapshot and a
 raw-byte `expectedProjectRevision`; unknown fields and a BOM survive.
 
+**Settings (`settings.rs`).** `update_project`, `remove_project_section` and
+`reorder_project_sections` rewrite `amby-project.json` with `expectedProjectRevision`, a
+history snapshot and an operation journal. `update_text_levels` and `add_text_status`
+modify both the text database manifest and `amby-project.json` in one journaled operation:
+the journal records `manifest_before`, and `recovery::rollback` restores the manifest if a
+failure or crash happens before `amby-project.json` reaches its planned bytes. Removing a
+text level that is still assigned to any page in `db_values` is refused before any write
+(`LevelInUse`).
+
 **Tests.** `create_test.rs` writes real folders and files in a temporary vault and
 fails or "crashes" the operation at every durable step (`Step` hooks, test only) and at
 `inject_nth_atomic_write_failure`; `discovery_test.rs` covers nesting, diagnostics, the
@@ -60,11 +70,13 @@ SQLite join and rebuilds. Run `npm run rust:test -- project::`. When changing th
 commit order or the journal, keep a mutation check: break the cleanup and confirm the
 crash tests fail.
 
-**Text.** A story's text database is created with its four system properties in the same
+**Text.** A story's text database is created with its five system properties in the same
 manifest (`text_schema.rs` plans them with `database::mutations::build_new_property` and IDs
 fixed up front; the properties and the `text` block are journaled, so cleanup recomputes the
-manifest byte for byte). `text.levels[].id` and `text.formats[].id` are option IDs, never
-names. The catalog resolves them against `db_options` at read time: a deleted option is
+manifest byte for byte; `status` is optional in `amby-project.json` for older stories and can
+be added later by `add_text_status`). `text.levels[].id` and `text.formats[].id` are option IDs, never
+names. The catalog resolves them against `db_options` at read time (and resolves `statusOptions`
+with their status groups when `text.properties.status` is present): a deleted option is
 `dangling` with a diagnostic and the file is not touched. `create_text_page` goes through
 `rows::create_database_row_with_values` (values and note in one write); `move_text_page` goes
 through `apply_value_batch` (parent and order of one page in one write) after a loop check on

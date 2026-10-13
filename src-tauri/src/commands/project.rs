@@ -8,11 +8,14 @@ use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::project::create::{self, Env};
 use crate::project::index;
 use crate::project::model::{
-    CreateProjectRequest, CreateProjectSectionRequest, CreateTextPageRequest, CreatedProject,
-    CreatedSection, CreatedTextPage, MoveTextPageRequest, MovedTextPage, ProjectCatalog,
-    ProjectError,
+    AddTextStatusRequest, AddedTextStatus, CreateProjectRequest, CreateProjectSectionRequest,
+    CreateTextPageRequest, CreatedProject, CreatedSection, CreatedTextPage, MoveTextPageRequest,
+    MovedTextPage, ProjectCatalog, ProjectError, RemoveProjectSectionRequest,
+    RemovedProjectSection, ReorderProjectSectionsRequest, ReorderedProjectSections,
+    UpdateProjectRequest, UpdateTextLevelsRequest, UpdatedProject, UpdatedTextLevels,
 };
 use crate::project::references::{self, NoteReference};
+use crate::project::settings;
 use crate::project::text;
 use crate::project::text_stats::{self, TextPageStat};
 use crate::vault_context::VaultContext;
@@ -304,4 +307,139 @@ pub fn list_text_stats(
     let active = context.conn.lock().expect("vault context poisoned");
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     text_stats::list_text_stats(&active.connection, &database_id)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn update_project(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: UpdateProjectRequest,
+) -> Result<UpdatedProject, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher,
+    };
+    let mut updated = settings::update_project(&env, &request)?;
+    if !updated.replayed {
+        if let Err(error) = index::rebuild_project_index(&active.connection, &active.root) {
+            tracing::warn!(event = "project_index_rebuild_failed", %error);
+            updated
+                .warnings
+                .push("Project index rebuild required".to_owned());
+        }
+    }
+    Ok(updated)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn remove_project_section(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: RemoveProjectSectionRequest,
+) -> Result<RemovedProjectSection, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher,
+    };
+    let mut removed = settings::remove_project_section(&env, &request)?;
+    if !removed.replayed {
+        if let Err(error) = index::rebuild_project_index(&active.connection, &active.root) {
+            tracing::warn!(event = "project_index_rebuild_failed", %error);
+            removed
+                .warnings
+                .push("Project index rebuild required".to_owned());
+        }
+    }
+    Ok(removed)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn reorder_project_sections(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: ReorderProjectSectionsRequest,
+) -> Result<ReorderedProjectSections, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher,
+    };
+    let mut reordered = settings::reorder_project_sections(&env, &request)?;
+    if !reordered.replayed {
+        if let Err(error) = index::rebuild_project_index(&active.connection, &active.root) {
+            tracing::warn!(event = "project_index_rebuild_failed", %error);
+            reordered
+                .warnings
+                .push("Project index rebuild required".to_owned());
+        }
+    }
+    Ok(reordered)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn update_text_levels(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: UpdateTextLevelsRequest,
+) -> Result<UpdatedTextLevels, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher,
+    };
+    let mut updated = settings::update_text_levels(&env, &request)?;
+    if !updated.replayed {
+        refresh_after_write(active, &runtime, generation, &mut updated.warnings);
+    }
+    Ok(updated)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn add_text_status(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: AddTextStatusRequest,
+) -> Result<AddedTextStatus, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher,
+    };
+    let mut added = settings::add_text_status(&env, &request)?;
+    if !added.replayed {
+        refresh_after_write(active, &runtime, generation, &mut added.warnings);
+    }
+    Ok(added)
 }

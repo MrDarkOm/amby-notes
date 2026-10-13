@@ -13,7 +13,7 @@ use super::discovery::{discover_projects, ProjectDiscovery};
 use super::model::{
     ProjectCatalog, ProjectDiagnostic, ProjectGroupSummary, ProjectKind, ProjectSectionSummary,
     ProjectSummary, ProjectTextSummary, SectionState, TextEntryState, TextFormatSummary,
-    TextLevelSummary, TextPropertyIds, PROJECT_FILE_NAME, ROLE_TEXT,
+    TextLevelSummary, TextPropertyIds, TextStatusOptionSummary, PROJECT_FILE_NAME, ROLE_TEXT,
 };
 use crate::index::schema::init_schema;
 
@@ -144,6 +144,30 @@ fn option_of(
     .map_err(sql_error)
 }
 
+fn status_options_of(
+    conn: &Connection,
+    database_id: &str,
+    property_id: &str,
+) -> Result<Vec<TextStatusOptionSummary>, String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT option_id, name, color, status_group FROM db_options WHERE database_id = ?1 AND property_id = ?2 ORDER BY position",
+        )
+        .map_err(sql_error)?;
+    let rows = statement
+        .query_map(params![database_id, property_id], |row| {
+            let group: Option<String> = row.get(3)?;
+            Ok(TextStatusOptionSummary {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                color: row.get(2)?,
+                group: group.unwrap_or_else(|| "notStarted".to_owned()),
+            })
+        })
+        .map_err(sql_error)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(sql_error)
+}
+
 fn property_exists(
     conn: &Connection,
     database_id: &str,
@@ -216,6 +240,19 @@ fn resolve_text(
         match &database_id {
             Some(database) if property_exists(conn, database, &id)? => *slot = Some(id),
             Some(_) => diagnose("missingTextProperty", key.to_owned(), diagnostics),
+            None => {}
+        }
+    }
+    // `status` is optional (stories created before Package C do not declare it); only report a
+    // missing property when `text.properties.status` is declared in the file.
+    let mut status_options = Vec::new();
+    if let Some(id) = declared("status") {
+        match &database_id {
+            Some(database) if property_exists(conn, database, &id)? => {
+                status_options = status_options_of(conn, database, &id)?;
+                properties.status = Some(id);
+            }
+            Some(_) => diagnose("missingTextProperty", "status".to_owned(), diagnostics),
             None => {}
         }
     }
@@ -292,6 +329,7 @@ fn resolve_text(
         properties,
         levels,
         formats,
+        status_options,
     }))
 }
 

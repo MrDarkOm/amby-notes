@@ -2200,13 +2200,14 @@ export function WorkspaceOrchestration() {
         onOpenNote={(noteId) => handleSelect(noteId)}
         vaultPath={vault ?? null}
         onChanged={refreshAfterCreativeWrite}
-        renderDatabase={({ databaseId, title, readOnly }) => (
+        renderDatabase={({ databaseId, title, readOnly, toolbarHost }) => (
           <React.Suspense fallback={<LazyEditorFallback />}>
             <DatabaseWorkspace
               databaseId={databaseId}
               title={title}
               icon={databases.find((database) => database.databaseId === databaseId)?.icon}
               hideHeader
+              toolbarHost={toolbarHost}
               hostKind="tab"
               hostId={`creative:${databaseId}`}
               // A section fills the page of its story: the whole width, cards, whole pages.

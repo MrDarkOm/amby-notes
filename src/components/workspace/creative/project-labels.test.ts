@@ -17,6 +17,7 @@ describe("project labels", () => {
       "property:parent": "Родитель",
       "property:order": "Порядок",
       "property:format": "Формат",
+      "property:status": "Статус",
       "level:book": "Книга",
       "level:arc": "Арка",
       "level:chapter": "Глава",
@@ -25,6 +26,9 @@ describe("project labels", () => {
       "format:screenplay": "Сценарий",
       "format:comic": "Комикс",
       "format:note": "Заметка",
+      "status:draft": "Черновик",
+      "status:inProgress": "В работе",
+      "status:done": "Готово",
     })
     expect(en["section:text"]).toBe("Text")
     expect(en["group:world"]).toBe("World")
@@ -35,12 +39,13 @@ describe("project labels", () => {
     expect(en["preset:portrait"]).toBe("Portrait")
     expect(en["view:gallery"]).toBe("Gallery")
     expect(en["property:parent"]).toBe("Parent")
+    expect(en["status:inProgress"]).toBe("In progress")
   })
 
   it("only uses keys the backend accepts", () => {
     for (const key of Object.keys(projectLabels(i18n.getFixedT("en")))) {
       expect(key).toMatch(
-        /^(section:(text|notes|characters|locations)|group:(work|world)|property:(level|parent|order|format)|level:(book|arc|chapter|page)|format:(manuscript|screenplay|comic|note)|preset:(importance|kind|portrait|image)|importance:(main|side|episode)|kind:(city|district|place|nature)|heading:(basic|traits|appearance|biography|description|history)|view:gallery|template:dossier)$/u,
+        /^(section:(text|notes|characters|locations)|group:(work|world)|property:(level|parent|order|format|status)|level:(book|arc|chapter|page)|format:(manuscript|screenplay|comic|note)|status:(draft|inProgress|done)|preset:(importance|kind|portrait|image)|importance:(main|side|episode)|kind:(city|district|place|nature)|heading:(basic|traits|appearance|biography|description|history)|view:gallery|template:dossier)$/u,
       )
     }
   })

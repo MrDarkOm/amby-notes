@@ -14,6 +14,7 @@ pub mod presets;
 pub mod props;
 pub mod recovery;
 pub mod references;
+pub mod settings;
 pub mod text;
 pub mod text_schema;
 pub mod text_stats;

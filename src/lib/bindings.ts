@@ -929,6 +929,46 @@ async listTextStats(databaseId: string) : Promise<Result<TextPageStat[], Project
     else return { status: "error", error: e  as any };
 }
 },
+async updateProject(request: UpdateProjectRequest) : Promise<Result<UpdatedProject, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_project", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async removeProjectSection(request: RemoveProjectSectionRequest) : Promise<Result<RemovedProjectSection, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("remove_project_section", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async reorderProjectSections(request: ReorderProjectSectionsRequest) : Promise<Result<ReorderedProjectSections, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reorder_project_sections", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async updateTextLevels(request: UpdateTextLevelsRequest) : Promise<Result<UpdatedTextLevels, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_text_levels", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async addTextStatus(request: AddTextStatusRequest) : Promise<Result<AddedTextStatus, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("add_text_status", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async openInExplorer(path: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("open_in_explorer", { path }) };
@@ -1312,6 +1352,8 @@ async flushDebugLogs() : Promise<Result<null, string>> {
 
 /** user-defined types **/
 
+export type AddTextStatusRequest = { expectedGeneration: number; operationId: string; projectId: string; expectedProjectRevision: string; labels?: Partial<{ [key in string]: string }> }
+export type AddedTextStatus = { operationId: string; projectId: string; propertyId: string; projectRevision: string; manifestRevision: string; replayed: boolean; warnings: string[] }
 export type AiChatError = { code: AiErrorCode; provider: string }
 export type AiConfig = { 
 /**
@@ -1661,6 +1703,18 @@ export type ProjectError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" }
  */
 { kind: "unsupportedPreset"; preset: string } | 
 /**
+ * The section is not listed in `sections` of the structure file.
+ */
+{ kind: "sectionNotFound"; sectionId: string } | 
+/**
+ * The text section is the spine of a story and cannot be removed from `sections`.
+ */
+{ kind: "cannotRemoveTextSection" } | 
+/**
+ * The story already has a `status` property configured in `text.properties.status`.
+ */
+{ kind: "statusAlreadyConfigured" } | 
+/**
  * The story has no text schema (no `text` block, or its database is not found).
  */
 { kind: "textNotConfigured" } | { kind: "unknownTextLevel"; levelId: string } | { kind: "unknownTextFormat"; formatId: string } | 
@@ -1730,7 +1784,11 @@ export type ProjectTextSummary = {
 /**
  * The database of the section with the role `text`.
  */
-databaseId: string | null; properties: TextPropertyIds; levels: TextLevelSummary[]; formats: TextFormatSummary[] }
+databaseId: string | null; properties: TextPropertyIds; levels: TextLevelSummary[]; formats: TextFormatSummary[]; 
+/**
+ * Options of `properties.status`, in property order; empty when `status` is not configured.
+ */
+statusOptions: TextStatusOptionSummary[] }
 /**
  * Version of the rebuildable database projection. DB-02 does not publish a
  * projection yet, but the typed boundary is established now.
@@ -1764,6 +1822,8 @@ export type RelationCandidate = { noteId: string; title: string;
  */
 path: string }
 export type RelationCandidatePage = { candidates: RelationCandidate[]; nextCursor: string | null }
+export type RemoveProjectSectionRequest = { expectedGeneration: number; operationId: string; projectId: string; expectedProjectRevision: string; sectionId: string }
+export type RemovedProjectSection = { operationId: string; projectId: string; sectionId: string; projectRevision: string; replayed: boolean; warnings: string[] }
 export type RenameDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; name: string }
 export type RenameDatabaseRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string }
 export type RenameDatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; name: string }
@@ -1771,7 +1831,9 @@ export type RenamedDatabase = { databaseId: string; title: string; manifestRevis
 export type RenamedDatabaseProperty = { databaseId: string; propertyId: string; name: string; manifestRevision: string; warnings: string[] }
 export type ReorderDatabasePropertiesRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; propertyIds: string[] }
 export type ReorderDatabaseViewsRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; viewIds: string[] }
+export type ReorderProjectSectionsRequest = { expectedGeneration: number; operationId: string; projectId: string; expectedProjectRevision: string; sectionIds: string[] }
 export type ReorderedDatabaseProperties = { databaseId: string; propertyIds: string[]; manifestRevision: string; warnings: string[] }
+export type ReorderedProjectSections = { operationId: string; projectId: string; sectionIds: string[]; projectRevision: string; replayed: boolean; warnings: string[] }
 export type ResolveDatabaseAssetPathsRequest = { expectedGeneration: number; databaseId: string; 
 /**
  * Stored `assets/<note-id>/<file>` paths from Files values.
@@ -1853,6 +1915,19 @@ export type TextLevelSummary = {
  * The option ID.
  */
 id: string; icon: string | null; name: string | null; color: string | null; state: TextEntryState }
+export type TextLevelUpdateInput = { 
+/**
+ * Existing option ID from `text.levels`, or `None` for a newly added level.
+ */
+id?: string | null; 
+/**
+ * Option name stored in the `level` Select property of the text database.
+ */
+name: string; 
+/**
+ * Optional encoded `IconValue` stored in `text.levels[].icon`.
+ */
+icon?: string | null }
 export type TextPageStat = { noteId: string; 
 /**
  * Words of the note's body as the index counted them when it last read the file.
@@ -1869,7 +1944,15 @@ created: number | null }
 /**
  * The system properties of the text database; each is present only if it exists there.
  */
-export type TextPropertyIds = { level: string | null; parent: string | null; order: string | null; format: string | null }
+export type TextPropertyIds = { level: string | null; parent: string | null; order: string | null; format: string | null; status: string | null }
+/**
+ * An option of the optional `status` property of the text database.
+ */
+export type TextStatusOptionSummary = { id: string; name: string; color: string; 
+/**
+ * `notStarted`, `inProgress` or `done`.
+ */
+group: string }
 export type TrashEntry = { id: string; originalPath: string; deletedAtMs: number; name: string }
 export type TreeItem = { id: string; path: string; name: string; type: string; icon: string; created?: number | null; modified?: number | null; children?: TreeItem[] | null }
 /**
@@ -1917,12 +2000,20 @@ options: DatabaseOptionInput[] }
 export type UpdateDatabaseRelationValueRequest = { expectedGeneration: number; operationId: string; expectedRevision: string; databaseId: string; noteId: string; propertyId: string; targetNoteIds: string[] }
 export type UpdateDatabaseRelationValueResult = { operationId: string; databaseId: string; noteId: string; targetNoteIds: string[]; affectedNotes: DatabaseAffectedNote[]; revisions: DatabaseNoteRevision[]; warnings: string[] }
 export type UpdateDatabaseViewConfigRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; configJson: string }
+export type UpdateProjectRequest = { expectedGeneration: number; operationId: string; projectId: string; expectedProjectRevision: string; name?: string | null; 
+/**
+ * `None` leaves the icon unchanged; `Some("")` removes the icon; `Some(v)` sets it.
+ */
+icon?: string | null; tags?: string[] | null }
+export type UpdateTextLevelsRequest = { expectedGeneration: number; operationId: string; projectId: string; expectedProjectRevision: string; levels: TextLevelUpdateInput[] }
 export type UpdatedDatabasePropertyConfig = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
 export type UpdatedDatabasePropertyOptions = { databaseId: string; propertyId: string; manifestRevision: string; 
 /**
  * The saved list in order, with IDs assigned to the new options.
  */
 options: DatabaseOptionResult[]; warnings: string[] }
+export type UpdatedProject = { operationId: string; projectId: string; name: string; icon: string | null; tags: string[]; projectRevision: string; replayed: boolean; warnings: string[] }
+export type UpdatedTextLevels = { operationId: string; projectId: string; projectRevision: string; manifestRevision: string; levelIds: string[]; replayed: boolean; warnings: string[] }
 export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
 /**
  * Failure of the generic file write. `RevisionConflict` means the bytes on

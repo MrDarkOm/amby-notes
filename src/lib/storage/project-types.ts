@@ -3,6 +3,8 @@ import type { ProjectError } from "@/lib/bindings"
 // The contract lives in Rust (`src-tauri/src/project/model.rs`); the types are
 // the generated ones so the two sides cannot drift apart.
 export type {
+  AddTextStatusRequest,
+  AddedTextStatus,
   CreateProjectRequest,
   CreateProjectSectionRequest,
   CreatedProject,
@@ -22,12 +24,22 @@ export type {
   ProjectSectionSummary,
   ProjectSummary,
   ProjectTextSummary,
+  RemoveProjectSectionRequest,
+  RemovedProjectSection,
+  ReorderProjectSectionsRequest,
+  ReorderedProjectSections,
   SectionState,
   TextEntryState,
   TextFormatSummary,
   TextLevelSummary,
+  TextLevelUpdateInput,
   TextPageStat,
   TextPropertyIds,
+  TextStatusOptionSummary,
+  UpdateProjectRequest,
+  UpdateTextLevelsRequest,
+  UpdatedProject,
+  UpdatedTextLevels,
 } from "@/lib/bindings"
 
 /** Payload of the `project:changed` event: a structure file or a whole folder moved. */
@@ -83,8 +95,14 @@ export function projectErrorMessage(error: ProjectError): string {
       return `Unknown project group ${error.groupId}`
     case "unsupportedRole":
       return `Unsupported section role ${error.role}`
+    case "sectionNotFound":
+      return `Section ${error.sectionId} was not found in the project`
+    case "cannotRemoveTextSection":
+      return "The text section of a story cannot be removed"
     case "textNotConfigured":
       return "The story has no text schema"
+    case "statusAlreadyConfigured":
+      return "The story text already has a status property"
     case "unknownTextLevel":
       return `Unknown text level ${error.levelId}`
     case "unknownTextFormat":

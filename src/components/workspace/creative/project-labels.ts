@@ -18,17 +18,32 @@ export function projectLabels(t: TFunction): Record<string, string> {
   }
 }
 
-const PROPERTY_KEYS = ["level", "parent", "order", "format"] as const
+const PROPERTY_KEYS = ["level", "parent", "order", "format", "status"] as const
 const LEVEL_KEYS = ["book", "arc", "chapter", "page"] as const
 const FORMAT_KINDS = ["manuscript", "screenplay", "comic", "note"] as const
+const STATUS_KEYS = ["draft", "inProgress", "done"] as const
 
 /**
- * Names of the text schema: its four properties, the preset levels and the page formats.
- * They become names inside the database (and keys in the notes' frontmatter), so they too
- * are resolved from the active language when the text is created.
+ * Names of the status property and its three options in the active language, used when adding
+ * the status property to an existing story or creating a new one.
+ */
+export function statusLabels(t: TFunction): Record<string, string> {
+  const labels: Record<string, string> = {
+    "property:status": t("creative.schema.properties.status"),
+  }
+  for (const key of STATUS_KEYS) {
+    labels[`status:${key}`] = t(`creative.schema.statuses.${key}`)
+  }
+  return labels
+}
+
+/**
+ * Names of the text schema: its five properties, the preset levels, the page formats and
+ * the status options. They become names inside the database (and keys in the notes' frontmatter),
+ * so they too are resolved from the active language when the text is created.
  */
 function schemaLabels(t: TFunction): Record<string, string> {
-  const labels: Record<string, string> = {}
+  const labels: Record<string, string> = { ...statusLabels(t) }
   for (const key of PROPERTY_KEYS)
     labels[`property:${key}`] = t(`creative.schema.properties.${key}`)
   for (const key of LEVEL_KEYS) labels[`level:${key}`] = t(`creative.schema.levels.${key}`)

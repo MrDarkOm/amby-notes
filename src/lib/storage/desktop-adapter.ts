@@ -8,6 +8,8 @@ import { FileRevisionConflictError, NoteRevisionConflictError } from "./types"
 import { unwrapDatabaseCommand } from "./database-port"
 import { unwrapProjectCommand } from "./project-port"
 import type {
+  AddTextStatusRequest,
+  AddedTextStatus,
   CreateProjectRequest,
   CreateProjectSectionRequest,
   CreatedProject,
@@ -17,7 +19,15 @@ import type {
   MoveTextPageRequest,
   MovedTextPage,
   NoteReference,
+  RemoveProjectSectionRequest,
+  RemovedProjectSection,
+  ReorderProjectSectionsRequest,
+  ReorderedProjectSections,
   TextPageStat,
+  UpdateProjectRequest,
+  UpdateTextLevelsRequest,
+  UpdatedProject,
+  UpdatedTextLevels,
   ProjectCatalog,
 } from "./project-types"
 import type {
@@ -490,6 +500,49 @@ export class DesktopAdapter implements StoragePort {
         role: request.role ?? null,
         groupId: request.groupId ?? null,
         preset: request.preset ?? null,
+        labels: request.labels ?? {},
+      }),
+    )
+  }
+
+  async updateProject(request: UpdateProjectRequest): Promise<UpdatedProject> {
+    return unwrapProjectCommand(
+      await commands.updateProject({
+        ...request,
+        name: request.name ?? null,
+        icon: request.icon ?? null,
+        tags: request.tags ?? null,
+      }),
+    )
+  }
+
+  async removeProjectSection(request: RemoveProjectSectionRequest): Promise<RemovedProjectSection> {
+    return unwrapProjectCommand(await commands.removeProjectSection(request))
+  }
+
+  async reorderProjectSections(
+    request: ReorderProjectSectionsRequest,
+  ): Promise<ReorderedProjectSections> {
+    return unwrapProjectCommand(await commands.reorderProjectSections(request))
+  }
+
+  async updateTextLevels(request: UpdateTextLevelsRequest): Promise<UpdatedTextLevels> {
+    return unwrapProjectCommand(
+      await commands.updateTextLevels({
+        ...request,
+        levels: request.levels.map((level) => ({
+          id: level.id ?? null,
+          name: level.name,
+          icon: level.icon ?? null,
+        })),
+      }),
+    )
+  }
+
+  async addTextStatus(request: AddTextStatusRequest): Promise<AddedTextStatus> {
+    return unwrapProjectCommand(
+      await commands.addTextStatus({
+        ...request,
         labels: request.labels ?? {},
       }),
     )

@@ -108,6 +108,15 @@ pub enum ProjectError {
     UnsupportedPreset {
         preset: String,
     },
+    /// The section is not listed in `sections` of the structure file.
+    SectionNotFound {
+        #[serde(rename = "sectionId")]
+        section_id: String,
+    },
+    /// The text section is the spine of a story and cannot be removed from `sections`.
+    CannotRemoveTextSection,
+    /// The story already has a `status` property configured in `text.properties.status`.
+    StatusAlreadyConfigured,
     /// The story has no text schema (no `text` block, or its database is not found).
     TextNotConfigured,
     UnknownTextLevel {
@@ -205,6 +214,18 @@ impl std::fmt::Display for ProjectError {
             ProjectError::UnsupportedRole { role } => write!(formatter, "Unsupported role {role}"),
             ProjectError::UnsupportedPreset { preset } => {
                 write!(formatter, "Unsupported section preset {preset}")
+            }
+            ProjectError::SectionNotFound { section_id } => {
+                write!(formatter, "Section {section_id} was not found")
+            }
+            ProjectError::CannotRemoveTextSection => {
+                write!(formatter, "The text section of a story cannot be removed")
+            }
+            ProjectError::StatusAlreadyConfigured => {
+                write!(
+                    formatter,
+                    "Page status is already configured for this story"
+                )
             }
             ProjectError::TextNotConfigured => write!(formatter, "The story has no text schema"),
             ProjectError::UnknownTextLevel { level_id } => {
@@ -314,6 +335,17 @@ pub struct TextFormatSummary {
     pub state: TextEntryState,
 }
 
+/// An option of the optional `status` property of the text database.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TextStatusOptionSummary {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    /// `notStarted`, `inProgress` or `done`.
+    pub group: String,
+}
+
 /// The system properties of the text database; each is present only if it exists there.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -322,6 +354,7 @@ pub struct TextPropertyIds {
     pub parent: Option<String>,
     pub order: Option<String>,
     pub format: Option<String>,
+    pub status: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
@@ -332,6 +365,8 @@ pub struct ProjectTextSummary {
     pub properties: TextPropertyIds,
     pub levels: Vec<TextLevelSummary>,
     pub formats: Vec<TextFormatSummary>,
+    /// Options of `properties.status`, in property order; empty when `status` is not configured.
+    pub status_options: Vec<TextStatusOptionSummary>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
@@ -567,5 +602,138 @@ pub struct MovedTextPage {
     pub order_key: String,
     /// The page's revision after the write.
     pub revision: String,
+    pub warnings: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Project settings & text schema updates (write side)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateProjectRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub project_id: String,
+    pub expected_project_revision: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    /// `None` leaves the icon unchanged; `Some("")` removes the icon; `Some(v)` sets it.
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedProject {
+    pub operation_id: String,
+    pub project_id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub tags: Vec<String>,
+    pub project_revision: String,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveProjectSectionRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub project_id: String,
+    pub expected_project_revision: String,
+    pub section_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedProjectSection {
+    pub operation_id: String,
+    pub project_id: String,
+    pub section_id: String,
+    pub project_revision: String,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderProjectSectionsRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub project_id: String,
+    pub expected_project_revision: String,
+    pub section_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderedProjectSections {
+    pub operation_id: String,
+    pub project_id: String,
+    pub section_ids: Vec<String>,
+    pub project_revision: String,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TextLevelUpdateInput {
+    /// Existing option ID from `text.levels`, or `None` for a newly added level.
+    #[serde(default)]
+    pub id: Option<String>,
+    /// Option name stored in the `level` Select property of the text database.
+    pub name: String,
+    /// Optional encoded `IconValue` stored in `text.levels[].icon`.
+    #[serde(default)]
+    pub icon: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTextLevelsRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub project_id: String,
+    pub expected_project_revision: String,
+    pub levels: Vec<TextLevelUpdateInput>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedTextLevels {
+    pub operation_id: String,
+    pub project_id: String,
+    pub project_revision: String,
+    pub manifest_revision: String,
+    pub level_ids: Vec<String>,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddTextStatusRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub project_id: String,
+    pub expected_project_revision: String,
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedTextStatus {
+    pub operation_id: String,
+    pub project_id: String,
+    pub property_id: String,
+    pub project_revision: String,
+    pub manifest_revision: String,
+    pub replayed: bool,
     pub warnings: Vec<String>,
 }

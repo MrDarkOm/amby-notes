@@ -17,6 +17,7 @@ and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The 
 | Scopes, section grouping (pure)         | [project-tree-model.ts](project-tree-model.ts)                                                                 |
 | Workshop: tabs, lists, text tree        | [workshop/](workshop/): `workshop-pane.tsx` composes; models are `workshop-model.ts`, `text-tree-model.ts`     |
 | Project tab: header, sections, overview | [project-page.tsx](project-page.tsx); a story's desk: [project-desk.tsx](project-desk.tsx)                     |
+| Project settings dialog                 | [project-settings-dialog.tsx](project-settings-dialog.tsx)                                                     |
 | Words and last-change time of pages     | [use-text-stats.ts](use-text-stats.ts) (one read-only call over the note index)                                |
 | Create project / section                | [create-project-dialog.tsx](create-project-dialog.tsx), [create-section-dialog.tsx](create-section-dialog.tsx) |
 | Text schema of a new story (levels)     | [text-schema-presets.ts](text-schema-presets.ts); chosen in `create-project-dialog.tsx`                        |
@@ -35,8 +36,9 @@ call `onCreativeChanged` (tree and database catalog) and then the store's `refre
 then open the page, so it never opens on a project the catalog does not know yet.
 
 **The page does not own a database view.** A section is rendered by the shell's
-`renderDatabase` as the ordinary `DatabaseWorkspace` (with `hideHeader`), so every layout,
-filter and row action is the database's own. A project tab is `kind: "creative"` with
+`renderDatabase` as the ordinary `DatabaseWorkspace` (with `hideHeader` and `toolbarHost`), so every layout,
+filter and row action is the database's own while its view settings icon sits at the right end of the
+section tabs bar (using the compact toolbar actions inside `ViewSettingsPanel`). A project tab is `kind: "creative"` with
 `fileId` `creative:<projectId>`; the section shown is `creative-nav-store`.
 
 **File tree.** Creative folders are ordinary folders on disk, so the module marks them in a view-only
@@ -70,10 +72,14 @@ picture shows a 20 px round face on every row (`portrait-dot.tsx`: `resolveGalle
 initials; one batched resolver per database, only rows of unfolded categories). Lists read the
 databases through the ordinary query; nothing keeps a copy of a page. Unfolded parts and the switch are
 remembered per vault (`works`: "text", "anchors", "notes"; the older "books"/"arcs" read as "text").
-Every page row has a context menu (`item-menu.tsx`: open, open in a new tab, rename, delete; a page with
-pages below it is deleted with them, after one confirmation naming them); the empty space has one that
-creates with the "Create" options (`useChooserOptions`: a page or a world page first, a story, section,
-universe, collection after).
+Every page row has a context menu (`item-menu.tsx`: open, open in a new tab, rename, delete, and for text
+pages with a `status` property, status options written via `applyDatabaseValueBatch`; a page with
+pages below it is deleted with them, after one confirmation naming them); a leaf text page's dot is colored
+by its status group (`pageStatusDotClass` from `text-tree-model.ts`, falling back to word-count presence
+when the story has no status property); the empty space has a menu that
+creates with the "Create" options (`useChooserOptions`: a page or a world page first as a 2-column tile grid
+with section role icons in `create-chooser-dialog.tsx`, a story, section, universe, collection after as
+compact menu rows).
 
 **Creating where it will stand.** A page, note, anchor or world page is named on a row of its own
 (`inline-create-row.tsx`, one `WorkshopDraft` in `workshop-pane.tsx`): Enter creates, Escape cancels, a
@@ -93,6 +99,12 @@ as `level:*` labels, which the backend limits to the template's four). `levelsPr
 the backend refuses (empty, repeated, more than six) so Create stays disabled; the list is part of
 the operation-ID payload. Nothing in the panel assumes four levels.
 
+**Project settings.** `project-settings-dialog.tsx` opens from the "Settings" button in `project-page.tsx`
+(disabled on read-only projects) with tabs for basics (`updateProject`: name, icon, tags), sections
+(`reorderProjectSections`, `removeProjectSection` without deleting the database folder), and, on a story
+with a text section, text levels (`updateTextLevels`: rename, change icon, reorder, add, remove unused
+levels) and adding the `status` property (`addTextStatus`) to older stories.
+
 **Operation IDs.** One per intent: a retry of the same request reuses it (Rust then returns
 the recorded answer), a changed request gets a new one because Rust refuses to reuse an ID
 for a different payload.
@@ -108,7 +120,8 @@ blocks out by the width of its own pane.
 document by tree depth (it reads, it never writes; a page it cannot read stops it, naming the page).
 
 **Story desk.** The overview of a story with a text is `ProjectDesk`: the pages changed last
-("continue with"), pages and words of the text and of each top-level page, and "Compile manuscript":
+("continue with"), pages, words, done pages (`done` status group count when the text has a `status`
+property) of the text and of each top-level page, and "Compile manuscript":
 `readNote` for every page in tree order, then `exportTextFile` (the save dialog), so a new file is the
 only thing written. The numbers come from `list_text_stats` (note index), not from reading files.
 

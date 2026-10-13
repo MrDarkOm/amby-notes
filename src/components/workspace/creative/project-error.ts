@@ -50,8 +50,14 @@ export function projectErrorText(t: TFunction, error: unknown): string {
       return t("creative.errors.vaultChanged")
     case "invalidParent":
       return t("creative.errors.invalidParent")
+    case "sectionNotFound":
+      return t("creative.errors.sectionNotFound")
+    case "cannotRemoveTextSection":
+      return t("creative.errors.cannotRemoveTextSection")
     case "textNotConfigured":
       return t("creative.errors.textNotConfigured")
+    case "statusAlreadyConfigured":
+      return t("creative.errors.statusAlreadyConfigured")
     case "unknownTextLevel":
       return t("creative.errors.unknownTextLevel")
     case "unknownTextFormat":

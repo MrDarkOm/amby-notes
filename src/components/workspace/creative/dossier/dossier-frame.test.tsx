@@ -87,9 +87,10 @@ const story = project("molehills", {
   name: "MoleHills",
   text: {
     databaseId: "db_text",
-    properties: { level: null, parent: null, order: null, format: null },
+    properties: { level: null, parent: null, order: null, format: null, status: null },
     levels: [],
     formats: [],
+    statusOptions: [],
   },
   sections: [
     section("characters", { role: "characters", databaseName: "Персонажи" }),

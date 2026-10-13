@@ -1,5 +1,5 @@
 import * as React from "react"
-import { ExternalLink, FileText, Pencil, Trash2 } from "lucide-react"
+import { Check, ExternalLink, FileText, Pencil, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
   ContextMenu,
@@ -8,6 +8,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import type { TextStatusOptionSummary } from "@/lib/storage"
+import { cn } from "@/lib/utils"
 import { ItemActionsContext } from "./item-actions"
 
 /**
@@ -72,6 +74,9 @@ export function ItemMenu({
   title,
   nested = [],
   indent = 30,
+  statusOptions,
+  statusOptionId,
+  onSelectStatus,
   children,
 }: {
   noteId: string
@@ -80,6 +85,12 @@ export function ItemMenu({
   indent?: number
   /** IDs of the pages below this one, at any depth. */
   nested?: string[]
+  /** Available page status options when the story has status configured. */
+  statusOptions?: TextStatusOptionSummary[]
+  /** Currently selected status option ID for this page. */
+  statusOptionId?: string | null
+  /** Sets or clears (`null`) the page's status option. */
+  onSelectStatus?: (optionId: string | null) => void
   /** The row; it receives the trigger's props. */
   children: React.ReactElement<{ onContextMenu?: React.MouseEventHandler }>
 }) {
@@ -99,6 +110,8 @@ export function ItemMenu({
     else void actions.onDelete?.(noteId)
   }
   const canDelete = nested.length > 0 ? canDeleteWithNested : Boolean(actions.onDelete)
+  const hasStatusChoices =
+    Boolean(onSelectStatus) && Boolean(statusOptions && statusOptions.length > 0)
   if (renaming && actions.onRename) {
     return (
       <InlineRename
@@ -139,6 +152,31 @@ export function ItemMenu({
               <Pencil className="size-3.5 text-muted-foreground" />
               {t("creative.workshop.menu.rename")}
             </ContextMenuItem>
+          )}
+          {hasStatusChoices && statusOptions && onSelectStatus && (
+            <>
+              <ContextMenuSeparator />
+              {statusOptions.map((option) => {
+                const active = statusOptionId === option.id
+                const dotClass =
+                  option.group === "done"
+                    ? "bg-emerald-500"
+                    : option.group === "inProgress"
+                      ? "bg-amber-500"
+                      : "border border-muted-foreground/60"
+                return (
+                  <ContextMenuItem
+                    key={option.id}
+                    className="gap-2 text-[13px]"
+                    onSelect={() => onSelectStatus(active ? null : option.id)}
+                  >
+                    <span aria-hidden="true" className={cn("size-2 rounded-full", dotClass)} />
+                    <span className="flex-1 truncate">{option.name}</span>
+                    {active && <Check className="size-3.5 text-primary" />}
+                  </ContextMenuItem>
+                )
+              })}
+            </>
           )}
           {canDelete && (
             <>

@@ -1,5 +1,14 @@
 import * as React from "react"
-import { AlertTriangle, BookOpen, Feather, Globe2, Layers, Lock, Plus } from "lucide-react"
+import {
+  AlertTriangle,
+  BookOpen,
+  Feather,
+  Globe2,
+  Layers,
+  Lock,
+  Plus,
+  Settings,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -8,6 +17,7 @@ import { IconValue } from "../icon-value"
 import { useDatabaseStore } from "../database/database-store"
 import { CreateSectionDialog } from "./create-section-dialog"
 import { ProjectDesk } from "./project-desk"
+import { ProjectSettingsDialog } from "./project-settings-dialog"
 import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative-nav-store"
 import { useProjectStore } from "./project-store"
 import { groupSections, storiesOfCollection, type SidebarSection } from "./project-tree-model"
@@ -18,6 +28,8 @@ export interface SectionDatabaseProps {
   title: string
   /** The project is open for reading only: nothing about the section may be written. */
   readOnly: boolean
+  /** Slot at the right of the section tabs row for the database's compact settings button. */
+  toolbarHost?: HTMLElement | null
 }
 
 interface ProjectPageProps {
@@ -97,6 +109,8 @@ export function ProjectPage({
   const selected = useCreativeNavStore((state) => state.sectionByProject[projectId])
   const showSection = useCreativeNavStore((state) => state.showSection)
   const [addingSection, setAddingSection] = React.useState(false)
+  const [editingSettings, setEditingSettings] = React.useState(false)
+  const [toolbarHost, setToolbarHost] = React.useState<HTMLDivElement | null>(null)
   const project = catalog?.projects.find((candidate) => candidate.projectId === projectId) ?? null
 
   if (!project) {
@@ -159,10 +173,22 @@ export function ProjectPage({
             </p>
           </div>
           {!project.readOnly && (
-            <Button variant="outline" size="sm" onClick={() => setAddingSection(true)}>
-              <Plus className="size-3.5" />
-              {t("creative.panel.newSection")}
-            </Button>
+            <div className="flex items-center gap-1.5">
+              <Button variant="outline" size="sm" onClick={() => setAddingSection(true)}>
+                <Plus className="size-3.5" />
+                {t("creative.panel.newSection")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground hover:text-foreground"
+                aria-label={t("creative.page.settings")}
+                title={t("creative.page.settings")}
+                onClick={() => setEditingSettings(true)}
+              >
+                <Settings className="size-4" />
+              </Button>
+            </div>
           )}
         </div>
         {project.readOnly && (
@@ -171,48 +197,51 @@ export function ProjectPage({
             {t("creative.page.readOnlyBanner", { version: project.formatVersion })}
           </p>
         )}
-        <nav
-          aria-label={t("creative.page.sections")}
-          className="flex min-w-0 items-center gap-1 overflow-x-auto pb-1"
-        >
-          <button
-            type="button"
-            className={tabClass(active === OVERVIEW_SECTION)}
-            aria-current={active === OVERVIEW_SECTION ? "page" : undefined}
-            onClick={() => showSection(projectId, OVERVIEW_SECTION)}
+        <div className="flex min-w-0 items-center gap-2 pb-1">
+          <nav
+            aria-label={t("creative.page.sections")}
+            className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
           >
-            {t("creative.page.overview")}
-          </button>
-          {groups.map((group) => (
-            <React.Fragment key={group.id ?? "loose"}>
-              {group.name && (
-                <span
-                  aria-hidden="true"
-                  title={group.name}
-                  className="mx-1.5 h-4 w-px shrink-0 self-center bg-border"
-                />
-              )}
-              {group.sections.map((section) => {
-                const Icon = sectionRoleIcon(section.role)
-                return (
-                  <button
-                    key={section.id}
-                    type="button"
-                    className={tabClass(active === section.id)}
-                    aria-current={active === section.id ? "page" : undefined}
-                    onClick={() => showSection(projectId, section.id)}
-                  >
-                    <Icon className="size-3.5" />
-                    {section.name}
-                    {section.state === "missing" && (
-                      <AlertTriangle className="size-3 text-amber-600 dark:text-amber-500" />
-                    )}
-                  </button>
-                )
-              })}
-            </React.Fragment>
-          ))}
-        </nav>
+            <button
+              type="button"
+              className={tabClass(active === OVERVIEW_SECTION)}
+              aria-current={active === OVERVIEW_SECTION ? "page" : undefined}
+              onClick={() => showSection(projectId, OVERVIEW_SECTION)}
+            >
+              {t("creative.page.overview")}
+            </button>
+            {groups.map((group) => (
+              <React.Fragment key={group.id ?? "loose"}>
+                {group.name && (
+                  <span
+                    aria-hidden="true"
+                    title={group.name}
+                    className="mx-1.5 h-4 w-px shrink-0 self-center bg-border"
+                  />
+                )}
+                {group.sections.map((section) => {
+                  const Icon = sectionRoleIcon(section.role)
+                  return (
+                    <button
+                      key={section.id}
+                      type="button"
+                      className={tabClass(active === section.id)}
+                      aria-current={active === section.id ? "page" : undefined}
+                      onClick={() => showSection(projectId, section.id)}
+                    >
+                      <Icon className="size-3.5" />
+                      {section.name}
+                      {section.state === "missing" && (
+                        <AlertTriangle className="size-3 text-amber-600 dark:text-amber-500" />
+                      )}
+                    </button>
+                  )
+                })}
+              </React.Fragment>
+            ))}
+          </nav>
+          <div ref={setToolbarHost} className="ml-auto flex shrink-0 items-center" />
+        </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
@@ -228,6 +257,7 @@ export function ProjectPage({
                 databaseId: activeSection.databaseId,
                 title: activeSection.name,
                 readOnly: project.readOnly,
+                toolbarHost,
               })}
             </div>
           )
@@ -304,6 +334,17 @@ export function ProjectPage({
               showSection(projectId, created.section.sectionId)
             })()
           }}
+        />
+      )}
+
+      {editingSettings && (
+        <ProjectSettingsDialog
+          open
+          onClose={() => setEditingSettings(false)}
+          vaultGeneration={vaultGeneration}
+          project={project}
+          onChanged={onChanged}
+          onAddSection={() => setAddingSection(true)}
         />
       )}
     </div>

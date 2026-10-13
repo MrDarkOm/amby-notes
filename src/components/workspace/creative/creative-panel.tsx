@@ -28,6 +28,7 @@ import {
 } from "./project-tree-model"
 import type { NewProjectKind } from "./project-labels"
 import { useProjectStore } from "./project-store"
+import { sectionRoleIcon } from "./section-icons"
 import {
   defaultSource,
   entityTabs,
@@ -201,6 +202,7 @@ export function CreativePanel({
       value: `entity:${category.key}`,
       title: t("creative.workshop.newEntity", { name: category.name }),
       hint: t("creative.workshop.newEntityHint", { where: source.project.name }),
+      icon: sectionRoleIcon(category.role),
     })
   }
   if (selectedStory && !selectedStory.readOnly && selectedStory.text?.databaseId) {

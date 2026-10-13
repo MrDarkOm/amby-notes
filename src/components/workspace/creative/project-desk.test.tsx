@@ -40,12 +40,13 @@ const story = project("hills", {
   name: "MoleHills",
   text: {
     databaseId: "db_text",
-    properties: { level: "lvl", parent: "par", order: "ord", format: null },
+    properties: { level: "lvl", parent: "par", order: "ord", format: null, status: null },
     levels: [
       { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },
       { id: "chapter", icon: null, name: "Глава", color: null, state: "ok" as const },
     ],
     formats: [],
+    statusOptions: [],
   },
   sections: [section("text", { role: "text", databaseId: "db_text", databaseName: "Текст" })],
 })
@@ -193,5 +194,47 @@ describe("ProjectDesk", () => {
     renderDesk(vi.fn(), null)
     await screen.findByRole("region", { name: "Текст" })
     expect(screen.queryByRole("button", { name: "Собрать рукопись" })).toBeNull()
+  })
+
+  it("shows the done page count tile when page status is configured", async () => {
+    const storyWithStatus = project("hills", {
+      ...story,
+      text: {
+        ...story.text!,
+        properties: { ...story.text!.properties, status: "stat" },
+        statusOptions: [
+          { id: "st_draft", name: "Черновик", color: "gray", group: "notStarted" },
+          { id: "st_wip", name: "В работе", color: "amber", group: "inProgress" },
+          { id: "st_done", name: "Готово", color: "green", group: "done" },
+        ],
+      },
+    })
+    queryDatabase.mockResolvedValue({
+      rows: [
+        row("b1", "Книга первая", {
+          lvl: { type: "select", optionId: "book" },
+          ord: { type: "text", value: "a0" },
+          stat: { type: "status", optionId: "st_done" },
+        }),
+        row("c1", "Глава первая", {
+          lvl: { type: "select", optionId: "chapter" },
+          par: { type: "relation", targetNoteIds: ["b1"] },
+          ord: { type: "text", value: "a0" },
+          stat: { type: "status", optionId: "st_done" },
+        }),
+        row("c2", "Глава вторая", {
+          lvl: { type: "select", optionId: "chapter" },
+          par: { type: "relation", targetNoteIds: ["b1"] },
+          ord: { type: "text", value: "a1" },
+          stat: { type: "status", optionId: "st_wip" },
+        }),
+      ],
+      nextCursor: null,
+      totalCount: 3,
+      diagnostics: [],
+    })
+    render(<ProjectDesk project={storyWithStatus} vaultPath="/vault" onOpenNote={vi.fn()} />)
+    await screen.findByRole("region", { name: "Текст" })
+    await waitFor(() => expect(screen.getByText("Готово: 2 из 3")).toBeTruthy())
   })
 })

@@ -156,7 +156,10 @@ fn a_story_text_is_created_with_its_system_properties_and_the_block_that_names_t
         .iter()
         .map(|property| property.name().unwrap().to_owned())
         .collect::<Vec<_>>();
-    assert_eq!(names, ["Уровень", "Родитель", "Порядок", "Формат"]);
+    assert_eq!(
+        names,
+        ["Уровень", "Родитель", "Порядок", "Формат", "Статус"]
+    );
 
     let block = text.block();
     let properties = &block["properties"];
@@ -165,6 +168,7 @@ fn a_story_text_is_created_with_its_system_properties_and_the_block_that_names_t
         ("parent", "Родитель"),
         ("order", "Порядок"),
         ("format", "Формат"),
+        ("status", "Статус"),
     ] {
         let id = properties[key].as_str().unwrap();
         assert!(ulid::Ulid::from_string(id).is_ok(), "{key} is a ULID");
@@ -252,6 +256,7 @@ fn the_names_follow_the_labels_of_the_active_language() {
         ("property:parent".to_owned(), "Parent".to_owned()),
         ("property:order".to_owned(), "Order".to_owned()),
         ("property:format".to_owned(), "Format".to_owned()),
+        ("property:status".to_owned(), "Status".to_owned()),
         ("level:book".to_owned(), "Book".to_owned()),
         ("level:arc".to_owned(), "Arc".to_owned()),
         ("level:chapter".to_owned(), "Chapter".to_owned()),
@@ -260,6 +265,9 @@ fn the_names_follow_the_labels_of_the_active_language() {
         ("format:screenplay".to_owned(), "Screenplay".to_owned()),
         ("format:comic".to_owned(), "Comic".to_owned()),
         ("format:note".to_owned(), "Note".to_owned()),
+        ("status:draft".to_owned(), "Draft".to_owned()),
+        ("status:inProgress".to_owned(), "In progress".to_owned()),
+        ("status:done".to_owned(), "Done".to_owned()),
     ]);
     fixture.create(&request).unwrap();
     let manifest = parse_manifest(&fs::read(fixture.vault.join("Saga/Текст/Текст.json")).unwrap())
@@ -270,7 +278,7 @@ fn the_names_follow_the_labels_of_the_active_language() {
         .iter()
         .map(|p| p.name().unwrap())
         .collect::<Vec<_>>();
-    assert_eq!(names, ["Level", "Parent", "Order", "Format"]);
+    assert_eq!(names, ["Level", "Parent", "Order", "Format", "Status"]);
     let level = serde_json::to_value(&manifest.properties[0]).unwrap();
     let options = level["config"]["options"].as_array().unwrap();
     assert_eq!(
@@ -314,7 +322,7 @@ fn a_story_without_base_sections_gets_the_schema_when_its_text_is_added() {
     let manifest = parse_manifest(&fs::read(fixture.vault.join("Saga/Текст/Текст.json")).unwrap())
         .unwrap()
         .value;
-    assert_eq!(manifest.properties.len(), 4);
+    assert_eq!(manifest.properties.len(), 5);
     assert_eq!(
         added.section.manifest_revision,
         raw_revision(&fs::read(fixture.vault.join("Saga/Текст/Текст.json")).unwrap())
@@ -368,7 +376,7 @@ fn a_failure_or_crash_while_creating_the_text_keeps_the_same_schema_on_repeat() 
         let manifest =
             parse_manifest(&fs::read(fixture.vault.join("Saga/Текст/Текст.json")).unwrap())
                 .unwrap();
-        assert_eq!(manifest.value.properties.len(), 4);
+        assert_eq!(manifest.value.properties.len(), 5);
         assert_eq!(done.section.manifest_revision, manifest.revision);
     }
 }
@@ -1473,4 +1481,318 @@ fn a_repeat_after_an_unrecovered_crash_reuses_the_planned_levels() {
     fixture.create(&request).unwrap();
     let doc: Value = serde_json::from_slice(&fixture.project_bytes("Saga")).unwrap();
     assert_eq!(doc["text"]["levels"], planned["levels"]);
+}
+
+// ---------------------------------------------------------------------------
+// Project settings & text status operations
+// ---------------------------------------------------------------------------
+
+use super::model::{
+    AddTextStatusRequest, RemoveProjectSectionRequest, ReorderProjectSectionsRequest,
+    TextLevelUpdateInput, UpdateProjectRequest, UpdateTextLevelsRequest,
+};
+use super::settings::{
+    add_text_status, remove_project_section, reorder_project_sections, update_project,
+    update_text_levels,
+};
+
+#[test]
+fn update_project_edits_name_icon_and_tags_while_preserving_unknown_fields_and_bom() {
+    let text = Text::new();
+    let path = text.fixture.vault.join("Saga").join(PROJECT_FILE_NAME);
+    let mut doc: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    doc["x-custom"] = json!({"keep": 42});
+    let mut bytes = b"\xEF\xBB\xBF".to_vec();
+    bytes.extend(serde_json::to_vec_pretty(&doc).unwrap());
+    bytes.push(b'\n');
+    fs::write(&path, &bytes).unwrap();
+    let rev = raw_revision(&bytes);
+
+    let updated = update_project(
+        &text.fixture.env(),
+        &UpdateProjectRequest {
+            expected_generation: 1,
+            operation_id: "op-update-1".to_owned(),
+            project_id: text.created.project_id.clone(),
+            expected_project_revision: rev,
+            name: Some("Хроники".to_owned()),
+            icon: Some("lucide:Sparkles".to_owned()),
+            tags: Some(vec!["фэнтези".to_owned(), "сериал".to_owned()]),
+        },
+    )
+    .unwrap();
+    assert!(!updated.replayed);
+
+    let raw_after = fs::read(&path).unwrap();
+    assert!(
+        raw_after.starts_with(b"\xEF\xBB\xBF"),
+        "UTF-8 BOM preserved"
+    );
+    assert_eq!(raw_revision(&raw_after), updated.project_revision);
+    let after: Value = serde_json::from_slice(&raw_after[3..]).unwrap();
+    assert_eq!(after["name"], "Хроники");
+    assert_eq!(after["icon"], "lucide:Sparkles");
+    assert_eq!(after["tags"], json!(["фэнтези", "сериал"]));
+    assert_eq!(after["x-custom"], json!({"keep": 42}));
+    assert!(
+        text.fixture.vault.join("Saga").is_dir(),
+        "folder on disk is not renamed"
+    );
+}
+
+#[test]
+fn remove_and_reorder_sections_update_only_the_project_file_and_forbid_removing_text() {
+    let text = Text::new();
+    let text_sec = text
+        .created
+        .sections
+        .iter()
+        .find(|s| s.role.as_deref() == Some("text"))
+        .unwrap();
+    let other_sec = text
+        .created
+        .sections
+        .iter()
+        .find(|s| s.role.as_deref() != Some("text"))
+        .unwrap();
+
+    // Removing the text section is forbidden.
+    let err = remove_project_section(
+        &text.fixture.env(),
+        &RemoveProjectSectionRequest {
+            expected_generation: 1,
+            operation_id: "op-rm-text".to_owned(),
+            project_id: text.created.project_id.clone(),
+            expected_project_revision: text.created.file_revision.clone(),
+            section_id: text_sec.section_id.clone(),
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(err, ProjectError::CannotRemoveTextSection));
+
+    // Removing a regular section removes its entry from amby-project.json, keeping the database on disk.
+    let removed = remove_project_section(
+        &text.fixture.env(),
+        &RemoveProjectSectionRequest {
+            expected_generation: 1,
+            operation_id: "op-rm-other".to_owned(),
+            project_id: text.created.project_id.clone(),
+            expected_project_revision: text.created.file_revision.clone(),
+            section_id: other_sec.section_id.clone(),
+        },
+    )
+    .unwrap();
+    let doc: Value = serde_json::from_slice(&text.fixture.project_bytes("Saga")).unwrap();
+    let remaining_ids = doc["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["id"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert!(!remaining_ids.contains(&other_sec.section_id));
+    assert!(
+        text.fixture.vault.join(&other_sec.container_path).is_dir(),
+        "database container remains on disk"
+    );
+
+    // Reordering sections reverses the remaining sections.
+    let mut reversed = remaining_ids.clone();
+    reversed.reverse();
+    let reordered = reorder_project_sections(
+        &text.fixture.env(),
+        &ReorderProjectSectionsRequest {
+            expected_generation: 1,
+            operation_id: "op-reorder".to_owned(),
+            project_id: text.created.project_id.clone(),
+            expected_project_revision: removed.project_revision,
+            section_ids: reversed.clone(),
+        },
+    )
+    .unwrap();
+    let doc_after: Value = serde_json::from_slice(&text.fixture.project_bytes("Saga")).unwrap();
+    let order_after = doc_after["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["id"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(order_after, reversed);
+    assert_eq!(
+        reordered.project_revision,
+        raw_revision(&text.fixture.project_bytes("Saga"))
+    );
+}
+
+#[test]
+fn update_text_levels_renames_reorders_adds_and_recovers_on_crash() {
+    let text = Text::new();
+    let initial_levels = text.block()["levels"].as_array().unwrap().clone();
+    let book_id = initial_levels[0]["id"].as_str().unwrap().to_owned();
+    let arc_id = initial_levels[1]["id"].as_str().unwrap().to_owned();
+    let chapter_id = initial_levels[2]["id"].as_str().unwrap().to_owned();
+    let page_id = initial_levels[3]["id"].as_str().unwrap().to_owned();
+
+    // Omitting an existing level is refused so pages never lose their hierarchy level.
+    let omit_req = UpdateTextLevelsRequest {
+        expected_generation: 1,
+        operation_id: "op-levels-omit".to_owned(),
+        project_id: text.created.project_id.clone(),
+        expected_project_revision: text.created.file_revision.clone(),
+        levels: vec![TextLevelUpdateInput {
+            id: Some(book_id.clone()),
+            name: "Том".to_owned(),
+            icon: None,
+        }],
+    };
+    assert!(matches!(
+        update_text_levels(&text.fixture.env(), &omit_req),
+        Err(ProjectError::UnknownTextLevel { .. })
+    ));
+
+    // Inject a failure before amby-project.json is written: manifest must roll back cleanly.
+    let before = text.fixture.tree();
+    let req = UpdateTextLevelsRequest {
+        expected_generation: 1,
+        operation_id: "op-levels-1".to_owned(),
+        project_id: text.created.project_id.clone(),
+        expected_project_revision: text.created.file_revision.clone(),
+        levels: vec![
+            TextLevelUpdateInput {
+                id: Some(chapter_id.clone()),
+                name: "Эпизод".to_owned(),
+                icon: Some("lucide:Film".to_owned()),
+            },
+            TextLevelUpdateInput {
+                id: Some(book_id.clone()),
+                name: "Том".to_owned(),
+                icon: None,
+            },
+            TextLevelUpdateInput {
+                id: Some(arc_id.clone()),
+                name: "Арка".to_owned(),
+                icon: None,
+            },
+            TextLevelUpdateInput {
+                id: Some(page_id.clone()),
+                name: "Страница".to_owned(),
+                icon: None,
+            },
+            TextLevelUpdateInput {
+                id: None,
+                name: "Сцена".to_owned(),
+                icon: Some("lucide:Sparkles".to_owned()),
+            },
+        ],
+    };
+
+    set_step_hook(|step| (*step == Step::BeforeProjectFile).then_some(Fault::Crash));
+    assert!(update_text_levels(&text.fixture.env(), &req).is_err());
+    clear_step_hook();
+    recover_pending_projects(&text.fixture.vault).unwrap();
+    assert_eq!(
+        text.fixture.tree(),
+        before,
+        "manifest and project file rolled back on crash before project file"
+    );
+
+    // Repeating with the same operation_id succeeds and reuses the journaled option ID.
+    let updated = update_text_levels(&text.fixture.env(), &req).unwrap();
+    assert!(!updated.replayed);
+    text.refresh();
+    let catalog = load_catalog(&text.connection, &text.fixture.vault, 1).unwrap();
+    let project = &catalog.projects[0];
+    let resolved_levels = &project.text.as_ref().unwrap().levels;
+    assert_eq!(resolved_levels.len(), 5);
+    assert_eq!(resolved_levels[0].id, chapter_id);
+    assert_eq!(resolved_levels[0].name.as_deref(), Some("Эпизод"));
+    assert_eq!(resolved_levels[0].icon.as_deref(), Some("lucide:Film"));
+    assert_eq!(resolved_levels[1].id, book_id);
+    assert_eq!(resolved_levels[1].name.as_deref(), Some("Том"));
+    assert_eq!(resolved_levels[4].name.as_deref(), Some("Сцена"));
+    assert_eq!(resolved_levels[4].icon.as_deref(), Some("lucide:Sparkles"));
+}
+
+#[test]
+fn legacy_story_without_status_property_works_cleanly_and_can_add_status_on_demand() {
+    let text = Text::new();
+    // Simulate a story created before status was introduced: remove status from amby-project.json and Текст.json.
+    let proj_path = text.fixture.vault.join("Saga").join(PROJECT_FILE_NAME);
+    let mut doc: Value = serde_json::from_slice(&fs::read(&proj_path).unwrap()).unwrap();
+    let status_prop_id = doc["text"]["properties"]["status"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    doc["text"]["properties"]
+        .as_object_mut()
+        .unwrap()
+        .remove("status");
+    let mut proj_bytes = serde_json::to_vec_pretty(&doc).unwrap();
+    proj_bytes.push(b'\n');
+    fs::write(&proj_path, &proj_bytes).unwrap();
+
+    let manifest_path = text.fixture.vault.join("Saga/Текст/Текст.json");
+    let mut manifest_doc: Value =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest_doc["properties"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|p| p["id"].as_str() != Some(status_prop_id.as_str()));
+    let mut manifest_bytes = serde_json::to_vec_pretty(&manifest_doc).unwrap();
+    manifest_bytes.push(b'\n');
+    fs::write(&manifest_path, &manifest_bytes).unwrap();
+
+    text.refresh();
+    let catalog = load_catalog(&text.connection, &text.fixture.vault, 1).unwrap();
+    assert!(
+        catalog.diagnostics.is_empty(),
+        "no diagnostic when status is omitted in legacy story: {:?}",
+        catalog.diagnostics
+    );
+    let summary = catalog.projects[0].text.as_ref().unwrap();
+    assert!(summary.properties.status.is_none());
+    assert!(summary.status_options.is_empty());
+
+    // Now add status via add_text_status.
+    let added = add_text_status(
+        &text.fixture.env(),
+        &AddTextStatusRequest {
+            expected_generation: 1,
+            operation_id: "op-add-status".to_owned(),
+            project_id: text.created.project_id.clone(),
+            expected_project_revision: raw_revision(&proj_bytes),
+            labels: BTreeMap::new(),
+        },
+    )
+    .unwrap();
+    assert!(!added.replayed);
+    assert!(ulid::Ulid::from_string(&added.property_id).is_ok());
+
+    text.refresh();
+    let catalog_after = load_catalog(&text.connection, &text.fixture.vault, 1).unwrap();
+    let summary_after = catalog_after.projects[0].text.as_ref().unwrap();
+    assert_eq!(
+        summary_after.properties.status.as_deref(),
+        Some(added.property_id.as_str())
+    );
+    assert_eq!(summary_after.status_options.len(), 3);
+    assert_eq!(summary_after.status_options[0].name, "Черновик");
+    assert_eq!(summary_after.status_options[0].group, "notStarted");
+    assert_eq!(summary_after.status_options[1].name, "В работе");
+    assert_eq!(summary_after.status_options[1].group, "inProgress");
+    assert_eq!(summary_after.status_options[2].name, "Готово");
+    assert_eq!(summary_after.status_options[2].group, "done");
+
+    // Calling add_text_status with a new operation_id when status is already configured returns StatusAlreadyConfigured.
+    let err = add_text_status(
+        &text.fixture.env(),
+        &AddTextStatusRequest {
+            expected_generation: 1,
+            operation_id: "op-add-status-2".to_owned(),
+            project_id: text.created.project_id.clone(),
+            expected_project_revision: added.project_revision,
+            labels: BTreeMap::new(),
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(err, ProjectError::StatusAlreadyConfigured));
 }

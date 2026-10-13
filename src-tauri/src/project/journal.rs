@@ -23,6 +23,11 @@ pub const STATUS_IN_PROGRESS: &str = "inProgress";
 pub const STATUS_COMPLETED: &str = "completed";
 pub const OP_CREATE_PROJECT: &str = "createProject";
 pub const OP_CREATE_SECTION: &str = "createSection";
+pub const OP_UPDATE_PROJECT: &str = "updateProject";
+pub const OP_REMOVE_SECTION: &str = "removeSection";
+pub const OP_REORDER_SECTIONS: &str = "reorderSections";
+pub const OP_UPDATE_TEXT_LEVELS: &str = "updateTextLevels";
+pub const OP_ADD_TEXT_STATUS: &str = "addTextStatus";
 const LABEL: &str = "Project recovery";
 const MAX_JOURNAL_BYTES: u64 = 256 * 1024;
 
@@ -48,6 +53,20 @@ pub struct PlannedSection {
     pub template: Option<PlannedTemplate>,
 }
 
+/// A planned modification of an existing database manifest (such as the text database's
+/// `level` options or `status` property) that must be rolled back if the structure file does
+/// not reach its commit point.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PlannedManifestWrite {
+    /// Vault-relative path to the database manifest file.
+    pub manifest_path: String,
+    pub pre_revision: String,
+    pub post_revision: String,
+    pub pre_text: String,
+    pub post_text: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Plan {
@@ -63,6 +82,9 @@ pub struct Plan {
     /// The `text` block the structure file gets together with the text database.
     #[serde(default)]
     pub text_block: Option<Value>,
+    /// An existing database manifest modified before the structure file is replaced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest_write: Option<PlannedManifestWrite>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -111,7 +133,13 @@ pub fn validate_journal(journal: &Journal) -> Result<(), ProjectError> {
     }
     if !matches!(
         journal.operation.as_str(),
-        OP_CREATE_PROJECT | OP_CREATE_SECTION
+        OP_CREATE_PROJECT
+            | OP_CREATE_SECTION
+            | OP_UPDATE_PROJECT
+            | OP_REMOVE_SECTION
+            | OP_REORDER_SECTIONS
+            | OP_UPDATE_TEXT_LEVELS
+            | OP_ADD_TEXT_STATUS
     ) || !matches!(
         journal.status.as_str(),
         STATUS_IN_PROGRESS | STATUS_COMPLETED
@@ -129,6 +157,17 @@ pub fn validate_journal(journal: &Journal) -> Result<(), ProjectError> {
         || journal.plan.sections.is_empty() && journal.operation == OP_CREATE_SECTION
     {
         return Err(failure("Invalid project journal plan"));
+    }
+    if let Some(mw) = &journal.plan.manifest_write {
+        let components = durable::relative_components(&mw.manifest_path, LABEL).map_err(failure)?;
+        if components.is_empty()
+            || !durable::valid_revision(&mw.pre_revision)
+            || !durable::valid_revision(&mw.post_revision)
+            || crate::database::format::raw_revision(mw.pre_text.as_bytes()) != mw.pre_revision
+            || crate::database::format::raw_revision(mw.post_text.as_bytes()) != mw.post_revision
+        {
+            return Err(failure("Invalid manifest write in project journal"));
+        }
     }
     for section in &journal.plan.sections {
         let components = durable::relative_components(&section.path, LABEL).map_err(failure)?;
