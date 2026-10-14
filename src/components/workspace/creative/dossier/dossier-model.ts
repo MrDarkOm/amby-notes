@@ -1,6 +1,7 @@
 import type {
   NoteReference,
   ProjectCatalog,
+  StorySummary,
   WorkshopSectionSummary,
   WorkshopSummary,
 } from "@/lib/storage"
@@ -28,6 +29,30 @@ export function worldSectionOf(
     if (section && !NON_WORLD_ROLES.has(section.role ?? "")) return { workshop, section }
   }
   return null
+}
+
+export interface TextPlace {
+  workshop: WorkshopSummary
+  story: StorySummary
+}
+
+/** The story whose text is this database: a page of it is a page of the text. */
+export function textStoryOf(catalog: ProjectCatalog | null, databaseId: string): TextPlace | null {
+  for (const workshop of catalog?.workshops ?? []) {
+    const story = workshop.stories.find(
+      (candidate) => (candidate.text?.databaseId ?? candidate.databaseId) === databaseId,
+    )
+    if (story?.text) return { workshop, story }
+  }
+  return null
+}
+
+/** Whether a workshop has an anchors or an arcs base, so a page of its text has a plot to show. */
+export function hasPlotSections(workshop: WorkshopSummary): boolean {
+  return workshop.sections.some(
+    (section) =>
+      (section.role === "anchors" || section.role === "arcs") && section.state !== "missing",
+  )
 }
 
 export interface TocEntry {
@@ -95,6 +120,8 @@ export interface SplitReferences {
 export function splitReferences(
   references: NoteReference[],
   textDatabaseId: string | null | Set<string> = null,
+  /** References another block of the aside already shows: left out of both lists. */
+  hidden: (reference: NoteReference) => boolean = () => false,
 ): SplitReferences {
   const textDbSet =
     textDatabaseId instanceof Set
@@ -105,6 +132,7 @@ export function splitReferences(
   const appearsIn: NoteReference[] = []
   const groups = new Map<string, ReferenceGroup>()
   for (const reference of references) {
+    if (hidden(reference)) continue
     if (
       textDbSet !== null &&
       reference.direction === "in" &&

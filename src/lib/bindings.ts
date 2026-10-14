@@ -1451,7 +1451,13 @@ export type CreateWorkshopEntityRequest = { expectedGeneration: number; workshop
  * A notebook of the notes base: the folder names from the base's root down, such as
  * `["Идеи", "Сюжеты"]`. Empty or absent puts the page in the root of the base.
  */
-notebook?: string[] | null }
+notebook?: string[] | null; 
+/**
+ * The universe of an anchor: the note ID of a row of the universes section. Only an anchor
+ * takes it (an event of that universe), and only where the anchors carry a "Universe"
+ * relation (`universePropertyId`); it is written in the same write as the note.
+ */
+universeId?: string | null }
 export type CreateWorkshopRequest = { expectedGeneration: number; operationId: string; name: string; parentPath?: string | null; icon?: string | null; tags?: string[]; labels?: Partial<{ [key in string]: string }> }
 export type CreateWorkshopSectionRequest = { expectedGeneration: number; operationId: string; workshopId: string; expectedWorkshopRevision: string; role: string; name: string; labels?: Partial<{ [key in string]: string }> }
 export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string; notePath: string | null; warnings: string[] }

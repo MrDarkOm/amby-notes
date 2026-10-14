@@ -593,6 +593,7 @@ export class DesktopAdapter implements StoragePort {
         ...request,
         storyId: request.storyId ?? null,
         notebook: request.notebook ?? null,
+        universeId: request.universeId ?? null,
       }),
     )
   }

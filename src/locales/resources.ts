@@ -2531,6 +2531,49 @@ const ru = {
         anchors: "Якоря: {{names}}",
         arcs: "Арки: {{names}}",
       },
+      passed: "пройден",
+      linksFailed: "Не удалось подготовить связи якорей: {{message}}",
+      // The aside of a page of the text.
+      side: {
+        aside: "Сюжет страницы",
+        anchors: "Якоря этой страницы",
+        anchorsEmpty: "К этой странице якоря не привязаны.",
+        from: "Отталкиваемся от",
+        fromEmpty: "Раньше по тексту привязанных якорей нет.",
+        to: "Должны прийти к",
+        toEmpty: "Дальше по тексту якорей нет.",
+        toAhead: "впереди, ещё не привязан",
+        arcs: "Арки",
+        arcsEmpty: "К этой странице арки не привязаны.",
+        onPage: "на странице «{{page}}»",
+      },
+      // The ribbon of a story's desk.
+      ribbon: {
+        title: "Якоря",
+        empty: "У истории пока нет якорей.",
+        create: "Добавить якорь",
+        creating: "Название якоря",
+        failed: "Не удалось создать якорь: {{message}}",
+      },
+      // The page of an arc and of a character.
+      arc: {
+        anchors: "Якоря арки",
+        anchorsEmpty: "Ни один якорь не указывает на эту арку.",
+        unbound: "Не привязаны к тексту",
+        chapters: "Главы",
+        chaptersEmpty: "Арка пока не привязана ни к одной странице текста.",
+        span: "от «{{from}}» до «{{to}}»",
+        characterArcs: "Арки",
+      },
+      // The events of a universe.
+      events: {
+        group: "События вселенной",
+        stories: "Якоря историй",
+        empty: "У вселенной пока нет событий.",
+        create: "Новое событие",
+        placeholder: "Название события",
+        failed: "Не удалось создать событие: {{message}}",
+      },
     },
     dossier: {
       location: "{{project}} · {{section}}",
@@ -5332,6 +5375,49 @@ const en: typeof ru = {
       marks: {
         anchors: "Anchors: {{names}}",
         arcs: "Arcs: {{names}}",
+      },
+      passed: "passed",
+      linksFailed: "Could not prepare the links of the anchors: {{message}}",
+      // The aside of a page of the text.
+      side: {
+        aside: "Plot of the page",
+        anchors: "Anchors of this page",
+        anchorsEmpty: "No anchors are bound to this page.",
+        from: "Starting from",
+        fromEmpty: "No bound anchors earlier in the text.",
+        to: "Heading for",
+        toEmpty: "No anchors further in the text.",
+        toAhead: "ahead, not bound yet",
+        arcs: "Arcs",
+        arcsEmpty: "No arcs are bound to this page.",
+        onPage: "on “{{page}}”",
+      },
+      // The ribbon of a story's desk.
+      ribbon: {
+        title: "Anchors",
+        empty: "This story has no anchors yet.",
+        create: "Add an anchor",
+        creating: "Anchor name",
+        failed: "Could not create the anchor: {{message}}",
+      },
+      // The page of an arc and of a character.
+      arc: {
+        anchors: "Anchors of the arc",
+        anchorsEmpty: "No anchor points at this arc.",
+        unbound: "Not bound to the text",
+        chapters: "Chapters",
+        chaptersEmpty: "The arc is not bound to any page of the text yet.",
+        span: "from “{{from}}” to “{{to}}”",
+        characterArcs: "Arcs",
+      },
+      // The events of a universe.
+      events: {
+        group: "Events of the universe",
+        stories: "Anchors of the stories",
+        empty: "The universe has no events yet.",
+        create: "New event",
+        placeholder: "Event name",
+        failed: "Could not create the event: {{message}}",
       },
     },
     dossier: {

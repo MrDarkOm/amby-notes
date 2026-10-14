@@ -12,14 +12,14 @@ use super::create::{clear_step_hook, set_step_hook, Fault, Step};
 use super::create_test::{op, story, workshop, Fixture};
 use super::index::{load_catalog, rebuild_project_index};
 use super::journal::read_journal;
-use super::links::ensure_plot_links;
+use super::links::{create_entity, ensure_plot_links};
 use super::links_test::{
-    after_commit, count_named, entry, manifest, property_named, property_with_id, revision_of,
-    rewrite_json, section_request, workshop_file,
+    after_commit, count_named, entry, frontmatter_of, manifest, property_named, property_with_id,
+    revision_of, rewrite_json, section_request, workshop_file,
 };
 use super::model::{
-    CreatedStory, CreatedWorkshop, EnsurePlotLinksRequest, EnsuredPlotLinks, PlotLinksTarget,
-    ProjectError, STORY_FILE_NAME, WORKSHOP_FILE_NAME,
+    CreateWorkshopEntityRequest, CreatedStory, CreatedWorkshop, EnsurePlotLinksRequest,
+    EnsuredPlotLinks, PlotLinksTarget, ProjectError, STORY_FILE_NAME, WORKSHOP_FILE_NAME,
 };
 use super::recovery::recover_pending_projects;
 use crate::database::discovery::discover_vault;
@@ -990,4 +990,137 @@ fn the_names_of_the_relations_follow_the_labels_of_the_language() {
     assert!(property_named(&manifest, "Anchors").is_some());
     assert!(property_named(&manifest, "Arcs").is_some());
     assert!(property_named(&manifest, "Якоря").is_none());
+}
+
+// ---------------------------------------------------------------------------
+// An event of a universe: an anchor born with its "Universe" value
+// ---------------------------------------------------------------------------
+
+fn universe_note(fixture: &Fixture, title: &str) -> String {
+    crate::database::rows::create_database_row(
+        &fixture.vault,
+        &fixture.watcher,
+        &crate::database::rows::CreateDatabaseRowRequest {
+            expected_generation: 1,
+            database_id: database_of(fixture, "universes"),
+            title: title.to_owned(),
+            template: crate::database::rows::DatabaseRowTemplate::Default,
+        },
+    )
+    .unwrap()
+    .note_id
+}
+
+fn anchor_of(
+    created: &CreatedWorkshop,
+    section: &str,
+    title: &str,
+    universe_id: Option<&str>,
+) -> CreateWorkshopEntityRequest {
+    CreateWorkshopEntityRequest {
+        expected_generation: 1,
+        workshop_id: created.workshop_id.clone(),
+        section_id: section.to_owned(),
+        title: title.to_owned(),
+        story_id: None,
+        notebook: None,
+        universe_id: universe_id.map(str::to_owned),
+    }
+}
+
+fn relation_of(path: &str, name: &str) -> Vec<String> {
+    frontmatter_of(path)
+        .get(name)
+        .and_then(serde_yaml::Value::as_sequence)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_yaml::Value::as_str)
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn an_anchor_is_born_with_its_universe_in_the_same_write() {
+    let (fixture, created, revision) = anchors_ready();
+    ensure_plot_links(&fixture.env(), &for_anchors(&created, &revision)).unwrap();
+    let universe = universe_note(&fixture, "Мир");
+
+    let event = create_entity(
+        &fixture.env(),
+        &anchor_of(&created, "anchors", "Потоп", Some(&universe)),
+    )
+    .unwrap();
+    assert_eq!(
+        relation_of(&event.note_path, "Вселенная"),
+        std::slice::from_ref(&universe)
+    );
+    assert_eq!(event.linked_story_id, None);
+
+    // An anchor made without a universe carries no value.
+    let free = create_entity(
+        &fixture.env(),
+        &anchor_of(&created, "anchors", "Свой", None),
+    )
+    .unwrap();
+    assert!(relation_of(&free.note_path, "Вселенная").is_empty());
+}
+
+#[test]
+fn an_event_of_a_universe_is_refused_before_any_write_when_it_cannot_be_linked() {
+    let (fixture, created, revision) = anchors_ready();
+    let universe = universe_note(&fixture, "Мир");
+
+    // The anchors have no "Universe" relation yet: the interface makes it first.
+    let before = fixture.tree();
+    assert!(matches!(
+        create_entity(
+            &fixture.env(),
+            &anchor_of(&created, "anchors", "Потоп", Some(&universe))
+        ),
+        Err(ProjectError::StoryLinksUnavailable { .. })
+    ));
+    assert_eq!(fixture.tree(), before, "nothing was written");
+
+    ensure_plot_links(&fixture.env(), &for_anchors(&created, &revision)).unwrap();
+    let before = fixture.tree();
+    // A universe that is not a page of the universes base.
+    assert!(matches!(
+        create_entity(
+            &fixture.env(),
+            &anchor_of(&created, "anchors", "Потоп", Some("01NOUNIVERSE"))
+        ),
+        Err(ProjectError::StoryLinksUnavailable { .. })
+    ));
+    // A section that is not the anchors takes no universe.
+    assert!(matches!(
+        create_entity(
+            &fixture.env(),
+            &anchor_of(&created, "characters", "Анна", Some(&universe))
+        ),
+        Err(ProjectError::InvalidParent { .. })
+    ));
+    assert_eq!(fixture.tree(), before, "nothing was written");
+    // The relation the author deleted from the anchors is not written either.
+    rewrite_json(
+        &fixture.vault.join("Saga/Якоря/Якоря.json"),
+        false,
+        |manifest| {
+            manifest["properties"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|property| property["name"] != "Вселенная");
+        },
+    );
+    let before = fixture.tree();
+    assert!(matches!(
+        create_entity(
+            &fixture.env(),
+            &anchor_of(&created, "anchors", "Потоп", Some(&universe))
+        ),
+        Err(ProjectError::StoryLinksUnavailable { .. })
+    ));
+    assert_eq!(fixture.tree(), before, "nothing was written");
 }

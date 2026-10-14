@@ -5,19 +5,22 @@ and the world. The owner of the whole creative interface is the [creative map](.
 backend of notebooks is [notebooks.rs](../../../../../src-tauri/src/project/notebooks.rs) and the contract is
 [format §8](../../../../../docs/creative-format.md).
 
-| Concern                                           | Owner                                                                                                                  |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Composition, filter, drafts, data loading         | [workshop-pane.tsx](workshop-pane.tsx), [use-database-rows.ts](use-database-rows.ts)                                   |
-| Story parts (text tree, anchors, notes slot)      | [works-tab.tsx](works-tab.tsx), [text-tree-model.ts](text-tree-model.ts)                                               |
-| Belonging, groups, scopes (pure)                  | [workshop-model.ts](workshop-model.ts)                                                                                 |
-| The world's lists                                 | [world-section.tsx](world-section.tsx), [world-cards.tsx](world-cards.tsx)                                             |
-| Notebooks: grouping, names, delete plan           | [notebook-model.ts](notebook-model.ts) (pure)                                                                          |
-| Notebooks: listing from the disk                  | [use-notebooks.ts](use-notebooks.ts)                                                                                   |
-| Notebooks: create, rename, move, delete           | [use-notebook-actions.ts](use-notebook-actions.ts)                                                                     |
-| Notebooks and notes on screen                     | [notes-part.tsx](notes-part.tsx), [item-menu.tsx](item-menu.tsx) ("Move to notebook")                                  |
-| Anchors and arcs: order, marks, drag codec (pure) | [plot-model.ts](plot-model.ts), [page-marks.tsx](page-marks.tsx)                                                       |
-| Anchors and arcs: bind, unbind, ensure properties | [use-plot-binding.ts](use-plot-binding.ts); menus in [item-menu.tsx](item-menu.tsx) (`PlotMenu`)                       |
-| Real backend data for the model tests             | `real-workshop.fixture.json`, kept equal to the Rust output by `contract_test.rs`; read by `workshop-contract.test.ts` |
+| Concern                                                    | Owner                                                                                                                      |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Composition, filter, drafts, data loading                  | [workshop-pane.tsx](workshop-pane.tsx), [use-database-rows.ts](use-database-rows.ts)                                       |
+| Story parts (text tree, anchors, notes slot)               | [works-tab.tsx](works-tab.tsx), [text-tree-model.ts](text-tree-model.ts)                                                   |
+| Belonging, groups, scopes (pure)                           | [workshop-model.ts](workshop-model.ts)                                                                                     |
+| The world's lists                                          | [world-section.tsx](world-section.tsx), [world-cards.tsx](world-cards.tsx)                                                 |
+| Notebooks: grouping, names, delete plan                    | [notebook-model.ts](notebook-model.ts) (pure)                                                                              |
+| Notebooks: listing from the disk                           | [use-notebooks.ts](use-notebooks.ts)                                                                                       |
+| Notebooks: create, rename, move, delete                    | [use-notebook-actions.ts](use-notebook-actions.ts)                                                                         |
+| Notebooks and notes on screen                              | [notes-part.tsx](notes-part.tsx), [item-menu.tsx](item-menu.tsx) ("Move to notebook")                                      |
+| Anchors and arcs: order, marks, drag codec (pure)          | [plot-model.ts](plot-model.ts), [page-marks.tsx](page-marks.tsx)                                                           |
+| Anchors and arcs: bind, unbind, ensure properties          | [use-plot-binding.ts](use-plot-binding.ts); menus in [item-menu.tsx](item-menu.tsx) (`PlotMenu`)                           |
+| Plot seen from a place (pure): neighbours, ribbon, buckets | [plot-views.ts](plot-views.ts)                                                                                             |
+| Anchors with no single story; the ribbon of a desk         | [anchors-overview.tsx](anchors-overview.tsx), [anchor-ribbon.tsx](anchor-ribbon.tsx), [quick-create.tsx](quick-create.tsx) |
+| Anchor order, `ensure_plot_links` from the interface       | [use-anchor-order.ts](use-anchor-order.ts), [use-ensure-plot.ts](use-ensure-plot.ts)                                       |
+| Real backend data for the model tests                      | `real-workshop.fixture.json`, kept equal to the Rust output by `contract_test.rs`; read by `workshop-contract.test.ts`     |
 
 **Notes and notebooks.** The notes part is the notes base shown as notebooks, under the same story / universe /
 whole-workshop filter as the world: `scopeEntities` over the base's rows, so only the notes of the shown stories; the
@@ -59,3 +62,16 @@ property, the first binding calls `ensurePlotLinks` (once; then, best effort, on
 then writes the page's complete list of targets with `updateDatabaseRelationValue` and its row revision, so other bindings
 stay. A failure shows under the row it came from. An anchor made in the panel goes through `createWorkshopEntity`, so it
 belongs to the shown story from the first write.
+
+**Plot from other places (part 6b).** `plot-views.ts` holds every computation the components only show:
+`pageNeighbours` (the anchors of a page, the nearest bound anchor before and after it by `orderStoryAnchors`, else the
+first "ahead"), `anchorRibbon` (a story's anchors in the text's order, "passed" when the first page's status group is
+`done`), `bucketAnchors` (the whole workshop: the author's order, those with no story, no page and no universe last;
+a universe: its events first), `universeEvents`, `arcAnchors` / `arcChapters` (per story in text order, the unbound
+last, the span first to last page), `characterArcs` (the incoming references through the arcs' "Characters"),
+`anchorLinksMissing`. With no single story shown the anchors part is `AnchorsOverview` (`AnchorsSlot` of `works-tab.tsx`),
+and an anchor made there while a universe is shown is an event of it. `useAnchorOrder` is the one source of the author's
+order (the first view's `manualOrder` and the creation times) for the panel, the desk, the universe page and the aside.
+`usePlotEnsurer` owns `ensure_plot_links`: the panel and the project page call `ensureAnchorLinks` after a base was made and
+before an event is written, and show its failure; the binding of a page only logs a failure of the anchors' own relations.
+The aside of a text page and the blocks of an arc and a character live in [dossier/](../dossier/).

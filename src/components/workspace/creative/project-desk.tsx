@@ -3,6 +3,7 @@ import { FileText, NotebookPen, Play } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import {
+  createWorkshopEntity,
   exportTextFile,
   readNote,
   type DatabaseRow,
@@ -19,6 +20,10 @@ import { formatModified } from "../workspace-tree-utils"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { useProjectStore } from "./project-store"
 import { useTextStats } from "./use-text-stats"
+import { AnchorRibbon } from "./workshop/anchor-ribbon"
+import { orderStoryAnchors, readBindings } from "./workshop/plot-model"
+import { anchorRibbon } from "./workshop/plot-views"
+import { useAnchorOrder } from "./workshop/use-anchor-order"
 import { useDatabaseRows } from "./workshop/use-database-rows"
 import { WorldCards, type WorldCard } from "./workshop/world-cards"
 import {
@@ -26,6 +31,7 @@ import {
   countNodes,
   pageStatusDotClass,
   resolvePageStatus,
+  textOrder,
   type TextNode,
 } from "./workshop/text-tree-model"
 import { buildMembership, entityItemsOf, scopeEntities } from "./workshop/workshop-model"
@@ -111,6 +117,7 @@ export function ProjectDesk({
   const text = resolvedStory?.text ?? null
   const databaseId = text?.databaseId ?? null
   const dataNonce = useCreativeNavStore((state) => state.dataNonce)
+  const bumpData = useCreativeNavStore((state) => state.bumpData)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
   // The cards beside the text: the workshop's sections
   const cards = React.useMemo<DeskSection[]>(() => {
@@ -180,6 +187,48 @@ export function ProjectDesk({
         .slice(0, CONTINUE_COUNT),
     [all, stats],
   )
+  // The anchors of the story along its text, as the panel orders them.
+  const anchorsEntry = worldCards.find((entry) => entry.section.role === "anchors") ?? null
+  const anchorOrder = useAnchorOrder(anchorsEntry?.section.databaseId, dataNonce)
+  const ribbon = React.useMemo(() => {
+    if (!anchorsEntry || !text) return null
+    const ordered = orderStoryAnchors({
+      anchors: anchorsEntry.rows,
+      textOrder: textOrder(roots),
+      bindings: readBindings(rows ?? [], text.properties),
+      manualOrder: anchorOrder.order,
+      createdOf: (id) => anchorOrder.created[id],
+    })
+    const nodes = new Map(all.map((node) => [node.noteId, node]))
+    const options = text.properties.status ? (text.statusOptions ?? []) : []
+    return anchorRibbon(
+      ordered,
+      (pageId) =>
+        resolvePageStatus(options, nodes.get(pageId)?.statusOptionId ?? null)?.group === "done",
+    )
+  }, [all, anchorOrder.created, anchorOrder.order, anchorsEntry, roots, rows, text])
+  const canCreateAnchor = Boolean(
+    anchorsEntry?.section.storiesPropertyId &&
+    resolvedStory &&
+    resolvedWorkshop &&
+    !resolvedWorkshop.readOnly &&
+    vaultGeneration !== null,
+  )
+  const createAnchor = async (title: string) => {
+    if (!anchorsEntry || !resolvedStory || !resolvedWorkshop || vaultGeneration === null) return
+    try {
+      await createWorkshopEntity({
+        expectedGeneration: vaultGeneration,
+        workshopId: resolvedWorkshop.workshopId,
+        sectionId: anchorsEntry.section.id,
+        title,
+        storyId: resolvedStory.storyId,
+      })
+    } finally {
+      bumpData()
+    }
+  }
+
   const levelOf = (node: TextNode) => text?.levels.find((level) => level.id === node.levelId)
 
   const assemble = async () => {
@@ -342,6 +391,19 @@ export function ProjectDesk({
         ))}
       </dl>
 
+      {ribbon && (
+        <section aria-label={t("creative.plot.ribbon.title")} className={card}>
+          <h2 className={cn(heading, "mb-3")}>{t("creative.plot.ribbon.title")}</h2>
+          <AnchorRibbon
+            items={ribbon}
+            pageTitleOf={(pageId) => rows?.find((row) => row.noteId === pageId)?.title ?? ""}
+            onOpen={onOpenNote}
+            loading={data.status === "loading" || data.status === "idle"}
+            onCreate={canCreateAnchor ? createAnchor : null}
+          />
+        </section>
+      )}
+
       <div className="grid items-start gap-5 lg:grid-cols-5">
         <section
           aria-label={t("creative.page.desk.progress")}
@@ -418,7 +480,10 @@ export function ProjectDesk({
 
         <div className="grid gap-5 lg:col-span-2">
           <WorldCards
-            cards={worldCards}
+            // The ribbon shows the story's anchors in full, so their card would only repeat it.
+            cards={
+              ribbon ? worldCards.filter((entry) => entry.section.role !== "anchors") : worldCards
+            }
             loading={data.status === "loading"}
             vaultGeneration={vaultGeneration}
             onOpenNote={onOpenNote}

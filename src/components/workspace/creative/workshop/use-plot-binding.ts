@@ -8,8 +8,10 @@ import {
   type StorySummary,
   type WorkshopSummary,
 } from "@/lib/storage"
+import { logger } from "@/lib/logger"
 import { projectErrorText } from "../project-error"
 import type { PlotKind } from "./plot-model"
+import { anchorLinksMissing } from "./plot-views"
 import { relationTargetsOf } from "./workshop-model"
 
 /** The operation that makes the missing link properties; it reads the catalog again after it. */
@@ -71,16 +73,16 @@ export function usePlotBinding({
       const made = kind === "anchor" ? ensured.anchorsPropertyId : ensured.arcsPropertyId
       if (!made)
         throw new Error(t(kind === "anchor" ? "creative.plot.noAnchors" : "creative.plot.noArcs"))
-      // The anchors' own relations are only needed later (the arc's chain): best effort, and a
-      // failure there never stops a binding.
-      const anchors = workshop.sections.find((section) => section.role === "anchors")
-      const hasArcs = workshop.sections.some((section) => section.role === "arcs")
-      const hasUniverses = workshop.sections.some((section) => section.role === "universes")
-      if (
-        anchors &&
-        ((hasArcs && !anchors.arcsPropertyId) || (hasUniverses && !anchors.universePropertyId))
-      ) {
-        await ensure({ target: "anchors", workshop }).catch(() => undefined)
+      // The anchors' own relations are not needed by a binding: a failure there never stops it,
+      // but it is not lost either. It is logged here; the places that need the relations (an
+      // event of a universe) make them again and show the failure.
+      if (anchorLinksMissing(workshop)) {
+        await ensure({ target: "anchors", workshop }).catch((caught: unknown) => {
+          logger.warn("creative.plot.anchor_links_failed", {
+            workshopId: workshop.workshopId,
+            error: caught,
+          })
+        })
       }
       return made
     },

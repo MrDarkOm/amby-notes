@@ -1,13 +1,23 @@
 import { describe, expect, it } from "vitest"
-import type { DatabaseRow, NotebookCatalog, WorkshopSummary } from "@/lib/storage"
+import type { DatabaseRow, NotebookCatalog, NoteReference, WorkshopSummary } from "@/lib/storage"
 import fixture from "./real-workshop.fixture.json"
 import { buildNotebookTree, noteItemsOf, planNotebookDelete, type NoteItem } from "./notebook-model"
 import { orderStoryAnchors, pageMarks, pagesOf, readBindings } from "./plot-model"
+import {
+  arcAnchors,
+  arcChapters,
+  bucketAnchors,
+  characterArcs,
+  pageNeighbours,
+  universeEvents,
+  type StoryPlotText,
+} from "./plot-views"
 import { buildTextTree, textOrder } from "./text-tree-model"
 import {
   buildMembership,
   entityItemsOf,
   entityTabs,
+  relationTargetsOf,
   scopeEntities,
   storyLabels,
   type PanelFilter,
@@ -179,7 +189,8 @@ describe("the real workshop from the backend", () => {
     // The text of "Лес" binds "Побег", which has no relation of its own.
     expect(titlesIn(anchors, { kind: "story", storyId: storyIdOf("Лес") }).shown).toEqual(["Побег"])
     expect(titlesIn(anchors, { kind: "story", storyId: storyIdOf("Одна") }).shown).toEqual([])
-    expect(titlesIn(anchors, { kind: "all" }).without).toEqual(["Свободный"])
+    // "Потоп" names its universe only, so it is in no story and no text.
+    expect(titlesIn(anchors, { kind: "all" }).without).toEqual(["Потоп", "Свободный"])
     // "Месть" has no relation either; a chapter of "Дом" binds it.
     expect(titlesIn(arcs, { kind: "story", storyId: storyIdOf("Дом") }).shown).toEqual([
       "Любовь",
@@ -229,5 +240,149 @@ describe("the real workshop from the backend", () => {
     // The story made before the anchors has no relation, so none of its pages is bound.
     const lone = workshop.stories.find((story) => story.name === "Одна")!
     expect(readBindings(rows["ID:db:text:Одна"], lone.text!.properties).size).toBe(0)
+  })
+
+  describe("the plot seen from a page, an arc, a universe and the whole workshop", () => {
+    const section = (role: string) => workshop.sections.find((entry) => entry.role === role)!
+    const anchorRows = rows["ID:db:anchors"]
+    const universeProperty = section("anchors").universePropertyId!
+    const arcsProperty = section("anchors").arcsPropertyId!
+    const universeOf = (noteId: string) => {
+      const row = anchorRows.find((candidate) => candidate.noteId === noteId)
+      return row ? (relationTargetsOf(row.valuesJson, universeProperty)[0] ?? null) : null
+    }
+    const arcsOf = (noteId: string) => {
+      const row = anchorRows.find((candidate) => candidate.noteId === noteId)
+      return row ? relationTargetsOf(row.valuesJson, arcsProperty) : []
+    }
+    const plotText = (name: string): StoryPlotText => {
+      const story = workshop.stories.find((entry) => entry.name === name)!
+      const textRows = rows[`ID:db:text:${name}`]
+      return {
+        storyId: story.storyId,
+        storyName: name,
+        textOrder: textOrder(buildTextTree(textRows, story.text!.properties)),
+        bindings: readBindings(textRows, story.text!.properties),
+      }
+    }
+    const common = { manualOrder: [], createdOf: () => undefined }
+    const titleOf = (databaseId: string) => {
+      const titles = new Map(rows[databaseId].map((row) => [row.noteId, row.title]))
+      return (id: string) => titles.get(id)
+    }
+
+    it("sets apart the anchors of no story, and the events of a universe", () => {
+      const all = bucketAnchors({
+        anchors: anchorRows,
+        filter: { kind: "all" },
+        membership,
+        universeOf,
+        ...common,
+      })
+      expect(all.shown.map((row) => row.title)).toEqual(["Встреча", "Побег", "Потоп", "Финал"])
+      expect(all.withoutStory.map((row) => row.title)).toEqual(["Свободный"])
+
+      const inUniverse = bucketAnchors({
+        anchors: anchorRows,
+        filter: { kind: "universe", universeId: "ID:note:Мир" },
+        membership,
+        universeOf,
+        ...common,
+      })
+      expect(inUniverse.events.map((row) => row.title)).toEqual(["Потоп"])
+      expect(inUniverse.shown.map((row) => row.title)).toEqual(["Встреча", "Побег", "Финал"])
+      expect(
+        universeEvents({
+          anchors: anchorRows,
+          universeId: "ID:note:Мир",
+          universeOf,
+          ...common,
+        }).map((row) => row.title),
+      ).toEqual(["Потоп"])
+    })
+
+    it("finds the neighbours of the pages of a real text", () => {
+      const house = workshop.stories.find((story) => story.name === "Дом")!
+      const text = plotText("Дом")
+      const belonging = scopeEntities(
+        entityItemsOf(anchorRows, "ID:db:anchors", workshop.workshopId),
+        { kind: "story", storyId: house.storyId },
+        membership,
+      ).shown
+      const ordered = orderStoryAnchors({ anchors: belonging, ...text, ...common })
+      const pageId = (title: string) =>
+        rows["ID:db:text:Дом"].find((row) => row.title === title)!.noteId
+      const names = (list: { title: string }[]) => list.map((row) => row.title)
+
+      const book = pageNeighbours(pageId("Книга"), ordered, text.textOrder, text.bindings)
+      expect(book.own).toEqual([])
+      expect(book.from).toBeNull()
+      expect(book.to?.title).toBe("Встреча")
+      const first = pageNeighbours(pageId("Глава 1"), ordered, text.textOrder, text.bindings)
+      expect(names(first.own)).toEqual(["Встреча"])
+      expect(first.to?.title).toBe("Финал")
+      const last = pageNeighbours(pageId("Глава 2"), ordered, text.textOrder, text.bindings)
+      expect(names(last.own)).toEqual(["Финал", "Встреча"])
+      expect(last.from).toBeNull()
+      expect(last.to).toBeNull()
+    })
+
+    it("lists the anchors and the chapters of an arc from the real rows", () => {
+      const stories = [plotText("Дом"), plotText("Лес")]
+      const anchorTitle = titleOf("ID:db:anchors")
+      const pageTitle = (id: string) =>
+        [...rows["ID:db:text:Дом"], ...rows["ID:db:text:Лес"]].find((row) => row.noteId === id)
+          ?.title
+      const love = arcAnchors({
+        arcId: "ID:note:Любовь",
+        anchors: anchorRows,
+        arcsOf,
+        stories,
+        ...common,
+      })
+      expect(love.byStory.map((g) => [g.storyName, g.anchors.map((r) => r.title)])).toEqual([
+        ["Дом", ["Встреча", "Финал"]],
+      ])
+      expect(love.unbound).toEqual([])
+      const revenge = arcAnchors({
+        arcId: "ID:note:Месть",
+        anchors: anchorRows,
+        arcsOf,
+        stories,
+        ...common,
+      })
+      expect(revenge.byStory.map((g) => g.anchors.map((r) => r.title))).toEqual([["Финал"]])
+      expect(anchorTitle("ID:note:Финал")).toBe("Финал")
+
+      const chapters = arcChapters("ID:note:Любовь", stories)
+      expect(chapters).toHaveLength(1)
+      expect(chapters[0].pageIds.map(pageTitle)).toEqual(["Глава 1", "Глава 2"])
+      expect(pageTitle(chapters[0].span!.from)).toBe("Глава 1")
+      expect(pageTitle(chapters[0].span!.to)).toBe("Глава 2")
+      // "Месть" is on one chapter only: no span.
+      expect(arcChapters("ID:note:Месть", stories)[0].span).toBeNull()
+    })
+
+    it("finds the arcs of a character through the arcs' own relation", () => {
+      const charactersProperty = section("arcs").charactersPropertyId!
+      const references: NoteReference[] = rows["ID:db:arcs"]
+        .filter((row) =>
+          relationTargetsOf(row.valuesJson, charactersProperty).includes("ID:note:Анна"),
+        )
+        .map((row) => ({
+          direction: "in",
+          propertyId: charactersProperty,
+          propertyName: "Персонажи",
+          databaseId: "ID:db:arcs",
+          databaseName: "Арки",
+          noteId: row.noteId,
+          title: row.title,
+        }))
+      expect(characterArcs(references, charactersProperty).map((arc) => arc.title)).toEqual([
+        "Любовь",
+      ])
+      // A character no arc names has none.
+      expect(characterArcs([], charactersProperty)).toEqual([])
+    })
   })
 })

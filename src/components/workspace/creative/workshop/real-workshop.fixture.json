@@ -39,6 +39,12 @@
         "relativePath": "Saga/Якоря/Встреча.md",
         "title": "Встреча",
         "values": {
+          "ID:prop:arcs:anchors": {
+            "targetNoteIds": [
+              "ID:note:Любовь"
+            ],
+            "type": "relation"
+          },
           "ID:prop:stories:anchors": {
             "targetNoteIds": [
               "ID:card:Дом"
@@ -56,6 +62,20 @@
       },
       {
         "categoryPath": [],
+        "noteId": "ID:note:Потоп",
+        "relativePath": "Saga/Якоря/Потоп.md",
+        "title": "Потоп",
+        "values": {
+          "ID:prop:universe:anchors": {
+            "targetNoteIds": [
+              "ID:note:Мир"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "categoryPath": [],
         "noteId": "ID:note:Свободный",
         "relativePath": "Saga/Якоря/Свободный.md",
         "title": "Свободный",
@@ -67,6 +87,13 @@
         "relativePath": "Saga/Якоря/Финал.md",
         "title": "Финал",
         "values": {
+          "ID:prop:arcs:anchors": {
+            "targetNoteIds": [
+              "ID:note:Любовь",
+              "ID:note:Месть"
+            ],
+            "type": "relation"
+          },
           "ID:prop:stories:anchors": {
             "targetNoteIds": [
               "ID:card:Дом"
@@ -83,6 +110,13 @@
         "relativePath": "Saga/Арки/Любовь.md",
         "title": "Любовь",
         "values": {
+          "ID:prop:characters:arcs": {
+            "targetNoteIds": [
+              "ID:note:Анна",
+              "ID:note:Борис"
+            ],
+            "type": "relation"
+          },
           "ID:prop:stories:arcs": {
             "targetNoteIds": [
               "ID:card:Дом"

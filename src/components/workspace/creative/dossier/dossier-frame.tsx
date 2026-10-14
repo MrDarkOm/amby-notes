@@ -1,8 +1,10 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 import { DossierAside } from "./dossier-aside"
+import { hasPlotSections } from "./dossier-model"
 import { DossierHeader } from "./dossier-header"
-import { useNoteDossier } from "./use-note-dossier"
+import { TextPageAside } from "./text-page-aside"
+import { useNotePlace } from "./use-note-dossier"
 
 /** Side by side only where the text keeps a readable column next to the blocks. */
 const SIDE_BY_SIDE_MIN_WIDTH = 640
@@ -38,8 +40,9 @@ export interface DossierFrameProps {
 
 /**
  * Wraps a note's editor. For a page of a creative world section it adds the dossier header
- * above the text and the blocks beside it (under it on a narrow window); for any other note
- * it adds nothing visible. The structure is the same either way, so the editor is never
+ * above the text and the blocks beside it (under it on a narrow window); for a page of a story's
+ * text, in a workshop that has anchors or arcs, the plot of the page beside it; for any other
+ * note it adds nothing visible. The structure is the same either way, so the editor is never
  * remounted when the answer arrives.
  */
 export function DossierFrame({
@@ -50,7 +53,11 @@ export function DossierFrame({
   onOpenNote,
   children,
 }: DossierFrameProps) {
-  const dossier = useNoteDossier(noteId)
+  const place = useNotePlace(noteId)
+  const dossier = place?.kind === "world" ? place.dossier : null
+  const textPlace =
+    place?.kind === "text" && hasPlotSections(place.text.workshop) ? place.text : null
+  const framed = dossier !== null || textPlace !== null
   const frameRef = React.useRef<HTMLDivElement>(null)
   const sideBySide = useWidth(frameRef) >= SIDE_BY_SIDE_MIN_WIDTH
   return (
@@ -58,18 +65,26 @@ export function DossierFrame({
       {dossier ? <DossierHeader dossier={dossier} /> : null}
       <div
         className={cn(
-          dossier ? "flex gap-6" : "contents",
-          dossier && !sideBySide && "flex-col",
-          dossier && sideBySide && "items-start",
+          framed ? "flex gap-6" : "contents",
+          framed && !sideBySide && "flex-col",
+          framed && sideBySide && "items-start",
         )}
       >
-        <div className={dossier ? "min-w-0 flex-1" : "contents"}>{children}</div>
+        <div className={framed ? "min-w-0 flex-1" : "contents"}>{children}</div>
         {dossier ? (
           <DossierAside
             dossier={dossier}
             content={content}
             canJump={canJump}
             onJump={scrollToHeading}
+            onOpenNote={onOpenNote}
+            sideBySide={sideBySide}
+          />
+        ) : textPlace ? (
+          <TextPageAside
+            workshop={textPlace.workshop}
+            story={textPlace.story}
+            noteId={noteId}
             onOpenNote={onOpenNote}
             sideBySide={sideBySide}
           />

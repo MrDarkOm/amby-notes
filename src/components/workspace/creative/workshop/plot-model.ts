@@ -83,7 +83,7 @@ export interface StoryAnchors<T> {
   ahead: T[]
 }
 
-interface AnchorLike {
+export interface AnchorLike {
   noteId: string
   title: string
 }

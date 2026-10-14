@@ -916,10 +916,11 @@ fn entity(
         title: title.to_owned(),
         story_id: story_id.map(str::to_owned),
         notebook: None,
+        universe_id: None,
     }
 }
 
-fn frontmatter_of(path: &str) -> serde_yaml::Mapping {
+pub(super) fn frontmatter_of(path: &str) -> serde_yaml::Mapping {
     crate::frontmatter::frontmatter_yaml_mapping(&fs::read_to_string(path).unwrap())
         .unwrap()
         .expect("a frontmatter")

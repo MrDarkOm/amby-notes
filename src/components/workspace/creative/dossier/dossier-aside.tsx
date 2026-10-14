@@ -3,7 +3,10 @@ import { ArrowLeft, ArrowRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import type { NoteReference } from "@/lib/storage"
 import { cn } from "@/lib/utils"
+import { Block } from "./block"
+import { characterArcs } from "../workshop/plot-views"
 import { extractToc, splitReferences } from "./dossier-model"
+import { ArcBlocks, CharacterArcsBlock } from "./plot-blocks"
 import type { NoteDossier } from "./use-note-dossier"
 
 interface DossierAsideProps {
@@ -16,17 +19,6 @@ interface DossierAsideProps {
   onOpenNote?: (noteId: string) => void
   /** Beside the text (a fixed column) or under it (the full width). */
   sideBySide: boolean
-}
-
-function Block({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="flex flex-col gap-1.5">
-      <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        {title}
-      </h3>
-      {children}
-    </section>
-  )
 }
 
 function PageLink({
@@ -79,8 +71,35 @@ export function DossierAside({
       ),
     [dossier.world.workshop],
   )
-  const split = splitReferences(dossier.references, textDbIds)
-  const hasText = textDbIds.size > 0
+  // The plot: a character shows its arcs, an arc its anchors and chapters. What they show is left
+  // out of "Appears in" and "Connections", so nothing is listed twice.
+  const { workshop } = dossier.world
+  const role = dossier.world.section.role
+  const arcsSection = workshop.sections.find(
+    (section) => section.role === "arcs" && section.state !== "missing",
+  )
+  const anchorsSection = workshop.sections.find(
+    (section) => section.role === "anchors" && section.state !== "missing",
+  )
+  const isArc = role === "arcs"
+  const arcsOfCharacter =
+    role === "characters"
+      ? characterArcs(dossier.references, arcsSection?.charactersPropertyId ?? null)
+      : []
+  const split = splitReferences(
+    dossier.references,
+    textDbIds,
+    (reference) =>
+      reference.direction === "in" &&
+      ((role === "characters" &&
+        arcsSection?.charactersPropertyId != null &&
+        reference.propertyId === arcsSection.charactersPropertyId) ||
+        (isArc &&
+          anchorsSection?.arcsPropertyId != null &&
+          reference.propertyId === anchorsSection.arcsPropertyId)),
+  )
+  // An arc's chapters are the pages of the text that point at it, so they replace "Appears in".
+  const hasText = textDbIds.size > 0 && !isArc
 
   return (
     <aside
@@ -127,6 +146,11 @@ export function DossierAside({
           )}
         </Block>
       )}
+
+      {isArc && (
+        <ArcBlocks workshop={workshop} arcId={dossier.context.row.noteId} onOpenNote={onOpenNote} />
+      )}
+      <CharacterArcsBlock arcs={arcsOfCharacter} onOpenNote={onOpenNote} />
 
       <Block title={t("creative.dossier.connections")}>
         {split.connections.length === 0 ? (

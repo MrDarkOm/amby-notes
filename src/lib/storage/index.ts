@@ -467,6 +467,7 @@ export const createWorkshopEntity = (request: CreateWorkshopEntityRequest) => {
   logger.info("storage.create_workshop_entity", {
     sectionId: request.sectionId,
     linked: request.storyId != null,
+    universe: request.universeId != null,
     notebook: (request.notebook?.length ?? 0) > 0,
   })
   return getAdapter().createWorkshopEntity(request)

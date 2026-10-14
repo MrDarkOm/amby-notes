@@ -735,6 +735,11 @@ pub struct CreateWorkshopEntityRequest {
     /// `["Идеи", "Сюжеты"]`. Empty or absent puts the page in the root of the base.
     #[serde(default)]
     pub notebook: Option<Vec<String>>,
+    /// The universe of an anchor: the note ID of a row of the universes section. Only an anchor
+    /// takes it (an event of that universe), and only where the anchors carry a "Universe"
+    /// relation (`universePropertyId`); it is written in the same write as the note.
+    #[serde(default)]
+    pub universe_id: Option<String>,
 }
 
 /// One notebook: a plain folder inside the notes base (`docs/creative-format.md` §6).

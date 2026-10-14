@@ -16,10 +16,10 @@ and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The 
 | Scopes, section grouping (pure)         | [project-tree-model.ts](project-tree-model.ts)                                                                   |
 | Workshop: tabs, lists, text tree, notes | [workshop/](workshop/MAP.md): `workshop-pane.tsx` composes; models: `workshop-model.ts`, `text-tree-model.ts`    |
 | Belonging to stories and universes      | `workshop-model.ts` (`resolvePanelFilter`, `buildMembership`, `scopeEntities`, `storyLabels`); `world-cards.tsx` |
-| Universe page                           | [universe-desk.tsx](universe-desk.tsx)                                                                           |
+| Universe page (stories, events, world)  | [universe-desk.tsx](universe-desk.tsx)                                                                           |
 | Project tab: header, sections, overview | [project-page.tsx](project-page.tsx); a story's desk: [project-desk.tsx](project-desk.tsx)                       |
 | Project settings dialog                 | [project-settings-dialog.tsx](project-settings-dialog.tsx)                                                       |
-| Words and last-change time of pages     | [use-text-stats.ts](use-text-stats.ts) (one read-only call over the note index)                                  |
+| Words and last-change time of pages     | [use-text-stats.ts](use-text-stats.ts) (one read-only call)                                                      |
 | Create project / section                | [create-project-dialog.tsx](create-project-dialog.tsx), [create-section-dialog.tsx](create-section-dialog.tsx)   |
 | Text schema of a new story (levels)     | [text-schema-presets.ts](text-schema-presets.ts); chosen in `create-project-dialog.tsx`                          |
 | Names in the active language            | [project-labels.ts](project-labels.ts); `creative.*` keys of `locales/resources.ts`                              |
@@ -88,18 +88,15 @@ with section role icons in `create-chooser-dialog.tsx`, a story, section, univer
 compact menu rows).
 
 **Creating where it will stand.** A page, note, anchor or world page is named on a row of its own
-(`inline-create-row.tsx`, one `WorkshopDraft` in `workshop-pane.tsx`): Enter creates, Escape cancels, a
-failure stays on the row. A page starts one level below its parent (`startLevelId`). The field ignores a
-blur in its first 300 ms, while the menu or dialog it came from closes.
+(`inline-create-row.tsx`, one `WorkshopDraft` in `workshop-pane.tsx`): Enter creates, Escape cancels, a failure stays on
+the row. A page starts one level below its parent (`startLevelId`).
 
-**Names.** The folder of a base section is named once, at creation, so the dialog resolves
-the names from the active language and sends them as `labels`; the backend only has Russian
-fallbacks. Add a language by adding the `creative.*` keys, not by touching Rust.
+**Names.** A base section's folder is named once, at creation: the dialog sends the names of the active language as
+`labels` (the backend only has Russian fallbacks). Add a language with `creative.*` keys, not in Rust.
 
-**Levels of a new story.** The dialog asks for the text schema: Novel (Book → Chapter → Scene, the
-default), Short story (Page), Comic (Book → Arc → Chapter → Page) or Custom (1 to 6 names). The names
-go as `textLevels` in the active language (not as `level:*` labels); `levelsProblem` mirrors what the
-backend refuses so Create stays disabled; the list is part of the operation-ID payload.
+**Levels of a new story.** The dialog asks for the text schema: Novel (Book → Chapter → Scene, the default), Short story
+(Page), Comic (Book → Arc → Chapter → Page) or Custom (1 to 6 names). The names go as `textLevels` in the active
+language; `levelsProblem` mirrors what the backend refuses; the list is part of the operation-ID payload.
 
 **Project settings.** `project-settings-dialog.tsx` (the "Settings" button of `project-page.tsx`, off on
 read-only projects): basics (`updateProject`), sections (reorder, remove without deleting the folder) and,
@@ -110,15 +107,16 @@ new one (Rust refuses an ID for a different payload).
 
 **Dossier.** `DossierFrame` is the editor's `editorFrame` (see [document-body.tsx](../editor/document-body.tsx)):
 one structure for every note, so the editor is never remounted when the answer arrives. It asks the
-backend only when projects exist and shows nothing outside the world sections.
+backend only when projects exist (`useNotePlace`) and shows nothing outside the world sections, except the plot
+aside of a page of a story's text (`text-page-aside.tsx`; only where anchors or arcs exist). An arc's page also shows
+its anchors and chapters and a character's its arcs (`plot-blocks.tsx`); [format §11](../../../../docs/creative-format.md).
 
 [fractional-index.ts](../../../lib/storage/fractional-index.ts) orders the pages of the text;
 [manuscript-compiler.ts](../../../lib/storage/manuscript-compiler.ts) turns the tree into one Markdown
 document by tree depth (it reads, it never writes; a page it cannot read stops it, naming the page).
 
-**Story desk.** `ProjectDesk`: the pages changed last ("continue with"), pages, words and done pages
-of the text and of each top-level page (from `list_text_stats`, not from reading files), and "Compile
-manuscript" (`readNote` in tree order, then `exportTextFile`; only a new file is written).
+**Story desk.** `ProjectDesk`: the pages changed last, pages, words and done pages (from `list_text_stats`, not
+from reading files), the ribbon of anchors, and "Compile manuscript" (`readNote` in tree order, then `exportTextFile`;
+only a new file is written).
 
-Do not reintroduce a single entities database, type overlays, `.amby-creative/` metadata or renderer-side
-project creation; discovery and creation belong in Rust.
+Do not reintroduce a single entities database, type overlays, `.amby-creative/` metadata or renderer-side creation.

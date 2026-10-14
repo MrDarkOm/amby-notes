@@ -10,7 +10,8 @@
 //!   the universes section and by `add_story_links`;
 //! - `add_story_links`, the journaled operation that links a section of a workshop made before
 //!   the links existed (it adopts a matching relation the section already has);
-//! - `create_entity`, a world page born with its story already set, in one write.
+//! - `create_entity`, a world page born with its story (and, for an anchor, its universe) already
+//!   set, in one write.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -43,7 +44,7 @@ use crate::database::discovery::manifest_path_for_container;
 use crate::database::format::{
     parse_manifest, prepare_json, raw_revision, PropertyDefinition, PropertyValue,
 };
-use crate::database::mutations::find_database_container;
+use crate::database::mutations::{find_database_container, resolve_note_path_for_id};
 use crate::database::rows::{
     create_database_row_in_directory, CreateDatabaseRowRequest, DatabaseRowTemplate,
 };
@@ -1009,6 +1010,26 @@ fn plan_anchor_links(
 // create_entity
 // ---------------------------------------------------------------------------
 
+/// The manifest of a database still holds the link property the workshop file names.
+fn require_property(env: &Env, database_id: &str, property_id: &str) -> Result<(), ProjectError> {
+    let container = find_database_container(env.vault, database_id).map_err(unavailable)?;
+    let manifest = fs::read(manifest_path_for_container(&container))
+        .map_err(|error| io_failure("readManifest", error))
+        .and_then(|bytes| {
+            parse_manifest(&bytes).map_err(|error| io_failure("parseManifest", error))
+        })?;
+    if manifest
+        .value
+        .properties
+        .iter()
+        .any(|property| property.id() == Some(property_id))
+    {
+        Ok(())
+    } else {
+        Err(unavailable("the link property was deleted"))
+    }
+}
+
 /// Creates a page of a world section. With a story, the page is written with its "Stories"
 /// relation already pointing at the story's card, in the same write as the note.
 pub fn create_entity(
@@ -1078,21 +1099,7 @@ pub fn create_entity(
             .card_note_id
             .clone()
             .ok_or_else(|| io_failure("storyCardMissing", "the story has no card"))?;
-        let container =
-            find_database_container(env.vault, &section.database_id).map_err(unavailable)?;
-        let manifest = fs::read(manifest_path_for_container(&container))
-            .map_err(|error| io_failure("readManifest", error))
-            .and_then(|bytes| {
-                parse_manifest(&bytes).map_err(|error| io_failure("parseManifest", error))
-            })?;
-        if !manifest
-            .value
-            .properties
-            .iter()
-            .any(|property| property.id() == Some(property_id.as_str()))
-        {
-            return Err(unavailable("the link property was deleted"));
-        }
+        require_property(env, &section.database_id, &property_id)?;
         values.insert(
             property_id,
             PropertyValue::Relation {
@@ -1101,6 +1108,36 @@ pub fn create_entity(
             },
         );
         linked_story_id = Some(story_id.clone());
+    }
+    // An event of a universe: an anchor born with its "Universe" value, in the same write.
+    if let Some(universe_id) = request.universe_id.as_deref() {
+        if section.role != ROLE_ANCHORS {
+            return Err(ProjectError::InvalidParent {
+                reason: "universe: only an anchor takes a universe".to_owned(),
+            });
+        }
+        let property_id = section
+            .universe_property_id
+            .clone()
+            .ok_or_else(|| unavailable("the anchors are not linked to universes"))?;
+        let universes = workshop
+            .doc
+            .sections
+            .iter()
+            .find(|candidate| candidate.role == ROLE_UNIVERSES)
+            .ok_or_else(|| unavailable("the workshop has no universes"))?;
+        let universes_container =
+            find_database_container(env.vault, &universes.database_id).map_err(unavailable)?;
+        resolve_note_path_for_id(env.vault, &universes_container, universe_id)
+            .map_err(|_| unavailable("the universe does not exist"))?;
+        require_property(env, &section.database_id, &property_id)?;
+        values.insert(
+            property_id,
+            PropertyValue::Relation {
+                target_note_ids: vec![universe_id.to_owned()],
+                extra: BTreeMap::new(),
+            },
+        );
     }
 
     let created = create_database_row_in_directory(

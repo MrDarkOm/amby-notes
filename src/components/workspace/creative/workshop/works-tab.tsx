@@ -99,6 +99,8 @@ interface WorksTabProps {
    * parts, or alone when a universe or the whole workshop is shown.
    */
   notes: NotesSlot | null
+  /** The anchors part for a universe or the whole workshop (no single story shown). */
+  anchorsSlot: AnchorsSlot | null
   /** The story has no anchors section: offers making one. */
   onCreateAnchors: (story: StorySummary) => void
   /** A page moved or a move was refused: the lists read the files again. */
@@ -139,6 +141,17 @@ export interface PlotPart {
   binding: PlotBinding | null
   /** The anchors section of an older workshop has no "Stories" relation: offers linking it. */
   linkAnchors: { pending: boolean; error: string | null; onLink: () => void } | null
+}
+
+/**
+ * The anchors part when no single story is shown (a universe, or the whole workshop): its count,
+ * the "+" and the rows, built by the pane because they depend on what the filter lets through.
+ */
+export interface AnchorsSlot {
+  count: number | null
+  /** Starts naming an anchor; `null` when the workshop is read-only or has no anchors section. */
+  onAdd: (() => void) | null
+  content: React.ReactNode
 }
 
 export interface NotesSlot {
@@ -919,6 +932,7 @@ export function WorksTab({
   onAddPage,
   onAddAnchor,
   notes,
+  anchorsSlot,
   onCreateAnchors,
   onMoved,
   activeNoteId,
@@ -1017,22 +1031,38 @@ export function WorksTab({
             onCancelDraft={onCancelDraft}
           />
         )}
-        {!story && notes && (
+        {!story && (anchorsSlot || notes) && (
           <div>
             <h3 className="pb-0.5 pl-3.5 pt-1 text-[11px] text-muted-foreground">
               {t("creative.groups.work")}
             </h3>
-            <Accordion
-              icon={SECTION_ICONS.notes}
-              label={t(SECTION_LABEL_KEYS.notes)}
-              count={notes.count}
-              open={open.notes}
-              onToggle={() => onToggleSection("notes")}
-              onAdd={workshop.readOnly ? null : notes.onAdd}
-              addLabel={t("creative.workshop.add")}
-            >
-              {notes.content}
-            </Accordion>
+            {anchorsSlot && (
+              <Accordion
+                icon={SECTION_ICONS.anchors}
+                label={t(SECTION_LABEL_KEYS.anchors)}
+                hint={t("creative.workshop.anchorsHint")}
+                count={anchorsSlot.count}
+                open={open.anchors}
+                onToggle={() => onToggleSection("anchors")}
+                onAdd={workshop.readOnly ? null : anchorsSlot.onAdd}
+                addLabel={t("creative.workshop.add")}
+              >
+                {anchorsSlot.content}
+              </Accordion>
+            )}
+            {notes && (
+              <Accordion
+                icon={SECTION_ICONS.notes}
+                label={t(SECTION_LABEL_KEYS.notes)}
+                count={notes.count}
+                open={open.notes}
+                onToggle={() => onToggleSection("notes")}
+                onAdd={workshop.readOnly ? null : notes.onAdd}
+                addLabel={t("creative.workshop.add")}
+              >
+                {notes.content}
+              </Accordion>
+            )}
           </div>
         )}
         {children}

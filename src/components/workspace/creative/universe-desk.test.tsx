@@ -15,10 +15,14 @@ import { ProjectPage } from "./project-page"
 import { useProjectStore } from "./project-store"
 
 const queryDatabase = vi.fn()
+const ensurePlotLinks = vi.fn()
+const createWorkshopEntity = vi.fn()
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
   queryDatabase: (...args: unknown[]) => queryDatabase(...args),
+  ensurePlotLinks: (...args: unknown[]) => ensurePlotLinks(...args),
+  createWorkshopEntity: (...args: unknown[]) => createWorkshopEntity(...args),
   listTextStats: async () => [],
   resolveDatabaseAssetPaths: async () => ({ paths: [] }),
 }))
@@ -134,5 +138,131 @@ describe("the page of a universe", () => {
         row("note_lone", "Одиночка"),
       ]
     }
+  })
+})
+
+describe("the events of a universe", () => {
+  const withAnchors = (universeProperty: string | null) =>
+    workshopSummary("verse", {
+      name: "Verse",
+      fileRevision: "rev-verse",
+      sections: [
+        ...workshop.sections,
+        section("anchors", {
+          role: "anchors",
+          name: "Якоря",
+          databaseId: "db_anch",
+          databaseName: "Якоря",
+          storiesPropertyId: "ast",
+          universePropertyId: universeProperty,
+        }),
+      ],
+      stories: workshop.stories,
+    })
+  const anchorRows = [
+    row("a1", "Потоп", { uni: rel("u1") }),
+    row("a2", "Чужое", { uni: rel("u2") }),
+    row("a3", "Простой"),
+  ]
+
+  function mountDesk(universeProperty: string | null = "uni", rowsOfAnchors = anchorRows) {
+    ROWS.db_anch = rowsOfAnchors
+    act(() => useProjectStore.getState().setCatalog(catalog([withAnchors(universeProperty)])))
+    render(
+      <ProjectPage
+        projectId="universe:u1"
+        renderDatabase={() => null}
+        onOpenProject={vi.fn()}
+        onOpenNote={onOpenNote}
+      />,
+    )
+  }
+  const onOpenNote = vi.fn()
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+    onOpenNote.mockReset()
+    ensurePlotLinks.mockReset().mockResolvedValue({ changed: true })
+    createWorkshopEntity.mockReset().mockResolvedValue({ noteId: "new" })
+    queryDatabase
+      .mockReset()
+      .mockImplementation(async ({ databaseId }: { databaseId: string }) => ({
+        rows: ROWS[databaseId] ?? [],
+        nextCursor: null,
+        totalCount: (ROWS[databaseId] ?? []).length,
+        diagnostics: [],
+      }))
+    useProjectStore.getState().reset()
+    useDatabaseStore.getState().reset(1)
+    useCreativeNavStore.setState({ sectionByProject: {}, collapsed: {}, dataNonce: 0 })
+  })
+  afterEach(() => {
+    cleanup()
+    delete ROWS.db_anch
+  })
+
+  async function nameEvent(title: string) {
+    const region = await screen.findByRole("region", { name: "События вселенной" })
+    fireEvent.click(await within(region).findByRole("button", { name: "Новое событие" }))
+    const field = within(region).getByLabelText("Название события")
+    fireEvent.change(field, { target: { value: title } })
+    fireEvent.submit(field.closest("form") as HTMLFormElement)
+    return region
+  }
+
+  it("lists the anchors that name the universe and opens one", async () => {
+    mountDesk()
+    const region = await screen.findByRole("region", { name: "События вселенной" })
+    await within(region).findByText("Потоп")
+    expect(within(region).queryByText("Чужое")).toBeNull()
+    expect(within(region).queryByText("Простой")).toBeNull()
+    fireEvent.click(within(region).getByText("Потоп"))
+    expect(onOpenNote).toHaveBeenCalledWith("a1")
+  })
+
+  it("says so when the universe has no event", async () => {
+    mountDesk("uni", [row("a3", "Простой")])
+    expect(await screen.findByText("У вселенной пока нет событий.")).toBeTruthy()
+  })
+
+  it("makes an event in one write that names the universe", async () => {
+    mountDesk("uni")
+    await nameEvent("Пожар")
+    await waitFor(() => expect(createWorkshopEntity).toHaveBeenCalledTimes(1))
+    expect(createWorkshopEntity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workshopId: "verse",
+        sectionId: "anchors",
+        title: "Пожар",
+        universeId: "u1",
+      }),
+    )
+    expect(ensurePlotLinks).not.toHaveBeenCalled()
+  })
+
+  it("makes the Universe relation of the anchors first when they lack it", async () => {
+    mountDesk(null)
+    await nameEvent("Пожар")
+    await waitFor(() => expect(createWorkshopEntity).toHaveBeenCalledTimes(1))
+    expect(ensurePlotLinks).toHaveBeenCalledTimes(1)
+    expect(ensurePlotLinks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: "anchors",
+        workshopId: "verse",
+        expectedRevision: "rev-verse",
+      }),
+    )
+    expect(ensurePlotLinks.mock.invocationCallOrder[0]).toBeLessThan(
+      createWorkshopEntity.mock.invocationCallOrder[0],
+    )
+  })
+
+  it("shows the failure of that operation and writes no anchor", async () => {
+    ensurePlotLinks.mockReset().mockRejectedValue(new Error("диск полон"))
+    mountDesk(null)
+    const region = await nameEvent("Пожар")
+    const alert = await within(region).findByRole("alert")
+    expect(alert.textContent).toContain("диск полон")
+    expect(createWorkshopEntity).not.toHaveBeenCalled()
   })
 })

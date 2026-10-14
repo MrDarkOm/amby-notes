@@ -285,6 +285,7 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
                 title: title.to_owned(),
                 story_id: story.map(|name| built.houses[name].story_id.clone()),
                 notebook: None,
+                universe_id: None,
             },
         )
         .unwrap()
@@ -303,6 +304,32 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
     let loose_anchor = entity("anchors", "Свободный", None);
     let love = entity("arcs", "Любовь", Some("Дом"));
     let revenge = entity("arcs", "Месть", None);
+    // An event of the universe: an anchor born with its "Universe" value, in no story. The anchors
+    // also name arcs, and an arc names its characters.
+    let flood = create_entity(
+        &fixture.env(),
+        &CreateWorkshopEntityRequest {
+            expected_generation: 1,
+            workshop_id: built.created.workshop_id.clone(),
+            section_id: "anchors".to_owned(),
+            title: "Потоп".to_owned(),
+            story_id: None,
+            notebook: None,
+            universe_id: Some(universe.note_id.clone()),
+        },
+    )
+    .unwrap();
+    patch_note(&meeting.note_path, "Арки", &[&love.note_id]);
+    patch_note(
+        &finale.note_path,
+        "Арки",
+        &[&love.note_id, &revenge.note_id],
+    );
+    patch_note(
+        &love.note_path,
+        "Персонажи",
+        &[&anna.note_id, &boris.note_id],
+    );
 
     // Notes in notebooks: nested ones, an empty one, one in the root, one in no story.
     let notes_folder = fixture.vault.join("Saga/Заметки");
@@ -319,6 +346,7 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
                 title: title.to_owned(),
                 story_id: story.map(|name| built.houses[name].story_id.clone()),
                 notebook: Some(notebook.iter().map(|name| (*name).to_owned()).collect()),
+                universe_id: None,
             },
         )
         .unwrap()
@@ -466,6 +494,7 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
         ("Встреча", &meeting.note_id),
         ("Побег", &escape.note_id),
         ("Свободный", &loose_anchor.note_id),
+        ("Потоп", &flood.note_id),
         ("Любовь", &love.note_id),
         ("Месть", &revenge.note_id),
         ("Книга", &book.note_id),
@@ -631,6 +660,29 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
     assert_eq!(
         chapter["values"]["ID:prop:text:Дом:arcs"]["targetNoteIds"],
         json!(["ID:note:Любовь"])
+    );
+    // An event of the universe carries the universe, an anchor its arcs and an arc its characters,
+    // each under the property the workshop file names.
+    let row_of = |database: &str, title: &str| {
+        produced["rows"][database]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["title"] == title)
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(
+        row_of("ID:db:anchors", "Потоп")["values"]["ID:prop:universe:anchors"]["targetNoteIds"],
+        json!(["ID:note:Мир"])
+    );
+    assert_eq!(
+        row_of("ID:db:anchors", "Финал")["values"]["ID:prop:arcs:anchors"]["targetNoteIds"],
+        json!(["ID:note:Любовь", "ID:note:Месть"])
+    );
+    assert_eq!(
+        row_of("ID:db:arcs", "Любовь")["values"]["ID:prop:characters:arcs"]["targetNoteIds"],
+        json!(["ID:note:Анна", "ID:note:Борис"])
     );
     let sections = produced["workshop"]["sections"].as_array().unwrap();
     let section = |role: &str| sections.iter().find(|s| s["role"] == role).unwrap();

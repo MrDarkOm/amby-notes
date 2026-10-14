@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
+import { logger } from "@/lib/logger"
 import type { DatabaseRow, DatabaseSummary, ProjectCatalog } from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
 import { useDatabaseStore } from "../database/database-store"
@@ -398,6 +399,37 @@ describe("CreativePanel: anchors and arcs bound to the pages of a story", () => 
         propertyId: "tanc",
         targetNoteIds: ["a3"],
       })
+    })
+
+    it("binds all the same when the anchors' own relations cannot be made, and logs why", async () => {
+      const warn = vi.spyOn(logger, "warn").mockImplementation(() => null)
+      try {
+        act(() =>
+          useProjectStore
+            .getState()
+            .setCatalog(world({ withProperties: false, anchorsHaveArcs: false })),
+        )
+        ensurePlotLinks.mockImplementation(async (request: { target: string }) => {
+          if (request.target === "anchors") throw new Error("anchors are locked")
+          return {
+            changed: true,
+            revision: "story-rev-2",
+            anchorsPropertyId: "tanc",
+            arcsPropertyId: "tarc",
+            universePropertyId: null,
+          }
+        })
+        ROWS.db_text = ROWS.db_text.map((entry) => ({ ...entry, valuesJson: "{}" }))
+        await ready()
+        dragOnto(rowButton("Эпилог"), "c2")
+        await waitFor(() => expect(updateDatabaseRelationValue).toHaveBeenCalledTimes(1))
+        expect(warn).toHaveBeenCalledWith(
+          "creative.plot.anchor_links_failed",
+          expect.objectContaining({ workshopId: "verse" }),
+        )
+      } finally {
+        warn.mockRestore()
+      }
     })
 
     it("does not ask again once the catalog knows the property", async () => {

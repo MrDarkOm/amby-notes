@@ -9,6 +9,8 @@ import { CreateSectionDialog } from "./create-section-dialog"
 import { ProjectDesk } from "./project-desk"
 import { ProjectSettingsDialog } from "./project-settings-dialog"
 import { UniverseDesk } from "./universe-desk"
+import { usePlotEnsurer } from "./workshop/use-ensure-plot"
+import { projectErrorText } from "./project-error"
 import { useDatabaseRows } from "./workshop/use-database-rows"
 import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative-nav-store"
 import { useProjectStore } from "./project-store"
@@ -88,6 +90,9 @@ export function ProjectPage({
   const [addingSection, setAddingSection] = React.useState(false)
   const [editingSettings, setEditingSettings] = React.useState(false)
   const [toolbarHost, setToolbarHost] = React.useState<HTMLDivElement | null>(null)
+  // The anchors may need a relation to a base that was just made; a failure is shown, not lost.
+  const { ensureAnchorLinks } = usePlotEnsurer(onChanged)
+  const [linkNotice, setLinkNotice] = React.useState<string | null>(null)
 
   const target = React.useMemo(() => resolveProjectTarget(catalog, projectId), [catalog, projectId])
 
@@ -264,6 +269,21 @@ export function ProjectPage({
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
+        {linkNotice && (
+          <div
+            role="alert"
+            className="mx-8 mt-3 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive"
+          >
+            <span className="min-w-0 flex-1 break-words">{linkNotice}</span>
+            <button
+              type="button"
+              className="shrink-0 underline"
+              onClick={() => setLinkNotice(null)}
+            >
+              {t("common.close")}
+            </button>
+          </div>
+        )}
         {activeSection ? (
           activeSection.state === "missing" ? (
             <div className="m-8 flex flex-col gap-1 rounded-xl border border-dashed border-border p-6 text-sm">
@@ -298,6 +318,7 @@ export function ProjectPage({
                 onOpenNote={onOpenNote}
                 onOpenStory={(storyId) => onOpenProject(storyId)}
                 onOpenSection={(_ownerId, sectionId) => showSection(projectId, sectionId)}
+                onEnsureAnchorLinks={ensureAnchorLinks}
               />
             )}
             {!hasDesk && !hasUniverseDesk && stories.length > 0 && (
@@ -353,6 +374,13 @@ export function ProjectPage({
             void (async () => {
               await onChanged?.()
               await useProjectStore.getState().refresh?.()
+              try {
+                await ensureAnchorLinks(workshop.workshopId)
+              } catch (caught) {
+                setLinkNotice(
+                  t("creative.plot.linksFailed", { message: projectErrorText(t, caught) }),
+                )
+              }
               showSection(projectId, created.section.sectionId)
             })()
           }}

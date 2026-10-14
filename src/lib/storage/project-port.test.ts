@@ -372,7 +372,17 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
       title: "Борис",
     })
     expect(entity).toHaveBeenLastCalledWith(
-      expect.objectContaining({ storyId: null, notebook: null }),
+      expect.objectContaining({ storyId: null, notebook: null, universeId: null }),
+    )
+    await createWorkshopEntity({
+      expectedGeneration: 3,
+      workshopId: "w1",
+      sectionId: "anchors",
+      title: "Потоп",
+      universeId: "u1",
+    })
+    expect(entity).toHaveBeenLastCalledWith(
+      expect.objectContaining({ storyId: null, universeId: "u1" }),
     )
     await createWorkshopEntity({
       expectedGeneration: 3,

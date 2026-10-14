@@ -6,11 +6,7 @@ import { MotionSpinner } from "@/lib/motion"
 import {
   addStoryLinks,
   createWorkshopEntity,
-  ensurePlotLinks,
-  type EnsuredPlotLinks,
-  type PlotLinksTarget,
   type ProjectDiagnostic,
-  type StorySummary,
   type WorkshopSummary,
 } from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
@@ -28,6 +24,7 @@ import { useCreativeNavStore } from "./creative-nav-store"
 import { CreativeScopePicker } from "./creative-scope-picker"
 import { readStoredScope, readWorkshopPrefs, writeStoredScope } from "./creative-scope-storage"
 import { linkLabels } from "./project-labels"
+import { projectErrorText } from "./project-error"
 import { listScopes, resolveScope } from "./project-tree-model"
 import { useProjectStore } from "./project-store"
 import { sectionRoleIcon } from "./section-icons"
@@ -38,6 +35,7 @@ import {
   workshopScope,
   worksSectionsFromPrefs,
 } from "./workshop/workshop-model"
+import { usePlotEnsurer } from "./workshop/use-ensure-plot"
 import { WorkshopPane } from "./workshop/workshop-pane"
 
 interface NewProjectRequest {
@@ -155,6 +153,10 @@ export function CreativePanel({
     }
   }, [catalog, createRequest, workshop])
 
+  // The operation that makes the missing link properties of anchors and arcs; the first binding
+  // needs them, and so does an anchor made as an event of a universe.
+  const { ensure: ensurePlot, ensureAnchorLinks } = usePlotEnsurer(onCreativeChanged)
+
   const openProject = React.useCallback(
     (projectId: string, sectionId?: string) => {
       onOpenCreativeProject?.(projectId, sectionId)
@@ -162,9 +164,24 @@ export function CreativePanel({
     [onOpenCreativeProject],
   )
   const openNote = React.useCallback((noteId: string) => onSelect?.(noteId), [onSelect])
-  const afterWrite = async (projectId: string, sectionId?: string, nextScope?: string | null) => {
+  // The failure of the anchors' links after a base was made: shown, never swallowed.
+  const [linkNotice, setLinkNotice] = React.useState<string | null>(null)
+  const afterWrite = async (
+    projectId: string,
+    sectionId?: string,
+    nextScope?: string | null,
+    /** The workshop whose anchors may need a relation to the base that was just made. */
+    anchorsOf?: string,
+  ) => {
     await onCreativeChanged?.()
     await useProjectStore.getState().refresh?.()
+    if (anchorsOf) {
+      try {
+        await ensureAnchorLinks(anchorsOf)
+      } catch (caught) {
+        setLinkNotice(t("creative.plot.linksFailed", { message: projectErrorText(t, caught) }))
+      }
+    }
     if (nextScope !== undefined) chooseScope(nextScope)
     openProject(projectId, sectionId)
   }
@@ -198,6 +215,7 @@ export function CreativePanel({
     title: string,
     storyId: string | null,
     notebook?: string[],
+    universeId?: string | null,
   ) => {
     // The notes and anchors bases are not world categories, but their pages are made the same way;
     // a note's notebook is a folder of the base.
@@ -207,6 +225,9 @@ export function CreativePanel({
         : categories.find((t) => t.key === categoryKey)?.sectionId
     if (!sectionId || !workshop || vaultGeneration === null) return
     try {
+      // An event of a universe needs the anchors' "Universe" relation: made first, and a failure
+      // stops here, on the row that asked for it.
+      if (universeId) await ensureAnchorLinks(workshop.workshopId)
       const created = await createWorkshopEntity({
         expectedGeneration: vaultGeneration,
         workshopId: workshop.workshopId,
@@ -214,6 +235,7 @@ export function CreativePanel({
         title,
         storyId,
         notebook: notebook && notebook.length > 0 ? notebook : null,
+        universeId: universeId ?? null,
       })
       bumpData()
       openNote(created.noteId)
@@ -244,43 +266,6 @@ export function CreativePanel({
     })
     await onCreativeChanged?.()
     await useProjectStore.getState().refresh?.()
-  }
-
-  // One operation ID per request, so a retry of the same request is answered from the record.
-  const plotOperations = React.useRef(new Map<string, string>())
-  /**
-   * Makes the missing anchors and arcs properties (of a story's text, or of the anchors) and reads
-   * the catalog again so the lists see them.
-   */
-  const ensurePlot = async (request: {
-    target: PlotLinksTarget
-    workshop: WorkshopSummary
-    story?: StorySummary
-  }): Promise<EnsuredPlotLinks> => {
-    if (vaultGeneration === null) throw new Error(t("creative.errors.vaultChanged"))
-    const { target, workshop: owner, story } = request
-    const expectedRevision = target === "story" ? story?.fileRevision : owner.fileRevision
-    if (!expectedRevision) throw new Error(t("creative.errors.projectNotFound"))
-    const key = `${target}:${owner.workshopId}:${story?.storyId ?? ""}:${expectedRevision}`
-    let operationId = plotOperations.current.get(key)
-    if (!operationId) {
-      operationId = `plot-${crypto.randomUUID()}`
-      plotOperations.current.set(key, operationId)
-    }
-    const ensured = await ensurePlotLinks({
-      expectedGeneration: vaultGeneration,
-      operationId,
-      workshopId: owner.workshopId,
-      target,
-      storyId: story?.storyId ?? null,
-      expectedRevision,
-      labels: linkLabels(t),
-    })
-    if (ensured.changed) {
-      await onCreativeChanged?.()
-      await useProjectStore.getState().refresh?.()
-    }
-    return ensured
   }
 
   const pickCreate = (choice: CreateChoice) => {
@@ -367,6 +352,21 @@ export function CreativePanel({
     body = (
       <div className="flex min-h-0 flex-1 flex-col">
         <DiagnosticsNotice diagnostics={catalog.diagnostics} />
+        {linkNotice && (
+          <div
+            role="alert"
+            className="mx-3 mb-2 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-[11px] text-destructive"
+          >
+            <span className="min-w-0 flex-1 break-words">{linkNotice}</span>
+            <button
+              type="button"
+              className="shrink-0 underline"
+              onClick={() => setLinkNotice(null)}
+            >
+              {t("common.close")}
+            </button>
+          </div>
+        )}
         <WorkshopPane
           catalog={catalog}
           scopeId={resolvedScope}
@@ -436,6 +436,9 @@ export function CreativePanel({
             created.id,
             undefined,
             created.kind === "workshop" ? created.id : undefined,
+            created.kind === "universe"
+              ? (newProject?.workshop ?? workshop)?.workshopId
+              : undefined,
           )
         }
       />
@@ -447,7 +450,12 @@ export function CreativePanel({
           workshop={sectionRequest.workshop}
           initial={sectionRequest.initial}
           onCreated={(created) =>
-            void afterWrite(sectionRequest.workshop.workshopId, created.section.sectionId)
+            void afterWrite(
+              sectionRequest.workshop.workshopId,
+              created.section.sectionId,
+              undefined,
+              sectionRequest.workshop.workshopId,
+            )
           }
         />
       )}

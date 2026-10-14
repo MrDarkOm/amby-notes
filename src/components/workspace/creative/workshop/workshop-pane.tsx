@@ -33,14 +33,16 @@ import {
   type TextNode,
 } from "./text-tree-model"
 import { useDatabaseRows } from "./use-database-rows"
-import { useViewManualOrder } from "./use-view-order"
+import { useAnchorOrder } from "./use-anchor-order"
 import { NotesPart } from "./notes-part"
 import { buildNotebookTree, noteItemsOf } from "./notebook-model"
 import { useNotebookActions } from "./use-notebook-actions"
 import { useNotebooks } from "./use-notebooks"
-import { WorksTab, type NotesSlot, type PlotPart } from "./works-tab"
+import { AnchorsOverview } from "./anchors-overview"
+import { WorksTab, type AnchorsSlot, type NotesSlot, type PlotPart } from "./works-tab"
 import { WorldSection, type PlotRow } from "./world-section"
 import { pagesOf, readBindings, type PageBinding } from "./plot-model"
+import { bucketAnchors } from "./plot-views"
 import { usePlotBinding, type EnsurePlot } from "./use-plot-binding"
 import { ItemActionsContext, type ItemActions } from "./item-actions"
 import {
@@ -50,6 +52,7 @@ import {
   entityItemsOf,
   entityTabs,
   groupPropertyOf,
+  relationTargetsOf,
   resolvePanelFilter,
   scopeEntities,
   selectedStoryOf,
@@ -85,6 +88,8 @@ interface WorkshopPaneProps {
     title: string,
     storyId: string | null,
     notebook?: string[],
+    /** An anchor made as an event of this universe (the anchors section only). */
+    universeId?: string | null,
   ) => Promise<void>
   /**
    * Links a section of an older workshop (a world section to stories, or the stories section to
@@ -187,15 +192,8 @@ export function WorkshopPane({
   const anchorsDatabaseId = scope.workshop
     ? storySection(scope.workshop, "anchors")?.databaseId
     : null
-  const anchorStats = useTextStats(anchorsDatabaseId, dataNonce)
-  const anchorCreated = React.useMemo(
-    () => Object.fromEntries(Object.entries(anchorStats).map(([id, stat]) => [id, stat.created])),
-    [anchorStats],
-  )
-  const anchorView = useViewManualOrder(
-    databases.find((database) => database.databaseId === anchorsDatabaseId),
-    dataNonce,
-  )
+  const anchorView = useAnchorOrder(anchorsDatabaseId, dataNonce)
+  const anchorCreated = anchorView.created
 
   const itemsByCategory = React.useMemo(() => {
     const result: Record<string, EntityItem[]> = {}
@@ -483,6 +481,27 @@ export function WorkshopPane({
       titles: new Map((data.rows[text.databaseId] ?? []).map((row) => [row.noteId, row.title])),
     }
   }, [data.rows, rootsOf, selectedStory])
+  // Without a single story shown: the anchors of the whole workshop or of a universe, in the
+  // author's own order (a universe's events first).
+  const anchorBuckets = React.useMemo(() => {
+    if (!anchorsSection || filter.kind === "story") return null
+    const universeProperty = anchorsSection.universePropertyId
+    return bucketAnchors({
+      anchors: data.rows[anchorsSection.databaseId] ?? [],
+      filter,
+      membership,
+      universeOf: (noteId) => {
+        const row = data.rows[anchorsSection.databaseId]?.find(
+          (candidate) => candidate.noteId === noteId,
+        )
+        return row && universeProperty
+          ? (relationTargetsOf(row.valuesJson, universeProperty)[0] ?? null)
+          : null
+      },
+      manualOrder: anchorView.order,
+      createdOf: (noteId) => anchorCreated[noteId],
+    })
+  }, [anchorCreated, anchorView.order, anchorsSection, data.rows, filter, membership])
   const plotRowOf = (tab: WorkshopTab, item: EntityItem): PlotRow | null => {
     const binding = plot.binding
     if (tab.role !== "arcs" || !binding || !plotPages) return null
@@ -618,7 +637,9 @@ export function WorkshopPane({
     const sec = storySection(scope.workshop, "anchors")
     if (!sec) throw new Error(t("creative.errors.projectNotFound"))
     const storyId = filter.kind === "story" && sec.storiesPropertyId ? filter.storyId : null
-    await onCreateEntity("anchors", title, storyId)
+    // Made while a universe is shown, an anchor is an event of it from the first write.
+    const universeId = filter.kind === "universe" ? filter.universeId : null
+    await onCreateEntity("anchors", title, storyId, undefined, universeId)
     setDraft(null)
   }
 
@@ -636,6 +657,41 @@ export function WorkshopPane({
     () => ({ onOpen: onOpenNote, ...itemActions }),
     [itemActions, onOpenNote],
   )
+
+  const anchorsSlot: AnchorsSlot | null =
+    filter.kind === "story"
+      ? null
+      : {
+          count: anchorBuckets
+            ? anchorBuckets.events.length +
+              anchorBuckets.shown.length +
+              anchorBuckets.withoutStory.length
+            : null,
+          onAdd: scope.workshop?.readOnly || !anchorsSection ? null : startAnchor,
+          content: (
+            <AnchorsOverview
+              buckets={anchorBuckets}
+              universe={filter.kind === "universe"}
+              canWrite={!scope.workshop?.readOnly}
+              loading={data.status === "loading" || data.status === "idle"}
+              activeNoteId={activeNoteId}
+              onOpenNote={onOpenNote}
+              storyLabelsOf={labelsOf}
+              draft={draft}
+              onCommitDraft={commitDraft}
+              onCancelDraft={() => setDraft(null)}
+              onAddAnchor={startAnchor}
+              onCreateAnchors={() => {
+                if (scope.workshop) {
+                  onAddSection(scope.workshop, {
+                    choice: "anchors",
+                    name: t("creative.workshop.anchorsName", "Якоря"),
+                  })
+                }
+              }}
+            />
+          ),
+        }
 
   const notesSlot: NotesSlot | null = notesSection
     ? {
@@ -731,6 +787,7 @@ export function WorkshopPane({
                   onAddPage={(story, parent) => startPage(story.storyId, parent?.noteId ?? null)}
                   onAddAnchor={startAnchor}
                   notes={notesSlot}
+                  anchorsSlot={anchorsSlot}
                   onCreateAnchors={() => {
                     if (scope.workshop) {
                       onAddSection(scope.workshop, {

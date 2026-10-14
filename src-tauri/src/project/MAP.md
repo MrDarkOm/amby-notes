@@ -33,9 +33,8 @@ under the workshop folder; stories are attached databases in `<Workshop>/Ист�
 Section `path` is a hint: the catalog matches a section to its database by `databaseId` through
 `db_databases`, so a moved database works (`moved`) and a missing one is shown `missing`.
 
-**Index.** `project_*` tables are a cache rebuilt in one transaction by
-`rebuild_project_index`: at vault activation, from `refresh_projects` and after every
-creation. The watcher emits `project:changed` (workshop or story structure file, or a folder
+**Index.** `project_*` tables are a cache rebuilt in one transaction by `rebuild_project_index`: at vault activation, from
+`refresh_projects` and after every creation. The watcher emits `project:changed` (a structure file, or a folder
 created/removed/renamed); the renderer debounces it and calls `refresh_projects`.
 
 **Names.** A story title, a section name and the labels of the base sections become folder and file
@@ -76,15 +75,16 @@ relation to the right database with the right limit when the section already has
 (`create_database_row_with_values`); a repeated title gets `Title 2.md` and keeps `amby-title`.
 `create_workshop` and `create_workshop_section` keep the structure file's text and the planned IDs in the
 journal (`Plan.workshop_file_text`, `PlannedSection.stories_property_id`), so a resume writes what was planned.
-The contract with the interface is checked on a real workshop: `contract_test.rs` builds it, reads the catalog and
-rows back and compares them with `real-workshop.fixture.json`, which Vitest feeds to the interface's own model.
+The contract with the interface is checked on a real workshop: `contract_test.rs` compares its output with
+`real-workshop.fixture.json`, which Vitest feeds to the interface's model.
 
 **Plot links (`links.rs`, [format §6](../../../docs/creative-format.md)).** A story's text may hold "Anchors" and
 "Arcs" relations (`text.properties.anchors`/`arcs` in `amby-story.json`) and the anchors database "Arcs" and "Universe"
 (`arcsPropertyId`, `universePropertyId`), the arcs "Characters" (`charactersPropertyId`). `create_story` and the
 presets add them when the target database already exists; otherwise `ensure_plot_links` (journaled, `plan_links` adopts
 a matching relation) makes what is missing in one database and one structure file (`story` or `anchors` target), and
-writes nothing when nothing is missing. Tests: `plot_links_test.rs`.
+writes nothing when nothing is missing. `create_entity` also takes a `universe_id` (an anchor born as an event of a universe, in the same
+write as the note; refused before any write unless the property and the universe note exist). Tests: `plot_links_test.rs`.
 
 **Notebooks (`notebooks.rs`).** A notebook is a plain subfolder of the notes base ([format §8](../../../docs/creative-format.md));
 a note's place is its `category_path`, so this module only reads: `list_notebooks_of` walks the base's folder (no
@@ -98,11 +98,9 @@ journaled operation: the journal records `manifest_before`, and `recovery::rollb
 failure or crash comes before `amby-story.json` reaches its planned bytes. A level can only be renamed, reordered
 or added: leaving one out (even an unused one) is refused before any write (`UnknownTextLevel`).
 
-**Tests.** `create_test.rs` writes real folders and files in a temporary vault and
-fails or "crashes" the operation at every durable step (`Step` hooks, test only) and at
-`inject_nth_atomic_write_failure`; `discovery_test.rs` covers nesting, diagnostics, the
-SQLite join and rebuilds. Run `npm run rust:test -- project::`. When changing the
-commit order or the journal, keep a mutation check: break the cleanup and confirm the
+**Tests.** `create_test.rs` writes real files in a temporary vault and fails or "crashes" the operation at every durable
+step (`Step` hooks) and at `inject_nth_atomic_write_failure`; `discovery_test.rs` covers nesting, diagnostics and rebuilds.
+Run `npm run rust:test -- project::`. After changing the commit order or the journal, break the cleanup and confirm the
 crash tests fail.
 
 **Text.** A story's text database is created with its five system properties in the same
@@ -128,7 +126,5 @@ with `build_new_property` against the manifest being created. The result is jour
 (`PlannedSection.extras`, `.template`), so a repeat or a cleanup recomputes the manifest and
 the template file byte for byte; `recovery::rollback` removes the template only when it is the
 file we wrote, then the empty `.ambd` folders. **Page rules.** A parent must sit on a shallower
-level than its page; a loop is refused first. `apply_value_batch_typed` reports a stale page as
-`ValueBatchError::RevisionConflict` with the revision on disk, and `move_text_page` passes that
-on as `ProjectError::RevisionConflict`.
+level than its page; a loop is refused first. A stale page is `ProjectError::RevisionConflict` with the revision on disk.
 
