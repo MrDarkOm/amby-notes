@@ -30,6 +30,7 @@ import { sectionRoleIcon } from "./section-icons"
 import {
   entityTabs,
   selectedStoryOf,
+  storySection,
   workshopScope,
   worksSectionsFromPrefs,
 } from "./workshop/workshop-model"
@@ -77,6 +78,7 @@ export function CreativePanel({
   onDelete,
   onDeleteMany,
   onRename,
+  onMoveItem,
   onOpenInNewTab,
   onOpenCreativeProject,
   onCreativeChanged,
@@ -187,16 +189,27 @@ export function CreativePanel({
    * Creates a world page under the name the author typed in its row. With a story it is born
    * linked to it: the relation is written together with the note, not set afterwards.
    */
-  const createEntity = async (categoryKey: string, title: string, storyId: string | null) => {
-    const tab = categories.find((t) => t.key === categoryKey)
-    if (!tab || !workshop || vaultGeneration === null) return
+  const createEntity = async (
+    categoryKey: string,
+    title: string,
+    storyId: string | null,
+    notebook?: string[],
+  ) => {
+    // The notes base is not a world category, but its pages are made the same way; the notebook
+    // is a folder of the base.
+    const sectionId =
+      categoryKey === "notes"
+        ? storySection(workshop, "notes")?.id
+        : categories.find((t) => t.key === categoryKey)?.sectionId
+    if (!sectionId || !workshop || vaultGeneration === null) return
     try {
       const created = await createWorkshopEntity({
         expectedGeneration: vaultGeneration,
         workshopId: workshop.workshopId,
-        sectionId: tab.sectionId,
+        sectionId,
         title,
         storyId,
+        notebook: notebook && notebook.length > 0 ? notebook : null,
       })
       bumpData()
       openNote(created.noteId)
@@ -330,6 +343,7 @@ export function CreativePanel({
             onDelete: onDelete ? (id) => onDelete(id) : undefined,
             onDeleteMany,
           }}
+          fileActions={{ onMoveItem, onCreativeChanged }}
           createOptions={chooserOptions}
           onCreate={pickCreate}
         />

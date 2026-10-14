@@ -28,11 +28,10 @@ index, and the journaled creation of workshops, sections, and stories. The contr
 
 **Discovery.** Any `amby-workshop.json` outside hidden/service folders is a workshop. Peer
 databases (`stories`, `characters`, `locations`, `universes`, `arcs`, `anchors`, `notes`) live
-under the workshop folder. Stories are attached databases inside `<Workshop>/Истории/<StoryName>/`
-with `amby-story.json`. Legacy v2 `amby-project.json` files are reported as `legacyProjectFormat`
-diagnostics and kept read-only without touching files. Section `path` is a hint: a section is matched
-to its database by `databaseId` through `db_databases` when the catalog is read, so a moved database
-works (`moved`) and a missing one stays in the file and is shown `missing`.
+under the workshop folder; stories are attached databases in `<Workshop>/Истории/<StoryName>/` with
+`amby-story.json`. Legacy v2 `amby-project.json` is reported as `legacyProjectFormat` and left untouched.
+Section `path` is a hint: the catalog matches a section to its database by `databaseId` through
+`db_databases`, so a moved database works (`moved`) and a missing one is shown `missing`.
 
 **Index.** `project_*` tables are a cache rebuilt in one transaction by
 `rebuild_project_index`: at vault activation, from `refresh_projects` and after every
@@ -43,13 +42,13 @@ created/removed/renamed); the renderer debounces it and calls `refresh_projects`
 names, so they go through `names::normalize_entry_name` (no `/ \ : * ? " < > |`, no leading or trailing dot,
 no reserved names) before the journal exists; the other labels (property and option names) go through
 `normalize_title`. The story card (`create::story_card_bytes`) writes `amby-id`, `amby-title` and
-`amby-story-id` as JSON-escaped strings and its bytes live in the journal, so a resume writes the same
-bytes. A relation to a database the same operation creates (`PropertyBuilder::with_pending_databases`)
-is not looked up on disk; every other target must already exist. `create_workshop` accepts the keys of
-`presets::is_preset_label` (including `property:stories` and `property:universe`), `text_schema::is_schema_label` and
-`section:<role>`; the interface sends one shared set (`project-labels.ts`), written to
-`interface-label-keys.json`, which `project-labels.test.ts` keeps equal to what is sent and
-`create_test::the_labels_the_interface_sends_...` feeds to every creation.
+`amby-story-id` as JSON-escaped strings kept in the journal, so a resume writes the same bytes. A relation to
+a database the same operation creates (`PropertyBuilder::with_pending_databases`) is not looked up on disk;
+every other target must already exist. `create_workshop` accepts the keys of `presets::is_preset_label`
+(including `property:stories` and `property:universe`), `text_schema::is_schema_label` and `section:<role>`;
+the interface sends one shared set (`project-labels.ts`) written to `interface-label-keys.json`, which
+`project-labels.test.ts` keeps equal to what is sent and `create_test::the_labels_the_interface_sends_...`
+feeds to every creation.
 
 **Creation.** `create_workshop`, `create_story`, and `create_workshop_section` run one journaled operation:
 preflight without writes (generation, names, parent, case-insensitive collision, revision), then the journal
@@ -80,13 +79,17 @@ journal (`Plan.workshop_file_text`, `PlannedSection.stories_property_id`), so a 
 The contract with the interface is checked on a real workshop: `contract_test.rs` builds it, reads the catalog and
 rows back and compares them with `real-workshop.fixture.json`, which Vitest feeds to the interface's own model.
 
+**Notebooks (`notebooks.rs`).** A notebook is a plain subfolder of the notes base ([format §8](../../../docs/creative-format.md));
+a note's place is its `category_path`, so this module only reads: `list_notebooks_of` walks the base's folder (no
+links followed, bounded) and `resolve_notebook_dir` checks the `notebook` of `create_entity` before any write.
+
 **Settings (`settings.rs`).** `update_workshop`, `remove_workshop_section` and
 `reorder_workshop_sections` rewrite `amby-workshop.json` with `expectedWorkshopRevision`, a
 history snapshot and an operation journal. Removing the stories section is disallowed (`CannotRemoveStoriesSection`).
-`update_text_levels` and `add_text_status` modify both the text database manifest and `amby-story.json` in one
+`update_text_levels` and `add_text_status` change the text manifest and `amby-story.json` in one
 journaled operation: the journal records `manifest_before`, and `recovery::rollback` restores the manifest if a
-failure or crash happens before `amby-story.json` reaches its planned bytes. A level can only be renamed, reordered or added:
-leaving one out of the list (even one no page uses) is refused before any write (`UnknownTextLevel`).
+failure or crash comes before `amby-story.json` reaches its planned bytes. A level can only be renamed, reordered
+or added: leaving one out (even an unused one) is refused before any write (`UnknownTextLevel`).
 
 **Tests.** `create_test.rs` writes real folders and files in a temporary vault and
 fails or "crashes" the operation at every durable step (`Step` hooks, test only) and at
@@ -117,9 +120,8 @@ a replay and a rollback recompute the same bytes. A one-level schema is valid: t
 (a parent on a shallower level) then allows no nesting and pages go in a row at the top.
 
 **Page numbers.** `list_text_stats(databaseId)` joins `db_members` to `notes` and returns, per page,
-`word_count`, `mtime` and `created_at` as the note index keeps them. Read-only, nothing is stored:
-the panel's word counts, the story desk's "continue with" and the order of anchors made
-(by creation time) come from it without reading a file. It is as fresh as the index.
+`word_count`, `mtime` and `created_at` as the note index keeps them. Read-only: the panel's word counts,
+the story desk's "continue with" and the order anchors were made in come from it without reading a file.
 
 **Presets.** `presets.rs` plans what a world section starts with (icon, two properties, a
 gallery grouped by one of them, the page template) through `props.rs`, which builds properties

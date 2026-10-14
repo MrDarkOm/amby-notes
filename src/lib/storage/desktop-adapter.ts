@@ -25,6 +25,7 @@ import type {
   MoveTextPageRequest,
   MovedTextPage,
   NoteReference,
+  NotebookCatalog,
   RemoveWorkshopSectionRequest,
   RemovedWorkshopSection,
   ReorderWorkshopSectionsRequest,
@@ -579,6 +580,7 @@ export class DesktopAdapter implements StoragePort {
       await commands.createWorkshopEntity({
         ...request,
         storyId: request.storyId ?? null,
+        notebook: request.notebook ?? null,
       }),
     )
   }
@@ -599,6 +601,10 @@ export class DesktopAdapter implements StoragePort {
 
   async listTextStats(databaseId: string): Promise<TextPageStat[]> {
     return unwrapProjectCommand(await commands.listTextStats(databaseId))
+  }
+
+  async listNotebooks(databaseId: string): Promise<NotebookCatalog> {
+    return unwrapProjectCommand(await commands.listNotebooks(databaseId))
   }
 
   async moveTextPage(request: MoveTextPageRequest): Promise<MovedTextPage> {

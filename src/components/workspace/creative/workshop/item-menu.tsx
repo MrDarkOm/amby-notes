@@ -1,22 +1,37 @@
 import * as React from "react"
-import { Check, ExternalLink, FileText, Pencil, Trash2 } from "lucide-react"
+import { Check, ExternalLink, FileText, FolderInput, Pencil, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import type { TextStatusOptionSummary } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { ItemActionsContext } from "./item-actions"
+import type { NotebookTarget } from "./notebook-model"
+
+/**
+ * Where a note can be moved from its menu: the notebooks to choose from and the root of the base
+ * ("no notebook"). The place the note is in already is shown but cannot be chosen.
+ */
+export interface MoveMenu {
+  targets: NotebookTarget[]
+  /** The notebook the note is in; empty in the root. */
+  current: readonly string[]
+  onMove: (segments: string[] | null) => void
+}
 
 /**
  * The name of a page edited where it stands, as the file tree does it: Enter keeps the new name,
  * Escape and a click elsewhere with nothing changed leave the old one.
  */
-function InlineRename({
+export function InlineRename({
   title,
   indent,
   onCommit,
@@ -77,6 +92,7 @@ export function ItemMenu({
   statusOptions,
   statusOptionId,
   onSelectStatus,
+  move,
   children,
 }: {
   noteId: string
@@ -91,6 +107,8 @@ export function ItemMenu({
   statusOptionId?: string | null
   /** Sets or clears (`null`) the page's status option. */
   onSelectStatus?: (optionId: string | null) => void
+  /** "Move to notebook": the keyboard-reachable way to what dragging does. */
+  move?: MoveMenu
   /** The row; it receives the trigger's props. */
   children: React.ReactElement<{ onContextMenu?: React.MouseEventHandler }>
 }) {
@@ -152,6 +170,47 @@ export function ItemMenu({
               <Pencil className="size-3.5 text-muted-foreground" />
               {t("creative.workshop.menu.rename")}
             </ContextMenuItem>
+          )}
+          {move && (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className="gap-2 text-[13px]">
+                <FolderInput className="size-3.5 text-muted-foreground" />
+                {t("creative.notebooks.moveTo")}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="max-h-72 w-60 overflow-y-auto border-border bg-popover text-foreground">
+                {move.targets.map((target) => {
+                  const here =
+                    target.segments !== null &&
+                    target.segments.length === move.current.length &&
+                    target.segments.every((segment, index) => segment === move.current[index])
+                  return (
+                    <ContextMenuItem
+                      key={target.label}
+                      disabled={here}
+                      className="gap-2 text-[13px]"
+                      onSelect={() => move.onMove(target.segments)}
+                    >
+                      <span className="truncate" title={target.label}>
+                        {target.segments?.[target.segments.length - 1]}
+                      </span>
+                      {target.depth > 0 && (
+                        <span className="ml-auto truncate pl-2 text-[11px] text-muted-foreground">
+                          {target.segments?.slice(0, -1).join(" / ")}
+                        </span>
+                      )}
+                    </ContextMenuItem>
+                  )
+                })}
+                {move.targets.length > 0 && <ContextMenuSeparator />}
+                <ContextMenuItem
+                  disabled={move.current.length === 0}
+                  className="gap-2 text-[13px]"
+                  onSelect={() => move.onMove(null)}
+                >
+                  {t("creative.notebooks.root")}
+                </ContextMenuItem>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
           )}
           {hasStatusChoices && statusOptions && onSelectStatus && (
             <>

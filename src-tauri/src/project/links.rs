@@ -30,8 +30,9 @@ use super::journal::{
 };
 use super::model::{
     AddStoryLinksRequest, AddedStoryLinks, CreateWorkshopEntityRequest, CreatedWorkshopEntity,
-    ProjectError, ROLE_STORIES, ROLE_UNIVERSES, WORKSHOP_FILE_NAME,
+    ProjectError, ROLE_NOTES, ROLE_STORIES, ROLE_UNIVERSES, WORKSHOP_FILE_NAME,
 };
+use super::notebooks::resolve_notebook_dir;
 use super::presets::{is_link_label, link_property_name, links_to_stories};
 use super::props::PropertyBuilder;
 use crate::database::discovery::manifest_path_for_container;
@@ -40,7 +41,7 @@ use crate::database::format::{
 };
 use crate::database::mutations::find_database_container;
 use crate::database::rows::{
-    create_database_row_with_values, CreateDatabaseRowRequest, DatabaseRowTemplate,
+    create_database_row_in_directory, CreateDatabaseRowRequest, DatabaseRowTemplate,
 };
 use crate::frontmatter;
 use crate::watcher;
@@ -462,6 +463,24 @@ pub fn create_entity(
             role: section.role.clone(),
         });
     }
+    // A notebook is a folder of the notes base: checked before anything is written.
+    let notebook_segments = request
+        .notebook
+        .as_deref()
+        .filter(|segments| !segments.is_empty());
+    let directory = match notebook_segments {
+        Some(segments) => {
+            if section.role != ROLE_NOTES {
+                return Err(ProjectError::InvalidParent {
+                    reason: "notebook: only the notes base has notebooks".to_owned(),
+                });
+            }
+            let container =
+                find_database_container(env.vault, &section.database_id).map_err(unavailable)?;
+            Some(resolve_notebook_dir(&container, segments)?)
+        }
+        None => None,
+    };
 
     let mut values: BTreeMap<String, PropertyValue> = BTreeMap::new();
     let mut linked_story_id = None;
@@ -506,7 +525,7 @@ pub fn create_entity(
         linked_story_id = Some(story_id.clone());
     }
 
-    let created = create_database_row_with_values(
+    let created = create_database_row_in_directory(
         env.vault,
         env.watcher,
         &CreateDatabaseRowRequest {
@@ -516,6 +535,7 @@ pub fn create_entity(
             template: DatabaseRowTemplate::Default,
         },
         &values,
+        directory.as_deref(),
     )
     .map_err(|error| io_failure("createEntityFailed", error))?;
 

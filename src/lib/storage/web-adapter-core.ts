@@ -128,6 +128,7 @@ import type {
   MoveTextPageRequest,
   MovedTextPage,
   NoteReference,
+  NotebookCatalog,
   RemoveWorkshopSectionRequest,
   RemovedWorkshopSection,
   ReorderWorkshopSectionsRequest,
@@ -594,6 +595,16 @@ export class WebAdapterCore implements StoragePort {
 
   async listTextStats(_databaseId: string): Promise<TextPageStat[]> {
     return []
+  }
+
+  async listNotebooks(databaseId: string): Promise<NotebookCatalog> {
+    return {
+      databaseId,
+      containerPath: "",
+      rootItemCount: 0,
+      notebooks: [],
+      truncated: false,
+    }
   }
 
   async moveTextPage(_request: MoveTextPageRequest): Promise<MovedTextPage> {

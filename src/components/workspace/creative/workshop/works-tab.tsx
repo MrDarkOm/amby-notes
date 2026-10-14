@@ -78,8 +78,13 @@ interface WorksTabProps {
   totals: { pages: number | null; words: number | null }
   /** A page under `parent`, or at the top of the text for `null`. */
   onAddPage: (story: StorySummary, parent: TextNode | null) => void
-  onAddNote: (story: StorySummary) => void
   onAddAnchor: (story: StorySummary) => void
+  /**
+   * The notes part: the count, the "+" and the notebooks with their notes, already filtered by
+   * what is shown. `null` when the workshop has no notes section. It stands under a story's
+   * parts, or alone when a universe or the whole workshop is shown.
+   */
+  notes: NotesSlot | null
   /** The story has no anchors section: offers making one. */
   onCreateAnchors: (story: StorySummary) => void
   /** A page moved or a move was refused: the lists read the files again. */
@@ -100,6 +105,13 @@ interface WorksTabProps {
   onCancelDraft: () => void
   /** What goes under the story's parts: the world. */
   children?: React.ReactNode
+}
+
+export interface NotesSlot {
+  count: number | null
+  /** Starts naming a note in the root of the base; `null` when the workshop is read-only. */
+  onAdd: (() => void) | null
+  content: React.ReactNode
 }
 
 interface DropHint {
@@ -303,8 +315,8 @@ function StoryWorks({
   vaultGeneration,
   onOpenNote,
   onAddPage,
-  onAddNote,
   onAddAnchor,
+  notes,
   onCreateAnchors,
   onMoved,
   activeNoteId,
@@ -324,8 +336,8 @@ function StoryWorks({
   vaultGeneration: number | null
   onOpenNote: (noteId: string) => void
   onAddPage: (story: StorySummary, parent: TextNode | null) => void
-  onAddNote: (story: StorySummary) => void
   onAddAnchor: (story: StorySummary) => void
+  notes: NotesSlot | null
   onCreateAnchors: (story: StorySummary) => void
   onMoved: () => void
   activeNoteId: string | null
@@ -351,8 +363,6 @@ function StoryWorks({
     [text, textRows],
   )
   const levels = React.useMemo(() => text?.levels ?? [], [text])
-  const notesSection = storySection(workshop, "notes")
-  const noteRows = notesSection ? (rows[notesSection.databaseId] ?? []) : []
   const anchorsSection = storySection(workshop, "anchors")
   const anchorRows = anchorsSection ? (rows[anchorsSection.databaseId] ?? []) : []
   const canWrite = !workshop.readOnly
@@ -580,16 +590,12 @@ function StoryWorks({
       {t(key)}
     </p>
   )
-  const draftRow = (kind: "note" | "anchor", icon: React.ReactNode) =>
-    draft?.kind === kind ? (
+  const anchorDraftRow =
+    draft?.kind === "anchor" ? (
       <InlineCreateRow
         depth={0}
-        icon={icon}
-        placeholder={t(
-          kind === "note"
-            ? "creative.workshop.newNotePlaceholder"
-            : "creative.workshop.newAnchorPlaceholder",
-        )}
+        icon={<Anchor className="size-3.5" />}
+        placeholder={t("creative.workshop.newAnchorPlaceholder")}
         onSubmit={onCommitDraft}
         onCancel={onCancelDraft}
       />
@@ -663,32 +669,14 @@ function StoryWorks({
               true,
             )
           )}
-          {draftRow("anchor", <Anchor className="size-3.5" />)}
+          {anchorDraftRow}
         </>
       ),
     },
     notes: {
-      count: notesSection ? noteRows.length : null,
-      add: canWrite && notesSection ? () => onAddNote(story) : null,
-      content: !notesSection ? (
-        hintText("creative.workshop.noNotesSection")
-      ) : (
-        <>
-          {noteRows.length === 0 && draft?.kind !== "note" ? (
-            canWrite ? (
-              <EmptyAction
-                label={t("creative.workshop.addFirstNote")}
-                onClick={() => onAddNote(story)}
-              />
-            ) : (
-              hintText("creative.workshop.noNotesYet")
-            )
-          ) : (
-            rowList(noteRows, <FileText className="size-4 shrink-0 text-muted-foreground" />)
-          )}
-          {draftRow("note", <FileText className="size-3.5" />)}
-        </>
-      ),
+      count: notes?.count ?? null,
+      add: canWrite && notes?.onAdd ? notes.onAdd : null,
+      content: notes ? notes.content : hintText("creative.workshop.noNotesSection"),
     },
   }
 
@@ -747,8 +735,8 @@ export function WorksTab({
   onNewStory,
   totals,
   onAddPage,
-  onAddNote,
   onAddAnchor,
+  notes,
   onCreateAnchors,
   onMoved,
   activeNoteId,
@@ -831,8 +819,8 @@ export function WorksTab({
             vaultGeneration={vaultGeneration}
             onOpenNote={onOpenNote}
             onAddPage={onAddPage}
-            onAddNote={onAddNote}
             onAddAnchor={onAddAnchor}
+            notes={notes}
             onCreateAnchors={onCreateAnchors}
             onMoved={onMoved}
             activeNoteId={activeNoteId}
@@ -844,6 +832,24 @@ export function WorksTab({
             onCommitDraft={onCommitDraft}
             onCancelDraft={onCancelDraft}
           />
+        )}
+        {!story && notes && (
+          <div>
+            <h3 className="pb-0.5 pl-3.5 pt-1 text-[11px] text-muted-foreground">
+              {t("creative.groups.work")}
+            </h3>
+            <Accordion
+              icon={SECTION_ICONS.notes}
+              label={t(SECTION_LABEL_KEYS.notes)}
+              count={notes.count}
+              open={open.notes}
+              onToggle={() => onToggleSection("notes")}
+              onAdd={workshop.readOnly ? null : notes.onAdd}
+              addLabel={t("creative.workshop.add")}
+            >
+              {notes.content}
+            </Accordion>
+          </div>
         )}
         {children}
       </div>

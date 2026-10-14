@@ -677,6 +677,37 @@ pub struct CreateWorkshopEntityRequest {
     pub title: String,
     #[serde(default)]
     pub story_id: Option<String>,
+    /// A notebook of the notes base: the folder names from the base's root down, such as
+    /// `["Идеи", "Сюжеты"]`. Empty or absent puts the page in the root of the base.
+    #[serde(default)]
+    pub notebook: Option<Vec<String>>,
+}
+
+/// One notebook: a plain folder inside the notes base (`docs/creative-format.md` §6).
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Notebook {
+    /// Folder names from the base's root down to this notebook.
+    pub segments: Vec<String>,
+    /// The folder on disk, as the file tree names it.
+    pub path: String,
+    /// What lies directly in the folder besides notebooks: notes, their folders, any other file.
+    pub item_count: u32,
+}
+
+/// The notebooks of one base and the base's own folder.
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NotebookCatalog {
+    pub database_id: String,
+    /// The base's folder on disk, as the file tree names it.
+    pub container_path: String,
+    /// What lies directly in the base's folder besides notebooks.
+    pub root_item_count: u32,
+    /// Parents come before their children, siblings by name.
+    pub notebooks: Vec<Notebook>,
+    /// The folder tree was deeper or wider than a listing reads; the rest is left out.
+    pub truncated: bool,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]

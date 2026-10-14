@@ -1100,8 +1100,9 @@ export function WorkspaceOrchestration() {
       onDelete: (noteId) => handleDeleteFile(noteId),
       onDeleteMany: (noteIds) => handleDeleteFiles(noteIds),
       // An attached database is the folder of its note; a standalone one is its own folder item.
-      onMoveToDatabase: (noteId, target) =>
-        handleMoveItem([noteId], target.attachedNoteId ?? target.databaseId),
+      onMoveToDatabase: async (noteId, target) => {
+        await handleMoveItem([noteId], target.attachedNoteId ?? target.databaseId)
+      },
     }),
     [
       favorites,

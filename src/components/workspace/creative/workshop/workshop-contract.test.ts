@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
-import type { DatabaseRow, WorkshopSummary } from "@/lib/storage"
+import type { DatabaseRow, NotebookCatalog, WorkshopSummary } from "@/lib/storage"
 import fixture from "./real-workshop.fixture.json"
+import { buildNotebookTree, noteItemsOf, planNotebookDelete, type NoteItem } from "./notebook-model"
 import {
   buildMembership,
   entityItemsOf,
@@ -23,10 +24,10 @@ const rows: Record<string, DatabaseRow[]> = Object.fromEntries(
     list.map((entry) => ({
       noteId: entry.noteId,
       title: entry.title,
-      relativePath: `${entry.noteId}.md`,
+      relativePath: entry.relativePath,
       parentNoteId: null,
       depth: 0,
-      categoryPath: [],
+      categoryPath: entry.categoryPath,
       valuesJson: JSON.stringify(entry.values),
       rowRevision: "r",
     })),
@@ -101,5 +102,54 @@ describe("the real workshop from the backend", () => {
     const boris = storyLabels(membership.storiesOf("ID:note:Борис"), (id) => storyName.get(id))
     expect(boris).toEqual({ names: ["Дом", "Лес"], more: 0 })
     expect(titlesIn("ID:db:universes", { kind: "all" }).shown).toEqual(["Мир"])
+  })
+
+  it("groups the notes of the real notes base by notebook, under the filter, with the empty notebook listed", () => {
+    const listing = (fixture.notebooks as unknown as Record<string, NotebookCatalog>)["ID:db:notes"]
+    const items = noteItemsOf(rows["ID:db:notes"], "ID:db:notes", workshop.workshopId)
+    const section = workshop.sections.find((entry) => entry.role === "notes")!
+    expect(section.storiesPropertyId).toBeTruthy()
+    // The folders on disk are named the way the rows' category paths are.
+    expect(listing.notebooks.map((entry) => entry.segments)).toEqual([
+      ["Идеи"],
+      ["Идеи", "Сюжеты"],
+      ["Пустой"],
+    ])
+    expect(listing.containerPath.startsWith("VAULT/")).toBe(true)
+
+    const house = scopeEntities(items, { kind: "story", storyId: storyIdOf("Дом") }, membership)
+    const tree = buildNotebookTree(listing.notebooks, house.shown, { showEmpty: true })
+    expect(tree.nodes.map((node) => [node.name, node.count])).toEqual([
+      ["Идеи", 1],
+      ["Пустой", 0],
+    ])
+    expect(tree.nodes[0].notes.map((note) => note.title)).toEqual(["Заготовка"])
+    expect(tree.nodes[0].children[0].count).toBe(0)
+    expect(tree.rootNotes.map((note) => note.title)).toEqual(["Корневая"])
+
+    const wood = scopeEntities(items, { kind: "story", storyId: storyIdOf("Лес") }, membership)
+    expect(wood.shown.map((note) => note.title)).toEqual(["Поворот"])
+
+    // The whole workshop: the note in no story is set apart, and stays in its notebook.
+    const all = scopeEntities(items, { kind: "all" }, membership)
+    expect(all.withoutStory.map((note) => note.title)).toEqual(["Ничья"])
+    const apart = buildNotebookTree(listing.notebooks, all.withoutStory, { showEmpty: false })
+    expect(apart.nodes.map((node) => node.name)).toEqual(["Идеи"])
+  })
+
+  it("plans the deletion of a real notebook from what the disk and the rows really say", () => {
+    const listing = (fixture.notebooks as unknown as Record<string, NotebookCatalog>)["ID:db:notes"]
+    const items: NoteItem[] = noteItemsOf(rows["ID:db:notes"], "ID:db:notes", workshop.workshopId)
+    // "Идеи" holds two notes and "Сюжеты" one: the counts of the disk equal the rows, so the
+    // notebook holds nothing but notes and all three go up into the root.
+    const plan = planNotebookDelete(["Идеи"], listing.notebooks, items, true, true)
+    expect(plan.kind).toBe("ready")
+    if (plan.kind === "ready") {
+      expect(plan.moves.map((move) => move.title).sort()).toEqual(["Заготовка", "Ничья", "Поворот"])
+    }
+    expect(planNotebookDelete(["Пустой"], listing.notebooks, items, true, true)).toMatchObject({
+      kind: "ready",
+      moves: [],
+    })
   })
 })

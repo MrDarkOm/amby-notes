@@ -2469,6 +2469,46 @@ const ru = {
       universes: "Вселенные",
     },
     groups: { work: "История", world: "Мир" },
+    notebooks: {
+      root: "Без блокнота",
+      add: "Новый блокнот",
+      addInside: "Новый блокнот внутри",
+      addNoteHere: "Новая заметка здесь",
+      addNoteHereNamed: "Новая заметка в блокноте «{{name}}»",
+      rename: "Переименовать",
+      delete: "Удалить блокнот…",
+      moveTo: "Переместить в блокнот",
+      newPlaceholder: "Название блокнота — Enter, чтобы создать",
+      dismiss: "Закрыть сообщение",
+      deleteConfirm:
+        "Удалить блокнот «{{name}}»?\n\nЗаметки не удаляются: все заметки блокнота ({{count}}) переедут в «{{where}}», а пустая папка блокнота уйдёт в корзину — её можно восстановить.",
+      errors: {
+        duplicate: "Блокнот с таким названием уже есть.",
+        unavailable: "Не удалось прочитать список блокнотов. Попробуйте ещё раз.",
+        unknownFolder: "Не нашли папку блокнота. Обновите список и повторите.",
+        createFailed: "Не удалось создать блокнот: {{message}}",
+        renameFailed: "Блокнот не переименован. Проверьте, что новое название свободно.",
+        moveCollision:
+          "Заметку «{{note}}» нельзя переместить в «{{where}}»: там уже есть «{{other}}». Ничего не изменено.",
+        moveFailed:
+          "Не удалось переместить заметку. Проверьте список: она лежит на старом или на новом месте, но не потеряна.",
+        deleteCollisions:
+          "Блокнот «{{name}}» не удалён: при переносе в «{{where}}» совпали бы названия: {{titles}}. Переименуйте эти заметки и повторите. Ничего не изменено.",
+        deleteInterrupted:
+          "Блокнот «{{name}}» не удалён: перенос заметок в «{{where}}» оборвался. Каждая заметка лежит либо в блокноте, либо в «{{where}}» — ни одна не потеряна. Проверьте список и повторите удаление.",
+        notEmptyAfter:
+          "Блокнот «{{name}}» не удалён: после переноса в нём остались файлы. Заметки целы.",
+        trashFailed:
+          "Заметки перенесены, но блокнот «{{name}}» не удалось убрать в корзину: {{message}}. Пустую папку можно удалить в дереве файлов.",
+        unsafe: {
+          foreign:
+            "Блокнот «{{name}}» не удалён: в нём есть не только заметки (вложения или другие файлы). Разберите их в дереве файлов.",
+          incomplete:
+            "Блокнот «{{name}}» не удалён: список заметок загружен не полностью. Ничего не изменено.",
+          unknown: "Блокнот «{{name}}» не удалён: его не нашли на диске. Обновите список.",
+        },
+      },
+    },
     dossier: {
       location: "{{project}} · {{section}}",
       aside: "Досье",
@@ -5206,6 +5246,47 @@ const en: typeof ru = {
       universes: "Universes",
     },
     groups: { work: "Story", world: "World" },
+    notebooks: {
+      root: "No notebook",
+      add: "New notebook",
+      addInside: "New notebook inside",
+      addNoteHere: "New note here",
+      addNoteHereNamed: 'New note in the notebook "{{name}}"',
+      rename: "Rename",
+      delete: "Delete notebook…",
+      moveTo: "Move to notebook",
+      newPlaceholder: "Notebook name — Enter to create",
+      dismiss: "Dismiss the message",
+      deleteConfirm:
+        'Delete the notebook "{{name}}"?\n\nNo note is deleted: all notes of the notebook ({{count}}) move to "{{where}}", and the empty folder goes to the trash, where it can be restored.',
+      errors: {
+        duplicate: "A notebook with this name already exists.",
+        unavailable: "Could not read the list of notebooks. Try again.",
+        unknownFolder: "The notebook's folder was not found. Refresh the list and try again.",
+        createFailed: "Could not create the notebook: {{message}}",
+        renameFailed: "The notebook was not renamed. Check that the new name is free.",
+        moveCollision:
+          'The note "{{note}}" cannot move to "{{where}}": "{{other}}" is already there. Nothing was changed.',
+        moveFailed:
+          "Could not move the note. Check the list: it is in the old place or the new one, but it is not lost.",
+        deleteCollisions:
+          'The notebook "{{name}}" was not deleted: moving its notes to "{{where}}" would clash on these names: {{titles}}. Rename those notes and try again. Nothing was changed.',
+        deleteInterrupted:
+          'The notebook "{{name}}" was not deleted: moving its notes to "{{where}}" stopped halfway. Each note is either in the notebook or in "{{where}}", none is lost. Check the list and delete again.',
+        notEmptyAfter:
+          'The notebook "{{name}}" was not deleted: files were left in it after the move. The notes are safe.',
+        trashFailed:
+          'The notes were moved, but the notebook "{{name}}" could not be put in the trash: {{message}}. The empty folder can be deleted in the file tree.',
+        unsafe: {
+          foreign:
+            'The notebook "{{name}}" was not deleted: it holds more than notes (attachments or other files). Sort them out in the file tree.',
+          incomplete:
+            'The notebook "{{name}}" was not deleted: the list of notes is not fully loaded. Nothing was changed.',
+          unknown:
+            'The notebook "{{name}}" was not deleted: it was not found on disk. Refresh the list.',
+        },
+      },
+    },
     dossier: {
       location: "{{project}} · {{section}}",
       aside: "Dossier",

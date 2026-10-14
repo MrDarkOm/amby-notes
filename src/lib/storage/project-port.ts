@@ -19,6 +19,7 @@ import {
   type MoveTextPageRequest,
   type MovedTextPage,
   type NoteReference,
+  type NotebookCatalog,
   type ProjectCatalog,
   type ProjectError,
   type RemoveWorkshopSectionRequest,
@@ -64,7 +65,10 @@ export interface ProjectPort {
    * universes. Adopts a relation the section already has, else adds one.
    */
   addStoryLinks(request: AddStoryLinksRequest): Promise<AddedStoryLinks>
-  /** A page of a world section, born linked to a story's card when `storyId` is given. */
+  /**
+   * A page of a world section, born linked to a story's card when `storyId` is given and, for
+   * the notes base, into the notebook (a folder of the base) named by `notebook`.
+   */
   createWorkshopEntity(request: CreateWorkshopEntityRequest): Promise<CreatedWorkshopEntity>
   /** A page of a story's text with its level, format, parent and place, in one write. */
   createTextPage(request: CreateTextPageRequest): Promise<CreatedTextPage>
@@ -74,6 +78,8 @@ export interface ProjectPort {
   listNoteReferences(noteId: string): Promise<NoteReference[]>
   /** Words and last-change time of every page of one database, from the note index. */
   listTextStats(databaseId: string): Promise<TextPageStat[]>
+  /** The notebooks (folders) of one base, read from the disk; empty ones are listed too. */
+  listNotebooks(databaseId: string): Promise<NotebookCatalog>
 }
 
 /** Convert typed domain errors while keeping transport failures untouched. */

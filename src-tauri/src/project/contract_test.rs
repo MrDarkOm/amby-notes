@@ -25,6 +25,7 @@ use super::model::{
     CreateTextPageRequest, CreateWorkshopEntityRequest, CreateWorkshopSectionRequest, CreatedStory,
     CreatedWorkshop,
 };
+use super::notebooks::list_notebooks_of;
 use super::text::create_page;
 use crate::database::format::raw_revision;
 use crate::database::model::{
@@ -180,6 +181,18 @@ fn build() -> Built {
             labels: BTreeMap::new(),
         })
         .unwrap();
+    // The notes base is made lazily, as the first note would make it.
+    fixture
+        .add_section(&CreateWorkshopSectionRequest {
+            expected_generation: 1,
+            operation_id: op("notes"),
+            workshop_id: created.workshop_id.clone(),
+            expected_workshop_revision: raw_revision(&fixture.workshop_bytes("Saga")),
+            role: "notes".to_owned(),
+            name: "Заметки".to_owned(),
+            labels: BTreeMap::new(),
+        })
+        .unwrap();
     Built {
         fixture,
         created,
@@ -208,6 +221,7 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
     let characters_db = section_database(&built, "characters");
     let locations_db = section_database(&built, "locations");
     let stories_db = section_database(&built, "stories");
+    let notes_db = section_database(&built, "notes");
 
     // A universe, and two of the stories in it (the relation lives in the story's card).
     let universe = create_database_row(
@@ -241,6 +255,7 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
                 section_id: section_id.to_owned(),
                 title: title.to_owned(),
                 story_id: story.map(|name| built.houses[name].story_id.clone()),
+                notebook: None,
             },
         )
         .unwrap()
@@ -252,6 +267,30 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
     let zoya = entity("characters", "Зоя", None);
     let eva = entity("characters", "Ева", None);
     let lake = entity("locations", "Озеро", Some("Дом"));
+
+    // Notes in notebooks: nested ones, an empty one, one in the root, one in no story.
+    let notes_folder = fixture.vault.join("Saga/Заметки");
+    for folder in ["Идеи/Сюжеты", "Пустой"] {
+        fs::create_dir_all(notes_folder.join(folder)).unwrap();
+    }
+    let note = |title: &str, story: Option<&str>, notebook: &[&str]| {
+        create_entity(
+            &fixture.env(),
+            &CreateWorkshopEntityRequest {
+                expected_generation: 1,
+                workshop_id: built.created.workshop_id.clone(),
+                section_id: "notes".to_owned(),
+                title: title.to_owned(),
+                story_id: story.map(|name| built.houses[name].story_id.clone()),
+                notebook: Some(notebook.iter().map(|name| (*name).to_owned()).collect()),
+            },
+        )
+        .unwrap()
+    };
+    let draft = note("Заготовка", Some("Дом"), &["Идеи"]);
+    let twist = note("Поворот", Some("Лес"), &["Идеи", "Сюжеты"]);
+    let loose = note("Корневая", Some("Дом"), &[]);
+    let nobody = note("Ничья", None, &["Идеи"]);
     patch_note(
         &boris.note_path,
         "Истории",
@@ -335,6 +374,15 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
         }
     }
     names.give(&universe.note_id, "note:Мир");
+    names.give(&notes_db, "db:notes");
+    for (title, id) in [
+        ("Заготовка", &draft.note_id),
+        ("Поворот", &twist.note_id),
+        ("Корневая", &loose.note_id),
+        ("Ничья", &nobody.note_id),
+    ] {
+        names.give(id, format!("note:{title}"));
+    }
     for (title, id) in [
         ("Анна", &anna.note_id),
         ("Борис", &boris.note_id),
@@ -386,7 +434,13 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
         story["text"]["statusOptions"] = json!([]);
     }
     let mut rows = Map::new();
-    let mut database_ids = vec![universes_db, characters_db, locations_db, stories_db];
+    let mut database_ids = vec![
+        universes_db,
+        characters_db,
+        locations_db,
+        stories_db,
+        notes_db.clone(),
+    ];
     database_ids.extend(
         built
             .houses
@@ -408,6 +462,8 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
                         json!({
                             "noteId": row.note_id,
                             "title": row.title,
+                            "relativePath": row.relative_path,
+                            "categoryPath": row.category_path,
                             "values": serde_json::from_str::<Value>(&row.values_json).unwrap(),
                         })
                     })
@@ -415,7 +471,25 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
             ),
         );
     }
-    let produced = names.value(&json!({ "workshop": summary, "rows": rows }));
+    // The notebooks as the listing reads them from the disk; the vault's own path is a name.
+    let listing = list_notebooks_of(&connection, &fixture.vault, &notes_db).unwrap();
+    let vault_prefix = fixture.vault.to_string_lossy().into_owned();
+    let mut notebooks = serde_json::to_value(&listing).unwrap();
+    notebooks["containerPath"] = json!(notebooks["containerPath"]
+        .as_str()
+        .unwrap()
+        .replace(&vault_prefix, "VAULT"));
+    for entry in notebooks["notebooks"].as_array_mut().unwrap() {
+        entry["path"] = json!(entry["path"]
+            .as_str()
+            .unwrap()
+            .replace(&vault_prefix, "VAULT"));
+    }
+    let produced = names.value(&json!({
+        "workshop": summary,
+        "rows": rows,
+        "notebooks": { notes_db.clone(): notebooks },
+    }));
     let text = serde_json::to_string_pretty(&produced).unwrap() + "\n";
 
     let path = fixture_path();

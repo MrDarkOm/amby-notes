@@ -11,6 +11,7 @@ pub mod journal;
 pub mod links;
 pub mod model;
 pub mod names;
+pub mod notebooks;
 pub mod presets;
 pub mod props;
 pub mod recovery;

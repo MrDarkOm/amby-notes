@@ -42,7 +42,11 @@ export function worksSectionsFromPrefs(saved: unknown): WorksSection[] {
  */
 export type WorkshopDraft =
   | { kind: "page"; storyId: string; parentId: string | null }
-  | { kind: "note" | "anchor"; storyId?: string }
+  /** A note goes into a notebook (the folder names from the base's root; none is the root). */
+  | { kind: "note"; notebook?: string[] }
+  | { kind: "anchor"; storyId?: string }
+  /** A notebook goes inside another (`[]`: the root of the base). */
+  | { kind: "notebook"; parent: string[] }
   | { kind: "entity"; categoryKey: string }
 
 export interface WorkshopTab {
@@ -432,21 +436,21 @@ export function buildMembership({ stories, sections, rows }: MembershipInput): M
   }
 }
 
-export interface ScopedEntities {
-  shown: EntityItem[]
+export interface ScopedEntities<T extends EntityItem = EntityItem> {
+  shown: T[]
   /** Pages in no story and named by no text: the workshop's "no story" group, only for "all". */
-  withoutStory: EntityItem[]
+  withoutStory: T[]
 }
 
 /** The pages the filter lets through. */
-export function scopeEntities(
-  items: readonly EntityItem[],
+export function scopeEntities<T extends EntityItem>(
+  items: readonly T[],
   filter: PanelFilter,
   membership: Membership,
-): ScopedEntities {
+): ScopedEntities<T> {
   if (filter.kind === "all") {
-    const shown: EntityItem[] = []
-    const withoutStory: EntityItem[] = []
+    const shown: T[] = []
+    const withoutStory: T[] = []
     for (const item of items) {
       ;(membership.storiesOf(item.noteId).length > 0 ? shown : withoutStory).push(item)
     }

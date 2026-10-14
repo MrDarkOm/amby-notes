@@ -120,6 +120,7 @@ function world(): ProjectCatalog {
         name: "Заметки",
         databaseId: "db_notes",
         databaseName: "Заметки",
+        storiesPropertyId: "stn",
       }),
       section("anchors", {
         role: "anchors",
@@ -204,7 +205,8 @@ const ROWS: Record<string, DatabaseRow[]> = {
   ],
   db_hc: [row("boris", "Борис")],
   db_rc: [row("vera", "Вера")],
-  db_notes: [row("n1", "Идея")],
+  // A note is in a story when its "Stories" relation names the story's card.
+  db_notes: [row("n1", "Идея", { stn: { type: "relation", targetNoteIds: ["note_hills"] } })],
   db_anchors: [row("a1", "Гибель наставника")],
   db_text: [
     row("b1", "Книга первая", {
@@ -539,7 +541,9 @@ describe("CreativePanel", () => {
         ).toBeTruthy()
       } finally {
         ROWS.db_anchors.push(row("a1", "Гибель наставника"))
-        ROWS.db_notes.push(row("n1", "Идея"))
+        ROWS.db_notes.push(
+          row("n1", "Идея", { stn: { type: "relation", targetNoteIds: ["note_hills"] } }),
+        )
       }
     })
 

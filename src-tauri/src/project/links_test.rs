@@ -8,7 +8,7 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use super::create::{clear_step_hook, set_step_hook, Fault, Step};
-use super::create_test::{op, story, workshop, Fixture};
+use super::create_test::{op, section_request as notes_request, story, workshop, Fixture};
 use super::index::{load_catalog, rebuild_project_index};
 use super::journal::read_journal;
 use super::links::{add_story_links, create_entity};
@@ -911,6 +911,7 @@ fn entity(
         section_id: section.to_owned(),
         title: title.to_owned(),
         story_id: story_id.map(str::to_owned),
+        notebook: None,
     }
 }
 
@@ -1158,4 +1159,185 @@ fn an_older_index_gets_the_link_columns_and_is_rebuilt_from_the_files() {
     assert!(characters.stories_property_id.is_some());
     // Widening twice is harmless.
     init_schema(&connection).unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// Notebooks: pages born in a folder of the notes base
+// ---------------------------------------------------------------------------
+
+fn note_in(
+    created: &CreatedWorkshop,
+    title: &str,
+    story_id: Option<&str>,
+    notebook: &[&str],
+) -> CreateWorkshopEntityRequest {
+    let mut request = entity(created, "notes", title, story_id);
+    request.notebook = Some(notebook.iter().map(|name| (*name).to_owned()).collect());
+    request
+}
+
+fn workshop_with_notes(fixture: &Fixture) -> (CreatedWorkshop, String) {
+    let created = fixture.create_workshop(&workshop("Saga")).unwrap();
+    let added = fixture
+        .add_section(&notes_request(&created, "Заметки"))
+        .unwrap();
+    assert_eq!(added.section.section_id, "notes");
+    (created, added.section.container_path)
+}
+
+#[test]
+fn a_note_made_in_a_notebook_lies_in_its_folder_stays_a_row_of_the_notes_base_and_keeps_its_story()
+{
+    let fixture = Fixture::new();
+    let (created, container) = workshop_with_notes(&fixture);
+    let house = fixture
+        .create_story(&story(&created.workshop_id, "Дом"))
+        .unwrap();
+    fs::create_dir_all(fixture.vault.join(&container).join("Идеи/Сюжеты")).unwrap();
+
+    let nested = create_entity(
+        &fixture.env(),
+        &note_in(
+            &created,
+            "Поворот",
+            Some(&house.story_id),
+            &["Идеи", "Сюжеты"],
+        ),
+    )
+    .unwrap();
+    let top = create_entity(
+        &fixture.env(),
+        &note_in(&created, "Поворот", None, &["Идеи"]),
+    )
+    .unwrap();
+    let root = create_entity(&fixture.env(), &entity(&created, "notes", "Поворот", None)).unwrap();
+    let root_empty_list = {
+        let mut request = entity(&created, "notes", "Второй", None);
+        request.notebook = Some(Vec::new());
+        create_entity(&fixture.env(), &request).unwrap()
+    };
+
+    let folder = fixture.vault.join(&container);
+    assert_eq!(
+        std::path::Path::new(&nested.note_path),
+        folder.join("Идеи/Сюжеты/Поворот.md")
+    );
+    assert_eq!(
+        std::path::Path::new(&top.note_path),
+        folder.join("Идеи/Поворот.md"),
+        "the same name in another notebook is not renamed"
+    );
+    assert_eq!(
+        std::path::Path::new(&root.note_path),
+        folder.join("Поворот.md")
+    );
+    assert_eq!(
+        std::path::Path::new(&root_empty_list.note_path),
+        folder.join("Второй.md"),
+        "an empty list is the root of the base"
+    );
+    assert_eq!(
+        nested.linked_story_id.as_deref(),
+        Some(house.story_id.as_str())
+    );
+    let stories = frontmatter_of(&nested.note_path)
+        .get("Истории")
+        .and_then(serde_yaml::Value::as_sequence)
+        .expect("the story link is written with the note")
+        .len();
+    assert_eq!(stories, 1);
+
+    // The discovery sees every note as a row of the one notes base, with its notebook as the
+    // category path.
+    let discovery = discover_vault(&fixture.vault).unwrap();
+    let place = |note_id: &str| {
+        let note = discovery
+            .notes
+            .iter()
+            .find(|note| note.note_id.as_deref() == Some(note_id))
+            .expect("the note is discovered");
+        (note.owner_database_id.clone(), note.category_path.clone())
+    };
+    let base = Some(nested.database_id.clone());
+    assert_eq!(
+        place(&nested.note_id),
+        (base.clone(), vec!["Идеи".to_owned(), "Сюжеты".to_owned()])
+    );
+    assert_eq!(place(&top.note_id), (base.clone(), vec!["Идеи".to_owned()]));
+    assert_eq!(place(&root.note_id), (base, Vec::<String>::new()));
+}
+
+#[test]
+fn a_notebook_that_is_not_an_ordinary_folder_of_the_notes_base_is_refused_before_any_write() {
+    let fixture = Fixture::new();
+    let (created, container) = workshop_with_notes(&fixture);
+    let house = fixture
+        .create_story(&story(&created.workshop_id, "Дом"))
+        .unwrap();
+    let folder = fixture.vault.join(&container);
+    fs::create_dir_all(folder.join("Идеи")).unwrap();
+    fs::write(folder.join("Файл"), "x").unwrap();
+    fs::create_dir_all(folder.join("Папка заметки")).unwrap();
+    fs::write(folder.join("Папка заметки/Папка заметки.md"), "x").unwrap();
+    // A folder of another base, beside the notes base, and one outside the vault.
+    fs::create_dir_all(fixture.vault.join("Saga/Чужая")).unwrap();
+    let before = fixture.tree();
+
+    let refused = |segments: &[&str]| {
+        let result = create_entity(
+            &fixture.env(),
+            &note_in(&created, "Заметка", Some(&house.story_id), segments),
+        );
+        assert!(
+            matches!(
+                result,
+                Err(ProjectError::InvalidName { .. } | ProjectError::InvalidParent { .. })
+            ),
+            "{segments:?} must be refused, got {result:?}"
+        );
+        assert_eq!(fixture.tree(), before, "{segments:?} wrote something");
+    };
+    refused(&[".."]);
+    refused(&["Идеи", ".."]);
+    refused(&["..", "Персонажи"]);
+    refused(&["../Чужая"]);
+    refused(&["Идеи/Сюжеты"]);
+    refused(&["Ид:еи"]);
+    refused(&[""]);
+    refused(&[" Идеи"]);
+    refused(&[".скрытая"]);
+    refused(&["Нет такой"]);
+    refused(&["Идеи", "Нет такой"]);
+    refused(&["Файл"]);
+    refused(&["Папка заметки"]);
+    refused(&["Чужая"]);
+
+    // Only the notes base has notebooks.
+    let mut elsewhere = entity(&created, "characters", "Анна", None);
+    elsewhere.notebook = Some(vec!["Идеи".to_owned()]);
+    assert!(matches!(
+        create_entity(&fixture.env(), &elsewhere),
+        Err(ProjectError::InvalidParent { .. })
+    ));
+    assert_eq!(fixture.tree(), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_notebook_that_is_a_link_to_a_folder_outside_the_base_is_refused() {
+    let fixture = Fixture::new();
+    let (created, container) = workshop_with_notes(&fixture);
+    let outside = std::env::temp_dir().join(format!("amby-outside-{}", ulid::Ulid::generate()));
+    fs::create_dir_all(&outside).unwrap();
+    std::os::unix::fs::symlink(&outside, fixture.vault.join(&container).join("Ссылка")).unwrap();
+    let before = fixture.tree();
+
+    let result = create_entity(
+        &fixture.env(),
+        &note_in(&created, "Заметка", None, &["Ссылка"]),
+    );
+    assert!(matches!(result, Err(ProjectError::InvalidParent { .. })));
+    assert_eq!(fixture.tree(), before);
+    assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+    fs::remove_dir_all(&outside).ok();
 }

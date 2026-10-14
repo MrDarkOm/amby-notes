@@ -11,6 +11,7 @@ import {
   createWorkshopSection,
   createTextPage,
   listNoteReferences,
+  listNotebooks,
   listProjects,
   listTextStats,
   moveTextPage,
@@ -331,7 +332,20 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
       sectionId: "characters",
       title: "Борис",
     })
-    expect(entity).toHaveBeenLastCalledWith(expect.objectContaining({ storyId: null }))
+    expect(entity).toHaveBeenLastCalledWith(
+      expect.objectContaining({ storyId: null, notebook: null }),
+    )
+    await createWorkshopEntity({
+      expectedGeneration: 3,
+      workshopId: "w1",
+      sectionId: "notes",
+      title: "Поворот",
+      storyId: "st1",
+      notebook: ["Идеи", "Сюжеты"],
+    })
+    expect(entity).toHaveBeenLastCalledWith(
+      expect.objectContaining({ storyId: "st1", notebook: ["Идеи", "Сюжеты"] }),
+    )
     vi.spyOn(commands, "createWorkshopEntity").mockResolvedValue({
       status: "error",
       error: { kind: "storyLinksUnavailable", reason: "the section is not linked to stories" },
@@ -400,6 +414,21 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
     ])
     expect(stats).toHaveBeenCalledWith("db_text")
 
+    const notebooks = vi.spyOn(commands, "listNotebooks").mockResolvedValue({
+      status: "ok",
+      data: {
+        databaseId: "db_notes",
+        containerPath: "/v/Saga/Заметки",
+        rootItemCount: 1,
+        notebooks: [{ segments: ["Идеи"], path: "/v/Saga/Заметки/Идеи", itemCount: 0 }],
+        truncated: false,
+      },
+    })
+    await expect(listNotebooks("db_notes")).resolves.toMatchObject({
+      notebooks: [{ segments: ["Идеи"], itemCount: 0 }],
+    })
+    expect(notebooks).toHaveBeenCalledWith("db_notes")
+
     vi.spyOn(commands, "listProjects").mockResolvedValue({ status: "ok", data: catalog })
     const refresh = vi
       .spyOn(commands, "refreshProjects")
@@ -416,6 +445,7 @@ describe("WebAdapter projects", () => {
     await expect(listProjects()).resolves.toMatchObject({ workshops: [], diagnostics: [] })
     await expect(refreshProjects(0)).resolves.toMatchObject({ workshops: [] })
     await expect(listTextStats("db_text")).resolves.toEqual([])
+    await expect(listNotebooks("db_notes")).resolves.toMatchObject({ notebooks: [] })
     await expect(
       createWorkshop({
         expectedGeneration: 0,

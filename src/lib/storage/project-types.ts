@@ -21,6 +21,8 @@ export type {
   MoveTextPageRequest,
   MovedTextPage,
   NoteReference,
+  Notebook,
+  NotebookCatalog,
   ReferenceDirection,
   ProjectCatalog,
   ProjectDiagnostic,

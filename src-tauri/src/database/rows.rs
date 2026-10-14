@@ -110,6 +110,19 @@ pub(crate) fn create_database_row_with_values(
     request: &CreateDatabaseRowRequest,
     initial: &std::collections::BTreeMap<String, PropertyValue>,
 ) -> Result<CreatedDatabaseRow, String> {
+    create_database_row_in_directory(vault, watcher, request, initial, None)
+}
+
+/// Like `create_database_row_with_values`, but the note is written into `directory` (a folder
+/// inside the database's container, such as a notebook) instead of the container's root. The
+/// caller has validated the folder; this refuses one that is not inside the container.
+pub(crate) fn create_database_row_in_directory(
+    vault: &Path,
+    watcher: &WatcherState,
+    request: &CreateDatabaseRowRequest,
+    initial: &std::collections::BTreeMap<String, PropertyValue>,
+    directory: Option<&Path>,
+) -> Result<CreatedDatabaseRow, String> {
     let title = request.title.trim();
     if title.is_empty()
         || title.contains('/')
@@ -132,7 +145,21 @@ pub(crate) fn create_database_row_with_values(
     // Resolve duplicate titles with the familiar numeric suffix used by file
     // managers, while the frontmatter ID remains the durable identity.
     let stem = safe_row_stem(title);
-    let note_path = unique_row_path(&database.container_path, &stem)?;
+    let parent = match directory {
+        Some(directory) => {
+            if !directory.starts_with(&database.container_path)
+                || directory
+                    .components()
+                    .any(|part| matches!(part, std::path::Component::ParentDir))
+                || !directory.is_dir()
+            {
+                return Err("The folder is not inside the database".to_owned());
+            }
+            directory
+        }
+        None => database.container_path.as_path(),
+    };
+    let note_path = unique_row_path(parent, &stem)?;
     if note_path.exists() {
         return Err("A row with this title or ID already exists".to_owned());
     }

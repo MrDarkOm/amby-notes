@@ -458,6 +458,7 @@ export const createWorkshopEntity = (request: CreateWorkshopEntityRequest) => {
   logger.info("storage.create_workshop_entity", {
     sectionId: request.sectionId,
     linked: request.storyId != null,
+    notebook: (request.notebook?.length ?? 0) > 0,
   })
   return getAdapter().createWorkshopEntity(request)
 }
@@ -479,6 +480,7 @@ export const moveTextPage = (request: MoveTextPageRequest) => {
 }
 export const listNoteReferences = (noteId: string) => getAdapter().listNoteReferences(noteId)
 export const listTextStats = (databaseId: string) => getAdapter().listTextStats(databaseId)
+export const listNotebooks = (databaseId: string) => getAdapter().listNotebooks(databaseId)
 export const listDatabases = () => getAdapter().listDatabases()
 export const getDatabaseNoteContext = (noteId: string) =>
   getAdapter().getDatabaseNoteContext(noteId)

@@ -45,6 +45,13 @@ type Params = Pick<
 
 type PropertyMigrationChoice = "database" | "backup"
 
+/**
+ * How a move ended, for a caller that has to know before it goes on: `moved` all of it, `skipped`
+ * nothing was done (not allowed, or the author declined the link rewrite), `failed` it stopped
+ * with an error, so some of the items may already be in their new place.
+ */
+export type MoveOutcome = "moved" | "skipped" | "failed"
+
 interface PendingPropertyMigration {
   count: number
   database: string
@@ -261,20 +268,20 @@ export function useDocumentMutations({
     [handleApplyMutation, patchDoc, setTabs, t, treeItems, vault],
   )
   const handleMoveItem = React.useCallback(
-    async (sourceIds: string[], targetId: string | null) => {
-      if (!vault) return
+    async (sourceIds: string[], targetId: string | null): Promise<MoveOutcome> => {
+      if (!vault) return "skipped"
       const uniqueSourceIds = [...new Set(sourceIds)]
       const selectedSources = uniqueSourceIds
         .map((id) => findTreeItem(treeItems, id))
         .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      if (!selectedSources.length) return
+      if (!selectedSources.length) return "skipped"
       const target = targetId ? findTreeItem(treeItems, targetId) : null
       // A standalone database is a folder of its own; moving a page into it adds the page to it.
       if (
         (targetId && !target) ||
         (target && target.type !== "folder" && target.type !== "file" && target.type !== "database")
       )
-        return
+        return "skipped"
       const normalize = (path: string) => path.replace(/\\/g, "/")
       const dirname = (path: string) => {
         const value = normalize(path).replace(/\/+$/, "")
@@ -302,14 +309,14 @@ export function useDocumentMutations({
                 candidateIndex !== index && entry.sourceRoot.startsWith(`${candidate.sourceRoot}/`),
             ),
         )
-      if (!sourceEntries.length) return
+      if (!sourceEntries.length) return "skipped"
       if (
         sourceEntries.some(
           ({ sourceRoot }) =>
             normalizedTarget.startsWith(`${sourceRoot}/`) || normalizedTarget === sourceRoot,
         )
       )
-        return
+        return "skipped"
       if (
         target?.type === "file" &&
         basename(dirname(normalizedTarget)) === stem(normalizedTarget) &&
@@ -319,12 +326,12 @@ export function useDocumentMutations({
             sourceRoot.startsWith(`${dirname(normalizedTarget)}/`),
         )
       )
-        return
+        return "skipped"
       if (
         !targetId &&
         sourceEntries.some(({ sourceRoot }) => dirname(sourceRoot) === normalize(vault))
       )
-        return
+        return "skipped"
 
       const previousTree = treeItems
       setTreeItems((current) =>
@@ -355,7 +362,7 @@ export function useDocumentMutations({
             ))
           ) {
             setTreeItems(previousTree)
-            return
+            return "skipped"
           }
         }
 
@@ -419,6 +426,7 @@ export function useDocumentMutations({
             await refreshTree()
           }
         }
+        return "moved"
       } catch (error) {
         logger.error("file.move_failed", {
           sources: sourceEntries.map((e) => e.sourcePath),
@@ -436,6 +444,7 @@ export function useDocumentMutations({
             message: error instanceof Error ? error.message : String(error),
           }),
         )
+        return "failed"
       } finally {
         finishLocalMutation()
       }

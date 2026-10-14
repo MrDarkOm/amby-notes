@@ -13,10 +13,11 @@ use crate::project::model::{
     CreateStoryRequest, CreateTextPageRequest, CreateWorkshopEntityRequest, CreateWorkshopRequest,
     CreateWorkshopSectionRequest, CreatedStory, CreatedTextPage, CreatedWorkshop,
     CreatedWorkshopEntity, CreatedWorkshopSectionResult, MoveTextPageRequest, MovedTextPage,
-    ProjectCatalog, ProjectError, RemoveWorkshopSectionRequest, RemovedWorkshopSection,
-    ReorderWorkshopSectionsRequest, ReorderedWorkshopSections, UpdateTextLevelsRequest,
-    UpdateWorkshopRequest, UpdatedTextLevels, UpdatedWorkshop,
+    NotebookCatalog, ProjectCatalog, ProjectError, RemoveWorkshopSectionRequest,
+    RemovedWorkshopSection, ReorderWorkshopSectionsRequest, ReorderedWorkshopSections,
+    UpdateTextLevelsRequest, UpdateWorkshopRequest, UpdatedTextLevels, UpdatedWorkshop,
 };
+use crate::project::notebooks;
 use crate::project::references::{self, NoteReference};
 use crate::project::settings;
 use crate::project::text;
@@ -341,6 +342,27 @@ pub fn list_text_stats(
     let active = context.conn.lock().expect("vault context poisoned");
     let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
     text_stats::list_text_stats(&active.connection, &database_id)
+}
+
+/// The notebooks (folders) of one base, read from the disk. Read-only; empty ones are listed too.
+#[tauri::command]
+#[specta::specta]
+pub fn list_notebooks(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    database_id: String,
+) -> Result<NotebookCatalog, ProjectError> {
+    let generation = active_generation(&context).ok_or(ProjectError::VaultNotOpen)?;
+    require_enabled(&runtime, generation)?;
+    if database_id.is_empty() || database_id.len() > 128 {
+        return Err(ProjectError::failed(
+            "invalidDatabaseId",
+            "databaseId must be a database ID",
+        ));
+    }
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    notebooks::list_notebooks_of(&active.connection, &active.root, &database_id)
 }
 
 #[tauri::command]

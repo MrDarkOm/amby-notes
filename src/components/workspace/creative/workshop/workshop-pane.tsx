@@ -7,6 +7,7 @@ import {
   type ProjectCatalog,
   type WorkshopSummary,
 } from "@/lib/storage"
+import type { PanelRenderProps } from "../../panel-registry"
 import { projectErrorText } from "../project-error"
 import {
   ContextMenu,
@@ -33,7 +34,11 @@ import {
 } from "./text-tree-model"
 import { useDatabaseRows } from "./use-database-rows"
 import { useViewManualOrder } from "./use-view-order"
-import { WorksTab } from "./works-tab"
+import { NotesPart } from "./notes-part"
+import { buildNotebookTree, noteItemsOf } from "./notebook-model"
+import { useNotebookActions } from "./use-notebook-actions"
+import { useNotebooks } from "./use-notebooks"
+import { WorksTab, type NotesSlot } from "./works-tab"
 import { WorldSection } from "./world-section"
 import { ItemActionsContext, type ItemActions } from "./item-actions"
 import {
@@ -69,9 +74,15 @@ interface WorkshopPaneProps {
   onAddSection: (workshop: WorkshopSummary, options?: { choice: "anchors"; name: string }) => void
   /**
    * Creates a page in a world category under the name the author typed, linked to `storyId` when
-   * it is given; rejects on failure.
+   * it is given; rejects on failure. The category `"notes"` is the notes base, whose pages may
+   * also name the `notebook` (folder names from the base's root) they are made in.
    */
-  onCreateEntity: (categoryKey: string, title: string, storyId: string | null) => Promise<void>
+  onCreateEntity: (
+    categoryKey: string,
+    title: string,
+    storyId: string | null,
+    notebook?: string[],
+  ) => Promise<void>
   /**
    * Links a section of an older workshop (a world section to stories, or the stories section to
    * universes) and reads the catalog again; rejects on failure.
@@ -79,6 +90,11 @@ interface WorkshopPaneProps {
   onLinkSection: (workshop: WorkshopSummary, sectionId: string) => Promise<void>
   /** What a page's own menu can do besides opening it. */
   itemActions: Pick<ItemActions, "onOpenInNewTab" | "onRename" | "onDelete" | "onDeleteMany">
+  /**
+   * The tree's own move and the refresh after a write: notebooks are folders, so a note moves,
+   * a notebook is renamed and an emptied one is trashed by the operations the file tree uses.
+   */
+  fileActions: Pick<PanelRenderProps, "onMoveItem" | "onCreativeChanged">
   /** The menu of the empty space: what can be created from here, the "Create" button's list. */
   createOptions: ChooserOption[]
   onCreate: (choice: CreateChoice) => void
@@ -100,6 +116,7 @@ export function WorkshopPane({
   onCreateEntity,
   onLinkSection,
   itemActions,
+  fileActions,
   createOptions,
   onCreate,
 }: WorkshopPaneProps) {
@@ -228,6 +245,41 @@ export function WorkshopPane({
     }
     return { shown, withoutStory }
   }, [categories, filter, itemsByCategory, membership])
+  // Notes: the base's rows grouped by notebook under the same filter as the world.
+  const notesSection = scope.workshop ? storySection(scope.workshop, "notes") : null
+  const allNotes = React.useMemo(
+    () =>
+      notesSection
+        ? noteItemsOf(
+            data.rows[notesSection.databaseId] ?? [],
+            notesSection.databaseId,
+            scope.workshop?.workshopId ?? "",
+          )
+        : [],
+    [data.rows, notesSection, scope.workshop?.workshopId],
+  )
+  const { catalog: notebookCatalog, reload: reloadNotebooks } = useNotebooks(
+    notesSection?.databaseId,
+    dataNonce,
+  )
+  const scopedNotes = React.useMemo(
+    () => scopeEntities(allNotes, filter, membership),
+    [allNotes, filter, membership],
+  )
+  const notesTree = React.useMemo(
+    () =>
+      buildNotebookTree(notebookCatalog?.notebooks ?? [], scopedNotes.shown, { showEmpty: true }),
+    [notebookCatalog, scopedNotes.shown],
+  )
+  const notesWithoutStory = React.useMemo(
+    () =>
+      filter.kind === "all"
+        ? buildNotebookTree(notebookCatalog?.notebooks ?? [], scopedNotes.withoutStory, {
+            showEmpty: false,
+          })
+        : null,
+    [filter.kind, notebookCatalog, scopedNotes.withoutStory],
+  )
   const storyNames = React.useMemo(
     () => new Map(scope.stories.map((story) => [story.storyId, story.name])),
     [scope.stories],
@@ -298,6 +350,17 @@ export function WorkshopPane({
   }, [categories, data.rows, itemsByCategory, scope.stories, scope.workshop, search, searching, t])
 
   const [draft, setDraft] = React.useState<WorkshopDraft | null>(null)
+  const notebookActions = useNotebookActions({
+    catalog: notebookCatalog,
+    reload: reloadNotebooks,
+    notes: allNotes,
+    notesComplete: !data.truncated && data.status === "ready",
+    vault,
+    onMoveItem: fileActions.onMoveItem,
+    onRename: itemActions.onRename,
+    onCreativeChanged: fileActions.onCreativeChanged,
+    onChanged: bumpData,
+  })
 
   // Linking a section made before the links existed: one operation, shown on the section's row.
   const [linking, setLinking] = React.useState<string | null>(null)
@@ -366,10 +429,24 @@ export function WorkshopPane({
     if (parentId) unfold(`page:${parentId}`)
     setDraft({ kind: "page", storyId, parentId })
   }
-  const startListItem = (kind: "note" | "anchor") => {
+  const startAnchor = () => {
     setSearch("")
-    showPart(kind === "note" ? "notes" : "anchors")
-    setDraft({ kind })
+    showPart("anchors")
+    setDraft({ kind: "anchor" })
+  }
+  const startNote = (notebook: string[]) => {
+    setSearch("")
+    showPart("notes")
+    if (notebook.length > 0) unfold(`notebook:${notebook.join("/")}`)
+    notebookActions.clearError()
+    setDraft({ kind: "note", notebook })
+  }
+  const startNotebook = (parent: string[]) => {
+    setSearch("")
+    showPart("notes")
+    if (parent.length > 0) unfold(`notebook:${parent.join("/")}`)
+    notebookActions.clearError()
+    setDraft({ kind: "notebook", parent })
   }
   const startEntity = (categoryKey: string) => {
     setSearch("")
@@ -428,7 +505,21 @@ export function WorkshopPane({
       afterPage(created)
       return
     }
-    const sec = storySection(scope.workshop, draft.kind === "note" ? "notes" : "anchors")
+    if (draft.kind === "notebook") {
+      await notebookActions.createNotebook(draft.parent, title)
+      setDraft(null)
+      return
+    }
+    if (draft.kind === "note") {
+      // Made while a story is shown, a note is linked to it from the first write, and it lies in
+      // the notebook the row stood in.
+      const storyId =
+        filter.kind === "story" && notesSection?.storiesPropertyId ? filter.storyId : null
+      await onCreateEntity("notes", title, storyId, draft.notebook ?? [])
+      setDraft(null)
+      return
+    }
+    const sec = storySection(scope.workshop, "anchors")
     if (!sec) throw new Error(t("creative.errors.projectNotFound"))
     const created = await createDatabaseRow({
       expectedGeneration: vaultGeneration,
@@ -455,6 +546,41 @@ export function WorkshopPane({
     () => ({ onOpen: onOpenNote, ...itemActions }),
     [itemActions, onOpenNote],
   )
+
+  const notesSlot: NotesSlot | null = notesSection
+    ? {
+        count: notesTree.count + (notesWithoutStory?.count ?? 0),
+        onAdd: scope.workshop?.readOnly ? null : () => startNote([]),
+        content: (
+          <NotesPart
+            tree={notesTree}
+            withoutStory={notesWithoutStory}
+            canWrite={!scope.workshop?.readOnly}
+            loading={data.status === "loading" || data.status === "idle"}
+            activeNoteId={activeNoteId}
+            onOpenNote={onOpenNote}
+            collapsed={collapsed}
+            onToggle={toggleCollapsed}
+            storyLabelsOf={labelsOf}
+            draft={draft}
+            onCommitDraft={commitDraft}
+            onCancelDraft={() => setDraft(null)}
+            onAddNote={startNote}
+            onAddNotebook={startNotebook}
+            actions={notebookActions}
+            link={
+              notesSection && !notesSection.storiesPropertyId && !scope.workshop?.readOnly
+                ? {
+                    pending: linking === notesSection.id,
+                    error: linkError,
+                    onLink: () => void linkSection(notesSection.id),
+                  }
+                : null
+            }
+          />
+        ),
+      }
+    : null
 
   if (!scope.workshop) return null
 
@@ -513,8 +639,8 @@ export function WorkshopPane({
                   onNewStory={() => onCreate("story")}
                   totals={totals}
                   onAddPage={(story, parent) => startPage(story.storyId, parent?.noteId ?? null)}
-                  onAddNote={() => startListItem("note")}
-                  onAddAnchor={() => startListItem("anchor")}
+                  onAddAnchor={startAnchor}
+                  notes={notesSlot}
                   onCreateAnchors={() => {
                     if (scope.workshop) {
                       onAddSection(scope.workshop, {

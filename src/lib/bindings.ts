@@ -936,6 +936,17 @@ async listTextStats(databaseId: string) : Promise<Result<TextPageStat[], Project
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * The notebooks (folders) of one base, read from the disk. Read-only; empty ones are listed too.
+ */
+async listNotebooks(databaseId: string) : Promise<Result<NotebookCatalog, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_notebooks", { databaseId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async updateWorkshop(request: UpdateWorkshopRequest) : Promise<Result<UpdatedWorkshop, ProjectError>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_workshop", { request }) };
@@ -1427,7 +1438,12 @@ export type CreateTextPageRequest = { expectedGeneration: number; storyId: strin
 /**
  * A page of a world section. With `story_id` the page is born linked to that story's card.
  */
-export type CreateWorkshopEntityRequest = { expectedGeneration: number; workshopId: string; sectionId: string; title: string; storyId?: string | null }
+export type CreateWorkshopEntityRequest = { expectedGeneration: number; workshopId: string; sectionId: string; title: string; storyId?: string | null; 
+/**
+ * A notebook of the notes base: the folder names from the base's root down, such as
+ * `["Идеи", "Сюжеты"]`. Empty or absent puts the page in the root of the base.
+ */
+notebook?: string[] | null }
 export type CreateWorkshopRequest = { expectedGeneration: number; operationId: string; name: string; parentPath?: string | null; icon?: string | null; tags?: string[]; labels?: Partial<{ [key in string]: string }> }
 export type CreateWorkshopSectionRequest = { expectedGeneration: number; operationId: string; workshopId: string; expectedWorkshopRevision: string; role: string; name: string; labels?: Partial<{ [key in string]: string }> }
 export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string; notePath: string | null; warnings: string[] }
@@ -1598,6 +1614,42 @@ databaseId: string | null; databaseName: string | null; noteId: string;
  * None when the other page is not in the index (deleted or not yet indexed).
  */
 title: string | null }
+/**
+ * One notebook: a plain folder inside the notes base (`docs/creative-format.md` §6).
+ */
+export type Notebook = { 
+/**
+ * Folder names from the base's root down to this notebook.
+ */
+segments: string[]; 
+/**
+ * The folder on disk, as the file tree names it.
+ */
+path: string; 
+/**
+ * What lies directly in the folder besides notebooks: notes, their folders, any other file.
+ */
+itemCount: number }
+/**
+ * The notebooks of one base and the base's own folder.
+ */
+export type NotebookCatalog = { databaseId: string; 
+/**
+ * The base's folder on disk, as the file tree names it.
+ */
+containerPath: string; 
+/**
+ * What lies directly in the base's folder besides notebooks.
+ */
+rootItemCount: number; 
+/**
+ * Parents come before their children, siblings by name.
+ */
+notebooks: Notebook[]; 
+/**
+ * The folder tree was deeper or wider than a listing reads; the rest is left out.
+ */
+truncated: boolean }
 export type OperationWarning = "indexRebuildRequired"
 export type PageInfo = { title: string; description: string | null }
 export type PathChange = { oldPath: string; newPath: string }

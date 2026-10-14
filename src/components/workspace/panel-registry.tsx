@@ -90,7 +90,7 @@ export interface PanelRenderProps {
   vault: string | null
   onSelect: (id: string) => void
   onOpenVault: () => void
-  onRename?: (id: string, newName: string) => void
+  onRename?: (id: string, newName: string) => void | Promise<void>
   onDelete?: (id: string, mode?: "archive") => void
   onDeleteMany?: (ids: string[]) => void
   onNewFile?: (parentId: string | null) => void
@@ -104,7 +104,11 @@ export interface PanelRenderProps {
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
-  onMoveItem?: (sourceIds: string[], targetFolderId: string | null) => void
+  /** The tree's own move; a caller that has to go on after it reads how it ended. */
+  onMoveItem?: (
+    sourceIds: string[],
+    targetFolderId: string | null,
+  ) => void | Promise<"moved" | "skipped" | "failed">
   onSetIcon?: (id: string, icon: string) => void
   triggerRenameId?: string | null
   readFile?: (path: string) => Promise<string>

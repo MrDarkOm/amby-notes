@@ -14,7 +14,7 @@ and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The 
 | "Create" chooser                        | [create-chooser-dialog.tsx](create-chooser-dialog.tsx)                                                           |
 | Panel state (scope, tab, filter), prefs | [creative-nav-store.ts](creative-nav-store.ts), [creative-scope-storage.ts](creative-scope-storage.ts)           |
 | Scopes, section grouping (pure)         | [project-tree-model.ts](project-tree-model.ts)                                                                   |
-| Workshop: tabs, lists, text tree        | [workshop/](workshop/): `workshop-pane.tsx` composes; models are `workshop-model.ts`, `text-tree-model.ts`       |
+| Workshop: tabs, lists, text tree, notes | [workshop/](workshop/MAP.md): `workshop-pane.tsx` composes; models: `workshop-model.ts`, `text-tree-model.ts`    |
 | Belonging to stories and universes      | `workshop-model.ts` (`resolvePanelFilter`, `buildMembership`, `scopeEntities`, `storyLabels`); `world-cards.tsx` |
 | Universe page                           | [universe-desk.tsx](universe-desk.tsx)                                                                           |
 | Project tab: header, sections, overview | [project-page.tsx](project-page.tsx); a story's desk: [project-desk.tsx](project-desk.tsx)                       |
@@ -60,9 +60,9 @@ parent or a level is a root), with the level icon and word count (`use-text-stat
 open page marked, its parents unfolded and the row scrolled into view once per change, and drag-and-drop
 (`move_text_page`, after `planMove` refused what the backend would). Its "+" makes a top-level page
 (`defaultLevelId`), a row's "+" one inside; a last-level page has none (`canHaveChildPage`). _anchors_
-and _notes_ list their sections; anchors keep the author's order: the first view's `manualOrder`
-(`use-view-order.ts`, dragging writes it through `updateDatabaseViewConfig`), else creation order
-(`orderByAuthor`). An empty list offers "Add the first …" (`empty-action.tsx`) in place of a plain
+keep the author's order: the first view's `manualOrder` (`use-view-order.ts`, dragging writes it through
+`updateDatabaseViewConfig`), else creation order (`orderByAuthor`); _notes_ show notebooks
+([map](workshop/MAP.md)). An empty list offers "Add the first …" (`empty-action.tsx`) in place of a plain
 sentence, unless the story is read-only. Under them the **world** (`world-section.tsx`, caption "World"):
 one folding list per category (by role, or by name for an author's section). The list at the top
 (`story-header.tsx`) is the one filter: a story, a universe or the whole workshop (`resolvePanelFilter`:

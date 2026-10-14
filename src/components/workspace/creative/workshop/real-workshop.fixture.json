@@ -1,8 +1,42 @@
 {
+  "notebooks": {
+    "ID:db:notes": {
+      "containerPath": "VAULT/Saga/Заметки",
+      "databaseId": "ID:db:notes",
+      "notebooks": [
+        {
+          "itemCount": 2,
+          "path": "VAULT/Saga/Заметки/Идеи",
+          "segments": [
+            "Идеи"
+          ]
+        },
+        {
+          "itemCount": 1,
+          "path": "VAULT/Saga/Заметки/Идеи/Сюжеты",
+          "segments": [
+            "Идеи",
+            "Сюжеты"
+          ]
+        },
+        {
+          "itemCount": 0,
+          "path": "VAULT/Saga/Заметки/Пустой",
+          "segments": [
+            "Пустой"
+          ]
+        }
+      ],
+      "rootItemCount": 2,
+      "truncated": false
+    }
+  },
   "rows": {
     "ID:db:characters": [
       {
+        "categoryPath": [],
         "noteId": "ID:note:Анна",
+        "relativePath": "Saga/Персонажи/Анна.md",
         "title": "Анна",
         "values": {
           "ID:prop:stories:characters": {
@@ -14,7 +48,9 @@
         }
       },
       {
+        "categoryPath": [],
         "noteId": "ID:note:Борис",
+        "relativePath": "Saga/Персонажи/Борис.md",
         "title": "Борис",
         "values": {
           "ID:prop:stories:characters": {
@@ -27,7 +63,9 @@
         }
       },
       {
+        "categoryPath": [],
         "noteId": "ID:note:Вера",
+        "relativePath": "Saga/Персонажи/Вера.md",
         "title": "Вера",
         "values": {
           "ID:prop:stories:characters": {
@@ -39,7 +77,9 @@
         }
       },
       {
+        "categoryPath": [],
         "noteId": "ID:note:Глеб",
+        "relativePath": "Saga/Персонажи/Глеб.md",
         "title": "Глеб",
         "values": {
           "ID:prop:stories:characters": {
@@ -51,19 +91,25 @@
         }
       },
       {
+        "categoryPath": [],
         "noteId": "ID:note:Ева",
+        "relativePath": "Saga/Персонажи/Ева.md",
         "title": "Ева",
         "values": {}
       },
       {
+        "categoryPath": [],
         "noteId": "ID:note:Зоя",
+        "relativePath": "Saga/Персонажи/Зоя.md",
         "title": "Зоя",
         "values": {}
       }
     ],
     "ID:db:locations": [
       {
+        "categoryPath": [],
         "noteId": "ID:note:Озеро",
+        "relativePath": "Saga/Локации/Озеро.md",
         "title": "Озеро",
         "values": {
           "ID:prop:stories:locations": {
@@ -75,9 +121,69 @@
         }
       }
     ],
+    "ID:db:notes": [
+      {
+        "categoryPath": [
+          "Идеи"
+        ],
+        "noteId": "ID:note:Заготовка",
+        "relativePath": "Saga/Заметки/Идеи/Заготовка.md",
+        "title": "Заготовка",
+        "values": {
+          "ID:prop:stories:notes": {
+            "targetNoteIds": [
+              "ID:card:Дом"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "categoryPath": [],
+        "noteId": "ID:note:Корневая",
+        "relativePath": "Saga/Заметки/Корневая.md",
+        "title": "Корневая",
+        "values": {
+          "ID:prop:stories:notes": {
+            "targetNoteIds": [
+              "ID:card:Дом"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "categoryPath": [
+          "Идеи"
+        ],
+        "noteId": "ID:note:Ничья",
+        "relativePath": "Saga/Заметки/Идеи/Ничья.md",
+        "title": "Ничья",
+        "values": {}
+      },
+      {
+        "categoryPath": [
+          "Идеи",
+          "Сюжеты"
+        ],
+        "noteId": "ID:note:Поворот",
+        "relativePath": "Saga/Заметки/Идеи/Сюжеты/Поворот.md",
+        "title": "Поворот",
+        "values": {
+          "ID:prop:stories:notes": {
+            "targetNoteIds": [
+              "ID:card:Лес"
+            ],
+            "type": "relation"
+          }
+        }
+      }
+    ],
     "ID:db:stories": [
       {
+        "categoryPath": [],
         "noteId": "ID:card:Дом",
+        "relativePath": "Saga/Истории/Дом/Дом.md",
         "title": "Дом",
         "values": {
           "ID:prop:universe:stories": {
@@ -89,7 +195,9 @@
         }
       },
       {
+        "categoryPath": [],
         "noteId": "ID:card:Лес",
+        "relativePath": "Saga/Истории/Лес/Лес.md",
         "title": "Лес",
         "values": {
           "ID:prop:universe:stories": {
@@ -101,7 +209,9 @@
         }
       },
       {
+        "categoryPath": [],
         "noteId": "ID:card:Одна",
+        "relativePath": "Saga/Истории/Одна/Одна.md",
         "title": "Одна",
         "values": {}
       }
@@ -109,7 +219,9 @@
     "ID:db:text:Дом": [],
     "ID:db:text:Лес": [
       {
+        "categoryPath": [],
         "noteId": "ID:note:Глава",
+        "relativePath": "Saga/Истории/Лес/Глава.md",
         "title": "Глава",
         "values": {
           "ID:prop:text:Лес:cast": {
@@ -136,7 +248,9 @@
     "ID:db:text:Одна": [],
     "ID:db:universes": [
       {
+        "categoryPath": [],
         "noteId": "ID:note:Мир",
+        "relativePath": "Saga/Вселенные/Мир.md",
         "title": "Мир",
         "values": {}
       }
@@ -196,6 +310,18 @@
         "role": "universes",
         "state": "ok",
         "storiesPropertyId": null,
+        "universePropertyId": null
+      },
+      {
+        "databaseId": "ID:db:notes",
+        "databaseName": "Заметки",
+        "id": "notes",
+        "name": "Заметки",
+        "pathHint": "Заметки",
+        "resolvedPath": "Saga/Заметки",
+        "role": "notes",
+        "state": "ok",
+        "storiesPropertyId": "ID:prop:stories:notes",
         "universePropertyId": null
       }
     ],
