@@ -1,18 +1,8 @@
 import * as React from "react"
-import {
-  AlertTriangle,
-  BookOpen,
-  Feather,
-  Globe2,
-  Layers,
-  Lock,
-  Plus,
-  Settings,
-} from "lucide-react"
+import { AlertTriangle, BookOpen, Feather, Globe2, Lock, Plus, Settings } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import type { ProjectSummary } from "@/lib/storage"
 import { IconValue } from "../icon-value"
 import { useDatabaseStore } from "../database/database-store"
 import { CreateSectionDialog } from "./create-section-dialog"
@@ -20,7 +10,7 @@ import { ProjectDesk } from "./project-desk"
 import { ProjectSettingsDialog } from "./project-settings-dialog"
 import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative-nav-store"
 import { useProjectStore } from "./project-store"
-import { groupSections, storiesOfCollection, type SidebarSection } from "./project-tree-model"
+import { groupSections, resolveProjectTarget, type SidebarSection } from "./project-tree-model"
 import { sectionRoleIcon } from "./section-icons"
 
 export interface SectionDatabaseProps {
@@ -45,20 +35,6 @@ interface ProjectPageProps {
   onChanged?: () => Promise<void>
 }
 
-function kindLabelKey(project: ProjectSummary): string {
-  if (project.kind === "story") return "creative.kind.story"
-  return project.sections.length > 0 ? "creative.kind.universe" : "creative.kind.collection"
-}
-
-function KindIcon({ project, className }: { project: ProjectSummary; className?: string }) {
-  if (project.kind === "story") return <BookOpen className={className} />
-  return project.sections.length > 0 ? (
-    <Globe2 className={className} />
-  ) : (
-    <Layers className={className} />
-  )
-}
-
 function SectionCard({
   section,
   onOpen,
@@ -69,7 +45,6 @@ function SectionCard({
   const { t } = useTranslation()
   const Icon = sectionRoleIcon(section.role)
   const missing = section.state === "missing"
-  // The role is only worth saying when the author named the database something else.
   const roleName = section.role ? t(`creative.sections.${section.role}`, { defaultValue: "" }) : ""
   const subtitle = missing
     ? t("creative.page.sectionMissing")
@@ -111,9 +86,10 @@ export function ProjectPage({
   const [addingSection, setAddingSection] = React.useState(false)
   const [editingSettings, setEditingSettings] = React.useState(false)
   const [toolbarHost, setToolbarHost] = React.useState<HTMLDivElement | null>(null)
-  const project = catalog?.projects.find((candidate) => candidate.projectId === projectId) ?? null
 
-  if (!project) {
+  const target = React.useMemo(() => resolveProjectTarget(catalog, projectId), [catalog, projectId])
+
+  if (!target) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-[var(--note-surface)] p-8">
         <div className="flex max-w-sm flex-col items-center gap-3 text-center">
@@ -131,16 +107,32 @@ export function ProjectPage({
     )
   }
 
-  const groups = groupSections(project)
+  const { workshop } = target
+  const isStory = target.kind === "story"
+  const isUniverse = target.kind === "universe"
+  const story = target.kind === "story" ? target.story : null
+
+  const pageTitle = isStory
+    ? (story?.name ?? "")
+    : isUniverse
+      ? t("creative.sections.universes", "Вселенная")
+      : workshop.name
+  const pageIcon = isStory ? null : isUniverse ? null : workshop.icon
+  const pageTags: string[] = isStory ? [] : isUniverse ? [] : workshop.tags
+  const kindLabel = isStory
+    ? t("creative.kind.story")
+    : isUniverse
+      ? t("creative.sections.universes", "Вселенная")
+      : t("creative.welcome.title", "Творческая мастерская")
+
+  const groups = groupSections(workshop)
   const sections = groups.flatMap((group) => group.sections)
   const active =
     selected && sections.some((section) => section.id === selected) ? selected : OVERVIEW_SECTION
   const activeSection = sections.find((section) => section.id === active)
-  const stories =
-    project.kind === "collection" && catalog ? storiesOfCollection(catalog, project.projectId) : []
-  // A story with a text gets its desk; the sections are in the tabs above, as in the panel.
-  const hasDesk =
-    project.kind === "story" && Boolean(project.text?.databaseId) && Boolean(onOpenNote)
+  const stories = workshop.stories
+
+  const hasDesk = isStory && Boolean(story?.text?.databaseId) && Boolean(onOpenNote)
 
   const tabClass = (isActive: boolean) =>
     cn(
@@ -156,28 +148,30 @@ export function ProjectPage({
         <div className="flex items-center gap-3">
           <span className="flex size-9 shrink-0 items-center justify-center text-muted-foreground">
             <IconValue
-              value={project.icon ?? undefined}
-              fallback={<KindIcon project={project} className="size-7" />}
+              value={pageIcon ?? undefined}
+              fallback={isStory ? <BookOpen className="size-7" /> : <Globe2 className="size-7" />}
               className="size-8 rounded-md"
             />
           </span>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-2xl font-semibold tracking-tight">{project.name}</h1>
+            <h1 className="truncate text-2xl font-semibold tracking-tight">{pageTitle}</h1>
             <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
-              <span>{t(kindLabelKey(project))}</span>
-              {project.tags.map((tag) => (
+              <span>{kindLabel}</span>
+              {pageTags.map((tag) => (
                 <span key={tag} className="rounded-full bg-accent px-2 py-0.5">
                   {tag}
                 </span>
               ))}
             </p>
           </div>
-          {!project.readOnly && (
+          {!workshop.readOnly && (
             <div className="flex items-center gap-1.5">
-              <Button variant="outline" size="sm" onClick={() => setAddingSection(true)}>
-                <Plus className="size-3.5" />
-                {t("creative.panel.newSection")}
-              </Button>
+              {!isStory && (
+                <Button variant="outline" size="sm" onClick={() => setAddingSection(true)}>
+                  <Plus className="size-3.5" />
+                  {t("creative.panel.newSection")}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -191,10 +185,10 @@ export function ProjectPage({
             </div>
           )}
         </div>
-        {project.readOnly && (
+        {workshop.readOnly && (
           <p className="flex items-center gap-2 rounded-md border border-border bg-accent/40 px-3 py-2 text-xs text-muted-foreground">
             <Lock className="size-3.5 shrink-0" />
-            {t("creative.page.readOnlyBanner", { version: project.formatVersion })}
+            {t("creative.page.readOnlyBanner", { version: workshop.formatVersion })}
           </p>
         )}
         <div className="flex min-w-0 items-center gap-2 pb-1">
@@ -208,7 +202,9 @@ export function ProjectPage({
               aria-current={active === OVERVIEW_SECTION ? "page" : undefined}
               onClick={() => showSection(projectId, OVERVIEW_SECTION)}
             >
-              {t("creative.page.overview")}
+              {hasDesk
+                ? t("creative.page.desk.title", "Рабочий стол")
+                : t("creative.page.overview")}
             </button>
             {groups.map((group) => (
               <React.Fragment key={group.id ?? "loose"}>
@@ -256,48 +252,41 @@ export function ProjectPage({
               {renderDatabase({
                 databaseId: activeSection.databaseId,
                 title: activeSection.name,
-                readOnly: project.readOnly,
+                readOnly: workshop.readOnly,
                 toolbarHost,
               })}
             </div>
           )
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-10 pt-4">
-            {stories.length > 0 && (
+            {hasDesk && onOpenNote && story && (
+              <ProjectDesk
+                story={story}
+                workshop={workshop}
+                vaultPath={vaultPath}
+                onOpenNote={onOpenNote}
+                onOpenSection={(_ownerId, sectionId) => showSection(projectId, sectionId)}
+              />
+            )}
+            {!hasDesk && stories.length > 0 && (
               <section className="mb-8">
                 <h2 className="mb-3 text-sm font-semibold">{t("creative.page.stories")}</h2>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {stories.map((story) => (
+                  {stories.map((st) => (
                     <button
-                      key={story.projectId}
+                      key={st.storyId}
                       type="button"
-                      onClick={() => onOpenProject(story.projectId)}
+                      onClick={() => onOpenProject(st.storyId)}
                       className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 text-left hover:border-primary/40 hover:bg-accent/30"
                     >
                       <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-                        <IconValue
-                          value={story.icon ?? undefined}
-                          fallback={<BookOpen className="size-5" />}
-                          className="size-5"
-                        />
+                        <BookOpen className="size-5" />
                       </span>
-                      <span className="truncate text-sm font-medium">{story.name}</span>
+                      <span className="truncate text-sm font-medium">{st.name}</span>
                     </button>
                   ))}
                 </div>
               </section>
-            )}
-            {hasDesk && onOpenNote && (
-              <ProjectDesk
-                project={project}
-                vaultPath={vaultPath}
-                onOpenNote={onOpenNote}
-                onOpenSection={(ownerId, sectionId) =>
-                  ownerId === projectId
-                    ? showSection(projectId, sectionId)
-                    : onOpenProject(ownerId, sectionId)
-                }
-              />
             )}
             {!hasDesk &&
               groups.map((group) => (
@@ -326,7 +315,7 @@ export function ProjectPage({
           open
           onClose={() => setAddingSection(false)}
           vaultGeneration={vaultGeneration}
-          project={project}
+          workshop={workshop}
           onCreated={(created) => {
             void (async () => {
               await onChanged?.()
@@ -342,7 +331,8 @@ export function ProjectPage({
           open
           onClose={() => setEditingSettings(false)}
           vaultGeneration={vaultGeneration}
-          project={project}
+          workshop={workshop}
+          story={story}
           onChanged={onChanged}
           onAddSection={() => setAddingSection(true)}
         />

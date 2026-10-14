@@ -252,7 +252,7 @@ fn malformed_refactor_updates_body_links_without_touching_yaml() {
     });
     assert_eq!(
         apply_planned_wiki_rewrites(&vault.0, &plan).unwrap(),
-        [path.clone()]
+        std::slice::from_ref(&path)
     );
     assert_eq!(
         fs::read_to_string(path).unwrap(),

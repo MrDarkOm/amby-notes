@@ -41,13 +41,14 @@ import type {
 } from "./database-types"
 import type {
   AddTextStatusRequest,
-  CreateProjectRequest,
-  CreateProjectSectionRequest,
+  CreateStoryRequest,
+  CreateWorkshopRequest,
+  CreateWorkshopSectionRequest,
   CreateTextPageRequest,
   MoveTextPageRequest,
-  RemoveProjectSectionRequest,
-  ReorderProjectSectionsRequest,
-  UpdateProjectRequest,
+  RemoveWorkshopSectionRequest,
+  ReorderWorkshopSectionsRequest,
+  UpdateWorkshopRequest,
   UpdateTextLevelsRequest,
 } from "./project-types"
 import type {
@@ -381,49 +382,57 @@ export const resolveDatabaseYamlConflict = (request: DatabaseYamlResolveRequest)
 export const listProjects = () => getAdapter().listProjects()
 export const refreshProjects = (expectedGeneration: number) =>
   traceOperation("project.refresh", {}, () => getAdapter().refreshProjects(expectedGeneration))
-export const createProject = (request: CreateProjectRequest) => {
-  logger.info("storage.create_project", {
-    kind: request.kind,
+export const createWorkshop = (request: CreateWorkshopRequest) => {
+  logger.info("storage.create_workshop", {
     name: request.name,
     parentPath: request.parentPath ?? null,
     operationId: request.operationId,
   })
-  return getAdapter().createProject(request)
+  return getAdapter().createWorkshop(request)
 }
-export const createProjectSection = (request: CreateProjectSectionRequest) => {
-  logger.info("storage.create_project_section", {
-    projectId: request.projectId,
+export const createStory = (request: CreateStoryRequest) => {
+  logger.info("storage.create_story", {
+    workshopId: request.workshopId,
+    title: request.title,
+    operationId: request.operationId,
+  })
+  return getAdapter().createStory(request)
+}
+export const createWorkshopSection = (request: CreateWorkshopSectionRequest) => {
+  logger.info("storage.create_workshop_section", {
+    workshopId: request.workshopId,
     name: request.name,
+    role: request.role,
     operationId: request.operationId,
   })
-  return getAdapter().createProjectSection(request)
+  return getAdapter().createWorkshopSection(request)
 }
-export const updateProject = (request: UpdateProjectRequest) => {
-  logger.info("storage.update_project", {
-    projectId: request.projectId,
+export const updateWorkshop = (request: UpdateWorkshopRequest) => {
+  logger.info("storage.update_workshop", {
+    workshopId: request.workshopId,
     operationId: request.operationId,
   })
-  return getAdapter().updateProject(request)
+  return getAdapter().updateWorkshop(request)
 }
-export const removeProjectSection = (request: RemoveProjectSectionRequest) => {
-  logger.info("storage.remove_project_section", {
-    projectId: request.projectId,
+export const removeWorkshopSection = (request: RemoveWorkshopSectionRequest) => {
+  logger.info("storage.remove_workshop_section", {
+    workshopId: request.workshopId,
     sectionId: request.sectionId,
     operationId: request.operationId,
   })
-  return getAdapter().removeProjectSection(request)
+  return getAdapter().removeWorkshopSection(request)
 }
-export const reorderProjectSections = (request: ReorderProjectSectionsRequest) => {
-  logger.info("storage.reorder_project_sections", {
-    projectId: request.projectId,
+export const reorderWorkshopSections = (request: ReorderWorkshopSectionsRequest) => {
+  logger.info("storage.reorder_workshop_sections", {
+    workshopId: request.workshopId,
     count: request.sectionIds.length,
     operationId: request.operationId,
   })
-  return getAdapter().reorderProjectSections(request)
+  return getAdapter().reorderWorkshopSections(request)
 }
 export const updateTextLevels = (request: UpdateTextLevelsRequest) => {
   logger.info("storage.update_text_levels", {
-    projectId: request.projectId,
+    storyId: request.storyId,
     count: request.levels.length,
     operationId: request.operationId,
   })
@@ -431,14 +440,14 @@ export const updateTextLevels = (request: UpdateTextLevelsRequest) => {
 }
 export const addTextStatus = (request: AddTextStatusRequest) => {
   logger.info("storage.add_text_status", {
-    projectId: request.projectId,
+    storyId: request.storyId,
     operationId: request.operationId,
   })
   return getAdapter().addTextStatus(request)
 }
 export const createTextPage = (request: CreateTextPageRequest) => {
   logger.info("storage.create_text_page", {
-    projectId: request.projectId,
+    storyId: request.storyId,
     levelId: request.levelId,
     hasParent: Boolean(request.parentNoteId),
   })
@@ -446,7 +455,7 @@ export const createTextPage = (request: CreateTextPageRequest) => {
 }
 export const moveTextPage = (request: MoveTextPageRequest) => {
   logger.info("storage.move_text_page", {
-    projectId: request.projectId,
+    storyId: request.storyId,
     noteId: request.noteId,
     operationId: request.operationId,
   })

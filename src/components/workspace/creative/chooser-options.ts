@@ -1,27 +1,24 @@
 import {
   BookOpen,
+  Feather,
   FilePlus,
   FileText,
   Globe2,
-  Layers,
   Section,
   type LucideIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import type { ProjectSummary } from "@/lib/storage"
-import { writableCollection } from "./project-tree-model"
+import type { WorkshopSummary } from "@/lib/storage"
 
 export type CreateChoice =
+  | "workshop"
   | "story"
   | "section"
   | "universe"
-  | "collection"
   /** A new page in a world category: `entity:<category key>`. */
   | `entity:${string}`
   /** A new page of a story's text. */
   | "page"
-  /** A new section of one story: `section:<project ID>`. */
-  | `section:${string}`
 
 export interface ChooserExtra {
   value: CreateChoice
@@ -51,15 +48,15 @@ export function splitChooserOptions(options: ChooserOption[]): {
 }
 
 /**
- * What the "Create" button, and the menu of the empty space, offer: what the open lists add
- * (`extra`, first), then a story, a section of the shown collection, a universe, a collection.
+ * What the "Create" button and the empty space context menu offer.
  */
 export function useChooserOptions(
-  scope: ProjectSummary | null,
+  workshop: WorkshopSummary | null,
   extra: ChooserExtra[] = [],
 ): ChooserOption[] {
   const { t } = useTranslation()
-  const collection = writableCollection(scope)
+  const canWrite = workshop !== null && !workshop.readOnly
+
   return [
     ...extra.map((entry): ChooserOption => ({
       ...entry,
@@ -72,39 +69,43 @@ export function useChooserOptions(
             : FilePlus),
       group: entry.value === "page" || entry.value.startsWith("entity:") ? "common" : "rare",
     })),
-    {
-      value: "story",
-      group: "rare" as const,
-      icon: BookOpen,
-      title: t("creative.chooser.story"),
-      hint: collection
-        ? t("creative.chooser.storyInside", { name: collection.name })
-        : t("creative.chooser.storyAlone"),
-    },
-    ...(collection
+    ...(canWrite
       ? [
+          {
+            value: "story" as const,
+            group: "rare" as const,
+            icon: BookOpen,
+            title: t("creative.panel.newStory", "Новая история"),
+            hint: t("creative.chooser.storyInside", {
+              name: workshop.name,
+              defaultValue: `В мастерской «${workshop.name}»`,
+            }),
+          },
+          {
+            value: "universe" as const,
+            group: "rare" as const,
+            icon: Globe2,
+            title: t("creative.kind.universe", "Вселенная"),
+            hint: t("creative.kind.universeHint", "Мир или сеттинг для историй"),
+          },
           {
             value: "section" as const,
             group: "rare" as const,
             icon: Section,
-            title: t("creative.chooser.section"),
-            hint: t("creative.chooser.sectionHint", { name: collection.name }),
+            title: t("creative.panel.newSection", "Новый раздел"),
+            hint: t("creative.chooser.sectionHint", {
+              name: workshop.name,
+              defaultValue: `База данных в мастерской «${workshop.name}»`,
+            }),
           },
         ]
       : []),
     {
-      value: "universe",
+      value: "workshop" as const,
       group: "rare" as const,
-      icon: Globe2,
-      title: t("creative.kind.universe"),
-      hint: t("creative.kind.universeHint"),
-    },
-    {
-      value: "collection",
-      group: "rare" as const,
-      icon: Layers,
-      title: t("creative.kind.collection"),
-      hint: t("creative.kind.collectionHint"),
+      icon: Feather,
+      title: t("creative.panel.newWorkshop", "Новая мастерская"),
+      hint: t("creative.createProject.description", "Корневая мастерская с базами и историями"),
     },
   ]
 }

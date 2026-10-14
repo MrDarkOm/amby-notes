@@ -5,7 +5,7 @@ import {
   createTextPage,
   type CreatedTextPage,
   type ProjectCatalog,
-  type ProjectSummary,
+  type WorkshopSummary,
 } from "@/lib/storage"
 import {
   ContextMenu,
@@ -40,20 +40,18 @@ import {
   buildSearchGroups,
   entityTabs,
   groupPropertyOf,
-  relationTargets,
   selectedStoryOf,
   storySection,
   workshopScope,
   type EntityItem,
   type GroupContext,
-  type TextReferences,
   type WorkshopDraft,
   type WorksSection,
 } from "./workshop-model"
 
 interface WorkshopPaneProps {
   catalog: ProjectCatalog
-  /** The resolved scope: a collection's project ID, or `null` for stand-alone stories. */
+  /** The resolved scope: a workshop's ID, or null. */
   scopeId: string | null
   vault: string | null
   vaultGeneration: number | null
@@ -61,8 +59,8 @@ interface WorkshopPaneProps {
   /** The page open in the editor, to mark in the lists. */
   activeNoteId: string | null
   onOpenProject: (projectId: string) => void
-  /** `options` prefill the dialog: the anchors section a story does not have yet. */
-  onAddSection: (project: ProjectSummary, options?: { choice: "anchors"; name: string }) => void
+  /** `options` prefill the dialog: the anchors section a workshop does not have yet. */
+  onAddSection: (workshop: WorkshopSummary, options?: { choice: "anchors"; name: string }) => void
   /** Creates a page in a world category under the name the author typed; rejects on failure. */
   onCreateEntity: (categoryKey: string, title: string) => Promise<void>
   /** What a page's own menu can do besides opening it. */
@@ -73,9 +71,8 @@ interface WorkshopPaneProps {
 }
 
 /**
- * The body of the workshop panel, as one column: the search, the chosen story with its parts
- * (the text, anchors, notes) and under them the world (characters, locations and the author's
- * own categories), which a switch narrows to the story or widens to the whole universe.
+ * The body of the workshop panel, as one column: search, chosen story with text tree,
+ * anchors, notes, and world sections.
  */
 export function WorkshopPane({
   catalog,
@@ -95,8 +92,8 @@ export function WorkshopPane({
   const databases = useDatabaseStore((state) => state.databases)
   const rawFilter = useCreativeNavStore((state) => state.storyFilter)
   const setStoryFilter = useCreativeNavStore((state) => state.setStoryFilter)
-  const worldScope = useCreativeNavStore((state) => state.worldScope)
-  const setWorldScope = useCreativeNavStore((state) => state.setWorldScope)
+  const universeFilter = useCreativeNavStore((state) => state.universeFilter)
+  const setUniverseFilter = useCreativeNavStore((state) => state.setUniverseFilter)
   const dataNonce = useCreativeNavStore((state) => state.dataNonce)
   const worksOpen = useCreativeNavStore((state) => state.worksOpen)
   const toggleWorksSection = useCreativeNavStore((state) => state.toggleWorksSection)
@@ -110,33 +107,36 @@ export function WorkshopPane({
 
   const scope = React.useMemo(() => workshopScope(catalog, scopeId), [catalog, scopeId])
   const categories = React.useMemo(() => entityTabs(scope), [scope])
-  // The story chosen in the list; a choice from another universe falls back to the first.
-  const selectedStory = selectedStoryOf(scope.stories, rawFilter)
+  const selectedStory = rawFilter === "all" ? null : selectedStoryOf(scope.stories, rawFilter)
   const searching = search.trim() !== ""
 
   const databaseIds = React.useMemo(() => {
     const ids: string[] = []
-    const addStory = (story: ProjectSummary) => {
-      if (story.text?.databaseId) ids.push(story.text.databaseId)
-      for (const role of ["notes", "anchors"] as const) {
-        const section = storySection(story, role)
-        if (section) ids.push(section.databaseId)
+    if (selectedStory?.databaseId) ids.push(selectedStory.databaseId)
+    if (searching) {
+      for (const story of scope.stories) {
+        if (story.databaseId) ids.push(story.databaseId)
       }
     }
-    // The chosen story's parts; the search and the world's story marks read every story's text.
-    if (selectedStory) addStory(selectedStory)
-    if (searching) scope.stories.forEach(addStory)
-    for (const story of scope.stories) if (story.text?.databaseId) ids.push(story.text.databaseId)
+    if (scope.workshop) {
+      const notesSec = storySection(scope.workshop, "notes")
+      if (notesSec) ids.push(notesSec.databaseId)
+      const anchorsSec = storySection(scope.workshop, "anchors")
+      if (anchorsSec) ids.push(anchorsSec.databaseId)
+      const univSec = scope.workshop.sections.find((s) => s.role === "universes")
+      if (univSec) ids.push(univSec.databaseId)
+    }
     for (const category of categories) {
-      for (const source of category.sources) ids.push(source.section.databaseId)
+      ids.push(category.databaseId)
     }
     return ids
-  }, [categories, scope.stories, searching, selectedStory])
+  }, [categories, scope.stories, scope.workshop, searching, selectedStory])
+
   const data = useDatabaseRows(databaseIds, dataNonce)
-  const stats = useTextStats(selectedStory?.text?.databaseId, dataNonce)
-  // Anchors keep the author's order: placed by hand in the view, else the order they were made.
-  const anchorsDatabaseId = selectedStory
-    ? storySection(selectedStory, "anchors")?.databaseId
+  const stats = useTextStats(selectedStory?.databaseId, dataNonce)
+
+  const anchorsDatabaseId = scope.workshop
+    ? storySection(scope.workshop, "anchors")?.databaseId
     : null
   const anchorStats = useTextStats(anchorsDatabaseId, dataNonce)
   const anchorCreated = React.useMemo(
@@ -151,45 +151,34 @@ export function WorkshopPane({
   const itemsByCategory = React.useMemo(() => {
     const result: Record<string, EntityItem[]> = {}
     for (const category of categories) {
-      result[category.key] = category.sources.flatMap((source) =>
-        (data.rows[source.section.databaseId] ?? []).map((row) => ({
-          noteId: row.noteId,
-          title: row.title,
-          databaseId: source.section.databaseId,
-          projectId: source.project.projectId,
-          valuesJson: row.valuesJson,
-        })),
-      )
+      result[category.key] = (data.rows[category.databaseId] ?? []).map((row) => ({
+        noteId: row.noteId,
+        title: row.title,
+        databaseId: category.databaseId,
+        workshopId: scope.workshop?.workshopId ?? "",
+        valuesJson: row.valuesJson,
+      }))
     }
     return result
-  }, [categories, data.rows])
+  }, [categories, data.rows, scope.workshop?.workshopId])
 
-  const references = React.useMemo<TextReferences>(() => {
-    const result = new Map<string, Set<string>>()
-    for (const story of scope.stories) {
-      const rows = story.text?.databaseId ? data.rows[story.text.databaseId] : undefined
-      if (!rows) continue
-      const targets = new Set<string>()
-      for (const row of rows) for (const id of relationTargets(row.valuesJson)) targets.add(id)
-      result.set(story.projectId, targets)
-    }
-    return result
-  }, [data.rows, scope.stories])
+  const universesSection = scope.workshop?.sections.find((s) => s.role === "universes")
+  const universes = React.useMemo(() => {
+    if (!universesSection) return []
+    return (data.rows[universesSection.databaseId] ?? []).map((row) => ({
+      noteId: row.noteId,
+      title: row.title,
+    }))
+  }, [data.rows, universesSection])
 
   const groupContext = React.useMemo<GroupContext>(
     () => ({
       groupProperty: (databaseId) =>
         groupPropertyOf(databases.find((database) => database.databaseId === databaseId)),
-      projectName: (projectId) =>
-        catalog.projects.find((project) => project.projectId === projectId)?.name ?? "",
-      sharedLabel: t("creative.workshop.shared"),
-      noValueLabel: t("creative.workshop.noImportance"),
-      projectOrder: [
-        ...(scope.collection ? [scope.collection.projectId] : []),
-        ...scope.stories.map((story) => story.projectId),
-      ],
+      sharedLabel: t("creative.workshop.shared", "Общие"),
+      noValueLabel: t("creative.workshop.noImportance", "Без значимости"),
     }),
-    [catalog.projects, databases, scope.collection, scope.stories, t],
+    [databases, t],
   )
 
   const searchGroups = React.useMemo(() => {
@@ -197,57 +186,62 @@ export function WorkshopPane({
     const asItem = (
       row: { noteId: string; title: string; valuesJson: string },
       databaseId: string,
-      projectId: string,
     ): EntityItem => ({
       noteId: row.noteId,
       title: row.title,
       databaseId,
-      projectId,
+      workshopId: scope.workshop?.workshopId ?? "",
       valuesJson: row.valuesJson,
     })
     const works: EntityItem[] = []
     for (const story of scope.stories) {
-      const sections = [
-        story.text?.databaseId ?? null,
-        storySection(story, "notes")?.databaseId ?? null,
-        storySection(story, "anchors")?.databaseId ?? null,
-      ]
-      for (const databaseId of sections) {
-        if (!databaseId) continue
-        for (const row of data.rows[databaseId] ?? []) {
-          works.push(asItem(row, databaseId, story.projectId))
+      if (story.databaseId) {
+        for (const row of data.rows[story.databaseId] ?? []) {
+          works.push(asItem(row, story.databaseId))
+        }
+      }
+    }
+    if (scope.workshop) {
+      const notesSec = storySection(scope.workshop, "notes")
+      if (notesSec) {
+        for (const row of data.rows[notesSec.databaseId] ?? []) {
+          works.push(asItem(row, notesSec.databaseId))
+        }
+      }
+      const anchorsSec = storySection(scope.workshop, "anchors")
+      if (anchorsSec) {
+        for (const row of data.rows[anchorsSec.databaseId] ?? []) {
+          works.push(asItem(row, anchorsSec.databaseId))
         }
       }
     }
     return buildSearchGroups(search, [
-      { key: "works", label: t("creative.workshop.works"), items: works },
+      { key: "works", label: t("creative.workshop.works", "Произведения"), items: works },
       ...categories.map((category) => ({
         key: category.key,
         label: category.name,
         items: itemsByCategory[category.key] ?? [],
       })),
     ])
-  }, [categories, data.rows, itemsByCategory, scope.stories, search, searching, t])
+  }, [categories, data.rows, itemsByCategory, scope.stories, scope.workshop, search, searching, t])
 
-  // What is being named in the lists: a row with an empty field where the item will stand.
   const [draft, setDraft] = React.useState<WorkshopDraft | null>(null)
 
   const rootsOf = React.useCallback(
     (storyId: string): TextNode[] => {
-      const story = scope.stories.find((candidate) => candidate.projectId === storyId)
-      const rows = story?.text?.databaseId ? data.rows[story.text.databaseId] : undefined
+      const story = scope.stories.find((candidate) => candidate.storyId === storyId)
+      const rows = story?.databaseId ? data.rows[story.databaseId] : undefined
       return story?.text && rows ? buildTextTree(rows, story.text.properties) : []
     },
     [data.rows, scope.stories],
   )
 
-  // What the header says under the story's name; nothing until it is read, not "0".
   const totals = React.useMemo(() => {
-    const textDatabaseId = selectedStory?.text?.databaseId
+    const textDatabaseId = selectedStory?.databaseId
     const loaded = textDatabaseId ? data.rows[textDatabaseId] !== undefined : false
     const known = Object.values(stats)
     return {
-      pages: selectedStory && loaded ? countNodes(rootsOf(selectedStory.projectId)) : null,
+      pages: selectedStory && loaded ? countNodes(rootsOf(selectedStory.storyId)) : null,
       words: known.length > 0 ? known.reduce((sum, stat) => sum + stat.wordCount, 0) : null,
     }
   }, [data.rows, rootsOf, selectedStory, stats])
@@ -273,10 +267,10 @@ export function WorkshopPane({
     if (parentId) unfold(`page:${parentId}`)
     setDraft({ kind: "page", storyId, parentId })
   }
-  const startListItem = (kind: "note" | "anchor", story: ProjectSummary) => {
+  const startListItem = (kind: "note" | "anchor") => {
     setSearch("")
     showPart(kind === "note" ? "notes" : "anchors")
-    setDraft({ kind, storyId: story.projectId })
+    setDraft({ kind })
   }
   const startEntity = (categoryKey: string) => {
     setSearch("")
@@ -284,15 +278,13 @@ export function WorkshopPane({
     setDraft({ kind: "entity", categoryKey })
   }
 
-  // A page or a world page asked for from outside (the "Create" button) starts its row here,
-  // where the lists are.
   const handledPage = React.useRef(pageRequest?.id ?? 0)
   React.useEffect(() => {
     if (!pageRequest || pageRequest.id === handledPage.current) return
     handledPage.current = pageRequest.id
-    const storyId = pageRequest.storyId ?? selectedStory?.projectId ?? null
+    const storyId =
+      pageRequest.storyId ?? selectedStory?.storyId ?? scope.stories[0]?.storyId ?? null
     if (storyId) startPage(storyId, null)
-    // The request is the trigger; the helpers read the stores at call time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pageRequest])
   const handledEntity = React.useRef(entityRequest?.id ?? 0)
@@ -303,7 +295,6 @@ export function WorkshopPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityRequest])
 
-  /** Creates what the draft row names. A rejection stays on the row; success closes it. */
   const commitDraft = async (title: string) => {
     if (!draft || vaultGeneration === null) return
     if (draft.kind === "entity") {
@@ -311,21 +302,20 @@ export function WorkshopPane({
       setDraft(null)
       return
     }
-    const story = scope.stories.find((candidate) => candidate.projectId === draft.storyId)
-    if (!story) throw new Error(t("creative.errors.projectNotFound"))
     if (draft.kind === "page") {
+      const story = scope.stories.find((candidate) => candidate.storyId === draft.storyId)
+      if (!story) throw new Error(t("creative.errors.projectNotFound"))
       const text = story.text
       if (!text?.databaseId) throw new Error(t("creative.workshop.noText"))
-      const roots = rootsOf(story.projectId)
+      const roots = rootsOf(story.storyId)
       const parent = draft.parentId ? findNode(roots, draft.parentId) : null
       const levelId = startLevelId(text.levels, parent)
       if (!levelId) throw new Error(t("creative.workshop.noLevels"))
-      // The format is not asked for in daily use: the manuscript one unless the story lacks it.
       const formats = text.formats.filter((format) => format.state === "ok")
       const format = formats.find((entry) => entry.kind === "manuscript") ?? formats[0]
       const created = await createTextPage({
         expectedGeneration: vaultGeneration,
-        projectId: story.projectId,
+        storyId: story.storyId,
         title,
         parentNoteId: parent?.noteId ?? null,
         levelId,
@@ -336,11 +326,11 @@ export function WorkshopPane({
       afterPage(created)
       return
     }
-    const databaseId = storySection(story, draft.kind === "note" ? "notes" : "anchors")?.databaseId
-    if (!databaseId) throw new Error(t("creative.errors.projectNotFound"))
+    const sec = storySection(scope.workshop, draft.kind === "note" ? "notes" : "anchors")
+    if (!sec) throw new Error(t("creative.errors.projectNotFound"))
     const created = await createDatabaseRow({
       expectedGeneration: vaultGeneration,
-      databaseId,
+      databaseId: sec.databaseId,
       title,
       template: { kind: "default" },
     })
@@ -364,6 +354,8 @@ export function WorkshopPane({
     [itemActions, onOpenNote],
   )
 
+  if (!scope.workshop) return null
+
   return (
     <ItemActionsContext.Provider value={actions}>
       <div className="flex min-h-0 flex-1 flex-col">
@@ -379,19 +371,26 @@ export function WorkshopPane({
               {searching ? (
                 <SearchResults
                   groups={searchGroups}
-                  projectName={groupContext.projectName}
+                  projectName={() => scope.workshop?.name ?? ""}
                   status={data.status}
                   error={data.error}
                   onOpen={onOpenNote}
                 />
               ) : (
                 <WorksTab
+                  workshop={scope.workshop}
                   stories={scope.stories}
-                  selectedStoryId={selectedStory?.projectId ?? null}
+                  selectedStoryId={selectedStory?.storyId ?? null}
+                  universes={universes}
+                  selectedUniverseId={universeFilter}
                   onSelectStory={(storyId) => {
                     setDraft(null)
                     setStoryFilter(storyId)
                     remember({ story: storyId })
+                  }}
+                  onSelectUniverse={(universeId) => {
+                    setDraft(null)
+                    setUniverseFilter(universeId)
                   }}
                   open={worksOpen}
                   onToggleSection={(section) => {
@@ -407,15 +406,17 @@ export function WorkshopPane({
                   onOpenProject={onOpenProject}
                   onNewStory={() => onCreate("story")}
                   totals={totals}
-                  onAddPage={(story, parent) => startPage(story.projectId, parent?.noteId ?? null)}
-                  onAddNote={(story) => startListItem("note", story)}
-                  onAddAnchor={(story) => startListItem("anchor", story)}
-                  onCreateAnchors={(story) =>
-                    onAddSection(story, {
-                      choice: "anchors",
-                      name: t("creative.workshop.anchorsName"),
-                    })
-                  }
+                  onAddPage={(story, parent) => startPage(story.storyId, parent?.noteId ?? null)}
+                  onAddNote={() => startListItem("note")}
+                  onAddAnchor={() => startListItem("anchor")}
+                  onCreateAnchors={() => {
+                    if (scope.workshop) {
+                      onAddSection(scope.workshop, {
+                        choice: "anchors",
+                        name: t("creative.workshop.anchorsName", "Якоря"),
+                      })
+                    }
+                  }}
                   onMoved={bumpData}
                   activeNoteId={activeNoteId}
                   stats={stats}
@@ -429,17 +430,7 @@ export function WorkshopPane({
                   <WorldSection
                     categories={categories}
                     itemsByCategory={itemsByCategory}
-                    stories={scope.stories}
-                    selectedStoryId={selectedStory?.projectId ?? null}
-                    references={references}
                     groupContext={groupContext}
-                    hasUniverse={scope.collection !== null}
-                    sharedProjectId={scope.collection?.projectId ?? null}
-                    worldScope={worldScope}
-                    onWorldScope={(next) => {
-                      setWorldScope(next)
-                      remember({ world: next })
-                    }}
                     collapsed={collapsed}
                     onToggle={toggleCollapsed}
                     iconOf={iconOf}
@@ -457,9 +448,6 @@ export function WorkshopPane({
               )}
             </div>
           </ContextMenuTrigger>
-          {/* Right-click on empty space: make something right there. */}
-          {/* Focus is not given back to the row on close: the item picked may start a row to type
-              in, and a restored focus would take it away and cancel that row. */}
           <ContextMenuContent
             className="w-64 border-border bg-popover text-foreground"
             onCloseAutoFocus={(event) => event.preventDefault()}

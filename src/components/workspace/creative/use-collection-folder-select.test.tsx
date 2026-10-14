@@ -22,7 +22,7 @@ const ordinary: TreeItem = {
   icon: "folder",
 }
 const items = new Map([universe, ordinary].map((item) => [item.id, item]))
-const cat = catalog([project("verse", { kind: "collection", path: "Verse" })])
+const cat = catalog([project("verse", { path: "Verse" })])
 
 function setup(enabled: boolean) {
   const fallback = vi.fn()

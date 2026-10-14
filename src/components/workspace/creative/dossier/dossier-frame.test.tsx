@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import type { DatabaseNoteContext, DatabasePropertySummary, NoteReference } from "@/lib/storage"
 import { useDatabaseStore } from "../../database/database-store"
-import { catalog, project, section } from "../project-fixtures.test-support"
+import { catalog, section, storySummary, workshopSummary } from "../project-fixtures.test-support"
 import { useProjectStore } from "../project-store"
 import { DossierFrame } from "./dossier-frame"
 
@@ -83,19 +83,35 @@ function mount(props: { canJump?: boolean; onOpenNote?: (id: string) => void } =
   return { scrollToHeading }
 }
 
-const story = project("molehills", {
+const story = workshopSummary("molehills", {
   name: "MoleHills",
-  text: {
-    databaseId: "db_text",
-    properties: { level: null, parent: null, order: null, format: null, status: null },
-    levels: [],
-    formats: [],
-    statusOptions: [],
-  },
   sections: [
-    section("characters", { role: "characters", databaseName: "Персонажи" }),
-    section("text", { role: "text", databaseName: "Текст" }),
-    section("notes", { role: "notes", databaseName: "Заметки" }),
+    section("characters", {
+      role: "characters",
+      databaseName: "Персонажи",
+      databaseId: "db_characters",
+    }),
+    section("notes", { role: "notes", databaseName: "Заметки", databaseId: "db_notes" }),
+  ],
+  stories: [
+    storySummary("molehills_story", {
+      databaseId: "db_text",
+      text: {
+        databaseId: "db_text",
+        properties: {
+          level: null,
+          parent: null,
+          order: null,
+          format: null,
+          status: null,
+          anchors: null,
+          arcs: null,
+        },
+        levels: [],
+        formats: [],
+        statusOptions: [],
+      },
+    }),
   ],
 })
 

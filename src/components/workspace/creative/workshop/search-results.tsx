@@ -41,7 +41,7 @@ export function SearchResults({ groups, projectName, status, error, onOpen }: Se
             >
               <span className="min-w-0 flex-1 truncate">{item.title}</span>
               <span className="ml-2 max-w-24 shrink-0 truncate text-[10px] text-muted-foreground">
-                {projectName(item.projectId) || t("creative.workshop.shared")}
+                {projectName(item.workshopId) || t("creative.workshop.shared")}
               </span>
             </button>
           ))}

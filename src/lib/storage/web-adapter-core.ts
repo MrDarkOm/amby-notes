@@ -113,24 +113,26 @@ import { ProjectOperationError } from "./project-types"
 import type {
   AddTextStatusRequest,
   AddedTextStatus,
-  CreateProjectRequest,
-  CreateProjectSectionRequest,
-  CreatedProject,
-  CreatedSection,
+  CreateStoryRequest,
+  CreateWorkshopRequest,
+  CreateWorkshopSectionRequest,
+  CreatedStory,
+  CreatedWorkshop,
+  CreatedWorkshopSectionResult,
   CreatedTextPage,
   CreateTextPageRequest,
   MoveTextPageRequest,
   MovedTextPage,
   NoteReference,
-  RemoveProjectSectionRequest,
-  RemovedProjectSection,
-  ReorderProjectSectionsRequest,
-  ReorderedProjectSections,
+  RemoveWorkshopSectionRequest,
+  RemovedWorkshopSection,
+  ReorderWorkshopSectionsRequest,
+  ReorderedWorkshopSections,
   TextPageStat,
-  UpdateProjectRequest,
   UpdateTextLevelsRequest,
-  UpdatedProject,
+  UpdateWorkshopRequest,
   UpdatedTextLevels,
+  UpdatedWorkshop,
   ProjectCatalog,
 } from "./project-types"
 
@@ -512,45 +514,51 @@ export class WebAdapterCore implements StoragePort {
     )
   }
 
-  // Projects are files plus databases on disk; the browser fallback has neither.
+  // Workshops are files plus databases on disk; the browser fallback has neither.
   async listProjects(): Promise<ProjectCatalog> {
-    return { vaultGeneration: 0, indexEpoch: "web", projects: [], diagnostics: [] }
+    return { vaultGeneration: 0, indexEpoch: "web", workshops: [], diagnostics: [] }
   }
 
   async refreshProjects(_expectedGeneration: number): Promise<ProjectCatalog> {
     return this.listProjects()
   }
 
-  async createProject(_request: CreateProjectRequest): Promise<CreatedProject> {
-    throw new ProjectOperationError("failed", "Project creation requires the desktop runtime")
+  async createWorkshop(_request: CreateWorkshopRequest): Promise<CreatedWorkshop> {
+    throw new ProjectOperationError("failed", "Workshop creation requires the desktop runtime")
   }
 
-  async createProjectSection(_request: CreateProjectSectionRequest): Promise<CreatedSection> {
+  async createStory(_request: CreateStoryRequest): Promise<CreatedStory> {
+    throw new ProjectOperationError("failed", "Story creation requires the desktop runtime")
+  }
+
+  async createWorkshopSection(
+    _request: CreateWorkshopSectionRequest,
+  ): Promise<CreatedWorkshopSectionResult> {
     throw new ProjectOperationError(
       "failed",
-      "Project section creation requires the desktop runtime",
+      "Workshop section creation requires the desktop runtime",
     )
   }
 
-  async updateProject(_request: UpdateProjectRequest): Promise<UpdatedProject> {
-    throw new ProjectOperationError("failed", "Project update requires the desktop runtime")
+  async updateWorkshop(_request: UpdateWorkshopRequest): Promise<UpdatedWorkshop> {
+    throw new ProjectOperationError("failed", "Workshop update requires the desktop runtime")
   }
 
-  async removeProjectSection(
-    _request: RemoveProjectSectionRequest,
-  ): Promise<RemovedProjectSection> {
+  async removeWorkshopSection(
+    _request: RemoveWorkshopSectionRequest,
+  ): Promise<RemovedWorkshopSection> {
     throw new ProjectOperationError(
       "failed",
-      "Project section removal requires the desktop runtime",
+      "Workshop section removal requires the desktop runtime",
     )
   }
 
-  async reorderProjectSections(
-    _request: ReorderProjectSectionsRequest,
-  ): Promise<ReorderedProjectSections> {
+  async reorderWorkshopSections(
+    _request: ReorderWorkshopSectionsRequest,
+  ): Promise<ReorderedWorkshopSections> {
     throw new ProjectOperationError(
       "failed",
-      "Project section reordering requires the desktop runtime",
+      "Workshop section reordering requires the desktop runtime",
     )
   }
 

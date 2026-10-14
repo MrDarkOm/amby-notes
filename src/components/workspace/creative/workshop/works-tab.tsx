@@ -14,10 +14,11 @@ import {
   applyDatabaseValueBatch,
   moveTextPage,
   type DatabaseRow,
-  type ProjectSummary,
+  type StorySummary,
   type TextLevelSummary,
   type TextPageStat,
   type TextStatusOptionSummary,
+  type WorkshopSummary,
 } from "@/lib/storage"
 import { motion } from "motion/react"
 import { motionTransitions } from "@/lib/motion-config"
@@ -54,10 +55,14 @@ import {
 } from "./text-tree-model"
 
 interface WorksTabProps {
-  stories: ProjectSummary[]
+  workshop: WorkshopSummary
+  stories: StorySummary[]
   /** The story whose parts are shown: the one chosen in the list above them. */
   selectedStoryId: string | null
-  onSelectStory: (storyId: string) => void
+  universes?: Array<{ noteId: string; title: string }>
+  selectedUniverseId?: string | null
+  onSelectStory: (storyId: string | null) => void
+  onSelectUniverse?: (universeId: string | null) => void
   /** Which accordion parts are unfolded. */
   open: Record<WorksSection, boolean>
   onToggleSection: (section: WorksSection) => void
@@ -72,11 +77,11 @@ interface WorksTabProps {
   /** Pages and words of the chosen story's text; `null` while not loaded. */
   totals: { pages: number | null; words: number | null }
   /** A page under `parent`, or at the top of the text for `null`. */
-  onAddPage: (story: ProjectSummary, parent: TextNode | null) => void
-  onAddNote: (story: ProjectSummary) => void
-  onAddAnchor: (story: ProjectSummary) => void
+  onAddPage: (story: StorySummary, parent: TextNode | null) => void
+  onAddNote: (story: StorySummary) => void
+  onAddAnchor: (story: StorySummary) => void
   /** The story has no anchors section: offers making one. */
-  onCreateAnchors: (story: ProjectSummary) => void
+  onCreateAnchors: (story: StorySummary) => void
   /** A page moved or a move was refused: the lists read the files again. */
   onMoved: () => void
   /** The page open in the editor: its row is marked and its parents are unfolded. */
@@ -290,6 +295,7 @@ const SECTION_LABEL_KEYS: Record<WorksSection, string> = {
 }
 
 function StoryWorks({
+  workshop,
   story,
   open,
   onToggleSection,
@@ -310,16 +316,17 @@ function StoryWorks({
   onCommitDraft,
   onCancelDraft,
 }: {
-  story: ProjectSummary
+  workshop: WorkshopSummary
+  story: StorySummary
   open: Record<WorksSection, boolean>
   onToggleSection: (section: WorksSection) => void
   rows: Record<string, DatabaseRow[]>
   vaultGeneration: number | null
   onOpenNote: (noteId: string) => void
-  onAddPage: (story: ProjectSummary, parent: TextNode | null) => void
-  onAddNote: (story: ProjectSummary) => void
-  onAddAnchor: (story: ProjectSummary) => void
-  onCreateAnchors: (story: ProjectSummary) => void
+  onAddPage: (story: StorySummary, parent: TextNode | null) => void
+  onAddNote: (story: StorySummary) => void
+  onAddAnchor: (story: StorySummary) => void
+  onCreateAnchors: (story: StorySummary) => void
   onMoved: () => void
   activeNoteId: string | null
   stats: Record<string, TextPageStat>
@@ -344,11 +351,11 @@ function StoryWorks({
     [text, textRows],
   )
   const levels = React.useMemo(() => text?.levels ?? [], [text])
-  const notesSection = storySection(story, "notes")
+  const notesSection = storySection(workshop, "notes")
   const noteRows = notesSection ? (rows[notesSection.databaseId] ?? []) : []
-  const anchorsSection = storySection(story, "anchors")
+  const anchorsSection = storySection(workshop, "anchors")
   const anchorRows = anchorsSection ? (rows[anchorsSection.databaseId] ?? []) : []
-  const canWrite = !story.readOnly
+  const canWrite = !workshop.readOnly
   const rootRef = React.useRef<HTMLDivElement>(null)
 
   // The open page is found in the text: its parents unfold, the part opens, the row scrolls into
@@ -471,7 +478,7 @@ function StoryWorks({
       void moveTextPage({
         expectedGeneration: vaultGeneration,
         operationId: `move-${crypto.randomUUID()}`,
-        projectId: story.projectId,
+        storyId: story.storyId,
         noteId: draggedId,
         newParentNoteId: move.newParentId,
         orderKey: move.orderKey,
@@ -722,9 +729,13 @@ function StoryWorks({
  * the text, anchors and notes.
  */
 export function WorksTab({
+  workshop,
   stories,
   selectedStoryId,
+  universes = [],
+  selectedUniverseId = null,
   onSelectStory,
+  onSelectUniverse,
   open,
   onToggleSection,
   rows,
@@ -751,7 +762,9 @@ export function WorksTab({
   children,
 }: WorksTabProps) {
   const { t } = useTranslation()
-  const story = stories.find((candidate) => candidate.projectId === selectedStoryId) ?? null
+  const story = selectedStoryId
+    ? (stories.find((candidate) => candidate.storyId === selectedStoryId) ?? null)
+    : null
   // Where to go on from: the page of the text changed last, unless it is the one already open.
   const textRows = story?.text?.databaseId ? rows[story.text.databaseId] : undefined
   const resume = React.useMemo(() => {
@@ -767,21 +780,34 @@ export function WorksTab({
     if (!latest || latest.noteId === activeNoteId) return null
     return { noteId: latest.noteId, title: latest.title, when: formatModified(latestAt) ?? "" }
   }, [activeNoteId, stats, textRows])
+
+  const handleOpenTarget = () => {
+    if (selectedStoryId) {
+      onOpenProject(selectedStoryId)
+    } else if (selectedUniverseId) {
+      onOpenProject(`universe:${selectedUniverseId}`)
+    } else {
+      onOpenProject(workshop.workshopId)
+    }
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {story && (
-        <StoryHeader
-          story={story}
-          stories={stories}
-          pages={totals.pages}
-          words={totals.words}
-          onSelectStory={onSelectStory}
-          onNewStory={onNewStory}
-          onOpenStory={onOpenProject}
-          resume={resume}
-          onOpenNote={onOpenNote}
-        />
-      )}
+      <StoryHeader
+        workshop={workshop}
+        stories={stories}
+        selectedStoryId={selectedStoryId}
+        universes={universes}
+        selectedUniverseId={selectedUniverseId}
+        pages={totals.pages}
+        words={totals.words}
+        onSelectStory={onSelectStory}
+        onSelectUniverse={onSelectUniverse}
+        onNewStory={onNewStory}
+        onOpenTarget={handleOpenTarget}
+        resume={resume}
+        onOpenNote={onOpenNote}
+      />
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {status === "error" && (
           <p role="alert" className="px-2 py-3 text-xs text-destructive">
@@ -796,7 +822,8 @@ export function WorksTab({
         )}
         {story && (
           <StoryWorks
-            key={story.projectId}
+            key={story.storyId}
+            workshop={workshop}
             story={story}
             open={open}
             onToggleSection={onToggleSection}

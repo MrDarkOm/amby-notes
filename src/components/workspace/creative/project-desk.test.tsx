@@ -4,7 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import type { DatabaseRow } from "@/lib/storage"
 import { useDatabaseStore } from "../database/database-store"
-import { project, section } from "./project-fixtures.test-support"
+import {
+  storySummary,
+  workshopSection as section,
+  workshopSummary,
+} from "./project-fixtures.test-support"
 import { ProjectDesk } from "./project-desk"
 
 const queryDatabase = vi.fn()
@@ -36,11 +40,21 @@ function row(noteId: string, title: string, values: Record<string, unknown> = {}
   }
 }
 
-const story = project("hills", {
+const story = storySummary("hills", {
   name: "MoleHills",
+  workshopId: "w_hills",
+  databaseId: "db_text",
   text: {
     databaseId: "db_text",
-    properties: { level: "lvl", parent: "par", order: "ord", format: null, status: null },
+    properties: {
+      level: "lvl",
+      parent: "par",
+      order: "ord",
+      format: null,
+      status: null,
+      anchors: null,
+      arcs: null,
+    },
     levels: [
       { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },
       { id: "chapter", icon: null, name: "Глава", color: null, state: "ok" as const },
@@ -48,6 +62,11 @@ const story = project("hills", {
     formats: [],
     statusOptions: [],
   },
+})
+
+const workshop = workshopSummary("w_hills", {
+  name: "MoleHills Workshop",
+  stories: [story],
   sections: [section("text", { role: "text", databaseId: "db_text", databaseName: "Текст" })],
 })
 
@@ -88,7 +107,9 @@ const NOTES: Record<string, string> = {
 }
 
 function renderDesk(onOpenNote = vi.fn(), vaultPath: string | null = "/vault") {
-  render(<ProjectDesk project={story} vaultPath={vaultPath} onOpenNote={onOpenNote} />)
+  render(
+    <ProjectDesk story={story} workshop={workshop} vaultPath={vaultPath} onOpenNote={onOpenNote} />,
+  )
   return onOpenNote
 }
 
@@ -197,7 +218,7 @@ describe("ProjectDesk", () => {
   })
 
   it("shows the done page count tile when page status is configured", async () => {
-    const storyWithStatus = project("hills", {
+    const storyWithStatus = storySummary("hills", {
       ...story,
       text: {
         ...story.text!,
@@ -208,6 +229,10 @@ describe("ProjectDesk", () => {
           { id: "st_done", name: "Готово", color: "green", group: "done" },
         ],
       },
+    })
+    const workshopWithStatus = workshopSummary("w_hills", {
+      ...workshop,
+      stories: [storyWithStatus],
     })
     queryDatabase.mockResolvedValue({
       rows: [
@@ -233,7 +258,14 @@ describe("ProjectDesk", () => {
       totalCount: 3,
       diagnostics: [],
     })
-    render(<ProjectDesk project={storyWithStatus} vaultPath="/vault" onOpenNote={vi.fn()} />)
+    render(
+      <ProjectDesk
+        story={storyWithStatus}
+        workshop={workshopWithStatus}
+        vaultPath="/vault"
+        onOpenNote={vi.fn()}
+      />,
+    )
     await screen.findByRole("region", { name: "Текст" })
     await waitFor(() => expect(screen.getByText("Готово: 2 из 3")).toBeTruthy())
   })

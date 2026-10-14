@@ -6,7 +6,7 @@ import { extractToc, splitReferences, worldSectionOf } from "./dossier-model"
 describe("worldSectionOf", () => {
   it("finds the section of a world database and the project it is in", () => {
     const found = worldSectionOf(universeCatalog(), "db_characters")
-    expect(found?.project.projectId).toBe("palooverse")
+    expect(found?.workshop.workshopId).toBe("palooverse")
     expect(found?.section.role).toBe("characters")
     // A section the author named himself has a dossier too.
     expect(worldSectionOf(universeCatalog(), "db_loose")?.section.id).toBe("loose")

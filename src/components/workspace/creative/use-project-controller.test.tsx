@@ -55,7 +55,7 @@ describe("useProjectController", () => {
     act(() => useDatabaseStore.getState().setCatalog([]))
     await flush()
     expect(storage.listProjects).toHaveBeenCalledTimes(1)
-    expect(useProjectStore.getState().catalog?.projects).toHaveLength(1)
+    expect(useProjectStore.getState().catalog?.workshops).toHaveLength(1)
     expect(useProjectStore.getState().status).toBe("ready")
   })
 
@@ -73,7 +73,7 @@ describe("useProjectController", () => {
     renderHook(() => useProjectController({ enabled: true, vaultGeneration: 1 }))
     await flush()
     expect(events.handler).not.toBeNull()
-    for (const path of ["A/amby-project.json", "A", "B"]) {
+    for (const path of ["A/amby-workshop.json", "A", "B"]) {
       events.handler!({ payload: { kind: "file", path, generation: 1 } })
     }
     expect(storage.refreshProjects).not.toHaveBeenCalled()
@@ -82,7 +82,7 @@ describe("useProjectController", () => {
     })
     expect(storage.refreshProjects).toHaveBeenCalledTimes(1)
     expect(storage.refreshProjects).toHaveBeenCalledWith(1)
-    expect(useProjectStore.getState().catalog?.projects).toHaveLength(2)
+    expect(useProjectStore.getState().catalog?.workshops).toHaveLength(2)
   })
 
   it("ignores events of another vault generation", async () => {
@@ -105,7 +105,7 @@ describe("useProjectController", () => {
       await useProjectStore.getState().refresh?.(true)
     })
     expect(useProjectStore.getState().error).toBe("index busy")
-    expect(useProjectStore.getState().catalog?.projects).toHaveLength(1)
+    expect(useProjectStore.getState().catalog?.workshops).toHaveLength(1)
   })
 
   it("unsubscribes when disabled", async () => {

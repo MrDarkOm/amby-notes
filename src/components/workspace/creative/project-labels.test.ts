@@ -7,12 +7,10 @@ describe("project labels", () => {
     const ru = projectLabels(i18n.getFixedT("ru"))
     const en = projectLabels(i18n.getFixedT("en"))
     expect(ru).toMatchObject({
-      "section:text": "Текст",
+      "section:stories": "Истории",
       "section:notes": "Заметки",
       "section:characters": "Персонажи",
       "section:locations": "Локации",
-      "group:work": "История",
-      "group:world": "Мир",
       "property:level": "Уровень",
       "property:parent": "Родитель",
       "property:order": "Порядок",
@@ -30,8 +28,8 @@ describe("project labels", () => {
       "status:inProgress": "В работе",
       "status:done": "Готово",
     })
-    expect(en["section:text"]).toBe("Text")
-    expect(en["group:world"]).toBe("World")
+    expect(en["section:stories"]).toBe("Stories")
+    expect(en["section:characters"]).toBe("Characters")
     expect(en["level:chapter"]).toBe("Chapter")
     expect(ru["importance:main"]).toBe("Главные")
     expect(ru["heading:biography"]).toBe("Биография")
@@ -45,7 +43,7 @@ describe("project labels", () => {
   it("only uses keys the backend accepts", () => {
     for (const key of Object.keys(projectLabels(i18n.getFixedT("en")))) {
       expect(key).toMatch(
-        /^(section:(text|notes|characters|locations)|group:(work|world)|property:(level|parent|order|format|status)|level:(book|arc|chapter|page)|format:(manuscript|screenplay|comic|note)|status:(draft|inProgress|done)|preset:(importance|kind|portrait|image)|importance:(main|side|episode)|kind:(city|district|place|nature)|heading:(basic|traits|appearance|biography|description|history)|view:gallery|template:dossier)$/u,
+        /^(section:(stories|notes|characters|locations)|property:(level|parent|order|format|status)|level:(book|arc|chapter|page)|format:(manuscript|screenplay|comic|note)|status:(draft|inProgress|done)|preset:(importance|kind|portrait|image)|importance:(main|side|episode)|kind:(city|district|place|nature)|heading:(basic|traits|appearance|biography|description|history)|view:gallery|template:dossier)$/u,
       )
     }
   })

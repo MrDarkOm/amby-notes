@@ -4,38 +4,52 @@ import { commands, type ProjectError } from "@/lib/bindings"
 import { DesktopAdapter } from "./desktop-adapter"
 import {
   addTextStatus,
-  createProject,
-  createProjectSection,
+  createStory,
+  createWorkshop,
+  createWorkshopSection,
   createTextPage,
   listNoteReferences,
   listProjects,
   listTextStats,
   moveTextPage,
   refreshProjects,
-  removeProjectSection,
-  reorderProjectSections,
+  removeWorkshopSection,
+  reorderWorkshopSections,
   setStorageAdapter,
-  updateProject,
+  updateWorkshop,
   updateTextLevels,
 } from "./index"
 import { unwrapProjectCommand } from "./project-port"
 import { projectErrorMessage, ProjectOperationError } from "./project-types"
 import { WebAdapter } from "./web-adapter"
 
-const created = {
+const createdWorkshop = {
   operationId: "op-1",
-  projectId: "p1",
-  kind: "story" as const,
+  workshopId: "w1",
   name: "MoleHills",
   path: "MoleHills",
-  filePath: "MoleHills/amby-project.json",
+  filePath: "MoleHills/amby-workshop.json",
   fileRevision: "r".repeat(64),
   sections: [],
   replayed: false,
   warnings: [],
 }
 
-const catalog = { vaultGeneration: 3, indexEpoch: "e1", projects: [], diagnostics: [] }
+const createdStory = {
+  operationId: "op-story-1",
+  workshopId: "w1",
+  storyId: "st1",
+  title: "Глава 1",
+  folderPath: "MoleHills/Истории/Глава 1",
+  cardPath: "MoleHills/Истории/Глава 1/Глава 1.md",
+  cardNoteId: "01NOTE",
+  databaseId: "db1",
+  storyFileRevision: "s".repeat(64),
+  replayed: false,
+  warnings: [],
+}
+
+const catalog = { vaultGeneration: 3, indexEpoch: "e1", workshops: [], diagnostics: [] }
 
 afterEach(() => {
   setStorageAdapter(null)
@@ -66,14 +80,15 @@ describe("project port errors", () => {
       { kind: "invalidName", field: "name", reason: "empty" },
       { kind: "invalidParent", reason: "not a folder" },
       { kind: "pathCollision", path: "A" },
-      { kind: "nestedCollectionUnsupported", ancestorPath: "U" },
-      { kind: "parentProjectReadOnly", path: "F" },
-      { kind: "projectNotFound", projectId: "p" },
-      { kind: "projectReadOnly", formatVersion: 3 },
+      { kind: "workshopNotFound", workshopId: "w" },
+      { kind: "storyNotFound", storyId: "s" },
+      { kind: "workshopReadOnly", formatVersion: 3 },
+      { kind: "storyReadOnly", formatVersion: 3 },
       { kind: "revisionConflict", actualRevision: "x" },
-      { kind: "unknownGroup", groupId: "g" },
       { kind: "unsupportedRole", role: "galaxy" },
+      { kind: "unsupportedPreset", preset: "galaxy" },
       { kind: "sectionNotFound", sectionId: "s" },
+      { kind: "cannotRemoveStoriesSection" },
       { kind: "cannotRemoveTextSection" },
       { kind: "textNotConfigured" },
       { kind: "statusAlreadyConfigured" },
@@ -83,7 +98,7 @@ describe("project port errors", () => {
       { kind: "pageNotFound", noteId: "n" },
       { kind: "parentCycle" },
       { kind: "parentLevelNotShallower", parentLevelId: "p", levelId: "l" },
-      { kind: "unsupportedPreset", preset: "galaxy" },
+      { kind: "levelInUse", levelId: "l", count: 2 },
       { kind: "rolledBack", operationId: "op", message: "boom" },
       { kind: "recoveryRequired", operationId: "op", message: "left" },
       { kind: "failed", code: "c", message: "plain" },
@@ -97,115 +112,123 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
   it("passes requests through with explicit nulls and unwraps typed failures", async () => {
     vi.stubGlobal("window", { __TAURI_INTERNALS__: {} })
     setStorageAdapter(new DesktopAdapter())
-    const create = vi.spyOn(commands, "createProject").mockResolvedValue({
+    const createW = vi.spyOn(commands, "createWorkshop").mockResolvedValue({
       status: "ok",
-      data: created,
+      data: createdWorkshop,
     })
-    const request = {
+    const workshopReq = {
       expectedGeneration: 3,
       operationId: "op-1",
-      kind: "story" as const,
       name: "MoleHills",
-      baseSections: true,
     }
-    await expect(createProject(request)).resolves.toEqual(created)
-    expect(create).toHaveBeenCalledWith({
-      ...request,
+    await expect(createWorkshop(workshopReq)).resolves.toEqual(createdWorkshop)
+    expect(createW).toHaveBeenCalledWith({
+      ...workshopReq,
       parentPath: null,
       icon: null,
       tags: [],
       labels: {},
     })
 
-    // The levels the author chose travel with the request, untouched.
-    await createProject({ ...request, operationId: "op-levels", textLevels: ["Книга", "Сцена"] })
-    expect(create).toHaveBeenLastCalledWith(
-      expect.objectContaining({ operationId: "op-levels", textLevels: ["Книга", "Сцена"] }),
-    )
+    const createS = vi.spyOn(commands, "createStory").mockResolvedValue({
+      status: "ok",
+      data: createdStory,
+    })
+    const storyReq = {
+      expectedGeneration: 3,
+      operationId: "op-story-1",
+      workshopId: "w1",
+      title: "Глава 1",
+      textLevels: ["Книга", "Сцена"],
+    }
+    await expect(createStory(storyReq)).resolves.toEqual(createdStory)
+    expect(createS).toHaveBeenCalledWith({
+      ...storyReq,
+      labels: {},
+    })
 
-    const section = vi.spyOn(commands, "createProjectSection").mockResolvedValue({
+    const section = vi.spyOn(commands, "createWorkshopSection").mockResolvedValue({
       status: "error",
       error: { kind: "pathCollision", path: "MoleHills/Текст" },
     })
     await expect(
-      createProjectSection({
+      createWorkshopSection({
         expectedGeneration: 3,
         operationId: "op-2",
-        projectId: "p1",
-        expectedProjectRevision: "r".repeat(64),
+        workshopId: "w1",
+        expectedWorkshopRevision: "r".repeat(64),
+        role: "custom",
         name: "Текст",
       }),
     ).rejects.toMatchObject({ kind: "pathCollision" })
     expect(section).toHaveBeenCalledWith(
       expect.objectContaining({
-        role: null,
-        preset: null,
-        groupId: null,
+        role: "custom",
         labels: {},
         name: "Текст",
       }),
     )
 
-    const update = vi.spyOn(commands, "updateProject").mockResolvedValue({
+    const update = vi.spyOn(commands, "updateWorkshop").mockResolvedValue({
       status: "ok",
       data: {
         operationId: "op-upd",
-        projectId: "p1",
+        workshopId: "w1",
         name: "Новое имя",
         icon: null,
         tags: [],
-        projectRevision: "r2",
+        workshopRevision: "r2",
         replayed: false,
         warnings: [],
       },
     })
-    await updateProject({
+    await updateWorkshop({
       expectedGeneration: 3,
       operationId: "op-upd",
-      projectId: "p1",
-      expectedProjectRevision: "r1",
+      workshopId: "w1",
+      expectedWorkshopRevision: "r1",
       name: "Новое имя",
     })
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Новое имя", icon: null, tags: null }),
     )
 
-    const removeSec = vi.spyOn(commands, "removeProjectSection").mockResolvedValue({
+    const removeSec = vi.spyOn(commands, "removeWorkshopSection").mockResolvedValue({
       status: "ok",
       data: {
         operationId: "op-rm",
-        projectId: "p1",
+        workshopId: "w1",
         sectionId: "s1",
-        projectRevision: "r2",
+        workshopRevision: "r2",
         replayed: false,
         warnings: [],
       },
     })
-    await removeProjectSection({
+    await removeWorkshopSection({
       expectedGeneration: 3,
       operationId: "op-rm",
-      projectId: "p1",
-      expectedProjectRevision: "r1",
+      workshopId: "w1",
+      expectedWorkshopRevision: "r1",
       sectionId: "s1",
     })
     expect(removeSec).toHaveBeenCalledWith(expect.objectContaining({ sectionId: "s1" }))
 
-    const reorderSec = vi.spyOn(commands, "reorderProjectSections").mockResolvedValue({
+    const reorderSec = vi.spyOn(commands, "reorderWorkshopSections").mockResolvedValue({
       status: "ok",
       data: {
         operationId: "op-ord",
-        projectId: "p1",
+        workshopId: "w1",
         sectionIds: ["s2", "s1"],
-        projectRevision: "r2",
+        workshopRevision: "r2",
         replayed: false,
         warnings: [],
       },
     })
-    await reorderProjectSections({
+    await reorderWorkshopSections({
       expectedGeneration: 3,
       operationId: "op-ord",
-      projectId: "p1",
-      expectedProjectRevision: "r1",
+      workshopId: "w1",
+      expectedWorkshopRevision: "r1",
       sectionIds: ["s2", "s1"],
     })
     expect(reorderSec).toHaveBeenCalledWith(expect.objectContaining({ sectionIds: ["s2", "s1"] }))
@@ -214,8 +237,8 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
       status: "ok",
       data: {
         operationId: "op-lvl",
-        projectId: "p1",
-        projectRevision: "r2",
+        storyId: "st1",
+        storyRevision: "r2",
         manifestRevision: "m2",
         levelIds: ["l1"],
         replayed: false,
@@ -225,8 +248,8 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
     await updateTextLevels({
       expectedGeneration: 3,
       operationId: "op-lvl",
-      projectId: "p1",
-      expectedProjectRevision: "r1",
+      storyId: "st1",
+      expectedStoryRevision: "r1",
       levels: [{ name: "Глава" }],
     })
     expect(updLevels).toHaveBeenCalledWith(
@@ -239,9 +262,9 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
       status: "ok",
       data: {
         operationId: "op-stat",
-        projectId: "p1",
+        storyId: "st1",
         propertyId: "prop-stat",
-        projectRevision: "r2",
+        storyRevision: "r2",
         manifestRevision: "m2",
         replayed: false,
         warnings: [],
@@ -250,8 +273,8 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
     await addTextStatus({
       expectedGeneration: 3,
       operationId: "op-stat",
-      projectId: "p1",
-      expectedProjectRevision: "r1",
+      storyId: "st1",
+      expectedStoryRevision: "r1",
     })
     expect(addStat).toHaveBeenCalledWith(expect.objectContaining({ labels: {} }))
 
@@ -271,7 +294,7 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
     })
     await createTextPage({
       expectedGeneration: 3,
-      projectId: "p1",
+      storyId: "st1",
       title: "Глава",
       levelId: "l",
       orderKey: "a0",
@@ -285,8 +308,8 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
     await expect(
       moveTextPage({
         expectedGeneration: 3,
-        operationId: "op-3",
-        projectId: "p1",
+        operationId: "op_move",
+        storyId: "st1",
         noteId: "n1",
         orderKey: "a1",
         expectedRevision: "r",
@@ -322,23 +345,29 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
 describe("WebAdapter projects", () => {
   it("lists nothing and refuses creation outside the desktop runtime", async () => {
     setStorageAdapter(new WebAdapter())
-    await expect(listProjects()).resolves.toMatchObject({ projects: [], diagnostics: [] })
-    await expect(refreshProjects(0)).resolves.toMatchObject({ projects: [] })
+    await expect(listProjects()).resolves.toMatchObject({ workshops: [], diagnostics: [] })
+    await expect(refreshProjects(0)).resolves.toMatchObject({ workshops: [] })
     await expect(listTextStats("db_text")).resolves.toEqual([])
     await expect(
-      createProject({
+      createWorkshop({
         expectedGeneration: 0,
         operationId: "op",
-        kind: "story",
         name: "x",
-        baseSections: true,
+      }),
+    ).rejects.toMatchObject({ name: "ProjectOperationError", kind: "failed" })
+    await expect(
+      createStory({
+        expectedGeneration: 0,
+        operationId: "op",
+        workshopId: "w",
+        title: "x",
       }),
     ).rejects.toMatchObject({ name: "ProjectOperationError", kind: "failed" })
     await expect(listNoteReferences("n")).resolves.toEqual([])
     await expect(
       createTextPage({
         expectedGeneration: 0,
-        projectId: "p",
+        storyId: "s",
         title: "x",
         levelId: "l",
         orderKey: "a0",
@@ -348,45 +377,46 @@ describe("WebAdapter projects", () => {
       moveTextPage({
         expectedGeneration: 0,
         operationId: "op",
-        projectId: "p",
+        storyId: "s",
         noteId: "n",
         orderKey: "a0",
         expectedRevision: "r",
       }),
     ).rejects.toBeInstanceOf(ProjectOperationError)
     await expect(
-      createProjectSection({
+      createWorkshopSection({
         expectedGeneration: 0,
         operationId: "op",
-        projectId: "p",
-        expectedProjectRevision: "r",
+        workshopId: "w",
+        expectedWorkshopRevision: "r",
+        role: "custom",
         name: "x",
       }),
     ).rejects.toBeInstanceOf(ProjectOperationError)
     await expect(
-      updateProject({
+      updateWorkshop({
         expectedGeneration: 0,
         operationId: "op",
-        projectId: "p",
-        expectedProjectRevision: "r",
+        workshopId: "w",
+        expectedWorkshopRevision: "r",
         name: "x",
       }),
     ).rejects.toBeInstanceOf(ProjectOperationError)
     await expect(
-      removeProjectSection({
+      removeWorkshopSection({
         expectedGeneration: 0,
         operationId: "op",
-        projectId: "p",
-        expectedProjectRevision: "r",
+        workshopId: "w",
+        expectedWorkshopRevision: "r",
         sectionId: "s",
       }),
     ).rejects.toBeInstanceOf(ProjectOperationError)
     await expect(
-      reorderProjectSections({
+      reorderWorkshopSections({
         expectedGeneration: 0,
         operationId: "op",
-        projectId: "p",
-        expectedProjectRevision: "r",
+        workshopId: "w",
+        expectedWorkshopRevision: "r",
         sectionIds: [],
       }),
     ).rejects.toBeInstanceOf(ProjectOperationError)
@@ -394,8 +424,8 @@ describe("WebAdapter projects", () => {
       updateTextLevels({
         expectedGeneration: 0,
         operationId: "op",
-        projectId: "p",
-        expectedProjectRevision: "r",
+        storyId: "s",
+        expectedStoryRevision: "r",
         levels: [{ name: "x" }],
       }),
     ).rejects.toBeInstanceOf(ProjectOperationError)
@@ -403,8 +433,8 @@ describe("WebAdapter projects", () => {
       addTextStatus({
         expectedGeneration: 0,
         operationId: "op",
-        projectId: "p",
-        expectedProjectRevision: "r",
+        storyId: "s",
+        expectedStoryRevision: "r",
       }),
     ).rejects.toBeInstanceOf(ProjectOperationError)
   })

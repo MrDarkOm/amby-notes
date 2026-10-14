@@ -38,7 +38,7 @@ fn bundle_main_note(dir: &Path) -> Result<PathBuf, String> {
 }
 
 #[cfg(test)]
-fn sort_entries(entries: &mut Vec<fs::DirEntry>) {
+fn sort_entries(entries: &mut [fs::DirEntry]) {
     entries.sort_by_key(|e| {
         let path = e.path();
         let is_file = path.is_file() as u8;

@@ -5,11 +5,13 @@ import type { ProjectError } from "@/lib/bindings"
 export type {
   AddTextStatusRequest,
   AddedTextStatus,
-  CreateProjectRequest,
-  CreateProjectSectionRequest,
-  CreatedProject,
-  CreatedProjectSection,
-  CreatedSection,
+  CreateStoryRequest,
+  CreateWorkshopRequest,
+  CreateWorkshopSectionRequest,
+  CreatedStory,
+  CreatedWorkshop,
+  CreatedWorkshopSection,
+  CreatedWorkshopSectionResult,
   CreatedTextPage,
   CreateTextPageRequest,
   MoveTextPageRequest,
@@ -19,16 +21,13 @@ export type {
   ProjectCatalog,
   ProjectDiagnostic,
   ProjectError,
-  ProjectGroupSummary,
-  ProjectKind,
-  ProjectSectionSummary,
-  ProjectSummary,
   ProjectTextSummary,
-  RemoveProjectSectionRequest,
-  RemovedProjectSection,
-  ReorderProjectSectionsRequest,
-  ReorderedProjectSections,
+  RemoveWorkshopSectionRequest,
+  RemovedWorkshopSection,
+  ReorderWorkshopSectionsRequest,
+  ReorderedWorkshopSections,
   SectionState,
+  StorySummary,
   TextEntryState,
   TextFormatSummary,
   TextLevelSummary,
@@ -36,10 +35,12 @@ export type {
   TextPageStat,
   TextPropertyIds,
   TextStatusOptionSummary,
-  UpdateProjectRequest,
   UpdateTextLevelsRequest,
-  UpdatedProject,
   UpdatedTextLevels,
+  UpdateWorkshopRequest,
+  UpdatedWorkshop,
+  WorkshopSectionSummary,
+  WorkshopSummary,
 } from "@/lib/bindings"
 
 /** Payload of the `project:changed` event: a structure file or a whole folder moved. */
@@ -81,22 +82,24 @@ export function projectErrorMessage(error: ProjectError): string {
       return `Invalid parent folder: ${error.reason}`
     case "pathCollision":
       return `Path already exists: ${error.path}`
-    case "nestedCollectionUnsupported":
-      return `A collection cannot be created inside the collection at ${error.ancestorPath}`
-    case "parentProjectReadOnly":
-      return `The project at ${error.path} has an unknown format`
-    case "projectNotFound":
-      return `Project ${error.projectId} was not found`
-    case "projectReadOnly":
-      return `Project format ${error.formatVersion} is read-only`
+    case "workshopNotFound":
+      return `Workshop ${error.workshopId} was not found`
+    case "storyNotFound":
+      return `Story ${error.storyId} was not found`
+    case "workshopReadOnly":
+      return `Workshop format ${error.formatVersion} is read-only`
+    case "storyReadOnly":
+      return `Story format ${error.formatVersion} is read-only`
     case "revisionConflict":
-      return "The project file changed since it was read"
-    case "unknownGroup":
-      return `Unknown project group ${error.groupId}`
+      return "The workshop or story file changed since it was read"
     case "unsupportedRole":
       return `Unsupported section role ${error.role}`
+    case "unsupportedPreset":
+      return `Unsupported section preset ${error.preset}`
     case "sectionNotFound":
-      return `Section ${error.sectionId} was not found in the project`
+      return `Section ${error.sectionId} was not found in the workshop`
+    case "cannotRemoveStoriesSection":
+      return "The stories section of a workshop cannot be removed"
     case "cannotRemoveTextSection":
       return "The text section of a story cannot be removed"
     case "textNotConfigured":
@@ -115,8 +118,8 @@ export function projectErrorMessage(error: ProjectError): string {
       return "A page cannot go under its own descendant"
     case "parentLevelNotShallower":
       return "A parent must be on a shallower level than the page"
-    case "unsupportedPreset":
-      return `Unsupported section preset ${error.preset}`
+    case "levelInUse":
+      return `Level ${error.levelId} is in use by ${error.count} pages`
     case "rolledBack":
       return `Operation rolled back: ${error.message}`
     case "recoveryRequired":

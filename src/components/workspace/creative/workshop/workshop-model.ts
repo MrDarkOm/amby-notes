@@ -1,14 +1,15 @@
 import type {
-  DatabaseSummary,
   DatabasePropertySummary,
+  DatabaseSummary,
   ProjectCatalog,
-  ProjectSectionSummary,
-  ProjectSummary,
+  StorySummary,
+  WorkshopSectionSummary,
+  WorkshopSummary,
 } from "@/lib/storage"
 
-/** Roles that belong to a story's work (text, notes, anchors) and are not entity tabs. */
-const WORK_ROLES = new Set(["text", "notes", "anchors"])
-const ROLE_ORDER = ["characters", "locations"]
+/** Roles that belong to workshop/story functional parts (stories, notes, anchors) and are not world tabs. */
+const WORK_ROLES = new Set(["stories", "text", "notes", "anchors"])
+const ROLE_ORDER = ["characters", "locations", "universes", "arcs"]
 
 /**
  * The three parts of the works tab: the whole text as one tree (every page once, whatever its
@@ -18,9 +19,7 @@ export type WorksSection = "text" | "anchors" | "notes"
 export const WORKS_SECTIONS: readonly WorksSection[] = ["text", "anchors", "notes"]
 
 /**
- * The parts that were unfolded, from what was saved. The text used to be two parts, "books" and
- * "arcs"; either of them is the text now, so an author who had them open keeps it open. Nothing
- * saved: the text is unfolded.
+ * The parts that were unfolded, from what was saved.
  */
 export function worksSectionsFromPrefs(saved: unknown): WorksSection[] {
   if (!Array.isArray(saved)) return ["text"]
@@ -37,109 +36,95 @@ export function worksSectionsFromPrefs(saved: unknown): WorksSection[] {
 
 /**
  * An item being named where it will stand: a row with an empty field, created on Enter. A page
- * goes under `parentId` (the top of the text for `null`); a note or an anchor into its list of the
- * story; a world page into the category.
+ * goes under `parentId` (the top of the text for `null`); a note or an anchor into its list;
+ * a world page into the category.
  */
 export type WorkshopDraft =
   | { kind: "page"; storyId: string; parentId: string | null }
-  | { kind: "note" | "anchor"; storyId: string }
+  | { kind: "note" | "anchor"; storyId?: string }
   | { kind: "entity"; categoryKey: string }
-
-export interface WorkshopSource {
-  project: ProjectSummary
-  section: ProjectSectionSummary
-}
 
 export interface WorkshopTab {
   key: string
   role: string | null
-  /** The database's own name of the first source. */
+  /** The section database's display name. */
   name: string
-  sources: WorkshopSource[]
+  databaseId: string
+  readOnly: boolean
 }
 
 export interface WorkshopScope {
-  /** The chosen collection, or `null` for the stand-alone stories. */
-  collection: ProjectSummary | null
+  /** The chosen workshop, or `null` if none exist. */
+  workshop: WorkshopSummary | null
   /** The stories shown, in catalog order. */
-  stories: ProjectSummary[]
+  stories: StorySummary[]
+  /** The sections of the workshop. */
+  sections: WorkshopSectionSummary[]
 }
 
-/** The projects a scope holds: a collection with its stories, or the stand-alone stories. */
-export function workshopScope(catalog: ProjectCatalog, scope: string | null): WorkshopScope {
-  if (scope !== null) {
-    const collection =
-      catalog.projects.find((p) => p.projectId === scope && p.kind === "collection") ?? null
-    return {
-      collection,
-      stories: catalog.projects.filter((p) => p.kind === "story" && p.collectionId === scope),
-    }
-  }
-  const ids = new Set(catalog.projects.map((p) => p.projectId))
+/** Resolves the active workshop and its stories. */
+export function workshopScope(
+  catalog: ProjectCatalog,
+  wantedWorkshopId: string | null,
+): WorkshopScope {
+  const workshop =
+    (wantedWorkshopId !== null
+      ? catalog.workshops.find((w) => w.workshopId === wantedWorkshopId)
+      : null) ??
+    catalog.workshops[0] ??
+    null
   return {
-    collection: null,
-    stories: catalog.projects.filter(
-      (p) => p.kind === "story" && (p.collectionId === null || !ids.has(p.collectionId)),
-    ),
+    workshop,
+    stories: workshop?.stories ?? [],
+    sections: workshop?.sections ?? [],
   }
 }
 
-function sectionName(section: ProjectSectionSummary): string {
-  return section.databaseName?.trim() || section.pathHint.split("/").pop() || section.id
+/** What makes a section its tab: its role, or, for an author-created section, its name. */
+export function sectionTabKey(section: WorkshopSectionSummary): string {
+  return section.role && section.role !== "custom"
+    ? section.role
+    : `name:${section.name.trim().toLocaleLowerCase()}`
 }
 
-/**
- * What makes sections one tab: their role, or, for a section the author made, its name. A
- * universe's "Organizations" and a story's "Organizations" are the same tab.
- */
-export function sectionTabKey(section: ProjectSectionSummary): string {
-  return section.role ?? `name:${sectionName(section).toLocaleLowerCase()}`
-}
-
-/** The entity tabs of a scope: one per role or name across the collection and its stories. */
-export function entityTabs(scope: WorkshopScope): WorkshopTab[] {
-  const tabs = new Map<string, WorkshopTab>()
-  const projects = [...(scope.collection ? [scope.collection] : []), ...scope.stories]
-  for (const project of projects) {
-    for (const section of project.sections) {
-      if (section.state === "missing") continue
-      if (section.role && WORK_ROLES.has(section.role)) continue
-      const key = sectionTabKey(section)
-      const tab = tabs.get(key) ?? {
-        key,
-        role: section.role,
-        name: sectionName(section),
-        sources: [],
-      }
-      tab.sources.push({ project, section })
-      tabs.set(key, tab)
-    }
+/** The entity tabs of a workshop: one per world section. */
+export function entityTabs(target: WorkshopScope | WorkshopSummary | null): WorkshopTab[] {
+  const workshop = target ? ("workshop" in target ? target.workshop : target) : null
+  if (!workshop) return []
+  const tabs: WorkshopTab[] = []
+  for (const section of workshop.sections) {
+    if (section.state === "missing") continue
+    if (section.role && WORK_ROLES.has(section.role)) continue
+    const key = sectionTabKey(section)
+    tabs.push({
+      key,
+      role: section.role,
+      name: section.name,
+      databaseId: section.databaseId,
+      readOnly: workshop.readOnly,
+    })
   }
   const rank = (tab: WorkshopTab) => {
     const index = tab.role ? ROLE_ORDER.indexOf(tab.role) : -1
     return index === -1 ? ROLE_ORDER.length : index
   }
-  // `sort` is stable, so tabs of equal rank keep the order they were found in.
-  return [...tabs.values()].sort((a, b) => rank(a) - rank(b))
+  return tabs.sort((a, b) => rank(a) - rank(b))
 }
 
 /** The story the panel shows: the one wanted when the scope holds it, else the first. */
 export function selectedStoryOf(
-  stories: ProjectSummary[],
+  stories: StorySummary[],
   wanted: string | null,
-): ProjectSummary | null {
-  return stories.find((story) => story.projectId === wanted) ?? stories[0] ?? null
+): StorySummary | null {
+  return stories.find((story) => story.storyId === wanted) ?? stories[0] ?? null
 }
 
-/** What the world lists: this story's pages, or everything of the collection and its stories. */
-export type WorldScope = "story" | "universe"
-
-/** The sections of one kind in one story: its text, or its notes. */
+/** The workshop section for notes or anchors. */
 export function storySection(
-  story: ProjectSummary,
-  role: "text" | "notes" | "anchors",
-): ProjectSectionSummary | null {
-  return story.sections.find((s) => s.role === role && s.state !== "missing") ?? null
+  workshop: WorkshopSummary | null,
+  role: "notes" | "anchors",
+): WorkshopSectionSummary | null {
+  return workshop?.sections.find((s) => s.role === role && s.state !== "missing") ?? null
 }
 
 // ── Entities ────────────────────────────────────────────────────────────────────────────────────
@@ -148,50 +133,13 @@ export interface EntityItem {
   noteId: string
   title: string
   databaseId: string
-  /** The project whose folder holds the page: a collection (shared) or a story. */
-  projectId: string
+  workshopId: string
   valuesJson: string
-}
-
-/** Relation targets of every row of a story's text, by story ID: who appears in which story. */
-export type TextReferences = ReadonlyMap<string, ReadonlySet<string>>
-
-/** The stories an entity belongs to: the one it lives in, and those whose text names it. */
-export function storiesOfEntity(
-  item: EntityItem,
-  stories: ProjectSummary[],
-  references: TextReferences,
-): ProjectSummary[] {
-  return stories.filter(
-    (story) =>
-      story.projectId === item.projectId || references.get(story.projectId)?.has(item.noteId),
-  )
-}
-
-/** Whether an entity shows with a story filter: it lives in the story or its text names it. */
-export function inStory(item: EntityItem, storyId: string, references: TextReferences): boolean {
-  return item.projectId === storyId || Boolean(references.get(storyId)?.has(item.noteId))
-}
-
-/**
- * Whether a page of the shared world is still in no story's text: it lives in the collection, and
- * no story's relations name it. A page just made there is such a page, so the story's list shows
- * it (apart, as "not in the text yet") instead of letting it vanish until some chapter names it.
- */
-export function isUnplaced(
-  item: EntityItem,
-  sharedProjectId: string | null,
-  references: TextReferences,
-): boolean {
-  if (!sharedProjectId || item.projectId !== sharedProjectId) return false
-  for (const targets of references.values()) if (targets.has(item.noteId)) return false
-  return true
 }
 
 /**
  * Pages in the author's order: those placed by hand first, in the order they were placed; the
- * rest in the order they were made (a page without a time last), then by title. For anchors,
- * which are events: an alphabetical list would tear them out of the story's order.
+ * rest in the order they were made (a page without a time last), then by title.
  */
 export function orderByAuthor<T extends { noteId: string; title: string }>(
   rows: readonly T[],
@@ -223,7 +171,7 @@ export function initialsOf(title: string): string {
   return letters.toLocaleUpperCase() || "?"
 }
 
-export type GroupMode = "importance" | "story" | "none"
+export type GroupMode = "importance" | "none"
 
 export interface EntityGroup {
   key: string
@@ -275,12 +223,8 @@ export function optionIdOf(valuesJson: string, propertyId: string): string | nul
 export interface GroupContext {
   /** The grouped property of an entity's database, if its views have one. */
   groupProperty: (databaseId: string) => DatabasePropertySummary | null
-  projectName: (projectId: string) => string
-  /** Names the collection's own pages when grouping by story. */
   sharedLabel: string
   noValueLabel: string
-  /** The project order of the scope, shared first. */
-  projectOrder: string[]
 }
 
 /** Entities grouped and sorted for a list. Groups of one name from different databases merge. */
@@ -292,24 +236,6 @@ export function groupEntities(
   const sorted = [...items].sort(compareTitle)
   if (mode === "none" || sorted.length === 0) {
     return sorted.length ? [{ key: "all", label: null, color: null, items: sorted }] : []
-  }
-  if (mode === "story") {
-    const groups = new Map<string, EntityGroup>()
-    for (const item of sorted) {
-      const group = groups.get(item.projectId) ?? {
-        key: item.projectId,
-        label: context.projectName(item.projectId) || context.sharedLabel,
-        color: null,
-        items: [],
-      }
-      group.items.push(item)
-      groups.set(item.projectId, group)
-    }
-    const order = (key: string) => {
-      const index = context.projectOrder.indexOf(key)
-      return index === -1 ? context.projectOrder.length : index
-    }
-    return [...groups.values()].sort((a, b) => order(a.key) - order(b.key))
   }
   const groups = new Map<string, EntityGroup & { rank: number }>()
   for (const item of sorted) {
@@ -330,14 +256,13 @@ export function groupEntities(
     groups.set(key, group)
   }
   const result = [...groups.values()].sort((a, b) => a.rank - b.rank)
-  // A list nobody grouped (no importance set anywhere) needs no heading.
   if (result.length === 1 && result[0].key === "none") {
     return [{ key: "all", label: null, color: null, items: result[0].items }]
   }
   return result.map(({ rank: _rank, ...group }) => group)
 }
 
-/** Relation targets stored in one row's values, for the text-references set of a story. */
+/** Relation targets stored in one row's values. */
 export function relationTargets(valuesJson: string): string[] {
   const ids: string[] = []
   for (const value of Object.values(parseValues(valuesJson))) {
@@ -349,20 +274,6 @@ export function relationTargets(valuesJson: string): string[] {
     }
   }
   return ids
-}
-
-/** The tab a new page goes to by default: the filtered story's section, else the shared one. */
-export function defaultSource(
-  tab: WorkshopTab,
-  storyFilter: string | null,
-  collectionId: string | null,
-): WorkshopSource | null {
-  return (
-    (storyFilter ? tab.sources.find((s) => s.project.projectId === storyFilter) : undefined) ??
-    tab.sources.find((s) => s.project.projectId === collectionId) ??
-    tab.sources[0] ??
-    null
-  )
 }
 
 // ── Search ──────────────────────────────────────────────────────────────────────────────────────

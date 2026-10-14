@@ -244,7 +244,7 @@ Learning services вызываются host по настройке пользо
 
 ## 10. Правило расширения каталога
 
-Для каждого нового модуля, включая [творческий модуль](./creative-module-claude-plan.md),
+Для каждого нового модуля, включая [творческий модуль](./creative-workshop-plan.md),
 реализация предоставляет domain descriptor, source-of-truth, typed operations,
 scope resolver, preconditions, verifier, undo/recovery и acceptance evidence.
 Только после этого новая возможность появляется в агентном каталоге.

@@ -136,6 +136,77 @@ fn nearest_nested_database_owns_subtree_but_attached_main_stays_outer() {
 }
 
 #[test]
+fn confirms_w3_story_attached_inner_database_inside_stories_outer_database() {
+    let vault = temp_vault("w3-workshop");
+    let stories = vault.join("Истории");
+    let story = stories.join("Моя история");
+    let stories_id = "01J00000000000000000000010";
+    let story_id = "01J00000000000000000000011";
+    let story_card_id = "01J00000000000000000000012";
+    let chapter1_id = "01J00000000000000000000013";
+    let chapter2_id = "01J00000000000000000000014";
+
+    write_manifest(&stories, stories_id, "Истории");
+    write_manifest(&story, story_id, "Моя история");
+    write_note(
+        &story.join("Моя история.md"),
+        story_card_id,
+        "Карточка истории",
+    );
+    write_note(&story.join("Глава 1.md"), chapter1_id, "Глава 1");
+    write_note(&story.join("Глава 2.md"), chapter2_id, "Глава 2");
+
+    let result = discover_vault(&vault).unwrap();
+    assert_eq!(result.databases.len(), 2);
+
+    let story_card = note(&result, "Истории/Моя история/Моя история.md");
+    let chapter1 = note(&result, "Истории/Моя история/Глава 1.md");
+    let chapter2 = note(&result, "Истории/Моя история/Глава 2.md");
+
+    // Main file is a row in outer database "Истории"
+    assert_eq!(story_card.owner_database_id.as_deref(), Some(stories_id));
+    assert_eq!(story_card.owner_container_path.as_deref(), Some("Истории"));
+
+    // Other notes in folder are rows in inner database "Моя история", not outer
+    assert_eq!(chapter1.owner_database_id.as_deref(), Some(story_id));
+    assert_eq!(
+        chapter1.owner_container_path.as_deref(),
+        Some("Истории/Моя история")
+    );
+    assert_eq!(chapter2.owner_database_id.as_deref(), Some(story_id));
+    assert_eq!(
+        chapter2.owner_container_path.as_deref(),
+        Some("Истории/Моя история")
+    );
+
+    // Chapters are NOT in outer database
+    let outer_members = result
+        .notes
+        .iter()
+        .filter(|n| n.owner_database_id.as_deref() == Some(stories_id))
+        .map(|n| n.relative_path.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(outer_members, vec!["Истории/Моя история/Моя история.md"]);
+
+    // Story card is NOT in inner database
+    let inner_members = result
+        .notes
+        .iter()
+        .filter(|n| n.owner_database_id.as_deref() == Some(story_id))
+        .map(|n| n.relative_path.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        inner_members,
+        vec![
+            "Истории/Моя история/Глава 1.md",
+            "Истории/Моя история/Глава 2.md"
+        ]
+    );
+
+    fs::remove_dir_all(vault).unwrap();
+}
+
+#[test]
 fn corrupt_nested_manifest_is_a_hard_boundary() {
     let vault = temp_vault("broken-nested");
     let outer = vault.join("Outer");

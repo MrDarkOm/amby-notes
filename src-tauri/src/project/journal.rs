@@ -1,4 +1,4 @@
-//! The durable journal of a project operation (`.amby/recovery/projects/`).
+//! The durable journal of a workshop operation (`.amby/recovery/creative/`).
 //!
 //! The journal is data only: IDs, relative paths and one precomputed answer.
 //! It is written before the first artifact exists, so a crash can always be
@@ -17,49 +17,41 @@ use crate::database::mutations::NewDatabaseExtras;
 use crate::durable::{self, valid_operation_id};
 use crate::frontmatter;
 
-pub const JOURNAL_FORMAT: &str = "amby-project-operation";
+pub const JOURNAL_FORMAT: &str = "amby-creative-operation";
 pub const JOURNAL_VERSION: u64 = 1;
 pub const STATUS_IN_PROGRESS: &str = "inProgress";
 pub const STATUS_COMPLETED: &str = "completed";
-pub const OP_CREATE_PROJECT: &str = "createProject";
+
+pub const OP_CREATE_WORKSHOP: &str = "createWorkshop";
+pub const OP_CREATE_STORY: &str = "createStory";
 pub const OP_CREATE_SECTION: &str = "createSection";
-pub const OP_UPDATE_PROJECT: &str = "updateProject";
+pub const OP_UPDATE_WORKSHOP: &str = "updateWorkshop";
 pub const OP_REMOVE_SECTION: &str = "removeSection";
 pub const OP_REORDER_SECTIONS: &str = "reorderSections";
 pub const OP_UPDATE_TEXT_LEVELS: &str = "updateTextLevels";
 pub const OP_ADD_TEXT_STATUS: &str = "addTextStatus";
-const LABEL: &str = "Project recovery";
+
+const LABEL: &str = "Creative recovery";
 const MAX_JOURNAL_BYTES: u64 = 256 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PlannedSection {
     pub id: String,
-    pub role: Option<String>,
-    pub group_id: Option<String>,
-    /// Section name, which is also its folder name.
+    pub role: String,
     pub name: String,
-    /// Folder relative to the project folder; always equal to `name`.
     pub path: String,
     pub database_id: String,
     pub view_id: String,
-    /// What the database is created with beyond an empty table (the text schema, a preset's
-    /// properties, view and icon), fixed before the first write so a cleanup recomputes the
-    /// exact manifest.
     #[serde(default)]
     pub extras: NewDatabaseExtras,
-    /// The page template written next to the manifest (a preset's dossier headings).
     #[serde(default)]
     pub template: Option<PlannedTemplate>,
 }
 
-/// A planned modification of an existing database manifest (such as the text database's
-/// `level` options or `status` property) that must be rolled back if the structure file does
-/// not reach its commit point.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct PlannedManifestWrite {
-    /// Vault-relative path to the database manifest file.
     pub manifest_path: String,
     pub pre_revision: String,
     pub post_revision: String,
@@ -69,20 +61,37 @@ pub struct PlannedManifestWrite {
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct PlannedStory {
+    pub story_id: String,
+    pub folder_path: String,
+    pub card_path: String,
+    pub card_bytes: Vec<u8>,
+    pub manifest_path: String,
+    pub manifest_bytes: Vec<u8>,
+    pub story_file_path: String,
+    pub story_file_bytes: Vec<u8>,
+    pub story_file_revision: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct Plan {
-    pub project_id: String,
-    /// Vault-relative project folder.
-    pub project_path: String,
-    /// The folder does not exist yet and belongs to this operation.
-    pub creates_project_folder: bool,
-    /// Revision of the structure file once the operation has committed. The
-    /// file reaching exactly these bytes is the commit point.
-    pub project_file_revision: String,
-    pub sections: Vec<PlannedSection>,
-    /// The `text` block the structure file gets together with the text database.
     #[serde(default)]
-    pub text_block: Option<Value>,
-    /// An existing database manifest modified before the structure file is replaced.
+    pub workshop_id: Option<String>,
+    #[serde(default)]
+    pub workshop_path: Option<String>,
+    #[serde(default)]
+    pub creates_workshop_folder: bool,
+    #[serde(default)]
+    pub workshop_file_revision: Option<String>,
+    #[serde(default)]
+    pub sections: Vec<PlannedSection>,
+    #[serde(default)]
+    pub story: Option<PlannedStory>,
+    #[serde(default)]
+    pub story_file_path: Option<String>,
+    #[serde(default)]
+    pub story_file_revision: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manifest_write: Option<PlannedManifestWrite>,
 }
@@ -97,14 +106,16 @@ pub struct Journal {
     pub request_revision: String,
     pub status: String,
     pub plan: Plan,
-    /// The answer the caller gets, fixed at planning time: every ID and
-    /// revision is known before the first write.
     pub expected_result: Value,
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
 }
 
 pub fn journal_dir(vault: &Path) -> PathBuf {
+    vault.join(".amby").join("recovery").join("creative")
+}
+
+pub fn legacy_journal_dir(vault: &Path) -> PathBuf {
     vault.join(".amby").join("recovery").join("projects")
 }
 
@@ -123,9 +134,10 @@ pub fn journal_bytes(journal: &Journal) -> Result<Vec<u8>, ProjectError> {
     Ok(bytes)
 }
 
-/// Everything in a journal that a later step turns into a path or an ID.
 pub fn validate_journal(journal: &Journal) -> Result<(), ProjectError> {
-    if journal.format != JOURNAL_FORMAT || journal.format_version != JOURNAL_VERSION {
+    if (journal.format != JOURNAL_FORMAT && journal.format != "amby-project-operation")
+        || journal.format_version != JOURNAL_VERSION
+    {
         return Err(failure("Unknown project journal format"));
     }
     if !valid_operation_id(&journal.operation_id) {
@@ -133,97 +145,82 @@ pub fn validate_journal(journal: &Journal) -> Result<(), ProjectError> {
     }
     if !matches!(
         journal.operation.as_str(),
-        OP_CREATE_PROJECT
+        OP_CREATE_WORKSHOP
+            | OP_CREATE_STORY
             | OP_CREATE_SECTION
-            | OP_UPDATE_PROJECT
+            | OP_UPDATE_WORKSHOP
             | OP_REMOVE_SECTION
             | OP_REORDER_SECTIONS
             | OP_UPDATE_TEXT_LEVELS
             | OP_ADD_TEXT_STATUS
+            | "createProject"
+            | "updateProject"
     ) || !matches!(
         journal.status.as_str(),
         STATUS_IN_PROGRESS | STATUS_COMPLETED
     ) {
         return Err(failure("Unknown project journal state"));
     }
-    if !durable::valid_revision(&journal.request_revision)
-        || !durable::valid_revision(&journal.plan.project_file_revision)
-    {
+    if !durable::valid_revision(&journal.request_revision) {
         return Err(failure("Invalid revision in project journal"));
     }
-    durable::relative_components(&journal.plan.project_path, LABEL).map_err(failure)?;
-    let id_ok = |value: &str| valid_operation_id(value);
-    if !id_ok(&journal.plan.project_id)
-        || journal.plan.sections.is_empty() && journal.operation == OP_CREATE_SECTION
-    {
-        return Err(failure("Invalid project journal plan"));
-    }
-    if let Some(mw) = &journal.plan.manifest_write {
-        let components = durable::relative_components(&mw.manifest_path, LABEL).map_err(failure)?;
-        if components.is_empty()
-            || !durable::valid_revision(&mw.pre_revision)
-            || !durable::valid_revision(&mw.post_revision)
-            || crate::database::format::raw_revision(mw.pre_text.as_bytes()) != mw.pre_revision
-            || crate::database::format::raw_revision(mw.post_text.as_bytes()) != mw.post_revision
-        {
-            return Err(failure("Invalid manifest write in project journal"));
-        }
-    }
-    for section in &journal.plan.sections {
-        let components = durable::relative_components(&section.path, LABEL).map_err(failure)?;
-        if components.len() != 1
-            || section.path != section.name
-            || !id_ok(&section.database_id)
-            || !id_ok(&section.view_id)
-            || section
-                .template
-                .as_ref()
-                .is_some_and(|template| !id_ok(&template.template_id))
-        {
-            return Err(failure("Invalid section in project journal"));
-        }
+    if let Some(path) = &journal.plan.workshop_path {
+        durable::relative_components(path, LABEL).map_err(failure)?;
     }
     Ok(())
 }
 
-pub fn read_journal(vault: &Path, operation_id: &str) -> Result<Option<Journal>, ProjectError> {
-    let path = journal_path(vault, operation_id);
-    read_journal_file(&path)
-        .map(|journal| journal.filter(|journal| journal.operation_id == operation_id))
+pub fn create_journal(vault: &Path, journal: &Journal) -> Result<(), ProjectError> {
+    validate_journal(journal)?;
+    let directory = journal_dir(vault);
+    fs::create_dir_all(&directory).map_err(|error| failure(error.to_string()))?;
+    let path = journal_path(vault, &journal.operation_id);
+    let bytes = journal_bytes(journal)?;
+    durable::create_new(&path, &bytes, LABEL).map_err(failure)
+}
+
+pub fn replace_journal(vault: &Path, journal: &Journal) -> Result<(), ProjectError> {
+    validate_journal(journal)?;
+    let path = journal_path(vault, &journal.operation_id);
+    let bytes = journal_bytes(journal)?;
+    frontmatter::atomic_write_bytes(&path, &bytes).map_err(failure)
 }
 
 pub fn read_journal_file(path: &Path) -> Result<Option<Journal>, ProjectError> {
     let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
+        Ok(meta) => meta,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(failure(error.to_string())),
     };
     if !metadata.is_file() || metadata.len() > MAX_JOURNAL_BYTES {
-        return Err(failure("Unreadable project journal"));
+        return Ok(None);
     }
     let bytes = fs::read(path).map_err(|error| failure(error.to_string()))?;
-    let journal: Journal = serde_json::from_slice(&bytes)
-        .map_err(|error| failure(format!("Damaged project journal: {error}")))?;
-    validate_journal(&journal)?;
+    let journal: Journal = match serde_json::from_slice(&bytes) {
+        Ok(parsed) => parsed,
+        Err(_) => return Ok(None),
+    };
+    if validate_journal(&journal).is_err() {
+        return Ok(None);
+    }
     Ok(Some(journal))
 }
 
-/// Publishes the journal without replacing an existing one.
-pub fn create_journal(vault: &Path, journal: &Journal) -> Result<(), ProjectError> {
-    let path = journal_path(vault, &journal.operation_id);
-    let bytes = journal_bytes(journal)?;
-    durable::create_new(&path, &bytes, LABEL).map_err(failure)?;
-    if let Some(parent) = path.parent() {
-        durable::sync_directory(parent).map_err(failure)?;
+pub fn read_journal(vault: &Path, operation_id: &str) -> Result<Option<Journal>, ProjectError> {
+    if !valid_operation_id(operation_id) {
+        return Err(ProjectError::InvalidOperationId);
     }
-    Ok(())
-}
-
-pub fn replace_journal(vault: &Path, journal: &Journal) -> Result<(), ProjectError> {
-    let path = journal_path(vault, &journal.operation_id);
-    frontmatter::atomic_write_bytes(&path, &journal_bytes(journal)?).map_err(failure)
+    let creative_p = journal_path(vault, operation_id);
+    if let Some(j) = read_journal_file(&creative_p)? {
+        return Ok(Some(j));
+    }
+    let legacy_p = legacy_journal_dir(vault).join(format!("{operation_id}.json"));
+    read_journal_file(&legacy_p)
 }
 
 pub fn remove_journal(vault: &Path, operation_id: &str) {
-    let _ = fs::remove_file(journal_path(vault, operation_id));
+    if valid_operation_id(operation_id) {
+        let _ = fs::remove_file(journal_path(vault, operation_id));
+        let _ = fs::remove_file(legacy_journal_dir(vault).join(format!("{operation_id}.json")));
+    }
 }

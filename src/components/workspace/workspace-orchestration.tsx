@@ -91,6 +91,7 @@ import { useProjectStore } from "./creative/project-store"
 import { useCollectionFolderSelect } from "./creative/use-collection-folder-select"
 import { useCreativeTreeItems } from "./creative/use-creative-tree-items"
 import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative/creative-nav-store"
+import { resolveProjectTarget } from "./creative/project-tree-model"
 import { useDatabaseStore } from "./database/database-store"
 import type { DatabaseRowActions } from "./database/use-row-menu"
 import { ModuleRequiredFallback } from "./editor/module-required-fallback"
@@ -584,9 +585,15 @@ export function WorkspaceOrchestration() {
         setActiveTabKey(existing.key)
         return
       }
-      const project = useProjectStore
-        .getState()
-        .catalog?.projects.find((candidate) => candidate.projectId === projectId)
+      const target = resolveProjectTarget(useProjectStore.getState().catalog, projectId)
+      const title =
+        target?.kind === "story"
+          ? target.story.name
+          : target?.kind === "universe"
+            ? t("creative.sections.universes", "Вселенная")
+            : target?.kind === "workshop"
+              ? target.workshop.name
+              : t("creative.welcome.title", "Творческая мастерская")
       const key = newTabKey()
       setTabs((prev) => [
         ...prev,
@@ -594,7 +601,7 @@ export function WorkspaceOrchestration() {
           key,
           kind: "creative",
           fileId,
-          title: project?.name ?? t("creative.welcome.title", "Творческая мастерская"),
+          title,
           history: [],
           historyIndex: 0,
         },
@@ -1429,9 +1436,19 @@ export function WorkspaceOrchestration() {
             tab.kind === "folder"
               ? (item?.icon ?? "📁")
               : tab.kind === "creative"
-                ? (projectCatalog?.projects.find(
-                    (project) => `creative:${project.projectId}` === tab.fileId,
-                  )?.icon ?? "🪶")
+                ? (() => {
+                    const rawId = tab.fileId.replace(/^creative:/u, "")
+                    const target = resolveProjectTarget(projectCatalog, rawId)
+                    return (
+                      (target?.kind === "story"
+                        ? "📖"
+                        : target?.kind === "universe"
+                          ? "🌌"
+                          : target?.kind === "workshop"
+                            ? target.workshop.icon
+                            : null) ?? "🪶"
+                    )
+                  })()
                 : item?.icon,
         }
       }),

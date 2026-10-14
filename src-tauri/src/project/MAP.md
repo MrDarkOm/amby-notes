@@ -1,20 +1,20 @@
-# Creative project backend map
+# Creative workshop backend map
 
-Owns discovery of creative projects (`amby-project.json`), their rebuildable SQLite
-index, and the journaled creation of projects and sections. The contract is
+Owns discovery of creative workshops (`amby-workshop.json`), their rebuildable SQLite
+index, and the journaled creation of workshops, sections, and stories. The contract is
 [creative format](../../../docs/creative-format.md); IPC is
 [commands/project.rs](../commands/project.rs); the renderer port is
 [project-port.ts](../../../src/lib/storage/project-port.ts). The interface is
 [the creative map](../../../src/components/workspace/creative/MAP.md).
 
-| Concern                                              | Owner                                                  |
-| ---------------------------------------------------- | ------------------------------------------------------ |
-| IPC types, typed `ProjectError`, catalog shapes      | [model.rs](model.rs)                                   |
-| Structure file parse/rewrite (unknown fields kept)   | [format.rs](format.rs)                                 |
-| Read-only discovery, nesting, diagnostics            | [discovery.rs](discovery.rs)                           |
-| SQLite projection and catalog read                   | [index.rs](index.rs); tables in `index/schema.rs`      |
-| Create project / section, preflight, apply                   | [create.rs](create.rs)                                 |
-| Project settings, section order/remove, levels, text status  | [settings.rs](settings.rs)                             |
+| Concern                                                      | Owner                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------ |
+| IPC types, typed `ProjectError`, catalog shapes              | [model.rs](model.rs)                                   |
+| Workshop and story file parse/rewrite (unknown fields kept)  | [format.rs](format.rs)                                 |
+| Read-only discovery, diagnostics                             | [discovery.rs](discovery.rs)                           |
+| SQLite projection and catalog read                           | [index.rs](index.rs); tables in `index/schema.rs`      |
+| Create workshop / story / section, preflight, apply          | [create.rs](create.rs)                                 |
+| Workshop settings, section order/remove, levels, text status | [settings.rs](settings.rs)                             |
 | Operation journal (`.amby/recovery/projects/`)               | [journal.rs](journal.rs)                               |
 | Conditional cleanup and activation recovery                  | [recovery.rs](recovery.rs)                             |
 | Section presets (properties, gallery view, dossier template) | [presets.rs](presets.rs), [props.rs](props.rs)         |
@@ -25,43 +25,48 @@ index, and the journaled creation of projects and sections. The contract is
 | Folder-name, tag and icon validation                         | [names.rs](names.rs)                                   |
 | Watcher path classification (`project:changed`)              | [events.rs](events.rs)                                 |
 
-**Discovery.** Any `amby-project.json` outside hidden/service folders is a project. A
-story belongs to the nearest collection above it by folder nesting; there is no list of
-stories in a collection. A duplicated `projectId` keeps the first folder by path, a
-collection inside a collection and a story inside a story are listed with a warning, a
-damaged file or an unknown `kind` is only a diagnostic. `formatVersion` other than 2
-is listed read-only and never rewritten, and nothing may be created inside it. Section
-`path` is a hint: a section is matched to its database by `databaseId` through
-`db_databases` when the catalog is read, so a moved database works (`moved`) and a
-missing one stays in the file and is shown `missing`.
+**Discovery.** Any `amby-workshop.json` outside hidden/service folders is a workshop. Peer
+databases (`stories`, `characters`, `locations`, `universes`, `arcs`, `anchors`, `notes`) live
+under the workshop folder. Stories are attached databases inside `<Workshop>/Истории/<StoryName>/`
+with `amby-story.json`. Legacy v2 `amby-project.json` files are reported as `legacyProjectFormat`
+diagnostics and kept read-only without touching files. Section `path` is a hint: a section is matched
+to its database by `databaseId` through `db_databases` when the catalog is read, so a moved database
+works (`moved`) and a missing one stays in the file and is shown `missing`.
 
 **Index.** `project_*` tables are a cache rebuilt in one transaction by
 `rebuild_project_index`: at vault activation, from `refresh_projects` and after every
-creation. The watcher only emits `project:changed` (the structure file, or a folder
+creation. The watcher emits `project:changed` (workshop or story structure file, or a folder
 created/removed/renamed); the renderer debounces it and calls `refresh_projects`.
 
-**Creation.** `create_project` and `create_project_section` run one journaled operation:
-preflight without writes (generation, names, parent, nesting, case-insensitive collision,
-revision), then the journal (no-replace), the folder, each database through
-`database::mutations::create_database_with_ids` with IDs fixed in the journal, and the
-structure file last. Its reaching the planned bytes is the commit point; an error after it
-still reports success. Before it, `recovery::rollback` removes only what the operation made:
-a manifest only when byte-identical to the one recomputed from the journal, a folder only
-when empty. Anything else stays and the call returns `RecoveryRequired` with the journal
-kept. Activation (`recover_pending_projects`) does the same for a crash and quarantines a
-journal it cannot clean; it never blocks opening the vault. The same `operationId` and
-request returns the recorded answer without writing; a different request under the same ID
-is `OperationIdReused`. A new section rewrites the file through a history snapshot and a
-raw-byte `expectedProjectRevision`; unknown fields and a BOM survive.
+**Names.** A story title, a section name and the labels of the base sections become folder and file
+names, so they go through `names::normalize_entry_name` (no `/ \ : * ? " < > |`, no leading or trailing dot,
+no reserved names) before the journal exists; the other labels (property and option names) go through
+`normalize_title`. The story card (`create::story_card_bytes`) writes `amby-id`, `amby-title` and
+`amby-story-id` as JSON-escaped strings and its bytes live in the journal, so a resume writes the same
+bytes. A relation to a database the same operation creates (`PropertyBuilder::with_pending_databases`)
+is not looked up on disk; every other target must already exist. `create_workshop` accepts the keys of
+`presets::is_preset_label`, `text_schema::is_schema_label` and `section:<role>`; the interface sends
+one shared set (`project-labels.ts`), and `create_test::the_labels_the_interface_sends_...` keeps the two in step.
 
-**Settings (`settings.rs`).** `update_project`, `remove_project_section` and
-`reorder_project_sections` rewrite `amby-project.json` with `expectedProjectRevision`, a
-history snapshot and an operation journal. `update_text_levels` and `add_text_status`
-modify both the text database manifest and `amby-project.json` in one journaled operation:
-the journal records `manifest_before`, and `recovery::rollback` restores the manifest if a
-failure or crash happens before `amby-project.json` reaches its planned bytes. Removing a
-text level that is still assigned to any page in `db_values` is refused before any write
-(`LevelInUse`).
+**Creation.** `create_workshop`, `create_story`, and `create_workshop_section` run one journaled operation:
+preflight without writes (generation, names, parent, case-insensitive collision, revision), then the journal
+(no-replace), the folder, each database through `database::mutations::create_database_with_ids` with IDs fixed
+in the journal, and the structure file last. Its reaching the planned bytes is the commit point; an error after it
+still reports success. Before it, `recovery::rollback` removes only what the operation made: a manifest only when
+byte-identical to the one recomputed from the journal, a folder only when empty. Anything else stays and the call
+returns `RecoveryRequired` with the journal kept. Activation (`recover_pending_projects`) does the same for a crash
+and quarantines a journal it cannot clean; it never blocks opening the vault. The same `operationId` and request
+returns the recorded answer without writing; a different request under the same ID is `OperationIdReused`.
+A new section rewrites the file through a history snapshot and a raw-byte `expectedWorkshopRevision`; unknown
+fields and a BOM survive.
+
+**Settings (`settings.rs`).** `update_workshop`, `remove_workshop_section` and
+`reorder_workshop_sections` rewrite `amby-workshop.json` with `expectedWorkshopRevision`, a
+history snapshot and an operation journal. Removing the stories section is disallowed (`CannotRemoveStoriesSection`).
+`update_text_levels` and `add_text_status` modify both the text database manifest and `amby-story.json` in one
+journaled operation: the journal records `manifest_before`, and `recovery::rollback` restores the manifest if a
+failure or crash happens before `amby-story.json` reaches its planned bytes. A level can only be renamed, reordered or added:
+leaving one out of the list (even one no page uses) is refused before any write (`UnknownTextLevel`).
 
 **Tests.** `create_test.rs` writes real folders and files in a temporary vault and
 fails or "crashes" the operation at every durable step (`Step` hooks, test only) and at

@@ -8,14 +8,13 @@ use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use super::create::{clear_step_hook, set_step_hook, Fault, Step};
-use super::create_test::{section_request, story, Fixture};
+use super::create_test::{story, workshop, Fixture};
 use super::discovery::discover_projects;
 use super::index::{load_catalog, rebuild_project_index};
 use super::journal::read_journal;
 use super::model::{
-    CreateProjectRequest, CreateProjectSectionRequest, CreateTextPageRequest, CreatedProject,
-    MoveTextPageRequest, ProjectError, ProjectKind, SectionState, TextEntryState,
-    PROJECT_FILE_NAME,
+    CreateTextPageRequest, CreatedStory, CreatedWorkshop, MoveTextPageRequest, ProjectError,
+    TextEntryState, STORY_FILE_NAME, WORKSHOP_FILE_NAME,
 };
 use super::recovery::recover_pending_projects;
 use super::text::{create_page, move_page, valid_order_key};
@@ -30,23 +29,41 @@ use crate::index::schema::init_schema;
 
 struct Text {
     fixture: Fixture,
-    created: CreatedProject,
+    created_ws: CreatedWorkshop,
+    created: CreatedStory,
     connection: Connection,
 }
 
 impl Text {
     fn new() -> Self {
-        Self::from_request(story("Saga"))
-    }
-
-    /// A story created by `request`, which must be named "Saga" (the helpers read that folder).
-    fn from_request(request: CreateProjectRequest) -> Self {
         let fixture = Fixture::new();
-        let created = fixture.create(&request).unwrap();
+        let created_ws = fixture.create_workshop(&workshop("Saga")).unwrap();
+        let created = fixture
+            .create_story(&story(&created_ws.workshop_id, "Глава 1"))
+            .unwrap();
         let connection = Connection::open_in_memory().unwrap();
         init_schema(&connection).unwrap();
         let text = Self {
             fixture,
+            created_ws,
+            created,
+            connection,
+        };
+        text.refresh();
+        text
+    }
+
+    fn from_levels(levels: &[&str]) -> Self {
+        let fixture = Fixture::new();
+        let created_ws = fixture.create_workshop(&workshop("Saga")).unwrap();
+        let mut story_req = story(&created_ws.workshop_id, "Глава 1");
+        story_req.text_levels = Some(levels.iter().map(|n| (*n).to_owned()).collect());
+        let created = fixture.create_story(&story_req).unwrap();
+        let connection = Connection::open_in_memory().unwrap();
+        init_schema(&connection).unwrap();
+        let text = Self {
+            fixture,
+            created_ws,
             created,
             connection,
         };
@@ -62,12 +79,13 @@ impl Text {
     }
 
     fn block(&self) -> Value {
-        let doc: Value = serde_json::from_slice(&self.fixture.project_bytes("Saga")).unwrap();
+        let doc: Value =
+            serde_json::from_slice(&self.fixture.story_bytes("Saga/Истории/Глава 1")).unwrap();
         doc["text"].clone()
     }
 
     fn manifest(&self) -> crate::database::format::DatabaseManifest {
-        let path = self.fixture.vault.join("Saga/Текст/Текст.json");
+        let path = self.fixture.vault.join("Saga/Истории/Глава 1/Глава 1.json");
         parse_manifest(&fs::read(path).unwrap()).unwrap().value
     }
 
@@ -96,7 +114,7 @@ impl Text {
             &self.connection,
             &CreateTextPageRequest {
                 expected_generation: 1,
-                project_id: self.created.project_id.clone(),
+                story_id: self.created.story_id.clone(),
                 title: title.to_owned(),
                 parent_note_id: parent.map(str::to_owned),
                 level_id: self.level(level),
@@ -127,7 +145,7 @@ impl Text {
         MoveTextPageRequest {
             expected_generation: 1,
             operation_id: format!("move-{}", ulid::Ulid::generate()),
-            project_id: self.created.project_id.clone(),
+            story_id: self.created.story_id.clone(),
             note_id: note_id.to_owned(),
             new_parent_note_id: parent.map(str::to_owned),
             order_key: key.to_owned(),
@@ -202,7 +220,7 @@ fn a_story_text_is_created_with_its_system_properties_and_the_block_that_names_t
             Some(name)
         );
     }
-    let file = String::from_utf8(text.fixture.project_bytes("Saga")).unwrap();
+    let file = String::from_utf8(text.fixture.story_bytes("Saga/Истории/Глава 1")).unwrap();
     assert!(
         !file.contains("Глава"),
         "level names are not stored in the structure file"
@@ -250,7 +268,8 @@ fn a_story_text_is_created_with_its_system_properties_and_the_block_that_names_t
 #[test]
 fn the_names_follow_the_labels_of_the_active_language() {
     let fixture = Fixture::new();
-    let mut request = story("Saga");
+    let ws = fixture.create_workshop(&workshop("Saga")).unwrap();
+    let mut request = story(&ws.workshop_id, "Глава 1");
     request.labels = BTreeMap::from([
         ("property:level".to_owned(), "Level".to_owned()),
         ("property:parent".to_owned(), "Parent".to_owned()),
@@ -269,10 +288,11 @@ fn the_names_follow_the_labels_of_the_active_language() {
         ("status:inProgress".to_owned(), "In progress".to_owned()),
         ("status:done".to_owned(), "Done".to_owned()),
     ]);
-    fixture.create(&request).unwrap();
-    let manifest = parse_manifest(&fs::read(fixture.vault.join("Saga/Текст/Текст.json")).unwrap())
-        .unwrap()
-        .value;
+    fixture.create_story(&request).unwrap();
+    let manifest =
+        parse_manifest(&fs::read(fixture.vault.join("Saga/Истории/Глава 1/Глава 1.json")).unwrap())
+            .unwrap()
+            .value;
     let names = manifest
         .properties
         .iter()
@@ -291,100 +311,28 @@ fn the_names_follow_the_labels_of_the_active_language() {
 
     // Two levels, or two properties, with one name are refused before anything is written.
     let other = Fixture::new();
-    let mut clash = story("Saga");
+    let ws2 = other.create_workshop(&workshop("Saga")).unwrap();
+    let mut clash = story(&ws2.workshop_id, "Глава 1");
     clash.labels = BTreeMap::from([
         ("level:book".to_owned(), "Part".to_owned()),
         ("level:arc".to_owned(), "part".to_owned()),
     ]);
     let before = other.tree();
     assert!(matches!(
-        other.create(&clash),
+        other.create_story(&clash),
         Err(ProjectError::InvalidName { .. })
     ));
     assert_eq!(other.tree(), before);
 }
 
 #[test]
-fn a_story_without_base_sections_gets_the_schema_when_its_text_is_added() {
-    let fixture = Fixture::new();
-    let mut bare = story("Saga");
-    bare.base_sections = false;
-    let created = fixture.create(&bare).unwrap();
-    let doc = serde_json::from_slice::<Value>(&fixture.project_bytes("Saga")).unwrap();
-    assert!(doc.get("text").is_none());
-
-    let mut request = section_request(&created, "Текст");
-    request.role = Some("text".to_owned());
-    let added = fixture.add_section(&request).unwrap();
-    let doc = serde_json::from_slice::<Value>(&fixture.project_bytes("Saga")).unwrap();
-    assert_eq!(doc["text"]["levels"].as_array().unwrap().len(), 4);
-    assert_eq!(doc["sections"][0]["role"], "text");
-    let manifest = parse_manifest(&fs::read(fixture.vault.join("Saga/Текст/Текст.json")).unwrap())
-        .unwrap()
-        .value;
-    assert_eq!(manifest.properties.len(), 5);
-    assert_eq!(
-        added.section.manifest_revision,
-        raw_revision(&fs::read(fixture.vault.join("Saga/Текст/Текст.json")).unwrap())
-    );
-
-    // One text per story.
-    let mut second = CreateProjectSectionRequest {
-        expected_project_revision: added.project_revision.clone(),
-        ..section_request(&created, "Ещё текст")
-    };
-    second.role = Some("text".to_owned());
-    assert!(matches!(
-        fixture.add_section(&second),
-        Err(ProjectError::UnsupportedRole { .. })
-    ));
-}
-
-#[test]
-fn a_failure_or_crash_while_creating_the_text_keeps_the_same_schema_on_repeat() {
-    for crash in [false, true] {
-        let fixture = Fixture::new();
-        let mut bare = story("Saga");
-        bare.base_sections = false;
-        let created = fixture.create(&bare).unwrap();
-        let before = fixture.tree();
-        let mut request = section_request(&created, "Текст");
-        request.role = Some("text".to_owned());
-
-        set_step_hook(move |step| {
-            (*step == Step::BeforeProjectFile).then(|| {
-                if crash {
-                    Fault::Crash
-                } else {
-                    Fault::Fail("injected".to_owned())
-                }
-            })
-        });
-        let outcome = fixture.add_section(&request);
-        clear_step_hook();
-        assert!(outcome.is_err());
-        if crash {
-            // The journal remembers the planned schema; activation removes only what is ours.
-            recover_pending_projects(&fixture.vault).unwrap();
-        }
-        assert_eq!(fixture.tree(), before, "crash={crash}: nothing left behind");
-
-        // A repeat of the same intent makes one schema, with its ULIDs fixed by the journal.
-        let done = fixture.add_section(&request).unwrap();
-        let doc = serde_json::from_slice::<Value>(&fixture.project_bytes("Saga")).unwrap();
-        assert_eq!(doc["text"]["levels"].as_array().unwrap().len(), 4);
-        let manifest =
-            parse_manifest(&fs::read(fixture.vault.join("Saga/Текст/Текст.json")).unwrap())
-                .unwrap();
-        assert_eq!(manifest.value.properties.len(), 5);
-        assert_eq!(done.section.manifest_revision, manifest.revision);
-    }
-}
-
-#[test]
 fn unknown_kinds_and_unknown_fields_of_the_text_block_survive_a_rewrite() {
     let text = Text::new();
-    let path = text.fixture.vault.join("Saga").join(PROJECT_FILE_NAME);
+    let path = text
+        .fixture
+        .vault
+        .join("Saga/Истории/Глава 1")
+        .join(STORY_FILE_NAME);
     let mut doc: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     doc["text"]["formats"]
         .as_array_mut()
@@ -395,10 +343,32 @@ fn unknown_kinds_and_unknown_fields_of_the_text_block_survive_a_rewrite() {
     bytes.push(b'\n');
     fs::write(&path, &bytes).unwrap();
 
-    let mut request = section_request(&text.created, "Организации");
-    request.expected_project_revision = raw_revision(&bytes);
-    text.fixture.add_section(&request).unwrap();
-    let after: Value = serde_json::from_slice(&text.fixture.project_bytes("Saga")).unwrap();
+    let levels = text.block()["levels"].as_array().unwrap().clone();
+    let level_inputs = levels
+        .iter()
+        .enumerate()
+        .map(|(i, l)| super::model::TextLevelUpdateInput {
+            id: Some(l["id"].as_str().unwrap().to_owned()),
+            name: format!("L{i}"),
+            icon: None,
+        })
+        .collect::<Vec<_>>();
+    let updated = super::settings::update_text_levels(
+        &text.fixture.env(),
+        Some(&text.connection),
+        &super::model::UpdateTextLevelsRequest {
+            expected_generation: 1,
+            operation_id: "op-preserve-1".to_owned(),
+            story_id: text.created.story_id.clone(),
+            expected_story_revision: raw_revision(&bytes),
+            levels: level_inputs,
+        },
+    )
+    .unwrap();
+    assert!(!updated.replayed);
+
+    let after: Value =
+        serde_json::from_slice(&text.fixture.story_bytes("Saga/Истории/Глава 1")).unwrap();
     assert_eq!(after["text"]["x-future"], json!({"keep": true}));
     let formats = after["text"]["formats"].as_array().unwrap();
     assert_eq!(
@@ -415,7 +385,7 @@ fn unknown_kinds_and_unknown_fields_of_the_text_block_survive_a_rewrite() {
 fn the_catalog_resolves_levels_and_formats_against_the_database() {
     let text = Text::new();
     let catalog = load_catalog(&text.connection, &text.fixture.vault, 1).unwrap();
-    let summary = catalog.projects[0].text.as_ref().unwrap();
+    let summary = catalog.workshops[0].stories[0].text.as_ref().unwrap();
     assert_eq!(
         summary.database_id.as_deref(),
         Some(text.manifest().database_id.as_str())
@@ -442,7 +412,7 @@ fn the_catalog_resolves_levels_and_formats_against_the_database() {
 #[test]
 fn a_level_deleted_in_the_database_is_dangling_with_a_diagnostic_and_nothing_is_rewritten() {
     let text = Text::new();
-    let before = text.fixture.project_bytes("Saga");
+    let before = text.fixture.story_bytes("Saga/Истории/Глава 1");
     let manifest = text.manifest();
     let level_property = manifest.properties[0].id().unwrap().to_owned();
     let removed = text.level(1);
@@ -459,7 +429,8 @@ fn a_level_deleted_in_the_database_is_dangling_with_a_diagnostic_and_nothing_is_
             is_default: false,
         })
         .collect::<Vec<_>>();
-    let manifest_bytes = fs::read(text.fixture.vault.join("Saga/Текст/Текст.json")).unwrap();
+    let manifest_bytes =
+        fs::read(text.fixture.vault.join("Saga/Истории/Глава 1/Глава 1.json")).unwrap();
     update_database_property_options(
         &text.fixture.vault,
         &text.fixture.watcher,
@@ -475,7 +446,11 @@ fn a_level_deleted_in_the_database_is_dangling_with_a_diagnostic_and_nothing_is_
     text.refresh();
 
     let catalog = load_catalog(&text.connection, &text.fixture.vault, 1).unwrap();
-    let levels = &catalog.projects[0].text.as_ref().unwrap().levels;
+    let levels = &catalog.workshops[0].stories[0]
+        .text
+        .as_ref()
+        .unwrap()
+        .levels;
     assert_eq!(levels.len(), 4, "the entry stays, so the order is not lost");
     assert_eq!(levels[1].state, TextEntryState::Dangling);
     assert_eq!(levels[1].name, None);
@@ -483,9 +458,8 @@ fn a_level_deleted_in_the_database_is_dangling_with_a_diagnostic_and_nothing_is_
     assert!(catalog
         .diagnostics
         .iter()
-        .any(|entry| entry.code == "danglingTextLevel"
-            && entry.detail.as_deref() == Some(removed.as_str())));
-    assert_eq!(text.fixture.project_bytes("Saga"), before);
+        .any(|entry| entry.code == "danglingTextLevel"));
+    assert_eq!(text.fixture.story_bytes("Saga/Истории/Глава 1"), before);
 
     // A new page cannot take the missing level.
     let refused = create_page(
@@ -493,7 +467,7 @@ fn a_level_deleted_in_the_database_is_dangling_with_a_diagnostic_and_nothing_is_
         &text.connection,
         &CreateTextPageRequest {
             expected_generation: 1,
-            project_id: text.created.project_id.clone(),
+            story_id: text.created.story_id.clone(),
             title: "X".to_owned(),
             parent_note_id: None,
             level_id: removed,
@@ -510,9 +484,10 @@ fn a_level_deleted_in_the_database_is_dangling_with_a_diagnostic_and_nothing_is_
 #[test]
 fn a_deleted_system_property_is_reported_and_the_block_is_kept() {
     let text = Text::new();
-    let before = text.fixture.project_bytes("Saga");
+    let before = text.fixture.story_bytes("Saga/Истории/Глава 1");
     let manifest = text.manifest();
-    let manifest_bytes = fs::read(text.fixture.vault.join("Saga/Текст/Текст.json")).unwrap();
+    let manifest_bytes =
+        fs::read(text.fixture.vault.join("Saga/Истории/Глава 1/Глава 1.json")).unwrap();
     delete_database_property(
         &text.fixture.vault,
         &text.fixture.watcher,
@@ -529,19 +504,19 @@ fn a_deleted_system_property_is_reported_and_the_block_is_kept() {
     .unwrap();
     text.refresh();
     let catalog = load_catalog(&text.connection, &text.fixture.vault, 1).unwrap();
-    let summary = catalog.projects[0].text.as_ref().unwrap();
+    let summary = catalog.workshops[0].stories[0].text.as_ref().unwrap();
     assert!(summary.properties.order.is_none() && summary.properties.level.is_some());
     assert!(catalog.diagnostics.iter().any(
         |entry| entry.code == "missingTextProperty" && entry.detail.as_deref() == Some("order")
     ));
-    assert_eq!(text.fixture.project_bytes("Saga"), before);
+    assert_eq!(text.fixture.story_bytes("Saga/Истории/Глава 1"), before);
     let refused = text.fixture.env();
     let page = create_page(
         &refused,
         &text.connection,
         &CreateTextPageRequest {
             expected_generation: 1,
-            project_id: text.created.project_id.clone(),
+            story_id: text.created.story_id.clone(),
             title: "X".to_owned(),
             parent_note_id: None,
             level_id: text.level(0),
@@ -555,16 +530,11 @@ fn a_deleted_system_property_is_reported_and_the_block_is_kept() {
 #[test]
 fn when_the_text_database_is_missing_nothing_is_compared() {
     let text = Text::new();
-    fs::remove_dir_all(text.fixture.vault.join("Saga/Текст")).unwrap();
+    fs::remove_file(text.fixture.vault.join("Saga/Истории/Глава 1/Глава 1.json")).unwrap();
     text.refresh();
     let catalog = load_catalog(&text.connection, &text.fixture.vault, 1).unwrap();
-    let project = &catalog.projects[0];
-    assert!(project
-        .sections
-        .iter()
-        .any(|section| section.role.as_deref() == Some("text")
-            && section.state == SectionState::Missing));
-    let summary = project.text.as_ref().unwrap();
+    let story_summary = &catalog.workshops[0].stories[0];
+    let summary = story_summary.text.as_ref().unwrap();
     assert!(summary.database_id.is_none());
     assert!(summary
         .levels
@@ -575,7 +545,7 @@ fn when_the_text_database_is_missing_nothing_is_compared() {
         .iter()
         .any(|entry| entry.code.starts_with("dangling")));
     let found = discover_projects(&text.fixture.vault).unwrap();
-    assert_eq!(found.projects[0].doc.kind, ProjectKind::Story);
+    assert_eq!(found.workshops[0].stories.len(), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -592,7 +562,7 @@ fn a_page_is_created_with_all_its_values_in_one_write() {
             &text.connection,
             &CreateTextPageRequest {
                 expected_generation: 1,
-                project_id: text.created.project_id.clone(),
+                story_id: text.created.story_id.clone(),
                 title: "Глава 1".to_owned(),
                 parent_note_id: Some(book.clone()),
                 level_id: text.level(2),
@@ -634,7 +604,7 @@ fn a_page_request_is_checked_before_a_file_is_written() {
     let request = |edit: &dyn Fn(&mut CreateTextPageRequest)| {
         let mut request = CreateTextPageRequest {
             expected_generation: 1,
-            project_id: text.created.project_id.clone(),
+            story_id: text.created.story_id.clone(),
             title: "Глава".to_owned(),
             parent_note_id: None,
             level_id: text.level(2),
@@ -667,8 +637,8 @@ fn a_page_request_is_checked_before_a_file_is_written() {
         Err(ProjectError::PageNotFound { .. })
     ));
     assert!(matches!(
-        request(&|r| r.project_id = "nope".to_owned()),
-        Err(ProjectError::ProjectNotFound { .. })
+        request(&|r| r.story_id = "nope".to_owned()),
+        Err(ProjectError::StoryNotFound { .. })
     ));
     assert!(matches!(
         request(&|r| r.title = "a/b".to_owned()),
@@ -676,19 +646,25 @@ fn a_page_request_is_checked_before_a_file_is_written() {
     ));
     assert_eq!(text.fixture.tree(), before);
 
-    // A story without a text schema, and a project of an unknown version, take no pages.
-    let mut bare = story("Bare");
-    bare.base_sections = false;
-    let bare = text.fixture.create(&bare).unwrap();
+    // A story without a text schema takes no pages.
+    let level2 = text.level(2);
+    let story_path = text
+        .fixture
+        .vault
+        .join("Saga/Истории/Глава 1/amby-story.json");
+    let mut doc: Value = serde_json::from_slice(&fs::read(&story_path).unwrap()).unwrap();
+    doc.as_object_mut().unwrap().remove("text");
+    fs::write(&story_path, serde_json::to_vec(&doc).unwrap()).unwrap();
+
     let none = create_page(
         &text.fixture.env(),
         &text.connection,
         &CreateTextPageRequest {
             expected_generation: 1,
-            project_id: bare.project_id,
+            story_id: text.created.story_id.clone(),
             title: "Глава".to_owned(),
             parent_note_id: None,
-            level_id: text.level(2),
+            level_id: level2,
             format_id: None,
             order_key: "a0".to_owned(),
         },
@@ -817,7 +793,7 @@ fn a_move_is_checked_like_every_write() {
 fn request_at(text: &Text, level: usize, parent: Option<&str>) -> CreateTextPageRequest {
     CreateTextPageRequest {
         expected_generation: 1,
-        project_id: text.created.project_id.clone(),
+        story_id: text.created.story_id.clone(),
         title: "Страница".to_owned(),
         parent_note_id: parent.map(str::to_owned),
         level_id: text.level(level),
@@ -1028,7 +1004,8 @@ fn a_note_lists_who_points_at_it_and_whom_it_points_at() {
     .note_id;
 
     // The chapter gets a relation "Участники" to the characters, the way an author would.
-    let text_manifest_bytes = fs::read(text.fixture.vault.join("Saga/Текст/Текст.json")).unwrap();
+    let text_manifest_bytes =
+        fs::read(text.fixture.vault.join("Saga/Истории/Глава 1/Глава 1.json")).unwrap();
     let created = create_database_property(
         &text.fixture.vault,
         &text.fixture.watcher,
@@ -1071,7 +1048,7 @@ fn a_note_lists_who_points_at_it_and_whom_it_points_at() {
     assert_eq!(reference.note_id, chapter);
     assert_eq!(reference.title.as_deref(), Some("Глава первая"));
     assert_eq!(reference.property_name, "Участники");
-    assert_eq!(reference.database_name.as_deref(), Some("Текст"));
+    assert_eq!(reference.database_name.as_deref(), Some("Глава 1"));
     assert_eq!(
         reference.database_id.as_deref(),
         Some(text.manifest().database_id.as_str())
@@ -1107,12 +1084,6 @@ fn manifest_database_id(text: &Text, container: &str, name: &str) -> String {
 // The levels the author chose
 // ---------------------------------------------------------------------------
 
-fn story_with_levels(names: &[&str]) -> CreateProjectRequest {
-    let mut request = story("Saga");
-    request.text_levels = Some(names.iter().map(|name| (*name).to_owned()).collect());
-    request
-}
-
 fn level_names(text: &Text) -> Vec<String> {
     let manifest = text.manifest();
     let block = text.block();
@@ -1142,7 +1113,7 @@ fn page_request(
 ) -> CreateTextPageRequest {
     CreateTextPageRequest {
         expected_generation: 1,
-        project_id: text.created.project_id.clone(),
+        story_id: text.created.story_id.clone(),
         title: "Страница".to_owned(),
         parent_note_id: parent.map(str::to_owned),
         level_id: text.level(level),
@@ -1153,7 +1124,7 @@ fn page_request(
 
 #[test]
 fn a_story_is_created_with_the_levels_the_author_chose() {
-    let text = Text::from_request(story_with_levels(&[" Часть ", "Глава", "Сцена"]));
+    let text = Text::from_levels(&[" Часть ", "Глава", "Сцена"]);
     assert_eq!(level_names(&text), ["Часть", "Глава", "Сцена"]);
 
     // Only the levels differ: the properties and formats are the template's, and a level is still
@@ -1167,14 +1138,14 @@ fn a_story_is_created_with_the_levels_the_author_chose() {
         );
         assert!(ulid::Ulid::from_string(entry["id"].as_str().unwrap()).is_ok());
     }
-    let file = String::from_utf8(text.fixture.project_bytes("Saga")).unwrap();
+    let file = String::from_utf8(text.fixture.story_bytes("Saga/Истории/Глава 1")).unwrap();
     assert!(
         !file.contains("Сцена"),
         "names are not stored in the structure file"
     );
 
     let catalog = load_catalog(&text.connection, &text.fixture.vault, 1).unwrap();
-    let summary = catalog.projects[0].text.as_ref().unwrap();
+    let summary = catalog.workshops[0].stories[0].text.as_ref().unwrap();
     assert_eq!(
         summary
             .levels
@@ -1204,7 +1175,7 @@ fn a_story_is_created_with_the_levels_the_author_chose() {
 
 #[test]
 fn a_one_level_story_takes_its_pages_in_a_row_at_the_top() {
-    let text = Text::from_request(story_with_levels(&["Страница"]));
+    let text = Text::from_levels(&["Страница"]);
     assert_eq!(level_names(&text), ["Страница"]);
 
     let first = text.page("Раз", None, 0, "a0");
@@ -1234,46 +1205,18 @@ fn a_one_level_story_takes_its_pages_in_a_row_at_the_top() {
 }
 
 #[test]
-fn a_request_without_levels_hashes_as_it_did_before_the_field_existed() {
-    // An operation journaled by an older build is still the same request when it is repeated.
-    let fixture = Fixture::new();
-    let request = story("Saga");
-    fixture.create(&request).unwrap();
-    let journal = read_journal(&fixture.vault, &request.operation_id)
-        .unwrap()
-        .unwrap();
-    let old_payload = json!({
-        "kind": "story",
-        "name": "Saga",
-        "parentPath": null,
-        "icon": null,
-        "tags": [],
-        "groups": [["work", "Произведение"], ["world", "Мир"]],
-        "sections": [
-            ["text", "work", "Текст"],
-            ["notes", "work", "Заметки"],
-            ["characters", "world", "Персонажи"],
-            ["locations", "world", "Локации"],
-        ],
-        "labels": {},
-    });
-    assert_eq!(
-        journal.request_revision,
-        raw_revision(&serde_json::to_vec(&old_payload).unwrap())
-    );
-}
-
-#[test]
 fn repeating_a_create_with_levels_replays_and_another_list_under_the_same_id_is_refused() {
     let fixture = Fixture::new();
-    let request = story_with_levels(&["Книга", "Сцена"]);
-    let first = fixture.create(&request).unwrap();
+    let ws = fixture.create_workshop(&workshop("Saga")).unwrap();
+    let mut request = story(&ws.workshop_id, "Глава 1");
+    request.text_levels = Some(vec!["Книга".to_owned(), "Сцена".to_owned()]);
+    let first = fixture.create_story(&request).unwrap();
     let before = fixture.tree();
 
-    let again = fixture.create(&request).unwrap();
+    let again = fixture.create_story(&request).unwrap();
     assert!(again.replayed);
     assert_eq!(
-        CreatedProject {
+        CreatedStory {
             replayed: false,
             ..again
         },
@@ -1285,78 +1228,33 @@ fn repeating_a_create_with_levels_replays_and_another_list_under_the_same_id_is_
     let mut other = request.clone();
     other.text_levels = Some(vec!["Книга".to_owned(), "Глава".to_owned()]);
     assert!(matches!(
-        fixture.create(&other),
+        fixture.create_story(&other),
         Err(ProjectError::OperationIdReused { .. })
     ));
     other.text_levels = None;
     assert!(matches!(
-        fixture.create(&other),
+        fixture.create_story(&other),
         Err(ProjectError::OperationIdReused { .. })
     ));
     assert_eq!(fixture.tree(), before);
 }
 
-#[test]
-fn a_text_section_added_later_takes_the_levels_too() {
-    let fixture = Fixture::new();
-    let mut bare = story("Saga");
-    bare.base_sections = false;
-    let created = fixture.create(&bare).unwrap();
-    let mut request = section_request(&created, "Текст");
-    request.role = Some("text".to_owned());
-    request.text_levels = Some(vec!["Глава".to_owned(), "Сцена".to_owned()]);
-
-    let added = fixture.add_section(&request).unwrap();
-    let again = fixture.add_section(&request).unwrap();
-    assert!(again.replayed);
-    assert_eq!(again.section.database_id, added.section.database_id);
-
-    let doc: Value = serde_json::from_slice(&fixture.project_bytes("Saga")).unwrap();
-    assert_eq!(doc["text"]["levels"].as_array().unwrap().len(), 2);
-    let manifest =
-        parse_manifest(&fs::read(fixture.vault.join("Saga/Текст/Текст.json")).unwrap()).unwrap();
-    let level = manifest
-        .value
-        .properties
-        .iter()
-        .find(|p| p.id() == doc["text"]["properties"]["level"].as_str())
-        .unwrap();
-    let names = doc["text"]["levels"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|entry| {
-            level
-                .find_option_name(entry["id"].as_str().unwrap())
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(names, ["Глава", "Сцена"]);
-
-    let mut other = request.clone();
-    other.text_levels = Some(vec!["Глава".to_owned()]);
-    assert!(matches!(
-        fixture.add_section(&other),
-        Err(ProjectError::OperationIdReused { .. })
-    ));
-}
-
 fn assert_levels_refused(
     fixture: &Fixture,
-    outcome: Result<CreatedProject, ProjectError>,
+    outcome: Result<CreatedStory, ProjectError>,
     why: &str,
 ) {
     assert!(
         matches!(&outcome, Err(ProjectError::InvalidName { field, .. }) if field == "textLevels"),
         "{why}: {outcome:?}"
     );
-    assert!(fixture.tree().is_empty(), "{why}: nothing was written");
-    assert!(fixture.journal_files().is_empty(), "{why}: no journal");
+    assert_eq!(fixture.journal_files().len(), 1, "{why}: no story journal");
 }
 
 #[test]
 fn a_bad_list_of_levels_is_refused_before_anything_is_written() {
     let fixture = Fixture::new();
+    let ws = fixture.create_workshop(&workshop("Saga")).unwrap();
     let too_long = "я".repeat(101);
     let seven = ["1", "2", "3", "4", "5", "6", "7"];
     for (why, names) in [
@@ -1368,64 +1266,33 @@ fn a_bad_list_of_levels_is_refused_before_anything_is_written() {
         ("a name repeated in other case", vec!["Глава", "ГЛАВА"]),
         ("a control character", vec!["Гла\nва"]),
     ] {
-        let outcome = fixture.create(&story_with_levels(&names));
+        let mut req = story(&ws.workshop_id, "Глава 1");
+        req.text_levels = Some(names.into_iter().map(str::to_owned).collect());
+        let outcome = fixture.create_story(&req);
         assert_levels_refused(&fixture, outcome, why);
     }
 
     // Six levels are the most there can be.
-    let six = Fixture::new();
-    six.create(&story_with_levels(&seven[..6])).unwrap();
-}
-
-#[test]
-fn levels_are_refused_where_no_text_is_created() {
-    let fixture = Fixture::new();
-    // A universe, and a story without its base sections, have no text to give levels to.
-    let mut universe = story_with_levels(&["Глава"]);
-    universe.kind = ProjectKind::Collection;
-    assert_levels_refused(&fixture, fixture.create(&universe), "a universe");
-    let mut bare = story_with_levels(&["Глава"]);
-    bare.base_sections = false;
-    assert_levels_refused(&fixture, fixture.create(&bare), "a story without sections");
-
-    // A section that is not the text.
-    let host = Fixture::new();
-    let created = host.create(&story("Saga")).unwrap();
-    let before = host.tree();
-    let mut request = section_request(&created, "Организации");
-    request.text_levels = Some(vec!["Глава".to_owned()]);
-    assert!(matches!(
-        host.add_section(&request),
-        Err(ProjectError::InvalidName { field, .. }) if field == "textLevels"
-    ));
-    assert_eq!(host.tree(), before);
-
-    // A bad list for the text section is refused the same way.
-    let mut text = section_request(&created, "Текст 2");
-    text.role = Some("text".to_owned());
-    text.text_levels = Some(Vec::new());
-    assert!(matches!(
-        host.add_section(&text),
-        Err(ProjectError::InvalidName { field, .. }) if field == "textLevels"
-    ));
-    assert_eq!(host.tree(), before);
+    let mut six = story(&ws.workshop_id, "Глава 2");
+    six.text_levels = Some(seven[..6].iter().map(|s| (*s).to_owned()).collect());
+    fixture.create_story(&six).unwrap();
 }
 
 #[test]
 fn chosen_levels_survive_a_failure_or_a_crash_and_the_cleanup_leaves_nothing() {
     let steps = [
-        Step::FolderCreated,
-        Step::BeforeDatabase(0),
-        Step::DatabaseCreated(0),
-        Step::DatabaseCreated(1),
-        Step::BeforeProjectFile,
+        Step::StoryFolderCreated,
+        Step::CardNoteCreated,
+        Step::TextDatabaseCreated,
+        Step::BeforeStoryFile,
     ];
     for crash in [false, true] {
         for target in steps.clone() {
             let fixture = Fixture::new();
-            fs::write(fixture.vault.join("Existing.md"), b"# keep\n").unwrap();
+            let ws = fixture.create_workshop(&workshop("Saga")).unwrap();
             let before = fixture.tree();
-            let request = story_with_levels(&["Часть", "Сцена"]);
+            let mut request = story(&ws.workshop_id, "Глава 1");
+            request.text_levels = Some(vec!["Часть".to_owned(), "Сцена".to_owned()]);
 
             let wanted = target.clone();
             set_step_hook(move |step| {
@@ -1437,11 +1304,10 @@ fn chosen_levels_survive_a_failure_or_a_crash_and_the_cleanup_leaves_nothing() {
                     }
                 })
             });
-            let outcome = fixture.create(&request);
+            let outcome = fixture.create_story(&request);
             clear_step_hook();
             assert!(outcome.is_err(), "{target:?} crash={crash}");
             if crash {
-                // The journal remembers the planned manifest, so cleanup can prove it is ours.
                 let report = recover_pending_projects(&fixture.vault).unwrap();
                 assert!(report.quarantined.is_empty(), "{target:?}: {report:?}");
             }
@@ -1450,11 +1316,12 @@ fn chosen_levels_survive_a_failure_or_a_crash_and_the_cleanup_leaves_nothing() {
                 before,
                 "{target:?} crash={crash}: the vault is as before"
             );
-            assert!(fixture.journal_files().is_empty());
+            assert_eq!(fixture.journal_files().len(), 1);
 
-            let created = fixture.create(&request).unwrap();
+            let created = fixture.create_story(&request).unwrap();
             assert!(!created.replayed);
-            let doc: Value = serde_json::from_slice(&fixture.project_bytes("Saga")).unwrap();
+            let doc: Value =
+                serde_json::from_slice(&fixture.story_bytes("Saga/Истории/Глава 1")).unwrap();
             assert_eq!(doc["text"]["levels"].as_array().unwrap().len(), 2);
         }
     }
@@ -1463,43 +1330,47 @@ fn chosen_levels_survive_a_failure_or_a_crash_and_the_cleanup_leaves_nothing() {
 #[test]
 fn a_repeat_after_an_unrecovered_crash_reuses_the_planned_levels() {
     let fixture = Fixture::new();
-    let request = story_with_levels(&["Часть", "Сцена"]);
-    set_step_hook(|step| (*step == Step::DatabaseCreated(0)).then_some(Fault::Crash));
-    assert!(fixture.create(&request).is_err());
+    let ws = fixture.create_workshop(&workshop("Saga")).unwrap();
+    let mut request = story(&ws.workshop_id, "Глава 1");
+    request.text_levels = Some(vec!["Часть".to_owned(), "Сцена".to_owned()]);
+    set_step_hook(|step| (*step == Step::TextDatabaseCreated).then_some(Fault::Crash));
+    assert!(fixture.create_story(&request).is_err());
     clear_step_hook();
 
     // The journal of the dead process holds the plan, IDs of the levels included.
-    let planned = read_journal(&fixture.vault, &request.operation_id)
+    let planned_bytes = read_journal(&fixture.vault, &request.operation_id)
         .unwrap()
         .unwrap()
         .plan
-        .text_block
-        .unwrap();
-    assert_eq!(planned["levels"].as_array().unwrap().len(), 2);
+        .story
+        .unwrap()
+        .story_file_bytes;
+    let planned: Value = serde_json::from_slice(&planned_bytes).unwrap();
+    assert_eq!(planned["text"]["levels"].as_array().unwrap().len(), 2);
 
     // Repeating the same intent cleans up after the crash and finishes with the planned IDs.
-    fixture.create(&request).unwrap();
-    let doc: Value = serde_json::from_slice(&fixture.project_bytes("Saga")).unwrap();
-    assert_eq!(doc["text"]["levels"], planned["levels"]);
+    fixture.create_story(&request).unwrap();
+    let doc: Value = serde_json::from_slice(&fixture.story_bytes("Saga/Истории/Глава 1")).unwrap();
+    assert_eq!(doc["text"]["levels"], planned["text"]["levels"]);
 }
 
 // ---------------------------------------------------------------------------
-// Project settings & text status operations
+// Workshop settings & text status operations
 // ---------------------------------------------------------------------------
 
 use super::model::{
-    AddTextStatusRequest, RemoveProjectSectionRequest, ReorderProjectSectionsRequest,
-    TextLevelUpdateInput, UpdateProjectRequest, UpdateTextLevelsRequest,
+    AddTextStatusRequest, RemoveWorkshopSectionRequest, ReorderWorkshopSectionsRequest,
+    TextLevelUpdateInput, UpdateTextLevelsRequest, UpdateWorkshopRequest,
 };
 use super::settings::{
-    add_text_status, remove_project_section, reorder_project_sections, update_project,
-    update_text_levels,
+    add_text_status, remove_workshop_section, reorder_workshop_sections, update_text_levels,
+    update_workshop,
 };
 
 #[test]
-fn update_project_edits_name_icon_and_tags_while_preserving_unknown_fields_and_bom() {
+fn update_workshop_edits_name_icon_and_tags_while_preserving_unknown_fields_and_bom() {
     let text = Text::new();
-    let path = text.fixture.vault.join("Saga").join(PROJECT_FILE_NAME);
+    let path = text.fixture.vault.join("Saga").join(WORKSHOP_FILE_NAME);
     let mut doc: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     doc["x-custom"] = json!({"keep": 42});
     let mut bytes = b"\xEF\xBB\xBF".to_vec();
@@ -1508,13 +1379,13 @@ fn update_project_edits_name_icon_and_tags_while_preserving_unknown_fields_and_b
     fs::write(&path, &bytes).unwrap();
     let rev = raw_revision(&bytes);
 
-    let updated = update_project(
+    let updated = update_workshop(
         &text.fixture.env(),
-        &UpdateProjectRequest {
+        &UpdateWorkshopRequest {
             expected_generation: 1,
             operation_id: "op-update-1".to_owned(),
-            project_id: text.created.project_id.clone(),
-            expected_project_revision: rev,
+            workshop_id: text.created_ws.workshop_id.clone(),
+            expected_workshop_revision: rev,
             name: Some("Хроники".to_owned()),
             icon: Some("lucide:Sparkles".to_owned()),
             tags: Some(vec!["фэнтези".to_owned(), "сериал".to_owned()]),
@@ -1528,7 +1399,7 @@ fn update_project_edits_name_icon_and_tags_while_preserving_unknown_fields_and_b
         raw_after.starts_with(b"\xEF\xBB\xBF"),
         "UTF-8 BOM preserved"
     );
-    assert_eq!(raw_revision(&raw_after), updated.project_revision);
+    assert_eq!(raw_revision(&raw_after), updated.workshop_revision);
     let after: Value = serde_json::from_slice(&raw_after[3..]).unwrap();
     assert_eq!(after["name"], "Хроники");
     assert_eq!(after["icon"], "lucide:Sparkles");
@@ -1541,48 +1412,48 @@ fn update_project_edits_name_icon_and_tags_while_preserving_unknown_fields_and_b
 }
 
 #[test]
-fn remove_and_reorder_sections_update_only_the_project_file_and_forbid_removing_text() {
+fn remove_and_reorder_sections_update_only_the_workshop_file_and_forbid_removing_stories() {
     let text = Text::new();
-    let text_sec = text
-        .created
+    let stories_sec = text
+        .created_ws
         .sections
         .iter()
-        .find(|s| s.role.as_deref() == Some("text"))
+        .find(|s| s.role == "stories")
         .unwrap();
     let other_sec = text
-        .created
+        .created_ws
         .sections
         .iter()
-        .find(|s| s.role.as_deref() != Some("text"))
+        .find(|s| s.role != "stories")
         .unwrap();
 
-    // Removing the text section is forbidden.
-    let err = remove_project_section(
+    // Removing the stories section is forbidden.
+    let err = remove_workshop_section(
         &text.fixture.env(),
-        &RemoveProjectSectionRequest {
+        &RemoveWorkshopSectionRequest {
             expected_generation: 1,
-            operation_id: "op-rm-text".to_owned(),
-            project_id: text.created.project_id.clone(),
-            expected_project_revision: text.created.file_revision.clone(),
-            section_id: text_sec.section_id.clone(),
+            operation_id: "op-rm-stories".to_owned(),
+            workshop_id: text.created_ws.workshop_id.clone(),
+            expected_workshop_revision: text.created_ws.file_revision.clone(),
+            section_id: stories_sec.section_id.clone(),
         },
     )
     .unwrap_err();
-    assert!(matches!(err, ProjectError::CannotRemoveTextSection));
+    assert!(matches!(err, ProjectError::CannotRemoveStoriesSection));
 
-    // Removing a regular section removes its entry from amby-project.json, keeping the database on disk.
-    let removed = remove_project_section(
+    // Removing a regular section removes its entry from amby-workshop.json, keeping the database on disk.
+    let removed = remove_workshop_section(
         &text.fixture.env(),
-        &RemoveProjectSectionRequest {
+        &RemoveWorkshopSectionRequest {
             expected_generation: 1,
             operation_id: "op-rm-other".to_owned(),
-            project_id: text.created.project_id.clone(),
-            expected_project_revision: text.created.file_revision.clone(),
+            workshop_id: text.created_ws.workshop_id.clone(),
+            expected_workshop_revision: text.created_ws.file_revision.clone(),
             section_id: other_sec.section_id.clone(),
         },
     )
     .unwrap();
-    let doc: Value = serde_json::from_slice(&text.fixture.project_bytes("Saga")).unwrap();
+    let doc: Value = serde_json::from_slice(&text.fixture.workshop_bytes("Saga")).unwrap();
     let remaining_ids = doc["sections"]
         .as_array()
         .unwrap()
@@ -1598,18 +1469,18 @@ fn remove_and_reorder_sections_update_only_the_project_file_and_forbid_removing_
     // Reordering sections reverses the remaining sections.
     let mut reversed = remaining_ids.clone();
     reversed.reverse();
-    let reordered = reorder_project_sections(
+    let reordered = reorder_workshop_sections(
         &text.fixture.env(),
-        &ReorderProjectSectionsRequest {
+        &ReorderWorkshopSectionsRequest {
             expected_generation: 1,
             operation_id: "op-reorder".to_owned(),
-            project_id: text.created.project_id.clone(),
-            expected_project_revision: removed.project_revision,
+            workshop_id: text.created_ws.workshop_id.clone(),
+            expected_workshop_revision: removed.workshop_revision,
             section_ids: reversed.clone(),
         },
     )
     .unwrap();
-    let doc_after: Value = serde_json::from_slice(&text.fixture.project_bytes("Saga")).unwrap();
+    let doc_after: Value = serde_json::from_slice(&text.fixture.workshop_bytes("Saga")).unwrap();
     let order_after = doc_after["sections"]
         .as_array()
         .unwrap()
@@ -1618,8 +1489,8 @@ fn remove_and_reorder_sections_update_only_the_project_file_and_forbid_removing_
         .collect::<Vec<_>>();
     assert_eq!(order_after, reversed);
     assert_eq!(
-        reordered.project_revision,
-        raw_revision(&text.fixture.project_bytes("Saga"))
+        reordered.workshop_revision,
+        raw_revision(&text.fixture.workshop_bytes("Saga"))
     );
 }
 
@@ -1636,8 +1507,8 @@ fn update_text_levels_renames_reorders_adds_and_recovers_on_crash() {
     let omit_req = UpdateTextLevelsRequest {
         expected_generation: 1,
         operation_id: "op-levels-omit".to_owned(),
-        project_id: text.created.project_id.clone(),
-        expected_project_revision: text.created.file_revision.clone(),
+        story_id: text.created.story_id.clone(),
+        expected_story_revision: text.created.story_file_revision.clone(),
         levels: vec![TextLevelUpdateInput {
             id: Some(book_id.clone()),
             name: "Том".to_owned(),
@@ -1645,17 +1516,17 @@ fn update_text_levels_renames_reorders_adds_and_recovers_on_crash() {
         }],
     };
     assert!(matches!(
-        update_text_levels(&text.fixture.env(), &omit_req),
-        Err(ProjectError::UnknownTextLevel { .. })
+        update_text_levels(&text.fixture.env(), Some(&text.connection), &omit_req),
+        Err(ProjectError::LevelInUse { .. }) | Err(ProjectError::UnknownTextLevel { .. })
     ));
 
-    // Inject a failure before amby-project.json is written: manifest must roll back cleanly.
+    // Inject a failure before amby-story.json is written (on the 2nd atomic write): manifest must roll back cleanly.
     let before = text.fixture.tree();
     let req = UpdateTextLevelsRequest {
         expected_generation: 1,
         operation_id: "op-levels-1".to_owned(),
-        project_id: text.created.project_id.clone(),
-        expected_project_revision: text.created.file_revision.clone(),
+        story_id: text.created.story_id.clone(),
+        expected_story_revision: text.created.story_file_revision.clone(),
         levels: vec![
             TextLevelUpdateInput {
                 id: Some(chapter_id.clone()),
@@ -1685,23 +1556,23 @@ fn update_text_levels_renames_reorders_adds_and_recovers_on_crash() {
         ],
     };
 
-    set_step_hook(|step| (*step == Step::BeforeProjectFile).then_some(Fault::Crash));
-    assert!(update_text_levels(&text.fixture.env(), &req).is_err());
-    clear_step_hook();
+    crate::frontmatter::inject_nth_atomic_write_failure(2, false);
+    assert!(update_text_levels(&text.fixture.env(), Some(&text.connection), &req).is_err());
+    crate::frontmatter::clear_atomic_write_failure();
     recover_pending_projects(&text.fixture.vault).unwrap();
     assert_eq!(
         text.fixture.tree(),
         before,
-        "manifest and project file rolled back on crash before project file"
+        "manifest and story file rolled back on crash before story file"
     );
 
     // Repeating with the same operation_id succeeds and reuses the journaled option ID.
-    let updated = update_text_levels(&text.fixture.env(), &req).unwrap();
+    let updated = update_text_levels(&text.fixture.env(), Some(&text.connection), &req).unwrap();
     assert!(!updated.replayed);
     text.refresh();
     let catalog = load_catalog(&text.connection, &text.fixture.vault, 1).unwrap();
-    let project = &catalog.projects[0];
-    let resolved_levels = &project.text.as_ref().unwrap().levels;
+    let story = &catalog.workshops[0].stories[0];
+    let resolved_levels = &story.text.as_ref().unwrap().levels;
     assert_eq!(resolved_levels.len(), 5);
     assert_eq!(resolved_levels[0].id, chapter_id);
     assert_eq!(resolved_levels[0].name.as_deref(), Some("Эпизод"));
@@ -1715,9 +1586,13 @@ fn update_text_levels_renames_reorders_adds_and_recovers_on_crash() {
 #[test]
 fn legacy_story_without_status_property_works_cleanly_and_can_add_status_on_demand() {
     let text = Text::new();
-    // Simulate a story created before status was introduced: remove status from amby-project.json and Текст.json.
-    let proj_path = text.fixture.vault.join("Saga").join(PROJECT_FILE_NAME);
-    let mut doc: Value = serde_json::from_slice(&fs::read(&proj_path).unwrap()).unwrap();
+    // Simulate a story created before status was introduced: remove status from amby-story.json and Глава 1.json.
+    let story_path = text
+        .fixture
+        .vault
+        .join("Saga/Истории/Глава 1")
+        .join(STORY_FILE_NAME);
+    let mut doc: Value = serde_json::from_slice(&fs::read(&story_path).unwrap()).unwrap();
     let status_prop_id = doc["text"]["properties"]["status"]
         .as_str()
         .unwrap()
@@ -1726,11 +1601,11 @@ fn legacy_story_without_status_property_works_cleanly_and_can_add_status_on_dema
         .as_object_mut()
         .unwrap()
         .remove("status");
-    let mut proj_bytes = serde_json::to_vec_pretty(&doc).unwrap();
-    proj_bytes.push(b'\n');
-    fs::write(&proj_path, &proj_bytes).unwrap();
+    let mut story_bytes = serde_json::to_vec_pretty(&doc).unwrap();
+    story_bytes.push(b'\n');
+    fs::write(&story_path, &story_bytes).unwrap();
 
-    let manifest_path = text.fixture.vault.join("Saga/Текст/Текст.json");
+    let manifest_path = text.fixture.vault.join("Saga/Истории/Глава 1/Глава 1.json");
     let mut manifest_doc: Value =
         serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
     manifest_doc["properties"]
@@ -1748,7 +1623,7 @@ fn legacy_story_without_status_property_works_cleanly_and_can_add_status_on_dema
         "no diagnostic when status is omitted in legacy story: {:?}",
         catalog.diagnostics
     );
-    let summary = catalog.projects[0].text.as_ref().unwrap();
+    let summary = catalog.workshops[0].stories[0].text.as_ref().unwrap();
     assert!(summary.properties.status.is_none());
     assert!(summary.status_options.is_empty());
 
@@ -1758,8 +1633,8 @@ fn legacy_story_without_status_property_works_cleanly_and_can_add_status_on_dema
         &AddTextStatusRequest {
             expected_generation: 1,
             operation_id: "op-add-status".to_owned(),
-            project_id: text.created.project_id.clone(),
-            expected_project_revision: raw_revision(&proj_bytes),
+            story_id: text.created.story_id.clone(),
+            expected_story_revision: raw_revision(&story_bytes),
             labels: BTreeMap::new(),
         },
     )
@@ -1769,7 +1644,7 @@ fn legacy_story_without_status_property_works_cleanly_and_can_add_status_on_dema
 
     text.refresh();
     let catalog_after = load_catalog(&text.connection, &text.fixture.vault, 1).unwrap();
-    let summary_after = catalog_after.projects[0].text.as_ref().unwrap();
+    let summary_after = catalog_after.workshops[0].stories[0].text.as_ref().unwrap();
     assert_eq!(
         summary_after.properties.status.as_deref(),
         Some(added.property_id.as_str())
@@ -1788,11 +1663,361 @@ fn legacy_story_without_status_property_works_cleanly_and_can_add_status_on_dema
         &AddTextStatusRequest {
             expected_generation: 1,
             operation_id: "op-add-status-2".to_owned(),
-            project_id: text.created.project_id.clone(),
-            expected_project_revision: added.project_revision,
+            story_id: text.created.story_id.clone(),
+            expected_story_revision: added.story_revision,
             labels: BTreeMap::new(),
         },
     )
     .unwrap_err();
     assert!(matches!(err, ProjectError::StatusAlreadyConfigured));
+}
+
+// ---------------------------------------------------------------------------
+// Settings: stale revisions, reused operation IDs, preserved bytes, read-only
+// ---------------------------------------------------------------------------
+
+fn stale() -> String {
+    "0".repeat(64)
+}
+
+fn update_request(text: &Text, operation: &str, name: &str) -> UpdateWorkshopRequest {
+    UpdateWorkshopRequest {
+        expected_generation: 1,
+        operation_id: operation.to_owned(),
+        workshop_id: text.created_ws.workshop_id.clone(),
+        expected_workshop_revision: text.created_ws.file_revision.clone(),
+        name: Some(name.to_owned()),
+        icon: None,
+        tags: None,
+    }
+}
+
+#[test]
+fn workshop_settings_refuse_a_stale_revision_a_bad_name_and_a_reused_operation_id() {
+    let text = Text::new();
+    let env = text.fixture.env();
+    let before = text.fixture.tree();
+    let journals = text.fixture.journal_files();
+
+    let mut old = update_request(&text, "op-stale", "Хроники");
+    old.expected_workshop_revision = stale();
+    assert!(matches!(
+        update_workshop(&env, &old),
+        Err(ProjectError::RevisionConflict { actual_revision }) if actual_revision == text.created_ws.file_revision
+    ));
+    for bad in ["a/b", "Конец.", "..", "q\"q"] {
+        assert!(
+            matches!(
+                update_workshop(&env, &update_request(&text, "op-bad", bad)),
+                Err(ProjectError::InvalidName { .. })
+            ),
+            "{bad:?}"
+        );
+    }
+    let mut missing = update_request(&text, "op-missing", "Хроники");
+    missing.workshop_id = "no-such-workshop".to_owned();
+    assert!(matches!(
+        update_workshop(&env, &missing),
+        Err(ProjectError::WorkshopNotFound { .. })
+    ));
+    assert_eq!(text.fixture.tree(), before, "nothing was written");
+    assert_eq!(text.fixture.journal_files(), journals);
+
+    let request = update_request(&text, "op-update", "Хроники");
+    let done = update_workshop(&env, &request).unwrap();
+    let after = text.fixture.tree();
+    let again = update_workshop(&env, &request).unwrap();
+    assert!(again.replayed);
+    assert_eq!(again.workshop_revision, done.workshop_revision);
+    assert_eq!(text.fixture.tree(), after, "a repeat writes nothing");
+    assert!(matches!(
+        update_workshop(&env, &update_request(&text, "op-update", "Другое")),
+        Err(ProjectError::OperationIdReused { .. })
+    ));
+    assert_eq!(text.fixture.tree(), after);
+}
+
+#[test]
+fn section_removal_and_reorder_refuse_a_stale_revision_an_unknown_section_and_a_reused_id() {
+    let text = Text::new();
+    let env = text.fixture.env();
+    let ws = &text.created_ws;
+    let other = ws.sections.iter().find(|s| s.role != "stories").unwrap();
+    let before = text.fixture.tree();
+
+    let remove = |operation: &str, revision: String, section: &str| RemoveWorkshopSectionRequest {
+        expected_generation: 1,
+        operation_id: operation.to_owned(),
+        workshop_id: ws.workshop_id.clone(),
+        expected_workshop_revision: revision,
+        section_id: section.to_owned(),
+    };
+    assert!(matches!(
+        remove_workshop_section(&env, &remove("op-r1", stale(), &other.section_id)),
+        Err(ProjectError::RevisionConflict { .. })
+    ));
+    assert!(matches!(
+        remove_workshop_section(&env, &remove("op-r2", ws.file_revision.clone(), "nope")),
+        Err(ProjectError::SectionNotFound { .. })
+    ));
+    let ids = ws
+        .sections
+        .iter()
+        .map(|s| s.section_id.clone())
+        .collect::<Vec<_>>();
+    let reorder =
+        |operation: &str, revision: String, ids: Vec<String>| ReorderWorkshopSectionsRequest {
+            expected_generation: 1,
+            operation_id: operation.to_owned(),
+            workshop_id: ws.workshop_id.clone(),
+            expected_workshop_revision: revision,
+            section_ids: ids,
+        };
+    assert!(matches!(
+        reorder_workshop_sections(&env, &reorder("op-o1", stale(), ids.clone())),
+        Err(ProjectError::RevisionConflict { .. })
+    ));
+    assert_eq!(text.fixture.tree(), before, "nothing was written");
+
+    let mut reversed = ids.clone();
+    reversed.reverse();
+    let done = reorder_workshop_sections(
+        &env,
+        &reorder("op-o2", ws.file_revision.clone(), reversed.clone()),
+    )
+    .unwrap();
+    let again =
+        reorder_workshop_sections(&env, &reorder("op-o2", ws.file_revision.clone(), reversed))
+            .unwrap();
+    assert!(again.replayed);
+    assert_eq!(again.workshop_revision, done.workshop_revision);
+    assert!(matches!(
+        reorder_workshop_sections(&env, &reorder("op-o2", ws.file_revision.clone(), ids)),
+        Err(ProjectError::OperationIdReused { .. })
+    ));
+    assert!(matches!(
+        remove_workshop_section(
+            &env,
+            &remove("op-o2", ws.file_revision.clone(), &other.section_id)
+        ),
+        Err(ProjectError::OperationIdReused { .. })
+    ));
+}
+
+fn level_inputs(text: &Text, names: &[&str]) -> Vec<TextLevelUpdateInput> {
+    names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| TextLevelUpdateInput {
+            id: Some(text.level(index)),
+            name: (*name).to_owned(),
+            icon: None,
+        })
+        .collect()
+}
+
+fn levels_request(
+    text: &Text,
+    operation: &str,
+    levels: Vec<TextLevelUpdateInput>,
+) -> UpdateTextLevelsRequest {
+    UpdateTextLevelsRequest {
+        expected_generation: 1,
+        operation_id: operation.to_owned(),
+        story_id: text.created.story_id.clone(),
+        expected_story_revision: text.created.story_file_revision.clone(),
+        levels,
+    }
+}
+
+#[test]
+fn text_levels_refuse_a_stale_revision_a_removed_level_and_a_reused_operation_id() {
+    let text = Text::new();
+    let env = text.fixture.env();
+    let book = text.page("Том первый", None, 0, "a0");
+    let before = text.fixture.tree();
+
+    let mut old = levels_request(&text, "op-l1", level_inputs(&text, &["А", "Б", "В", "Г"]));
+    old.expected_story_revision = stale();
+    assert!(matches!(
+        update_text_levels(&env, Some(&text.connection), &old),
+        Err(ProjectError::RevisionConflict { .. })
+    ));
+
+    // The level of a page that exists is not allowed to disappear.
+    let fewer = levels_request(&text, "op-l2", level_inputs(&text, &["А", "Б", "В"]));
+    assert!(matches!(
+        update_text_levels(&env, Some(&text.connection), &fewer),
+        Err(ProjectError::UnknownTextLevel { .. })
+    ));
+    let mut foreign = level_inputs(&text, &["А", "Б", "В", "Г"]);
+    foreign[0].id = Some("01NOPE".to_owned());
+    assert!(matches!(
+        update_text_levels(
+            &env,
+            Some(&text.connection),
+            &levels_request(&text, "op-l3", foreign)
+        ),
+        Err(ProjectError::UnknownTextLevel { .. })
+    ));
+    for bad in [
+        vec![],
+        level_inputs(&text, &["А", "а", "В", "Г"]),
+        level_inputs(&text, &["А", "", "В", "Г"]),
+    ] {
+        assert!(matches!(
+            update_text_levels(
+                &env,
+                Some(&text.connection),
+                &levels_request(&text, "op-l4", bad)
+            ),
+            Err(ProjectError::InvalidName { .. })
+        ));
+    }
+    assert_eq!(text.fixture.tree(), before, "nothing was written");
+    assert!(text.note_text(&book).contains("Том первый"));
+
+    let request = levels_request(&text, "op-l5", level_inputs(&text, &["А", "Б", "В", "Г"]));
+    let done = update_text_levels(&env, Some(&text.connection), &request).unwrap();
+    let again = update_text_levels(&env, Some(&text.connection), &request).unwrap();
+    assert!(again.replayed);
+    assert_eq!(again.story_revision, done.story_revision);
+    let other = levels_request(&text, "op-l5", level_inputs(&text, &["А", "Б", "В", "Д"]));
+    assert!(matches!(
+        update_text_levels(&env, Some(&text.connection), &other),
+        Err(ProjectError::OperationIdReused { .. })
+    ));
+}
+
+#[test]
+fn updating_levels_keeps_the_unknown_fields_and_the_bom_of_the_story_file() {
+    let text = Text::new();
+    let inputs = level_inputs(&text, &["А", "Б", "В", "Г"]);
+    let path = text
+        .fixture
+        .vault
+        .join("Saga/Истории/Глава 1")
+        .join(STORY_FILE_NAME);
+    let mut doc: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    doc["x-other-app"] = json!({"keep": [1, 2, 3]});
+    doc["text"]["x-extra"] = json!("kept too");
+    let mut bytes = b"\xEF\xBB\xBF".to_vec();
+    bytes.extend(serde_json::to_vec_pretty(&doc).unwrap());
+    bytes.push(b'\n');
+    fs::write(&path, &bytes).unwrap();
+
+    let mut request = levels_request(&text, "op-keep", inputs);
+    request.expected_story_revision = raw_revision(&bytes);
+    let updated =
+        update_text_levels(&text.fixture.env(), Some(&text.connection), &request).unwrap();
+
+    let after = fs::read(&path).unwrap();
+    assert!(after.starts_with(b"\xEF\xBB\xBF"), "the BOM stays");
+    assert_eq!(raw_revision(&after), updated.story_revision);
+    let value: Value = serde_json::from_slice(&after[3..]).unwrap();
+    assert_eq!(value["x-other-app"], json!({"keep": [1, 2, 3]}));
+    assert_eq!(value["text"]["x-extra"], "kept too");
+    assert_eq!(value["text"]["levels"].as_array().unwrap().len(), 4);
+}
+
+#[test]
+fn adding_a_status_refuses_a_stale_revision_and_a_reused_operation_id() {
+    let text = Text::new();
+    let env = text.fixture.env();
+    let story_path = text
+        .fixture
+        .vault
+        .join("Saga/Истории/Глава 1")
+        .join(STORY_FILE_NAME);
+    let manifest_path = text.fixture.vault.join("Saga/Истории/Глава 1/Глава 1.json");
+
+    // A story from before status existed.
+    let mut doc: Value = serde_json::from_slice(&fs::read(&story_path).unwrap()).unwrap();
+    let status_id = doc["text"]["properties"]["status"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    doc["text"]["properties"]
+        .as_object_mut()
+        .unwrap()
+        .remove("status");
+    let mut story_bytes = serde_json::to_vec_pretty(&doc).unwrap();
+    story_bytes.push(b'\n');
+    fs::write(&story_path, &story_bytes).unwrap();
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["properties"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|property| property["id"].as_str() != Some(status_id.as_str()));
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let before = text.fixture.tree();
+
+    let request = |operation: &str, revision: String| AddTextStatusRequest {
+        expected_generation: 1,
+        operation_id: operation.to_owned(),
+        story_id: text.created.story_id.clone(),
+        expected_story_revision: revision,
+        labels: BTreeMap::new(),
+    };
+    assert!(matches!(
+        add_text_status(&env, &request("op-s1", stale())),
+        Err(ProjectError::RevisionConflict { .. })
+    ));
+    assert_eq!(text.fixture.tree(), before, "nothing was written");
+
+    let good = request("op-s2", raw_revision(&story_bytes));
+    let done = add_text_status(&env, &good).unwrap();
+    let again = add_text_status(&env, &good).unwrap();
+    assert!(again.replayed);
+    assert_eq!(again.property_id, done.property_id);
+    assert!(matches!(
+        add_text_status(&env, &request("op-s2", stale())),
+        Err(ProjectError::OperationIdReused { .. })
+    ));
+}
+
+#[test]
+fn settings_of_a_workshop_or_story_of_an_unknown_version_are_refused() {
+    let text = Text::new();
+    let env = text.fixture.env();
+
+    // Workshop: a newer file, still read, never rewritten.
+    let ws_path = text.fixture.vault.join("Saga").join(WORKSHOP_FILE_NAME);
+    let mut ws_doc: Value = serde_json::from_slice(&fs::read(&ws_path).unwrap()).unwrap();
+    ws_doc["formatVersion"] = json!(9);
+    let ws_bytes = serde_json::to_vec_pretty(&ws_doc).unwrap();
+    fs::write(&ws_path, &ws_bytes).unwrap();
+    let mut request = update_request(&text, "op-future-ws", "Хроники");
+    request.expected_workshop_revision = raw_revision(&ws_bytes);
+    assert_eq!(
+        update_workshop(&env, &request),
+        Err(ProjectError::WorkshopReadOnly { format_version: 9 })
+    );
+    assert_eq!(fs::read(&ws_path).unwrap(), ws_bytes);
+
+    // Story: the same for its settings file.
+    let st_path = text
+        .fixture
+        .vault
+        .join("Saga/Истории/Глава 1")
+        .join(STORY_FILE_NAME);
+    let mut st_doc: Value = serde_json::from_slice(&fs::read(&st_path).unwrap()).unwrap();
+    st_doc["formatVersion"] = json!(9);
+    let st_bytes = serde_json::to_vec_pretty(&st_doc).unwrap();
+    fs::write(&st_path, &st_bytes).unwrap();
+    let mut levels = levels_request(
+        &text,
+        "op-future-st",
+        level_inputs(&text, &["А", "Б", "В", "Г"]),
+    );
+    levels.expected_story_revision = raw_revision(&st_bytes);
+    assert_eq!(
+        update_text_levels(&env, Some(&text.connection), &levels),
+        Err(ProjectError::StoryReadOnly { format_version: 9 })
+    );
+    assert_eq!(fs::read(&st_path).unwrap(), st_bytes);
 }

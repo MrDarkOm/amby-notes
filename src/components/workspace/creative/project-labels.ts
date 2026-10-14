@@ -1,18 +1,16 @@
 import type { TFunction } from "i18next"
 
 /**
- * Names of the base sections and groups in the active language. The folder of
+ * Names of the base sections in the active language. The folder of
  * a section is named once, at creation, so the names are resolved here and sent
  * to Rust (`labels`) instead of being fixed in the backend.
  */
 export function projectLabels(t: TFunction): Record<string, string> {
   return {
-    "section:text": t("creative.sections.text"),
+    "section:stories": t("creative.sections.stories"),
     "section:notes": t("creative.sections.notes"),
     "section:characters": t("creative.sections.characters"),
     "section:locations": t("creative.sections.locations"),
-    "group:work": t("creative.groups.work"),
-    "group:world": t("creative.groups.world"),
     ...schemaLabels(t),
     ...presetLabels(t),
   }

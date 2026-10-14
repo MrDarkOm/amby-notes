@@ -1,99 +1,165 @@
-import type { ProjectCatalog, ProjectSectionSummary, ProjectSummary } from "@/lib/storage"
+import type {
+  ProjectCatalog,
+  StorySummary,
+  WorkshopSectionSummary,
+  WorkshopSummary,
+} from "@/lib/storage"
 
 export interface SidebarSection {
   id: string
-  projectId: string
-  /** The database's own name when it was found, else the folder name from the file. */
+  workshopId: string
   name: string
   role: string | null
-  state: ProjectSectionSummary["state"]
+  state: WorkshopSectionSummary["state"]
   databaseId: string
   resolvedPath: string | null
+  readOnly: boolean
 }
 
 export interface SidebarGroup {
-  /** `null` for sections that belong to no declared group. */
   id: string | null
   name: string | null
   sections: SidebarSection[]
 }
 
-export function sectionName(section: ProjectSectionSummary): string {
-  return section.databaseName?.trim() || section.pathHint.split("/").pop() || section.id
+export function sectionName(section: WorkshopSectionSummary): string {
+  return section.name.trim() || section.id
 }
 
-function toSidebarSection(project: ProjectSummary, section: ProjectSectionSummary): SidebarSection {
+function toSidebarSection(
+  workshop: WorkshopSummary,
+  section: WorkshopSectionSummary,
+): SidebarSection {
   return {
     id: section.id,
-    projectId: project.projectId,
+    workshopId: workshop.workshopId,
     name: sectionName(section),
     role: section.role,
     state: section.state,
     databaseId: section.databaseId,
-    resolvedPath: section.resolvedPath,
+    resolvedPath: section.pathHint,
+    readOnly: workshop.readOnly,
   }
 }
 
-/** Sections in file order, gathered under the groups the file declares, in the file's group order. */
-export function groupSections(project: ProjectSummary): SidebarGroup[] {
-  const groups: SidebarGroup[] = project.groups.map((group) => ({
-    id: group.id,
-    name: group.name,
-    sections: [],
-  }))
-  const loose: SidebarGroup = { id: null, name: null, sections: [] }
-  for (const section of project.sections) {
-    const target =
-      groups.find((group) => section.groupId !== null && group.id === section.groupId) ?? loose
-    target.sections.push(toSidebarSection(project, section))
-  }
-  return [...groups, loose].filter((group) => group.sections.length > 0)
-}
-
-/** A project no other project in the catalog contains: a collection or a stand-alone story. */
-function topLevelProjects(catalog: ProjectCatalog): ProjectSummary[] {
-  const ids = new Set(catalog.projects.map((project) => project.projectId))
-  return catalog.projects.filter(
-    (project) => project.collectionId === null || !ids.has(project.collectionId),
-  )
-}
+const WORLD_ROLES = new Set(["characters", "locations", "universes", "arcs"])
+const WORK_ROLES = new Set(["stories", "notes", "anchors"])
 
 /**
- * A scope is the one part of the catalog the sidebar shows: a top-level collection
- * (by its project ID) or the bucket of stand-alone stories (`STANDALONE_SCOPE`).
+ * Sections of a workshop grouped into World, Work and Custom.
  */
+export function groupSections(workshop: WorkshopSummary): SidebarGroup[] {
+  const worldSections: SidebarSection[] = []
+  const workSections: SidebarSection[] = []
+  const customSections: SidebarSection[] = []
+
+  for (const section of workshop.sections) {
+    const item = toSidebarSection(workshop, section)
+    if (section.role && WORLD_ROLES.has(section.role)) {
+      worldSections.push(item)
+    } else if (section.role && WORK_ROLES.has(section.role)) {
+      workSections.push(item)
+    } else {
+      customSections.push(item)
+    }
+  }
+
+  const groups: SidebarGroup[] = []
+  if (worldSections.length > 0) {
+    groups.push({ id: "world", name: "Мир", sections: worldSections })
+  }
+  if (workSections.length > 0) {
+    groups.push({ id: "work", name: "Произведение", sections: workSections })
+  }
+  if (customSections.length > 0) {
+    groups.push({ id: "custom", name: null, sections: customSections })
+  }
+  return groups
+}
+
 export const STANDALONE_SCOPE = null
 
-/** The top-level collections, in catalog order: the choices of the scope switcher. */
-export function listScopes(catalog: ProjectCatalog): ProjectSummary[] {
-  return topLevelProjects(catalog).filter((project) => project.kind === "collection")
+/** The workshops in the catalog: the choices of the scope switcher. */
+export function listScopes(catalog: ProjectCatalog): WorkshopSummary[] {
+  return catalog.workshops
 }
 
 /**
- * The scope to show for a wanted one. The stand-alone bucket the author chose (`null`) and a
- * wanted collection that still exists are kept. With no choice yet (`undefined`) or a
- * collection that is gone, the first collection is shown, or the bucket when there is none.
+ * The workshop scope to show for a wanted ID.
+ * Returns the wanted workshop if it exists, otherwise the first workshop in the catalog, or null.
  */
 export function resolveScope(
   catalog: ProjectCatalog,
   wanted: string | null | undefined,
 ): string | null {
-  if (wanted === STANDALONE_SCOPE) return STANDALONE_SCOPE
-  const scopes = listScopes(catalog)
-  if (scopes.some((scope) => scope.projectId === wanted)) return wanted ?? STANDALONE_SCOPE
-  return scopes[0]?.projectId ?? STANDALONE_SCOPE
+  if (wanted && catalog.workshops.some((w) => w.workshopId === wanted)) {
+    return wanted
+  }
+  return catalog.workshops[0]?.workshopId ?? null
 }
 
-/** The collection a new section or story can go into: none for a read-only collection. */
-export function writableCollection(scope: ProjectSummary | null): ProjectSummary | null {
-  return scope && scope.kind === "collection" && !scope.readOnly ? scope : null
+export function findWorkshop(
+  catalog: ProjectCatalog | null,
+  workshopId: string,
+): WorkshopSummary | null {
+  return catalog?.workshops.find((w) => w.workshopId === workshopId) ?? null
 }
 
-export function findProject(catalog: ProjectCatalog | null, projectId: string) {
-  return catalog?.projects.find((project) => project.projectId === projectId) ?? null
+export function findStory(
+  catalog: ProjectCatalog | null,
+  storyId: string,
+): { workshop: WorkshopSummary; story: StorySummary } | null {
+  if (!catalog) return null
+  for (const workshop of catalog.workshops) {
+    const story = workshop.stories.find((s) => s.storyId === storyId)
+    if (story) return { workshop, story }
+  }
+  return null
 }
 
-/** Project IDs, in tree order, so an overview can list the stories of a collection. */
-export function storiesOfCollection(catalog: ProjectCatalog, collectionId: string) {
-  return catalog.projects.filter((project) => project.collectionId === collectionId)
+/**
+ * Finds a workshop or story by ID.
+ */
+export function findProject(
+  catalog: ProjectCatalog | null,
+  id: string,
+): WorkshopSummary | StorySummary | null {
+  if (!catalog) return null
+  const workshop = catalog.workshops.find((w) => w.workshopId === id)
+  if (workshop) return workshop
+  for (const w of catalog.workshops) {
+    const story = w.stories.find((s) => s.storyId === id)
+    if (story) return story
+  }
+  return null
+}
+
+/** The stories of a workshop. */
+export function storiesOfWorkshop(workshop: WorkshopSummary): StorySummary[] {
+  return workshop.stories
+}
+
+export type ProjectTarget =
+  | { kind: "workshop"; workshop: WorkshopSummary }
+  | { kind: "story"; workshop: WorkshopSummary; story: StorySummary }
+  | { kind: "universe"; workshop: WorkshopSummary; universeId: string }
+
+/**
+ * Resolves a creative target (workshop, story, or universe) from catalog.
+ */
+export function resolveProjectTarget(
+  catalog: ProjectCatalog | null,
+  id: string,
+): ProjectTarget | null {
+  if (!catalog) return null
+  const workshop = catalog.workshops.find((w) => w.workshopId === id)
+  if (workshop) return { kind: "workshop", workshop }
+  for (const w of catalog.workshops) {
+    const story = w.stories.find((s) => s.storyId === id)
+    if (story) return { kind: "story", workshop: w, story }
+    if (id.startsWith("universe:")) {
+      return { kind: "universe", workshop: w, universeId: id.slice("universe:".length) }
+    }
+  }
+  return null
 }

@@ -53,7 +53,10 @@ pub fn normalize_entry_name(field: &str, raw: &str) -> Result<String, ProjectErr
         return Err(invalid(field, "reserved name"));
     }
     let lower = name.to_lowercase();
-    if crate::vault::scan::is_service_directory(&lower) || lower == super::model::PROJECT_FILE_NAME
+    if crate::vault::scan::is_service_directory(&lower)
+        || lower == super::model::WORKSHOP_FILE_NAME
+        || lower == super::model::STORY_FILE_NAME
+        || lower == super::model::LEGACY_PROJECT_FILE_NAME
     {
         return Err(invalid(field, "reserved name"));
     }

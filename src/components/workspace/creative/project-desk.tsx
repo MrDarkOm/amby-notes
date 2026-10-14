@@ -6,9 +6,10 @@ import {
   exportTextFile,
   readNote,
   type DatabaseRow,
-  type ProjectSectionSummary,
-  type ProjectSummary,
+  type StorySummary,
   type TextPageStat,
+  type WorkshopSectionSummary,
+  type WorkshopSummary,
 } from "@/lib/storage"
 import { compileManuscript, ManuscriptReadError } from "@/lib/storage/manuscript-compiler"
 import { cn } from "@/lib/utils"
@@ -37,18 +38,21 @@ const CONTINUE_COUNT = 3
 const CARD_ITEMS = 6
 
 interface ProjectDeskProps {
-  project: ProjectSummary
+  story?: StorySummary | null
+  workshop?: WorkshopSummary | null
+  /** Backward-compatibility alias */
+  project?: StorySummary | null
   /** Needed to read the pages for the manuscript; without it the button is not offered. */
   vaultPath: string | null
   onOpenNote: (noteId: string) => void
   /** Opens a section as a table: the story's own, or a shared one of its universe. */
-  onOpenSection?: (projectId: string, sectionId: string) => void
+  onOpenSection?: (ownerId: string, sectionId: string) => void
 }
 
-/** A section shown as a card of the desk, with the project whose folder holds it. */
+/** A section shown as a card of the desk, with the workshop whose folder holds it. */
 interface DeskSection {
-  owner: ProjectSummary
-  section: ProjectSectionSummary
+  owner: WorkshopSummary
+  section: WorkshopSectionSummary
 }
 
 interface PartProgress {
@@ -86,7 +90,7 @@ type Compile =
   | { status: "done"; pages: number; path: string }
   | { status: "failed"; message: string }
 
-function sectionTitle(section: ProjectSectionSummary): string {
+function sectionTitle(section: WorkshopSectionSummary): string {
   return section.databaseName?.trim() || section.pathHint.split("/").pop() || section.id
 }
 
@@ -95,25 +99,39 @@ function sectionTitle(section: ProjectSectionSummary): string {
  * world beside it, and the manuscript. All of it is read from the databases and the note index;
  * nothing is kept apart, and compiling the manuscript only reads the pages.
  */
-export function ProjectDesk({ project, vaultPath, onOpenNote, onOpenSection }: ProjectDeskProps) {
+export function ProjectDesk({
+  story,
+  workshop,
+  project,
+  vaultPath,
+  onOpenNote,
+  onOpenSection,
+}: ProjectDeskProps) {
   const { t } = useTranslation()
-  const text = project.text
+  const catalog = useProjectStore((state) => state.catalog)
+  const resolvedStory = story ?? project ?? null
+  const resolvedWorkshop =
+    workshop ??
+    catalog?.workshops.find((w) =>
+      resolvedStory ? w.stories.some((s) => s.storyId === resolvedStory.storyId) : true,
+    ) ??
+    null
+
+  const text = resolvedStory?.text ?? null
   const databaseId = text?.databaseId ?? null
   const dataNonce = useCreativeNavStore((state) => state.dataNonce)
-  const catalog = useProjectStore((state) => state.catalog)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
   const resolverFor = usePortraitResolvers(vaultGeneration)
-  // The cards beside the text: the story's own sections, then the shared ones of its universe.
+  // The cards beside the text: the workshop's sections
   const cards = React.useMemo<DeskSection[]>(() => {
-    const collection = project.collectionId
-      ? (catalog?.projects.find((entry) => entry.projectId === project.collectionId) ?? null)
-      : null
-    return [project, ...(collection ? [collection] : [])].flatMap((owner) =>
-      owner.sections
-        .filter((section) => section.state !== "missing" && section.role !== "text")
-        .map((section) => ({ owner, section })),
-    )
-  }, [catalog, project])
+    if (!resolvedWorkshop) return []
+    return resolvedWorkshop.sections
+      .filter(
+        (section) =>
+          section.state !== "missing" && section.role !== "stories" && section.role !== "text",
+      )
+      .map((section) => ({ owner: resolvedWorkshop, section }))
+  }, [resolvedWorkshop])
   const databaseIds = React.useMemo(
     () => [...(databaseId ? [databaseId] : []), ...cards.map((card) => card.section.databaseId)],
     [cards, databaseId],
@@ -158,14 +176,14 @@ export function ProjectDesk({ project, vaultPath, onOpenNote, onOpenSection }: P
     try {
       const result = await compileManuscript({
         roots,
-        title: project.name,
+        title: resolvedStory?.name ?? "",
         readNoteContent: async (noteId) => (await readNote(vaultPath, noteId)).content,
       })
       if (result.pages === 0) {
         setCompile({ status: "failed", message: t("creative.page.desk.noPages") })
         return
       }
-      const path = await exportTextFile(result.markdown, fileNameOf(project.name))
+      const path = await exportTextFile(result.markdown, fileNameOf(resolvedStory?.name ?? ""))
       // No path: the author closed the save dialog, which is not a failure.
       setCompile(path ? { status: "done", pages: result.pages, path } : { status: "idle" })
     } catch (error) {
@@ -391,7 +409,7 @@ export function ProjectDesk({ project, vaultPath, onOpenNote, onOpenSection }: P
             const items = data.rows[section.databaseId] ?? []
             const Icon = section.role ? sectionRoleIcon(section.role) : Database
             const people = section.role === "characters"
-            const shared = owner.projectId !== project.projectId
+            const shared = false
             return (
               <section key={section.databaseId} aria-label={sectionTitle(section)} className={card}>
                 <div className="mb-2 flex items-center gap-2">
@@ -403,7 +421,7 @@ export function ProjectDesk({ project, vaultPath, onOpenNote, onOpenSection }: P
                   {onOpenSection && (
                     <button
                       type="button"
-                      onClick={() => onOpenSection(owner.projectId, section.id)}
+                      onClick={() => onOpenSection(owner.workshopId, section.id)}
                       className="ml-auto shrink-0 rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
                     >
                       {t("creative.page.desk.openSection")}

@@ -553,7 +553,7 @@ mod tests {
             list(&conn, "01TEST").unwrap(),
             vec![second.clone(), first.clone()]
         );
-        assert!(reorder(&conn, &vault, "01TEST", &[first.id.clone()]).is_err());
+        assert!(reorder(&conn, &vault, "01TEST", std::slice::from_ref(&first.id)).is_err());
         assert_eq!(list(&conn, "01TEST").unwrap(), vec![second, first]);
         fs::remove_dir_all(vault).unwrap();
     }

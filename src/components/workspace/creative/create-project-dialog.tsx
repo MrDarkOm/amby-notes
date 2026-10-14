@@ -1,5 +1,5 @@
 import * as React from "react"
-import { BookOpen, Globe2, Layers, Plus, X } from "lucide-react"
+import { BookOpen, Feather, Globe2, Plus, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,9 +12,15 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { createProject, type CreatedProject, type ProjectSummary } from "@/lib/storage"
+import {
+  createDatabaseRow,
+  createStory,
+  createWorkshop,
+  createWorkshopSection,
+  type WorkshopSummary,
+} from "@/lib/storage"
 import { projectErrorText } from "./project-error"
-import { projectLabels, projectRequestKind, type NewProjectKind } from "./project-labels"
+import { projectLabels } from "./project-labels"
 import {
   levelChain,
   levelsProblem,
@@ -25,56 +31,60 @@ import {
 } from "./text-schema-presets"
 import { useOperationId } from "./use-operation-id"
 
-const KIND_ICONS = { story: BookOpen, universe: Globe2, collection: Layers } as const
+export type CreativeCreationKind = "workshop" | "story" | "universe"
+
+export interface CreatedItemResult {
+  kind: CreativeCreationKind
+  id: string
+}
+
+const KIND_ICONS = {
+  workshop: Feather,
+  story: BookOpen,
+  universe: Globe2,
+} as const
 
 interface CreateProjectDialogProps {
   open: boolean
   onClose: () => void
   vaultGeneration: number | null
-  /** The collection the project is created inside; none means the vault root. */
-  parent?: ProjectSummary | null
-  /** The kinds offered instead of the default for the parent. */
-  kinds?: NewProjectKind[]
-  /** The kind selected on open; the first offered kind when absent. */
-  initialKind?: NewProjectKind
-  onCreated: (created: CreatedProject) => void
+  workshop?: WorkshopSummary | null
+  kinds?: CreativeCreationKind[]
+  initialKind?: CreativeCreationKind
+  onCreated: (created: CreatedItemResult) => void
 }
 
 export function CreateProjectDialog({
   open,
   onClose,
   vaultGeneration,
-  parent = null,
+  workshop = null,
   kinds: offeredKinds,
   initialKind,
   onCreated,
 }: CreateProjectDialogProps) {
   const { t } = useTranslation()
-  // Inside a collection only a story makes sense: a collection cannot nest.
-  const kinds: NewProjectKind[] =
-    offeredKinds ?? (parent ? ["story"] : ["story", "universe", "collection"])
-  const startKind: NewProjectKind = initialKind ?? kinds[0] ?? "story"
+  const kinds: CreativeCreationKind[] =
+    offeredKinds ?? (workshop ? ["story", "universe"] : ["workshop"])
+  const startKind: CreativeCreationKind = initialKind ?? kinds[0] ?? "story"
   const [name, setName] = React.useState("")
-  const [kind, setKind] = React.useState<NewProjectKind>(startKind)
+  const [kind, setKind] = React.useState<CreativeCreationKind>(startKind)
   const [schema, setSchema] = React.useState<TextSchemaChoice>("novel")
-  // The author's own list; it starts from the schema that was chosen before it.
   const [customLevels, setCustomLevels] = React.useState<string[]>([])
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const parentPath = parent?.path ?? null
   const trimmed = name.trim()
 
-  // Only a story has a text, so only a story chooses its levels.
   const levelNames = React.useMemo(
     () => (schema === "custom" ? customLevels : presetLevelNames(schema, t)),
     [schema, customLevels, t],
   )
   const textLevels = kind === "story" ? levelNames.map((level) => level.trim()) : null
   const problem = textLevels ? levelsProblem(textLevels) : null
-  const operationId = useOperationId("create-project", {
+  const operationId = useOperationId("create-creative", {
     name: trimmed,
     kind,
-    parentPath,
+    workshopId: workshop?.workshopId ?? null,
     textLevels,
   })
 
@@ -102,18 +112,48 @@ export function CreateProjectDialog({
     setPending(true)
     setError(null)
     try {
-      const shape = projectRequestKind(kind)
-      const created = await createProject({
-        expectedGeneration: vaultGeneration,
-        operationId: operationId(),
-        kind: shape.kind,
-        name: trimmed,
-        parentPath,
-        baseSections: shape.baseSections,
-        labels: projectLabels(t),
-        ...(textLevels ? { textLevels } : {}),
-      })
-      onCreated(created)
+      if (kind === "workshop") {
+        const created = await createWorkshop({
+          expectedGeneration: vaultGeneration,
+          operationId: operationId(),
+          name: trimmed,
+          labels: projectLabels(t),
+        })
+        onCreated({ kind: "workshop", id: created.workshopId })
+      } else if (kind === "story") {
+        if (!workshop) throw new Error(t("creative.errors.projectNotFound"))
+        const created = await createStory({
+          expectedGeneration: vaultGeneration,
+          operationId: operationId(),
+          workshopId: workshop.workshopId,
+          title: trimmed,
+          textLevels: textLevels ?? [],
+          labels: projectLabels(t),
+        })
+        onCreated({ kind: "story", id: created.storyId })
+      } else if (kind === "universe") {
+        if (!workshop) throw new Error(t("creative.errors.projectNotFound"))
+        let databaseId = workshop.sections.find((s) => s.role === "universes")?.databaseId
+        if (!databaseId) {
+          const sectionRes = await createWorkshopSection({
+            expectedGeneration: vaultGeneration,
+            operationId: operationId(),
+            workshopId: workshop.workshopId,
+            expectedWorkshopRevision: workshop.fileRevision,
+            role: "universes",
+            name: t("creative.sections.universes", "Вселенные"),
+            labels: projectLabels(t),
+          })
+          databaseId = sectionRes.section.databaseId
+        }
+        const created = await createDatabaseRow({
+          expectedGeneration: vaultGeneration,
+          databaseId,
+          title: trimmed,
+          template: { kind: "default" },
+        })
+        onCreated({ kind: "universe", id: created.noteId })
+      }
       onClose()
     } catch (caught) {
       setError(projectErrorText(t, caught))
@@ -121,15 +161,22 @@ export function CreateProjectDialog({
     }
   }
 
+  const titleKey =
+    kind === "workshop"
+      ? "creative.createProject.workshopTitle"
+      : kind === "universe"
+        ? "creative.createProject.universeTitle"
+        : "creative.createProject.storyTitle"
+
   return (
     <Dialog open={open} onOpenChange={(next) => !next && !pending && onClose()}>
       <DialogContent className="w-[calc(100vw-2rem)] max-w-md border-border bg-background text-foreground">
         <form onSubmit={submit} className="flex flex-col gap-4">
           <DialogHeader>
-            <DialogTitle>{t("creative.createProject.title")}</DialogTitle>
+            <DialogTitle>{t(titleKey, t("creative.createProject.title"))}</DialogTitle>
             <DialogDescription>
-              {parent
-                ? t("creative.createProject.insideCollection", { name: parent.name })
+              {workshop
+                ? t("creative.createProject.insideCollection", { name: workshop.name })
                 : t("creative.createProject.description")}
             </DialogDescription>
           </DialogHeader>

@@ -2451,6 +2451,7 @@ const ru = {
     // Names given to the base sections and groups when a project is created: they
     // become folder names, so they follow the language that is active at that moment.
     sections: {
+      stories: "Истории",
       text: "Текст",
       notes: "Заметки",
       characters: "Персонажи",
@@ -2575,7 +2576,7 @@ const ru = {
     scope: {
       caption: "Мастерская",
       standalone: "Одиночные истории",
-      switch: "Сменить вселенную или сборник",
+      switch: "Сменить мастерскую",
     },
     chooser: {
       title: "Что создать?",
@@ -5167,6 +5168,7 @@ const en: typeof ru = {
         "Turn off to list universes, stories and their sections only in the Studio panel. Files on disk are not changed.",
     },
     sections: {
+      stories: "Stories",
       text: "Text",
       notes: "Notes",
       characters: "Characters",
@@ -5286,7 +5288,7 @@ const en: typeof ru = {
     scope: {
       caption: "Workshop",
       standalone: "Standalone stories",
-      switch: "Switch universe or collection",
+      switch: "Switch workshop",
     },
     chooser: {
       title: "What to create?",

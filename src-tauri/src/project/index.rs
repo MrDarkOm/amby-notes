@@ -1,19 +1,19 @@
-//! Rebuildable SQLite projection of creative projects.
+//! Rebuildable SQLite projection of creative workshops and stories.
 //!
 //! The structure files are the only source of truth. Sections are matched to
 //! databases at read time through `db_databases`, so a database that moved or
-//! was renamed is reflected without rewriting any project cache row.
+//! was renamed is reflected without rewriting any cache row.
 
 use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
 use ulid::Ulid;
 
-use super::discovery::{discover_projects, ProjectDiscovery};
+use super::discovery::{discover_projects, WorkshopDiscovery};
 use super::model::{
-    ProjectCatalog, ProjectDiagnostic, ProjectGroupSummary, ProjectKind, ProjectSectionSummary,
-    ProjectSummary, ProjectTextSummary, SectionState, TextEntryState, TextFormatSummary,
-    TextLevelSummary, TextPropertyIds, TextStatusOptionSummary, PROJECT_FILE_NAME, ROLE_TEXT,
+    ProjectCatalog, ProjectDiagnostic, ProjectTextSummary, SectionState, StorySummary,
+    TextEntryState, TextFormatSummary, TextLevelSummary, TextPropertyIds, TextStatusOptionSummary,
+    WorkshopSectionSummary, WorkshopSummary,
 };
 use crate::index::schema::init_schema;
 
@@ -33,7 +33,7 @@ fn metadata(conn: &Connection, key: &str) -> Result<Option<String>, String> {
     .map_err(sql_error)
 }
 
-/// Replaces the whole project projection from the current files. Returns the
+/// Replaces the whole workshop projection from the current files. Returns the
 /// new epoch. One transaction: readers see the old or the new catalog, never a mix.
 pub fn rebuild_project_index(conn: &Connection, vault: &Path) -> Result<String, String> {
     init_schema(conn)?;
@@ -41,75 +41,88 @@ pub fn rebuild_project_index(conn: &Connection, vault: &Path) -> Result<String, 
     publish(conn, &discovery)
 }
 
-fn publish(conn: &Connection, discovery: &ProjectDiscovery) -> Result<String, String> {
+fn publish(conn: &Connection, discovery: &WorkshopDiscovery) -> Result<String, String> {
     let epoch = Ulid::generate().to_string();
     let tx = conn.unchecked_transaction().map_err(sql_error)?;
     for table in [
-        "project_sections",
-        "project_projects",
         "project_diagnostics",
+        "project_stories",
+        "project_sections",
+        "project_workshops",
     ] {
         tx.execute(&format!("DELETE FROM {table}"), [])
             .map_err(sql_error)?;
     }
-    for (position, project) in discovery.projects.iter().enumerate() {
-        let doc = &project.doc;
-        let groups = serde_json::to_string(
-            &doc.groups
-                .iter()
-                .map(|group| serde_json::json!({"id": group.id, "name": group.name}))
-                .collect::<Vec<_>>(),
-        )
-        .map_err(|error| error.to_string())?;
+    for (pos, workshop) in discovery.workshops.iter().enumerate() {
+        let doc = &workshop.doc;
         tx.execute(
-            "INSERT INTO project_projects (project_id, path, kind, name, icon, tags_json, groups_json, text_json, file_revision, format_version, read_only, collection_id, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO project_workshops (workshop_id, path, name, icon, tags_json, file_revision, format_version, read_only, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
-                doc.project_id,
-                project.path,
-                doc.kind.as_str(),
+                doc.workshop_id,
+                workshop.path,
                 doc.name,
                 doc.icon,
                 serde_json::to_string(&doc.tags).map_err(|error| error.to_string())?,
-                groups,
-                doc.text_json,
                 doc.revision,
                 doc.format_version as i64,
                 !doc.is_known_version(),
-                project.collection_id,
-                position as i64,
+                pos as i64,
             ],
         )
         .map_err(sql_error)?;
-        for (index, section) in doc.sections.iter().enumerate() {
+
+        for (s_idx, section) in doc.sections.iter().enumerate() {
             tx.execute(
-                "INSERT INTO project_sections (project_id, section_id, position, role, group_id, database_id, path_hint) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO project_sections (workshop_id, section_id, position, role, name, database_id, path_hint) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
-                    doc.project_id,
+                    doc.workshop_id,
                     section.id,
-                    index as i64,
+                    s_idx as i64,
                     section.role,
-                    section.group_id,
+                    section.name,
                     section.database_id,
-                    section.path_hint,
+                    section.path,
+                ],
+            )
+            .map_err(sql_error)?;
+        }
+
+        for (st_idx, story) in workshop.stories.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO project_stories (story_id, workshop_id, name, folder_path, card_path, card_note_id, database_id, file_revision, text_json, position) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                params![
+                    story.story_id,
+                    doc.workshop_id,
+                    story.name,
+                    story.folder_path,
+                    story.card_path,
+                    story.card_note_id,
+                    story.database_id,
+                    story.file_revision,
+                    story.text_json.as_deref().unwrap_or("{}"),
+                    st_idx as i64,
                 ],
             )
             .map_err(sql_error)?;
         }
     }
+
     for (position, entry) in discovery.diagnostics.iter().enumerate() {
         tx.execute(
-            "INSERT INTO project_diagnostics (position, code, severity, path, project_id, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO project_diagnostics (position, code, severity, path, workshop_id, story_id, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 position as i64,
                 entry.code,
                 entry.severity,
                 entry.path,
-                entry.project_id,
+                entry.workshop_id,
+                entry.story_id,
                 entry.detail,
             ],
         )
         .map_err(sql_error)?;
     }
+
     tx.execute(
         "INSERT INTO index_metadata (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![EPOCH_KEY, epoch],
@@ -119,7 +132,6 @@ fn publish(conn: &Connection, discovery: &ProjectDiscovery) -> Result<String, St
     Ok(epoch)
 }
 
-/// True once the projection was published for this index file at least once.
 pub fn is_built(conn: &Connection) -> Result<bool, String> {
     init_schema(conn)?;
     Ok(metadata(conn, EPOCH_KEY)?.is_some())
@@ -183,13 +195,11 @@ fn property_exists(
     .map_err(sql_error)
 }
 
-/// Compares the `text` block with the text database. A level or format whose option is gone
-/// is dangling: it stays in the file and is reported, never repaired here.
+/// Compares the `text` block with the story's text database.
 fn resolve_text(
     conn: &Connection,
-    project: &str,
-    path: &str,
-    sections: &[ProjectSectionSummary],
+    database_id: Option<&str>,
+    story_path: &str,
     text_json: Option<&str>,
     diagnostics: &mut Vec<ProjectDiagnostic>,
 ) -> Result<Option<ProjectTextSummary>, String> {
@@ -198,27 +208,69 @@ fn resolve_text(
     else {
         return Ok(None);
     };
-    let file = if path.is_empty() {
-        PROJECT_FILE_NAME.to_owned()
-    } else {
-        format!("{path}/{PROJECT_FILE_NAME}")
+
+    let mut properties = TextPropertyIds::default();
+
+    let Some(database_id) = database_id else {
+        let mut levels = Vec::new();
+        for entry in block
+            .get("levels")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(id) = entry.get("id").and_then(serde_json::Value::as_str) {
+                levels.push(TextLevelSummary {
+                    id: id.to_owned(),
+                    icon: entry
+                        .get("icon")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned),
+                    name: None,
+                    color: None,
+                    state: TextEntryState::Unresolved,
+                });
+            }
+        }
+        let mut formats = Vec::new();
+        for entry in block
+            .get("formats")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if let (Some(id), Some(kind)) = (
+                entry.get("id").and_then(serde_json::Value::as_str),
+                entry.get("kind").and_then(serde_json::Value::as_str),
+            ) {
+                formats.push(TextFormatSummary {
+                    id: id.to_owned(),
+                    kind: kind.to_owned(),
+                    name: None,
+                    color: None,
+                    state: TextEntryState::Unresolved,
+                });
+            }
+        }
+        return Ok(Some(ProjectTextSummary {
+            database_id: None,
+            properties,
+            levels,
+            formats,
+            status_options: Vec::new(),
+        }));
     };
+
     let diagnose = |code: &str, detail: String, diagnostics: &mut Vec<ProjectDiagnostic>| {
         diagnostics.push(ProjectDiagnostic {
             code: code.to_owned(),
             severity: "warning".to_owned(),
-            path: file.clone(),
-            project_id: Some(project.to_owned()),
+            path: story_path.to_owned(),
+            workshop_id: None,
+            story_id: None,
             detail: Some(detail),
         });
     };
-    // Resolved only when the text database was found.
-    let database_id = sections
-        .iter()
-        .find(|section| {
-            section.role.as_deref() == Some(ROLE_TEXT) && section.state != SectionState::Missing
-        })
-        .map(|section| section.database_id.clone());
 
     let declared = |key: &str| -> Option<String> {
         block
@@ -226,7 +278,7 @@ fn resolve_text(
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned)
     };
-    let mut properties = TextPropertyIds::default();
+
     for (key, slot) in [
         ("level", &mut properties.level),
         ("parent", &mut properties.parent),
@@ -237,32 +289,39 @@ fn resolve_text(
             diagnose("missingTextProperty", key.to_owned(), diagnostics);
             continue;
         };
-        match &database_id {
-            Some(database) if property_exists(conn, database, &id)? => *slot = Some(id),
-            Some(_) => diagnose("missingTextProperty", key.to_owned(), diagnostics),
-            None => {}
+        if property_exists(conn, database_id, &id)? {
+            *slot = Some(id);
+        } else {
+            diagnose("missingTextProperty", key.to_owned(), diagnostics);
         }
     }
-    // `status` is optional (stories created before Package C do not declare it); only report a
-    // missing property when `text.properties.status` is declared in the file.
+
     let mut status_options = Vec::new();
     if let Some(id) = declared("status") {
-        match &database_id {
-            Some(database) if property_exists(conn, database, &id)? => {
-                status_options = status_options_of(conn, database, &id)?;
-                properties.status = Some(id);
+        if property_exists(conn, database_id, &id)? {
+            status_options = status_options_of(conn, database_id, &id)?;
+            properties.status = Some(id);
+        } else {
+            diagnose("missingTextProperty", "status".to_owned(), diagnostics);
+        }
+    }
+
+    for (key, slot) in [
+        ("anchors", &mut properties.anchors),
+        ("arcs", &mut properties.arcs),
+    ] {
+        if let Some(id) = declared(key) {
+            if property_exists(conn, database_id, &id)? {
+                *slot = Some(id);
             }
-            Some(_) => diagnose("missingTextProperty", "status".to_owned(), diagnostics),
-            None => {}
         }
     }
 
     let state_of =
         |entry: Option<(String, String)>| -> (TextEntryState, Option<String>, Option<String>) {
-            match (&database_id, entry) {
-                (None, _) => (TextEntryState::Unresolved, None, None),
-                (Some(_), Some((name, color))) => (TextEntryState::Ok, Some(name), Some(color)),
-                (Some(_), None) => (TextEntryState::Dangling, None, None),
+            match entry {
+                Some((name, color)) => (TextEntryState::Ok, Some(name), Some(color)),
+                None => (TextEntryState::Dangling, None, None),
             }
         };
 
@@ -276,9 +335,9 @@ fn resolve_text(
         let Some(id) = entry.get("id").and_then(serde_json::Value::as_str) else {
             continue;
         };
-        let found = match (&database_id, &properties.level) {
-            (Some(database), Some(property)) => option_of(conn, database, property, id)?,
-            _ => None,
+        let found = match &properties.level {
+            Some(property) => option_of(conn, database_id, property, id)?,
+            None => None,
         };
         let (state, name, color) = state_of(found);
         if state == TextEntryState::Dangling {
@@ -295,6 +354,7 @@ fn resolve_text(
             state,
         });
     }
+
     let mut formats = Vec::new();
     for entry in block
         .get("formats")
@@ -308,9 +368,9 @@ fn resolve_text(
         ) else {
             continue;
         };
-        let found = match (&database_id, &properties.format) {
-            (Some(database), Some(property)) => option_of(conn, database, property, id)?,
-            _ => None,
+        let found = match &properties.format {
+            Some(property) => option_of(conn, database_id, property, id)?,
+            None => None,
         };
         let (state, name, color) = state_of(found);
         if state == TextEntryState::Dangling {
@@ -324,8 +384,9 @@ fn resolve_text(
             state,
         });
     }
+
     Ok(Some(ProjectTextSummary {
-        database_id,
+        database_id: Some(database_id.to_owned()),
         properties,
         levels,
         formats,
@@ -333,8 +394,7 @@ fn resolve_text(
     }))
 }
 
-/// Reads the catalog from the projection, building it first when the index has
-/// never held one.
+/// Reads the catalog from the projection.
 pub fn load_catalog(
     conn: &Connection,
     vault: &Path,
@@ -345,64 +405,57 @@ pub fn load_catalog(
     }
     let index_epoch = metadata(conn, EPOCH_KEY)?.unwrap_or_default();
 
-    let mut section_statement = conn
+    let mut section_stmt = conn
         .prepare(
-            "SELECT s.section_id, s.role, s.group_id, s.database_id, s.path_hint, d.container_path, d.name
+            "SELECT s.section_id, s.role, s.name, s.database_id, s.path_hint, d.container_path, d.name
              FROM project_sections s
              LEFT JOIN db_databases d ON d.database_id = s.database_id
-             WHERE s.project_id = ?1
+             WHERE s.workshop_id = ?1
              ORDER BY s.position",
         )
         .map_err(sql_error)?;
-    let mut project_statement = conn
+
+    let mut story_stmt = conn
         .prepare(
-            "SELECT project_id, path, kind, name, icon, tags_json, groups_json, text_json, file_revision, format_version, read_only, collection_id
-             FROM project_projects ORDER BY position",
+            "SELECT story_id, workshop_id, name, folder_path, card_path, card_note_id, database_id, file_revision, text_json
+             FROM project_stories
+             WHERE workshop_id = ?1
+             ORDER BY position",
         )
         .map_err(sql_error)?;
-    let rows = project_statement
+
+    let mut workshop_stmt = conn
+        .prepare(
+            "SELECT workshop_id, path, name, icon, tags_json, file_revision, format_version, read_only
+             FROM project_workshops ORDER BY position",
+        )
+        .map_err(sql_error)?;
+
+    let workshop_rows = workshop_stmt
         .query_map([], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
-                row.get::<_, String>(6)?,
-                row.get::<_, Option<String>>(7)?,
-                row.get::<_, String>(8)?,
-                row.get::<_, i64>(9)?,
-                row.get::<_, bool>(10)?,
-                row.get::<_, Option<String>>(11)?,
+                row.get::<_, i64>(6)?,
+                row.get::<_, bool>(7)?,
             ))
         })
         .map_err(sql_error)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(sql_error)?;
 
-    let mut projects = Vec::with_capacity(rows.len());
+    let mut workshops = Vec::with_capacity(workshop_rows.len());
     let mut text_diagnostics = Vec::new();
-    for (
-        project_id,
-        path,
-        kind,
-        name,
-        icon,
-        tags_json,
-        groups_json,
-        text_json,
-        file_revision,
-        format_version,
-        read_only,
-        collection_id,
-    ) in rows
+
+    for (workshop_id, path, name, icon, tags_json, file_revision, format_version, read_only) in
+        workshop_rows
     {
-        let Some(kind) = ProjectKind::parse(&kind) else {
-            continue;
-        };
-        let sections = section_statement
-            .query_map([project_id.as_str()], |row| {
+        let sections = section_stmt
+            .query_map([workshop_id.as_str()], |row| {
                 let path_hint: String = row.get(4)?;
                 let resolved: Option<String> = row.get(5)?;
                 let state = match &resolved {
@@ -420,10 +473,10 @@ pub fn load_catalog(
                         }
                     }
                 };
-                Ok(ProjectSectionSummary {
+                Ok(WorkshopSectionSummary {
                     id: row.get(0)?,
                     role: row.get(1)?,
-                    group_id: row.get(2)?,
+                    name: row.get(2)?,
                     database_id: row.get(3)?,
                     path_hint,
                     state,
@@ -434,18 +487,62 @@ pub fn load_catalog(
             .map_err(sql_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(sql_error)?;
-        let groups: Vec<serde_json::Value> = parse_list(&groups_json);
-        let text = resolve_text(
-            conn,
-            &project_id,
-            &path,
-            &sections,
-            text_json.as_deref(),
-            &mut text_diagnostics,
-        )?;
-        projects.push(ProjectSummary {
-            project_id,
-            kind,
+
+        let story_rows = story_stmt
+            .query_map([workshop_id.as_str()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            })
+            .map_err(sql_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sql_error)?;
+
+        let mut stories = Vec::with_capacity(story_rows.len());
+        for (
+            story_id,
+            workshop_id,
+            st_name,
+            folder_path,
+            card_path,
+            card_note_id,
+            database_id,
+            story_revision,
+            text_json,
+        ) in story_rows
+        {
+            let text = resolve_text(
+                conn,
+                database_id.as_deref(),
+                &card_path,
+                Some(&text_json),
+                &mut text_diagnostics,
+            )?;
+            stories.push(StorySummary {
+                story_id,
+                workshop_id,
+                name: st_name,
+                folder_path,
+                card_path,
+                card_note_id,
+                database_id,
+                file_revision: story_revision,
+                format_version: 3,
+                text_json: Some(text_json),
+                text,
+            });
+        }
+
+        workshops.push(WorkshopSummary {
+            workshop_id,
             name,
             icon,
             tags: parse_list(&tags_json),
@@ -453,25 +550,14 @@ pub fn load_catalog(
             file_revision,
             format_version: format_version as u64,
             read_only,
-            collection_id,
-            groups: groups
-                .iter()
-                .filter_map(|group| {
-                    Some(ProjectGroupSummary {
-                        id: group.get("id")?.as_str()?.to_owned(),
-                        name: group.get("name")?.as_str()?.to_owned(),
-                    })
-                })
-                .collect(),
             sections,
-            text_json,
-            text,
+            stories,
         });
     }
 
-    let diagnostics = conn
+    let mut diagnostics = conn
         .prepare(
-            "SELECT code, severity, path, project_id, detail FROM project_diagnostics ORDER BY position",
+            "SELECT code, severity, path, workshop_id, story_id, detail FROM project_diagnostics ORDER BY position",
         )
         .map_err(sql_error)?
         .query_map([], |row| {
@@ -479,20 +565,21 @@ pub fn load_catalog(
                 code: row.get(0)?,
                 severity: row.get(1)?,
                 path: row.get(2)?,
-                project_id: row.get(3)?,
-                detail: row.get(4)?,
+                workshop_id: row.get(3)?,
+                story_id: row.get(4)?,
+                detail: row.get(5)?,
             })
         })
         .map_err(sql_error)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(sql_error)?;
 
-    let mut diagnostics = diagnostics;
     diagnostics.extend(text_diagnostics);
+
     Ok(ProjectCatalog {
         vault_generation,
         index_epoch,
-        projects,
+        workshops,
         diagnostics,
     })
 }

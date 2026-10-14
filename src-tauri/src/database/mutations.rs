@@ -691,7 +691,7 @@ pub fn create_database_property(
     }
 
     let (property, config, property_id) =
-        build_new_property(vault, &parsed.value, request, name, two_way, None)?;
+        build_new_property(vault, &parsed.value, request, name, two_way, None, &[])?;
     let mut manifest = parsed.value.clone();
 
     // Validate the requested insertion before preparing the reciprocal schema.
@@ -886,7 +886,9 @@ impl PlannedPropertyIds {
 
 /// Builds the definition of a new property for `manifest` without writing anything. Shared
 /// by `create_database_property` and by callers that put properties into a manifest they
-/// are about to create. Returns the definition, its config and its ID.
+/// are about to create. `pending_databases` are the IDs of databases that the calling
+/// operation creates itself: a relation to one of them is not looked up on disk. Returns the
+/// definition, its config and its ID.
 pub(crate) fn build_new_property(
     vault: &Path,
     manifest: &super::format::DatabaseManifest,
@@ -894,6 +896,7 @@ pub(crate) fn build_new_property(
     name: &str,
     two_way: bool,
     planned: Option<&PlannedPropertyIds>,
+    pending_databases: &[String],
 ) -> Result<(PropertyDefinition, serde_json::Value, String), String> {
     let property_id = planned
         .map(|ids| ids.property_id.clone())
@@ -964,8 +967,11 @@ pub(crate) fn build_new_property(
                         .map(String::as_str)
                 })
                 .unwrap_or(&request.database_id);
-            // A planned database is not on disk yet, and a property's own database always is.
-            if target_database_id != request.database_id {
+            // A database the same operation is about to create is not on disk yet, and a
+            // property's own database always is. Any other target must exist already.
+            if target_database_id != request.database_id
+                && !pending_databases.iter().any(|id| id == target_database_id)
+            {
                 find_database_container(vault, target_database_id)?;
             }
             let max_items = request.relation_max_items.filter(|&limit| limit == 1);

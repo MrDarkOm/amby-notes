@@ -1,3 +1,4 @@
+import * as React from "react"
 import { ArrowLeft, ArrowRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import type { NoteReference } from "@/lib/storage"
@@ -69,8 +70,17 @@ export function DossierAside({
 }: DossierAsideProps) {
   const { t } = useTranslation()
   const toc = canJump ? extractToc(content).filter((entry) => entry.level <= 3) : []
-  const split = splitReferences(dossier.references, dossier.world.project.text?.databaseId ?? null)
-  const hasText = Boolean(dossier.world.project.text?.databaseId)
+  const textDbIds = React.useMemo(
+    () =>
+      new Set(
+        dossier.world.workshop.stories
+          .map((story) => story.text?.databaseId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    [dossier.world.workshop],
+  )
+  const split = splitReferences(dossier.references, textDbIds)
+  const hasText = textDbIds.size > 0
 
   return (
     <aside

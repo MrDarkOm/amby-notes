@@ -37,6 +37,8 @@ pub struct PropertyBuilder<'a> {
     vault: &'a Path,
     database_id: String,
     manifest: DatabaseManifest,
+    /// Databases the same operation creates; relations to them are not looked up on disk.
+    pending_databases: Vec<String>,
 }
 
 impl<'a> PropertyBuilder<'a> {
@@ -54,7 +56,14 @@ impl<'a> PropertyBuilder<'a> {
             vault,
             database_id: ids.database_id.clone(),
             manifest,
+            pending_databases: Vec::new(),
         })
+    }
+
+    /// Names the databases that the operation creates alongside this one.
+    pub fn with_pending_databases(mut self, pending: &[String]) -> Self {
+        self.pending_databases = pending.to_vec();
+        self
     }
 
     /// Adds one property. Later ones see earlier ones, as when they are made one by one.
@@ -80,6 +89,7 @@ impl<'a> PropertyBuilder<'a> {
             name,
             false,
             Some(&planned),
+            &self.pending_databases,
         )
         .map_err(fail)?;
         let value = serde_json::to_value(&definition).map_err(fail)?;

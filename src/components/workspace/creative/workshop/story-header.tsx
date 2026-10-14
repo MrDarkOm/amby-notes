@@ -1,84 +1,160 @@
-import { ExternalLink, Play, Plus } from "lucide-react"
+import { BookOpen, ExternalLink, Feather, Globe2, Play, Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { AmbySelect } from "@/components/ui/amby-select"
 import { Button } from "@/components/ui/button"
-import type { ProjectSummary } from "@/lib/storage"
+import type { StorySummary, WorkshopSummary } from "@/lib/storage"
 import { IconValue } from "../../icon-value"
-import { projectFallbackIcon } from "../section-icons"
+
+interface UniverseItem {
+  noteId: string
+  title: string
+}
 
 interface StoryHeaderProps {
-  story: ProjectSummary
-  /** Every story of the scope: the list the header opens. */
-  stories: ProjectSummary[]
+  workshop: WorkshopSummary
+  /** Every story of the workshop. */
+  stories: StorySummary[]
+  selectedStoryId: string | null
+  universes?: UniverseItem[]
+  selectedUniverseId?: string | null
   /** Pages of the text, or `null` while they are not loaded (nothing is shown, not "0"). */
   pages: number | null
   /** Words of the text, or `null` while they are not loaded. */
   words: number | null
-  onSelectStory: (storyId: string) => void
+  onSelectStory: (storyId: string | null) => void
+  onSelectUniverse?: (universeId: string | null) => void
   onNewStory: () => void
-  onOpenStory: (storyId: string) => void
+  onOpenTarget: () => void
   /** The page of the text changed last, offered as the place to go on from; none hides the row. */
   resume?: { noteId: string; title: string; when: string } | null
   onOpenNote?: (noteId: string) => void
 }
 
 /**
- * The top of the panel: the chosen story with its icon, its name and one quiet line under it (its
- * label, pages, words). It always opens the list of the scope's stories, even of one, because
- * "New story" is the last item of that list. Under it stands the page to go on from.
+ * The top of the panel: header with "Вся мастерская", stories, and universes.
  */
 export function StoryHeader({
-  story,
+  workshop,
   stories,
+  selectedStoryId,
+  universes = [],
+  selectedUniverseId = null,
   pages,
   words,
   onSelectStory,
+  onSelectUniverse,
   onNewStory,
-  onOpenStory,
+  onOpenTarget,
   resume = null,
   onOpenNote,
 }: StoryHeaderProps) {
   const { t } = useTranslation()
-  const Fallback = projectFallbackIcon(story)
-  const meta = [
-    story.tags[0] ?? null,
-    pages === null ? null : t("creative.workshop.pagesShort", { count: pages }),
-    words === null ? null : t("docEditor.wordCount", { count: words }),
-  ]
-    .filter(Boolean)
-    .join(" · ")
+
+  const selectedStory = selectedStoryId
+    ? (stories.find((s) => s.storyId === selectedStoryId) ?? null)
+    : null
+  const selectedUniverse = selectedUniverseId
+    ? (universes.find((u) => u.noteId === selectedUniverseId) ?? null)
+    : null
+
+  let currentValue = "all"
+  if (selectedUniverse) {
+    currentValue = `universe:${selectedUniverse.noteId}`
+  } else if (selectedStory) {
+    currentValue = `story:${selectedStory.storyId}`
+  }
+
+  const meta = selectedStory
+    ? [
+        pages === null ? null : t("creative.workshop.pagesShort", { count: pages }),
+        words === null ? null : t("docEditor.wordCount", { count: words }),
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : null
 
   const face = (
     <>
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        <IconValue
-          value={story.icon ?? undefined}
-          fallback={<Fallback className="size-5" />}
-          className="size-5"
-        />
+        {selectedStory ? (
+          <BookOpen className="size-5" />
+        ) : selectedUniverse ? (
+          <Globe2 className="size-5" />
+        ) : (
+          <IconValue
+            value={workshop.icon ?? undefined}
+            fallback={<Feather className="size-5" />}
+            className="size-5"
+          />
+        )}
       </span>
       <span className="ml-2.5 min-w-0 flex-1 text-left leading-tight">
-        <span className="block truncate text-sm font-medium">{story.name}</span>
-        {meta && <span className="block truncate text-[11px] text-muted-foreground">{meta}</span>}
+        <span className="block truncate text-sm font-medium">
+          {selectedStory
+            ? selectedStory.name
+            : selectedUniverse
+              ? selectedUniverse.title
+              : workshop.name}
+        </span>
+        {selectedStory ? (
+          meta ? (
+            <span className="block truncate text-[11px] text-muted-foreground">{meta}</span>
+          ) : null
+        ) : (
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {selectedUniverse
+              ? t("creative.kind.universe", "Вселенная")
+              : t("creative.workshop.all", "Вся мастерская")}
+          </span>
+        )}
       </span>
     </>
   )
+
+  const options = [
+    { value: "all", label: t("creative.workshop.all", "Вся мастерская") },
+    ...stories.map((story) => ({
+      value: `story:${story.storyId}`,
+      label: story.name,
+    })),
+    ...universes.map((univ) => ({
+      value: `universe:${univ.noteId}`,
+      label: univ.title,
+    })),
+  ]
+
+  const handleValueChange = (val: string) => {
+    if (val === "all") {
+      onSelectUniverse?.(null)
+      onSelectStory(null)
+    } else if (val.startsWith("story:")) {
+      onSelectUniverse?.(null)
+      onSelectStory(val.slice("story:".length))
+    } else if (val.startsWith("universe:")) {
+      onSelectStory(null)
+      onSelectUniverse?.(val.slice("universe:".length))
+    }
+  }
 
   return (
     <div className="shrink-0 px-3 pb-2">
       <div className="flex items-center gap-1 rounded-lg bg-accent/40 p-1">
         <div className="min-w-0 flex-1">
           <AmbySelect
-            aria-label={t("creative.workshop.chooseStory")}
-            value={story.projectId}
-            onValueChange={onSelectStory}
-            options={stories.map((entry) => ({ value: entry.projectId, label: entry.name }))}
+            aria-label={t("creative.workshop.chooseStory", "Выбрать историю")}
+            value={currentValue}
+            onValueChange={handleValueChange}
+            options={options}
             variant="bare"
             className="h-auto py-1"
-            title={story.name}
+            title={
+              selectedStory?.name ??
+              selectedUniverse?.title ??
+              t("creative.workshop.all", "Вся мастерская")
+            }
             renderValue={() => face}
             action={{
-              label: t("creative.panel.newStory"),
+              label: t("creative.panel.newStory", "Новая история"),
               icon: <Plus className="size-4" />,
               onSelect: onNewStory,
             }}
@@ -88,14 +164,14 @@ export function StoryHeader({
           variant="ghost"
           size="icon-sm"
           className="shrink-0 text-muted-foreground"
-          title={t("creative.workshop.openStory")}
-          aria-label={t("creative.workshop.openStory")}
-          onClick={() => onOpenStory(story.projectId)}
+          title={t("creative.workshop.openStory", "Открыть")}
+          aria-label={t("creative.workshop.openStory", "Открыть")}
+          onClick={onOpenTarget}
         >
           <ExternalLink className="size-4" />
         </Button>
       </div>
-      {resume && onOpenNote && (
+      {resume && onOpenNote && selectedStory && (
         <button
           type="button"
           onClick={() => onOpenNote(resume.noteId)}

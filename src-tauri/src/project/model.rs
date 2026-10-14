@@ -1,58 +1,46 @@
-//! IPC and domain types of the creative-project layer (see `docs/creative-format.md`).
+//! IPC and domain types of the creative workshop layer (see `docs/creative-format.md`).
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub const PROJECT_FILE_NAME: &str = "amby-project.json";
-/// The only structure-file version this build reads and writes. A different
-/// version opens read-only and the file is never rewritten.
-pub const KNOWN_FORMAT_VERSION: u64 = 2;
+pub const WORKSHOP_FILE_NAME: &str = "amby-workshop.json";
+pub const STORY_FILE_NAME: &str = "amby-story.json";
+pub const LEGACY_PROJECT_FILE_NAME: &str = "amby-project.json";
 
-/// Base section roles. A role is only a hint for which surfaces to offer.
-pub const ROLE_TEXT: &str = "text";
-pub const ROLE_NOTES: &str = "notes";
+/// Format version 3 is the flat workshop format.
+pub const KNOWN_FORMAT_VERSION: u64 = 3;
+
+/// Workshop section roles.
+pub const ROLE_STORIES: &str = "stories";
 pub const ROLE_CHARACTERS: &str = "characters";
 pub const ROLE_LOCATIONS: &str = "locations";
-/// The key, unchanging events of a story. A hint like the others: the section is an ordinary
-/// database, and a story may have none.
+pub const ROLE_UNIVERSES: &str = "universes";
+pub const ROLE_ARCS: &str = "arcs";
 pub const ROLE_ANCHORS: &str = "anchors";
-pub const KNOWN_ROLES: [&str; 5] = [
-    ROLE_TEXT,
-    ROLE_NOTES,
+pub const ROLE_NOTES: &str = "notes";
+pub const ROLE_CUSTOM: &str = "custom";
+
+pub const KNOWN_ROLES: [&str; 8] = [
+    ROLE_STORIES,
     ROLE_CHARACTERS,
     ROLE_LOCATIONS,
+    ROLE_UNIVERSES,
+    ROLE_ARCS,
     ROLE_ANCHORS,
+    ROLE_NOTES,
+    ROLE_CUSTOM,
 ];
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub enum ProjectKind {
-    Collection,
-    Story,
-}
+#[allow(dead_code)]
+pub const BASE_ROLES: [&str; 3] = [ROLE_STORIES, ROLE_CHARACTERS, ROLE_LOCATIONS];
+#[allow(dead_code)]
+pub const LAZY_ROLES: [&str; 4] = [ROLE_UNIVERSES, ROLE_ARCS, ROLE_ANCHORS, ROLE_NOTES];
 
-impl ProjectKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ProjectKind::Collection => "collection",
-            ProjectKind::Story => "story",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "collection" => Some(ProjectKind::Collection),
-            "story" => Some(ProjectKind::Story),
-            _ => None,
-        }
-    }
-}
-
-/// Typed failures of every project command. Field names are spelled out so the
-/// generated TypeScript matches `DatabaseError`'s style.
+/// Typed failures of every project / workshop command.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(tag = "kind", rename_all = "camelCase")]
+#[allow(dead_code)]
 pub enum ProjectError {
     ModuleDisabled,
     VaultNotOpen,
@@ -61,7 +49,6 @@ pub enum ProjectError {
         actual_generation: u64,
     },
     InvalidOperationId,
-    /// The operation ID was already used for a different request.
     OperationIdReused {
         #[serde(rename = "operationId")]
         operation_id: String,
@@ -76,20 +63,19 @@ pub enum ProjectError {
     PathCollision {
         path: String,
     },
-    NestedCollectionUnsupported {
-        #[serde(rename = "ancestorPath")]
-        ancestor_path: String,
+    WorkshopNotFound {
+        #[serde(rename = "workshopId")]
+        workshop_id: String,
     },
-    /// The enclosing project has a format this build does not know.
-    ParentProjectReadOnly {
-        path: String,
+    StoryNotFound {
+        #[serde(rename = "storyId")]
+        story_id: String,
     },
-    ProjectNotFound {
-        #[serde(rename = "projectId")]
-        project_id: String,
+    WorkshopReadOnly {
+        #[serde(rename = "formatVersion")]
+        format_version: u64,
     },
-    /// The structure file is newer than this build; it opens read-only.
-    ProjectReadOnly {
+    StoryReadOnly {
         #[serde(rename = "formatVersion")]
         format_version: u64,
     },
@@ -97,27 +83,19 @@ pub enum ProjectError {
         #[serde(rename = "actualRevision")]
         actual_revision: String,
     },
-    UnknownGroup {
-        #[serde(rename = "groupId")]
-        group_id: String,
-    },
     UnsupportedRole {
         role: String,
     },
-    /// The section preset is not one of the known starting points.
     UnsupportedPreset {
         preset: String,
     },
-    /// The section is not listed in `sections` of the structure file.
     SectionNotFound {
         #[serde(rename = "sectionId")]
         section_id: String,
     },
-    /// The text section is the spine of a story and cannot be removed from `sections`.
+    CannotRemoveStoriesSection,
     CannotRemoveTextSection,
-    /// The story already has a `status` property configured in `text.properties.status`.
     StatusAlreadyConfigured,
-    /// The story has no text schema (no `text` block, or its database is not found).
     TextNotConfigured,
     UnknownTextLevel {
         #[serde(rename = "levelId")]
@@ -127,31 +105,28 @@ pub enum ProjectError {
         #[serde(rename = "formatId")]
         format_id: String,
     },
-    /// An order key is 1-64 characters of `0-9A-Za-z`, compared bytewise.
     InvalidOrderKey,
-    /// The page, or the parent it should go under, is not a page of the text database.
     PageNotFound {
         #[serde(rename = "noteId")]
         note_id: String,
     },
-    /// The move would make a page its own ancestor.
     ParentCycle,
-    /// A parent must be on a shallower level than the page: the one named is the same or deeper
-    /// in `text.levels` (skipping a level is allowed).
     ParentLevelNotShallower {
         #[serde(rename = "parentLevelId")]
         parent_level_id: String,
         #[serde(rename = "levelId")]
         level_id: String,
     },
-    /// The operation failed and everything it had created was removed.
+    LevelInUse {
+        #[serde(rename = "levelId")]
+        level_id: String,
+        count: u64,
+    },
     RolledBack {
         #[serde(rename = "operationId")]
         operation_id: String,
         message: String,
     },
-    /// The operation failed and could not clean up completely; the journal is
-    /// kept and the leftovers are listed in the message.
     RecoveryRequired {
         #[serde(rename = "operationId")]
         operation_id: String,
@@ -194,23 +169,19 @@ impl std::fmt::Display for ProjectError {
             ProjectError::PathCollision { path } => {
                 write!(formatter, "Path already exists: {path}")
             }
-            ProjectError::NestedCollectionUnsupported { ancestor_path } => write!(
-                formatter,
-                "A collection cannot be created inside the collection at {ancestor_path}"
-            ),
-            ProjectError::ParentProjectReadOnly { path } => {
-                write!(formatter, "The project at {path} has an unknown format")
+            ProjectError::WorkshopNotFound { workshop_id } => {
+                write!(formatter, "Workshop {workshop_id} was not found")
             }
-            ProjectError::ProjectNotFound { project_id } => {
-                write!(formatter, "Project {project_id} was not found")
+            ProjectError::StoryNotFound { story_id } => {
+                write!(formatter, "Story {story_id} was not found")
             }
-            ProjectError::ProjectReadOnly { format_version } => {
-                write!(formatter, "Project format {format_version} is read-only")
+            ProjectError::WorkshopReadOnly { format_version } => {
+                write!(formatter, "Workshop format {format_version} is read-only")
             }
-            ProjectError::RevisionConflict { .. } => write!(formatter, "Project revision conflict"),
-            ProjectError::UnknownGroup { group_id } => {
-                write!(formatter, "Unknown project group {group_id}")
+            ProjectError::StoryReadOnly { format_version } => {
+                write!(formatter, "Story format {format_version} is read-only")
             }
+            ProjectError::RevisionConflict { .. } => write!(formatter, "Revision conflict"),
             ProjectError::UnsupportedRole { role } => write!(formatter, "Unsupported role {role}"),
             ProjectError::UnsupportedPreset { preset } => {
                 write!(formatter, "Unsupported section preset {preset}")
@@ -218,8 +189,14 @@ impl std::fmt::Display for ProjectError {
             ProjectError::SectionNotFound { section_id } => {
                 write!(formatter, "Section {section_id} was not found")
             }
+            ProjectError::CannotRemoveStoriesSection => {
+                write!(
+                    formatter,
+                    "The stories section of a workshop cannot be removed"
+                )
+            }
             ProjectError::CannotRemoveTextSection => {
-                write!(formatter, "The text section of a story cannot be removed")
+                write!(formatter, "The text section cannot be removed")
             }
             ProjectError::StatusAlreadyConfigured => {
                 write!(
@@ -247,6 +224,12 @@ impl std::fmt::Display for ProjectError {
             ProjectError::ParentCycle => {
                 write!(formatter, "A page cannot go under its own descendant")
             }
+            ProjectError::LevelInUse { level_id, count } => {
+                write!(
+                    formatter,
+                    "Text level {level_id} is in use by {count} page(s)"
+                )
+            }
             ProjectError::RolledBack { message, .. } => {
                 write!(formatter, "Operation rolled back: {message}")
             }
@@ -262,13 +245,6 @@ impl std::fmt::Display for ProjectError {
 // Catalog (read side)
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ProjectGroupSummary {
-    pub id: String,
-    pub name: String,
-}
-
 /// How a declared section relates to the databases of the vault.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
@@ -283,10 +259,10 @@ pub enum SectionState {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectSectionSummary {
+pub struct WorkshopSectionSummary {
     pub id: String,
-    pub role: Option<String>,
-    pub group_id: Option<String>,
+    pub role: String,
+    pub name: String,
     pub database_id: String,
     /// The relative path recorded in the structure file (a hint).
     pub path_hint: String,
@@ -322,8 +298,7 @@ pub struct TextLevelSummary {
     pub state: TextEntryState,
 }
 
-/// A page format. `kind` is the file's word; an unknown one is passed through and means
-/// plain text.
+/// A page format.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct TextFormatSummary {
@@ -355,55 +330,64 @@ pub struct TextPropertyIds {
     pub order: Option<String>,
     pub format: Option<String>,
     pub status: Option<String>,
+    pub anchors: Option<String>,
+    pub arcs: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectTextSummary {
-    /// The database of the section with the role `text`.
     pub database_id: Option<String>,
     pub properties: TextPropertyIds,
     pub levels: Vec<TextLevelSummary>,
     pub formats: Vec<TextFormatSummary>,
-    /// Options of `properties.status`, in property order; empty when `status` is not configured.
     pub status_options: Vec<TextStatusOptionSummary>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectSummary {
-    pub project_id: String,
-    pub kind: ProjectKind,
+pub struct StorySummary {
+    pub story_id: String,
+    pub workshop_id: String,
     pub name: String,
-    pub icon: Option<String>,
-    pub tags: Vec<String>,
-    /// Vault-relative project folder; empty for a project at the vault root.
-    pub path: String,
-    /// Raw-byte revision of the structure file, for `expectedProjectRevision`.
+    pub folder_path: String,
+    pub card_path: String,
+    pub card_note_id: Option<String>,
+    pub database_id: Option<String>,
     pub file_revision: String,
     pub format_version: u64,
-    /// True for a format this build does not know: the file is never rewritten.
-    pub read_only: bool,
-    /// The nearest collection above a story (by folder nesting).
-    pub collection_id: Option<String>,
-    pub groups: Vec<ProjectGroupSummary>,
-    pub sections: Vec<ProjectSectionSummary>,
-    /// The `text` block of a story as JSON, exactly as the file has it.
     pub text_json: Option<String>,
-    /// The `text` block resolved against the text database.
     pub text: Option<ProjectTextSummary>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkshopSummary {
+    pub workshop_id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub tags: Vec<String>,
+    /// Vault-relative workshop folder; empty for a workshop at the vault root.
+    pub path: String,
+    /// Raw-byte revision of `amby-workshop.json`.
+    pub file_revision: String,
+    pub format_version: u64,
+    pub read_only: bool,
+    pub sections: Vec<WorkshopSectionSummary>,
+    pub stories: Vec<StorySummary>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectDiagnostic {
-    /// Stable code the interface localizes, for example `duplicateProjectId`.
+    /// Stable code the interface localizes, for example `duplicateWorkshopId`.
     pub code: String,
     /// `warning` or `error`.
     pub severity: String,
-    /// Vault-relative path of the structure file.
+    /// Vault-relative path of the relevant file.
     pub path: String,
-    pub project_id: Option<String>,
+    pub workshop_id: Option<String>,
+    pub story_id: Option<String>,
     pub detail: Option<String>,
 }
 
@@ -413,153 +397,245 @@ pub struct ProjectCatalog {
     pub vault_generation: u64,
     /// Changes whenever the index is rebuilt.
     pub index_epoch: String,
-    pub projects: Vec<ProjectSummary>,
+    pub workshops: Vec<WorkshopSummary>,
     pub diagnostics: Vec<ProjectDiagnostic>,
 }
 
 // ---------------------------------------------------------------------------
-// Creation (write side)
+// Creation & Mutation Requests & Responses
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateProjectRequest {
+pub struct CreateWorkshopRequest {
     pub expected_generation: u64,
-    /// One per user intent. Repeating the request with the same ID and payload
-    /// never creates a second set.
     pub operation_id: String,
-    pub kind: ProjectKind,
     pub name: String,
-    /// Folder that will contain the project folder (absolute inside the vault,
-    /// or vault-relative). Empty means the vault root.
     #[serde(default)]
     pub parent_path: Option<String>,
-    /// Encoded `IconValue`, stored as is.
     #[serde(default)]
     pub icon: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
-    /// Create the base sections of the kind: a story gets Text, Notes,
-    /// Characters and Locations; a collection gets Characters and Locations (a
-    /// universe). A plain collection passes `false`.
-    pub base_sections: bool,
-    /// Names for the base sections and groups, keyed `section:<role>` and
-    /// `group:<id>`, and for the text schema of a story, keyed `property:<key>`,
-    /// `level:<key>` and `format:<kind>`. Missing keys fall back to Russian defaults.
     #[serde(default)]
     pub labels: BTreeMap<String, String>,
-    /// The levels of the story's text, outermost first: 1 to 6 distinct names. Omitted: the
-    /// four of the template (Book, Arc, Chapter, Page, named by `level:*`). Only a story that
-    /// gets its text section may pass it. The IDs of the levels are issued by the backend.
-    #[serde(default)]
-    pub text_levels: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct CreatedProjectSection {
+pub struct CreatedWorkshopSection {
     pub section_id: String,
-    pub role: Option<String>,
-    pub group_id: Option<String>,
+    pub role: String,
     pub name: String,
     pub database_id: String,
-    /// Path relative to the project folder (the hint stored in the file).
     pub path: String,
-    /// Vault-relative container of the new database.
     pub container_path: String,
     pub manifest_revision: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct CreatedProject {
+pub struct CreatedWorkshop {
     pub operation_id: String,
-    pub project_id: String,
-    pub kind: ProjectKind,
+    pub workshop_id: String,
     pub name: String,
-    /// Vault-relative project folder.
     pub path: String,
-    /// Vault-relative structure file.
     pub file_path: String,
     pub file_revision: String,
-    pub sections: Vec<CreatedProjectSection>,
-    /// True when this answer was recorded by an earlier identical call.
+    pub sections: Vec<CreatedWorkshopSection>,
     pub replayed: bool,
     pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct CreateProjectSectionRequest {
+pub struct CreateStoryRequest {
     pub expected_generation: u64,
     pub operation_id: String,
-    pub project_id: String,
-    /// Raw-byte revision of the structure file the caller last saw.
-    pub expected_project_revision: String,
-    pub name: String,
-    #[serde(default)]
-    pub role: Option<String>,
-    #[serde(default)]
-    pub group_id: Option<String>,
-    /// A starting point for a world section: `characters`, `locations`, `organizations` or
-    /// `items`. It sets an icon, starting properties, a gallery view grouped by importance
-    /// (or kind) and the starter headings of the page template. Omitted: an empty database.
-    #[serde(default)]
-    pub preset: Option<String>,
-    /// Names for the text schema (`property:*`, `level:*`, `format:*`) and for a preset
-    /// (`preset:*`, `importance:*`, `kind:*`, `heading:*`, `view:gallery`,
-    /// `template:dossier`); read only for those sections. Missing keys fall back to Russian.
-    #[serde(default)]
-    pub labels: BTreeMap<String, String>,
-    /// The levels of the text, outermost first (1 to 6 distinct names); only for a section with
-    /// the `text` role. Omitted: the four of the template, named by `level:*`.
+    pub workshop_id: String,
+    pub title: String,
     #[serde(default)]
     pub text_levels: Option<Vec<String>>,
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct CreatedSection {
+pub struct CreatedStory {
     pub operation_id: String,
-    pub project_id: String,
-    pub section: CreatedProjectSection,
-    pub project_revision: String,
+    pub workshop_id: String,
+    pub story_id: String,
+    pub title: String,
+    pub folder_path: String,
+    pub card_path: String,
+    pub card_note_id: String,
+    pub database_id: String,
+    pub story_file_revision: String,
     pub replayed: bool,
     pub warnings: Vec<String>,
 }
 
-/// Emitted as the `project:changed` event when the watcher sees a path that can
-/// change project discovery. Mirrors the `database:changed` payload.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectChangedPayload {
-    /// `file` for the structure file itself, `folder` for a folder event that
-    /// may have moved or removed a whole project.
-    pub kind: &'static str,
-    /// Vault-relative, slash-normalized path.
-    pub path: String,
-    pub generation: u64,
+pub struct CreateWorkshopSectionRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub expected_workshop_revision: String,
+    pub role: String,
+    pub name: String,
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
 }
 
-// ---------------------------------------------------------------------------
-// Text pages
-// ---------------------------------------------------------------------------
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedWorkshopSectionResult {
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub section: CreatedWorkshopSection,
+    pub workshop_revision: String,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateWorkshopRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub expected_workshop_revision: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedWorkshop {
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub tags: Vec<String>,
+    pub workshop_revision: String,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveWorkshopSectionRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub expected_workshop_revision: String,
+    pub section_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RemovedWorkshopSection {
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub section_id: String,
+    pub workshop_revision: String,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderWorkshopSectionsRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub expected_workshop_revision: String,
+    pub section_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ReorderedWorkshopSections {
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub section_ids: Vec<String>,
+    pub workshop_revision: String,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct TextLevelUpdateInput {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub name: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateTextLevelsRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub story_id: String,
+    pub expected_story_revision: String,
+    pub levels: Vec<TextLevelUpdateInput>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatedTextLevels {
+    pub operation_id: String,
+    pub story_id: String,
+    pub story_revision: String,
+    pub manifest_revision: String,
+    pub level_ids: Vec<String>,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddTextStatusRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub story_id: String,
+    pub expected_story_revision: String,
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedTextStatus {
+    pub operation_id: String,
+    pub story_id: String,
+    pub property_id: String,
+    pub story_revision: String,
+    pub manifest_revision: String,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateTextPageRequest {
     pub expected_generation: u64,
-    pub project_id: String,
+    pub story_id: String,
     pub title: String,
-    /// The page it goes under; none puts it at the top of the text.
     #[serde(default)]
     pub parent_note_id: Option<String>,
-    /// An `id` from `text.levels` (the option ID of the level Select).
     pub level_id: String,
-    /// An `id` from `text.formats`. Omitted: the manuscript format, when the file has one.
     #[serde(default)]
     pub format_id: Option<String>,
-    /// Where it goes among its siblings. The caller computes it (see `fractional-index.ts`).
     pub order_key: String,
 }
 
@@ -581,15 +657,12 @@ pub struct CreatedTextPage {
 #[serde(rename_all = "camelCase")]
 pub struct MoveTextPageRequest {
     pub expected_generation: u64,
-    /// One per intent, as for every write: a repeat does not write twice.
     pub operation_id: String,
-    pub project_id: String,
+    pub story_id: String,
     pub note_id: String,
-    /// None makes the page a top-level one.
     #[serde(default)]
     pub new_parent_note_id: Option<String>,
     pub order_key: String,
-    /// Raw-byte revision of the page the caller last saw.
     pub expected_revision: String,
 }
 
@@ -600,140 +673,14 @@ pub struct MovedTextPage {
     pub note_id: String,
     pub parent_note_id: Option<String>,
     pub order_key: String,
-    /// The page's revision after the write.
     pub revision: String,
     pub warnings: Vec<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Project settings & text schema updates (write side)
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UpdateProjectRequest {
-    pub expected_generation: u64,
-    pub operation_id: String,
-    pub project_id: String,
-    pub expected_project_revision: String,
-    #[serde(default)]
-    pub name: Option<String>,
-    /// `None` leaves the icon unchanged; `Some("")` removes the icon; `Some(v)` sets it.
-    #[serde(default)]
-    pub icon: Option<String>,
-    #[serde(default)]
-    pub tags: Option<Vec<String>>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdatedProject {
-    pub operation_id: String,
-    pub project_id: String,
-    pub name: String,
-    pub icon: Option<String>,
-    pub tags: Vec<String>,
-    pub project_revision: String,
-    pub replayed: bool,
-    pub warnings: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoveProjectSectionRequest {
-    pub expected_generation: u64,
-    pub operation_id: String,
-    pub project_id: String,
-    pub expected_project_revision: String,
-    pub section_id: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct RemovedProjectSection {
-    pub operation_id: String,
-    pub project_id: String,
-    pub section_id: String,
-    pub project_revision: String,
-    pub replayed: bool,
-    pub warnings: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ReorderProjectSectionsRequest {
-    pub expected_generation: u64,
-    pub operation_id: String,
-    pub project_id: String,
-    pub expected_project_revision: String,
-    pub section_ids: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct ReorderedProjectSections {
-    pub operation_id: String,
-    pub project_id: String,
-    pub section_ids: Vec<String>,
-    pub project_revision: String,
-    pub replayed: bool,
-    pub warnings: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct TextLevelUpdateInput {
-    /// Existing option ID from `text.levels`, or `None` for a newly added level.
-    #[serde(default)]
-    pub id: Option<String>,
-    /// Option name stored in the `level` Select property of the text database.
-    pub name: String,
-    /// Optional encoded `IconValue` stored in `text.levels[].icon`.
-    #[serde(default)]
-    pub icon: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateTextLevelsRequest {
-    pub expected_generation: u64,
-    pub operation_id: String,
-    pub project_id: String,
-    pub expected_project_revision: String,
-    pub levels: Vec<TextLevelUpdateInput>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdatedTextLevels {
-    pub operation_id: String,
-    pub project_id: String,
-    pub project_revision: String,
-    pub manifest_revision: String,
-    pub level_ids: Vec<String>,
-    pub replayed: bool,
-    pub warnings: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct AddTextStatusRequest {
-    pub expected_generation: u64,
-    pub operation_id: String,
-    pub project_id: String,
-    pub expected_project_revision: String,
-    #[serde(default)]
-    pub labels: BTreeMap<String, String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct AddedTextStatus {
-    pub operation_id: String,
-    pub project_id: String,
-    pub property_id: String,
-    pub project_revision: String,
-    pub manifest_revision: String,
-    pub replayed: bool,
-    pub warnings: Vec<String>,
+pub struct ProjectChangedPayload {
+    pub kind: &'static str,
+    pub path: String,
+    pub generation: u64,
 }

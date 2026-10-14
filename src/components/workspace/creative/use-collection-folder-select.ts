@@ -42,10 +42,10 @@ export function useCollectionFolderSelect({
         fallback(id)
         return
       }
-      useCreativeNavStore.getState().setScope(collection.projectId)
-      if (vault) writeStoredScope(vault, collection.projectId)
+      useCreativeNavStore.getState().setScope(collection.workshopId)
+      if (vault) writeStoredScope(vault, collection.workshopId)
       showPanel()
-      openProject(collection.projectId)
+      openProject(collection.workshopId)
     },
     [catalog, enabled, fallback, itemById, openProject, showPanel, vault],
   )

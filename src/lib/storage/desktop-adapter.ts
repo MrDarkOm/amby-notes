@@ -10,24 +10,26 @@ import { unwrapProjectCommand } from "./project-port"
 import type {
   AddTextStatusRequest,
   AddedTextStatus,
-  CreateProjectRequest,
-  CreateProjectSectionRequest,
-  CreatedProject,
-  CreatedSection,
+  CreateStoryRequest,
+  CreateWorkshopRequest,
+  CreateWorkshopSectionRequest,
+  CreatedStory,
+  CreatedWorkshop,
+  CreatedWorkshopSectionResult,
   CreatedTextPage,
   CreateTextPageRequest,
   MoveTextPageRequest,
   MovedTextPage,
   NoteReference,
-  RemoveProjectSectionRequest,
-  RemovedProjectSection,
-  ReorderProjectSectionsRequest,
-  ReorderedProjectSections,
+  RemoveWorkshopSectionRequest,
+  RemovedWorkshopSection,
+  ReorderWorkshopSectionsRequest,
+  ReorderedWorkshopSections,
   TextPageStat,
-  UpdateProjectRequest,
   UpdateTextLevelsRequest,
-  UpdatedProject,
+  UpdateWorkshopRequest,
   UpdatedTextLevels,
+  UpdatedWorkshop,
   ProjectCatalog,
 } from "./project-types"
 import type {
@@ -481,9 +483,9 @@ export class DesktopAdapter implements StoragePort {
     return unwrapProjectCommand(await commands.refreshProjects(expectedGeneration))
   }
 
-  async createProject(request: CreateProjectRequest): Promise<CreatedProject> {
+  async createWorkshop(request: CreateWorkshopRequest): Promise<CreatedWorkshop> {
     return unwrapProjectCommand(
-      await commands.createProject({
+      await commands.createWorkshop({
         ...request,
         parentPath: request.parentPath ?? null,
         icon: request.icon ?? null,
@@ -493,21 +495,30 @@ export class DesktopAdapter implements StoragePort {
     )
   }
 
-  async createProjectSection(request: CreateProjectSectionRequest): Promise<CreatedSection> {
+  async createStory(request: CreateStoryRequest): Promise<CreatedStory> {
     return unwrapProjectCommand(
-      await commands.createProjectSection({
+      await commands.createStory({
         ...request,
-        role: request.role ?? null,
-        groupId: request.groupId ?? null,
-        preset: request.preset ?? null,
+        textLevels: request.textLevels ?? null,
         labels: request.labels ?? {},
       }),
     )
   }
 
-  async updateProject(request: UpdateProjectRequest): Promise<UpdatedProject> {
+  async createWorkshopSection(
+    request: CreateWorkshopSectionRequest,
+  ): Promise<CreatedWorkshopSectionResult> {
     return unwrapProjectCommand(
-      await commands.updateProject({
+      await commands.createWorkshopSection({
+        ...request,
+        labels: request.labels ?? {},
+      }),
+    )
+  }
+
+  async updateWorkshop(request: UpdateWorkshopRequest): Promise<UpdatedWorkshop> {
+    return unwrapProjectCommand(
+      await commands.updateWorkshop({
         ...request,
         name: request.name ?? null,
         icon: request.icon ?? null,
@@ -516,14 +527,16 @@ export class DesktopAdapter implements StoragePort {
     )
   }
 
-  async removeProjectSection(request: RemoveProjectSectionRequest): Promise<RemovedProjectSection> {
-    return unwrapProjectCommand(await commands.removeProjectSection(request))
+  async removeWorkshopSection(
+    request: RemoveWorkshopSectionRequest,
+  ): Promise<RemovedWorkshopSection> {
+    return unwrapProjectCommand(await commands.removeWorkshopSection(request))
   }
 
-  async reorderProjectSections(
-    request: ReorderProjectSectionsRequest,
-  ): Promise<ReorderedProjectSections> {
-    return unwrapProjectCommand(await commands.reorderProjectSections(request))
+  async reorderWorkshopSections(
+    request: ReorderWorkshopSectionsRequest,
+  ): Promise<ReorderedWorkshopSections> {
+    return unwrapProjectCommand(await commands.reorderWorkshopSections(request))
   }
 
   async updateTextLevels(request: UpdateTextLevelsRequest): Promise<UpdatedTextLevels> {

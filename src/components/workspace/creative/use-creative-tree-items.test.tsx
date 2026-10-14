@@ -29,17 +29,13 @@ describe("useCreativeTreeItems", () => {
   beforeEach(() => {
     useProjectStore.getState().reset()
     useCreativeSettingsStore.setState({ showInTree: true })
-    act(() =>
-      useProjectStore
-        .getState()
-        .setCatalog(catalog([project("verse", { kind: "collection", path: "Verse" })])),
-    )
+    act(() => useProjectStore.getState().setCatalog(catalog([project("verse", { path: "Verse" })])))
   })
   afterEach(() => vi.restoreAllMocks())
 
   it("marks the project folder while the module is on", () => {
     const { result } = renderHook(() => useCreativeTreeItems(tree, VAULT, true))
-    expect(result.current[0].icon).toContain("amby-icon:layers:")
+    expect(result.current[0].icon).toContain("amby-icon:feather:")
   })
 
   it("hands the vault's own tree back untouched while the module is off", () => {

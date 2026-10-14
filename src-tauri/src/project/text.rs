@@ -2,24 +2,22 @@
 //! moving one, as single writes into the text database.
 //!
 //! The text database is an ordinary database. A page is a note whose frontmatter holds the
-//! values of the four system properties named by `text.properties`; nothing here keeps a
+//! values of the system properties named by `text.properties`; nothing here keeps a
 //! second copy of the tree. A move rewrites only the moved page (parent and order in one
-//! write). Cycles are refused before the write; a cycle that reaches the files by other
-//! means (an external edit, the relation picker) is the tree's problem to survive.
+//! write). Cycles are refused before the write.
 
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 
 use super::create::Env;
 use super::discovery::discover_projects;
+use super::format::parse_story_file;
 use super::model::{
     CreateTextPageRequest, CreatedTextPage, MoveTextPageRequest, MovedTextPage, ProjectError,
-    ROLE_TEXT,
+    STORY_FILE_NAME,
 };
-use crate::database::discovery::discover_vault;
 use crate::database::format::{parse_manifest, DatabaseManifest, PropertyValue};
 use crate::database::history::DatabaseHistoryState;
 use crate::database::mutations::{
@@ -57,28 +55,45 @@ fn option_exists(manifest: &DatabaseManifest, property_id: &str, option_id: &str
         .is_some_and(|property| property.find_option_name(option_id).is_some())
 }
 
-fn resolve(env: &Env, project_id: &str) -> Result<TextTarget, ProjectError> {
-    let project = discover_projects(env.vault)
-        .map_err(|message| ProjectError::failed("discoveryFailed", message))?
-        .projects
-        .into_iter()
-        .find(|candidate| candidate.doc.project_id == project_id)
-        .ok_or_else(|| ProjectError::ProjectNotFound {
-            project_id: project_id.to_owned(),
-        })?;
-    let doc = project.doc;
-    if !doc.is_known_version() {
-        return Err(ProjectError::ProjectReadOnly {
-            format_version: doc.format_version,
+fn resolve(env: &Env, story_id: &str) -> Result<TextTarget, ProjectError> {
+    let discovery = discover_projects(env.vault)
+        .map_err(|message| ProjectError::failed("discoveryFailed", message))?;
+
+    let mut found_story = None;
+    for workshop in &discovery.workshops {
+        for story in &workshop.stories {
+            if story.story_id == story_id {
+                found_story = Some(story.clone());
+                break;
+            }
+        }
+        if found_story.is_some() {
+            break;
+        }
+    }
+
+    let story = found_story.ok_or_else(|| ProjectError::StoryNotFound {
+        story_id: story_id.to_owned(),
+    })?;
+
+    let story_folder = env.vault.join(&story.folder_path);
+    let story_file = story_folder.join(STORY_FILE_NAME);
+    let story_bytes = std::fs::read(&story_file)
+        .map_err(|error| ProjectError::failed("readStoryFile", error.to_string()))?;
+    let story_doc = parse_story_file(&story_bytes)
+        .map_err(|problem| ProjectError::failed("storyFormat", problem.detail))?;
+
+    if !story_doc.is_known_version() {
+        return Err(ProjectError::StoryReadOnly {
+            format_version: story_doc.format_version,
         });
     }
-    let block = doc.raw.get("text").ok_or(ProjectError::TextNotConfigured)?;
-    let database_id = doc
-        .sections
-        .iter()
-        .find(|section| section.role.as_deref() == Some(ROLE_TEXT))
-        .map(|section| section.database_id.clone())
+
+    let block = story_doc
+        .raw
+        .get("text")
         .ok_or(ProjectError::TextNotConfigured)?;
+    let database_id = story.database_id.ok_or(ProjectError::TextNotConfigured)?;
     let container = find_database_container(env.vault, &database_id)
         .map_err(|_| ProjectError::TextNotConfigured)?;
     let manifest_path = crate::database::discovery::manifest_path_for_container(&container);
@@ -103,6 +118,7 @@ fn resolve(env: &Env, project_id: &str) -> Result<TextTarget, ProjectError> {
             Err(broken(format!("the {key} property was deleted")))
         }
     };
+
     let level = property("level")?;
     let parent = property("parent")?;
     let order = property("order")?;
@@ -121,6 +137,7 @@ fn resolve(env: &Env, project_id: &str) -> Result<TextTarget, ProjectError> {
             })
             .collect()
     };
+
     Ok(TextTarget {
         database_id,
         level_ids: ids("levels").into_iter().map(|(id, _)| id).collect(),
@@ -141,73 +158,65 @@ pub fn valid_order_key(key: &str) -> bool {
     !key.is_empty() && key.len() <= 64 && key.bytes().all(|byte| byte.is_ascii_alphanumeric())
 }
 
-/// The note IDs of the pages of a database.
-fn page_ids(vault: &Path, database_id: &str) -> Result<Vec<String>, ProjectError> {
-    Ok(discover_vault(vault)
-        .map_err(|message| ProjectError::failed("discoveryFailed", message))?
-        .notes
-        .into_iter()
-        .filter(|note| note.owner_database_id.as_deref() == Some(database_id))
-        .filter_map(|note| note.note_id)
-        .collect())
+fn note_belongs_to_database(
+    connection: &Connection,
+    database_id: &str,
+    note_id: &str,
+) -> Result<bool, ProjectError> {
+    connection
+        .query_row(
+            "SELECT 1 FROM db_members WHERE database_id = ?1 AND note_id = ?2",
+            params![database_id, note_id],
+            |_| Ok(()),
+        )
+        .optional()
+        .map(|found| found.is_some())
+        .map_err(|error| ProjectError::failed("projectIndexFailed", error.to_string()))
 }
 
-fn require_page(pages: &[String], note_id: &str) -> Result<(), ProjectError> {
-    if pages.iter().any(|candidate| candidate == note_id) {
-        Ok(())
-    } else {
-        Err(ProjectError::PageNotFound {
-            note_id: note_id.to_owned(),
-        })
-    }
-}
-
-/// The level (option ID) a page holds, from the projection; none when it has no value.
 fn level_of(
     connection: &Connection,
-    target: &TextTarget,
+    database_id: &str,
+    level_property_id: &str,
     note_id: &str,
 ) -> Result<Option<String>, ProjectError> {
     connection
         .query_row(
-            "SELECT option_id FROM db_values WHERE database_id = ?1 AND note_id = ?2 AND property_id = ?3",
-            params![target.database_id, note_id, target.level],
-            |row| row.get::<_, Option<String>>(0),
+            "SELECT option_id FROM db_values WHERE database_id = ?1 AND property_id = ?2 AND note_id = ?3",
+            params![database_id, level_property_id, note_id],
+            |row| row.get(0),
         )
         .optional()
-        .map(Option::flatten)
         .map_err(|error| ProjectError::failed("projectIndexFailed", error.to_string()))
 }
 
-/// A parent sits on a shallower level than its page, by the order of `text.levels`; skipping
-/// a level is fine. A level the file does not list (no value, a removed option) cannot be
-/// compared and constrains nothing.
 fn check_parent_level(
-    connection: &Connection,
-    target: &TextTarget,
-    parent_note_id: &str,
-    level_id: Option<&str>,
+    levels: &[String],
+    parent_level: Option<&str>,
+    page_level: &str,
 ) -> Result<(), ProjectError> {
-    let (Some(level_id), Some(parent_level)) =
-        (level_id, level_of(connection, target, parent_note_id)?)
-    else {
+    let Some(parent_level) = parent_level else {
         return Ok(());
     };
-    let depth = |id: &str| {
-        target
-            .level_ids
-            .iter()
-            .position(|candidate| candidate == id)
-    };
-    match (depth(&parent_level), depth(level_id)) {
-        (Some(parent), Some(page)) if parent >= page => {
-            Err(ProjectError::ParentLevelNotShallower {
-                parent_level_id: parent_level,
-                level_id: level_id.to_owned(),
-            })
-        }
-        _ => Ok(()),
+    let parent_depth = levels
+        .iter()
+        .position(|id| id == parent_level)
+        .ok_or_else(|| ProjectError::UnknownTextLevel {
+            level_id: parent_level.to_owned(),
+        })?;
+    let page_depth = levels
+        .iter()
+        .position(|id| id == page_level)
+        .ok_or_else(|| ProjectError::UnknownTextLevel {
+            level_id: page_level.to_owned(),
+        })?;
+    if parent_depth >= page_depth {
+        return Err(ProjectError::ParentLevelNotShallower {
+            parent_level_id: parent_level.to_owned(),
+            level_id: page_level.to_owned(),
+        });
     }
+    Ok(())
 }
 
 pub fn create_page(
@@ -218,7 +227,7 @@ pub fn create_page(
     if !valid_order_key(&request.order_key) {
         return Err(ProjectError::InvalidOrderKey);
     }
-    let target = resolve(env, &request.project_id)?;
+    let target = resolve(env, &request.story_id)?;
     if !target.level_ids.contains(&request.level_id)
         || !option_exists(&target.manifest, &target.level, &request.level_id)
     {
@@ -226,9 +235,9 @@ pub fn create_page(
             level_id: request.level_id.clone(),
         });
     }
-    let format_id = match &request.format_id {
+    let chosen_format = match &request.format_id {
         Some(id) => {
-            if !target.formats.iter().any(|(candidate, _)| candidate == id)
+            if !target.formats.iter().any(|(option, _)| option == id)
                 || !option_exists(&target.manifest, &target.format, id)
             {
                 return Err(ProjectError::UnknownTextFormat {
@@ -240,103 +249,132 @@ pub fn create_page(
         None => target
             .formats
             .iter()
-            .find(|(id, kind)| {
-                kind == "manuscript" && option_exists(&target.manifest, &target.format, id)
-            })
-            .map(|(id, _)| id.clone()),
+            .find(|(_, kind)| kind == "manuscript")
+            .map(|(id, _)| id.clone())
+            .or_else(|| target.formats.first().map(|(id, _)| id.clone())),
     };
+
     if let Some(parent) = &request.parent_note_id {
-        require_page(&page_ids(env.vault, &target.database_id)?, parent)?;
-        check_parent_level(connection, &target, parent, Some(&request.level_id))?;
+        if !note_belongs_to_database(connection, &target.database_id, parent)? {
+            return Err(ProjectError::PageNotFound {
+                note_id: parent.clone(),
+            });
+        }
+        let parent_level = level_of(connection, &target.database_id, &target.level, parent)?;
+        check_parent_level(
+            &target.level_ids,
+            parent_level.as_deref(),
+            &request.level_id,
+        )?;
     }
 
-    let mut initial = BTreeMap::new();
-    initial.insert(
+    let mut values = BTreeMap::new();
+    values.insert(
         target.level.clone(),
         PropertyValue::Select {
             option_id: request.level_id.clone(),
-            extra: Default::default(),
+            extra: BTreeMap::new(),
         },
     );
-    initial.insert(
+    values.insert(
         target.order.clone(),
         PropertyValue::Text {
             value: request.order_key.clone(),
-            extra: Default::default(),
+            extra: BTreeMap::new(),
         },
     );
-    if let Some(id) = &format_id {
-        initial.insert(
-            target.format.clone(),
-            PropertyValue::Select {
-                option_id: id.clone(),
-                extra: Default::default(),
-            },
-        );
-    }
     if let Some(parent) = &request.parent_note_id {
-        initial.insert(
+        values.insert(
             target.parent.clone(),
             PropertyValue::Relation {
                 target_note_ids: vec![parent.clone()],
-                extra: Default::default(),
+                extra: BTreeMap::new(),
             },
         );
     }
+    if let Some(format_id) = &chosen_format {
+        values.insert(
+            target.format.clone(),
+            PropertyValue::Select {
+                option_id: format_id.clone(),
+                extra: BTreeMap::new(),
+            },
+        );
+    }
+
     let created = create_database_row_with_values(
         env.vault,
         env.watcher,
         &CreateDatabaseRowRequest {
-            expected_generation: request.expected_generation,
+            expected_generation: 0,
             database_id: target.database_id.clone(),
             title: request.title.clone(),
-            template: DatabaseRowTemplate::Default,
+            template: DatabaseRowTemplate::Empty,
         },
-        &initial,
+        &values,
     )
-    .map_err(|message| ProjectError::failed("pageCreateFailed", message))?;
+    .map_err(|error| ProjectError::failed("createPageFailed", error.to_string()))?;
+
     Ok(CreatedTextPage {
         database_id: target.database_id,
         note_id: created.note_id,
         title: created.title,
         note_path: created.note_path,
         level_id: request.level_id.clone(),
-        format_id,
+        format_id: chosen_format,
         parent_note_id: request.parent_note_id.clone(),
         order_key: request.order_key.clone(),
         warnings: created.warnings,
     })
 }
 
-/// Whether making `new_parent` the parent of `note_id` would close a loop, walking the
-/// parent edges the projection holds. A loop that is already there ends the walk too.
-pub fn would_cycle(
+fn load_parent_edges(
     connection: &Connection,
     database_id: &str,
     parent_property_id: &str,
-    note_id: &str,
-    new_parent: &str,
-) -> Result<bool, ProjectError> {
-    let mut current = new_parent.to_owned();
+) -> Result<BTreeMap<String, String>, ProjectError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT source_note_id, target_note_id FROM db_relation_edges WHERE source_database_id = ?1 AND property_id = ?2",
+        )
+        .map_err(|error| ProjectError::failed("projectIndexFailed", error.to_string()))?;
+    let rows = statement
+        .query_map(params![database_id, parent_property_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| ProjectError::failed("projectIndexFailed", error.to_string()))?;
+    let mut map = BTreeMap::new();
+    for row in rows {
+        let (source, target) =
+            row.map_err(|error| ProjectError::failed("projectIndexFailed", error.to_string()))?;
+        map.insert(source, target);
+    }
+    Ok(map)
+}
+
+fn causes_cycle(
+    parents: &BTreeMap<String, String>,
+    page_id: &str,
+    new_parent_id: Option<&str>,
+) -> bool {
+    let mut current = match new_parent_id {
+        Some(parent) => parent,
+        None => return false,
+    };
     let mut seen = std::collections::HashSet::new();
+    seen.insert(current);
     loop {
-        if current == note_id {
-            return Ok(true);
+        if current == page_id {
+            return true;
         }
-        if !seen.insert(current.clone()) {
-            return Ok(false);
-        }
-        let next: Option<String> = connection
-            .query_row(
-                "SELECT target_note_id FROM db_relation_edges WHERE source_database_id = ?1 AND source_note_id = ?2 AND property_id = ?3 ORDER BY position LIMIT 1",
-                params![database_id, current, parent_property_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|error| ProjectError::failed("projectIndexFailed", error.to_string()))?;
-        match next {
-            Some(parent) => current = parent,
-            None => return Ok(false),
+        match parents.get(current) {
+            Some(next) => {
+                if !seen.insert(next.as_str()) {
+                    return false;
+                }
+                current = next;
+            }
+            None => return false,
         }
     }
 }
@@ -353,82 +391,104 @@ pub fn move_page(
     if !valid_order_key(&request.order_key) {
         return Err(ProjectError::InvalidOrderKey);
     }
-    let target = resolve(env, &request.project_id)?;
-    let pages = page_ids(env.vault, &target.database_id)?;
-    require_page(&pages, &request.note_id)?;
+    let target = resolve(env, &request.story_id)?;
+    if !note_belongs_to_database(connection, &target.database_id, &request.note_id)? {
+        return Err(ProjectError::PageNotFound {
+            note_id: request.note_id.clone(),
+        });
+    }
+    let page_level = level_of(
+        connection,
+        &target.database_id,
+        &target.level,
+        &request.note_id,
+    )?
+    .ok_or_else(|| broken("the page has no level assigned"))?;
+
+    let edges = load_parent_edges(connection, &target.database_id, &target.parent)?;
+    if causes_cycle(
+        &edges,
+        &request.note_id,
+        request.new_parent_note_id.as_deref(),
+    ) {
+        return Err(ProjectError::ParentCycle);
+    }
+
     if let Some(parent) = &request.new_parent_note_id {
-        require_page(&pages, parent)?;
-        // A loop is the more basic fault, so it is reported before a level mismatch.
-        if would_cycle(
-            connection,
-            &target.database_id,
-            &target.parent,
-            &request.note_id,
-            parent,
-        )? {
+        if parent == &request.note_id {
             return Err(ProjectError::ParentCycle);
         }
-        check_parent_level(
-            connection,
-            &target,
-            parent,
-            level_of(connection, &target, &request.note_id)?.as_deref(),
-        )?;
+        if !note_belongs_to_database(connection, &target.database_id, parent)? {
+            return Err(ProjectError::PageNotFound {
+                note_id: parent.clone(),
+            });
+        }
+        let parent_level = level_of(connection, &target.database_id, &target.level, parent)?;
+        check_parent_level(&target.level_ids, parent_level.as_deref(), &page_level)?;
     }
-    let parent_value = request
-        .new_parent_note_id
-        .as_ref()
-        .map(|parent| {
+
+    let parent_json = match &request.new_parent_note_id {
+        Some(parent) => Some(
             serde_json::to_string(&PropertyValue::Relation {
                 target_note_ids: vec![parent.clone()],
-                extra: Default::default(),
+                extra: BTreeMap::new(),
             })
-        })
-        .transpose()
-        .map_err(|error| ProjectError::failed("serialize", error.to_string()))?;
-    let order_value = serde_json::to_string(&PropertyValue::Text {
-        value: request.order_key.clone(),
-        extra: Default::default(),
-    })
-    .map_err(|error| ProjectError::failed("serialize", error.to_string()))?;
-    let cell = |property_id: &str, value_json: Option<String>| DatabaseValueMutation {
-        note_id: request.note_id.clone(),
-        property_id: property_id.to_owned(),
-        value_json,
-        expected_revision: request.expected_revision.clone(),
+            .map_err(|e| ProjectError::failed("serializeValue", e.to_string()))?,
+        ),
+        None => None,
     };
-    // Parent and order of one page go into one write, so it is never half moved.
+
+    let order_json = Some(
+        serde_json::to_string(&PropertyValue::Text {
+            value: request.order_key.clone(),
+            extra: BTreeMap::new(),
+        })
+        .map_err(|e| ProjectError::failed("serializeValue", e.to_string()))?,
+    );
+
     let batch = DatabaseValueBatchRequest {
-        expected_generation: request.expected_generation,
-        database_id: target.database_id.clone(),
+        expected_generation: 0,
         operation_id: request.operation_id.clone(),
+        database_id: target.database_id.clone(),
         cells: vec![
-            cell(&target.parent, parent_value),
-            cell(&target.order, Some(order_value)),
+            DatabaseValueMutation {
+                note_id: request.note_id.clone(),
+                property_id: target.parent.clone(),
+                value_json: parent_json,
+                expected_revision: request.expected_revision.clone(),
+            },
+            DatabaseValueMutation {
+                note_id: request.note_id.clone(),
+                property_id: target.order.clone(),
+                value_json: order_json,
+                expected_revision: request.expected_revision.clone(),
+            },
         ],
     };
-    let result =
+
+    let applied =
         apply_value_batch_typed(env.vault, env.watcher, &batch, history).map_err(|error| {
             match error {
-                // The type says the page changed, and the error carries the revision it has now.
                 ValueBatchError::RevisionConflict {
                     actual_revision, ..
                 } => ProjectError::RevisionConflict { actual_revision },
-                ValueBatchError::Failed(message) => ProjectError::failed("pageMoveFailed", message),
+                other => ProjectError::failed("movePageFailed", other.to_string()),
             }
         })?;
-    let revision = result
+
+    let note_revision = applied
         .revisions
         .iter()
-        .find(|entry| entry.note_id == request.note_id)
-        .map(|entry| entry.revision.clone())
+        .find(|r| r.note_id == request.note_id)
+        .map(|r| r.revision.clone())
         .unwrap_or_default();
+
     Ok(MovedTextPage {
         database_id: target.database_id,
         note_id: request.note_id.clone(),
         parent_note_id: request.new_parent_note_id.clone(),
         order_key: request.order_key.clone(),
-        revision,
-        warnings: result.warnings,
+        revision: note_revision,
+        warnings: applied.warnings,
     })
 }

@@ -1,6 +1,6 @@
-//! IPC boundary of the creative-project layer. Commands only check the vault
+//! IPC boundary of the creative workshop layer. Commands only check the vault
 //! generation and the database module, then call `project::`; they hold the
-//! mutation gate while a project or section is written.
+//! mutation gate while a workshop, story or section is written.
 
 use crate::database::history::DatabaseHistoryState;
 use crate::database::model::ProjectionVersion;
@@ -8,11 +8,12 @@ use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::project::create::{self, Env};
 use crate::project::index;
 use crate::project::model::{
-    AddTextStatusRequest, AddedTextStatus, CreateProjectRequest, CreateProjectSectionRequest,
-    CreateTextPageRequest, CreatedProject, CreatedSection, CreatedTextPage, MoveTextPageRequest,
-    MovedTextPage, ProjectCatalog, ProjectError, RemoveProjectSectionRequest,
-    RemovedProjectSection, ReorderProjectSectionsRequest, ReorderedProjectSections,
-    UpdateProjectRequest, UpdateTextLevelsRequest, UpdatedProject, UpdatedTextLevels,
+    AddTextStatusRequest, AddedTextStatus, CreateStoryRequest, CreateTextPageRequest,
+    CreateWorkshopRequest, CreateWorkshopSectionRequest, CreatedStory, CreatedTextPage,
+    CreatedWorkshop, CreatedWorkshopSectionResult, MoveTextPageRequest, MovedTextPage,
+    ProjectCatalog, ProjectError, RemoveWorkshopSectionRequest, RemovedWorkshopSection,
+    ReorderWorkshopSectionsRequest, ReorderedWorkshopSections, UpdateTextLevelsRequest,
+    UpdateWorkshopRequest, UpdatedTextLevels, UpdatedWorkshop,
 };
 use crate::project::references::{self, NoteReference};
 use crate::project::settings;
@@ -30,7 +31,7 @@ fn active_generation(context: &VaultContext) -> Option<u64> {
         .map(|active| active.generation)
 }
 
-/// Projects are made of databases, so they follow the database module: with
+/// Creative workshops are made of databases, so they follow the database module: with
 /// the module off the files stay readable as ordinary folders and notes.
 fn require_enabled(runtime: &DatabaseRuntimeState, generation: u64) -> Result<(), ProjectError> {
     if runtime.state(Some(generation)).enabled {
@@ -64,7 +65,7 @@ pub fn list_projects(
         .map_err(|message| ProjectError::failed("projectIndexFailed", message))
 }
 
-/// Rebuilds the project projection from the files, then returns the catalog.
+/// Rebuilds the workshop projection from the files, then returns the catalog.
 /// The interface calls this after a `project:changed` event.
 #[tauri::command]
 #[specta::specta]
@@ -115,12 +116,12 @@ fn refresh_after_write(
 
 #[tauri::command]
 #[specta::specta]
-pub fn create_project(
+pub fn create_workshop(
     context: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher: tauri::State<'_, WatcherState>,
-    request: CreateProjectRequest,
-) -> Result<CreatedProject, ProjectError> {
+    request: CreateWorkshopRequest,
+) -> Result<CreatedWorkshop, ProjectError> {
     let _mutation_guard = context.mutation_gate.lock().unwrap();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
@@ -130,7 +131,7 @@ pub fn create_project(
         vault: &active.root,
         watcher: &watcher,
     };
-    let mut created = create::create_project(&env, &request)?;
+    let mut created = create::create_workshop(&env, &request)?;
     if !created.replayed {
         refresh_after_write(active, &runtime, generation, &mut created.warnings);
     }
@@ -139,12 +140,12 @@ pub fn create_project(
 
 #[tauri::command]
 #[specta::specta]
-pub fn create_project_section(
+pub fn create_story(
     context: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher: tauri::State<'_, WatcherState>,
-    request: CreateProjectSectionRequest,
-) -> Result<CreatedSection, ProjectError> {
+    request: CreateStoryRequest,
+) -> Result<CreatedStory, ProjectError> {
     let _mutation_guard = context.mutation_gate.lock().unwrap();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
@@ -154,7 +155,41 @@ pub fn create_project_section(
         vault: &active.root,
         watcher: &watcher,
     };
-    let mut created = create::create_project_section(&env, &request)?;
+    let mut created = create::create_story(&env, &request)?;
+    if !created.replayed {
+        // Also index the card note into vault index
+        let card_path = active.root.join(&created.card_path);
+        if let Ok(source) = std::fs::read_to_string(&card_path) {
+            let _ = crate::vault_index::index_update_note(
+                &active.connection,
+                &active.root,
+                &card_path,
+                &source,
+            );
+        }
+        refresh_after_write(active, &runtime, generation, &mut created.warnings);
+    }
+    Ok(created)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn create_workshop_section(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: CreateWorkshopSectionRequest,
+) -> Result<CreatedWorkshopSectionResult, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher,
+    };
+    let mut created = create::create_workshop_section(&env, &request)?;
     if !created.replayed {
         refresh_after_write(active, &runtime, generation, &mut created.warnings);
     }
@@ -179,8 +214,6 @@ pub fn create_text_page(
         watcher: &watcher,
     };
     let mut created = text::create_page(&env, &active.connection, &request)?;
-    // The app's own write is not echoed by the watcher, so the page is published to the
-    // note index here, before the database projection is rebuilt.
     let note_path = std::path::Path::new(&created.note_path);
     let indexed = std::fs::read_to_string(note_path)
         .map_err(|error| error.to_string())
@@ -287,8 +320,7 @@ pub fn list_note_references(
     references::list_references(&active.connection, &note_id)
 }
 
-/// Words and last-change time of every page of one database (a story's text), from the note
-/// index. Read-only; the numbers are as fresh as the index, which the watcher keeps current.
+/// Words and last-change time of every page of one database, from the note index. Read-only.
 #[tauri::command]
 #[specta::specta]
 pub fn list_text_stats(
@@ -311,12 +343,12 @@ pub fn list_text_stats(
 
 #[tauri::command]
 #[specta::specta]
-pub fn update_project(
+pub fn update_workshop(
     context: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher: tauri::State<'_, WatcherState>,
-    request: UpdateProjectRequest,
-) -> Result<UpdatedProject, ProjectError> {
+    request: UpdateWorkshopRequest,
+) -> Result<UpdatedWorkshop, ProjectError> {
     let _mutation_guard = context.mutation_gate.lock().unwrap();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
@@ -326,7 +358,7 @@ pub fn update_project(
         vault: &active.root,
         watcher: &watcher,
     };
-    let mut updated = settings::update_project(&env, &request)?;
+    let mut updated = settings::update_workshop(&env, &request)?;
     if !updated.replayed {
         if let Err(error) = index::rebuild_project_index(&active.connection, &active.root) {
             tracing::warn!(event = "project_index_rebuild_failed", %error);
@@ -340,12 +372,12 @@ pub fn update_project(
 
 #[tauri::command]
 #[specta::specta]
-pub fn remove_project_section(
+pub fn remove_workshop_section(
     context: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher: tauri::State<'_, WatcherState>,
-    request: RemoveProjectSectionRequest,
-) -> Result<RemovedProjectSection, ProjectError> {
+    request: RemoveWorkshopSectionRequest,
+) -> Result<RemovedWorkshopSection, ProjectError> {
     let _mutation_guard = context.mutation_gate.lock().unwrap();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
@@ -355,7 +387,7 @@ pub fn remove_project_section(
         vault: &active.root,
         watcher: &watcher,
     };
-    let mut removed = settings::remove_project_section(&env, &request)?;
+    let mut removed = settings::remove_workshop_section(&env, &request)?;
     if !removed.replayed {
         if let Err(error) = index::rebuild_project_index(&active.connection, &active.root) {
             tracing::warn!(event = "project_index_rebuild_failed", %error);
@@ -369,12 +401,12 @@ pub fn remove_project_section(
 
 #[tauri::command]
 #[specta::specta]
-pub fn reorder_project_sections(
+pub fn reorder_workshop_sections(
     context: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher: tauri::State<'_, WatcherState>,
-    request: ReorderProjectSectionsRequest,
-) -> Result<ReorderedProjectSections, ProjectError> {
+    request: ReorderWorkshopSectionsRequest,
+) -> Result<ReorderedWorkshopSections, ProjectError> {
     let _mutation_guard = context.mutation_gate.lock().unwrap();
     let generation = check_generation(&context, request.expected_generation)?;
     require_enabled(&runtime, generation)?;
@@ -384,7 +416,7 @@ pub fn reorder_project_sections(
         vault: &active.root,
         watcher: &watcher,
     };
-    let mut reordered = settings::reorder_project_sections(&env, &request)?;
+    let mut reordered = settings::reorder_workshop_sections(&env, &request)?;
     if !reordered.replayed {
         if let Err(error) = index::rebuild_project_index(&active.connection, &active.root) {
             tracing::warn!(event = "project_index_rebuild_failed", %error);
@@ -413,7 +445,7 @@ pub fn update_text_levels(
         vault: &active.root,
         watcher: &watcher,
     };
-    let mut updated = settings::update_text_levels(&env, &request)?;
+    let mut updated = settings::update_text_levels(&env, Some(&active.connection), &request)?;
     if !updated.replayed {
         refresh_after_write(active, &runtime, generation, &mut updated.warnings);
     }

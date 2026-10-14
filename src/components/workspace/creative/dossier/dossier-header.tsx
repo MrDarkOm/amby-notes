@@ -31,7 +31,7 @@ export function DossierHeader({ dossier }: { dossier: NoteDossier }) {
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <p className="text-xs text-muted-foreground">
           {t("creative.dossier.location", {
-            project: world.project.name,
+            project: world.workshop.name,
             section: context.databaseTitle,
           })}
         </p>

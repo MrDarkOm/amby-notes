@@ -3,27 +3,72 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
 import i18n from "@/lib/i18n"
-import { ProjectOperationError, type CreatedProject } from "@/lib/storage"
+import {
+  ProjectOperationError,
+  type CreatedStory,
+  type CreatedWorkshop,
+  type CreatedWorkshopSectionResult,
+  type WorkshopSummary,
+} from "@/lib/storage"
 import { CreateProjectDialog } from "./create-project-dialog"
-import { project } from "./project-fixtures.test-support"
+import { workshopSummary } from "./project-fixtures.test-support"
 
-const createProject = vi.hoisted(() => vi.fn())
+const createWorkshop = vi.hoisted(() => vi.fn())
+const createStory = vi.hoisted(() => vi.fn())
+const createWorkshopSection = vi.hoisted(() => vi.fn())
+const createDatabaseRow = vi.hoisted(() => vi.fn())
+
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
-  createProject,
+  createWorkshop,
+  createStory,
+  createWorkshopSection,
+  createDatabaseRow,
 }))
 
-const created: CreatedProject = {
+const sampleWorkshop: WorkshopSummary = workshopSummary("w1", { name: "Palooverse" })
+
+const createdStoryRes: CreatedStory = {
   operationId: "op",
-  projectId: "p1",
-  kind: "story",
-  name: "Saga",
-  path: "Saga",
-  filePath: "Saga/amby-project.json",
+  workshopId: "w1",
+  storyId: "s1",
+  title: "Palooverse",
+  folderPath: "Palooverse/Stories/s1",
+  cardPath: "Palooverse/Stories/s1/card.md",
+  cardNoteId: "note_s1",
+  databaseId: "db_s1",
+  storyFileRevision: "r".repeat(64),
+  replayed: false,
+  warnings: [],
+}
+
+const createdWorkshopRes: CreatedWorkshop = {
+  operationId: "op",
+  workshopId: "w1",
+  name: "Palooverse",
+  path: "Palooverse",
+  filePath: "Palooverse/.workshop.json",
   fileRevision: "r".repeat(64),
   sections: [],
   replayed: false,
   warnings: [],
+}
+
+const createdSectionRes: CreatedWorkshopSectionResult = {
+  operationId: "op",
+  workshopId: "w1",
+  workshopRevision: "n".repeat(64),
+  replayed: false,
+  warnings: [],
+  section: {
+    sectionId: "sec_u",
+    databaseId: "db_u",
+    role: "universes",
+    name: "Вселенные",
+    path: "Вселенные",
+    containerPath: "Palooverse/Вселенные",
+    manifestRevision: "m".repeat(64),
+  },
 }
 
 function mount(props: Partial<React.ComponentProps<typeof CreateProjectDialog>> = {}) {
@@ -34,6 +79,7 @@ function mount(props: Partial<React.ComponentProps<typeof CreateProjectDialog>> 
       open
       onClose={onClose}
       vaultGeneration={4}
+      workshop={sampleWorkshop}
       onCreated={onCreated}
       {...props}
     />,
@@ -41,7 +87,6 @@ function mount(props: Partial<React.ComponentProps<typeof CreateProjectDialog>> 
   return { onCreated, onClose }
 }
 
-// The name of the project; with a custom schema there are more text fields than this one.
 const type = (value: string) =>
   fireEvent.change(screen.getByRole("textbox", { name: /^Название$|^Name$/u }), {
     target: { value },
@@ -50,7 +95,10 @@ const submit = () => fireEvent.click(screen.getByRole("button", { name: "Соз�
 
 describe("CreateProjectDialog", () => {
   beforeEach(async () => {
-    createProject.mockReset()
+    createWorkshop.mockReset()
+    createStory.mockReset()
+    createWorkshopSection.mockReset()
+    createDatabaseRow.mockReset()
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -66,123 +114,202 @@ describe("CreateProjectDialog", () => {
     )
   })
 
-  it("creates a story with the base sections named in the active language", async () => {
-    createProject.mockResolvedValue(created)
+  it("creates a story with the chosen text levels", async () => {
+    createStory.mockResolvedValue(createdStoryRes)
     const { onCreated, onClose } = mount()
     type("  Saga ")
     submit()
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created))
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ kind: "story", id: "s1" }))
     expect(onClose).toHaveBeenCalled()
-    expect(createProject).toHaveBeenCalledWith(
+    expect(createStory).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedGeneration: 4,
-        kind: "story",
-        name: "Saga",
-        parentPath: null,
-        baseSections: true,
-        labels: expect.objectContaining({ "section:text": "Текст", "group:world": "Мир" }),
+        workshopId: "w1",
+        title: "Saga",
+        textLevels: ["Книга", "Глава", "Сцена"],
       }),
     )
   })
 
-  it("sends English names when English is active", async () => {
-    await i18n.changeLanguage("en")
-    createProject.mockResolvedValue(created)
-    mount()
-    type("Saga")
-    fireEvent.click(screen.getByRole("button", { name: "Create" }))
-    await waitFor(() => expect(createProject).toHaveBeenCalled())
-    expect(createProject.mock.calls[0][0].labels).toMatchObject({
-      "section:text": "Text",
-      "section:characters": "Characters",
-      "group:work": "Story",
-    })
-  })
-
-  it("offers a universe and a plain collection, and maps them to backend kinds", async () => {
-    createProject.mockResolvedValue({ ...created, kind: "collection" })
-    mount()
-    fireEvent.click(screen.getByRole("radio", { name: /Вселенная/u }))
+  it("creates a workshop when kind is workshop", async () => {
+    createWorkshop.mockResolvedValue(createdWorkshopRes)
+    const { onCreated, onClose } = mount({ initialKind: "workshop", workshop: null })
     type("Palooverse")
     submit()
-    await waitFor(() => expect(createProject).toHaveBeenCalled())
-    expect(createProject.mock.calls[0][0]).toMatchObject({ kind: "collection", baseSections: true })
-
-    createProject.mockClear()
-    cleanup()
-    mount()
-    fireEvent.click(screen.getByRole("radio", { name: /Сборник/u }))
-    type("Singles")
-    submit()
-    await waitFor(() => expect(createProject).toHaveBeenCalled())
-    expect(createProject.mock.calls[0][0]).toMatchObject({
-      kind: "collection",
-      baseSections: false,
-    })
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ kind: "workshop", id: "w1" }))
+    expect(onClose).toHaveBeenCalled()
+    expect(createWorkshop).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedGeneration: 4,
+        name: "Palooverse",
+      }),
+    )
   })
 
-  it("creates only a story inside a collection, in that folder", async () => {
-    createProject.mockResolvedValue(created)
-    mount({ parent: project("c", { kind: "collection", name: "Palooverse", path: "Palooverse" }) })
-    // No choice of kind: only a story fits here. Its text schema is still chosen.
-    expect(screen.queryByRole("radio", { name: /Вселенная|Сборник/u })).toBeNull()
-    type("First")
-    submit()
-    await waitFor(() => expect(createProject).toHaveBeenCalled())
-    expect(createProject.mock.calls[0][0]).toMatchObject({
-      kind: "story",
-      parentPath: "Palooverse",
+  it("creates a universe by creating database row", async () => {
+    createDatabaseRow.mockResolvedValue({ noteId: "note_univ_1" })
+    const univWorkshop = workshopSummary("w1", {
+      sections: [
+        {
+          id: "sec_u",
+          role: "universes",
+          name: "Вселенные",
+          databaseId: "db_universes",
+          pathHint: "universes",
+          state: "ok",
+          resolvedPath: "universes",
+          databaseName: "Вселенные",
+        },
+      ],
     })
+    const { onCreated } = mount({ initialKind: "universe", workshop: univWorkshop })
+    type("Cosmos")
+    submit()
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith({ kind: "universe", id: "note_univ_1" }),
+    )
+    expect(createDatabaseRow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: "db_universes",
+        title: "Cosmos",
+      }),
+    )
   })
 
-  it("explains a collision, keeps the dialog open, and retries with the same operation ID", async () => {
-    createProject.mockRejectedValue(
+  it("makes the universes section first when the workshop has none", async () => {
+    createWorkshopSection.mockResolvedValue({
+      ...createdSectionRes,
+      section: { ...createdSectionRes.section, databaseId: "db_new_universes" },
+    })
+    createDatabaseRow.mockResolvedValue({ noteId: "note_univ_2" })
+    const { onCreated } = mount({ initialKind: "universe" })
+    type("Cosmos")
+    submit()
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith({ kind: "universe", id: "note_univ_2" }),
+    )
+    expect(createWorkshopSection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workshopId: "w1",
+        role: "universes",
+        expectedWorkshopRevision: sampleWorkshop.fileRevision,
+      }),
+    )
+    expect(createDatabaseRow).toHaveBeenCalledWith(
+      expect.objectContaining({ databaseId: "db_new_universes", title: "Cosmos" }),
+    )
+  })
+
+  it("explains a collision and keeps the dialog open", async () => {
+    createStory.mockRejectedValue(
+      new ProjectOperationError("pathCollision", "x", { kind: "pathCollision", path: "Saga" }),
+    )
+    const { onClose } = mount()
+    type("Saga")
+    submit()
+    expect((await screen.findByRole("alert")).textContent).toContain("«Saga» уже существует")
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it("retries with the same operation ID and takes a new one for another name", async () => {
+    createStory.mockRejectedValue(
       new ProjectOperationError("pathCollision", "x", { kind: "pathCollision", path: "Saga" }),
     )
     const { onClose, onCreated } = mount()
     type("Saga")
     submit()
-    expect((await screen.findByRole("alert")).textContent).toContain("«Saga» уже существует")
+    await screen.findByRole("alert")
     expect(onClose).not.toHaveBeenCalled()
     submit()
-    await waitFor(() => expect(createProject).toHaveBeenCalledTimes(2))
-    expect(createProject.mock.calls[1][0].operationId).toBe(
-      createProject.mock.calls[0][0].operationId,
-    )
+    await waitFor(() => expect(createStory).toHaveBeenCalledTimes(2))
+    expect(createStory.mock.calls[1][0].operationId).toBe(createStory.mock.calls[0][0].operationId)
 
     // Another name is another request, so it gets its own operation ID.
     type("Saga 2")
-    createProject.mockResolvedValue(created)
+    createStory.mockResolvedValue(createdStoryRes)
     submit()
     await waitFor(() => expect(onCreated).toHaveBeenCalled())
-    expect(createProject.mock.calls[2][0].operationId).not.toBe(
-      createProject.mock.calls[0][0].operationId,
+    expect(createStory.mock.calls[2][0].operationId).not.toBe(
+      createStory.mock.calls[0][0].operationId,
     )
   })
 
+  it("explains a name that cannot be a folder and keeps the dialog open", async () => {
+    createStory.mockRejectedValue(
+      new ProjectOperationError("invalidName", "x", {
+        kind: "invalidName",
+        field: "title",
+        reason: "forbidden character",
+      }),
+    )
+    const { onClose, onCreated } = mount()
+    type('Дом "Лис"')
+    submit()
+    expect((await screen.findByRole("alert")).textContent).toContain("В названии нельзя")
+    expect(onClose).not.toHaveBeenCalled()
+    expect(onCreated).not.toHaveBeenCalled()
+  })
+
+  it("shows what was left behind when the cleanup was incomplete", async () => {
+    createStory.mockRejectedValue(
+      new ProjectOperationError("recoveryRequired", "x", {
+        kind: "recoveryRequired",
+        operationId: "op",
+        message: "Персонажи: not a directory",
+      }),
+    )
+    mount()
+    type("Saga")
+    submit()
+    expect((await screen.findByRole("alert")).textContent).toContain("Персонажи: not a directory")
+  })
+
+  it("sends the names of the base sections in the language that is active", async () => {
+    await i18n.changeLanguage("en")
+    createWorkshop.mockResolvedValue(createdWorkshopRes)
+    mount({ initialKind: "workshop", workshop: null })
+    type("Palooverse")
+    fireEvent.click(screen.getByRole("button", { name: "Create" }))
+    await waitFor(() => expect(createWorkshop).toHaveBeenCalled())
+    expect(createWorkshop.mock.calls[0][0].labels).toMatchObject({
+      "section:stories": "Stories",
+      "section:characters": "Characters",
+      "section:locations": "Locations",
+    })
+    expect(createWorkshop.mock.calls[0][0]).not.toHaveProperty("textLevels")
+  })
+
+  it("is not asked for a text schema when it makes a workshop or a universe", () => {
+    mount({ initialKind: "workshop", workshop: null })
+    expect(screen.queryByRole("radio", { name: "Роман" })).toBeNull()
+    cleanup()
+    mount({ initialKind: "universe", workshop: sampleWorkshop })
+    expect(screen.queryByRole("radio", { name: "Роман" })).toBeNull()
+  })
+
   describe("the schema of the text", () => {
-    const levelsSent = (call = 0) => createProject.mock.calls[call][0].textLevels as string[]
+    const levelsSent = (call = 0) => createStory.mock.calls[call][0].textLevels as string[]
     const chain = () => screen.getByText(/^Уровни:/u).textContent
 
     it("starts from a novel and shows what the levels will be", async () => {
-      createProject.mockResolvedValue(created)
+      createStory.mockResolvedValue(createdStoryRes)
       mount()
       expect(screen.getByRole("radio", { name: "Роман" }).getAttribute("aria-checked")).toBe("true")
       expect(chain()).toBe("Уровни: Книга → Глава → Сцена")
       type("Saga")
       submit()
-      await waitFor(() => expect(createProject).toHaveBeenCalled())
+      await waitFor(() => expect(createStory).toHaveBeenCalled())
       expect(levelsSent()).toEqual(["Книга", "Глава", "Сцена"])
     })
 
     it("offers a short story with one level and a comic with four", async () => {
-      createProject.mockResolvedValue(created)
+      createStory.mockResolvedValue(createdStoryRes)
       mount()
       fireEvent.click(screen.getByRole("radio", { name: "Рассказ" }))
       expect(chain()).toBe("Уровни: Страница")
       type("Tale")
       submit()
-      await waitFor(() => expect(createProject).toHaveBeenCalledTimes(1))
+      await waitFor(() => expect(createStory).toHaveBeenCalledTimes(1))
       expect(levelsSent(0)).toEqual(["Страница"])
 
       cleanup()
@@ -191,12 +318,12 @@ describe("CreateProjectDialog", () => {
       expect(chain()).toBe("Уровни: Книга → Арка → Глава → Страница")
       type("Tale")
       submit()
-      await waitFor(() => expect(createProject).toHaveBeenCalledTimes(2))
+      await waitFor(() => expect(createStory).toHaveBeenCalledTimes(2))
       expect(levelsSent(1)).toEqual(["Книга", "Арка", "Глава", "Страница"])
     })
 
     it("keeps the operation ID for a retry and takes a new one when the schema changes", async () => {
-      createProject.mockRejectedValue(
+      createStory.mockRejectedValue(
         new ProjectOperationError("pathCollision", "x", { kind: "pathCollision", path: "Saga" }),
       )
       mount()
@@ -204,60 +331,31 @@ describe("CreateProjectDialog", () => {
       submit()
       await screen.findByRole("alert")
       submit()
-      await waitFor(() => expect(createProject).toHaveBeenCalledTimes(2))
-      const id = createProject.mock.calls[0][0].operationId
-      expect(createProject.mock.calls[1][0].operationId).toBe(id)
+      await waitFor(() => expect(createStory).toHaveBeenCalledTimes(2))
+      const id = createStory.mock.calls[0][0].operationId
+      expect(createStory.mock.calls[1][0].operationId).toBe(id)
 
       // The same name with other levels is another request; Rust would refuse to reuse the ID.
       fireEvent.click(screen.getByRole("radio", { name: "Рассказ" }))
       submit()
-      await waitFor(() => expect(createProject).toHaveBeenCalledTimes(3))
-      expect(createProject.mock.calls[2][0].operationId).not.toBe(id)
+      await waitFor(() => expect(createStory).toHaveBeenCalledTimes(3))
+      expect(createStory.mock.calls[2][0].operationId).not.toBe(id)
       expect(levelsSent(2)).toEqual(["Страница"])
     })
 
     it("follows the language: the levels of a novel in English", async () => {
       await i18n.changeLanguage("en")
-      createProject.mockResolvedValue(created)
+      createStory.mockResolvedValue(createdStoryRes)
       mount()
       expect(screen.getByText("Levels: Book → Chapter → Scene")).toBeTruthy()
       type("Saga")
       fireEvent.click(screen.getByRole("button", { name: "Create" }))
-      await waitFor(() => expect(createProject).toHaveBeenCalled())
+      await waitFor(() => expect(createStory).toHaveBeenCalled())
       expect(levelsSent()).toEqual(["Book", "Chapter", "Scene"])
     })
 
-    it("edits its own list: rename, add and remove, one to six levels", async () => {
-      createProject.mockResolvedValue(created)
-      mount()
-      fireEvent.click(screen.getByRole("radio", { name: "Своя" }))
-      // The list starts from the schema that was chosen before it.
-      expect(chain()).toBe("Уровни: Книга → Глава → Сцена")
-      fireEvent.change(screen.getByRole("textbox", { name: "Название уровня 1" }), {
-        target: { value: "Том" },
-      })
-      fireEvent.click(screen.getByRole("button", { name: "Убрать уровень 2" }))
-      expect(chain()).toBe("Уровни: Том → Сцена")
-
-      // Up to six levels; then nothing more is added.
-      for (let count = 2; count < 6; count++) {
-        fireEvent.click(screen.getByRole("button", { name: "Добавить уровень" }))
-        fireEvent.change(screen.getByRole("textbox", { name: `Название уровня ${count + 1}` }), {
-          target: { value: `Часть ${count + 1}` },
-        })
-      }
-      expect(
-        (screen.getByRole("button", { name: "Добавить уровень" }) as HTMLButtonElement).disabled,
-      ).toBe(true)
-
-      type("Epic")
-      submit()
-      await waitFor(() => expect(createProject).toHaveBeenCalled())
-      expect(levelsSent()).toEqual(["Том", "Сцена", "Часть 3", "Часть 4", "Часть 5", "Часть 6"])
-    })
-
     it("keeps at least one level and refuses blank or repeated names", async () => {
-      createProject.mockResolvedValue(created)
+      createStory.mockResolvedValue(createdStoryRes)
       mount()
       fireEvent.click(screen.getByRole("radio", { name: "Рассказ" }))
       fireEvent.click(screen.getByRole("radio", { name: "Своя" }))
@@ -285,32 +383,34 @@ describe("CreateProjectDialog", () => {
       expect(create().disabled).toBe(true)
       expect(screen.getByText("Названия уровней не должны повторяться.")).toBeTruthy()
       submit()
-      expect(createProject).not.toHaveBeenCalled()
+      expect(createStory).not.toHaveBeenCalled()
     })
 
-    it("is not asked for a universe or a plain collection, which have no text", async () => {
-      createProject.mockResolvedValue({ ...created, kind: "collection" })
+    it("edits its own list: rename, add and remove, one to six levels", async () => {
+      createStory.mockResolvedValue(createdStoryRes)
       mount()
-      fireEvent.click(screen.getByRole("radio", { name: /Вселенная/u }))
-      expect(screen.queryByRole("radio", { name: "Роман" })).toBeNull()
-      type("Palooverse")
-      submit()
-      await waitFor(() => expect(createProject).toHaveBeenCalled())
-      expect(createProject.mock.calls[0][0]).not.toHaveProperty("textLevels")
-    })
-  })
+      fireEvent.click(screen.getByRole("radio", { name: "Своя" }))
+      expect(chain()).toBe("Уровни: Книга → Глава → Сцена")
+      fireEvent.change(screen.getByRole("textbox", { name: "Название уровня 1" }), {
+        target: { value: "Том" },
+      })
+      fireEvent.click(screen.getByRole("button", { name: "Убрать уровень 2" }))
+      expect(chain()).toBe("Уровни: Том → Сцена")
 
-  it("shows what was left behind when the cleanup was incomplete", async () => {
-    createProject.mockRejectedValue(
-      new ProjectOperationError("recoveryRequired", "x", {
-        kind: "recoveryRequired",
-        operationId: "op",
-        message: "Персонажи: not a directory",
-      }),
-    )
-    mount()
-    type("Saga")
-    submit()
-    expect((await screen.findByRole("alert")).textContent).toContain("Персонажи: not a directory")
+      for (let count = 2; count < 6; count++) {
+        fireEvent.click(screen.getByRole("button", { name: "Добавить уровень" }))
+        fireEvent.change(screen.getByRole("textbox", { name: `Название уровня ${count + 1}` }), {
+          target: { value: `Часть ${count + 1}` },
+        })
+      }
+      expect(
+        (screen.getByRole("button", { name: "Добавить уровень" }) as HTMLButtonElement).disabled,
+      ).toBe(true)
+
+      type("Epic")
+      submit()
+      await waitFor(() => expect(createStory).toHaveBeenCalled())
+      expect(levelsSent()).toEqual(["Том", "Сцена", "Часть 3", "Часть 4", "Часть 5", "Часть 6"])
+    })
   })
 })

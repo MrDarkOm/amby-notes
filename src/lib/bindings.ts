@@ -863,7 +863,7 @@ async listProjects() : Promise<Result<ProjectCatalog, ProjectError>> {
 }
 },
 /**
- * Rebuilds the project projection from the files, then returns the catalog.
+ * Rebuilds the workshop projection from the files, then returns the catalog.
  * The interface calls this after a `project:changed` event.
  */
 async refreshProjects(expectedGeneration: number) : Promise<Result<ProjectCatalog, ProjectError>> {
@@ -874,17 +874,25 @@ async refreshProjects(expectedGeneration: number) : Promise<Result<ProjectCatalo
     else return { status: "error", error: e  as any };
 }
 },
-async createProject(request: CreateProjectRequest) : Promise<Result<CreatedProject, ProjectError>> {
+async createWorkshop(request: CreateWorkshopRequest) : Promise<Result<CreatedWorkshop, ProjectError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("create_project", { request }) };
+    return { status: "ok", data: await TAURI_INVOKE("create_workshop", { request }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async createProjectSection(request: CreateProjectSectionRequest) : Promise<Result<CreatedSection, ProjectError>> {
+async createStory(request: CreateStoryRequest) : Promise<Result<CreatedStory, ProjectError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("create_project_section", { request }) };
+    return { status: "ok", data: await TAURI_INVOKE("create_story", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async createWorkshopSection(request: CreateWorkshopSectionRequest) : Promise<Result<CreatedWorkshopSectionResult, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_workshop_section", { request }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -918,8 +926,7 @@ async listNoteReferences(noteId: string) : Promise<Result<NoteReference[], Proje
 }
 },
 /**
- * Words and last-change time of every page of one database (a story's text), from the note
- * index. Read-only; the numbers are as fresh as the index, which the watcher keeps current.
+ * Words and last-change time of every page of one database, from the note index. Read-only.
  */
 async listTextStats(databaseId: string) : Promise<Result<TextPageStat[], ProjectError>> {
     try {
@@ -929,25 +936,25 @@ async listTextStats(databaseId: string) : Promise<Result<TextPageStat[], Project
     else return { status: "error", error: e  as any };
 }
 },
-async updateProject(request: UpdateProjectRequest) : Promise<Result<UpdatedProject, ProjectError>> {
+async updateWorkshop(request: UpdateWorkshopRequest) : Promise<Result<UpdatedWorkshop, ProjectError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("update_project", { request }) };
+    return { status: "ok", data: await TAURI_INVOKE("update_workshop", { request }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async removeProjectSection(request: RemoveProjectSectionRequest) : Promise<Result<RemovedProjectSection, ProjectError>> {
+async removeWorkshopSection(request: RemoveWorkshopSectionRequest) : Promise<Result<RemovedWorkshopSection, ProjectError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("remove_project_section", { request }) };
+    return { status: "ok", data: await TAURI_INVOKE("remove_workshop_section", { request }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async reorderProjectSections(request: ReorderProjectSectionsRequest) : Promise<Result<ReorderedProjectSections, ProjectError>> {
+async reorderWorkshopSections(request: ReorderWorkshopSectionsRequest) : Promise<Result<ReorderedWorkshopSections, ProjectError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("reorder_project_sections", { request }) };
+    return { status: "ok", data: await TAURI_INVOKE("reorder_workshop_sections", { request }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1352,8 +1359,8 @@ async flushDebugLogs() : Promise<Result<null, string>> {
 
 /** user-defined types **/
 
-export type AddTextStatusRequest = { expectedGeneration: number; operationId: string; projectId: string; expectedProjectRevision: string; labels?: Partial<{ [key in string]: string }> }
-export type AddedTextStatus = { operationId: string; projectId: string; propertyId: string; projectRevision: string; manifestRevision: string; replayed: boolean; warnings: string[] }
+export type AddTextStatusRequest = { expectedGeneration: number; operationId: string; storyId: string; expectedStoryRevision: string; labels?: Partial<{ [key in string]: string }> }
+export type AddedTextStatus = { operationId: string; storyId: string; propertyId: string; storyRevision: string; manifestRevision: string; replayed: boolean; warnings: string[] }
 export type AiChatError = { code: AiErrorCode; provider: string }
 export type AiConfig = { 
 /**
@@ -1386,105 +1393,18 @@ export type CreateDatabasePropertyRequest = { expectedGeneration: number; databa
 export type CreateDatabaseRequest = { expectedGeneration: number; mode: DatabaseCreateMode; parentPath: string | null; notePath: string | null; name: string }
 export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; title: string; template: DatabaseRowTemplate }
 export type CreateDatabaseViewRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; layout: string }
-export type CreateProjectRequest = { expectedGeneration: number; 
-/**
- * One per user intent. Repeating the request with the same ID and payload
- * never creates a second set.
- */
-operationId: string; kind: ProjectKind; name: string; 
-/**
- * Folder that will contain the project folder (absolute inside the vault,
- * or vault-relative). Empty means the vault root.
- */
-parentPath?: string | null; 
-/**
- * Encoded `IconValue`, stored as is.
- */
-icon?: string | null; tags?: string[]; 
-/**
- * Create the base sections of the kind: a story gets Text, Notes,
- * Characters and Locations; a collection gets Characters and Locations (a
- * universe). A plain collection passes `false`.
- */
-baseSections: boolean; 
-/**
- * Names for the base sections and groups, keyed `section:<role>` and
- * `group:<id>`, and for the text schema of a story, keyed `property:<key>`,
- * `level:<key>` and `format:<kind>`. Missing keys fall back to Russian defaults.
- */
-labels?: Partial<{ [key in string]: string }>; 
-/**
- * The levels of the story's text, outermost first: 1 to 6 distinct names. Omitted: the
- * four of the template (Book, Arc, Chapter, Page, named by `level:*`). Only a story that
- * gets its text section may pass it. The IDs of the levels are issued by the backend.
- */
-textLevels?: string[] | null }
-export type CreateProjectSectionRequest = { expectedGeneration: number; operationId: string; projectId: string; 
-/**
- * Raw-byte revision of the structure file the caller last saw.
- */
-expectedProjectRevision: string; name: string; role?: string | null; groupId?: string | null; 
-/**
- * A starting point for a world section: `characters`, `locations`, `organizations` or
- * `items`. It sets an icon, starting properties, a gallery view grouped by importance
- * (or kind) and the starter headings of the page template. Omitted: an empty database.
- */
-preset?: string | null; 
-/**
- * Names for the text schema (`property:*`, `level:*`, `format:*`) and for a preset
- * (`preset:*`, `importance:*`, `kind:*`, `heading:*`, `view:gallery`,
- * `template:dossier`); read only for those sections. Missing keys fall back to Russian.
- */
-labels?: Partial<{ [key in string]: string }>; 
-/**
- * The levels of the text, outermost first (1 to 6 distinct names); only for a section with
- * the `text` role. Omitted: the four of the template, named by `level:*`.
- */
-textLevels?: string[] | null }
-export type CreateTextPageRequest = { expectedGeneration: number; projectId: string; title: string; 
-/**
- * The page it goes under; none puts it at the top of the text.
- */
-parentNoteId?: string | null; 
-/**
- * An `id` from `text.levels` (the option ID of the level Select).
- */
-levelId: string; 
-/**
- * An `id` from `text.formats`. Omitted: the manuscript format, when the file has one.
- */
-formatId?: string | null; 
-/**
- * Where it goes among its siblings. The caller computes it (see `fractional-index.ts`).
- */
-orderKey: string }
+export type CreateStoryRequest = { expectedGeneration: number; operationId: string; workshopId: string; title: string; textLevels?: string[] | null; labels?: Partial<{ [key in string]: string }> }
+export type CreateTextPageRequest = { expectedGeneration: number; storyId: string; title: string; parentNoteId?: string | null; levelId: string; formatId?: string | null; orderKey: string }
+export type CreateWorkshopRequest = { expectedGeneration: number; operationId: string; name: string; parentPath?: string | null; icon?: string | null; tags?: string[]; labels?: Partial<{ [key in string]: string }> }
+export type CreateWorkshopSectionRequest = { expectedGeneration: number; operationId: string; workshopId: string; expectedWorkshopRevision: string; role: string; name: string; labels?: Partial<{ [key in string]: string }> }
 export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string; notePath: string | null; warnings: string[] }
 export type CreatedDatabaseProperty = { databaseId: string; propertyId: string; name: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
 export type CreatedDatabaseRow = { databaseId: string; noteId: string; title: string; notePath: string; recordPath: string; recordRevision: string; warnings: string[] }
-export type CreatedProject = { operationId: string; projectId: string; kind: ProjectKind; name: string; 
-/**
- * Vault-relative project folder.
- */
-path: string; 
-/**
- * Vault-relative structure file.
- */
-filePath: string; fileRevision: string; sections: CreatedProjectSection[]; 
-/**
- * True when this answer was recorded by an earlier identical call.
- */
-replayed: boolean; warnings: string[] }
-export type CreatedProjectSection = { sectionId: string; role: string | null; groupId: string | null; name: string; databaseId: string; 
-/**
- * Path relative to the project folder (the hint stored in the file).
- */
-path: string; 
-/**
- * Vault-relative container of the new database.
- */
-containerPath: string; manifestRevision: string }
-export type CreatedSection = { operationId: string; projectId: string; section: CreatedProjectSection; projectRevision: string; replayed: boolean; warnings: string[] }
+export type CreatedStory = { operationId: string; workshopId: string; storyId: string; title: string; folderPath: string; cardPath: string; cardNoteId: string; databaseId: string; storyFileRevision: string; replayed: boolean; warnings: string[] }
 export type CreatedTextPage = { databaseId: string; noteId: string; title: string; notePath: string; levelId: string; formatId: string | null; parentNoteId: string | null; orderKey: string; warnings: string[] }
+export type CreatedWorkshop = { operationId: string; workshopId: string; name: string; path: string; filePath: string; fileRevision: string; sections: CreatedWorkshopSection[]; replayed: boolean; warnings: string[] }
+export type CreatedWorkshopSection = { sectionId: string; role: string; name: string; databaseId: string; path: string; containerPath: string; manifestRevision: string }
+export type CreatedWorkshopSectionResult = { operationId: string; workshopId: string; section: CreatedWorkshopSection; workshopRevision: string; replayed: boolean; warnings: string[] }
 export type CredentialInfo = { exists: boolean; masked: string | null }
 export type CustomProperty = { id: string; name: string; icon: string; propertyType: string; value: string; settings: string }
 export type DatabaseAffectedNote = { databaseId: string; noteId: string }
@@ -1614,24 +1534,8 @@ export type MigrationPreflightReport = { databaseId: string; databaseName: strin
 export type MigrationResult = { migrationId: string; databaseId: string; backupDir: string; migratedRecords: number; migratedViews: number; warnings: string[] }
 export type ModuleManifest = { formatVersion: number; id: string; name: string; version: string; publisher: string; kind: string; minAppVersion: string; maxAppVersion: string | null; entry: string; permissions: string[]; checksums: Partial<{ [key in string]: string }>; signature: ModuleSignature; dependencies: Partial<{ [key in string]: string }> | null }
 export type ModuleSignature = { keyId: string; sig: string }
-export type MoveTextPageRequest = { expectedGeneration: number; 
-/**
- * One per intent, as for every write: a repeat does not write twice.
- */
-operationId: string; projectId: string; noteId: string; 
-/**
- * None makes the page a top-level one.
- */
-newParentNoteId?: string | null; orderKey: string; 
-/**
- * Raw-byte revision of the page the caller last saw.
- */
-expectedRevision: string }
-export type MovedTextPage = { databaseId: string; noteId: string; parentNoteId: string | null; orderKey: string; 
-/**
- * The page's revision after the write.
- */
-revision: string; warnings: string[] }
+export type MoveTextPageRequest = { expectedGeneration: number; operationId: string; storyId: string; noteId: string; newParentNoteId?: string | null; orderKey: string; expectedRevision: string }
+export type MovedTextPage = { databaseId: string; noteId: string; parentNoteId: string | null; orderKey: string; revision: string; warnings: string[] }
 /**
  * The filesystem result is authoritative. A cache failure is returned as a
  * recoverable warning rather than turning a completed mutation into an error.
@@ -1667,10 +1571,10 @@ export type ProjectCatalog = { vaultGeneration: number;
 /**
  * Changes whenever the index is rebuilt.
  */
-indexEpoch: string; projects: ProjectSummary[]; diagnostics: ProjectDiagnostic[] }
+indexEpoch: string; workshops: WorkshopSummary[]; diagnostics: ProjectDiagnostic[] }
 export type ProjectDiagnostic = { 
 /**
- * Stable code the interface localizes, for example `duplicateProjectId`.
+ * Stable code the interface localizes, for example `duplicateWorkshopId`.
  */
 code: string; 
 /**
@@ -1678,117 +1582,14 @@ code: string;
  */
 severity: string; 
 /**
- * Vault-relative path of the structure file.
+ * Vault-relative path of the relevant file.
  */
-path: string; projectId: string | null; detail: string | null }
+path: string; workshopId: string | null; storyId: string | null; detail: string | null }
 /**
- * Typed failures of every project command. Field names are spelled out so the
- * generated TypeScript matches `DatabaseError`'s style.
+ * Typed failures of every project / workshop command.
  */
-export type ProjectError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actualGeneration: number } | { kind: "invalidOperationId" } | 
-/**
- * The operation ID was already used for a different request.
- */
-{ kind: "operationIdReused"; operationId: string } | { kind: "invalidName"; field: string; reason: string } | { kind: "invalidParent"; reason: string } | { kind: "pathCollision"; path: string } | { kind: "nestedCollectionUnsupported"; ancestorPath: string } | 
-/**
- * The enclosing project has a format this build does not know.
- */
-{ kind: "parentProjectReadOnly"; path: string } | { kind: "projectNotFound"; projectId: string } | 
-/**
- * The structure file is newer than this build; it opens read-only.
- */
-{ kind: "projectReadOnly"; formatVersion: number } | { kind: "revisionConflict"; actualRevision: string } | { kind: "unknownGroup"; groupId: string } | { kind: "unsupportedRole"; role: string } | 
-/**
- * The section preset is not one of the known starting points.
- */
-{ kind: "unsupportedPreset"; preset: string } | 
-/**
- * The section is not listed in `sections` of the structure file.
- */
-{ kind: "sectionNotFound"; sectionId: string } | 
-/**
- * The text section is the spine of a story and cannot be removed from `sections`.
- */
-{ kind: "cannotRemoveTextSection" } | 
-/**
- * The story already has a `status` property configured in `text.properties.status`.
- */
-{ kind: "statusAlreadyConfigured" } | 
-/**
- * The story has no text schema (no `text` block, or its database is not found).
- */
-{ kind: "textNotConfigured" } | { kind: "unknownTextLevel"; levelId: string } | { kind: "unknownTextFormat"; formatId: string } | 
-/**
- * An order key is 1-64 characters of `0-9A-Za-z`, compared bytewise.
- */
-{ kind: "invalidOrderKey" } | 
-/**
- * The page, or the parent it should go under, is not a page of the text database.
- */
-{ kind: "pageNotFound"; noteId: string } | 
-/**
- * The move would make a page its own ancestor.
- */
-{ kind: "parentCycle" } | 
-/**
- * A parent must be on a shallower level than the page: the one named is the same or deeper
- * in `text.levels` (skipping a level is allowed).
- */
-{ kind: "parentLevelNotShallower"; parentLevelId: string; levelId: string } | 
-/**
- * The operation failed and everything it had created was removed.
- */
-{ kind: "rolledBack"; operationId: string; message: string } | 
-/**
- * The operation failed and could not clean up completely; the journal is
- * kept and the leftovers are listed in the message.
- */
-{ kind: "recoveryRequired"; operationId: string; message: string } | { kind: "failed"; code: string; message: string }
-export type ProjectGroupSummary = { id: string; name: string }
-export type ProjectKind = "collection" | "story"
-export type ProjectSectionSummary = { id: string; role: string | null; groupId: string | null; databaseId: string; 
-/**
- * The relative path recorded in the structure file (a hint).
- */
-pathHint: string; state: SectionState; 
-/**
- * Vault-relative container of the database when it was found.
- */
-resolvedPath: string | null; databaseName: string | null }
-export type ProjectSummary = { projectId: string; kind: ProjectKind; name: string; icon: string | null; tags: string[]; 
-/**
- * Vault-relative project folder; empty for a project at the vault root.
- */
-path: string; 
-/**
- * Raw-byte revision of the structure file, for `expectedProjectRevision`.
- */
-fileRevision: string; formatVersion: number; 
-/**
- * True for a format this build does not know: the file is never rewritten.
- */
-readOnly: boolean; 
-/**
- * The nearest collection above a story (by folder nesting).
- */
-collectionId: string | null; groups: ProjectGroupSummary[]; sections: ProjectSectionSummary[]; 
-/**
- * The `text` block of a story as JSON, exactly as the file has it.
- */
-textJson: string | null; 
-/**
- * The `text` block resolved against the text database.
- */
-text: ProjectTextSummary | null }
-export type ProjectTextSummary = { 
-/**
- * The database of the section with the role `text`.
- */
-databaseId: string | null; properties: TextPropertyIds; levels: TextLevelSummary[]; formats: TextFormatSummary[]; 
-/**
- * Options of `properties.status`, in property order; empty when `status` is not configured.
- */
-statusOptions: TextStatusOptionSummary[] }
+export type ProjectError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actualGeneration: number } | { kind: "invalidOperationId" } | { kind: "operationIdReused"; operationId: string } | { kind: "invalidName"; field: string; reason: string } | { kind: "invalidParent"; reason: string } | { kind: "pathCollision"; path: string } | { kind: "workshopNotFound"; workshopId: string } | { kind: "storyNotFound"; storyId: string } | { kind: "workshopReadOnly"; formatVersion: number } | { kind: "storyReadOnly"; formatVersion: number } | { kind: "revisionConflict"; actualRevision: string } | { kind: "unsupportedRole"; role: string } | { kind: "unsupportedPreset"; preset: string } | { kind: "sectionNotFound"; sectionId: string } | { kind: "cannotRemoveStoriesSection" } | { kind: "cannotRemoveTextSection" } | { kind: "statusAlreadyConfigured" } | { kind: "textNotConfigured" } | { kind: "unknownTextLevel"; levelId: string } | { kind: "unknownTextFormat"; formatId: string } | { kind: "invalidOrderKey" } | { kind: "pageNotFound"; noteId: string } | { kind: "parentCycle" } | { kind: "parentLevelNotShallower"; parentLevelId: string; levelId: string } | { kind: "levelInUse"; levelId: string; count: number } | { kind: "rolledBack"; operationId: string; message: string } | { kind: "recoveryRequired"; operationId: string; message: string } | { kind: "failed"; code: string; message: string }
+export type ProjectTextSummary = { databaseId: string | null; properties: TextPropertyIds; levels: TextLevelSummary[]; formats: TextFormatSummary[]; statusOptions: TextStatusOptionSummary[] }
 /**
  * Version of the rebuildable database projection. DB-02 does not publish a
  * projection yet, but the typed boundary is established now.
@@ -1822,8 +1623,8 @@ export type RelationCandidate = { noteId: string; title: string;
  */
 path: string }
 export type RelationCandidatePage = { candidates: RelationCandidate[]; nextCursor: string | null }
-export type RemoveProjectSectionRequest = { expectedGeneration: number; operationId: string; projectId: string; expectedProjectRevision: string; sectionId: string }
-export type RemovedProjectSection = { operationId: string; projectId: string; sectionId: string; projectRevision: string; replayed: boolean; warnings: string[] }
+export type RemoveWorkshopSectionRequest = { expectedGeneration: number; operationId: string; workshopId: string; expectedWorkshopRevision: string; sectionId: string }
+export type RemovedWorkshopSection = { operationId: string; workshopId: string; sectionId: string; workshopRevision: string; replayed: boolean; warnings: string[] }
 export type RenameDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; name: string }
 export type RenameDatabaseRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string }
 export type RenameDatabaseViewRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; name: string }
@@ -1831,9 +1632,9 @@ export type RenamedDatabase = { databaseId: string; title: string; manifestRevis
 export type RenamedDatabaseProperty = { databaseId: string; propertyId: string; name: string; manifestRevision: string; warnings: string[] }
 export type ReorderDatabasePropertiesRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; propertyIds: string[] }
 export type ReorderDatabaseViewsRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; viewIds: string[] }
-export type ReorderProjectSectionsRequest = { expectedGeneration: number; operationId: string; projectId: string; expectedProjectRevision: string; sectionIds: string[] }
+export type ReorderWorkshopSectionsRequest = { expectedGeneration: number; operationId: string; workshopId: string; expectedWorkshopRevision: string; sectionIds: string[] }
 export type ReorderedDatabaseProperties = { databaseId: string; propertyIds: string[]; manifestRevision: string; warnings: string[] }
-export type ReorderedProjectSections = { operationId: string; projectId: string; sectionIds: string[]; projectRevision: string; replayed: boolean; warnings: string[] }
+export type ReorderedWorkshopSections = { operationId: string; workshopId: string; sectionIds: string[]; workshopRevision: string; replayed: boolean; warnings: string[] }
 export type ResolveDatabaseAssetPathsRequest = { expectedGeneration: number; databaseId: string; 
 /**
  * Stored `assets/<note-id>/<file>` paths from Files values.
@@ -1878,6 +1679,7 @@ export type SectionState =
 export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }
 export type SnapshotText = { sourcePath: string; content: string }
 export type StagedPackageInfo = { stagingId: string; manifest: ModuleManifest; stagingPath: string }
+export type StorySummary = { storyId: string; workshopId: string; name: string; folderPath: string; cardPath: string; cardNoteId: string | null; databaseId: string | null; fileRevision: string; formatVersion: number; textJson: string | null; text: ProjectTextSummary | null }
 export type SyncReport = { inserted: number; updated: number; deleted: number; warnings: string[]; pathToId: Partial<{ [key in string]: string }> }
 export type TagEntry = { tag: string; notes: IndexedNote[] }
 /**
@@ -1898,8 +1700,7 @@ export type TextEntryState =
  */
 "unresolved"
 /**
- * A page format. `kind` is the file's word; an unknown one is passed through and means
- * plain text.
+ * A page format.
  */
 export type TextFormatSummary = { 
 /**
@@ -1915,19 +1716,7 @@ export type TextLevelSummary = {
  * The option ID.
  */
 id: string; icon: string | null; name: string | null; color: string | null; state: TextEntryState }
-export type TextLevelUpdateInput = { 
-/**
- * Existing option ID from `text.levels`, or `None` for a newly added level.
- */
-id?: string | null; 
-/**
- * Option name stored in the `level` Select property of the text database.
- */
-name: string; 
-/**
- * Optional encoded `IconValue` stored in `text.levels[].icon`.
- */
-icon?: string | null }
+export type TextLevelUpdateInput = { id?: string | null; name: string; icon?: string | null }
 export type TextPageStat = { noteId: string; 
 /**
  * Words of the note's body as the index counted them when it last read the file.
@@ -1944,7 +1733,7 @@ created: number | null }
 /**
  * The system properties of the text database; each is present only if it exists there.
  */
-export type TextPropertyIds = { level: string | null; parent: string | null; order: string | null; format: string | null; status: string | null }
+export type TextPropertyIds = { level: string | null; parent: string | null; order: string | null; format: string | null; status: string | null; anchors: string | null; arcs: string | null }
 /**
  * An option of the optional `status` property of the text database.
  */
@@ -2000,21 +1789,35 @@ options: DatabaseOptionInput[] }
 export type UpdateDatabaseRelationValueRequest = { expectedGeneration: number; operationId: string; expectedRevision: string; databaseId: string; noteId: string; propertyId: string; targetNoteIds: string[] }
 export type UpdateDatabaseRelationValueResult = { operationId: string; databaseId: string; noteId: string; targetNoteIds: string[]; affectedNotes: DatabaseAffectedNote[]; revisions: DatabaseNoteRevision[]; warnings: string[] }
 export type UpdateDatabaseViewConfigRequest = { expectedGeneration: number; databaseId: string; viewId: string; expectedViewRevision: string; configJson: string }
-export type UpdateProjectRequest = { expectedGeneration: number; operationId: string; projectId: string; expectedProjectRevision: string; name?: string | null; 
-/**
- * `None` leaves the icon unchanged; `Some("")` removes the icon; `Some(v)` sets it.
- */
-icon?: string | null; tags?: string[] | null }
-export type UpdateTextLevelsRequest = { expectedGeneration: number; operationId: string; projectId: string; expectedProjectRevision: string; levels: TextLevelUpdateInput[] }
+export type UpdateTextLevelsRequest = { expectedGeneration: number; operationId: string; storyId: string; expectedStoryRevision: string; levels: TextLevelUpdateInput[] }
+export type UpdateWorkshopRequest = { expectedGeneration: number; operationId: string; workshopId: string; expectedWorkshopRevision: string; name?: string | null; icon?: string | null; tags?: string[] | null }
 export type UpdatedDatabasePropertyConfig = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
 export type UpdatedDatabasePropertyOptions = { databaseId: string; propertyId: string; manifestRevision: string; 
 /**
  * The saved list in order, with IDs assigned to the new options.
  */
 options: DatabaseOptionResult[]; warnings: string[] }
-export type UpdatedProject = { operationId: string; projectId: string; name: string; icon: string | null; tags: string[]; projectRevision: string; replayed: boolean; warnings: string[] }
-export type UpdatedTextLevels = { operationId: string; projectId: string; projectRevision: string; manifestRevision: string; levelIds: string[]; replayed: boolean; warnings: string[] }
+export type UpdatedTextLevels = { operationId: string; storyId: string; storyRevision: string; manifestRevision: string; levelIds: string[]; replayed: boolean; warnings: string[] }
+export type UpdatedWorkshop = { operationId: string; workshopId: string; name: string; icon: string | null; tags: string[]; workshopRevision: string; replayed: boolean; warnings: string[] }
 export type VaultPreflight = { notes: number; attachments: number; malformedFrontmatter: string[]; userManagedIds: string[]; duplicateIds: string[]; plannedIdWrites: string[]; unfinishedMigrations: IdMigrationRecovery[] }
+export type WorkshopSectionSummary = { id: string; role: string; name: string; databaseId: string; 
+/**
+ * The relative path recorded in the structure file (a hint).
+ */
+pathHint: string; state: SectionState; 
+/**
+ * Vault-relative container of the database when it was found.
+ */
+resolvedPath: string | null; databaseName: string | null }
+export type WorkshopSummary = { workshopId: string; name: string; icon: string | null; tags: string[]; 
+/**
+ * Vault-relative workshop folder; empty for a workshop at the vault root.
+ */
+path: string; 
+/**
+ * Raw-byte revision of `amby-workshop.json`.
+ */
+fileRevision: string; formatVersion: number; readOnly: boolean; sections: WorkshopSectionSummary[]; stories: StorySummary[] }
 /**
  * Failure of the generic file write. `RevisionConflict` means the bytes on
  * disk no longer match the revision the caller last saw; nothing was written.

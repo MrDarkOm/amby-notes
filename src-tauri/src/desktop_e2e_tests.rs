@@ -429,10 +429,107 @@ fn desktop_e2e_large_vault_smoke_reports_scan_reopen_update_and_search() {
     let one_file_update = update_started.elapsed();
     let search_started = Instant::now();
     reopened
-        .with_active(|active| Ok(index::search_notes(active, &active.root, "updated-token")?))
+        .with_active(|active| index::search_notes(active, &active.root, "updated-token"))
         .unwrap();
     eprintln!(
         "desktop-e2e large-vault notes={count} initial_scan={initial_scan:?} reopen={reopen:?} one_file_update={one_file_update:?} search={:?}",
         search_started.elapsed()
+    );
+}
+
+#[test]
+#[ignore = "benchmark for Stage 0: 300 stories x 50 pages"]
+fn bench_300_stories_50_pages() {
+    let vault = DesktopVault::new("stories-300");
+    let stories_dir = vault.0.join("Истории");
+    fs::create_dir_all(&stories_dir).unwrap();
+    let stories_db_id = Ulid::generate().to_string();
+    fs::write(
+        stories_dir.join("Истории.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "format": "amby-database",
+            "formatVersion": 1,
+            "databaseId": stories_db_id,
+            "name": "Истории",
+            "locked": false,
+            "membership": {"kind": "filesystem-descendants", "recursive": true},
+            "properties": [],
+            "viewOrder": [],
+            "defaultViewId": null,
+            "templateOrder": [],
+            "defaultTemplateId": null
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let num_stories = 300;
+    let pages_per_story = 50;
+
+    for s in 0..num_stories {
+        let story_name = format!("История {:03}", s + 1);
+        let story_dir = stories_dir.join(&story_name);
+        fs::create_dir_all(&story_dir).unwrap();
+        let story_db_id = Ulid::generate().to_string();
+        fs::write(
+            story_dir.join(format!("{story_name}.json")),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "format": "amby-database",
+                "formatVersion": 1,
+                "databaseId": story_db_id,
+                "name": story_name,
+                "locked": false,
+                "membership": {"kind": "filesystem-descendants", "recursive": true},
+                "properties": [],
+                "viewOrder": [],
+                "defaultViewId": null,
+                "templateOrder": [],
+                "defaultTemplateId": null
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let story_note_id = Ulid::generate().to_string();
+        fs::write(
+            story_dir.join(format!("{story_name}.md")),
+            format!("---\namby-id: {story_note_id}\n---\n# {story_name}\n"),
+        )
+        .unwrap();
+
+        for p in 0..pages_per_story {
+            let page_name = format!("Глава {:02}", p + 1);
+            let page_id = Ulid::generate().to_string();
+            fs::write(
+                story_dir.join(format!("{page_name}.md")),
+                format!("---\namby-id: {page_id}\n---\n# {page_name}\n"),
+            )
+            .unwrap();
+        }
+    }
+
+    let discover_started = Instant::now();
+    let discovery = crate::database::discovery::discover_vault(&vault.0).unwrap();
+    let discover_elapsed = discover_started.elapsed();
+
+    assert_eq!(discovery.databases.len(), 301);
+    assert_eq!(discovery.notes.len(), 300 + 300 * 50);
+
+    let context = VaultContext::new();
+    let scan_started = Instant::now();
+    activate(&context, &vault.0);
+    let initial_scan = scan_started.elapsed();
+
+    let reopen_started = Instant::now();
+    let reopened = VaultContext::new();
+    activate(&reopened, &vault.0);
+    let reopen = reopen_started.elapsed();
+
+    eprintln!(
+        "STAGE-0 BENCHMARK: 300 stories x 50 pages (15,300 notes, 301 databases):\n\
+         discover_vault: {:?}\n\
+         initial_scan (vault activation + projection): {:?}\n\
+         warm_reopen: {:?}",
+        discover_elapsed, initial_scan, reopen
     );
 }

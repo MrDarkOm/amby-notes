@@ -781,4 +781,119 @@ mod tests {
         assert_eq!(members, 1);
         let _ = fs::remove_dir_all(vault);
     }
+
+    #[test]
+    fn row_creation_and_moving_for_inner_database_and_subfolder() {
+        let vault = temp_vault().canonicalize().unwrap();
+        let stories_dir = vault.join("Истории");
+        let my_story_dir = stories_dir.join("Моя история");
+        fs::create_dir_all(&my_story_dir).unwrap();
+
+        // 1. Outer database: "Истории"
+        let _stories_db = create_database(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Истории".to_owned(),
+            },
+        )
+        .unwrap();
+
+        // 2. Attached inner database inside "Истории": "Моя история"
+        let story_card_path = my_story_dir.join("Моя история.md");
+        fs::write(&story_card_path, "# Моя история\n").unwrap();
+        let my_story_db = create_database(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Attached,
+                parent_path: None,
+                note_path: Some(story_card_path.to_string_lossy().to_string()),
+                name: "Моя история".to_owned(),
+            },
+        )
+        .unwrap();
+
+        // 3. Standalone "Заметки" database
+        let notes_db = create_database(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRequest {
+                expected_generation: 1,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(vault.to_string_lossy().to_string()),
+                note_path: None,
+                name: "Заметки".to_owned(),
+            },
+        )
+        .unwrap();
+
+        // Test create_database_row in inner database: "Моя история"
+        let chapter = create_database_row(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRowRequest {
+                expected_generation: 1,
+                database_id: my_story_db.database_id.clone(),
+                title: "Глава 1".to_owned(),
+                template: DatabaseRowTemplate::Empty,
+            },
+        )
+        .unwrap();
+
+        assert!(chapter.note_path.ends_with("Глава 1.md"));
+        assert!(std::path::Path::new(&chapter.note_path).starts_with(&my_story_dir));
+
+        // Test create_database_row in "Заметки" database
+        let note = create_database_row(
+            &vault,
+            &WatcherState::new(),
+            &CreateDatabaseRowRequest {
+                expected_generation: 1,
+                database_id: notes_db.database_id.clone(),
+                title: "Идея сюжета".to_owned(),
+                template: DatabaseRowTemplate::Empty,
+            },
+        )
+        .unwrap();
+
+        let notes_dir = vault.join("Заметки");
+        assert!(std::path::Path::new(&note.note_path).starts_with(&notes_dir));
+
+        // Move the note into subfolder "Заметки/Идеи/" (W7 notepad)
+        let notepad_dir = notes_dir.join("Идеи");
+        fs::create_dir_all(&notepad_dir).unwrap();
+        let target_note_path = notepad_dir.join("Идея сюжета.md");
+        fs::rename(&note.note_path, &target_note_path).unwrap();
+
+        // Discover and verify ownership and categories
+        let discovery = discover_vault(&vault).unwrap();
+        let chapter_disc = discovery
+            .notes
+            .iter()
+            .find(|n| n.path == chapter.note_path)
+            .expect("chapter found in discovery");
+        assert_eq!(
+            chapter_disc.owner_database_id.as_deref(),
+            Some(my_story_db.database_id.as_str())
+        );
+
+        let note_disc = discovery
+            .notes
+            .iter()
+            .find(|n| n.path == target_note_path)
+            .expect("moved note found in discovery");
+        assert_eq!(
+            note_disc.owner_database_id.as_deref(),
+            Some(notes_db.database_id.as_str())
+        );
+        assert_eq!(note_disc.category_path, vec!["Идеи".to_string()]);
+
+        let _ = fs::remove_dir_all(vault);
+    }
 }

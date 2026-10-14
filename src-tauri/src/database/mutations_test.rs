@@ -237,14 +237,14 @@ fn relation_link_and_unlink_return_revisions_for_actual_post_write_bytes() {
     let source_mapping = frontmatter::frontmatter_yaml_mapping(&source_after_unlink)
         .unwrap()
         .unwrap();
-    assert!(!source_mapping.contains_key(&serde_yaml::Value::String("Related".to_owned())));
+    assert!(!source_mapping.contains_key(serde_yaml::Value::String("Related".to_owned())));
     assert!(source_after_unlink.contains(&fixture.source_note_id));
     assert!(source_after_unlink.contains("# Source\n"));
     let target_after_unlink = fs::read_to_string(&fixture.target_note_path).unwrap();
     let target_mapping = frontmatter::frontmatter_yaml_mapping(&target_after_unlink)
         .unwrap()
         .unwrap();
-    assert!(!target_mapping.contains_key(&serde_yaml::Value::String("Sources".to_owned())));
+    assert!(!target_mapping.contains_key(serde_yaml::Value::String("Sources".to_owned())));
     assert!(target_after_unlink.contains(&fixture.target_note_id));
     assert!(target_after_unlink.contains("# Target\n"));
     let _ = fs::remove_dir_all(fixture.vault);
@@ -587,7 +587,7 @@ fn relation_unlink_missing_inverse_target_succeeds_with_warning() {
     let source_mapping = frontmatter::frontmatter_yaml_mapping(&source_after_unlink)
         .unwrap()
         .unwrap();
-    assert!(!source_mapping.contains_key(&serde_yaml::Value::String("Related".to_owned())));
+    assert!(!source_mapping.contains_key(serde_yaml::Value::String("Related".to_owned())));
     assert!(source_after_unlink.contains(&fixture.source_note_id));
     assert!(source_after_unlink.contains("# Source\n"));
     assert!(!fixture.target_note_path.exists());
@@ -640,14 +640,14 @@ fn relation_unlink_duplicate_previous_targets_plans_inverse_once() {
     let source_mapping = frontmatter::frontmatter_yaml_mapping(&source_after_unlink)
         .unwrap()
         .unwrap();
-    assert!(!source_mapping.contains_key(&serde_yaml::Value::String("Related".to_owned())));
+    assert!(!source_mapping.contains_key(serde_yaml::Value::String("Related".to_owned())));
     assert!(source_after_unlink.contains(&fixture.source_note_id));
     assert!(source_after_unlink.contains("# Source\n"));
     let target_after_unlink = fs::read_to_string(&fixture.target_note_path).unwrap();
     let target_mapping = frontmatter::frontmatter_yaml_mapping(&target_after_unlink)
         .unwrap()
         .unwrap();
-    assert!(!target_mapping.contains_key(&serde_yaml::Value::String("Sources".to_owned())));
+    assert!(!target_mapping.contains_key(serde_yaml::Value::String("Sources".to_owned())));
     assert!(target_after_unlink.contains(&fixture.target_note_id));
     assert!(target_after_unlink.contains("# Target\n"));
     let _ = fs::remove_dir_all(fixture.vault);
@@ -3012,7 +3012,7 @@ fn two_way_relation_creates_property_in_target_database_and_links_reciprocals() 
         .unwrap()
         .unwrap();
     let task_rel_val = task_mapping
-        .get(&serde_yaml::Value::String("Project".to_string()))
+        .get(serde_yaml::Value::String("Project".to_string()))
         .expect("Task frontmatter must contain Project relation");
     let task_prop_def = &tasks_manifest.value.properties[0];
     let task_prop_val =
@@ -3022,7 +3022,7 @@ fn two_way_relation_creates_property_in_target_database_and_links_reciprocals() 
         PropertyValue::Relation {
             target_note_ids, ..
         } => {
-            assert_eq!(target_note_ids, &[project_note_id.clone()]);
+            assert_eq!(target_note_ids, std::slice::from_ref(&project_note_id));
         }
         other => panic!("expected relation value, got {other:?}"),
     }
@@ -3033,7 +3033,7 @@ fn two_way_relation_creates_property_in_target_database_and_links_reciprocals() 
         .unwrap()
         .unwrap();
     let project_rel_val = project_mapping
-        .get(&serde_yaml::Value::String("Tasks".to_string()))
+        .get(serde_yaml::Value::String("Tasks".to_string()))
         .expect("Project frontmatter must contain Tasks reciprocal relation");
     let project_prop_def = &projects_manifest.value.properties[0];
     let project_prop_val = crate::database::format::frontmatter_value_to_property_value(
@@ -3045,7 +3045,7 @@ fn two_way_relation_creates_property_in_target_database_and_links_reciprocals() 
         PropertyValue::Relation {
             target_note_ids, ..
         } => {
-            assert_eq!(target_note_ids, &[task_note_id.clone()]);
+            assert_eq!(target_note_ids, std::slice::from_ref(&task_note_id));
         }
         other => panic!("expected inverse relation value on project, got {other:?}"),
     }
@@ -3071,7 +3071,7 @@ fn two_way_relation_creates_property_in_target_database_and_links_reciprocals() 
     let project_mapping_after = frontmatter::frontmatter_yaml_mapping(&project_content_after)
         .unwrap()
         .unwrap();
-    if let Some(val) = project_mapping_after.get(&serde_yaml::Value::String("Tasks".to_string())) {
+    if let Some(val) = project_mapping_after.get(serde_yaml::Value::String("Tasks".to_string())) {
         let prop_val =
             crate::database::format::frontmatter_value_to_property_value(val, project_prop_def)
                 .unwrap_or(PropertyValue::Relation {
@@ -3461,10 +3461,10 @@ fn st04_self_relation_updates_single_file_without_conflict() {
         .unwrap();
 
     let sub_val = mapping
-        .get(&serde_yaml::Value::String("Subtasks".to_string()))
+        .get(serde_yaml::Value::String("Subtasks".to_string()))
         .unwrap();
     let par_val = mapping
-        .get(&serde_yaml::Value::String("Parent".to_string()))
+        .get(serde_yaml::Value::String("Parent".to_string()))
         .unwrap();
 
     assert_eq!(
@@ -4882,14 +4882,14 @@ fn property_type_change_allows_cleared_relation_values_as_empty_sequences() {
             .unwrap()
             .unwrap();
         let value = mapping
-            .get(&serde_yaml::Value::String(key.to_owned()))
+            .get(serde_yaml::Value::String(key.to_owned()))
             .cloned()
             .unwrap_or(serde_yaml::Value::Sequence(Vec::new()));
         assert!(matches!(
             value,
             serde_yaml::Value::Sequence(ref items) if items.is_empty()
         ));
-        if !mapping.contains_key(&serde_yaml::Value::String(key.to_owned())) {
+        if !mapping.contains_key(serde_yaml::Value::String(key.to_owned())) {
             let content = frontmatter::replace_yaml_binding_lossless(
                 &content,
                 key,

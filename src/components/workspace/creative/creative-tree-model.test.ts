@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 import type { TreeItem } from "../tree/tree-types"
 import { applyCreativeTree, collectionForFolder } from "./creative-tree-model"
-import { catalog, project, section } from "./project-fixtures.test-support"
+import {
+  catalog,
+  storySummary,
+  workshopSection,
+  workshopSummary,
+} from "./project-fixtures.test-support"
 
 const VAULT = "/vault"
 
@@ -31,21 +36,21 @@ const note = (path: string): TreeItem => ({
 })
 
 function fixture() {
-  const universe = project("pv", {
-    kind: "collection",
+  const workshop = workshopSummary("pv", {
     path: "PaulooVerse",
-    sections: [section("chars", { role: "characters", databaseId: "db_chars" })],
-  })
-  const story = project("mh", {
-    path: "PaulooVerse/MoleHills",
-    collectionId: "pv",
     sections: [
-      section("text", { role: "text", databaseId: "db_text" }),
-      section("notes", { role: "notes", databaseId: "db_notes" }),
-      section("loose", { role: null, databaseId: "db_loose" }),
+      workshopSection("chars", { role: "characters", databaseId: "db_chars" }),
+      workshopSection("notes", { role: "notes", databaseId: "db_notes" }),
+      workshopSection("loose", { role: "custom", databaseId: "db_loose" }),
+    ],
+    stories: [
+      storySummary("mh", {
+        folderPath: "PaulooVerse/MoleHills",
+        databaseId: "db_text",
+      }),
     ],
   })
-  const plain = project("shelf", { kind: "collection", path: "Shelf" })
+  const plain = workshopSummary("shelf", { path: "Shelf" })
   const tree: TreeItem[] = [
     folder("PaulooVerse", [
       database("PaulooVerse/Персонажи", "db_chars"),
@@ -59,7 +64,7 @@ function fixture() {
     folder("Ordinary", [note("Ordinary/a.md")]),
     note("b.md"),
   ]
-  return { cat: catalog([universe, story, plain]), tree }
+  return { cat: catalog([workshop, plain]), tree }
 }
 
 const iconOf = (items: TreeItem[] | undefined, id: string): string | undefined => {
@@ -72,14 +77,13 @@ const iconOf = (items: TreeItem[] | undefined, id: string): string | undefined =
 }
 
 describe("applyCreativeTree", () => {
-  it("gives a universe, a story, a plain collection and the sections their own icons", () => {
+  it("gives a workshop, a story and the sections their own icons", () => {
     const { cat, tree } = fixture()
     const shown = applyCreativeTree(tree, cat, VAULT, true)
-    expect(iconOf(shown, "PaulooVerse")).toContain("amby-icon:earth:")
+    expect(iconOf(shown, "PaulooVerse")).toContain("amby-icon:feather:")
     expect(iconOf(shown, "PaulooVerse/MoleHills")).toContain("amby-icon:book-open:")
-    expect(iconOf(shown, "Shelf")).toContain("amby-icon:layers:")
+    expect(iconOf(shown, "Shelf")).toContain("amby-icon:feather:")
     expect(iconOf(shown, "db_chars")).toContain("amby-icon:users:")
-    expect(iconOf(shown, "db_text")).toContain("amby-icon:file-text:")
     expect(iconOf(shown, "db_notes")).toContain("amby-icon:sticky-note:")
   })
 
@@ -92,7 +96,7 @@ describe("applyCreativeTree", () => {
     expect(shown[3]).toBe(tree[3])
   })
 
-  it("keeps an icon the author chose, but the end of the row still says what the folder is", () => {
+  it("keeps an icon the author chose", () => {
     const { cat } = fixture()
     const chosen = "amby-icon:rocket:%23ff0000"
     const tree = [
@@ -101,38 +105,52 @@ describe("applyCreativeTree", () => {
     const shown = applyCreativeTree(tree, cat, VAULT, true)
     expect(iconOf(shown, "PaulooVerse")).toBe(chosen)
     expect(iconOf(shown, "db_chars")).toBe(chosen)
-    expect(shown[0].statusIcon).toContain("amby-icon:earth:")
   })
 
-  it("puts a planet at the end of a universe's row, and nothing on ordinary folders", () => {
+  it("puts the icon of a workshop and of a story at the end of its row, and nothing on ordinary folders", () => {
     const { cat, tree } = fixture()
     const shown = applyCreativeTree(tree, cat, VAULT, true)
-    expect(shown[0].statusIcon).toContain("amby-icon:earth:")
+    expect(shown[0].statusIcon).toContain("amby-icon:feather:")
     expect(shown[0].children?.[1].statusIcon).toContain("amby-icon:book-open:")
     expect(shown[2].statusIcon).toBeUndefined()
   })
 
-  it("uses the icon of the structure file when the project has one", () => {
-    const own = project("pv", { kind: "collection", path: "PaulooVerse", icon: "🪐" })
+  it("keeps the icon the author chose, but the end of the row still says what the folder is", () => {
+    const { cat } = fixture()
+    const chosen = "amby-icon:rocket:%23ff0000"
+    const shown = applyCreativeTree([folder("PaulooVerse", [], chosen)], cat, VAULT, true)
+    expect(iconOf(shown, "PaulooVerse")).toBe(chosen)
+    expect(shown[0].statusIcon).toContain("amby-icon:feather:")
+  })
+
+  it("uses the icon of the structure file when the workshop has one", () => {
+    const own = workshopSummary("pv", { path: "PaulooVerse", icon: "🪐" })
     const shown = applyCreativeTree([folder("PaulooVerse")], catalog([own]), VAULT, true)
     expect(iconOf(shown, "PaulooVerse")).toBe("🪐")
+    expect(shown[0].statusIcon).toBe("🪐")
+  })
+
+  it("leaves out a moved section database when switched off, and keeps a missing one out of the index", () => {
+    const moved = workshopSummary("pv", {
+      path: "PaulooVerse",
+      sections: [
+        workshopSection("chars", { role: "characters", databaseId: "db_chars", state: "moved" }),
+        workshopSection("gone", { role: "locations", databaseId: "db_gone", state: "missing" }),
+      ],
+    })
+    const tree = [
+      folder("PaulooVerse"),
+      database("Elsewhere/Персонажи", "db_chars"),
+      database("Elsewhere/Локации", "db_gone"),
+    ]
+    const shown = applyCreativeTree(tree, catalog([moved]), VAULT, false)
+    expect(shown.map((item) => item.id)).toEqual(["db_gone"])
   })
 
   it("leaves out every creative folder and section database when switched off", () => {
     const { cat, tree } = fixture()
     const shown = applyCreativeTree(tree, cat, VAULT, false)
     expect(shown.map((item) => item.id)).toEqual(["Ordinary", "b.md"])
-  })
-
-  it("leaves out a section database that lives outside its project's folder", () => {
-    const moved = project("pv", {
-      kind: "collection",
-      path: "PaulooVerse",
-      sections: [section("chars", { role: "characters", databaseId: "db_chars", state: "moved" })],
-    })
-    const tree = [folder("PaulooVerse"), database("Elsewhere/Персонажи", "db_chars")]
-    const shown = applyCreativeTree(tree, catalog([moved]), VAULT, false)
-    expect(shown.map((item) => item.id)).toEqual([])
   })
 
   it("returns the same array when there is nothing to change", () => {
@@ -144,21 +162,21 @@ describe("applyCreativeTree", () => {
     expect(applyCreativeTree(plainOnly, fixture().cat, VAULT, true)).toBe(plainOnly)
   })
 
-  it("does not hide the vault when a project sits at its root", () => {
-    const root = project("root", { path: "" })
+  it("does not hide the vault when a workshop sits at its root", () => {
+    const root = workshopSummary("root", { path: "" })
     const tree = [folder("Ordinary"), note("b.md")]
     expect(applyCreativeTree(tree, catalog([root]), VAULT, false)).toBe(tree)
   })
 })
 
 describe("collectionForFolder", () => {
-  it("finds the universe and the plain collection a folder is", () => {
+  it("finds the workshop a folder is", () => {
     const { cat, tree } = fixture()
-    expect(collectionForFolder(tree[0], cat, VAULT)?.projectId).toBe("pv")
-    expect(collectionForFolder(tree[1], cat, VAULT)?.projectId).toBe("shelf")
+    expect(collectionForFolder(tree[0], cat, VAULT)?.workshopId).toBe("pv")
+    expect(collectionForFolder(tree[1], cat, VAULT)?.workshopId).toBe("shelf")
   })
 
-  it("is nothing for a story, an ordinary folder, a note or a database", () => {
+  it("is nothing for an ordinary folder, a note or a database", () => {
     const { cat, tree } = fixture()
     const story = tree[0].children?.[1] as TreeItem
     expect(collectionForFolder(story, cat, VAULT)).toBeNull()

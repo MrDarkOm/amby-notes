@@ -1,15 +1,5 @@
 import * as React from "react"
-import {
-  ArrowDown,
-  ArrowUp,
-  BookOpen,
-  FileText,
-  Globe2,
-  Layers,
-  Plus,
-  Trash2,
-  X,
-} from "lucide-react"
+import { ArrowDown, ArrowUp, FileText, Globe2, Plus, Trash2, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,12 +12,14 @@ import {
 import { Input } from "@/components/ui/input"
 import {
   addTextStatus,
-  removeProjectSection,
+  removeWorkshopSection,
   renameDatabase,
-  reorderProjectSections,
-  updateProject,
+  reorderWorkshopSections,
   updateTextLevels,
-  type ProjectSummary,
+  updateWorkshop,
+  type StorySummary,
+  type WorkshopSectionSummary,
+  type WorkshopSummary,
 } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { useDatabaseStore } from "../database/database-store"
@@ -52,42 +44,57 @@ interface ProjectSettingsDialogProps {
   open: boolean
   onClose: () => void
   vaultGeneration: number | null
-  project: ProjectSummary
+  workshop?: WorkshopSummary | null
+  story?: StorySummary | null
+  project?: WorkshopSummary | StorySummary | null
   onChanged?: () => Promise<void>
   onAddSection?: () => void
 }
 
 function DefaultProjectIcon({
-  project,
+  workshop: _workshop,
   className,
 }: {
-  project: ProjectSummary
+  workshop?: WorkshopSummary | null
   className?: string
 }) {
-  if (project.kind === "story") return <BookOpen className={className} />
-  return project.sections.length > 0 ? (
-    <Globe2 className={className} />
-  ) : (
-    <Layers className={className} />
-  )
+  return <Globe2 className={className} />
 }
 
 export function ProjectSettingsDialog({
   open,
   onClose,
   vaultGeneration,
+  workshop,
+  story,
   project,
   onChanged,
   onAddSection,
 }: ProjectSettingsDialogProps) {
   const { t } = useTranslation()
   const databases = useDatabaseStore((state) => state.databases)
-  const hasLevelsTab = project.kind === "story" && project.text !== null
+  const catalog = useProjectStore((state) => state.catalog)
+
+  const resolvedWorkshop: WorkshopSummary | null =
+    workshop ??
+    (project && "workshopId" in project
+      ? (project as WorkshopSummary)
+      : (catalog?.workshops.find((w) =>
+          project && "storyId" in project
+            ? w.stories.some((s) => s.storyId === (project as StorySummary).storyId)
+            : true,
+        ) ?? null))
+
+  const resolvedStory: StorySummary | null =
+    story ?? (project && "storyId" in project ? (project as StorySummary) : null)
+
+  const hasLevelsTab = Boolean(resolvedStory && resolvedStory.text !== null)
+  const sections: WorkshopSectionSummary[] = resolvedWorkshop?.sections ?? []
 
   const [tab, setTab] = React.useState<SettingsTab>("general")
-  const [name, setName] = React.useState(project.name)
-  const [icon, setIcon] = React.useState(project.icon ?? "")
-  const [tagsText, setTagsText] = React.useState(project.tags.join(", "))
+  const [name, setName] = React.useState(resolvedWorkshop?.name ?? "")
+  const [icon, setIcon] = React.useState(resolvedWorkshop?.icon ?? "")
+  const [tagsText, setTagsText] = React.useState((resolvedWorkshop?.tags ?? []).join(", "))
   const [sectionNames, setSectionNames] = React.useState<Record<string, string>>({})
   const [confirmingSectionId, setConfirmingSectionId] = React.useState<string | null>(null)
   const [levels, setLevels] = React.useState<EditableLevel[]>([])
@@ -96,18 +103,21 @@ export function ProjectSettingsDialog({
   const newLevelSeqRef = React.useRef(0)
 
   React.useEffect(() => {
-    if (!open) return
-    setName(project.name)
-    setIcon(project.icon ?? "")
-    setTagsText(project.tags.join(", "))
+    if (!open || !resolvedWorkshop) return
+    setName(resolvedWorkshop.name)
+    setIcon(resolvedWorkshop.icon ?? "")
+    setTagsText(resolvedWorkshop.tags.join(", "))
     setSectionNames(
       Object.fromEntries(
-        project.sections.map((section) => [section.id, section.databaseName ?? section.id]),
+        resolvedWorkshop.sections.map((section) => [
+          section.id,
+          section.databaseName ?? section.id,
+        ]),
       ),
     )
     setConfirmingSectionId(null)
     setLevels(
-      (project.text?.levels ?? []).map((level) => ({
+      (resolvedStory?.text?.levels ?? []).map((level) => ({
         key: level.id,
         id: level.id,
         name: level.name ?? "",
@@ -116,7 +126,7 @@ export function ProjectSettingsDialog({
     )
     setError(null)
     setPending(false)
-  }, [open, project])
+  }, [open, resolvedWorkshop, resolvedStory])
 
   const trimmedName = name.trim()
   const parsedTags = React.useMemo(
@@ -128,31 +138,31 @@ export function ProjectSettingsDialog({
     [tagsText],
   )
 
-  const updateProjectOpId = useOperationId("update-project", {
-    project: project.projectId,
-    revision: project.fileRevision,
+  const updateWorkshopOpId = useOperationId("update-workshop", {
+    workshop: resolvedWorkshop?.workshopId,
+    revision: resolvedWorkshop?.fileRevision,
     name: trimmedName,
     icon,
     tags: parsedTags,
   })
-  const reorderSectionsOpId = useOperationId("reorder-sections", {
-    project: project.projectId,
-    revision: project.fileRevision,
-    sections: project.sections.map((section) => section.id),
+  const reorderSectionsOpId = useOperationId("reorder-workshop-sections", {
+    workshop: resolvedWorkshop?.workshopId,
+    revision: resolvedWorkshop?.fileRevision,
+    sections: sections.map((section) => section.id),
   })
-  const removeSectionOpId = useOperationId("remove-section", {
-    project: project.projectId,
-    revision: project.fileRevision,
+  const removeSectionOpId = useOperationId("remove-workshop-section", {
+    workshop: resolvedWorkshop?.workshopId,
+    revision: resolvedWorkshop?.fileRevision,
     confirmingSectionId,
   })
   const updateLevelsOpId = useOperationId("update-text-levels", {
-    project: project.projectId,
-    revision: project.fileRevision,
+    story: resolvedStory?.storyId,
+    revision: resolvedStory?.fileRevision,
     levels: levels.map((level) => ({ id: level.id, name: level.name.trim(), icon: level.icon })),
   })
   const addStatusOpId = useOperationId("add-text-status", {
-    project: project.projectId,
-    revision: project.fileRevision,
+    story: resolvedStory?.storyId,
+    revision: resolvedStory?.fileRevision,
   })
 
   const refreshAll = async () => {
@@ -162,15 +172,15 @@ export function ProjectSettingsDialog({
 
   const handleSaveGeneral = async (event?: React.FormEvent) => {
     event?.preventDefault()
-    if (!trimmedName || pending || vaultGeneration === null) return
+    if (!trimmedName || pending || vaultGeneration === null || !resolvedWorkshop) return
     setPending(true)
     setError(null)
     try {
-      await updateProject({
+      await updateWorkshop({
         expectedGeneration: vaultGeneration,
-        operationId: updateProjectOpId(),
-        projectId: project.projectId,
-        expectedProjectRevision: project.fileRevision,
+        operationId: updateWorkshopOpId(),
+        workshopId: resolvedWorkshop.workshopId,
+        expectedWorkshopRevision: resolvedWorkshop.fileRevision,
         name: trimmedName,
         icon: icon.trim() ? icon.trim() : null,
         tags: parsedTags,
@@ -217,24 +227,25 @@ export function ProjectSettingsDialog({
     const targetIndex = index + direction
     if (
       targetIndex < 0 ||
-      targetIndex >= project.sections.length ||
+      targetIndex >= sections.length ||
       pending ||
-      vaultGeneration === null
+      vaultGeneration === null ||
+      !resolvedWorkshop
     ) {
       return
     }
-    const sectionIds = project.sections.map((section) => section.id)
+    const sectionIds = sections.map((section) => section.id)
     const [moved] = sectionIds.splice(index, 1)
     sectionIds.splice(targetIndex, 0, moved)
 
     setPending(true)
     setError(null)
     try {
-      await reorderProjectSections({
+      await reorderWorkshopSections({
         expectedGeneration: vaultGeneration,
         operationId: reorderSectionsOpId(),
-        projectId: project.projectId,
-        expectedProjectRevision: project.fileRevision,
+        workshopId: resolvedWorkshop.workshopId,
+        expectedWorkshopRevision: resolvedWorkshop.fileRevision,
         sectionIds,
       })
       await refreshAll()
@@ -246,15 +257,15 @@ export function ProjectSettingsDialog({
   }
 
   const handleRemoveSection = async (sectionId: string) => {
-    if (pending || vaultGeneration === null) return
+    if (pending || vaultGeneration === null || !resolvedWorkshop) return
     setPending(true)
     setError(null)
     try {
-      await removeProjectSection({
+      await removeWorkshopSection({
         expectedGeneration: vaultGeneration,
         operationId: removeSectionOpId(),
-        projectId: project.projectId,
-        expectedProjectRevision: project.fileRevision,
+        workshopId: resolvedWorkshop.workshopId,
+        expectedWorkshopRevision: resolvedWorkshop.fileRevision,
         sectionId,
       })
       setConfirmingSectionId(null)
@@ -297,15 +308,15 @@ export function ProjectSettingsDialog({
   }
 
   const handleSaveLevels = async () => {
-    if (levelProblem || pending || vaultGeneration === null) return
+    if (levelProblem || pending || vaultGeneration === null || !resolvedStory) return
     setPending(true)
     setError(null)
     try {
       await updateTextLevels({
         expectedGeneration: vaultGeneration,
         operationId: updateLevelsOpId(),
-        projectId: project.projectId,
-        expectedProjectRevision: project.fileRevision,
+        storyId: resolvedStory.storyId,
+        expectedStoryRevision: resolvedStory.fileRevision,
         levels: levels.map((level) => ({
           id: level.id,
           name: level.name.trim(),
@@ -321,15 +332,15 @@ export function ProjectSettingsDialog({
   }
 
   const handleAddStatus = async () => {
-    if (pending || vaultGeneration === null) return
+    if (pending || vaultGeneration === null || !resolvedStory) return
     setPending(true)
     setError(null)
     try {
       await addTextStatus({
         expectedGeneration: vaultGeneration,
         operationId: addStatusOpId(),
-        projectId: project.projectId,
-        expectedProjectRevision: project.fileRevision,
+        storyId: resolvedStory.storyId,
+        expectedStoryRevision: resolvedStory.fileRevision,
         labels: statusLabels(t),
       })
       await refreshAll()
@@ -347,6 +358,8 @@ export function ProjectSettingsDialog({
         ? "bg-accent text-foreground"
         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
     )
+
+  if (!resolvedWorkshop) return null
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && !pending && onClose()}>
@@ -403,7 +416,7 @@ export function ProjectSettingsDialog({
                 <span>{t("creative.projectSettings.icon")}</span>
                 <IconPickerButton
                   value={icon || undefined}
-                  fallback={<DefaultProjectIcon project={project} className="size-5" />}
+                  fallback={<DefaultProjectIcon workshop={resolvedWorkshop} className="size-5" />}
                   label={t("creative.projectSettings.changeIcon")}
                   onChange={(next) => setIcon(next)}
                   disabled={pending}
@@ -468,7 +481,7 @@ export function ProjectSettingsDialog({
             </p>
 
             <div className="flex max-h-72 flex-col gap-2 overflow-y-auto pr-1">
-              {project.sections.map((section, index) => {
+              {sections.map((section, index) => {
                 const Icon = sectionRoleIcon(section.role)
                 const currentName = section.databaseName ?? section.id
                 const draftName = sectionNames[section.id] ?? currentName
@@ -523,7 +536,7 @@ export function ProjectSettingsDialog({
                         className="size-7 shrink-0"
                         aria-label={t("creative.projectSettings.moveDown")}
                         title={t("creative.projectSettings.moveDown")}
-                        disabled={index === project.sections.length - 1 || pending}
+                        disabled={index === sections.length - 1 || pending}
                         onClick={() => void handleMoveSection(index, 1)}
                       >
                         <ArrowDown className="size-3.5" />
@@ -612,7 +625,7 @@ export function ProjectSettingsDialog({
           </div>
         )}
 
-        {tab === "levels" && hasLevelsTab && project.text && (
+        {tab === "levels" && hasLevelsTab && resolvedStory?.text && (
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2.5">
               <p className="text-xs text-muted-foreground">
@@ -736,7 +749,7 @@ export function ProjectSettingsDialog({
 
             <div className="flex flex-col gap-2 border-t border-border pt-3">
               <h3 className="text-xs font-semibold">{t("creative.projectSettings.statusTitle")}</h3>
-              {project.text.properties.status ? (
+              {resolvedStory.text.properties.status ? (
                 <p className="text-xs text-muted-foreground">
                   {t("creative.projectSettings.statusConfigured")}
                 </p>

@@ -547,10 +547,12 @@ mod tests {
     use std::sync::Mutex;
 
     /// A network that answers from a table, and remembers what it was asked.
+    type FakePage = (u16, Option<String>, Option<&'static str>, Vec<u8>);
+
     #[derive(Default)]
     struct Fake {
         names: HashMap<&'static str, Vec<IpAddr>>,
-        pages: HashMap<String, (u16, Option<String>, Option<&'static str>, Vec<u8>)>,
+        pages: HashMap<String, FakePage>,
         asked: Mutex<Vec<String>>,
         pinned: Mutex<Vec<Option<(String, IpAddr)>>>,
     }

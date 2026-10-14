@@ -29,14 +29,12 @@ export function projectErrorText(t: TFunction, error: unknown): string {
     }
     case "pathCollision":
       return t("creative.errors.pathCollision", { path: payload.path })
-    case "nestedCollectionUnsupported":
-      return t("creative.errors.nestedCollection", { path: payload.ancestorPath })
-    case "parentProjectReadOnly":
-      return t("creative.errors.parentReadOnly", { path: payload.path })
-    case "projectReadOnly":
-      return t("creative.errors.projectReadOnly")
-    case "projectNotFound":
+    case "workshopNotFound":
+    case "storyNotFound":
       return t("creative.errors.projectNotFound")
+    case "workshopReadOnly":
+    case "storyReadOnly":
+      return t("creative.errors.projectReadOnly")
     case "revisionConflict":
       return t("creative.errors.revisionConflict")
     case "rolledBack":
@@ -52,6 +50,7 @@ export function projectErrorText(t: TFunction, error: unknown): string {
       return t("creative.errors.invalidParent")
     case "sectionNotFound":
       return t("creative.errors.sectionNotFound")
+    case "cannotRemoveStoriesSection":
     case "cannotRemoveTextSection":
       return t("creative.errors.cannotRemoveTextSection")
     case "textNotConfigured":
@@ -69,9 +68,10 @@ export function projectErrorText(t: TFunction, error: unknown): string {
       return t("creative.errors.parentCycle")
     case "parentLevelNotShallower":
       return t("creative.errors.parentLevelNotShallower")
+    case "levelInUse":
+      return t("creative.errors.generic", { message: `Level in use: ${payload.count}` })
     case "unsupportedPreset":
       return t("creative.errors.unsupportedPreset")
-    case "unknownGroup":
     case "unsupportedRole":
     case "invalidOperationId":
     case "operationIdReused":

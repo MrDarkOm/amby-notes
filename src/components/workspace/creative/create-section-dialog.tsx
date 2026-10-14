@@ -11,74 +11,80 @@ import {
 } from "@/components/ui/dialog"
 import { AmbySelect } from "@/components/ui/amby-select"
 import { Input } from "@/components/ui/input"
-import { createProjectSection, type CreatedSection, type ProjectSummary } from "@/lib/storage"
+import {
+  createWorkshopSection,
+  type CreatedWorkshopSectionResult,
+  type WorkshopSummary,
+} from "@/lib/storage"
 import { projectErrorText } from "./project-error"
 import { projectLabels } from "./project-labels"
 import { useOperationId } from "./use-operation-id"
 
 const NO_VALUE = "none"
-/**
- * What a new section can start as. A choice sets the role (a hint for the surfaces to offer) and,
- * for the world sections, a preset: starting properties, a gallery grouped by importance and the
- * starter headings of the dossier. The text is the story's one manuscript and is not offered again.
- */
-const CHOICES = [
-  { value: "notes", role: "notes", preset: null },
-  { value: "characters", role: "characters", preset: "characters" },
-  { value: "locations", role: "locations", preset: "locations" },
-  { value: "organizations", role: null, preset: "organizations" },
-  { value: "items", role: null, preset: "items" },
-  // The key, unchanging events of a story: an ordinary database whose role the Works tab reads.
-  { value: "anchors", role: "anchors", preset: null },
+
+const SECTION_CHOICES = [
+  { value: "characters", role: "characters" },
+  { value: "locations", role: "locations" },
+  { value: "universes", role: "universes" },
+  { value: "arcs", role: "arcs" },
+  { value: "anchors", role: "anchors" },
+  { value: "notes", role: "notes" },
+  { value: "custom", role: "custom" },
 ] as const
 
 interface CreateSectionDialogProps {
   open: boolean
   onClose: () => void
   vaultGeneration: number | null
-  project: ProjectSummary
-  /** The name and the starting point to put in the form when it opens. */
+  workshop?: WorkshopSummary
+  project?: WorkshopSummary
   initial?: { name?: string; choice?: string }
-  onCreated: (created: CreatedSection) => void
+  onCreated: (created: CreatedWorkshopSectionResult) => void
 }
 
 export function CreateSectionDialog({
+  workshop: propWorkshop,
+  project,
+  ...rest
+}: CreateSectionDialogProps) {
+  const workshop = propWorkshop ?? project
+  if (!workshop) return null
+  return <CreateSectionForm workshop={workshop} {...rest} />
+}
+
+type CreateSectionFormProps = Omit<CreateSectionDialogProps, "workshop" | "project"> & {
+  workshop: WorkshopSummary
+}
+
+function CreateSectionForm({
   open,
   onClose,
   vaultGeneration,
-  project,
+  workshop,
   initial,
   onCreated,
-}: CreateSectionDialogProps) {
+}: CreateSectionFormProps) {
   const { t } = useTranslation()
   const [name, setName] = React.useState("")
-  const [group, setGroup] = React.useState(NO_VALUE)
   const [choice, setChoice] = React.useState(NO_VALUE)
   const [pending, setPending] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const trimmed = name.trim()
   const operationId = useOperationId("create-section", {
-    project: project.projectId,
-    revision: project.fileRevision,
+    workshop: workshop.workshopId,
+    revision: workshop.fileRevision,
     name: trimmed,
-    group,
     choice,
   })
 
   React.useEffect(() => {
     if (open) {
       setName(initial?.name ?? "")
-      // Anchors belong to the work, not the world.
-      setGroup(
-        initial?.choice === "anchors" && project.groups.some((entry) => entry.id === "work")
-          ? "work"
-          : NO_VALUE,
-      )
       setChoice(initial?.choice ?? NO_VALUE)
       setError(null)
       setPending(false)
     }
-  }, [open, initial, project.groups])
+  }, [open, initial])
 
   const submit = async (event?: React.FormEvent) => {
     event?.preventDefault()
@@ -86,17 +92,16 @@ export function CreateSectionDialog({
     setPending(true)
     setError(null)
     try {
-      const chosen = CHOICES.find((candidate) => candidate.value === choice)
-      const created = await createProjectSection({
+      const chosen = SECTION_CHOICES.find((candidate) => candidate.value === choice)
+      const role = chosen ? chosen.role : "custom"
+      const created = await createWorkshopSection({
         expectedGeneration: vaultGeneration,
         operationId: operationId(),
-        projectId: project.projectId,
-        expectedProjectRevision: project.fileRevision,
+        workshopId: workshop.workshopId,
+        expectedWorkshopRevision: workshop.fileRevision,
         name: trimmed,
-        role: chosen?.role ?? null,
-        preset: chosen?.preset ?? null,
+        role,
         labels: projectLabels(t),
-        groupId: group === NO_VALUE ? null : group,
       })
       onCreated(created)
       onClose()
@@ -113,7 +118,7 @@ export function CreateSectionDialog({
           <DialogHeader>
             <DialogTitle>{t("creative.createSection.title")}</DialogTitle>
             <DialogDescription>
-              {t("creative.createSection.description", { name: project.name })}
+              {t("creative.createSection.description", { name: workshop.name })}
             </DialogDescription>
           </DialogHeader>
 
@@ -132,24 +137,6 @@ export function CreateSectionDialog({
             />
           </label>
 
-          {project.groups.length > 0 && (
-            <div className="flex flex-col gap-1.5 text-xs font-medium">
-              {t("creative.createSection.group")}
-              <AmbySelect
-                aria-label={t("creative.createSection.group")}
-                value={group}
-                onValueChange={setGroup}
-                options={[
-                  { value: NO_VALUE, label: t("creative.createSection.noGroup") },
-                  ...project.groups.map((entry) => ({ value: entry.id, label: entry.name })),
-                ]}
-              />
-              <span className="text-[11px] font-normal text-muted-foreground">
-                {t("creative.createSection.groupHint")}
-              </span>
-            </div>
-          )}
-
           <div className="flex flex-col gap-1.5 text-xs font-medium">
             {t("creative.createSection.preset")}
             <AmbySelect
@@ -157,12 +144,10 @@ export function CreateSectionDialog({
               value={choice}
               onValueChange={setChoice}
               options={[
-                { value: NO_VALUE, label: t("creative.preset.choices.plain") },
-                ...CHOICES.filter(
-                  (entry) => entry.value !== "anchors" || project.kind === "story",
-                ).map((entry) => ({
+                { value: NO_VALUE, label: t("creative.preset.choices.plain", "Пользовательский") },
+                ...SECTION_CHOICES.map((entry) => ({
                   value: entry.value,
-                  label: t(`creative.preset.choices.${entry.value}`),
+                  label: t(`creative.preset.choices.${entry.value}`, entry.value),
                 })),
               ]}
             />

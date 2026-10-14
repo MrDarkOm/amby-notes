@@ -1432,11 +1432,11 @@ mod tests {
         // Fake signature: "ed25519:anything" or invalid hex / non-matching
         let fake_sig = "ed25519:anything";
         let res = verify_ed25519(OFFICIAL_ED25519_PUBLIC_KEY_HEX, msg, fake_sig);
-        assert!(res.is_err() || res.unwrap() == false);
+        assert!(res.is_err() || !res.unwrap());
 
         let random_hex_sig = "ed25519:00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
         let res2 = verify_ed25519(OFFICIAL_ED25519_PUBLIC_KEY_HEX, msg, random_hex_sig);
-        assert_eq!(res2.unwrap(), false);
+        assert!(!res2.unwrap());
     }
 
     #[test]
@@ -1444,7 +1444,7 @@ mod tests {
         let msg = b"amby-package-manifest-test-payload";
         let valid_sig = "735ae4f2d075181de999ab84ea36fd0f2d5e884f4af7c9541e0aaad3559be7ef576c547fbd653b077aaff2e8adc3144fc866a166d161b28a9d7248a0820a9c0d";
         let res = verify_ed25519(OFFICIAL_ED25519_PUBLIC_KEY_HEX, msg, valid_sig);
-        assert_eq!(res.unwrap(), true);
+        assert!(res.unwrap());
     }
 
     #[test]

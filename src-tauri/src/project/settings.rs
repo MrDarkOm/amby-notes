@@ -1,55 +1,71 @@
-//! Project settings and text-schema mutations on an existing project (`update_project`,
-//! `remove_project_section`, `reorder_project_sections`, `update_text_levels`,
+//! Creative workshop settings and story text-schema mutations (`update_workshop`,
+//! `remove_workshop_section`, `reorder_workshop_sections`, `update_text_levels`,
 //! `add_text_status`).
 //!
-//! Every operation follows the same durable contract as `create_project_section`: validate and
-//! preflight before any write, publish a journal in `.amby/recovery/projects/`, snapshot
-//! modified manifests and `amby-project.json` into history, and treat `amby-project.json`
-//! reaching its planned bytes as the commit point.
+//! Every operation validates and preflights before any write, publishes a journal in
+//! `.amby/recovery/creative/`, snapshots modified manifests and structure files into history,
+//! and treats the structure file reaching its planned bytes as the commit point.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
+use std::path::{Path, PathBuf};
 
+use rusqlite::Connection;
 use serde_json::{json, Value};
 
 use super::create::{
-    find_project, finish, io_failure, replay, request_revision, run, validate_operation_id, Env,
-    ProjectWrite, Replay,
+    io_failure, join_relative, replay, request_revision, validate_operation_id, Env, Replay,
 };
+use super::discovery::discover_projects;
 use super::format::{
-    document_bytes, with_project_metadata, with_section_removed, with_sections_reordered,
-    ProjectDoc,
+    document_bytes, parse_story_file, with_section_removed, with_sections_reordered,
+    with_text_levels_updated, with_text_status_property, with_workshop_metadata, StoryDoc,
+    WorkshopDoc,
 };
 use super::journal::{
-    self, Journal, Plan, PlannedManifestWrite, JOURNAL_FORMAT, JOURNAL_VERSION, OP_ADD_TEXT_STATUS,
-    OP_REMOVE_SECTION, OP_REORDER_SECTIONS, OP_UPDATE_PROJECT, OP_UPDATE_TEXT_LEVELS,
-    STATUS_IN_PROGRESS,
+    create_journal, replace_journal, Journal, Plan, PlannedManifestWrite, JOURNAL_FORMAT,
+    JOURNAL_VERSION, OP_ADD_TEXT_STATUS, OP_REMOVE_SECTION, OP_REORDER_SECTIONS,
+    OP_UPDATE_TEXT_LEVELS, OP_UPDATE_WORKSHOP, STATUS_COMPLETED, STATUS_IN_PROGRESS,
 };
 use super::model::{
-    AddTextStatusRequest, AddedTextStatus, ProjectError, RemoveProjectSectionRequest,
-    RemovedProjectSection, ReorderProjectSectionsRequest, ReorderedProjectSections,
-    UpdateProjectRequest, UpdateTextLevelsRequest, UpdatedProject, UpdatedTextLevels, ROLE_TEXT,
+    AddTextStatusRequest, AddedTextStatus, ProjectError, RemoveWorkshopSectionRequest,
+    RemovedWorkshopSection, ReorderWorkshopSectionsRequest, ReorderedWorkshopSections,
+    UpdateTextLevelsRequest, UpdateWorkshopRequest, UpdatedTextLevels, UpdatedWorkshop,
+    ROLE_STORIES, STORY_FILE_NAME, WORKSHOP_FILE_NAME,
 };
 use super::names::{normalize_entry_name, normalize_icon, normalize_tags, normalize_title};
-use super::text_schema::{
-    resolve_status_labels, with_text_levels_updated, with_text_status_property, MAX_TEXT_LEVELS,
-};
-use crate::database::discovery::manifest_path_for_container;
+use super::text_schema::{resolve_status_labels, MAX_TEXT_LEVELS};
 use crate::database::format::{
-    parse_manifest, prepare_json, raw_revision, DatabaseManifest, ParsedJson, PropertyDefinition,
-    SelectOption,
+    parse_manifest, raw_revision, DatabaseManifest, PropertyDefinition, SelectOption,
 };
-use crate::database::mutations::{
-    build_new_property, find_database_container, CreateDatabasePropertyRequest, PlannedPropertyIds,
-};
-use crate::database::validation::validate_manifest;
 use crate::durable;
+use crate::frontmatter;
+use crate::watcher;
 
-const LABEL: &str = "Project settings";
+const LABEL: &str = "Creative settings";
 
-fn check_writable_project(doc: &ProjectDoc, expected_revision: &str) -> Result<(), ProjectError> {
+fn guarded(vault: &Path, relative: &str) -> Result<PathBuf, ProjectError> {
+    durable::guarded_path(vault, relative, LABEL)
+        .map_err(|message| ProjectError::failed("invalidPath", message))
+}
+
+fn check_writable_workshop(doc: &WorkshopDoc, expected_revision: &str) -> Result<(), ProjectError> {
     if !doc.is_known_version() {
-        return Err(ProjectError::ProjectReadOnly {
+        return Err(ProjectError::WorkshopReadOnly {
+            format_version: doc.format_version,
+        });
+    }
+    if doc.revision != expected_revision {
+        return Err(ProjectError::RevisionConflict {
+            actual_revision: doc.revision.clone(),
+        });
+    }
+    Ok(())
+}
+
+fn check_writable_story(doc: &StoryDoc, expected_revision: &str) -> Result<(), ProjectError> {
+    if !doc.is_known_version() {
+        return Err(ProjectError::StoryReadOnly {
             format_version: doc.format_version,
         });
     }
@@ -62,13 +78,13 @@ fn check_writable_project(doc: &ProjectDoc, expected_revision: &str) -> Result<(
 }
 
 // ---------------------------------------------------------------------------
-// Update project metadata (name, icon, tags)
+// Update workshop metadata (name, icon, tags)
 // ---------------------------------------------------------------------------
 
-pub fn update_project(
+pub fn update_workshop(
     env: &Env,
-    request: &UpdateProjectRequest,
-) -> Result<UpdatedProject, ProjectError> {
+    request: &UpdateWorkshopRequest,
+) -> Result<UpdatedWorkshop, ProjectError> {
     validate_operation_id(&request.operation_id)?;
     let name = request
         .name
@@ -83,170 +99,171 @@ pub fn update_project(
     let tags = request.tags.as_deref().map(normalize_tags).transpose()?;
 
     let revision = request_revision(&json!({
-        "projectId": request.project_id,
-        "expectedProjectRevision": request.expected_project_revision,
+        "workshopId": request.workshop_id,
+        "expectedWorkshopRevision": request.expected_workshop_revision,
         "name": name,
         "icon": icon,
         "tags": tags,
     }))?;
 
-    let resumed = match replay(env, &request.operation_id, OP_UPDATE_PROJECT, &revision)? {
+    match replay(env, &request.operation_id, OP_UPDATE_WORKSHOP, &revision)? {
+        Replay::Fresh | Replay::Resume(_) => {}
         Replay::Done(value) => {
-            return finish(
-                value,
-                true,
-                Vec::new(),
-                |result: &mut UpdatedProject, replayed, warnings| {
-                    result.replayed = replayed;
-                    result.warnings = warnings;
-                },
-            )
+            let mut updated: UpdatedWorkshop =
+                serde_json::from_value(value).map_err(|e| io_failure("deserialize", e))?;
+            updated.replayed = true;
+            return Ok(updated);
         }
-        Replay::Resume(journal) => Some(journal),
-        Replay::Fresh => None,
-    };
+    }
 
-    let project = find_project(env, &request.project_id)?;
-    let doc = &project.doc;
-    check_writable_project(doc, &request.expected_project_revision)?;
+    let discovery = discover_projects(env.vault).map_err(|e| io_failure("discovery", e))?;
+    let workshop = discovery
+        .workshops
+        .iter()
+        .find(|w| w.doc.workshop_id == request.workshop_id)
+        .ok_or_else(|| ProjectError::WorkshopNotFound {
+            workshop_id: request.workshop_id.clone(),
+        })?;
 
-    let after = with_project_metadata(
-        &doc.raw,
+    check_writable_workshop(&workshop.doc, &request.expected_workshop_revision)?;
+
+    let after = with_workshop_metadata(
+        &workshop.doc.raw,
         name.as_deref(),
         icon.as_ref().map(|opt| opt.as_deref()),
         tags.as_deref(),
     )
-    .map_err(|message| ProjectError::failed("invalidProjectFile", message))?;
-    let bytes = document_bytes(&after, doc.has_bom)
-        .map_err(|message| ProjectError::failed("invalidProjectFile", message))?;
-    let project_revision = raw_revision(&bytes);
+    .map_err(|message| ProjectError::failed("invalidWorkshopFile", message))?;
 
-    let final_name = name.unwrap_or_else(|| doc.name.clone());
-    let final_icon = icon.unwrap_or_else(|| doc.icon.clone());
-    let final_tags = tags.unwrap_or_else(|| doc.tags.clone());
+    let bytes = document_bytes(&after, workshop.doc.has_bom)
+        .map_err(|message| ProjectError::failed("invalidWorkshopFile", message))?;
+    let workshop_revision = raw_revision(&bytes);
 
-    let plan = Plan {
-        project_id: doc.project_id.clone(),
-        project_path: project.path.clone(),
-        creates_project_folder: false,
-        project_file_revision: project_revision.clone(),
-        sections: Vec::new(),
-        text_block: None,
-        manifest_write: None,
-    };
-    let expected = UpdatedProject {
+    let final_name = name.unwrap_or_else(|| workshop.doc.name.clone());
+    let final_icon = icon.unwrap_or_else(|| workshop.doc.icon.clone());
+    let final_tags = tags.unwrap_or_else(|| workshop.doc.tags.clone());
+
+    let expected = UpdatedWorkshop {
         operation_id: request.operation_id.clone(),
-        project_id: doc.project_id.clone(),
+        workshop_id: workshop.doc.workshop_id.clone(),
         name: final_name,
         icon: final_icon,
         tags: final_tags,
-        project_revision,
+        workshop_revision: workshop_revision.clone(),
         replayed: false,
         warnings: Vec::new(),
     };
+
     let journal = Journal {
         format: JOURNAL_FORMAT.to_owned(),
         format_version: JOURNAL_VERSION,
         operation_id: request.operation_id.clone(),
-        operation: OP_UPDATE_PROJECT.to_owned(),
+        operation: OP_UPDATE_WORKSHOP.to_owned(),
         request_revision: revision,
         status: STATUS_IN_PROGRESS.to_owned(),
-        plan,
-        expected_result: serde_json::to_value(&expected)
-            .map_err(|error| io_failure("serialize", error))?,
+        plan: Plan {
+            workshop_id: Some(workshop.doc.workshop_id.clone()),
+            workshop_path: Some(workshop.path.clone()),
+            creates_workshop_folder: false,
+            workshop_file_revision: Some(workshop_revision.clone()),
+            sections: Vec::new(),
+            story: None,
+            story_file_path: None,
+            story_file_revision: None,
+            manifest_write: None,
+        },
+        expected_result: serde_json::to_value(&expected).unwrap(),
         extra: BTreeMap::new(),
     };
-    journal::validate_journal(&journal)?;
-    let write = ProjectWrite::Replace {
-        expected_revision: request.expected_project_revision.clone(),
-        bytes,
-    };
-    let (done, warnings) = run(env, journal, resumed.is_some(), write)?;
-    finish(
-        done.expected_result,
-        false,
-        warnings,
-        |result: &mut UpdatedProject, _, warnings| {
-            result.warnings = warnings;
-        },
-    )
+
+    create_journal(env.vault, &journal)?;
+
+    let workshop_dir = guarded(env.vault, &workshop.path)?;
+    let file_path = workshop_dir.join(WORKSHOP_FILE_NAME);
+
+    // Apply
+    crate::history::snapshot_before_write(env.vault, &file_path, &bytes, "workshop-structure")
+        .map_err(|e| io_failure("snapshot", e))?;
+    let prepared = env
+        .watcher
+        .prepare_write([(&file_path, watcher::fingerprint_for_bytes(&bytes))]);
+    if let Err(e) = frontmatter::atomic_write_bytes(&file_path, &bytes) {
+        env.watcher.cancel_prepared_write(&prepared);
+        return Err(io_failure("write", e));
+    }
+    env.watcher.confirm_prepared_write(&prepared);
+
+    let mut j = journal;
+    j.status = STATUS_COMPLETED.to_owned();
+    let _ = replace_journal(env.vault, &j);
+
+    Ok(expected)
 }
 
 // ---------------------------------------------------------------------------
-// Remove section from structure file (database stays on disk)
+// Remove workshop section
 // ---------------------------------------------------------------------------
 
-pub fn remove_project_section(
+pub fn remove_workshop_section(
     env: &Env,
-    request: &RemoveProjectSectionRequest,
-) -> Result<RemovedProjectSection, ProjectError> {
+    request: &RemoveWorkshopSectionRequest,
+) -> Result<RemovedWorkshopSection, ProjectError> {
     validate_operation_id(&request.operation_id)?;
-    let section_id = request.section_id.trim();
-    if section_id.is_empty() {
-        return Err(ProjectError::SectionNotFound {
-            section_id: request.section_id.clone(),
-        });
-    }
     let revision = request_revision(&json!({
-        "projectId": request.project_id,
-        "expectedProjectRevision": request.expected_project_revision,
-        "sectionId": section_id,
+        "workshopId": request.workshop_id,
+        "expectedWorkshopRevision": request.expected_workshop_revision,
+        "sectionId": request.section_id,
     }))?;
 
-    let resumed = match replay(env, &request.operation_id, OP_REMOVE_SECTION, &revision)? {
+    match replay(env, &request.operation_id, OP_REMOVE_SECTION, &revision)? {
+        Replay::Fresh | Replay::Resume(_) => {}
         Replay::Done(value) => {
-            return finish(
-                value,
-                true,
-                Vec::new(),
-                |result: &mut RemovedProjectSection, replayed, warnings| {
-                    result.replayed = replayed;
-                    result.warnings = warnings;
-                },
-            )
+            let mut removed: RemovedWorkshopSection =
+                serde_json::from_value(value).map_err(|e| io_failure("deserialize", e))?;
+            removed.replayed = true;
+            return Ok(removed);
         }
-        Replay::Resume(journal) => Some(journal),
-        Replay::Fresh => None,
-    };
-
-    let project = find_project(env, &request.project_id)?;
-    let doc = &project.doc;
-    check_writable_project(doc, &request.expected_project_revision)?;
-
-    let section = doc
-        .sections
-        .iter()
-        .find(|candidate| candidate.id == section_id)
-        .ok_or_else(|| ProjectError::SectionNotFound {
-            section_id: section_id.to_owned(),
-        })?;
-    if section.role.as_deref() == Some(ROLE_TEXT) {
-        return Err(ProjectError::CannotRemoveTextSection);
     }
 
-    let after = with_section_removed(&doc.raw, section_id)
-        .map_err(|message| ProjectError::failed("invalidProjectFile", message))?;
-    let bytes = document_bytes(&after, doc.has_bom)
-        .map_err(|message| ProjectError::failed("invalidProjectFile", message))?;
-    let project_revision = raw_revision(&bytes);
+    let discovery = discover_projects(env.vault).map_err(|e| io_failure("discovery", e))?;
+    let workshop = discovery
+        .workshops
+        .iter()
+        .find(|w| w.doc.workshop_id == request.workshop_id)
+        .ok_or_else(|| ProjectError::WorkshopNotFound {
+            workshop_id: request.workshop_id.clone(),
+        })?;
 
-    let plan = Plan {
-        project_id: doc.project_id.clone(),
-        project_path: project.path.clone(),
-        creates_project_folder: false,
-        project_file_revision: project_revision.clone(),
-        sections: Vec::new(),
-        text_block: None,
-        manifest_write: None,
-    };
-    let expected = RemovedProjectSection {
+    check_writable_workshop(&workshop.doc, &request.expected_workshop_revision)?;
+
+    let section = workshop
+        .doc
+        .sections
+        .iter()
+        .find(|s| s.id == request.section_id)
+        .ok_or_else(|| ProjectError::SectionNotFound {
+            section_id: request.section_id.clone(),
+        })?;
+
+    if section.role == ROLE_STORIES {
+        return Err(ProjectError::CannotRemoveStoriesSection);
+    }
+
+    let after = with_section_removed(&workshop.doc.raw, &request.section_id)
+        .map_err(|message| ProjectError::failed("invalidWorkshopFile", message))?;
+    let bytes = document_bytes(&after, workshop.doc.has_bom)
+        .map_err(|message| ProjectError::failed("invalidWorkshopFile", message))?;
+    let workshop_revision = raw_revision(&bytes);
+
+    let expected = RemovedWorkshopSection {
         operation_id: request.operation_id.clone(),
-        project_id: doc.project_id.clone(),
-        section_id: section_id.to_owned(),
-        project_revision,
+        workshop_id: workshop.doc.workshop_id.clone(),
+        section_id: request.section_id.clone(),
+        workshop_revision: workshop_revision.clone(),
         replayed: false,
         warnings: Vec::new(),
     };
+
     let journal = Journal {
         format: JOURNAL_FORMAT.to_owned(),
         format_version: JOURNAL_VERSION,
@@ -254,113 +271,95 @@ pub fn remove_project_section(
         operation: OP_REMOVE_SECTION.to_owned(),
         request_revision: revision,
         status: STATUS_IN_PROGRESS.to_owned(),
-        plan,
-        expected_result: serde_json::to_value(&expected)
-            .map_err(|error| io_failure("serialize", error))?,
+        plan: Plan {
+            workshop_id: Some(workshop.doc.workshop_id.clone()),
+            workshop_path: Some(workshop.path.clone()),
+            creates_workshop_folder: false,
+            workshop_file_revision: Some(workshop_revision.clone()),
+            sections: Vec::new(),
+            story: None,
+            story_file_path: None,
+            story_file_revision: None,
+            manifest_write: None,
+        },
+        expected_result: serde_json::to_value(&expected).unwrap(),
         extra: BTreeMap::new(),
     };
-    journal::validate_journal(&journal)?;
-    let write = ProjectWrite::Replace {
-        expected_revision: request.expected_project_revision.clone(),
-        bytes,
-    };
-    let (done, warnings) = run(env, journal, resumed.is_some(), write)?;
-    finish(
-        done.expected_result,
-        false,
-        warnings,
-        |result: &mut RemovedProjectSection, _, warnings| {
-            result.warnings = warnings;
-        },
-    )
+
+    create_journal(env.vault, &journal)?;
+
+    let workshop_dir = guarded(env.vault, &workshop.path)?;
+    let file_path = workshop_dir.join(WORKSHOP_FILE_NAME);
+
+    crate::history::snapshot_before_write(env.vault, &file_path, &bytes, "workshop-structure")
+        .map_err(|e| io_failure("snapshot", e))?;
+    let prepared = env
+        .watcher
+        .prepare_write([(&file_path, watcher::fingerprint_for_bytes(&bytes))]);
+    if let Err(e) = frontmatter::atomic_write_bytes(&file_path, &bytes) {
+        env.watcher.cancel_prepared_write(&prepared);
+        return Err(io_failure("write", e));
+    }
+    env.watcher.confirm_prepared_write(&prepared);
+
+    let mut j = journal;
+    j.status = STATUS_COMPLETED.to_owned();
+    let _ = replace_journal(env.vault, &j);
+
+    Ok(expected)
 }
 
 // ---------------------------------------------------------------------------
-// Reorder sections in structure file
+// Reorder workshop sections
 // ---------------------------------------------------------------------------
 
-pub fn reorder_project_sections(
+pub fn reorder_workshop_sections(
     env: &Env,
-    request: &ReorderProjectSectionsRequest,
-) -> Result<ReorderedProjectSections, ProjectError> {
+    request: &ReorderWorkshopSectionsRequest,
+) -> Result<ReorderedWorkshopSections, ProjectError> {
     validate_operation_id(&request.operation_id)?;
-    let mut seen = HashSet::new();
-    for id in &request.section_ids {
-        if id.trim().is_empty() || !seen.insert(id.as_str()) {
-            return Err(ProjectError::InvalidName {
-                field: "sectionIds".to_owned(),
-                reason: "duplicate or empty".to_owned(),
-            });
-        }
-    }
-
     let revision = request_revision(&json!({
-        "projectId": request.project_id,
-        "expectedProjectRevision": request.expected_project_revision,
+        "workshopId": request.workshop_id,
+        "expectedWorkshopRevision": request.expected_workshop_revision,
         "sectionIds": request.section_ids,
     }))?;
 
-    let resumed = match replay(env, &request.operation_id, OP_REORDER_SECTIONS, &revision)? {
+    match replay(env, &request.operation_id, OP_REORDER_SECTIONS, &revision)? {
+        Replay::Fresh | Replay::Resume(_) => {}
         Replay::Done(value) => {
-            return finish(
-                value,
-                true,
-                Vec::new(),
-                |result: &mut ReorderedProjectSections, replayed, warnings| {
-                    result.replayed = replayed;
-                    result.warnings = warnings;
-                },
-            )
-        }
-        Replay::Resume(journal) => Some(journal),
-        Replay::Fresh => None,
-    };
-
-    let project = find_project(env, &request.project_id)?;
-    let doc = &project.doc;
-    check_writable_project(doc, &request.expected_project_revision)?;
-
-    for wanted in &request.section_ids {
-        if !doc.sections.iter().any(|section| &section.id == wanted) {
-            return Err(ProjectError::SectionNotFound {
-                section_id: wanted.clone(),
-            });
+            let mut reordered: ReorderedWorkshopSections =
+                serde_json::from_value(value).map_err(|e| io_failure("deserialize", e))?;
+            reordered.replayed = true;
+            return Ok(reordered);
         }
     }
-    if let Some(missing) = doc.sections.iter().find(|section| {
-        !request
-            .section_ids
-            .iter()
-            .any(|wanted| wanted == &section.id)
-    }) {
-        return Err(ProjectError::SectionNotFound {
-            section_id: missing.id.clone(),
-        });
-    }
 
-    let after = with_sections_reordered(&doc.raw, &request.section_ids)
-        .map_err(|message| ProjectError::failed("invalidProjectFile", message))?;
-    let bytes = document_bytes(&after, doc.has_bom)
-        .map_err(|message| ProjectError::failed("invalidProjectFile", message))?;
-    let project_revision = raw_revision(&bytes);
+    let discovery = discover_projects(env.vault).map_err(|e| io_failure("discovery", e))?;
+    let workshop = discovery
+        .workshops
+        .iter()
+        .find(|w| w.doc.workshop_id == request.workshop_id)
+        .ok_or_else(|| ProjectError::WorkshopNotFound {
+            workshop_id: request.workshop_id.clone(),
+        })?;
 
-    let plan = Plan {
-        project_id: doc.project_id.clone(),
-        project_path: project.path.clone(),
-        creates_project_folder: false,
-        project_file_revision: project_revision.clone(),
-        sections: Vec::new(),
-        text_block: None,
-        manifest_write: None,
-    };
-    let expected = ReorderedProjectSections {
+    check_writable_workshop(&workshop.doc, &request.expected_workshop_revision)?;
+
+    let after = with_sections_reordered(&workshop.doc.raw, &request.section_ids)
+        .map_err(|message| ProjectError::failed("invalidWorkshopFile", message))?;
+    let bytes = document_bytes(&after, workshop.doc.has_bom)
+        .map_err(|message| ProjectError::failed("invalidWorkshopFile", message))?;
+    let workshop_revision = raw_revision(&bytes);
+
+    let expected = ReorderedWorkshopSections {
         operation_id: request.operation_id.clone(),
-        project_id: doc.project_id.clone(),
+        workshop_id: workshop.doc.workshop_id.clone(),
         section_ids: request.section_ids.clone(),
-        project_revision,
+        workshop_revision: workshop_revision.clone(),
         replayed: false,
         warnings: Vec::new(),
     };
+
     let journal = Journal {
         format: JOURNAL_FORMAT.to_owned(),
         format_version: JOURNAL_VERSION,
@@ -368,97 +367,102 @@ pub fn reorder_project_sections(
         operation: OP_REORDER_SECTIONS.to_owned(),
         request_revision: revision,
         status: STATUS_IN_PROGRESS.to_owned(),
-        plan,
-        expected_result: serde_json::to_value(&expected)
-            .map_err(|error| io_failure("serialize", error))?,
+        plan: Plan {
+            workshop_id: Some(workshop.doc.workshop_id.clone()),
+            workshop_path: Some(workshop.path.clone()),
+            creates_workshop_folder: false,
+            workshop_file_revision: Some(workshop_revision.clone()),
+            sections: Vec::new(),
+            story: None,
+            story_file_path: None,
+            story_file_revision: None,
+            manifest_write: None,
+        },
+        expected_result: serde_json::to_value(&expected).unwrap(),
         extra: BTreeMap::new(),
     };
-    journal::validate_journal(&journal)?;
-    let write = ProjectWrite::Replace {
-        expected_revision: request.expected_project_revision.clone(),
-        bytes,
-    };
-    let (done, warnings) = run(env, journal, resumed.is_some(), write)?;
-    finish(
-        done.expected_result,
-        false,
-        warnings,
-        |result: &mut ReorderedProjectSections, _, warnings| {
-            result.warnings = warnings;
-        },
-    )
+
+    create_journal(env.vault, &journal)?;
+
+    let workshop_dir = guarded(env.vault, &workshop.path)?;
+    let file_path = workshop_dir.join(WORKSHOP_FILE_NAME);
+
+    crate::history::snapshot_before_write(env.vault, &file_path, &bytes, "workshop-structure")
+        .map_err(|e| io_failure("snapshot", e))?;
+    let prepared = env
+        .watcher
+        .prepare_write([(&file_path, watcher::fingerprint_for_bytes(&bytes))]);
+    if let Err(e) = frontmatter::atomic_write_bytes(&file_path, &bytes) {
+        env.watcher.cancel_prepared_write(&prepared);
+        return Err(io_failure("write", e));
+    }
+    env.watcher.confirm_prepared_write(&prepared);
+
+    let mut j = journal;
+    j.status = STATUS_COMPLETED.to_owned();
+    let _ = replace_journal(env.vault, &j);
+
+    Ok(expected)
 }
 
 // ---------------------------------------------------------------------------
-// Shared text manifest loading
+// Helpers for Story Text Mutations
 // ---------------------------------------------------------------------------
 
-struct LoadedTextManifest {
-    manifest_rel_path: String,
-    pre_text: String,
-    parsed: ParsedJson<DatabaseManifest>,
+struct FoundStory {
+    story_file_path: PathBuf,
+    manifest_file_path: PathBuf,
+    story_file_rel: String,
+    manifest_rel: String,
+    story_doc: StoryDoc,
+    manifest: DatabaseManifest,
+    manifest_raw_text: String,
 }
 
-fn load_text_manifest(env: &Env, doc: &ProjectDoc) -> Result<LoadedTextManifest, ProjectError> {
-    if doc.raw.get("text").and_then(Value::as_object).is_none() {
-        return Err(ProjectError::TextNotConfigured);
+fn find_story(env: &Env, story_id: &str) -> Result<FoundStory, ProjectError> {
+    let discovery = discover_projects(env.vault).map_err(|e| io_failure("discovery", e))?;
+    for workshop in &discovery.workshops {
+        for story in &workshop.stories {
+            if story.story_id == story_id {
+                let story_folder = guarded(env.vault, &story.folder_path)?;
+                let story_file_path = story_folder.join(STORY_FILE_NAME);
+                let story_bytes = fs::read(&story_file_path)
+                    .map_err(|e| ProjectError::failed("readStoryFile", e.to_string()))?;
+                let story_doc = parse_story_file(&story_bytes)
+                    .map_err(|p| ProjectError::failed("parseStoryFile", p.detail))?;
+
+                let manifest_file_path =
+                    guarded(env.vault, &story.folder_path)?.join(format!("{}.json", story.name));
+                let manifest_bytes = fs::read(&manifest_file_path)
+                    .map_err(|e| ProjectError::failed("readManifest", e.to_string()))?;
+                let manifest_raw_text = String::from_utf8(manifest_bytes.clone())
+                    .map_err(|e| ProjectError::failed("readManifest", e.to_string()))?;
+                let manifest = parse_manifest(&manifest_bytes)
+                    .map_err(|p| ProjectError::failed("parseManifest", p.to_string()))?
+                    .value;
+
+                return Ok(FoundStory {
+                    story_file_path,
+                    manifest_file_path,
+                    story_file_rel: join_relative(&story.folder_path, STORY_FILE_NAME),
+                    manifest_rel: join_relative(
+                        &story.folder_path,
+                        &format!("{}.json", story.name),
+                    ),
+                    story_doc,
+                    manifest,
+                    manifest_raw_text,
+                });
+            }
+        }
     }
-    let database_id = doc
-        .sections
-        .iter()
-        .find(|section| section.role.as_deref() == Some(ROLE_TEXT))
-        .map(|section| section.database_id.clone())
-        .ok_or(ProjectError::TextNotConfigured)?;
-    let container = find_database_container(env.vault, &database_id)
-        .map_err(|_| ProjectError::TextNotConfigured)?;
-    let manifest_path = manifest_path_for_container(&container);
-    let manifest_rel_path = durable::relative_string(env.vault, &manifest_path, LABEL)
-        .map_err(|message| ProjectError::failed("invalidPath", message))?;
-    let bytes = fs::read(&manifest_path)
-        .map_err(|error| ProjectError::failed("readManifest", error.to_string()))?;
-    let pre_text = String::from_utf8(bytes.clone())
-        .map_err(|error| ProjectError::failed("readManifest", error.to_string()))?;
-    let parsed = parse_manifest(&bytes)
-        .map_err(|error| ProjectError::failed("textSchemaBroken", error.to_string()))?;
-    if !parsed.is_writable() || parsed.value.locked {
-        return Err(ProjectError::failed(
-            "databaseLocked",
-            "The text database manifest is locked or read-only",
-        ));
-    }
-    Ok(LoadedTextManifest {
-        manifest_rel_path,
-        pre_text,
-        parsed,
+    Err(ProjectError::StoryNotFound {
+        story_id: story_id.to_owned(),
     })
 }
 
-fn keep_old_name_as_alias(aliases: &mut Vec<String>, old_name: &str, new_name: &str) {
-    if old_name.is_empty() || old_name == new_name {
-        return;
-    }
-    if !aliases
-        .iter()
-        .any(|alias| alias.eq_ignore_ascii_case(old_name))
-    {
-        aliases.push(old_name.to_owned());
-    }
-}
-
-fn clean_option_aliases(options: &mut [SelectOption]) {
-    let names: Vec<String> = options
-        .iter()
-        .map(|option| option.name.to_lowercase())
-        .collect();
-    for option in options.iter_mut() {
-        option
-            .aliases
-            .retain(|alias| !names.contains(&alias.to_lowercase()));
-    }
-}
-
 // ---------------------------------------------------------------------------
-// Update text levels (rename, icon, reorder, add new levels)
+// Update text levels
 // ---------------------------------------------------------------------------
 
 struct NormalizedLevelInput {
@@ -511,42 +515,44 @@ fn normalize_level_updates(
 
 pub fn update_text_levels(
     env: &Env,
+    _conn: Option<&Connection>,
     request: &UpdateTextLevelsRequest,
 ) -> Result<UpdatedTextLevels, ProjectError> {
     validate_operation_id(&request.operation_id)?;
     let normalized = normalize_level_updates(&request.levels)?;
 
     let revision = request_revision(&json!({
-        "projectId": request.project_id,
-        "expectedProjectRevision": request.expected_project_revision,
+        "storyId": request.story_id,
+        "expectedStoryRevision": request.expected_story_revision,
         "levels": normalized
             .iter()
             .map(|entry| json!({"id": entry.id, "name": entry.name, "icon": entry.icon}))
             .collect::<Vec<_>>(),
     }))?;
 
-    let resumed = match replay(env, &request.operation_id, OP_UPDATE_TEXT_LEVELS, &revision)? {
+    match replay(env, &request.operation_id, OP_UPDATE_TEXT_LEVELS, &revision)? {
+        Replay::Fresh | Replay::Resume(_) => {}
         Replay::Done(value) => {
-            return finish(
-                value,
-                true,
-                Vec::new(),
-                |result: &mut UpdatedTextLevels, replayed, warnings| {
-                    result.replayed = replayed;
-                    result.warnings = warnings;
-                },
-            )
+            let mut updated: UpdatedTextLevels =
+                serde_json::from_value(value).map_err(|e| io_failure("deserialize", e))?;
+            updated.replayed = true;
+            return Ok(updated);
         }
-        Replay::Resume(journal) => Some(journal),
-        Replay::Fresh => None,
-    };
+    }
 
-    let project = find_project(env, &request.project_id)?;
-    let doc = &project.doc;
-    check_writable_project(doc, &request.expected_project_revision)?;
-    let loaded = load_text_manifest(env, doc)?;
+    let found = find_story(env, &request.story_id)?;
+    check_writable_story(&found.story_doc, &request.expected_story_revision)?;
 
-    let existing_level_ids: Vec<String> = doc
+    let level_property_id = found
+        .story_doc
+        .raw
+        .pointer("/text/properties/level")
+        .and_then(Value::as_str)
+        .ok_or(ProjectError::TextNotConfigured)?
+        .to_owned();
+
+    let existing_level_ids: Vec<String> = found
+        .story_doc
         .raw
         .pointer("/text/levels")
         .and_then(Value::as_array)
@@ -576,130 +582,85 @@ pub fn update_text_levels(
         });
     }
 
-    let level_property_id = doc
-        .raw
-        .pointer("/text/properties/level")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            ProjectError::failed("textSchemaBroken", "text.properties.level is missing")
-        })?
-        .to_owned();
+    // Build next level options
+    let mut level_prop_def = found
+        .manifest
+        .properties
+        .iter()
+        .find(|p| p.id() == Some(level_property_id.as_str()))
+        .cloned()
+        .ok_or(ProjectError::TextNotConfigured)?;
 
-    let resumed_ids: Option<Vec<String>> = resumed
-        .as_ref()
-        .and_then(|journal| journal.plan.text_block.as_ref())
-        .and_then(|block| block.get("levels"))
-        .and_then(Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| entry.get("id").and_then(Value::as_str).map(str::to_owned))
-                .collect()
-        })
-        .filter(|ids: &Vec<String>| ids.len() == normalized.len());
+    let mut next_options = Vec::new();
+    let mut next_level_tuples = Vec::new();
+    let mut next_level_ids = Vec::new();
 
-    let mut planned_levels: Vec<(String, Option<String>, String)> =
-        Vec::with_capacity(normalized.len());
-    for (index, item) in normalized.into_iter().enumerate() {
-        let id = match item.id {
-            Some(existing) => existing,
-            None => resumed_ids
-                .as_ref()
-                .and_then(|ids| ids.get(index).cloned())
-                .unwrap_or_else(|| ulid::Ulid::generate().to_string()),
+    let existing_select_options = match &level_prop_def {
+        PropertyDefinition::Select(fields) => fields.config.options.clone(),
+        _ => Vec::new(),
+    };
+
+    for input in &normalized {
+        let (id, color) = match &input.id {
+            Some(existing_id) => {
+                let existing_opt = existing_select_options
+                    .iter()
+                    .find(|o| o.id == *existing_id);
+                let col = existing_opt
+                    .map(|o| o.color.clone())
+                    .unwrap_or_else(|| "blue".to_owned());
+                (existing_id.clone(), col)
+            }
+            None => (ulid::Ulid::generate().to_string(), "blue".to_owned()),
         };
-        planned_levels.push((id, item.icon, item.name));
+        next_options.push(SelectOption {
+            id: id.clone(),
+            name: input.name.clone(),
+            color,
+            aliases: Vec::new(),
+            extra: BTreeMap::new(),
+        });
+        next_level_tuples.push((id.clone(), input.icon.clone()));
+        next_level_ids.push(id);
     }
 
-    let mut manifest = loaded.parsed.value.clone();
-    let property = manifest
+    if let PropertyDefinition::Select(ref mut fields) = level_prop_def {
+        fields.config.options = next_options;
+    }
+
+    // Update manifest
+    let mut next_manifest = found.manifest.clone();
+    if let Some(slot) = next_manifest
         .properties
         .iter_mut()
-        .find(|candidate| candidate.id() == Some(level_property_id.as_str()))
-        .ok_or_else(|| {
-            ProjectError::failed("textSchemaBroken", "the level property was deleted")
-        })?;
-    let PropertyDefinition::Select(fields) = property else {
-        return Err(ProjectError::failed(
-            "textSchemaBroken",
-            "the level property is not a Select",
-        ));
-    };
-
-    let previous = std::mem::take(&mut fields.config.options);
-    let mut next_options = Vec::with_capacity(previous.len().max(planned_levels.len()));
-    let mut handled_ids = HashSet::new();
-    for (id, _, name) in &planned_levels {
-        handled_ids.insert(id.clone());
-        let mut option = previous
-            .iter()
-            .find(|opt| &opt.id == id)
-            .cloned()
-            .unwrap_or_else(|| SelectOption {
-                id: id.clone(),
-                name: String::new(),
-                color: "#94a3b8".to_owned(),
-                aliases: Vec::new(),
-                extra: Default::default(),
-            });
-        keep_old_name_as_alias(&mut option.aliases, &option.name, name);
-        option.name = name.clone();
-        next_options.push(option);
+        .find(|p| p.id() == Some(level_property_id.as_str()))
+    {
+        *slot = level_prop_def;
     }
-    for extra_option in previous {
-        if !handled_ids.contains(&extra_option.id) {
-            next_options.push(extra_option);
-        }
-    }
-    clean_option_aliases(&mut next_options);
-    fields.config.options = next_options;
 
-    if !validate_manifest(&manifest).errors.is_empty() {
-        return Err(ProjectError::failed(
-            "schemaBuild",
-            "Level update would make the text database manifest invalid",
-        ));
-    }
-    let prepared_manifest = prepare_json(&loaded.parsed, &manifest)
-        .map_err(|error| ProjectError::failed("serialize", error.to_string()))?;
-    let post_text = String::from_utf8(prepared_manifest.bytes)
-        .map_err(|error| ProjectError::failed("serialize", error.to_string()))?;
+    let mut manifest_bytes =
+        serde_json::to_vec_pretty(&next_manifest).map_err(|e| io_failure("serialize", e))?;
+    manifest_bytes.push(b'\n');
+    let manifest_post_text = String::from_utf8(manifest_bytes.clone()).unwrap();
+    let manifest_rev = raw_revision(&manifest_bytes);
 
-    let file_levels: Vec<(String, Option<String>)> = planned_levels
-        .iter()
-        .map(|(id, icon, _)| (id.clone(), icon.clone()))
-        .collect();
-    let after = with_text_levels_updated(&doc.raw, &file_levels)
-        .map_err(|message| ProjectError::failed("invalidProjectFile", message))?;
-    let bytes = document_bytes(&after, doc.has_bom)
-        .map_err(|message| ProjectError::failed("invalidProjectFile", message))?;
-    let project_revision = raw_revision(&bytes);
-    let level_ids: Vec<String> = file_levels.into_iter().map(|(id, _)| id).collect();
+    // Update amby-story.json
+    let story_after = with_text_levels_updated(&found.story_doc.raw, &next_level_tuples)
+        .map_err(|e| io_failure("storyFormat", e))?;
+    let story_bytes = document_bytes(&story_after, found.story_doc.has_bom)
+        .map_err(|e| io_failure("serialize", e))?;
+    let story_rev = raw_revision(&story_bytes);
 
-    let plan = Plan {
-        project_id: doc.project_id.clone(),
-        project_path: project.path.clone(),
-        creates_project_folder: false,
-        project_file_revision: project_revision.clone(),
-        sections: Vec::new(),
-        text_block: after.get("text").cloned(),
-        manifest_write: Some(PlannedManifestWrite {
-            manifest_path: loaded.manifest_rel_path,
-            pre_revision: loaded.parsed.revision,
-            post_revision: prepared_manifest.revision.clone(),
-            pre_text: loaded.pre_text,
-            post_text,
-        }),
-    };
     let expected = UpdatedTextLevels {
         operation_id: request.operation_id.clone(),
-        project_id: doc.project_id.clone(),
-        project_revision,
-        manifest_revision: prepared_manifest.revision,
-        level_ids,
+        story_id: request.story_id.clone(),
+        story_revision: story_rev.clone(),
+        manifest_revision: manifest_rev.clone(),
+        level_ids: next_level_ids,
         replayed: false,
         warnings: Vec::new(),
     };
+
     let journal = Journal {
         format: JOURNAL_FORMAT.to_owned(),
         format_version: JOURNAL_VERSION,
@@ -707,187 +668,150 @@ pub fn update_text_levels(
         operation: OP_UPDATE_TEXT_LEVELS.to_owned(),
         request_revision: revision,
         status: STATUS_IN_PROGRESS.to_owned(),
-        plan,
-        expected_result: serde_json::to_value(&expected)
-            .map_err(|error| io_failure("serialize", error))?,
+        plan: Plan {
+            workshop_id: None,
+            workshop_path: None,
+            creates_workshop_folder: false,
+            workshop_file_revision: None,
+            sections: Vec::new(),
+            story: None,
+            story_file_path: Some(found.story_file_rel.clone()),
+            story_file_revision: Some(story_rev.clone()),
+            manifest_write: Some(PlannedManifestWrite {
+                manifest_path: found.manifest_rel.clone(),
+                pre_revision: raw_revision(found.manifest_raw_text.as_bytes()),
+                post_revision: manifest_rev,
+                pre_text: found.manifest_raw_text,
+                post_text: manifest_post_text,
+            }),
+        },
+        expected_result: serde_json::to_value(&expected).unwrap(),
         extra: BTreeMap::new(),
     };
-    journal::validate_journal(&journal)?;
-    let write = ProjectWrite::Replace {
-        expected_revision: request.expected_project_revision.clone(),
-        bytes,
-    };
-    let (done, warnings) = run(env, journal, resumed.is_some(), write)?;
-    finish(
-        done.expected_result,
-        false,
-        warnings,
-        |result: &mut UpdatedTextLevels, _, warnings| {
-            result.warnings = warnings;
-        },
+
+    create_journal(env.vault, &journal)?;
+
+    // Write manifest first
+    crate::history::snapshot_before_write(
+        env.vault,
+        &found.manifest_file_path,
+        &manifest_bytes,
+        "database-manifest",
     )
-}
-
-// ---------------------------------------------------------------------------
-// Add page status property to an existing story's text database
-// ---------------------------------------------------------------------------
-
-fn resumed_status_ids(journal: &Journal, option_count: usize) -> Option<PlannedPropertyIds> {
-    let property_id = journal
-        .plan
-        .text_block
-        .as_ref()?
-        .pointer("/properties/status")?
-        .as_str()?
-        .to_owned();
-    let post_text = &journal.plan.manifest_write.as_ref()?.post_text;
-    let parsed = parse_manifest(post_text.as_bytes()).ok()?;
-    let property = parsed
-        .value
-        .properties
-        .iter()
-        .find(|prop| prop.id() == Some(property_id.as_str()))?;
-    let PropertyDefinition::Status(fields) = property else {
-        return None;
-    };
-    if fields.config.options.len() != option_count {
-        return None;
+    .map_err(|e| io_failure("snapshot", e))?;
+    let prep_m = env.watcher.prepare_write([(
+        &found.manifest_file_path,
+        watcher::fingerprint_for_bytes(&manifest_bytes),
+    )]);
+    if let Err(e) = frontmatter::atomic_write_bytes(&found.manifest_file_path, &manifest_bytes) {
+        env.watcher.cancel_prepared_write(&prep_m);
+        return Err(io_failure("write", e));
     }
-    Some(PlannedPropertyIds {
-        property_id,
-        option_ids: fields
-            .config
-            .options
-            .iter()
-            .map(|opt| opt.id.clone())
-            .collect(),
-    })
+    env.watcher.confirm_prepared_write(&prep_m);
+
+    // Write amby-story.json (commit point)
+    crate::history::snapshot_before_write(
+        env.vault,
+        &found.story_file_path,
+        &story_bytes,
+        "story-config",
+    )
+    .map_err(|e| io_failure("snapshot", e))?;
+    let prep_s = env.watcher.prepare_write([(
+        &found.story_file_path,
+        watcher::fingerprint_for_bytes(&story_bytes),
+    )]);
+    if let Err(e) = frontmatter::atomic_write_bytes(&found.story_file_path, &story_bytes) {
+        env.watcher.cancel_prepared_write(&prep_s);
+        return Err(io_failure("write", e));
+    }
+    env.watcher.confirm_prepared_write(&prep_s);
+
+    let mut j = journal;
+    j.status = STATUS_COMPLETED.to_owned();
+    let _ = replace_journal(env.vault, &j);
+
+    Ok(expected)
 }
+
+// ---------------------------------------------------------------------------
+// Add text status
+// ---------------------------------------------------------------------------
 
 pub fn add_text_status(
     env: &Env,
     request: &AddTextStatusRequest,
 ) -> Result<AddedTextStatus, ProjectError> {
     validate_operation_id(&request.operation_id)?;
-    let (property_name, status_names) = resolve_status_labels(&request.labels)?;
-
     let revision = request_revision(&json!({
-        "projectId": request.project_id,
-        "expectedProjectRevision": request.expected_project_revision,
+        "storyId": request.story_id,
+        "expectedStoryRevision": request.expected_story_revision,
         "labels": request.labels,
     }))?;
 
-    let resumed = match replay(env, &request.operation_id, OP_ADD_TEXT_STATUS, &revision)? {
+    match replay(env, &request.operation_id, OP_ADD_TEXT_STATUS, &revision)? {
+        Replay::Fresh | Replay::Resume(_) => {}
         Replay::Done(value) => {
-            return finish(
-                value,
-                true,
-                Vec::new(),
-                |result: &mut AddedTextStatus, replayed, warnings| {
-                    result.replayed = replayed;
-                    result.warnings = warnings;
-                },
-            )
+            let mut added: AddedTextStatus =
+                serde_json::from_value(value).map_err(|e| io_failure("deserialize", e))?;
+            added.replayed = true;
+            return Ok(added);
         }
-        Replay::Resume(journal) => Some(journal),
-        Replay::Fresh => None,
-    };
+    }
 
-    let project = find_project(env, &request.project_id)?;
-    let doc = &project.doc;
-    check_writable_project(doc, &request.expected_project_revision)?;
-    let loaded = load_text_manifest(env, doc)?;
+    let found = find_story(env, &request.story_id)?;
+    check_writable_story(&found.story_doc, &request.expected_story_revision)?;
 
-    if let Some(existing_status_id) = doc
+    if found
+        .story_doc
         .raw
         .pointer("/text/properties/status")
         .and_then(Value::as_str)
+        .is_some()
     {
-        if loaded
-            .parsed
-            .value
-            .properties
-            .iter()
-            .any(|prop| prop.id() == Some(existing_status_id))
-        {
-            return Err(ProjectError::StatusAlreadyConfigured);
-        }
+        return Err(ProjectError::StatusAlreadyConfigured);
     }
 
-    if loaded.parsed.value.properties.iter().any(|prop| {
-        prop.name()
-            .is_some_and(|existing| existing.trim().eq_ignore_ascii_case(&property_name))
-    }) {
-        return Err(ProjectError::InvalidName {
-            field: "schemaName".to_owned(),
-            reason: "duplicate".to_owned(),
-        });
-    }
-
-    let planned_ids = resumed
-        .as_ref()
-        .and_then(|journal| resumed_status_ids(journal, status_names.len()))
-        .unwrap_or_else(|| PlannedPropertyIds::generate(status_names.len()));
-
-    let spec = CreateDatabasePropertyRequest {
-        database_id: loaded.parsed.value.database_id.clone(),
-        property_type: "status".to_owned(),
-        options: status_names,
-        ..Default::default()
-    };
-    let (definition, _, property_id) = build_new_property(
+    let (prop_name, status_names) = resolve_status_labels(&request.labels)?;
+    let mut builder = super::props::PropertyBuilder::new(
         env.vault,
-        &loaded.parsed.value,
-        &spec,
-        &property_name,
-        false,
-        Some(&planned_ids),
-    )
-    .map_err(|message| ProjectError::failed("schemaBuild", message))?;
+        &found.manifest.name,
+        &crate::database::mutations::PlannedDatabaseIds {
+            database_id: found.manifest.database_id.clone(),
+            view_id: ulid::Ulid::generate().to_string(),
+        },
+    )?;
 
-    let mut manifest = loaded.parsed.value.clone();
-    manifest.properties.push(definition);
-    if !validate_manifest(&manifest).errors.is_empty() {
-        return Err(ProjectError::failed(
-            "schemaBuild",
-            "Status property would make the text database manifest invalid",
-        ));
-    }
-    let prepared_manifest = prepare_json(&loaded.parsed, &manifest)
-        .map_err(|error| ProjectError::failed("serialize", error.to_string()))?;
-    let post_text = String::from_utf8(prepared_manifest.bytes)
-        .map_err(|error| ProjectError::failed("serialize", error.to_string()))?;
+    let (prop_def, planned_prop_ids) = builder.add("status", &prop_name, &status_names, &|_| {})?;
 
-    let after = with_text_status_property(&doc.raw, &property_id)
-        .map_err(|message| ProjectError::failed("invalidProjectFile", message))?;
-    let bytes = document_bytes(&after, doc.has_bom)
-        .map_err(|message| ProjectError::failed("invalidProjectFile", message))?;
-    let project_revision = raw_revision(&bytes);
+    let mut next_manifest = found.manifest.clone();
+    let parsed_def: PropertyDefinition =
+        serde_json::from_value(prop_def).map_err(|e| io_failure("deserialize", e))?;
+    next_manifest.properties.push(parsed_def);
 
-    let plan = Plan {
-        project_id: doc.project_id.clone(),
-        project_path: project.path.clone(),
-        creates_project_folder: false,
-        project_file_revision: project_revision.clone(),
-        sections: Vec::new(),
-        text_block: after.get("text").cloned(),
-        manifest_write: Some(PlannedManifestWrite {
-            manifest_path: loaded.manifest_rel_path,
-            pre_revision: loaded.parsed.revision,
-            post_revision: prepared_manifest.revision.clone(),
-            pre_text: loaded.pre_text,
-            post_text,
-        }),
-    };
+    let mut manifest_bytes =
+        serde_json::to_vec_pretty(&next_manifest).map_err(|e| io_failure("serialize", e))?;
+    manifest_bytes.push(b'\n');
+    let manifest_post_text = String::from_utf8(manifest_bytes.clone()).unwrap();
+    let manifest_rev = raw_revision(&manifest_bytes);
+
+    let story_after =
+        with_text_status_property(&found.story_doc.raw, &planned_prop_ids.property_id)
+            .map_err(|e| io_failure("storyFormat", e))?;
+    let story_bytes = document_bytes(&story_after, found.story_doc.has_bom)
+        .map_err(|e| io_failure("serialize", e))?;
+    let story_rev = raw_revision(&story_bytes);
+
     let expected = AddedTextStatus {
         operation_id: request.operation_id.clone(),
-        project_id: doc.project_id.clone(),
-        property_id,
-        project_revision,
-        manifest_revision: prepared_manifest.revision,
+        story_id: request.story_id.clone(),
+        property_id: planned_prop_ids.property_id,
+        story_revision: story_rev.clone(),
+        manifest_revision: manifest_rev.clone(),
         replayed: false,
         warnings: Vec::new(),
     };
+
     let journal = Journal {
         format: JOURNAL_FORMAT.to_owned(),
         format_version: JOURNAL_VERSION,
@@ -895,23 +819,68 @@ pub fn add_text_status(
         operation: OP_ADD_TEXT_STATUS.to_owned(),
         request_revision: revision,
         status: STATUS_IN_PROGRESS.to_owned(),
-        plan,
-        expected_result: serde_json::to_value(&expected)
-            .map_err(|error| io_failure("serialize", error))?,
+        plan: Plan {
+            workshop_id: None,
+            workshop_path: None,
+            creates_workshop_folder: false,
+            workshop_file_revision: None,
+            sections: Vec::new(),
+            story: None,
+            story_file_path: Some(found.story_file_rel.clone()),
+            story_file_revision: Some(story_rev.clone()),
+            manifest_write: Some(PlannedManifestWrite {
+                manifest_path: found.manifest_rel.clone(),
+                pre_revision: raw_revision(found.manifest_raw_text.as_bytes()),
+                post_revision: manifest_rev,
+                pre_text: found.manifest_raw_text,
+                post_text: manifest_post_text,
+            }),
+        },
+        expected_result: serde_json::to_value(&expected).unwrap(),
         extra: BTreeMap::new(),
     };
-    journal::validate_journal(&journal)?;
-    let write = ProjectWrite::Replace {
-        expected_revision: request.expected_project_revision.clone(),
-        bytes,
-    };
-    let (done, warnings) = run(env, journal, resumed.is_some(), write)?;
-    finish(
-        done.expected_result,
-        false,
-        warnings,
-        |result: &mut AddedTextStatus, _, warnings| {
-            result.warnings = warnings;
-        },
+
+    create_journal(env.vault, &journal)?;
+
+    // Write manifest first
+    crate::history::snapshot_before_write(
+        env.vault,
+        &found.manifest_file_path,
+        &manifest_bytes,
+        "database-manifest",
     )
+    .map_err(|e| io_failure("snapshot", e))?;
+    let prep_m = env.watcher.prepare_write([(
+        &found.manifest_file_path,
+        watcher::fingerprint_for_bytes(&manifest_bytes),
+    )]);
+    if let Err(e) = frontmatter::atomic_write_bytes(&found.manifest_file_path, &manifest_bytes) {
+        env.watcher.cancel_prepared_write(&prep_m);
+        return Err(io_failure("write", e));
+    }
+    env.watcher.confirm_prepared_write(&prep_m);
+
+    // Write amby-story.json (commit point)
+    crate::history::snapshot_before_write(
+        env.vault,
+        &found.story_file_path,
+        &story_bytes,
+        "story-config",
+    )
+    .map_err(|e| io_failure("snapshot", e))?;
+    let prep_s = env.watcher.prepare_write([(
+        &found.story_file_path,
+        watcher::fingerprint_for_bytes(&story_bytes),
+    )]);
+    if let Err(e) = frontmatter::atomic_write_bytes(&found.story_file_path, &story_bytes) {
+        env.watcher.cancel_prepared_write(&prep_s);
+        return Err(io_failure("write", e));
+    }
+    env.watcher.confirm_prepared_write(&prep_s);
+
+    let mut j = journal;
+    j.status = STATUS_COMPLETED.to_owned();
+    let _ = replace_journal(env.vault, &j);
+
+    Ok(expected)
 }

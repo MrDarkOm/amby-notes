@@ -3,115 +3,85 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { chooseOption } from "@/lib/test-utils/amby-select"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
-import { ProjectOperationError, type CreatedSection } from "@/lib/storage"
+import { ProjectOperationError, type CreatedWorkshopSectionResult } from "@/lib/storage"
 import { CreateSectionDialog } from "./create-section-dialog"
-import { project } from "./project-fixtures.test-support"
+import { workshopSummary } from "./project-fixtures.test-support"
 
-const createProjectSection = vi.hoisted(() => vi.fn())
+const createWorkshopSection = vi.hoisted(() => vi.fn())
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
-  createProjectSection,
+  createWorkshopSection,
 }))
 
-const created: CreatedSection = {
+const created: CreatedWorkshopSectionResult = {
   operationId: "op",
-  projectId: "p",
-  section: {
-    sectionId: "sec_1",
-    role: null,
-    groupId: null,
-    name: "Организации",
-    databaseId: "db",
-    path: "Организации",
-    containerPath: "p/Организации",
-    manifestRevision: "m",
-  },
-  projectRevision: "n".repeat(64),
+  workshopId: "p",
+  workshopRevision: "n".repeat(64),
   replayed: false,
   warnings: [],
+  section: {
+    sectionId: "sec_1",
+    databaseId: "db",
+    role: "custom",
+    name: "Custom",
+    path: "p/Sections/custom.database.json",
+    containerPath: "p/Sections",
+    manifestRevision: "m".repeat(64),
+  },
 }
 
 describe("CreateSectionDialog", () => {
   beforeEach(async () => {
-    createProjectSection.mockReset()
+    createWorkshopSection.mockReset()
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
 
-  const mount = (target = project("p", { name: "Saga", fileRevision: "f".repeat(64) })) => {
+  const mount = (target = workshopSummary("p", { name: "Saga", fileRevision: "f".repeat(64) })) => {
     const onCreated = vi.fn()
     render(
       <CreateSectionDialog
         open
         onClose={vi.fn()}
         vaultGeneration={2}
-        project={target}
+        workshop={target}
         onCreated={onCreated}
       />,
     )
     return onCreated
   }
 
-  it("adds a section by the revision of the project file the caller saw", async () => {
-    createProjectSection.mockResolvedValue(created)
+  it("adds a section by the revision of the workshop file the caller saw", async () => {
+    createWorkshopSection.mockResolvedValue(created)
     const onCreated = mount()
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Организации" } })
     fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created))
-    expect(createProjectSection).toHaveBeenCalledWith(
+    expect(createWorkshopSection).toHaveBeenCalledWith(
       expect.objectContaining({
         expectedGeneration: 2,
-        projectId: "p",
-        expectedProjectRevision: "f".repeat(64),
+        workshopId: "p",
+        expectedWorkshopRevision: "f".repeat(64),
         name: "Организации",
-        role: null,
-        preset: null,
-        groupId: null,
       }),
     )
   })
 
-  it("starts a section from a preset, in the names of the active language", async () => {
-    createProjectSection.mockResolvedValue(created)
+  it("starts a section from a role choice", async () => {
+    createWorkshopSection.mockResolvedValue(created)
     mount()
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Герои" } })
     await chooseOption("Заготовка", /Персонажи/u)
     fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
-    await waitFor(() => expect(createProjectSection).toHaveBeenCalled())
-    expect(createProjectSection.mock.calls[0][0]).toMatchObject({
+    await waitFor(() => expect(createWorkshopSection).toHaveBeenCalled())
+    expect(createWorkshopSection.mock.calls[0][0]).toMatchObject({
+      name: "Герои",
       role: "characters",
-      preset: "characters",
-      labels: expect.objectContaining({
-        "preset:importance": "Значимость",
-        "heading:biography": "Биография",
-        "template:dossier": "Досье",
-      }),
     })
   })
 
-  it("offers a preset without a role for the sections the author names himself", async () => {
-    createProjectSection.mockResolvedValue(created)
-    mount()
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Ордены" } })
-    await chooseOption("Заготовка", /Организации/u)
-    fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
-    await waitFor(() => expect(createProjectSection).toHaveBeenCalled())
-    expect(createProjectSection.mock.calls[0][0]).toMatchObject({
-      role: null,
-      preset: "organizations",
-    })
-  })
-
-  it("offers the project's groups only when it has some", () => {
-    mount()
-    expect(screen.queryByLabelText("Группа")).toBeNull()
-    cleanup()
-    mount(project("p", { groups: [{ id: "world", name: "Мир" }] }))
-    expect(screen.getByLabelText("Группа")).toBeTruthy()
-  })
-
-  it("asks to retry when the project file changed under the dialog", async () => {
-    createProjectSection.mockRejectedValue(
+  it("asks to retry when the workshop file changed under the dialog", async () => {
+    createWorkshopSection.mockRejectedValue(
       new ProjectOperationError("revisionConflict", "x", {
         kind: "revisionConflict",
         actualRevision: "z",
@@ -124,31 +94,106 @@ describe("CreateSectionDialog", () => {
     expect(onCreated).not.toHaveBeenCalled()
   })
 
-  it("opens with the name and the anchors role of a section asked for from the works tab", async () => {
-    createProjectSection.mockResolvedValue(created)
+  it("renders first without a workshop and then with one, and back, without failing", () => {
+    const onCreated = vi.fn()
+    const dialog = (target?: ReturnType<typeof workshopSummary>) => (
+      <CreateSectionDialog
+        open
+        onClose={vi.fn()}
+        vaultGeneration={2}
+        workshop={target}
+        onCreated={onCreated}
+      />
+    )
+    const { rerender } = render(dialog())
+    expect(screen.queryByRole("textbox")).toBeNull()
+
+    rerender(dialog(workshopSummary("p", { name: "Saga" })))
+    expect(screen.getByRole("textbox")).toBeTruthy()
+    expect(screen.getByText(/Saga/u)).toBeTruthy()
+
+    rerender(dialog())
+    expect(screen.queryByRole("textbox")).toBeNull()
+    rerender(dialog(workshopSummary("p", { name: "Saga" })))
+    expect(screen.getByRole("textbox")).toBeTruthy()
+  })
+
+  it("takes the workshop from the legacy project prop when no workshop is given", () => {
+    render(
+      <CreateSectionDialog
+        open
+        onClose={vi.fn()}
+        vaultGeneration={2}
+        project={workshopSummary("p", { name: "Saga" })}
+        onCreated={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole("textbox")).toBeTruthy()
+  })
+
+  it("sends a custom role when the author takes no ready-made choice", async () => {
+    createWorkshopSection.mockResolvedValue(created)
+    mount()
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Бестиарий" } })
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
+    await waitFor(() => expect(createWorkshopSection).toHaveBeenCalled())
+    expect(createWorkshopSection.mock.calls[0][0]).toMatchObject({
+      name: "Бестиарий",
+      role: "custom",
+    })
+  })
+
+  it("opens with the name and the role of a section asked for from outside", async () => {
+    createWorkshopSection.mockResolvedValue(created)
     const onCreated = vi.fn()
     render(
       <CreateSectionDialog
         open
         onClose={vi.fn()}
         vaultGeneration={2}
-        project={project("p", {
-          name: "Saga",
-          fileRevision: "f".repeat(64),
-          groups: [{ id: "work", name: "Произведение" }],
-        })}
+        workshop={workshopSummary("p", { name: "Saga" })}
         initial={{ name: "Якоря", choice: "anchors" }}
         onCreated={onCreated}
       />,
     )
     expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("Якоря")
     fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
-    await waitFor(() => expect(createProjectSection).toHaveBeenCalledTimes(1))
-    expect(createProjectSection.mock.calls[0][0]).toMatchObject({
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created))
+    expect(createWorkshopSection.mock.calls[0][0]).toMatchObject({
       name: "Якоря",
       role: "anchors",
-      preset: null,
-      groupId: "work",
     })
+  })
+
+  it("explains a name that cannot be a folder and keeps the dialog open", async () => {
+    createWorkshopSection.mockRejectedValue(
+      new ProjectOperationError("invalidName", "x", {
+        kind: "invalidName",
+        field: "name",
+        reason: "forbidden character",
+      }),
+    )
+    const onCreated = mount()
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "а/б" } })
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
+    expect((await screen.findByRole("alert")).textContent).toContain("В названии нельзя")
+    expect(onCreated).not.toHaveBeenCalled()
+    expect(screen.getByRole("textbox")).toBeTruthy()
+  })
+
+  it("retries with the same operation ID and takes a new one for another name", async () => {
+    createWorkshopSection.mockRejectedValueOnce(
+      new ProjectOperationError("pathCollision", "x", { kind: "pathCollision", path: "Орг" }),
+    )
+    mount()
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Орг" } })
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
+    await screen.findByRole("alert")
+    createWorkshopSection.mockResolvedValue(created)
+    fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
+    await waitFor(() => expect(createWorkshopSection).toHaveBeenCalledTimes(2))
+    expect(createWorkshopSection.mock.calls[1][0].operationId).toBe(
+      createWorkshopSection.mock.calls[0][0].operationId,
+    )
   })
 })

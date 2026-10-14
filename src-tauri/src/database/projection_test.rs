@@ -7,7 +7,7 @@ use crate::database::query::query_database;
 use crate::index::{open_connection, sync_vault};
 use serde_json::json;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temp_vault(name: &str) -> PathBuf {
@@ -530,27 +530,28 @@ fn st07_rebuild_and_incremental_are_equivalent() {
     .unwrap();
 
     // Incremental update
-    update_database_values_incremental(&conn, &vault, &db_id, &[note2_id.clone()]).unwrap();
+    update_database_values_incremental(&conn, &vault, &db_id, std::slice::from_ref(&note2_id))
+        .unwrap();
 
     // Capture state after incremental
-    let get_state =
-        |c: &Connection| -> Vec<(String, String, String, Option<String>, Option<String>)> {
-            let mut stmt = c.prepare(
+    type ValueRow = (String, String, String, Option<String>, Option<String>);
+    let get_state = |c: &Connection| -> Vec<ValueRow> {
+        let mut stmt = c.prepare(
                 "SELECT note_id, property_id, value_type, text_value, decimal_value FROM db_values ORDER BY note_id, property_id"
             ).unwrap();
-            stmt.query_map([], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                ))
-            })
-            .unwrap()
-            .collect::<Result<Vec<_>, _>>()
-            .unwrap()
-        };
+        stmt.query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+    };
 
     let incremental_state = get_state(&conn);
 
@@ -733,7 +734,7 @@ fn computation_diagnostics_survive_full_and_incremental_projection() {
 }
 
 fn write_projection_number_record(
-    database: &PathBuf,
+    database: &Path,
     database_id: &str,
     note_id: &str,
     minimum_id: &str,

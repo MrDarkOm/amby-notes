@@ -24,7 +24,7 @@ export interface NoteDossier {
 export function useNoteDossier(noteId: string | null): NoteDossier | null {
   const catalog = useProjectStore((state) => state.catalog)
   const invalidationSeq = useDatabaseStore((state) => state.invalidationSeq)
-  const hasProjects = (catalog?.projects.length ?? 0) > 0
+  const hasProjects = (catalog?.workshops.length ?? 0) > 0
   const [answer, setAnswer] = React.useState<{
     noteId: string
     dossier: NoteDossier | null

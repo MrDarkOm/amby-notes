@@ -1,4 +1,4 @@
-//! Section presets: what a world section starts with, created through the real write path.
+//! Section presets: what a workshop peer database starts with, created through the real write path.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -6,12 +6,13 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use crate::database::format::raw_revision;
+
 use super::create::{clear_step_hook, set_step_hook, Fault, Step};
-use super::create_test::{section_request, story, Fixture};
-use super::model::{CreateProjectSectionRequest, CreatedProject, ProjectError};
+use super::create_test::{workshop, Fixture};
+use super::model::{CreateWorkshopSectionRequest, CreatedWorkshop, ProjectError};
 use super::recovery::recover_pending_projects;
 use crate::database::discovery::discover_vault;
-use crate::database::format::raw_revision;
 use crate::database::rows::{create_database_row, CreateDatabaseRowRequest, DatabaseRowTemplate};
 
 fn manifest_json(fixture: &Fixture, container: &str, name: &str) -> Value {
@@ -50,7 +51,17 @@ fn templates(container: &Path) -> Vec<String> {
 #[test]
 fn the_base_world_sections_start_with_their_preset() {
     let fixture = Fixture::new();
-    fixture.create(&story("Saga")).unwrap();
+    fixture.create_workshop(&workshop("Saga")).unwrap();
+
+    let stories = manifest_json(&fixture, "Saga/Истории", "Истории");
+    assert_eq!(
+        stories["icon"].as_str(),
+        Some("amby-icon:book-open:%2364748b")
+    );
+    let status = property(&stories, "Статус");
+    assert_eq!(status["type"], "status");
+    let synopsis = property(&stories, "Синопсис");
+    assert_eq!(synopsis["type"], "text");
 
     let characters = manifest_json(&fixture, "Saga/Персонажи", "Персонажи");
     assert_eq!(
@@ -75,6 +86,14 @@ fn the_base_world_sections_start_with_their_preset() {
     assert_eq!(views[0]["group"]["field"]["propertyId"], importance["id"]);
     assert_eq!(characters["defaultViewId"], views[0]["viewId"]);
 
+    // Characters should relate to Stories
+    let stories_rel = property(&characters, "Истории");
+    assert_eq!(stories_rel["type"], "relation");
+    assert_eq!(
+        stories_rel["config"]["targetDatabaseId"],
+        stories["databaseId"]
+    );
+
     let locations = manifest_json(&fixture, "Saga/Локации", "Локации");
     assert_eq!(
         locations["icon"].as_str(),
@@ -88,19 +107,19 @@ fn the_base_world_sections_start_with_their_preset() {
         kind["id"]
     );
 
-    // Notes stay an empty table, and the text has its own schema, not a preset.
-    let notes = manifest_json(&fixture, "Saga/Заметки", "Заметки");
-    assert!(notes["properties"].as_array().unwrap().is_empty());
-    assert_eq!(notes["views"][0]["layout"], "table");
-    assert!(notes["icon"].is_null());
-    let text = manifest_json(&fixture, "Saga/Текст", "Текст");
-    assert!(text["icon"].is_null() && text["defaultTemplateId"].is_null());
+    // Locations should relate to Stories
+    let loc_stories_rel = property(&locations, "Истории");
+    assert_eq!(loc_stories_rel["type"], "relation");
+    assert_eq!(
+        loc_stories_rel["config"]["targetDatabaseId"],
+        stories["databaseId"]
+    );
 }
 
 #[test]
 fn the_dossier_headings_come_from_the_page_template_of_the_database() {
     let fixture = Fixture::new();
-    fixture.create(&story("Saga")).unwrap();
+    fixture.create_workshop(&workshop("Saga")).unwrap();
     let container = fixture.vault.join("Saga/Персонажи");
     let manifest = manifest_json(&fixture, "Saga/Персонажи", "Персонажи");
     let template_id = manifest["defaultTemplateId"].as_str().unwrap().to_owned();
@@ -166,7 +185,7 @@ fn the_dossier_headings_come_from_the_page_template_of_the_database() {
 #[test]
 fn names_follow_the_labels_of_the_active_language() {
     let fixture = Fixture::new();
-    let mut request = story("Saga");
+    let mut request = workshop("Saga");
     request.labels = BTreeMap::from([
         ("section:characters".to_owned(), "Characters".to_owned()),
         ("preset:importance".to_owned(), "Importance".to_owned()),
@@ -181,7 +200,7 @@ fn names_follow_the_labels_of_the_active_language() {
         ("template:dossier".to_owned(), "Dossier".to_owned()),
         ("view:gallery".to_owned(), "Gallery".to_owned()),
     ]);
-    fixture.create(&request).unwrap();
+    fixture.create_workshop(&request).unwrap();
     let manifest = manifest_json(&fixture, "Saga/Characters", "Characters");
     assert_eq!(
         option_names(property(&manifest, "Importance")),
@@ -203,95 +222,71 @@ fn names_follow_the_labels_of_the_active_language() {
     assert_eq!(file["name"], "Dossier");
     assert!(file["body"].as_str().unwrap().starts_with("## Basics"));
 
-    let mut clash = story("Other");
+    let mut clash = workshop("Other");
     clash.labels = BTreeMap::from([
         ("importance:main".to_owned(), "Same".to_owned()),
         ("importance:side".to_owned(), "same".to_owned()),
     ]);
     let before = fixture.tree();
     assert!(matches!(
-        fixture.create(&clash),
+        fixture.create_workshop(&clash),
         Err(ProjectError::InvalidName { .. })
     ));
     assert_eq!(fixture.tree(), before);
 }
 
-fn with_preset(created: &CreatedProject, name: &str, preset: &str) -> CreateProjectSectionRequest {
-    CreateProjectSectionRequest {
-        preset: Some(preset.to_owned()),
-        ..section_request(created, name)
+fn with_role(created: &CreatedWorkshop, name: &str, role: &str) -> CreateWorkshopSectionRequest {
+    CreateWorkshopSectionRequest {
+        expected_generation: 1,
+        operation_id: format!("sec-{}", ulid::Ulid::generate()),
+        workshop_id: created.workshop_id.clone(),
+        expected_workshop_revision: created.file_revision.clone(),
+        name: name.to_owned(),
+        role: role.to_owned(),
+        labels: BTreeMap::new(),
     }
 }
 
 #[test]
-fn a_section_can_be_added_from_any_preset_and_only_from_a_known_one() {
+fn lazy_sections_can_be_added_from_their_preset() {
     let fixture = Fixture::new();
-    let created = fixture.create(&story("Saga")).unwrap();
+    let created = fixture.create_workshop(&workshop("Saga")).unwrap();
     let mut revision = created.file_revision.clone();
-    for (preset, name, icon) in [
-        ("organizations", "Организации", "building-2"),
-        ("items", "Предметы", "package"),
+
+    for (role, name, icon) in [
+        ("universes", "Вселенные", "globe"),
+        ("arcs", "Арки", "git-branch"),
+        ("anchors", "Зацепки", "anchor"),
+        ("notes", "Заметки", "file-text"),
     ] {
-        let mut request = with_preset(&created, name, preset);
-        request.expected_project_revision = revision.clone();
+        let mut request = with_role(&created, name, role);
+        request.expected_workshop_revision = revision;
         let added = fixture.add_section(&request).unwrap();
-        revision = added.project_revision;
+        revision = added.workshop_revision;
         let manifest = manifest_json(&fixture, &format!("Saga/{name}"), name);
         assert_eq!(manifest["icon"], format!("amby-icon:{icon}:%2364748b"));
-        assert_eq!(manifest["views"][0]["layout"], "gallery");
-        assert_eq!(property(&manifest, "Значимость")["type"], "select");
-        assert_eq!(property(&manifest, "Изображение")["type"], "files");
-        assert_eq!(
-            added.section.manifest_revision,
-            raw_revision(
-                &fs::read(
-                    fixture
-                        .vault
-                        .join("Saga")
-                        .join(name)
-                        .join(format!("{name}.json"))
-                )
-                .unwrap()
-            )
-        );
     }
+
     let databases = discover_vault(&fixture.vault).unwrap();
     assert!(
         databases.diagnostics.is_empty(),
         "{:?}",
         databases.diagnostics
     );
-
-    let before = fixture.tree();
-    let mut unknown = with_preset(&created, "Другое", "galaxy");
-    unknown.expected_project_revision = revision.clone();
-    assert!(matches!(
-        fixture.add_section(&unknown),
-        Err(ProjectError::UnsupportedPreset { .. })
-    ));
-    let mut text = with_preset(&created, "Ещё", "characters");
-    text.role = Some("text".to_owned());
-    text.expected_project_revision = revision;
-    assert!(matches!(
-        fixture.add_section(&text),
-        Err(ProjectError::UnsupportedPreset { .. })
-    ));
-    assert_eq!(fixture.tree(), before);
 }
 
 #[test]
-fn a_failure_or_crash_around_a_preset_section_removes_the_manifest_the_template_and_its_folders() {
+fn a_failure_or_crash_around_a_preset_workshop_removes_manifests_templates_and_folders() {
     let steps = [
-        Step::BeforeDatabase(0),
-        Step::DatabaseCreated(0),
-        Step::BeforeProjectFile,
+        Step::BeforeDatabase(1),
+        Step::DatabaseCreated(1),
+        Step::BeforeWorkshopFile,
     ];
     for crash in [false, true] {
         for target in &steps {
             let fixture = Fixture::new();
-            let created = fixture.create(&story("Saga")).unwrap();
             let before = fixture.tree();
-            let request = with_preset(&created, "Организации", "organizations");
+            let request = workshop("Saga");
 
             let target = target.clone();
             set_step_hook(move |step| {
@@ -303,7 +298,7 @@ fn a_failure_or_crash_around_a_preset_section_removes_the_manifest_the_template_
                     }
                 })
             });
-            let outcome = fixture.add_section(&request);
+            let outcome = fixture.create_workshop(&request);
             clear_step_hook();
             assert!(outcome.is_err());
             if crash {
@@ -315,14 +310,22 @@ fn a_failure_or_crash_around_a_preset_section_removes_the_manifest_the_template_
                 "crash={crash}: no template, no .ambd, no manifest left"
             );
 
-            // The repeat makes one section with one template, with the planned IDs.
-            let done = fixture.add_section(&request).unwrap();
-            let container = fixture.vault.join("Saga/Организации");
-            assert_eq!(templates(&container).len(), 1);
-            assert_eq!(
-                done.section.manifest_revision,
-                raw_revision(&fs::read(container.join("Организации.json")).unwrap())
-            );
+            // The repeat makes one set with one template per dossier database.
+            let done = fixture.create_workshop(&request).unwrap();
+            for section in done
+                .sections
+                .iter()
+                .filter(|section| section.role != "stories")
+            {
+                let container = fixture.vault.join(&section.container_path);
+                assert_eq!(templates(&container).len(), 1, "{}", section.role);
+                assert_eq!(
+                    section.manifest_revision,
+                    raw_revision(
+                        &fs::read(container.join(format!("{}.json", section.name))).unwrap()
+                    )
+                );
+            }
         }
     }
 }
@@ -330,13 +333,12 @@ fn a_failure_or_crash_around_a_preset_section_removes_the_manifest_the_template_
 #[test]
 fn a_template_the_user_has_edited_is_left_and_reported() {
     let fixture = Fixture::new();
-    let created = fixture.create(&story("Saga")).unwrap();
-    let request = with_preset(&created, "Организации", "organizations");
-    set_step_hook(|step| (*step == Step::BeforeProjectFile).then_some(Fault::Crash));
-    assert!(fixture.add_section(&request).is_err());
+    let request = workshop("Saga");
+    set_step_hook(|step| (*step == Step::BeforeWorkshopFile).then_some(Fault::Crash));
+    assert!(fixture.create_workshop(&request).is_err());
     clear_step_hook();
 
-    let container = fixture.vault.join("Saga/Организации");
+    let container = fixture.vault.join("Saga/Персонажи");
     let template = fs::read_dir(container.join(".ambd/templates"))
         .unwrap()
         .flatten()
@@ -353,5 +355,45 @@ fn a_template_the_user_has_edited_is_left_and_reported() {
         fs::read(&template).unwrap(),
         edited,
         "the author's bytes are untouched"
+    );
+}
+
+#[test]
+fn a_relation_to_a_database_that_is_neither_planned_nor_on_disk_is_refused_before_any_write() {
+    let fixture = Fixture::new();
+    let created = fixture.create_workshop(&workshop("Saga")).unwrap();
+    // The stories database the arcs preset points at is gone from the disk.
+    fs::remove_dir_all(fixture.vault.join("Saga/Истории")).unwrap();
+    let before = fixture.tree();
+
+    let outcome = fixture.add_section(&with_role(&created, "Арки", "arcs"));
+    assert!(
+        matches!(&outcome, Err(ProjectError::Failed { code, .. }) if code == "schemaBuild"),
+        "{outcome:?}"
+    );
+    assert_eq!(fixture.tree(), before);
+    assert!(
+        fixture.journal_files().len() == 1,
+        "only the workshop's own journal"
+    );
+}
+
+#[test]
+fn a_relation_between_databases_planned_together_needs_no_disk_lookup() {
+    // The characters, locations and their "Stories" relation are planned before the stories
+    // database exists on disk; the workshop is created whole.
+    let fixture = Fixture::new();
+    let created = fixture.create_workshop(&workshop("Saga")).unwrap();
+    let characters = manifest_json(&fixture, "Saga/Персонажи", "Персонажи");
+    let stories_id = created
+        .sections
+        .iter()
+        .find(|section| section.role == "stories")
+        .unwrap()
+        .database_id
+        .clone();
+    assert_eq!(
+        property(&characters, "Истории")["config"]["targetDatabaseId"],
+        stories_id
     );
 }

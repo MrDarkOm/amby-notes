@@ -1,31 +1,31 @@
 import type {
   NoteReference,
   ProjectCatalog,
-  ProjectSectionSummary,
-  ProjectSummary,
+  WorkshopSectionSummary,
+  WorkshopSummary,
 } from "@/lib/storage"
 
 /** The roles that are not part of the world: the manuscript and plain notes have no dossier. */
-const NON_WORLD_ROLES = new Set(["text", "notes"])
+const NON_WORLD_ROLES = new Set(["text", "notes", "stories"])
 
 export interface WorldSection {
-  project: ProjectSummary
-  section: ProjectSectionSummary
+  workshop: WorkshopSummary
+  section: WorkshopSectionSummary
 }
 
 /**
- * The creative section a database is, when its pages are dossiers: any section of a project
+ * The creative section a database is, when its pages are dossiers: any section of a workshop
  * but the text and the notes. A section whose database is missing cannot hold a page.
  */
 export function worldSectionOf(
   catalog: ProjectCatalog | null,
   databaseId: string,
 ): WorldSection | null {
-  for (const project of catalog?.projects ?? []) {
-    const section = project.sections.find(
+  for (const workshop of catalog?.workshops ?? []) {
+    const section = workshop.sections.find(
       (candidate) => candidate.databaseId === databaseId && candidate.state !== "missing",
     )
-    if (section && !NON_WORLD_ROLES.has(section.role ?? "")) return { project, section }
+    if (section && !NON_WORLD_ROLES.has(section.role ?? "")) return { workshop, section }
   }
   return null
 }
@@ -94,15 +94,22 @@ export interface SplitReferences {
  */
 export function splitReferences(
   references: NoteReference[],
-  textDatabaseId: string | null,
+  textDatabaseId: string | null | Set<string> = null,
 ): SplitReferences {
+  const textDbSet =
+    textDatabaseId instanceof Set
+      ? textDatabaseId
+      : textDatabaseId
+        ? new Set([textDatabaseId])
+        : null
   const appearsIn: NoteReference[] = []
   const groups = new Map<string, ReferenceGroup>()
   for (const reference of references) {
     if (
-      textDatabaseId !== null &&
+      textDbSet !== null &&
       reference.direction === "in" &&
-      reference.databaseId === textDatabaseId
+      reference.databaseId !== null &&
+      textDbSet.has(reference.databaseId)
     ) {
       appearsIn.push(reference)
       continue

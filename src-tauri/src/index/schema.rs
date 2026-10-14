@@ -1,6 +1,24 @@
 use rusqlite::{Connection, OptionalExtension};
 
 pub fn init_schema(conn: &Connection) -> Result<(), String> {
+    let has_workshops: bool = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'project_workshops'",
+            [],
+            |_| Ok(()),
+        )
+        .optional()
+        .map_err(|e| e.to_string())?
+        .is_some();
+    if !has_workshops {
+        conn.execute_batch(
+            "DROP TABLE IF EXISTS project_sections;
+             DROP TABLE IF EXISTS project_projects;
+             DROP TABLE IF EXISTS project_diagnostics;",
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
     conn.execute_batch(
         r#"
         PRAGMA foreign_keys = ON;
@@ -206,43 +224,54 @@ pub fn init_schema(conn: &Connection) -> Result<(), String> {
             last_seen_at INTEGER NOT NULL
         );
 
-        -- Creative projects found by `amby-project.json`. Rebuildable cache: the
-        -- structure files stay the only source of truth.
-        CREATE TABLE IF NOT EXISTS project_projects (
-            project_id TEXT PRIMARY KEY,
+        -- Creative workshops and stories found by `amby-workshop.json`. Rebuildable cache:
+        -- the structure files stay the only source of truth.
+        CREATE TABLE IF NOT EXISTS project_workshops (
+            workshop_id TEXT PRIMARY KEY,
             path TEXT NOT NULL UNIQUE,
-            kind TEXT NOT NULL,
             name TEXT NOT NULL,
             icon TEXT,
             tags_json TEXT NOT NULL,
-            groups_json TEXT NOT NULL,
-            text_json TEXT,
             file_revision TEXT NOT NULL,
             format_version INTEGER NOT NULL,
             read_only INTEGER NOT NULL,
-            collection_id TEXT,
             position INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS project_sections (
-            project_id TEXT NOT NULL REFERENCES project_projects(project_id) ON DELETE CASCADE,
+            workshop_id TEXT NOT NULL REFERENCES project_workshops(workshop_id) ON DELETE CASCADE,
             section_id TEXT NOT NULL,
             position INTEGER NOT NULL,
-            role TEXT,
-            group_id TEXT,
+            role TEXT NOT NULL,
+            name TEXT NOT NULL,
             database_id TEXT NOT NULL,
             path_hint TEXT NOT NULL,
-            PRIMARY KEY (project_id, section_id)
+            PRIMARY KEY (workshop_id, section_id)
+        );
+        CREATE TABLE IF NOT EXISTS project_stories (
+            story_id TEXT PRIMARY KEY,
+            workshop_id TEXT NOT NULL REFERENCES project_workshops(workshop_id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            folder_path TEXT NOT NULL UNIQUE,
+            card_path TEXT NOT NULL,
+            card_note_id TEXT,
+            database_id TEXT,
+            file_revision TEXT NOT NULL,
+            text_json TEXT NOT NULL,
+            position INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS project_diagnostics (
             position INTEGER PRIMARY KEY,
             code TEXT NOT NULL,
             severity TEXT NOT NULL,
             path TEXT NOT NULL,
-            project_id TEXT,
+            workshop_id TEXT,
+            story_id TEXT,
             detail TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_project_sections_database
             ON project_sections(database_id);
+        CREATE INDEX IF NOT EXISTS idx_project_stories_database
+            ON project_stories(database_id);
 
         CREATE INDEX IF NOT EXISTS idx_db_databases_container_path
             ON db_databases(container_path);

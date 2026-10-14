@@ -5,7 +5,7 @@ dialogs that create projects and sections. Everything durable is Rust: discovery
 recovery and the index live in the [project backend](../../../../src-tauri/src/project/MAP.md)
 and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The contract is the
 [format v2 draft](../../../../docs/creative-format.md); the stages are in the
-[redesign plan](../../../../docs/creative-module-claude-plan.md).
+[redesign plan](../../../../docs/creative-workshop-plan.md).
 
 | Concern                                 | Owner                                                                                                          |
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |

@@ -519,7 +519,7 @@ H-00 фиксирует конкретный upstream commit/tag, нужные �
 в `docs/ai-harness.md`, `docs/ai-state-format.md` и `docs/ai-action-catalog.md`.
 Новые планы [единой доски](../excalidraw-canvas-claude-plan.md),
 [баз](../notion-database-parity-audit-2026-09-30.md) и
-[творческого модуля](../creative-module-claude-plan.md) согласуются через общие
+[творческого модуля](../creative-workshop-plan.md) согласуются через общие
 domain APIs. Их наличие не считается реализацией возможностей для агента.
 
 Оркестратор начинает с [инструкции запуска](./ai-harness-orchestration.md#инструкция-для-оркестратора),

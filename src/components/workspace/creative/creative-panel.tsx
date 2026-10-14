@@ -3,34 +3,25 @@ import { AlertTriangle, Feather, Loader2, Plus, Settings } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
-import {
-  createDatabaseRow,
-  type CreatedProject,
-  type ProjectDiagnostic,
-  type ProjectSummary,
-} from "@/lib/storage"
+import { createDatabaseRow, type ProjectDiagnostic, type WorkshopSummary } from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
 import { useDatabaseStore } from "../database/database-store"
 import { PanelHeader } from "../panels/panel-header"
 import { type ChooserExtra, type CreateChoice, useChooserOptions } from "./chooser-options"
 import { CreateChooserDialog } from "./create-chooser-dialog"
-import { CreateProjectDialog } from "./create-project-dialog"
+import {
+  CreateProjectDialog,
+  type CreatedItemResult,
+  type CreativeCreationKind,
+} from "./create-project-dialog"
 import { CreateSectionDialog } from "./create-section-dialog"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { CreativeScopePicker } from "./creative-scope-picker"
 import { readStoredScope, readWorkshopPrefs, writeStoredScope } from "./creative-scope-storage"
-import {
-  findProject,
-  listScopes,
-  resolveScope,
-  STANDALONE_SCOPE,
-  writableCollection,
-} from "./project-tree-model"
-import type { NewProjectKind } from "./project-labels"
+import { listScopes, resolveScope } from "./project-tree-model"
 import { useProjectStore } from "./project-store"
 import { sectionRoleIcon } from "./section-icons"
 import {
-  defaultSource,
   entityTabs,
   selectedStoryOf,
   workshopScope,
@@ -39,20 +30,8 @@ import {
 import { WorkshopPane } from "./workshop/workshop-pane"
 
 interface NewProjectRequest {
-  /** The collection the project goes into; none for the vault root. */
-  parent: ProjectSummary | null
-  kinds?: NewProjectKind[]
-  initialKind?: NewProjectKind
-}
-
-/**
- * The scope after a project is created: a new collection becomes the scope, a new
- * stand-alone story moves the sidebar to its bucket, and a story inside a collection
- * leaves the scope as it is (`undefined`).
- */
-function scopeAfterCreate(created: CreatedProject, parent: ProjectSummary | null) {
-  if (created.kind === "collection") return created.projectId
-  return parent ? undefined : STANDALONE_SCOPE
+  workshop: WorkshopSummary | null
+  kind?: CreativeCreationKind
 }
 
 function DiagnosticsNotice({ diagnostics }: { diagnostics: ProjectDiagnostic[] }) {
@@ -105,17 +84,16 @@ export function CreativePanel({
   const scope = useCreativeNavStore((state) => state.scope)
   const setScope = useCreativeNavStore((state) => state.setScope)
   const rawStoryFilter = useCreativeNavStore((state) => state.storyFilter)
-  const worldScope = useCreativeNavStore((state) => state.worldScope)
   const bumpData = useCreativeNavStore((state) => state.bumpData)
   const createRequest = useCreativeNavStore((state) => state.createRequest)
   const [newProject, setNewProject] = React.useState<NewProjectRequest | null>(null)
   const [chooserOpen, setChooserOpen] = React.useState(false)
   const [sectionRequest, setSectionRequest] = React.useState<{
-    project: ProjectSummary
+    workshop: WorkshopSummary
     initial?: { name: string; choice: string }
   } | null>(null)
-  const setSectionFor = (project: ProjectSummary | null) =>
-    setSectionRequest(project ? { project } : null)
+  const setSectionFor = (ws: WorkshopSummary | null) =>
+    setSectionRequest(ws ? { workshop: ws } : null)
 
   // What was last chosen in this vault: the scope, and what the lists were showing.
   React.useEffect(() => {
@@ -124,7 +102,6 @@ export function CreativePanel({
     nav.setScope(readStoredScope(vault))
     const prefs = readWorkshopPrefs(vault)
     nav.setStoryFilter(prefs.story ?? null)
-    nav.setWorldScope(prefs.world ?? "story")
     const open = worksSectionsFromPrefs(prefs.works)
     nav.setWorksOpen({
       text: open.includes("text"),
@@ -133,39 +110,36 @@ export function CreativePanel({
     })
   }, [vault])
 
-  // "Create a story / a universe" asked for from the empty tab. The panel may only now have
-  // mounted, so the request waits in the store until the catalog is here.
-  React.useEffect(() => {
-    if (!createRequest || !catalog) return
-    useCreativeNavStore.getState().clearCreateRequest()
-    if (createRequest === "universe") {
-      setNewProject({ parent: null, kinds: ["universe"] })
-    } else {
-      const resolved = resolveScope(catalog, useCreativeNavStore.getState().scope)
-      const collection = resolved === null ? null : findProject(catalog, resolved)
-      setNewProject({
-        parent: writableCollection(collection),
-        kinds: ["story"],
-        initialKind: "story",
-      })
-    }
-  }, [catalog, createRequest])
-
   const chooseScope = (next: string | null) => {
     setScope(next)
     if (vault) writeStoredScope(vault, next)
   }
 
-  // A stale scope (a collection that is gone) falls back on every render.
+  // A stale scope falls back on every render.
   const resolvedScope = catalog ? resolveScope(catalog, scope) : null
-  const scopeProject =
-    catalog && resolvedScope !== null ? findProject(catalog, resolvedScope) : null
-  const workshop = React.useMemo(
+  const workshopScopeResult = React.useMemo(
     () => (catalog ? workshopScope(catalog, resolvedScope) : null),
     [catalog, resolvedScope],
   )
+  const workshop = workshopScopeResult?.workshop ?? null
   const categories = React.useMemo(() => (workshop ? entityTabs(workshop) : []), [workshop])
-  const selectedStory = workshop ? selectedStoryOf(workshop.stories, rawStoryFilter) : null
+  const selectedStory =
+    rawStoryFilter === "all"
+      ? null
+      : workshop
+        ? selectedStoryOf(workshop.stories, rawStoryFilter)
+        : null
+
+  // "Create a story / a universe" asked for from the empty tab.
+  React.useEffect(() => {
+    if (!createRequest || !catalog) return
+    useCreativeNavStore.getState().clearCreateRequest()
+    if (createRequest === "universe") {
+      setNewProject({ workshop, kind: "universe" })
+    } else {
+      setNewProject({ workshop, kind: "story" })
+    }
+  }, [catalog, createRequest, workshop])
 
   const openProject = React.useCallback(
     (projectId: string, sectionId?: string) => {
@@ -181,31 +155,17 @@ export function CreativePanel({
     openProject(projectId, sectionId)
   }
 
-  // Where a new page of a category goes: the chosen story's own section when the world shows
-  // that story, else the shared one, else the first the category has.
-  const worldStoryId =
-    workshop?.collection === null || worldScope === "story"
-      ? (selectedStory?.projectId ?? null)
-      : null
-  const sourceOf = (categoryKey: string) => {
-    const category = categories.find((entry) => entry.key === categoryKey)
-    return category && workshop
-      ? defaultSource(category, worldStoryId, workshop.collection?.projectId ?? null)
-      : null
-  }
-
   const extra: ChooserExtra[] = []
   for (const category of categories) {
-    const source = sourceOf(category.key)
-    if (!source || source.project.readOnly) continue
+    if (!workshop || workshop.readOnly) continue
     extra.push({
       value: `entity:${category.key}`,
       title: t("creative.workshop.newEntity", { name: category.name }),
-      hint: t("creative.workshop.newEntityHint", { where: source.project.name }),
+      hint: t("creative.workshop.newEntityHint", { where: workshop.name }),
       icon: sectionRoleIcon(category.role),
     })
   }
-  if (selectedStory && !selectedStory.readOnly && selectedStory.text?.databaseId) {
+  if (selectedStory && selectedStory.text?.databaseId && !workshop?.readOnly) {
     extra.unshift({
       value: "page",
       title: t("creative.workshop.page.title"),
@@ -213,23 +173,16 @@ export function CreativePanel({
     })
   }
 
-  if (selectedStory && !selectedStory.readOnly) {
-    extra.push({
-      value: `section:${selectedStory.projectId}`,
-      title: t("creative.chooser.sectionInStory", { name: selectedStory.name }),
-      hint: t("creative.chooser.sectionInStoryHint"),
-    })
-  }
-  const chooserOptions = useChooserOptions(scopeProject, extra)
+  const chooserOptions = useChooserOptions(workshop, extra)
 
-  /** Creates a world page under the name the author typed in its row; a failure goes back to it. */
+  /** Creates a world page under the name the author typed in its row. */
   const createEntity = async (categoryKey: string, title: string) => {
-    const source = sourceOf(categoryKey)
-    if (!source || vaultGeneration === null) return
+    const tab = categories.find((t) => t.key === categoryKey)
+    if (!tab || vaultGeneration === null) return
     try {
       const created = await createDatabaseRow({
         expectedGeneration: vaultGeneration,
-        databaseId: source.section.databaseId,
+        databaseId: tab.databaseId,
         title,
         template: { kind: "default" },
       })
@@ -241,26 +194,20 @@ export function CreativePanel({
     }
   }
 
-  // The bottom button offers what fits: a page of the chosen story or of a world category, a
-  // story (inside a collection when the scope is a writable one), a section of that collection,
-  // a universe or a collection.
   const pickCreate = (choice: CreateChoice) => {
     setChooserOpen(false)
-    const collection = writableCollection(scopeProject)
     if (choice.startsWith("entity:")) {
       useCreativeNavStore.getState().requestEntity(choice.slice("entity:".length))
     } else if (choice === "page") {
-      useCreativeNavStore.getState().requestPage(selectedStory?.projectId ?? null)
-    } else if (choice.startsWith("section:")) {
-      const id = choice.slice("section:".length)
-      const target = workshop?.stories.find((story) => story.projectId === id)
-      if (target) setSectionFor(target)
+      useCreativeNavStore.getState().requestPage(selectedStory?.storyId ?? null)
     } else if (choice === "section") {
-      if (collection) setSectionFor(collection)
+      if (workshop) setSectionFor(workshop)
     } else if (choice === "story") {
-      setNewProject({ parent: collection, kinds: ["story"], initialKind: "story" })
-    } else if (choice === "universe" || choice === "collection") {
-      setNewProject({ parent: null, kinds: [choice] })
+      setNewProject({ workshop, kind: "story" })
+    } else if (choice === "universe") {
+      setNewProject({ workshop, kind: "universe" })
+    } else if (choice === "workshop") {
+      setNewProject({ workshop: null, kind: "workshop" })
     }
   }
 
@@ -283,7 +230,7 @@ export function CreativePanel({
     />
   )
 
-  const hasProjects = Boolean(catalog && catalog.projects.length > 0)
+  const hasWorkshops = Boolean(catalog && catalog.workshops.length > 0)
   let body: React.ReactNode
   if (!databaseRuntimeEnabled || status === "disabled") {
     body = (
@@ -316,13 +263,13 @@ export function CreativePanel({
         </MotionSpinner>
       </div>
     )
-  } else if (!hasProjects) {
+  } else if (!hasWorkshops) {
     body = (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center">
         <Feather className="size-7 text-muted-foreground" />
         <p className="text-xs font-medium">{t("creative.panel.empty")}</p>
         <p className="text-[11px] text-muted-foreground">{t("creative.panel.emptyHint")}</p>
-        <Button size="sm" onClick={() => setChooserOpen(true)}>
+        <Button size="sm" onClick={() => setNewProject({ workshop: null, kind: "workshop" })}>
           {t("creative.panel.newProject")}
         </Button>
       </div>
@@ -339,7 +286,7 @@ export function CreativePanel({
           onOpenNote={openNote}
           activeNoteId={selectedId}
           onOpenProject={openProject}
-          onAddSection={(project, options) => setSectionRequest({ project, initial: options })}
+          onAddSection={(ws, options) => setSectionRequest({ workshop: ws, initial: options })}
           onCreateEntity={createEntity}
           itemActions={{
             onOpenInNewTab,
@@ -390,14 +337,13 @@ export function CreativePanel({
         open={newProject !== null}
         onClose={() => setNewProject(null)}
         vaultGeneration={vaultGeneration}
-        parent={newProject?.parent ?? null}
-        kinds={newProject?.kinds}
-        initialKind={newProject?.initialKind}
-        onCreated={(created) =>
+        workshop={newProject?.workshop ?? workshop}
+        initialKind={newProject?.kind}
+        onCreated={(created: CreatedItemResult) =>
           void afterWrite(
-            created.projectId,
+            created.id,
             undefined,
-            scopeAfterCreate(created, newProject?.parent ?? null),
+            created.kind === "workshop" ? created.id : undefined,
           )
         }
       />
@@ -406,9 +352,11 @@ export function CreativePanel({
           open
           onClose={() => setSectionRequest(null)}
           vaultGeneration={vaultGeneration}
-          project={sectionRequest.project}
+          workshop={sectionRequest.workshop}
           initial={sectionRequest.initial}
-          onCreated={(created) => void afterWrite(created.projectId, created.section.sectionId)}
+          onCreated={(created) =>
+            void afterWrite(sectionRequest.workshop.workshopId, created.section.sectionId)
+          }
         />
       )}
     </div>

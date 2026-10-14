@@ -4,23 +4,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
 import { useDatabaseStore } from "../database/database-store"
 import { useCreativeNavStore } from "./creative-nav-store"
-import { catalog, project, section, universeCatalog } from "./project-fixtures.test-support"
+import {
+  catalog,
+  project,
+  section,
+  storySummary,
+  universeCatalog,
+  workshopSummary,
+} from "./project-fixtures.test-support"
 import { ProjectPage } from "./project-page"
 import { ProjectSettingsDialog } from "./project-settings-dialog"
 import { useProjectStore } from "./project-store"
 
-const updateProject = vi.hoisted(() => vi.fn())
-const removeProjectSection = vi.hoisted(() => vi.fn())
-const reorderProjectSections = vi.hoisted(() => vi.fn())
+const updateWorkshop = vi.hoisted(() => vi.fn())
+const removeWorkshopSection = vi.hoisted(() => vi.fn())
+const reorderWorkshopSections = vi.hoisted(() => vi.fn())
 const updateTextLevels = vi.hoisted(() => vi.fn())
 const addTextStatus = vi.hoisted(() => vi.fn())
 const renameDatabase = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
-  updateProject,
-  removeProjectSection,
-  reorderProjectSections,
+  updateWorkshop,
+  removeWorkshopSection,
+  reorderWorkshopSections,
   updateTextLevels,
   addTextStatus,
   renameDatabase,
@@ -51,9 +58,9 @@ describe("ProjectPage", () => {
     useProjectStore.getState().reset()
     useDatabaseStore.getState().reset(1)
     useCreativeNavStore.setState({ sectionByProject: {}, collapsed: {} })
-    updateProject.mockReset()
-    removeProjectSection.mockReset()
-    reorderProjectSections.mockReset()
+    updateWorkshop.mockReset()
+    removeWorkshopSection.mockReset()
+    reorderWorkshopSections.mockReset()
     updateTextLevels.mockReset()
     addTextStatus.mockReset()
     renameDatabase.mockReset()
@@ -77,7 +84,7 @@ describe("ProjectPage", () => {
     expect(screen.getByText("История")).toBeTruthy()
     expect(renderDatabase).not.toHaveBeenCalled()
     // cards on the overview: one per section
-    expect(screen.getAllByRole("button", { name: /Текст/u }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole("button", { name: /Персонажи/u }).length).toBeGreaterThan(0)
   })
 
   it("shows a section as the ordinary database and remembers it", () => {
@@ -85,16 +92,16 @@ describe("ProjectPage", () => {
     const { renderDatabase } = mount("molehills")
     const nav = screen.getByRole("navigation", { name: "Разделы проекта" })
     fireEvent.click(
-      Array.from(nav.querySelectorAll("button")).find((b) => b.textContent === "Текст")!,
+      Array.from(nav.querySelectorAll("button")).find((b) => b.textContent === "Персонажи")!,
     )
     expect(renderDatabase).toHaveBeenLastCalledWith({
-      databaseId: "db_text",
-      title: "Текст",
+      databaseId: "db_characters",
+      title: "Персонажи",
       readOnly: false,
       toolbarHost: expect.any(HTMLElement),
     })
-    expect(screen.getByTestId("database").textContent).toBe("Текст:db_text")
-    expect(useCreativeNavStore.getState().sectionByProject.molehills).toBe("text")
+    expect(screen.getByTestId("database").textContent).toBe("Персонажи:db_characters")
+    expect(useCreativeNavStore.getState().sectionByProject.molehills).toBe("characters")
   })
 
   it("opens the section the sidebar asked for", () => {
@@ -118,7 +125,7 @@ describe("ProjectPage", () => {
   it("lists the stories of a collection and opens one", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
     const { onOpenProject } = mount("palooverse")
-    expect(screen.getByText("Истории")).toBeTruthy()
+    expect(screen.getByRole("heading", { name: "Истории" })).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "MoleHills" }))
     expect(onOpenProject).toHaveBeenCalledWith("molehills")
   })
@@ -140,17 +147,17 @@ describe("ProjectPage", () => {
     act(() =>
       useProjectStore
         .getState()
-        .setCatalog(catalog([project("p", { readOnly: true, formatVersion: 3 })])),
+        .setCatalog(catalog([project("p", { readOnly: true, formatVersion: 4 })])),
     )
     mount("p")
-    expect(screen.getByText(/версия 3/u)).toBeTruthy()
+    expect(screen.getByText(/версия 4/u)).toBeTruthy()
     expect(screen.queryByRole("button", { name: "Раздел" })).toBeNull()
     expect(screen.queryByRole("button", { name: "Настройки" })).toBeNull()
   })
 
   it("adds a section from the header", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
-    mount("molehills")
+    mount("palooverse")
     fireEvent.click(screen.getByRole("button", { name: "Раздел" }))
     expect(screen.getByTestId("section-dialog")).toBeTruthy()
   })
@@ -168,9 +175,9 @@ describe("ProjectSettingsDialog", () => {
     await i18n.changeLanguage("ru")
     useProjectStore.getState().reset()
     useDatabaseStore.getState().reset(1)
-    updateProject.mockReset()
-    removeProjectSection.mockReset()
-    reorderProjectSections.mockReset()
+    updateWorkshop.mockReset()
+    removeWorkshopSection.mockReset()
+    reorderWorkshopSections.mockReset()
     updateTextLevels.mockReset()
     addTextStatus.mockReset()
     renameDatabase.mockReset()
@@ -178,10 +185,14 @@ describe("ProjectSettingsDialog", () => {
   afterEach(cleanup)
 
   it("saves project name and comma-separated tags", async () => {
-    updateProject.mockResolvedValue({
+    updateWorkshop.mockResolvedValue({
       operationId: "op",
-      projectId: "molehills",
-      projectRevision: "r2",
+      workshopId: "molehills",
+      name: "MoleHills II",
+      path: "molehills",
+      filePath: "molehills/.workshop.json",
+      fileRevision: "r2",
+      sections: [],
       replayed: false,
       warnings: [],
     })
@@ -191,7 +202,7 @@ describe("ProjectSettingsDialog", () => {
       fileRevision: "f".repeat(64),
     })
     const onClose = vi.fn()
-    render(<ProjectSettingsDialog open onClose={onClose} vaultGeneration={2} project={target} />)
+    render(<ProjectSettingsDialog open onClose={onClose} vaultGeneration={2} workshop={target} />)
 
     fireEvent.change(screen.getByLabelText("Название"), { target: { value: "MoleHills II" } })
     fireEvent.change(screen.getByLabelText(/Теги/u), {
@@ -199,11 +210,11 @@ describe("ProjectSettingsDialog", () => {
     })
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }))
 
-    await waitFor(() => expect(updateProject).toHaveBeenCalledTimes(1))
-    expect(updateProject.mock.calls[0][0]).toMatchObject({
+    await waitFor(() => expect(updateWorkshop).toHaveBeenCalledTimes(1))
+    expect(updateWorkshop.mock.calls[0][0]).toMatchObject({
       expectedGeneration: 2,
-      projectId: "molehills",
-      expectedProjectRevision: "f".repeat(64),
+      workshopId: "molehills",
+      expectedWorkshopRevision: "f".repeat(64),
       name: "MoleHills II",
       icon: null,
       tags: ["фэнтези", "приключения"],
@@ -212,17 +223,19 @@ describe("ProjectSettingsDialog", () => {
   })
 
   it("reorders and unlinks non-text sections while protecting the text section", async () => {
-    reorderProjectSections.mockResolvedValue({
+    reorderWorkshopSections.mockResolvedValue({
       operationId: "op",
-      projectId: "molehills",
-      projectRevision: "r2",
+      workshopId: "molehills",
+      sectionIds: ["notes", "text"],
+      workshopRevision: "r2",
       replayed: false,
       warnings: [],
     })
-    removeProjectSection.mockResolvedValue({
+    removeWorkshopSection.mockResolvedValue({
       operationId: "op2",
-      projectId: "molehills",
-      projectRevision: "r3",
+      workshopId: "molehills",
+      sectionId: "notes",
+      workshopRevision: "r3",
       replayed: false,
       warnings: [],
     })
@@ -233,7 +246,7 @@ describe("ProjectSettingsDialog", () => {
         section("notes", { role: "notes", databaseName: "Заметки" }),
       ],
     })
-    render(<ProjectSettingsDialog open onClose={vi.fn()} vaultGeneration={2} project={target} />)
+    render(<ProjectSettingsDialog open onClose={vi.fn()} vaultGeneration={2} workshop={target} />)
 
     fireEvent.click(screen.getByRole("tab", { name: "Разделы" }))
 
@@ -243,17 +256,17 @@ describe("ProjectSettingsDialog", () => {
 
     const moveDownButtons = screen.getAllByRole("button", { name: "Ниже" })
     fireEvent.click(moveDownButtons[0])
-    await waitFor(() => expect(reorderProjectSections).toHaveBeenCalledTimes(1))
-    expect(reorderProjectSections.mock.calls[0][0]).toMatchObject({
-      projectId: "molehills",
+    await waitFor(() => expect(reorderWorkshopSections).toHaveBeenCalledTimes(1))
+    expect(reorderWorkshopSections.mock.calls[0][0]).toMatchObject({
+      workshopId: "molehills",
       sectionIds: ["notes", "text"],
     })
 
     fireEvent.click(unlinkButtons[1])
     fireEvent.click(screen.getByRole("button", { name: "Убрать" }))
-    await waitFor(() => expect(removeProjectSection).toHaveBeenCalledTimes(1))
-    expect(removeProjectSection.mock.calls[0][0]).toMatchObject({
-      projectId: "molehills",
+    await waitFor(() => expect(removeWorkshopSection).toHaveBeenCalledTimes(1))
+    expect(removeWorkshopSection.mock.calls[0][0]).toMatchObject({
+      workshopId: "molehills",
       sectionId: "notes",
     })
   })
@@ -277,7 +290,8 @@ describe("ProjectSettingsDialog", () => {
       replayed: false,
       warnings: [],
     })
-    const target = project("molehills", {
+    const targetStory = storySummary("molehills", {
+      name: "MoleHills",
       fileRevision: "f".repeat(64),
       text: {
         databaseId: "db_text",
@@ -287,6 +301,8 @@ describe("ProjectSettingsDialog", () => {
           order: "prop_order",
           format: "prop_format",
           status: null,
+          anchors: null,
+          arcs: null,
         },
         levels: [
           { id: "opt_ch", name: "Глава", icon: null, color: "gray", state: "ok" },
@@ -298,7 +314,19 @@ describe("ProjectSettingsDialog", () => {
         statusOptions: [],
       },
     })
-    render(<ProjectSettingsDialog open onClose={vi.fn()} vaultGeneration={2} project={target} />)
+    const targetWorkshop = workshopSummary("molehills_ws", {
+      fileRevision: "f".repeat(64),
+      stories: [targetStory],
+    })
+    render(
+      <ProjectSettingsDialog
+        open
+        onClose={vi.fn()}
+        vaultGeneration={2}
+        workshop={targetWorkshop}
+        story={targetStory}
+      />,
+    )
 
     fireEvent.click(screen.getByRole("tab", { name: "Уровни текста" }))
 
@@ -310,7 +338,7 @@ describe("ProjectSettingsDialog", () => {
 
     await waitFor(() => expect(updateTextLevels).toHaveBeenCalledTimes(1))
     expect(updateTextLevels.mock.calls[0][0]).toMatchObject({
-      projectId: "molehills",
+      storyId: "molehills",
       levels: [
         { id: "opt_ch", name: "Глава", icon: null },
         { id: "opt_sc", name: "Сцена", icon: null },
@@ -321,7 +349,7 @@ describe("ProjectSettingsDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Добавить статус страниц" }))
     await waitFor(() => expect(addTextStatus).toHaveBeenCalledTimes(1))
     expect(addTextStatus.mock.calls[0][0]).toMatchObject({
-      projectId: "molehills",
+      storyId: "molehills",
       labels: {
         "property:status": "Статус",
         "status:draft": "Черновик",

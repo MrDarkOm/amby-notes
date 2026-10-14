@@ -1,26 +1,26 @@
-//! Reading and rewriting `amby-project.json`.
+//! Reading and rewriting `amby-workshop.json` and `amby-story.json`.
 //!
-//! The file is parsed leniently into a view for discovery, but a rewrite edits
-//! the original JSON value so unknown fields survive. A format version this
+//! The files are parsed leniently into views for discovery, but rewrites edit
+//! the original JSON values so unknown fields survive. A format version this
 //! build does not know is never rewritten.
 
 use serde_json::{json, Map, Value};
 
-use super::model::{ProjectKind, KNOWN_FORMAT_VERSION};
+use super::model::KNOWN_FORMAT_VERSION;
 use crate::database::format::raw_revision;
 
 /// The structure file is small; a larger one is treated as damaged.
 pub const MAX_PROJECT_FILE_BYTES: usize = 1024 * 1024;
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 
-/// Why a structure file cannot be listed as a project.
+/// Why a structure file cannot be read or validated.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FormatProblem {
     pub code: &'static str,
     pub detail: String,
 }
 
-fn problem(code: &'static str, detail: impl Into<String>) -> FormatProblem {
+pub fn problem(code: &'static str, detail: impl Into<String>) -> FormatProblem {
     FormatProblem {
         code,
         detail: detail.into(),
@@ -28,33 +28,24 @@ fn problem(code: &'static str, detail: impl Into<String>) -> FormatProblem {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GroupDoc {
+pub struct WorkshopSectionDoc {
     pub id: String,
+    pub role: String,
     pub name: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SectionDoc {
-    pub id: String,
-    pub role: Option<String>,
-    pub group_id: Option<String>,
     pub database_id: String,
-    pub path_hint: String,
+    pub path: String,
 }
 
 #[derive(Clone, Debug)]
-pub struct ProjectDoc {
+pub struct WorkshopDoc {
     /// SHA-256 of the raw bytes, BOM included.
     pub revision: String,
     pub format_version: u64,
-    pub kind: ProjectKind,
-    pub project_id: String,
+    pub workshop_id: String,
     pub name: String,
     pub icon: Option<String>,
     pub tags: Vec<String>,
-    pub groups: Vec<GroupDoc>,
-    pub sections: Vec<SectionDoc>,
-    pub text_json: Option<String>,
+    pub sections: Vec<WorkshopSectionDoc>,
     /// Entries of `sections` that were skipped, with the reason.
     pub skipped_sections: Vec<FormatProblem>,
     /// The whole document, for a rewrite that keeps unknown fields.
@@ -62,7 +53,23 @@ pub struct ProjectDoc {
     pub has_bom: bool,
 }
 
-impl ProjectDoc {
+impl WorkshopDoc {
+    pub fn is_known_version(&self) -> bool {
+        self.format_version == KNOWN_FORMAT_VERSION
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct StoryDoc {
+    pub revision: String,
+    pub format_version: u64,
+    pub story_id: String,
+    pub text_json: Option<String>,
+    pub raw: Value,
+    pub has_bom: bool,
+}
+
+impl StoryDoc {
     pub fn is_known_version(&self) -> bool {
         self.format_version == KNOWN_FORMAT_VERSION
     }
@@ -80,11 +87,11 @@ fn text_field(object: &Map<String, Value>, key: &str) -> Option<String> {
     object.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
-pub fn parse_project_file(bytes: &[u8]) -> Result<ProjectDoc, FormatProblem> {
+pub fn parse_workshop_file(bytes: &[u8]) -> Result<WorkshopDoc, FormatProblem> {
     if bytes.len() > MAX_PROJECT_FILE_BYTES {
         return Err(problem(
-            "invalidProjectFile",
-            "The structure file is too large",
+            "invalidWorkshopFile",
+            "The workshop file is too large",
         ));
     }
     let revision = raw_revision(bytes);
@@ -93,28 +100,23 @@ pub fn parse_project_file(bytes: &[u8]) -> Result<ProjectDoc, FormatProblem> {
         None => (false, bytes),
     };
     let raw: Value = serde_json::from_slice(body)
-        .map_err(|error| problem("invalidProjectFile", format!("Not valid JSON: {error}")))?;
+        .map_err(|error| problem("invalidWorkshopFile", format!("Not valid JSON: {error}")))?;
     let object = raw
         .as_object()
-        .ok_or_else(|| problem("invalidProjectFile", "The document is not an object"))?;
+        .ok_or_else(|| problem("invalidWorkshopFile", "The document is not an object"))?;
 
     let format_version = object
         .get("formatVersion")
         .and_then(Value::as_u64)
         .filter(|version| *version >= 1)
-        .ok_or_else(|| problem("invalidProjectFile", "formatVersion is missing or invalid"))?;
-    let kind = object
-        .get("kind")
-        .and_then(Value::as_str)
-        .and_then(ProjectKind::parse)
-        .ok_or_else(|| problem("invalidProjectFile", "kind must be collection or story"))?;
-    let project_id = text_field(object, "projectId")
+        .ok_or_else(|| problem("invalidWorkshopFile", "formatVersion is missing or invalid"))?;
+    let workshop_id = text_field(object, "workshopId")
         .filter(|id| valid_identifier(id))
-        .ok_or_else(|| problem("invalidProjectFile", "projectId is missing or invalid"))?;
+        .ok_or_else(|| problem("invalidWorkshopFile", "workshopId is missing or invalid"))?;
     let name = text_field(object, "name")
         .map(|name| name.trim().to_owned())
         .filter(|name| !name.is_empty() && name.chars().count() <= 200)
-        .ok_or_else(|| problem("invalidProjectFile", "name is missing or invalid"))?;
+        .ok_or_else(|| problem("invalidWorkshopFile", "name is missing or invalid"))?;
 
     let icon = text_field(object, "icon").filter(|icon| !icon.is_empty());
     let tags = object
@@ -128,24 +130,7 @@ pub fn parse_project_file(bytes: &[u8]) -> Result<ProjectDoc, FormatProblem> {
         })
         .unwrap_or_default();
 
-    let groups = object
-        .get("groups")
-        .and_then(Value::as_array)
-        .map(|groups| {
-            groups
-                .iter()
-                .filter_map(|group| {
-                    let group = group.as_object()?;
-                    Some(GroupDoc {
-                        id: text_field(group, "id").filter(|id| !id.is_empty())?,
-                        name: text_field(group, "name").unwrap_or_default(),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let mut sections: Vec<SectionDoc> = Vec::new();
+    let mut sections: Vec<WorkshopSectionDoc> = Vec::new();
     let mut skipped_sections = Vec::new();
     if let Some(entries) = object.get("sections").and_then(Value::as_array) {
         for (index, entry) in entries.iter().enumerate() {
@@ -156,13 +141,14 @@ pub fn parse_project_file(bytes: &[u8]) -> Result<ProjectDoc, FormatProblem> {
                 ));
                 continue;
             };
-            let (Some(id), Some(database_id)) = (
+            let (Some(id), Some(role), Some(database_id)) = (
                 text_field(entry, "id").filter(|id| !id.is_empty()),
+                text_field(entry, "role").filter(|role| !role.is_empty()),
                 text_field(entry, "databaseId").filter(|id| !id.is_empty()),
             ) else {
                 skipped_sections.push(problem(
                     "invalidSection",
-                    format!("sections[{index}] needs an id and a databaseId"),
+                    format!("sections[{index}] needs an id, a role and a databaseId"),
                 ));
                 continue;
             };
@@ -173,47 +159,79 @@ pub fn parse_project_file(bytes: &[u8]) -> Result<ProjectDoc, FormatProblem> {
                 ));
                 continue;
             }
-            let path_hint = text_field(entry, "path").unwrap_or_default();
-            if !path_hint.is_empty() && !is_safe_relative_hint(&path_hint) {
+            let name = text_field(entry, "name").unwrap_or_else(|| id.clone());
+            let path = text_field(entry, "path").unwrap_or_else(|| name.clone());
+            if !path.is_empty() && !is_safe_relative_hint(&path) {
                 skipped_sections.push(problem(
                     "unsafeSectionPath",
                     format!("section {id} has an unsafe path"),
                 ));
                 continue;
             }
-            sections.push(SectionDoc {
+            sections.push(WorkshopSectionDoc {
                 id,
-                role: text_field(entry, "role").filter(|role| !role.is_empty()),
-                group_id: text_field(entry, "group").filter(|group| !group.is_empty()),
+                role,
+                name,
                 database_id,
-                path_hint,
+                path,
             });
         }
     }
 
-    let text_json = object
-        .get("text")
-        .filter(|text| !text.is_null())
-        .map(|text| text.to_string());
-
-    Ok(ProjectDoc {
+    Ok(WorkshopDoc {
         revision,
         format_version,
-        kind,
-        project_id,
+        workshop_id,
         name,
         icon,
         tags,
-        groups,
         sections,
-        text_json,
         skipped_sections,
         raw,
         has_bom,
     })
 }
 
-/// A section path is only a hint, but it must stay inside the project folder.
+pub fn parse_story_file(bytes: &[u8]) -> Result<StoryDoc, FormatProblem> {
+    if bytes.len() > MAX_PROJECT_FILE_BYTES {
+        return Err(problem("invalidStoryFile", "The story file is too large"));
+    }
+    let revision = raw_revision(bytes);
+    let (has_bom, body) = match bytes.strip_prefix(BOM) {
+        Some(rest) => (true, rest),
+        None => (false, bytes),
+    };
+    let raw: Value = serde_json::from_slice(body)
+        .map_err(|error| problem("invalidStoryFile", format!("Not valid JSON: {error}")))?;
+    let object = raw
+        .as_object()
+        .ok_or_else(|| problem("invalidStoryFile", "The document is not an object"))?;
+
+    let format_version = object
+        .get("formatVersion")
+        .and_then(Value::as_u64)
+        .filter(|version| *version >= 1)
+        .ok_or_else(|| problem("invalidStoryFile", "formatVersion is missing or invalid"))?;
+    let story_id = text_field(object, "storyId")
+        .filter(|id| valid_identifier(id))
+        .ok_or_else(|| problem("invalidStoryFile", "storyId is missing or invalid"))?;
+
+    let text_json = object
+        .get("text")
+        .filter(|text| !text.is_null())
+        .map(|text| text.to_string());
+
+    Ok(StoryDoc {
+        revision,
+        format_version,
+        story_id,
+        text_json,
+        raw,
+        has_bom,
+    })
+}
+
+/// A section path is only a hint, but it must stay inside the workshop folder.
 pub fn is_safe_relative_hint(path: &str) -> bool {
     !path.is_empty()
         && !path.contains('\\')
@@ -239,21 +257,20 @@ pub fn document_bytes(value: &Value, with_bom: bool) -> Result<Vec<u8>, String> 
 }
 
 /// A section entry in the shape the contract defines.
-pub fn section_entry(
+pub fn workshop_section_entry(
     id: &str,
-    role: Option<&str>,
-    group_id: Option<&str>,
+    role: &str,
+    name: &str,
     database_id: &str,
     path: &str,
 ) -> Value {
-    let mut entry = json!({"id": id, "databaseId": database_id, "path": path});
-    if let Some(role) = role {
-        entry["role"] = json!(role);
-    }
-    if let Some(group) = group_id {
-        entry["group"] = json!(group);
-    }
-    entry
+    json!({
+        "id": id,
+        "role": role,
+        "name": name,
+        "databaseId": database_id,
+        "path": path,
+    })
 }
 
 /// Appends a section to `raw`, keeping every other field untouched.
@@ -272,9 +289,9 @@ pub fn with_section_appended(raw: &Value, entry: Value) -> Result<Value, String>
     Ok(document)
 }
 
-/// Updates project metadata (`name`, `icon`, `tags`) in `raw`, keeping every other field.
+/// Updates workshop metadata (`name`, `icon`, `tags`) in `raw`, keeping every other field.
 /// For `icon`: `None` leaves it untouched, `Some(None)` removes the key, `Some(Some(v))` sets it.
-pub fn with_project_metadata(
+pub fn with_workshop_metadata(
     raw: &Value,
     name: Option<&str>,
     icon: Option<Option<&str>>,
@@ -345,5 +362,68 @@ pub fn with_sections_reordered(raw: &Value, section_ids: &[String]) -> Result<Va
         }
     }
     *sections = reordered;
+    Ok(document)
+}
+
+/// Replaces `text.levels` in `raw` with `(id, icon)` entries in the given order, preserving any
+/// unknown fields on existing level objects and all other fields of `text` and `raw`.
+pub fn with_text_levels_updated(
+    raw: &Value,
+    levels: &[(String, Option<String>)],
+) -> Result<Value, String> {
+    let mut document = raw.clone();
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| "The document is not an object".to_owned())?;
+    let text = object
+        .get_mut("text")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "The text block is not an object".to_owned())?;
+    let existing = text
+        .get("levels")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut next = Vec::with_capacity(levels.len());
+    for (id, icon) in levels {
+        let mut entry = existing
+            .iter()
+            .find(|item| item.get("id").and_then(Value::as_str) == Some(id.as_str()))
+            .cloned()
+            .unwrap_or_else(|| json!({"id": id}));
+        let Some(entry_obj) = entry.as_object_mut() else {
+            return Err("A level entry is not an object".to_owned());
+        };
+        entry_obj.insert("id".to_owned(), json!(id));
+        match icon {
+            Some(icon) => {
+                entry_obj.insert("icon".to_owned(), json!(icon));
+            }
+            None => {
+                entry_obj.remove("icon");
+            }
+        }
+        next.push(entry);
+    }
+    text.insert("levels".to_owned(), Value::Array(next));
+    Ok(document)
+}
+
+/// Sets `text.properties.status` in `raw`, keeping all other fields of `text` and `raw`.
+pub fn with_text_status_property(raw: &Value, property_id: &str) -> Result<Value, String> {
+    let mut document = raw.clone();
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| "The document is not an object".to_owned())?;
+    let text = object
+        .get_mut("text")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "The text block is not an object".to_owned())?;
+    let properties = text
+        .entry("properties")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "text.properties is not an object".to_owned())?;
+    properties.insert("status".to_owned(), json!(property_id));
     Ok(document)
 }

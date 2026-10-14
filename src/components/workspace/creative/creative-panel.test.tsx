@@ -7,8 +7,14 @@ import type { PanelRenderProps } from "../panel-registry"
 import { useDatabaseStore } from "../database/database-store"
 import { CreativePanel } from "./creative-panel"
 import { useCreativeNavStore } from "./creative-nav-store"
-import { chooseOption, selectedText } from "@/lib/test-utils/amby-select"
-import { catalog, project, section } from "./project-fixtures.test-support"
+import { selectedText } from "@/lib/test-utils/amby-select"
+import {
+  catalog,
+  project,
+  section,
+  storySummary,
+  workshopSummary,
+} from "./project-fixtures.test-support"
 import { useProjectStore } from "./project-store"
 
 const queryDatabase = vi.fn()
@@ -33,12 +39,18 @@ vi.mock("@/lib/storage", async (importOriginal) => {
   }
 })
 vi.mock("./create-project-dialog", () => ({
-  CreateProjectDialog: (props: { open: boolean; parent?: { name: string } | null }) =>
-    props.open ? <div data-testid="project-dialog">{props.parent?.name ?? "root"}</div> : null,
+  CreateProjectDialog: (props: {
+    open: boolean
+    workshop?: { name: string } | null
+    parent?: { name: string } | null
+  }) =>
+    props.open ? (
+      <div data-testid="project-dialog">{props.workshop?.name ?? props.parent?.name ?? "root"}</div>
+    ) : null,
 }))
 vi.mock("./create-section-dialog", () => ({
-  CreateSectionDialog: (props: { project: { name: string } }) => (
-    <div data-testid="section-dialog">{props.project.name}</div>
+  CreateSectionDialog: (props: { workshop?: { name: string }; project?: { name: string } }) => (
+    <div data-testid="section-dialog">{(props.workshop ?? props.project)?.name}</div>
   ),
 }))
 
@@ -63,7 +75,15 @@ function row(noteId: string, title: string, values: Record<string, unknown> = {}
 
 const TEXT = {
   databaseId: "db_text",
-  properties: { level: "lvl", parent: "par", order: "ord", format: null, status: null },
+  properties: {
+    level: "lvl",
+    parent: "par",
+    order: "ord",
+    format: null,
+    status: null,
+    anchors: null,
+    arcs: null,
+  },
   levels: [
     { id: "book", icon: null, name: "Книга", color: null, state: "ok" as const },
     { id: "chapter", icon: null, name: "Глава", color: null, state: "ok" as const },
@@ -74,42 +94,62 @@ const TEXT = {
 
 /** A universe with shared characters, one story with its own, and a stand-alone story. */
 function world(): ProjectCatalog {
-  const universe = project("verse", {
-    kind: "collection",
+  const universe = workshopSummary("verse", {
     name: "Verse",
     path: "Verse",
-    groups: [{ id: "world", name: "Мир" }],
     sections: [
       section("chars", {
         role: "characters",
-        groupId: "world",
+        name: "Персонажи",
         databaseId: "db_uc",
         databaseName: "Персонажи",
       }),
-      section("orgs", { role: null, databaseId: "db_uo", databaseName: "Организации" }),
+      section("orgs", {
+        role: "custom",
+        name: "Организации",
+        databaseId: "db_uo",
+        databaseName: "Организации",
+      }),
+      section("notes", {
+        role: "notes",
+        name: "Заметки",
+        databaseId: "db_notes",
+        databaseName: "Заметки",
+      }),
+      section("anchors", {
+        role: "anchors",
+        name: "Якоря",
+        databaseId: "db_anchors",
+        databaseName: "Якоря",
+      }),
+    ],
+    stories: [
+      storySummary("hills", {
+        workshopId: "verse",
+        name: "MoleHills",
+        folderPath: "Verse/MoleHills",
+        databaseId: "db_text",
+        text: TEXT,
+      }),
+      storySummary("river", {
+        workshopId: "verse",
+        name: "River",
+        folderPath: "Verse/River",
+        databaseId: "db_rc",
+      }),
     ],
   })
-  const story = project("hills", {
-    name: "MoleHills",
-    path: "Verse/MoleHills",
-    collectionId: "verse",
-    text: TEXT,
-    sections: [
-      section("text", { role: "text", databaseId: "db_text", databaseName: "Текст" }),
-      section("notes", { role: "notes", databaseId: "db_notes", databaseName: "Заметки" }),
-      section("chars", { role: "characters", databaseId: "db_hc", databaseName: "Персонажи" }),
-      section("anchors", { role: "anchors", databaseId: "db_anchors", databaseName: "Якоря" }),
+  const other = workshopSummary("tale", {
+    name: "Рассказ",
+    path: "Рассказ",
+    stories: [
+      storySummary("tale_story", {
+        workshopId: "tale",
+        name: "Рассказ",
+      }),
     ],
   })
-  const other = project("river", {
-    name: "River",
-    path: "Verse/River",
-    collectionId: "verse",
-    sections: [
-      section("chars", { role: "characters", databaseId: "db_rc", databaseName: "Персонажи" }),
-    ],
-  })
-  return catalog([universe, story, other, project("tale", { name: "Рассказ" })])
+  return catalog([universe, other])
 }
 
 const importance = { type: "select", optionId: "main" }
@@ -145,7 +185,7 @@ const DATABASES: DatabaseSummary[] = [
 ]
 
 const ROWS: Record<string, DatabaseRow[]> = {
-  db_uc: [row("zoya", "Зоя"), row("anna", "Анна", { imp: importance })],
+  db_uc: [row("zoya", "Зоя"), row("anna", "Анна", { imp: importance }), row("boris", "Борис")],
   db_hc: [row("boris", "Борис")],
   db_rc: [row("vera", "Вера")],
   db_notes: [row("n1", "Идея")],
@@ -202,7 +242,6 @@ describe("CreativePanel", () => {
       scope: null,
       worksOpen: { text: true, anchors: false, notes: false },
       storyFilter: null,
-      worldScope: "story",
       dataNonce: 0,
       search: "",
       pageRequest: null,
@@ -223,7 +262,6 @@ describe("CreativePanel", () => {
     render(<CreativePanel {...props()} />)
     expect(screen.getByText("Проектов пока нет")).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Новый проект" }))
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Вселенная/ }))
     expect(screen.getByTestId("project-dialog").textContent).toBe("root")
   })
 
@@ -314,7 +352,7 @@ describe("CreativePanel", () => {
       await waitFor(() => expect(createTextPage).toHaveBeenCalledTimes(1))
       // The first level of the schema is the start; the format is the manuscript one, unasked.
       expect(createTextPage.mock.calls[0][0]).toMatchObject({
-        projectId: "hills",
+        storyId: "hills",
         title: "Пролог",
         parentNoteId: null,
         levelId: "book",
@@ -491,7 +529,7 @@ describe("CreativePanel", () => {
       ROWS.db_text.splice(0)
       try {
         const base = world()
-        base.projects.find((entry) => entry.projectId === "hills")!.readOnly = true
+        base.workshops.find((entry) => entry.workshopId === "verse")!.readOnly = true
         act(() => useProjectStore.getState().setCatalog(base))
         render(<CreativePanel {...props()} />)
         expect(await screen.findByText("Страниц пока нет.")).toBeTruthy()
@@ -512,14 +550,14 @@ describe("CreativePanel", () => {
       expect(within(chapter).queryByRole("button", { name: "Добавить страницу внутрь" })).toBeNull()
     })
 
-    it("switches to another story and offers to make its missing anchors section", async () => {
+    it("offers to make missing anchors section when the workshop lacks one", async () => {
+      const base = world()
+      base.workshops[0].sections = base.workshops[0].sections.filter((s) => s.role !== "anchors")
+      act(() => useProjectStore.getState().setCatalog(base))
       render(<CreativePanel {...props()} />)
-      await chooseOption("История", "River")
-      expect(selectedText("История")).toContain("River")
-      expect(screen.queryByText("Книга первая")).toBeNull()
       fireEvent.click(part(/Якоря/))
       fireEvent.click(await screen.findByRole("button", { name: "Создать раздел «Якоря»" }))
-      expect(screen.getByTestId("section-dialog").textContent).toBe("River")
+      expect(screen.getByTestId("section-dialog").textContent).toBe("Verse")
     })
 
     it("adds an anchor from the header of its part", async () => {
@@ -572,7 +610,7 @@ describe("CreativePanel", () => {
       fireEvent.drop(target, { dataTransfer })
       await waitFor(() => expect(moveTextPage).toHaveBeenCalledTimes(1))
       expect(moveTextPage.mock.calls[0][0]).toMatchObject({
-        projectId: "hills",
+        storyId: "hills",
         noteId: "c1",
         newParentNoteId: "b2",
         expectedRevision: "rev-c1",
@@ -677,26 +715,16 @@ describe("CreativePanel", () => {
       }
     })
 
-    it("keeps a shared page no text names yet in its own group, marked 'not in the text'", async () => {
+    it("lists characters under their category", async () => {
       render(<CreativePanel {...props()} />)
       await title(/Борис/)
-      // Anna lives in the universe and no chapter of this story names her: she stands in her
-      // importance group among the others, with a quiet mark; there is no group of her own.
-      const anna = await title(/Анна/)
-      expect(within(anna).getByText("не в тексте")).toBeTruthy()
-      expect(screen.queryByText("Ещё не в тексте")).toBeNull()
-      // A page the text names carries no such mark.
-      expect(
-        within(screen.getByRole("button", { name: /Зоя/ })).queryByText("не в тексте"),
-      ).toBeNull()
+      expect(await title(/Анна/)).toBeTruthy()
+      expect(await title(/Зоя/)).toBeTruthy()
     })
 
     it("lists a character just made in the shared section right away", async () => {
       selectScope("verse")
-      // The story has no characters section of its own here: the new page goes to the shared one.
       const base = world()
-      const hills = base.projects.find((entry) => entry.projectId === "hills")!
-      hills.sections = hills.sections.filter((entry) => entry.databaseId !== "db_hc")
       act(() => useProjectStore.getState().setCatalog(base))
       render(<CreativePanel {...props()} />)
       await title(/Анна/)
@@ -709,25 +737,12 @@ describe("CreativePanel", () => {
       }
     })
 
-    it("widens to the whole universe with the switch beside it, and labels the stories", async () => {
+    it("groups entities by the database's grouped view", async () => {
       render(<CreativePanel {...props()} />)
       await title(/Борис/)
-      fireEvent.click(screen.getByRole("button", { name: "Вселенная" }))
-      for (const name of [/Анна/, /Зоя/, /Борис/, /Вера/]) {
-        expect(await title(name)).toBeTruthy()
-      }
-      // Importance groups come from the database's grouped view.
       expect(screen.getByText("Главные")).toBeTruthy()
-      // Boris lives in MoleHills; Zoya is named in its text, so she is in it too.
-      expect(
-        within(screen.getByRole("button", { name: /Борис/ })).getByText("MoleHills"),
-      ).toBeTruthy()
-      expect(
-        within(screen.getByRole("button", { name: /Зоя/ })).getByText("MoleHills"),
-      ).toBeTruthy()
-
-      fireEvent.click(screen.getByRole("button", { name: "История" }))
-      expect(screen.queryByRole("button", { name: /Вера/ })).toBeNull()
+      expect(await title(/Анна/)).toBeTruthy()
+      expect(await title(/Зоя/)).toBeTruthy()
     })
 
     it("has no switch without a shared world", async () => {
@@ -751,7 +766,7 @@ describe("CreativePanel", () => {
       expect(onSelect).toHaveBeenCalledWith("boris")
     })
 
-    it("adds a page to a category from its row, in the chosen story's section", async () => {
+    it("adds a page to a category from its row", async () => {
       const onSelect = vi.fn()
       render(<CreativePanel {...props({ onSelect })} />)
       await title(/Борис/)
@@ -761,17 +776,16 @@ describe("CreativePanel", () => {
       fireEvent.keyDown(field, { key: "Enter" })
       await waitFor(() => expect(createDatabaseRow).toHaveBeenCalledTimes(1))
       expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({
-        databaseId: "db_hc",
+        databaseId: "db_uc",
         title: "Марта",
         template: { kind: "default" },
       })
       await waitFor(() => expect(onSelect).toHaveBeenCalledWith("new-note"))
     })
 
-    it("puts a page made from the chooser in the shared section when the world shows the universe", async () => {
+    it("puts a page made from the chooser in the shared section", async () => {
       render(<CreativePanel {...props()} />)
       await title(/Борис/)
-      fireEvent.click(screen.getByRole("button", { name: "Вселенная" }))
       fireEvent.click(screen.getByRole("button", { name: "Создать" }))
       fireEvent.click(
         within(screen.getByRole("dialog")).getByRole("button", {
@@ -799,7 +813,10 @@ describe("CreativePanel", () => {
       expect(at(/^Новая страница: Персонажи/)).toBeGreaterThanOrEqual(0)
       expect(dialog.getByText("Нужно реже")).toBeTruthy()
       // A story, a section and a universe come after the frequent ones.
-      const rareStart = Math.min(at(/^История/), at(/^Раздел/), at(/^Вселенная/))
+      const rareIndices = [at(/(?:Новая )?История/), at(/^Раздел/), at(/^Вселенная/)].filter(
+        (i) => i >= 0,
+      )
+      const rareStart = Math.min(...rareIndices)
       expect(Math.max(at(/^Новая страница(?!:)/), at(/^Новая страница: Персонажи/))).toBeLessThan(
         rareStart,
       )
@@ -814,9 +831,9 @@ describe("CreativePanel", () => {
         search.compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy()
 
-      // It finds a page the world does not show (River's), under the category it belongs to...
-      fireEvent.change(search, { target: { value: "вера" } })
-      expect(await title(/Вера/)).toBeTruthy()
+      // It finds a page under the category it belongs to...
+      fireEvent.change(search, { target: { value: "зоя" } })
+      expect(await title(/Зоя/)).toBeTruthy()
       expect(screen.getByText("Персонажи", { selector: "h3 span" })).toBeTruthy()
 
       // ...and the pages of a story's text.
@@ -843,24 +860,20 @@ describe("CreativePanel", () => {
     })
   })
 
-  it("adds a section from the chooser: to the shown story, and to the collection when inside one", () => {
+  it("adds a section from the chooser to the workshop", () => {
     act(() => useProjectStore.getState().setCatalog(world()))
-    selectScope(null)
+    selectScope("tale")
     const alone = render(<CreativePanel {...props()} />)
     fireEvent.click(screen.getByRole("button", { name: "Создать" }))
-    fireEvent.click(
-      within(screen.getByRole("dialog")).getByRole("button", { name: /^Раздел в «Рассказ»/ }),
-    )
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Раздел/ }))
     expect(screen.getByTestId("section-dialog").textContent).toBe("Рассказ")
     alone.unmount()
 
     selectScope("verse")
     render(<CreativePanel {...props()} />)
     fireEvent.click(screen.getByRole("button", { name: "Создать" }))
-    fireEvent.click(
-      within(screen.getByRole("dialog")).getByRole("button", { name: /^Раздел в «MoleHills»/ }),
-    )
-    expect(screen.getByTestId("section-dialog").textContent).toBe("MoleHills")
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Раздел/ }))
+    expect(screen.getByTestId("section-dialog").textContent).toBe("Verse")
   })
 
   it("has no plus beside the world: pages are added in the categories themselves", async () => {
@@ -959,7 +972,7 @@ describe("CreativePanel", () => {
       fireEvent.keyDown(field, { key: "Enter" })
       await waitFor(() => expect(createDatabaseRow).toHaveBeenCalledTimes(1))
       expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({
-        databaseId: "db_hc",
+        databaseId: "db_uc",
         title: "Лев",
       })
     })
@@ -973,7 +986,8 @@ describe("CreativePanel", () => {
 
     it("changes a text page's status from its context menu when status is configured", async () => {
       const base = world()
-      const hills = base.projects.find((entry) => entry.projectId === "hills")!
+      const verse = base.workshops.find((entry) => entry.workshopId === "verse")!
+      const hills = verse.stories.find((entry) => entry.storyId === "hills")!
       hills.text = {
         ...TEXT,
         properties: { ...TEXT.properties, status: "stat" },
@@ -1017,17 +1031,19 @@ describe("CreativePanel", () => {
         catalog([project("a")], {
           diagnostics: [
             {
-              code: "duplicateProjectId",
+              code: "duplicateWorkshopId",
               severity: "error",
-              path: "B/amby-project.json",
-              projectId: "a",
+              path: "B/amby-workshop.json",
+              workshopId: "a",
+              storyId: null,
               detail: null,
             },
             {
               code: "nestedCollection",
               severity: "warning",
-              path: "C/amby-project.json",
-              projectId: null,
+              path: "C/amby-workshop.json",
+              workshopId: null,
+              storyId: null,
               detail: null,
             },
           ],
@@ -1036,63 +1052,61 @@ describe("CreativePanel", () => {
     )
     render(<CreativePanel {...props()} />)
     fireEvent.click(screen.getByText("2 замечания к проектам"))
-    expect(screen.getByText("B/amby-project.json")).toBeTruthy()
+    expect(screen.getByText("B/amby-workshop.json")).toBeTruthy()
     expect(screen.getByText("Сборник внутри сборника не поддерживается")).toBeTruthy()
   })
 
   it("switches the scope from the switcher and shows that scope's stories", async () => {
     act(() => useProjectStore.getState().setCatalog(world()))
+    selectScope("verse")
     render(<CreativePanel {...props()} />)
-    // Even one story opens the list: "New story" is its last item.
-    expect(selectedText("История")).toContain("Рассказ")
-
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Сменить вселенную или сборник" }), {
-      button: 0,
-      ctrlKey: false,
-    })
-    fireEvent.click(screen.getByRole("menuitem", { name: /Verse/ }))
-    expect(selectedText("История")).toContain("MoleHills")
-    expect(selectedText("История")).not.toContain("Рассказ")
+    expect(await screen.findByText("MoleHills")).toBeTruthy()
   })
 
-  it("remembers the scope, the chosen story and what the world shows per vault", async () => {
+  it("remembers the scope and the chosen story per vault", async () => {
+    localStorage.clear()
     act(() => useProjectStore.getState().setCatalog(world()))
+    selectScope("verse")
     const first = render(<CreativePanel {...props({ vault: "/vaults/one" })} />)
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Сменить вселенную или сборник" }), {
-      button: 0,
-      ctrlKey: false,
+    expect(await screen.findByRole("button", { name: /Анна/ })).toBeTruthy()
+
+    // The workshop is chosen in the switcher; the story in the list of stories.
+    const switchTo = async (name: RegExp) => {
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Сменить мастерскую" }), {
+        button: 0,
+        ctrlKey: false,
+      })
+      fireEvent.click(await screen.findByRole("menuitem", { name }))
+    }
+    await switchTo(/Рассказ/)
+    expect(JSON.parse(localStorage.getItem("amby:creative-scope") ?? "{}")).toEqual({
+      "/vaults/one": "tale",
     })
-    fireEvent.click(screen.getByRole("menuitem", { name: /Verse/ }))
-    fireEvent.click(screen.getByRole("button", { name: "Вселенная" }))
+    await switchTo(/Verse/)
     expect(JSON.parse(localStorage.getItem("amby:creative-scope") ?? "{}")).toEqual({
       "/vaults/one": "verse",
     })
+    fireEvent.click(screen.getByRole("combobox", { name: "История" }))
+    fireEvent.click(await screen.findByRole("option", { name: /River/ }))
     expect(JSON.parse(localStorage.getItem("amby:creative-workshop") ?? "{}")).toEqual({
-      "/vaults/one": { world: "universe" },
+      "/vaults/one": { story: "river" },
     })
     first.unmount()
 
-    act(() => useCreativeNavStore.setState({ scope: null, worldScope: "story" }))
+    // The next time the vault opens, both are read back.
+    act(() => useCreativeNavStore.setState({ scope: null, storyFilter: null }))
     render(<CreativePanel {...props({ vault: "/vaults/one" })} />)
-    expect(await screen.findByRole("button", { name: /Анна/ })).toBeTruthy()
-    expect(screen.getByRole("button", { name: "Вселенная", pressed: true })).toBeTruthy()
+    await waitFor(() => expect(selectedText("История")).toContain("River"))
+    expect(useCreativeNavStore.getState().scope).toBe("verse")
   })
 
-  it("offers a section in the chooser only inside a collection", () => {
+  it("offers a section in the chooser inside a workshop", () => {
     act(() => useProjectStore.getState().setCatalog(world()))
-    const view = render(<CreativePanel {...props()} />)
-    fireEvent.click(screen.getByRole("button", { name: "Создать" }))
-    const dialog = screen.getByRole("dialog")
-    expect(within(dialog).getByRole("button", { name: /^История/ })).toBeTruthy()
-    expect(within(dialog).queryByRole("button", { name: /^Раздел\s*Общий/ })).toBeNull()
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Вселенная/ }))
-    view.unmount()
-
     selectScope("verse")
     render(<CreativePanel {...props()} />)
     fireEvent.click(screen.getByRole("button", { name: "Создать" }))
     const inside = screen.getByRole("dialog")
-    fireEvent.click(within(inside).getByRole("button", { name: /^Раздел\s*Общий/ }))
+    fireEvent.click(within(inside).getByRole("button", { name: /Раздел/ }))
     expect(screen.getByTestId("section-dialog").textContent).toBe("Verse")
   })
 
@@ -1114,7 +1128,7 @@ describe("CreativePanel", () => {
     expect(useCreativeNavStore.getState().createRequest).toBe("universe")
 
     act(() => useProjectStore.getState().setCatalog(world()))
-    expect((await screen.findByTestId("project-dialog")).textContent).toBe("root")
+    expect((await screen.findByTestId("project-dialog")).textContent).toBe("Verse")
     expect(useCreativeNavStore.getState().createRequest).toBeNull()
   })
 
