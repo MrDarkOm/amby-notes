@@ -1,8 +1,19 @@
 import * as React from "react"
-import { Check, ExternalLink, FileText, FolderInput, Pencil, Trash2 } from "lucide-react"
+import {
+  Anchor,
+  Check,
+  ExternalLink,
+  FileText,
+  FolderInput,
+  GitBranch,
+  Link2Off,
+  Pencil,
+  Trash2,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
   ContextMenu,
+  ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
@@ -15,6 +26,7 @@ import type { TextStatusOptionSummary } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { ItemActionsContext } from "./item-actions"
 import type { NotebookTarget } from "./notebook-model"
+import type { PlotKind } from "./plot-model"
 
 /**
  * Where a note can be moved from its menu: the notebooks to choose from and the root of the base
@@ -25,6 +37,32 @@ export interface MoveMenu {
   /** The notebook the note is in; empty in the root. */
   current: readonly string[]
   onMove: (segments: string[] | null) => void
+}
+
+/** One anchor or arc a text page can be bound to, and whether it already is. */
+export interface PlotChoice {
+  id: string
+  title: string
+  bound: boolean
+  /** The arc's own color, shown as a dot. */
+  color?: string
+}
+
+/**
+ * What a row's menu offers for anchors and arcs. On a page of the text: the story's anchors and
+ * arcs to bind, the bound ones checked (choosing one flips it). On an anchor or an arc: the pages
+ * it is bound to, to take it off one of them.
+ */
+export interface PlotMenu {
+  bind?: {
+    anchors: PlotChoice[]
+    arcs: PlotChoice[]
+    onToggle: (kind: PlotKind, id: string, bound: boolean) => void
+  }
+  unbind?: {
+    pages: Array<{ id: string; title: string }>
+    onUnbind: (pageId: string) => void
+  }
 }
 
 /**
@@ -93,6 +131,7 @@ export function ItemMenu({
   statusOptionId,
   onSelectStatus,
   move,
+  plot,
   children,
 }: {
   noteId: string
@@ -109,6 +148,8 @@ export function ItemMenu({
   onSelectStatus?: (optionId: string | null) => void
   /** "Move to notebook": the keyboard-reachable way to what dragging does. */
   move?: MoveMenu
+  /** "Anchors", "Arcs" and "Unbind from a page": the keyboard-reachable way to what dragging does. */
+  plot?: PlotMenu
   /** The row; it receives the trigger's props. */
   children: React.ReactElement<{ onContextMenu?: React.MouseEventHandler }>
 }) {
@@ -212,6 +253,45 @@ export function ItemMenu({
               </ContextMenuSubContent>
             </ContextMenuSub>
           )}
+          {plot?.bind && (
+            <>
+              <PlotChoices
+                icon={<Anchor className="size-3.5 text-muted-foreground" />}
+                label={t("creative.plot.menu.anchors")}
+                empty={t("creative.plot.menu.noAnchors")}
+                choices={plot.bind.anchors}
+                onToggle={(id, bound) => plot.bind?.onToggle("anchor", id, bound)}
+              />
+              <PlotChoices
+                icon={<GitBranch className="size-3.5 text-muted-foreground" />}
+                label={t("creative.plot.menu.arcs")}
+                empty={t("creative.plot.menu.noArcs")}
+                choices={plot.bind.arcs}
+                onToggle={(id, bound) => plot.bind?.onToggle("arc", id, bound)}
+              />
+            </>
+          )}
+          {plot?.unbind && plot.unbind.pages.length > 0 && (
+            <ContextMenuSub>
+              <ContextMenuSubTrigger className="gap-2 text-[13px]">
+                <Link2Off className="size-3.5 text-muted-foreground" />
+                {t("creative.plot.menu.unbind")}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="max-h-72 w-60 overflow-y-auto border-border bg-popover text-foreground">
+                {plot.unbind.pages.map((page) => (
+                  <ContextMenuItem
+                    key={page.id}
+                    className="gap-2 text-[13px]"
+                    onSelect={() => plot.unbind?.onUnbind(page.id)}
+                  >
+                    <span className="truncate" title={page.title}>
+                      {page.title}
+                    </span>
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          )}
           {hasStatusChoices && statusOptions && onSelectStatus && (
             <>
               <ContextMenuSeparator />
@@ -254,5 +334,56 @@ export function ItemMenu({
         </ContextMenuContent>
       </ContextMenu>
     </>
+  )
+}
+
+/** A submenu of the anchors or arcs a page can be bound to, the bound ones checked. */
+function PlotChoices({
+  icon,
+  label,
+  empty,
+  choices,
+  onToggle,
+}: {
+  icon: React.ReactNode
+  label: string
+  empty: string
+  choices: PlotChoice[]
+  onToggle: (id: string, bound: boolean) => void
+}) {
+  return (
+    <ContextMenuSub>
+      <ContextMenuSubTrigger className="gap-2 text-[13px]">
+        {icon}
+        {label}
+      </ContextMenuSubTrigger>
+      <ContextMenuSubContent className="max-h-72 w-60 overflow-y-auto border-border bg-popover text-foreground">
+        {choices.length === 0 && (
+          <ContextMenuItem disabled className="text-[13px]">
+            {empty}
+          </ContextMenuItem>
+        )}
+        {choices.map((choice) => (
+          <ContextMenuCheckboxItem
+            key={choice.id}
+            checked={choice.bound}
+            indicatorPosition="right"
+            className="gap-2 pl-2 text-[13px]"
+            onSelect={() => onToggle(choice.id, choice.bound)}
+          >
+            {choice.color && (
+              <span
+                aria-hidden="true"
+                className="size-2 shrink-0 rounded-full"
+                style={{ backgroundColor: choice.color }}
+              />
+            )}
+            <span className="flex-1 truncate" title={choice.title}>
+              {choice.title}
+            </span>
+          </ContextMenuCheckboxItem>
+        ))}
+      </ContextMenuSubContent>
+    </ContextMenuSub>
   )
 }

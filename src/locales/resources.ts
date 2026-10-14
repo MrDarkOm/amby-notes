@@ -2413,7 +2413,7 @@ const ru = {
       pageWritten: "Есть текст",
       pageBlank: "Пока без текста",
       anchorsHint:
-        "Якоря — ключевые, неизменные события истории. Порядок задаёте вы: перетаскивайте строки.",
+        "Якоря — ключевые, неизменные события истории. Привязанные к страницам стоят по порядку текста; те, что впереди, вы расставляете сами. Перетащите якорь на страницу, чтобы привязать его.",
       noNotesSection: "У истории нет раздела «Заметки».",
       noNotesYet: "Заметок пока нет.",
       search: "Поиск",
@@ -2509,6 +2509,29 @@ const ru = {
         },
       },
     },
+    // Anchors and arcs bound to the pages of a story's text.
+    plot: {
+      unavailable:
+        "Здесь нельзя привязать: у истории нет текста или мастерская открыта только для чтения.",
+      noAnchors: "Не удалось подготовить связь «Якоря»: в мастерской нет раздела «Якоря».",
+      noArcs: "Не удалось подготовить связь «Арки»: в мастерской нет раздела «Арки».",
+      ahead: "Впереди",
+      aheadHint:
+        "Якоря, ещё не привязанные к страницам этой истории. Их порядок задаёте вы: перетаскивайте строки.",
+      placedHint:
+        "Порядок привязанных якорей задаёт текст. Чтобы переставить якорь, перетащите его на другую страницу.",
+      menu: {
+        anchors: "Якоря",
+        arcs: "Арки",
+        noAnchors: "У истории пока нет якорей",
+        noArcs: "У истории пока нет арок",
+        unbind: "Отвязать от страницы",
+      },
+      marks: {
+        anchors: "Якоря: {{names}}",
+        arcs: "Арки: {{names}}",
+      },
+    },
     dossier: {
       location: "{{project}} · {{section}}",
       aside: "Досье",
@@ -2531,6 +2554,8 @@ const ru = {
         image: "Изображение",
         stories: "Истории",
         universe: "Вселенная",
+        anchors: "Якоря",
+        arcs: "Арки",
       },
       importance: { main: "Главные", side: "Второстепенные", episode: "Эпизодические" },
       kinds: { city: "Город", district: "Район", place: "Место", nature: "Природа" },
@@ -5192,7 +5217,7 @@ const en: typeof ru = {
       pageWritten: "Has text",
       pageBlank: "No text yet",
       anchorsHint:
-        "Anchors are the key, unchanging events of a story. You set their order: drag the rows.",
+        "Anchors are the key, unchanging events of a story. Those bound to pages follow the order of the text; you place the ones ahead yourself. Drag an anchor onto a page to bind it.",
       noNotesSection: "This story has no “Notes” section.",
       noNotesYet: "No notes yet.",
       search: "Search",
@@ -5287,6 +5312,28 @@ const en: typeof ru = {
         },
       },
     },
+    // Anchors and arcs bound to the pages of a story's text.
+    plot: {
+      unavailable: "Cannot bind here: the story has no text, or the workshop is read-only.",
+      noAnchors: "Could not prepare the “Anchors” link: the workshop has no “Anchors” section.",
+      noArcs: "Could not prepare the “Arcs” link: the workshop has no “Arcs” section.",
+      ahead: "Ahead",
+      aheadHint:
+        "Anchors not yet bound to a page of this story. You set their order: drag the rows.",
+      placedHint:
+        "The text sets the order of bound anchors. To move one, drag it onto another page.",
+      menu: {
+        anchors: "Anchors",
+        arcs: "Arcs",
+        noAnchors: "This story has no anchors yet",
+        noArcs: "This story has no arcs yet",
+        unbind: "Unbind from a page",
+      },
+      marks: {
+        anchors: "Anchors: {{names}}",
+        arcs: "Arcs: {{names}}",
+      },
+    },
     dossier: {
       location: "{{project}} · {{section}}",
       aside: "Dossier",
@@ -5307,6 +5354,8 @@ const en: typeof ru = {
         image: "Image",
         stories: "Stories",
         universe: "Universe",
+        anchors: "Anchors",
+        arcs: "Arcs",
       },
       importance: { main: "Main", side: "Supporting", episode: "Minor" },
       kinds: { city: "City", district: "District", place: "Place", nature: "Nature" },

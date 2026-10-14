@@ -278,8 +278,13 @@ pub struct WorkshopSectionSummary {
     pub path_hint: String,
     /// The ID of the relation property linking this section's pages to stories, when set.
     pub stories_property_id: Option<String>,
-    /// The ID of the relation property linking a story to a universe (stories section only).
+    /// The ID of the relation property linking a story (stories section) or an anchor (anchors
+    /// section) to a universe.
     pub universe_property_id: Option<String>,
+    /// The ID of the relation property linking an anchor to arcs (anchors section only).
+    pub arcs_property_id: Option<String>,
+    /// The ID of the relation property linking an arc to characters (arcs section only).
+    pub characters_property_id: Option<String>,
     pub state: SectionState,
     /// Vault-relative container of the database when it was found.
     pub resolved_path: Option<String>,
@@ -663,6 +668,55 @@ pub struct AddedStoryLinks {
     pub link: String,
     pub property_id: String,
     pub workshop_revision: String,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+/// Which database `ensure_plot_links` makes ready.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub enum PlotLinksTarget {
+    /// A story's text database: its pages get the "Anchors" and "Arcs" relations.
+    Story,
+    /// The anchors database: it gets the "Arcs" and "Universe" relations.
+    Anchors,
+}
+
+/// Adds the missing link properties of arcs and anchors, whichever databases exist by now
+/// (`docs/creative-format.md` §6). `expected_revision` is the revision of the file that records
+/// the result: `amby-story.json` for `Story` (`story_id` is required), `amby-workshop.json` for
+/// `Anchors`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EnsurePlotLinksRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub target: PlotLinksTarget,
+    #[serde(default)]
+    pub story_id: Option<String>,
+    pub expected_revision: String,
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct EnsuredPlotLinks {
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub target: PlotLinksTarget,
+    pub story_id: Option<String>,
+    /// `Story`: the "Anchors" property of the text; `Anchors`: always `None`.
+    pub anchors_property_id: Option<String>,
+    /// `Story`: the "Arcs" property of the text; `Anchors`: the "Arcs" property of the anchors.
+    pub arcs_property_id: Option<String>,
+    /// `Anchors`: the "Universe" property of the anchors; `Story`: always `None`.
+    pub universe_property_id: Option<String>,
+    /// The revision of the file that records the result, after the operation.
+    pub revision: String,
+    /// Whether anything was written; `false` when every property that could exist already did.
+    pub changed: bool,
     pub replayed: bool,
     pub warnings: Vec<String>,
 }

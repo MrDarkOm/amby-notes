@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::discovery::discover_projects;
-use super::format::{document_bytes, with_section_appended, workshop_section_entry};
+use super::format::{document_bytes, with_section_appended, workshop_section_entry, SectionLinks};
 use super::journal::{
     create_journal, read_journal, remove_journal, replace_journal, Journal, Plan,
     PlannedManifestWrite, PlannedSection, PlannedStory, JOURNAL_FORMAT, JOURNAL_VERSION,
@@ -22,8 +22,8 @@ use super::journal::{
 use super::model::{
     CreateStoryRequest, CreateWorkshopRequest, CreateWorkshopSectionRequest, CreatedStory,
     CreatedWorkshop, CreatedWorkshopSection, CreatedWorkshopSectionResult, ProjectError,
-    KNOWN_FORMAT_VERSION, KNOWN_ROLES, ROLE_CHARACTERS, ROLE_CUSTOM, ROLE_LOCATIONS, ROLE_STORIES,
-    ROLE_UNIVERSES, STORY_FILE_NAME, WORKSHOP_FILE_NAME,
+    KNOWN_FORMAT_VERSION, KNOWN_ROLES, ROLE_ANCHORS, ROLE_ARCS, ROLE_CHARACTERS, ROLE_CUSTOM,
+    ROLE_LOCATIONS, ROLE_STORIES, ROLE_UNIVERSES, STORY_FILE_NAME, WORKSHOP_FILE_NAME,
 };
 use super::names::{exists_ignoring_case, normalize_entry_name, normalize_icon, normalize_tags};
 use super::presets::{self, template_file_bytes, PlannedTemplate};
@@ -394,15 +394,7 @@ fn plan_base_section(
         target_databases,
         &pending,
     )?;
-    let entry = workshop_section_entry(
-        role,
-        role,
-        &name,
-        &ids.database_id,
-        &name,
-        preset.stories_property_id.as_deref(),
-        None,
-    );
+    let entry = workshop_section_entry(role, role, &name, &ids.database_id, &name, &preset.links);
     let created = CreatedWorkshopSection {
         section_id: role.to_owned(),
         role: role.to_owned(),
@@ -421,7 +413,7 @@ fn plan_base_section(
         view_id: ids.view_id,
         extras: preset.extras,
         template: preset.template,
-        stories_property_id: preset.stories_property_id,
+        stories_property_id: preset.links.stories,
     };
     Ok(BaseSection {
         planned,
@@ -698,6 +690,27 @@ pub(super) fn story_card_bytes(
     .into_bytes())
 }
 
+/// The anchors and arcs databases a story made now can point at: those the workshop has and whose
+/// database is on disk. A missing one is left out; `ensure_plot_links` offers it later.
+fn plot_targets(
+    env: &Env,
+    workshop: &super::discovery::DiscoveredWorkshop,
+) -> text_schema::PlotTargets {
+    let existing = |role: &str| {
+        workshop
+            .doc
+            .sections
+            .iter()
+            .find(|section| section.role == role)
+            .map(|section| section.database_id.clone())
+            .filter(|id| crate::database::mutations::find_database_container(env.vault, id).is_ok())
+    };
+    text_schema::PlotTargets {
+        anchors_database_id: existing(ROLE_ANCHORS),
+        arcs_database_id: existing(ROLE_ARCS),
+    }
+}
+
 pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedStory, ProjectError> {
     validate_operation_id(&request.operation_id)?;
     let request_rev = request_revision(&serde_json::to_value(request).unwrap())?;
@@ -822,12 +835,14 @@ pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedSt
             database_id: database_id.clone(),
             view_id,
         };
+        let plot = plot_targets(env, workshop);
         let planned_schema = text_schema::plan(
             env.vault,
             &title,
             &text_ids,
             &request.labels,
             level_names.as_deref(),
+            &plot,
         )?;
 
         let story_doc_val = json!({
@@ -1243,7 +1258,7 @@ fn plan_section(
         view_id: ids.view_id.clone(),
         extras: preset.extras.clone(),
         template: preset.template.clone(),
-        stories_property_id: preset.stories_property_id.clone(),
+        stories_property_id: preset.links.stories.clone(),
     };
 
     let new_entry = workshop_section_entry(
@@ -1252,8 +1267,7 @@ fn plan_section(
         name,
         &ids.database_id,
         name,
-        preset.stories_property_id.as_deref(),
-        None,
+        &preset.links,
     );
     let mut updated_doc =
         with_section_appended(&workshop.doc.raw, new_entry).map_err(|e| io_failure("format", e))?;
@@ -1280,8 +1294,10 @@ fn plan_section(
                     updated_doc = super::format::with_section_links(
                         &updated_doc,
                         &stories.id,
-                        None,
-                        Some(&link.property_id),
+                        &SectionLinks {
+                            universe: Some(link.property_id),
+                            ..SectionLinks::default()
+                        },
                     )
                     .map_err(|e| io_failure("format", e))?;
                     manifest_write = link.write;
@@ -1289,6 +1305,45 @@ fn plan_section(
                 // A stories database that cannot take the relation (missing, locked, read-only)
                 // never stops a universe from being made; "Link to universes" offers it again.
                 Err(ProjectError::StoryLinksUnavailable { .. }) => {}
+                Err(other) => return Err(other),
+            }
+        }
+    }
+    // The first arcs also give the anchors an "Arcs" relation, in the same operation. Anchors
+    // made earlier and the stories' texts get theirs later (`ensure_plot_links`).
+    if role == ROLE_ARCS {
+        if let Some(anchors) = workshop
+            .doc
+            .sections
+            .iter()
+            .find(|s| s.role == ROLE_ANCHORS && s.arcs_property_id.is_none())
+        {
+            match super::links::plan_link(
+                env.vault,
+                super::links::LinkKind::Arcs,
+                &anchors.database_id,
+                &ids.database_id,
+                std::slice::from_ref(&ids.database_id),
+                &request.labels,
+                false,
+            ) {
+                Ok(link) => {
+                    updated_doc = super::format::with_section_links(
+                        &updated_doc,
+                        &anchors.id,
+                        &SectionLinks {
+                            arcs: Some(link.property_id),
+                            ..SectionLinks::default()
+                        },
+                    )
+                    .map_err(|e| io_failure("format", e))?;
+                    manifest_write = link.write;
+                }
+                // Anchors that cannot take the relation (locked, or a property of the same name
+                // already there) never stop arcs from being made; `ensure_plot_links` offers it.
+                Err(
+                    ProjectError::StoryLinksUnavailable { .. } | ProjectError::InvalidName { .. },
+                ) => {}
                 Err(other) => return Err(other),
             }
         }

@@ -9,6 +9,21 @@ export const ACCENT_HEX = {
   rose: "#f43f5e",
 } as const
 
+/**
+ * The dots that mark a story arc in the text tree. Mid-tone hues that read on the light and the
+ * dark theme alike; an arc takes the same one every time (`arcColor`, by its note ID).
+ */
+export const ARC_COLORS = [
+  "#3b82f6",
+  "#ef4444",
+  "#10b981",
+  "#f59e0b",
+  "#8b5cf6",
+  "#ec4899",
+  "#14b8a6",
+  "#f97316",
+] as const
+
 export const ICON_PICKER_COLORS = [
   "#64748b",
   "#ef4444",

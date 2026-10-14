@@ -1,7 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
-  createDatabaseRow,
   createTextPage,
   type CreatedTextPage,
   type ProjectCatalog,
@@ -30,6 +29,7 @@ import {
   findNode,
   lastOrderKey,
   startLevelId,
+  textOrder,
   type TextNode,
 } from "./text-tree-model"
 import { useDatabaseRows } from "./use-database-rows"
@@ -38,13 +38,16 @@ import { NotesPart } from "./notes-part"
 import { buildNotebookTree, noteItemsOf } from "./notebook-model"
 import { useNotebookActions } from "./use-notebook-actions"
 import { useNotebooks } from "./use-notebooks"
-import { WorksTab, type NotesSlot } from "./works-tab"
-import { WorldSection } from "./world-section"
+import { WorksTab, type NotesSlot, type PlotPart } from "./works-tab"
+import { WorldSection, type PlotRow } from "./world-section"
+import { pagesOf, readBindings, type PageBinding } from "./plot-model"
+import { usePlotBinding, type EnsurePlot } from "./use-plot-binding"
 import { ItemActionsContext, type ItemActions } from "./item-actions"
 import {
   WORKS_SECTIONS,
   buildMembership,
   buildSearchGroups,
+  entityItemsOf,
   entityTabs,
   groupPropertyOf,
   resolvePanelFilter,
@@ -88,6 +91,11 @@ interface WorkshopPaneProps {
    * universes) and reads the catalog again; rejects on failure.
    */
   onLinkSection: (workshop: WorkshopSummary, sectionId: string) => Promise<void>
+  /**
+   * Makes the missing link properties of anchors and arcs (the first binding needs them) and reads
+   * the catalog again; rejects on failure.
+   */
+  onEnsurePlot: EnsurePlot
   /** What a page's own menu can do besides opening it. */
   itemActions: Pick<ItemActions, "onOpenInNewTab" | "onRename" | "onDelete" | "onDeleteMany">
   /**
@@ -115,6 +123,7 @@ export function WorkshopPane({
   onAddSection,
   onCreateEntity,
   onLinkSection,
+  onEnsurePlot,
   itemActions,
   fileActions,
   createOptions,
@@ -407,6 +416,92 @@ export function WorkshopPane({
     }
   }, [data.rows, rootsOf, selectedStory, stats])
 
+  // Anchors and arcs of the shown story: which ones belong to it, how its pages are bound.
+  const plotBinding = usePlotBinding({
+    workshop: scope.workshop,
+    story: selectedStory,
+    rows: data.rows,
+    vaultGeneration,
+    ensure: onEnsurePlot,
+    onChanged: bumpData,
+  })
+  const anchorsSection = scope.workshop ? storySection(scope.workshop, "anchors") : null
+  const arcsCategory = categories.find((category) => category.role === "arcs")
+  // The rows of a database that belong to the shown story (none unless one story is shown).
+  const belonging = React.useCallback(
+    (databaseId: string | undefined) => {
+      if (!databaseId || !scope.workshop || filter.kind !== "story") return []
+      const rows = data.rows[databaseId] ?? []
+      const shown = new Set(
+        scopeEntities(
+          entityItemsOf(rows, databaseId, scope.workshop.workshopId),
+          filter,
+          membership,
+        ).shown.map((item) => item.noteId),
+      )
+      return rows.filter((row) => shown.has(row.noteId))
+    },
+    [data.rows, filter, membership, scope.workshop],
+  )
+  const storyAnchors = React.useMemo(
+    () => belonging(anchorsSection?.databaseId),
+    [anchorsSection?.databaseId, belonging],
+  )
+  const storyArcs = React.useMemo(
+    () => belonging(arcsCategory?.databaseId),
+    [arcsCategory?.databaseId, belonging],
+  )
+  const bindings = React.useMemo(() => {
+    const text = selectedStory?.text
+    return text?.databaseId
+      ? readBindings(data.rows[text.databaseId] ?? [], text.properties)
+      : new Map<string, PageBinding>()
+  }, [data.rows, selectedStory])
+  const plot: PlotPart = {
+    anchors: storyAnchors,
+    arcs: storyArcs,
+    bindings,
+    binding:
+      scope.workshop && !scope.workshop.readOnly && selectedStory?.text?.databaseId
+        ? plotBinding
+        : null,
+    linkAnchors:
+      anchorsSection && !anchorsSection.storiesPropertyId && !scope.workshop?.readOnly
+        ? {
+            pending: linking === anchorsSection.id,
+            error: linkError,
+            onLink: () => void linkSection(anchorsSection.id),
+          }
+        : null,
+  }
+  // The text's order and titles, found once per read of the data, for the arcs' menus.
+  const plotPages = React.useMemo(() => {
+    const text = selectedStory?.text
+    if (!selectedStory || !text?.databaseId) return null
+    return {
+      order: textOrder(rootsOf(selectedStory.storyId)),
+      titles: new Map((data.rows[text.databaseId] ?? []).map((row) => [row.noteId, row.title])),
+    }
+  }, [data.rows, rootsOf, selectedStory])
+  const plotRowOf = (tab: WorkshopTab, item: EntityItem): PlotRow | null => {
+    const binding = plot.binding
+    if (tab.role !== "arcs" || !binding || !plotPages) return null
+    const pages = pagesOf(plot.bindings, plotPages.order, "arc", item.noteId)
+    return {
+      drag: { kind: "arc", id: item.noteId },
+      menu:
+        pages.length > 0
+          ? {
+              unbind: {
+                pages: pages.map((id) => ({ id, title: plotPages.titles.get(id) ?? "" })),
+                onUnbind: (pageId) => void binding.unbind(pageId, "arc", item.noteId),
+              },
+            }
+          : undefined,
+      error: binding.error?.rowId === item.noteId ? binding.error.message : null,
+    }
+  }
+
   const remember = (patch: Parameters<typeof writeWorkshopPrefs>[1]) => {
     if (vault) writeWorkshopPrefs(vault, patch)
   }
@@ -519,17 +614,12 @@ export function WorkshopPane({
       setDraft(null)
       return
     }
+    // An anchor made while a story is shown belongs to it from the first write.
     const sec = storySection(scope.workshop, "anchors")
     if (!sec) throw new Error(t("creative.errors.projectNotFound"))
-    const created = await createDatabaseRow({
-      expectedGeneration: vaultGeneration,
-      databaseId: sec.databaseId,
-      title,
-      template: { kind: "default" },
-    })
+    const storyId = filter.kind === "story" && sec.storiesPropertyId ? filter.storyId : null
+    await onCreateEntity("anchors", title, storyId)
     setDraft(null)
-    bumpData()
-    onOpenNote(created.noteId)
   }
 
   const afterPage = (created: CreatedTextPage) => {
@@ -652,6 +742,7 @@ export function WorkshopPane({
                   onMoved={bumpData}
                   activeNoteId={activeNoteId}
                   stats={stats}
+                  plot={plot}
                   anchorOrder={anchorView.order}
                   anchorCreated={anchorCreated}
                   onReorderAnchors={anchorView.save}
@@ -664,6 +755,7 @@ export function WorkshopPane({
                     itemsByCategory={scoped.shown}
                     withoutStoryByCategory={scoped.withoutStory}
                     storyLabelsOf={labelsOf}
+                    plotRowOf={plotRowOf}
                     onLinkSection={(tab: WorkshopTab) => void linkSection(tab.sectionId)}
                     linkingSectionId={linking}
                     onLinkUniverses={

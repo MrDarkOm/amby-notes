@@ -247,6 +247,8 @@ pub fn init_schema(conn: &Connection) -> Result<(), String> {
             path_hint TEXT NOT NULL,
             stories_property_id TEXT,
             universe_property_id TEXT,
+            arcs_property_id TEXT,
+            characters_property_id TEXT,
             PRIMARY KEY (workshop_id, section_id)
         );
         CREATE TABLE IF NOT EXISTS project_stories (
@@ -350,21 +352,32 @@ pub fn init_schema(conn: &Connection) -> Result<(), String> {
     .map_err(|error| error.to_string())?;
     tx.commit().map_err(|error| error.to_string())?;
 
-    // `project_sections` gained the two link columns. The table is a cache rebuilt from the
+    // `project_sections` gained its link columns over time. The table is a cache rebuilt from the
     // structure files, so an older one is widened and the project index is marked unbuilt: the
     // next read rebuilds it and fills the columns.
-    let has_link_columns: bool = conn
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_sections') WHERE name = 'stories_property_id')",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|error| error.to_string())?;
-    if !has_link_columns {
+    let mut missing_link_columns = Vec::new();
+    for column in [
+        "stories_property_id",
+        "universe_property_id",
+        "arcs_property_id",
+        "characters_property_id",
+    ] {
+        let present: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_sections') WHERE name = ?1)",
+                [column],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if !present {
+            missing_link_columns.push(column);
+        }
+    }
+    if !missing_link_columns.is_empty() {
         let tx = conn
             .unchecked_transaction()
             .map_err(|error| error.to_string())?;
-        for column in ["stories_property_id", "universe_property_id"] {
+        for column in missing_link_columns {
             tx.execute(
                 &format!("ALTER TABLE project_sections ADD COLUMN {column} TEXT"),
                 [],

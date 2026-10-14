@@ -7,6 +7,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::format::SectionLinks;
 use super::model::ProjectError;
 use super::names::normalize_title;
 use super::props::{ensure_distinct, gallery_grouped_by, PropertyBuilder};
@@ -19,10 +20,12 @@ const KINDS: [&str; 4] = ["city", "district", "place", "nature"];
 const ARC_KINDS: [&str; 3] = ["character", "plot", "mini"];
 const TAGS: [&str; 3] = ["blue", "green", "red"];
 const STATUSES: [&str; 3] = ["draft", "inProgress", "done"];
-/// Names of the two link properties: a world page's stories, and a story's universe.
-const LINK_KEYS: [&str; 2] = ["stories", "universe"];
+/// Names of the link properties: a world page's stories, a story's (or an anchor's) universe, and
+/// the anchors and arcs of a story's text pages (also the arcs of an anchor).
+const LINK_KEYS: [&str; 4] = ["stories", "universe", "anchors", "arcs"];
 
-/// Keys of `labels` that name a link property (`add_story_links` accepts only these).
+/// Keys of `labels` that name a link property (`add_story_links` and `ensure_plot_links` accept
+/// only these).
 pub fn is_link_label(key: &str) -> bool {
     key.strip_prefix("property:")
         .is_some_and(|rest| LINK_KEYS.contains(&rest))
@@ -33,6 +36,8 @@ fn default_label(key: &str) -> &'static str {
         "preset:stories" => "Истории",
         "property:stories" => "Истории",
         "property:universe" => "Вселенная",
+        "property:anchors" => "Якоря",
+        "property:arcs" => "Арки",
         "preset:characters" => "Персонажи",
         "preset:locations" => "Локации",
         "preset:universes" => "Вселенные",
@@ -161,8 +166,9 @@ pub fn template_file_bytes(
 pub struct PresetPlan {
     pub extras: NewDatabaseExtras,
     pub template: Option<PlannedTemplate>,
-    /// The ID of the "Stories" relation a world section starts with.
-    pub stories_property_id: Option<String>,
+    /// The IDs of the link relations the section starts with ("Stories" of a world section, the
+    /// "Characters" of arcs, the "Arcs" and "Universe" of anchors), for the structure file.
+    pub links: SectionLinks,
 }
 
 /// The name of a link property in the language of `labels` (`stories` or `universe`).
@@ -213,7 +219,7 @@ pub fn plan(
     let view;
     let mut template = None;
     let mut icon = None;
-    let mut stories_property_id = None;
+    let mut links = SectionLinks::default();
 
     match role {
         "stories" => {
@@ -241,7 +247,7 @@ pub fn plan(
                 let (stories_prop, stories_prop_id) =
                     add_stories_link(&mut builder, labels, stories_id)?;
                 properties.push(stories_prop);
-                stories_property_id = Some(stories_prop_id);
+                links.stories = Some(stories_prop_id);
             }
             let importance_options = IMPORTANCE
                 .iter()
@@ -283,7 +289,7 @@ pub fn plan(
                 let (stories_prop, stories_prop_id) =
                     add_stories_link(&mut builder, labels, stories_id)?;
                 properties.push(stories_prop);
-                stories_property_id = Some(stories_prop_id);
+                links.stories = Some(stories_prop_id);
             }
             let kind_options = KINDS
                 .iter()
@@ -335,10 +341,10 @@ pub fn plan(
                 let (stories_prop, stories_prop_id) =
                     add_stories_link(&mut builder, labels, stories_id)?;
                 properties.push(stories_prop);
-                stories_property_id = Some(stories_prop_id);
+                links.stories = Some(stories_prop_id);
             }
             if let Some(chars_id) = target_databases.get("characters") {
-                let (chars_prop, _) = builder.add(
+                let (chars_prop, chars_ids) = builder.add(
                     "relation",
                     &label(labels, "preset:characters")?,
                     &[],
@@ -348,6 +354,7 @@ pub fn plan(
                     },
                 )?;
                 properties.push(chars_prop);
+                links.characters = Some(chars_ids.property_id);
             }
             let arc_kinds = ARC_KINDS
                 .iter()
@@ -381,7 +388,7 @@ pub fn plan(
                 let (stories_prop, stories_prop_id) =
                     add_stories_link(&mut builder, labels, stories_id)?;
                 properties.push(stories_prop);
-                stories_property_id = Some(stories_prop_id);
+                links.stories = Some(stories_prop_id);
             }
             if let Some(chars_id) = target_databases.get("characters") {
                 let (chars_prop, _) = builder.add(
@@ -396,12 +403,28 @@ pub fn plan(
                 properties.push(chars_prop);
             }
             if let Some(arcs_id) = target_databases.get("arcs") {
-                let (arcs_prop, _) =
-                    builder.add("relation", &label(labels, "preset:arcs")?, &[], &|spec| {
+                let (arcs_prop, arcs_ids) =
+                    builder.add("relation", &label(labels, "property:arcs")?, &[], &|spec| {
                         spec.relation_target_database_id = Some(arcs_id.clone());
                         spec.relation_two_way = Some(false);
                     })?;
                 properties.push(arcs_prop);
+                links.arcs = Some(arcs_ids.property_id);
+            }
+            // An anchor tied to a universe is an event of that universe: one universe at most.
+            if let Some(universes_id) = target_databases.get("universes") {
+                let (universe_prop, universe_ids) = builder.add(
+                    "relation",
+                    &label(labels, "property:universe")?,
+                    &[],
+                    &|spec| {
+                        spec.relation_target_database_id = Some(universes_id.clone());
+                        spec.relation_two_way = Some(false);
+                        spec.relation_max_items = Some(1);
+                    },
+                )?;
+                properties.push(universe_prop);
+                links.universe = Some(universe_ids.property_id);
             }
             let (desc_prop, _) =
                 builder.add("text", &label(labels, "preset:description")?, &[], &|_| {})?;
@@ -414,7 +437,7 @@ pub fn plan(
                 let (stories_prop, stories_prop_id) =
                     add_stories_link(&mut builder, labels, stories_id)?;
                 properties.push(stories_prop);
-                stories_property_id = Some(stories_prop_id);
+                links.stories = Some(stories_prop_id);
             }
             view = Some(default_table_view(ids));
         }
@@ -425,7 +448,7 @@ pub fn plan(
                     let (stories_prop, stories_prop_id) =
                         add_stories_link(&mut builder, labels, stories_id)?;
                     properties.push(stories_prop);
-                    stories_property_id = Some(stories_prop_id);
+                    links.stories = Some(stories_prop_id);
                 }
             }
             view = Some(default_table_view(ids));
@@ -442,6 +465,6 @@ pub fn plan(
             template_id: template.as_ref().map(|t| t.template_id.clone()),
         },
         template,
-        stories_property_id,
+        links,
     })
 }

@@ -73,7 +73,7 @@ fn publish(conn: &Connection, discovery: &WorkshopDiscovery) -> Result<String, S
 
         for (s_idx, section) in doc.sections.iter().enumerate() {
             tx.execute(
-                "INSERT INTO project_sections (workshop_id, section_id, position, role, name, database_id, path_hint, stories_property_id, universe_property_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT INTO project_sections (workshop_id, section_id, position, role, name, database_id, path_hint, stories_property_id, universe_property_id, arcs_property_id, characters_property_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     doc.workshop_id,
                     section.id,
@@ -84,6 +84,8 @@ fn publish(conn: &Connection, discovery: &WorkshopDiscovery) -> Result<String, S
                     section.path,
                     section.stories_property_id,
                     section.universe_property_id,
+                    section.arcs_property_id,
+                    section.characters_property_id,
                 ],
             )
             .map_err(sql_error)?;
@@ -410,7 +412,7 @@ pub fn load_catalog(
     let mut section_stmt = conn
         .prepare(
             "SELECT s.section_id, s.role, s.name, s.database_id, s.path_hint, d.container_path, d.name,
-                    s.stories_property_id, s.universe_property_id
+                    s.stories_property_id, s.universe_property_id, s.arcs_property_id, s.characters_property_id
              FROM project_sections s
              LEFT JOIN db_databases d ON d.database_id = s.database_id
              WHERE s.workshop_id = ?1
@@ -484,6 +486,8 @@ pub fn load_catalog(
                     path_hint,
                     stories_property_id: row.get(7)?,
                     universe_property_id: row.get(8)?,
+                    arcs_property_id: row.get(9)?,
+                    characters_property_id: row.get(10)?,
                     state,
                     resolved_path: resolved,
                     database_name: row.get(6)?,

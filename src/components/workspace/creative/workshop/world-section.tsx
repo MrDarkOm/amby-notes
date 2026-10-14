@@ -9,8 +9,10 @@ import { Accordion } from "./accordion"
 import { treeIndent } from "./tree-indent"
 import { EmptyAction } from "./empty-action"
 import { InlineCreateRow } from "./inline-create-row"
-import { ItemMenu } from "./item-menu"
+import { ItemMenu, type PlotMenu } from "./item-menu"
 import { LinkAction } from "./link-action"
+import { RowError } from "./page-marks"
+import { PLOT_DRAG_TYPE, encodePlotDrag, type PlotDrag } from "./plot-model"
 import { PortraitDot } from "./portrait-dot"
 import { usePortraitResolvers } from "./use-portrait-resolvers"
 import {
@@ -21,6 +23,16 @@ import {
   type StoryLabels,
   type WorkshopTab,
 } from "./workshop-model"
+
+/** What a row of the world can do as an arc bound to the shown story's text. */
+export interface PlotRow {
+  /** What dragging the row onto a page binds. */
+  drag: PlotDrag
+  /** "Unbind from a page" in the row's menu. */
+  menu?: PlotMenu
+  /** The failure of the last binding of this row. */
+  error?: string | null
+}
 
 interface WorldSectionProps {
   categories: WorkshopTab[]
@@ -33,6 +45,8 @@ interface WorldSectionProps {
   onLinkSection?: ((tab: WorkshopTab) => void) | null
   /** The section being linked right now, if any. */
   linkingSectionId?: string | null
+  /** Which rows are arcs of the shown story that can be dragged onto its pages; none by default. */
+  plotRowOf?: ((tab: WorkshopTab, item: EntityItem) => PlotRow | null) | null
   /** Links the stories to the universes that now exist; `null` offers nothing. */
   onLinkUniverses?: (() => void) | null
   linkError?: string | null
@@ -66,6 +80,7 @@ export function WorldSection({
   itemsByCategory,
   withoutStoryByCategory = {},
   storyLabelsOf = null,
+  plotRowOf = null,
   onLinkSection = null,
   linkingSectionId = null,
   onLinkUniverses = null,
@@ -134,30 +149,46 @@ export function WorldSection({
         const faces = pictures[tab.key] ?? { any: false, byNote: {} }
         const showFaces = tab.role === "characters" || faces.any
 
-        const renderItem = (item: EntityItem) => (
-          <ItemMenu key={item.noteId} noteId={item.noteId} title={item.title}>
-            <button
-              type="button"
-              aria-current={activeNoteId === item.noteId ? "true" : undefined}
-              onClick={() => onOpen(item.noteId)}
-              style={{ paddingLeft: treeIndent(1) }}
-              className={cn(
-                "amby-tree-row flex w-full items-center gap-1.5 rounded py-1 pr-3 text-left text-[13px] hover:bg-accent",
-                activeNoteId === item.noteId && "bg-accent",
-              )}
-            >
-              {showFaces && (
-                <PortraitDot
-                  relativePath={faces.byNote[item.noteId] ?? null}
-                  resolver={resolverFor(item.databaseId)}
-                  initials={initialsOf(item.title)}
-                />
-              )}
-              <span className="min-w-0 flex-1 truncate">{item.title}</span>
-              {storyLabelsOf && <RowStories labels={storyLabelsOf(item.noteId)} />}
-            </button>
-          </ItemMenu>
-        )
+        const renderItem = (item: EntityItem) => {
+          const plot = plotRowOf?.(tab, item) ?? null
+          return (
+            <React.Fragment key={item.noteId}>
+              <ItemMenu noteId={item.noteId} title={item.title} plot={plot?.menu}>
+                <button
+                  type="button"
+                  draggable={plot !== null}
+                  onDragStart={
+                    plot
+                      ? (event) => {
+                          event.dataTransfer.setData("text/plain", item.noteId)
+                          event.dataTransfer.setData(PLOT_DRAG_TYPE, encodePlotDrag(plot.drag))
+                          event.dataTransfer.effectAllowed = "linkMove"
+                        }
+                      : undefined
+                  }
+                  aria-current={activeNoteId === item.noteId ? "true" : undefined}
+                  onClick={() => onOpen(item.noteId)}
+                  style={{ paddingLeft: treeIndent(1) }}
+                  className={cn(
+                    "amby-tree-row flex w-full items-center gap-1.5 rounded py-1 pr-3 text-left text-[13px] hover:bg-accent",
+                    activeNoteId === item.noteId && "bg-accent",
+                  )}
+                >
+                  {showFaces && (
+                    <PortraitDot
+                      relativePath={faces.byNote[item.noteId] ?? null}
+                      resolver={resolverFor(item.databaseId)}
+                      initials={initialsOf(item.title)}
+                    />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{item.title}</span>
+                  {storyLabelsOf && <RowStories labels={storyLabelsOf(item.noteId)} />}
+                </button>
+              </ItemMenu>
+              {plot?.error && <RowError message={plot.error} indent={treeIndent(1)} />}
+            </React.Fragment>
+          )
+        }
 
         return (
           <Accordion

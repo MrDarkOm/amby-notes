@@ -5,17 +5,19 @@ and the world. The owner of the whole creative interface is the [creative map](.
 backend of notebooks is [notebooks.rs](../../../../../src-tauri/src/project/notebooks.rs) and the contract is
 [format §8](../../../../../docs/creative-format.md).
 
-| Concern                                      | Owner                                                                                                                  |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Composition, filter, drafts, data loading    | [workshop-pane.tsx](workshop-pane.tsx), [use-database-rows.ts](use-database-rows.ts)                                   |
-| Story parts (text tree, anchors, notes slot) | [works-tab.tsx](works-tab.tsx), [text-tree-model.ts](text-tree-model.ts)                                               |
-| Belonging, groups, scopes (pure)             | [workshop-model.ts](workshop-model.ts)                                                                                 |
-| The world's lists                            | [world-section.tsx](world-section.tsx), [world-cards.tsx](world-cards.tsx)                                             |
-| Notebooks: grouping, names, delete plan      | [notebook-model.ts](notebook-model.ts) (pure)                                                                          |
-| Notebooks: listing from the disk             | [use-notebooks.ts](use-notebooks.ts)                                                                                   |
-| Notebooks: create, rename, move, delete      | [use-notebook-actions.ts](use-notebook-actions.ts)                                                                     |
-| Notebooks and notes on screen                | [notes-part.tsx](notes-part.tsx), [item-menu.tsx](item-menu.tsx) ("Move to notebook")                                  |
-| Real backend data for the model tests        | `real-workshop.fixture.json`, kept equal to the Rust output by `contract_test.rs`; read by `workshop-contract.test.ts` |
+| Concern                                           | Owner                                                                                                                  |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Composition, filter, drafts, data loading         | [workshop-pane.tsx](workshop-pane.tsx), [use-database-rows.ts](use-database-rows.ts)                                   |
+| Story parts (text tree, anchors, notes slot)      | [works-tab.tsx](works-tab.tsx), [text-tree-model.ts](text-tree-model.ts)                                               |
+| Belonging, groups, scopes (pure)                  | [workshop-model.ts](workshop-model.ts)                                                                                 |
+| The world's lists                                 | [world-section.tsx](world-section.tsx), [world-cards.tsx](world-cards.tsx)                                             |
+| Notebooks: grouping, names, delete plan           | [notebook-model.ts](notebook-model.ts) (pure)                                                                          |
+| Notebooks: listing from the disk                  | [use-notebooks.ts](use-notebooks.ts)                                                                                   |
+| Notebooks: create, rename, move, delete           | [use-notebook-actions.ts](use-notebook-actions.ts)                                                                     |
+| Notebooks and notes on screen                     | [notes-part.tsx](notes-part.tsx), [item-menu.tsx](item-menu.tsx) ("Move to notebook")                                  |
+| Anchors and arcs: order, marks, drag codec (pure) | [plot-model.ts](plot-model.ts), [page-marks.tsx](page-marks.tsx)                                                       |
+| Anchors and arcs: bind, unbind, ensure properties | [use-plot-binding.ts](use-plot-binding.ts); menus in [item-menu.tsx](item-menu.tsx) (`PlotMenu`)                       |
+| Real backend data for the model tests             | `real-workshop.fixture.json`, kept equal to the Rust output by `contract_test.rs`; read by `workshop-contract.test.ts` |
 
 **Notes and notebooks.** The notes part is the notes base shown as notebooks, under the same story / universe /
 whole-workshop filter as the world: `scopeEntities` over the base's rows, so only the notes of the shown stories; the
@@ -41,3 +43,19 @@ Nothing here writes a file; `use-notebook-actions.ts` calls the vault's own oper
   listing are cut, or when moved names would clash (it names the notes). After a confirmation the notes go up into the
   parent with `onMoveItem`, the folders are read again and only an empty subtree goes to the trash (never
   "permanent"). A move that stops halfway leaves the folder and says every note is in the old or the new place.
+
+**Anchors and arcs.** A page of the text keeps its anchors and arcs as two relations of its own database
+(`text.properties.anchors`/`arcs`, [format §6](../../../../../docs/creative-format.md)); `readBindings` reads them from
+the rows already held. `orderStoryAnchors` puts a bound anchor where the earliest of its pages stands in the tree
+(`textOrder`, depth first) and the rest "Ahead" in the author's order (`manualOrder`, `orderByAuthor`); only "Ahead" can
+be reordered by dragging, and the row of a bound anchor says why (`creative.plot.placedHint`). The anchors and arcs a story
+shows are those that belong to it like any world page (`PlotPart` built in `workshop-pane.tsx` from `buildMembership`):
+its "Stories" relation or a page of its text. `pageMarks` makes the row's marks (an anchor with a count, up to three arc
+dots in a color `arcColor` takes from `ARC_COLORS` in `src/themes/palettes.ts` by the arc's ID, then "+N").
+
+Binding is one call, `usePlotBinding`: drop an anchor or an arc row on a page (type `PLOT_DRAG_TYPE`), or the page's menu
+"Anchors"/"Arcs" (checked = bound), or "Unbind from a page" on the anchor's or arc's own row. If the story's text lacks the
+property, the first binding calls `ensurePlotLinks` (once; then, best effort, once for the anchors' own "Arcs"/"Universe"),
+then writes the page's complete list of targets with `updateDatabaseRelationValue` and its row revision, so other bindings
+stay. A failure shows under the row it came from. An anchor made in the panel goes through `createWorkshopEntity`, so it
+belongs to the shown story from the first write.

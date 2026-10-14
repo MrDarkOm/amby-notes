@@ -9,6 +9,8 @@ import { unwrapDatabaseCommand } from "./database-port"
 import { unwrapProjectCommand } from "./project-port"
 import type {
   AddStoryLinksRequest,
+  EnsurePlotLinksRequest,
+  EnsuredPlotLinks,
   AddTextStatusRequest,
   AddedStoryLinks,
   AddedTextStatus,
@@ -570,6 +572,16 @@ export class DesktopAdapter implements StoragePort {
     return unwrapProjectCommand(
       await commands.addStoryLinks({
         ...request,
+        labels: request.labels ?? {},
+      }),
+    )
+  }
+
+  async ensurePlotLinks(request: EnsurePlotLinksRequest): Promise<EnsuredPlotLinks> {
+    return unwrapProjectCommand(
+      await commands.ensurePlotLinks({
+        ...request,
+        storyId: request.storyId ?? null,
         labels: request.labels ?? {},
       }),
     )

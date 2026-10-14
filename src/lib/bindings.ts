@@ -995,6 +995,14 @@ async addStoryLinks(request: AddStoryLinksRequest) : Promise<Result<AddedStoryLi
     else return { status: "error", error: e  as any };
 }
 },
+async ensurePlotLinks(request: EnsurePlotLinksRequest) : Promise<Result<EnsuredPlotLinks, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("ensure_plot_links", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * A page of a world section, linked to a story in the same write when one is chosen.
  */
@@ -1543,6 +1551,34 @@ export type DuplicateDatabaseRowRequest = { expectedGeneration: number; database
  * Title of the copy; the caller localizes the "copy" wording.
  */
 title: string }
+/**
+ * Adds the missing link properties of arcs and anchors, whichever databases exist by now
+ * (`docs/creative-format.md` §6). `expected_revision` is the revision of the file that records
+ * the result: `amby-story.json` for `Story` (`story_id` is required), `amby-workshop.json` for
+ * `Anchors`.
+ */
+export type EnsurePlotLinksRequest = { expectedGeneration: number; operationId: string; workshopId: string; target: PlotLinksTarget; storyId?: string | null; expectedRevision: string; labels?: Partial<{ [key in string]: string }> }
+export type EnsuredPlotLinks = { operationId: string; workshopId: string; target: PlotLinksTarget; storyId: string | null; 
+/**
+ * `Story`: the "Anchors" property of the text; `Anchors`: always `None`.
+ */
+anchorsPropertyId: string | null; 
+/**
+ * `Story`: the "Arcs" property of the text; `Anchors`: the "Arcs" property of the anchors.
+ */
+arcsPropertyId: string | null; 
+/**
+ * `Anchors`: the "Universe" property of the anchors; `Story`: always `None`.
+ */
+universePropertyId: string | null; 
+/**
+ * The revision of the file that records the result, after the operation.
+ */
+revision: string; 
+/**
+ * Whether anything was written; `false` when every property that could exist already did.
+ */
+changed: boolean; replayed: boolean; warnings: string[] }
 export type FileMetadata = { created: number | null; modified: number | null; word_count: number }
 /**
  * Read-only view of a single YAML frontmatter entry. The original YAML stays
@@ -1653,6 +1689,18 @@ truncated: boolean }
 export type OperationWarning = "indexRebuildRequired"
 export type PageInfo = { title: string; description: string | null }
 export type PathChange = { oldPath: string; newPath: string }
+/**
+ * Which database `ensure_plot_links` makes ready.
+ */
+export type PlotLinksTarget = 
+/**
+ * A story's text database: its pages get the "Anchors" and "Arcs" relations.
+ */
+"story" | 
+/**
+ * The anchors database: it gets the "Arcs" and "Universe" relations.
+ */
+"anchors"
 export type ProjectCatalog = { vaultGeneration: number; 
 /**
  * Changes whenever the index is rebuilt.
@@ -1896,9 +1944,18 @@ pathHint: string;
  */
 storiesPropertyId: string | null; 
 /**
- * The ID of the relation property linking a story to a universe (stories section only).
+ * The ID of the relation property linking a story (stories section) or an anchor (anchors
+ * section) to a universe.
  */
-universePropertyId: string | null; state: SectionState; 
+universePropertyId: string | null; 
+/**
+ * The ID of the relation property linking an anchor to arcs (anchors section only).
+ */
+arcsPropertyId: string | null; 
+/**
+ * The ID of the relation property linking an arc to characters (arcs section only).
+ */
+charactersPropertyId: string | null; state: SectionState; 
 /**
  * Vault-relative container of the database when it was found.
  */

@@ -16,6 +16,8 @@ import {
   type CreatedWorkshopSectionResult,
   type CreatedTextPage,
   type CreateTextPageRequest,
+  type EnsurePlotLinksRequest,
+  type EnsuredPlotLinks,
   type MoveTextPageRequest,
   type MovedTextPage,
   type NoteReference,
@@ -65,6 +67,13 @@ export interface ProjectPort {
    * universes. Adopts a relation the section already has, else adds one.
    */
   addStoryLinks(request: AddStoryLinksRequest): Promise<AddedStoryLinks>
+  /**
+   * Makes the "Anchors" and "Arcs" relations of a story's text (target `story`), or the "Arcs" and
+   * "Universe" relations of the anchors (target `anchors`), wherever the databases they point at
+   * exist. What already exists is recorded, not made again; when nothing is missing nothing is
+   * written (`changed: false`).
+   */
+  ensurePlotLinks(request: EnsurePlotLinksRequest): Promise<EnsuredPlotLinks>
   /**
    * A page of a world section, born linked to a story's card when `storyId` is given and, for
    * the notes base, into the notebook (a folder of the base) named by `notebook`.

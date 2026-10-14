@@ -49,7 +49,10 @@ fn guarded(vault: &Path, relative: &str) -> Result<PathBuf, ProjectError> {
         .map_err(|message| ProjectError::failed("invalidPath", message))
 }
 
-fn check_writable_workshop(doc: &WorkshopDoc, expected_revision: &str) -> Result<(), ProjectError> {
+pub(super) fn check_writable_workshop(
+    doc: &WorkshopDoc,
+    expected_revision: &str,
+) -> Result<(), ProjectError> {
     if !doc.is_known_version() {
         return Err(ProjectError::WorkshopReadOnly {
             format_version: doc.format_version,
@@ -63,7 +66,10 @@ fn check_writable_workshop(doc: &WorkshopDoc, expected_revision: &str) -> Result
     Ok(())
 }
 
-fn check_writable_story(doc: &StoryDoc, expected_revision: &str) -> Result<(), ProjectError> {
+pub(super) fn check_writable_story(
+    doc: &StoryDoc,
+    expected_revision: &str,
+) -> Result<(), ProjectError> {
     if !doc.is_known_version() {
         return Err(ProjectError::StoryReadOnly {
             format_version: doc.format_version,
@@ -412,17 +418,17 @@ pub fn reorder_workshop_sections(
 // Helpers for Story Text Mutations
 // ---------------------------------------------------------------------------
 
-struct FoundStory {
-    story_file_path: PathBuf,
+pub(super) struct FoundStory {
+    pub(super) story_file_path: PathBuf,
     manifest_file_path: PathBuf,
-    story_file_rel: String,
+    pub(super) story_file_rel: String,
     manifest_rel: String,
-    story_doc: StoryDoc,
-    manifest: DatabaseManifest,
+    pub(super) story_doc: StoryDoc,
+    pub(super) manifest: DatabaseManifest,
     manifest_raw_text: String,
 }
 
-fn find_story(env: &Env, story_id: &str) -> Result<FoundStory, ProjectError> {
+pub(super) fn find_story(env: &Env, story_id: &str) -> Result<FoundStory, ProjectError> {
     let discovery = discover_projects(env.vault).map_err(|e| io_failure("discovery", e))?;
     for workshop in &discovery.workshops {
         for story in &workshop.stories {

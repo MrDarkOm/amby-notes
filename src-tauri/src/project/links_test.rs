@@ -21,16 +21,16 @@ use crate::database::discovery::discover_vault;
 use crate::database::format::raw_revision;
 use crate::index::schema::init_schema;
 
-fn read_json(fixture: &Fixture, relative: &str) -> Value {
+pub(super) fn read_json(fixture: &Fixture, relative: &str) -> Value {
     serde_json::from_slice(&fs::read(fixture.vault.join(relative)).unwrap()).unwrap()
 }
 
 /// The manifest of a section database; every section folder `X` holds `X.json`.
-fn manifest(fixture: &Fixture, folder: &str, name: &str) -> Value {
+pub(super) fn manifest(fixture: &Fixture, folder: &str, name: &str) -> Value {
     read_json(fixture, &format!("{folder}/{name}.json"))
 }
 
-fn property_named<'a>(manifest: &'a Value, name: &str) -> Option<&'a Value> {
+pub(super) fn property_named<'a>(manifest: &'a Value, name: &str) -> Option<&'a Value> {
     manifest["properties"]
         .as_array()
         .unwrap()
@@ -38,7 +38,7 @@ fn property_named<'a>(manifest: &'a Value, name: &str) -> Option<&'a Value> {
         .find(|property| property["name"] == name)
 }
 
-fn property_with_id<'a>(manifest: &'a Value, id: &str) -> &'a Value {
+pub(super) fn property_with_id<'a>(manifest: &'a Value, id: &str) -> &'a Value {
     manifest["properties"]
         .as_array()
         .unwrap()
@@ -47,7 +47,7 @@ fn property_with_id<'a>(manifest: &'a Value, id: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no property {id}"))
 }
 
-fn count_named(manifest: &Value, name: &str) -> usize {
+pub(super) fn count_named(manifest: &Value, name: &str) -> usize {
     manifest["properties"]
         .as_array()
         .unwrap()
@@ -56,7 +56,7 @@ fn count_named(manifest: &Value, name: &str) -> usize {
         .count()
 }
 
-fn entry<'a>(file: &'a Value, role: &str) -> &'a Value {
+pub(super) fn entry<'a>(file: &'a Value, role: &str) -> &'a Value {
     file["sections"]
         .as_array()
         .unwrap()
@@ -65,15 +65,15 @@ fn entry<'a>(file: &'a Value, role: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no section {role}"))
 }
 
-fn workshop_file(fixture: &Fixture, folder: &str) -> Value {
+pub(super) fn workshop_file(fixture: &Fixture, folder: &str) -> Value {
     read_json(fixture, &format!("{folder}/{WORKSHOP_FILE_NAME}"))
 }
 
-fn revision_of(fixture: &Fixture, folder: &str) -> String {
+pub(super) fn revision_of(fixture: &Fixture, folder: &str) -> String {
     raw_revision(&fixture.workshop_bytes(folder))
 }
 
-fn section_request(
+pub(super) fn section_request(
     created: &CreatedWorkshop,
     revision: &str,
     role: &str,
@@ -91,7 +91,11 @@ fn section_request(
 }
 
 /// Rewrites a JSON file the way Amby writes it (pretty, one newline), optionally with a BOM.
-fn rewrite_json(path: &std::path::Path, with_bom: bool, edit: impl FnOnce(&mut Value)) -> String {
+pub(super) fn rewrite_json(
+    path: &std::path::Path,
+    with_bom: bool,
+    edit: impl FnOnce(&mut Value),
+) -> String {
     let body = fs::read(path).unwrap();
     let body = body.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&body);
     let mut value: Value = serde_json::from_slice(body).unwrap();
@@ -121,7 +125,7 @@ fn forget_links(fixture: &Fixture, folder: &str, with_bom: bool) -> String {
     )
 }
 
-fn remove_property(fixture: &Fixture, folder: &str, name: &str, property_name: &str) {
+pub(super) fn remove_property(fixture: &Fixture, folder: &str, name: &str, property_name: &str) {
     rewrite_json(
         &fixture.vault.join(folder).join(format!("{name}.json")),
         false,
@@ -327,7 +331,7 @@ fn universe_steps() -> Vec<Step> {
     ]
 }
 
-fn after_commit(step: &Step) -> bool {
+pub(super) fn after_commit(step: &Step) -> bool {
     matches!(step, Step::WorkshopFileWritten | Step::BeforeCompletion)
 }
 

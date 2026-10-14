@@ -29,13 +29,26 @@ import { treeIndent } from "./tree-indent"
 import { EmptyAction } from "./empty-action"
 import { InlineCreateRow } from "./inline-create-row"
 import { StoryHeader } from "./story-header"
-import { ItemMenu } from "./item-menu"
+import { ItemMenu, type PlotChoice, type PlotMenu } from "./item-menu"
+import { LinkAction } from "./link-action"
+import { PageMarksView, RowError } from "./page-marks"
+import {
+  PLOT_DRAG_TYPE,
+  arcColor,
+  boundTo,
+  decodePlotDrag,
+  encodePlotDrag,
+  orderStoryAnchors,
+  pageMarks,
+  type PageBinding,
+  type PlotKind,
+} from "./plot-model"
+import type { PlotBinding } from "./use-plot-binding"
 import { useCreativeNavStore } from "../creative-nav-store"
 import { projectErrorText } from "../project-error"
 import { formatModified } from "../../workspace-tree-utils"
 import { moveRowInOrder, type RowDropPlacement } from "../../database/row-order"
 import {
-  orderByAuthor,
   storySection,
   WORKS_SECTIONS,
   type WorkshopDraft,
@@ -50,6 +63,7 @@ import {
   pageStatusDotClass,
   planMove,
   resolvePageStatus,
+  textOrder,
   type DropZone,
   type TextNode,
 } from "./text-tree-model"
@@ -93,6 +107,8 @@ interface WorksTabProps {
   activeNoteId: string | null
   /** Words and last-change time of the text's pages, from the note index. */
   stats: Record<string, TextPageStat>
+  /** The anchors and arcs of the shown story and how they are bound to its text. */
+  plot: PlotPart
   /** Anchors in the order the author placed them by hand, and when each was made. */
   anchorOrder: string[]
   anchorCreated: Record<string, number | null>
@@ -107,6 +123,24 @@ interface WorksTabProps {
   children?: React.ReactNode
 }
 
+/**
+ * The anchors and arcs of the shown story, ready for the parts: which ones belong to it, where each
+ * page of its text has them bound, and the way to bind and unbind. The pane builds it from the rows
+ * it holds and the story's relations.
+ */
+export interface PlotPart {
+  /** The anchors that belong to the story (a "Stories" relation, or bound to its text). */
+  anchors: DatabaseRow[]
+  /** The arcs that belong to the story. */
+  arcs: DatabaseRow[]
+  /** What each page of the story's text is bound to. */
+  bindings: ReadonlyMap<string, PageBinding>
+  /** Binds and unbinds; `null` when the story's text cannot take it (read-only, no text). */
+  binding: PlotBinding | null
+  /** The anchors section of an older workshop has no "Stories" relation: offers linking it. */
+  linkAnchors: { pending: boolean; error: string | null; onLink: () => void } | null
+}
+
 export interface NotesSlot {
   count: number | null
   /** Starts naming a note in the root of the base; `null` when the workshop is read-only. */
@@ -117,6 +151,11 @@ export interface NotesSlot {
 interface DropHint {
   noteId: string
   zone: DropZone
+}
+
+/** Whether what is dragged is an anchor or an arc (and not a page of the text). */
+function isPlotDrag(event: React.DragEvent<HTMLElement>): boolean {
+  return Array.from(event.dataTransfer.types ?? []).includes(PLOT_DRAG_TYPE)
 }
 
 function zoneOf(event: React.DragEvent<HTMLElement>): DropZone {
@@ -148,6 +187,14 @@ interface TreeContext {
   onDragOver: (event: React.DragEvent<HTMLElement>, noteId: string) => void
   onDrop: (event: React.DragEvent<HTMLElement>, noteId: string) => void
   onDragEnd: () => void
+  /** The marks of a page's anchors and arcs; `null` for a page bound to nothing. */
+  marksOf: (noteId: string) => ReturnType<typeof pageMarks>
+  /** The page's menu entries for anchors and arcs; absent when nothing can be bound. */
+  plotMenuOf?: (node: TextNode) => PlotMenu | undefined
+  /** An anchor or an arc was dropped on a page. */
+  onPlotDrop?: (pageId: string, kind: PlotKind, targetId: string) => void
+  /** The failure of the last binding, shown under the row it belongs to. */
+  plotError: { rowId: string; message: string } | null
 }
 
 function TreeRows({
@@ -172,6 +219,7 @@ function TreeRows({
         const draftHere = context.draftParentId === node.noteId
         const statusOption = resolvePageStatus(context.statusOptions, node.statusOptionId)
         const dotClass = pageStatusDotClass(context.statusOptions, node.statusOptionId, words)
+        const marks = context.marksOf(node.noteId)
         const dotTitle =
           statusOption?.name ??
           t(words > 0 ? "creative.workshop.pageWritten" : "creative.workshop.pageBlank")
@@ -189,6 +237,7 @@ function TreeRows({
                   ? (optionId) => context.onSetStatus?.(node, optionId)
                   : undefined
               }
+              plot={context.plotMenuOf?.(node)}
             >
               <div
                 draggable
@@ -255,6 +304,7 @@ function TreeRows({
                   className="flex min-w-0 flex-1 items-center gap-1.5 py-0.5 text-left"
                 >
                   <span className="min-w-0 truncate">{node.title}</span>
+                  {marks && <PageMarksView marks={marks} />}
                   {(leaf || words > 0) && (
                     <span
                       className={cn(
@@ -281,6 +331,9 @@ function TreeRows({
                 )}
               </div>
             </ItemMenu>
+            {context.plotError?.rowId === node.noteId && (
+              <RowError message={context.plotError.message} indent={treeIndent(depth + 1)} />
+            )}
             {open && (node.children.length > 0 || draftHere) && (
               <>
                 <TreeRows nodes={node.children} depth={depth + 1} context={context} />
@@ -321,6 +374,7 @@ function StoryWorks({
   onMoved,
   activeNoteId,
   stats,
+  plot,
   anchorOrder,
   anchorCreated,
   onReorderAnchors,
@@ -342,6 +396,7 @@ function StoryWorks({
   onMoved: () => void
   activeNoteId: string | null
   stats: Record<string, TextPageStat>
+  plot: PlotPart
   anchorOrder: string[]
   anchorCreated: Record<string, number | null>
   onReorderAnchors: (next: string[]) => Promise<void>
@@ -364,7 +419,7 @@ function StoryWorks({
   )
   const levels = React.useMemo(() => text?.levels ?? [], [text])
   const anchorsSection = storySection(workshop, "anchors")
-  const anchorRows = anchorsSection ? (rows[anchorsSection.databaseId] ?? []) : []
+  const anchorRows = anchorsSection ? plot.anchors : []
   const canWrite = !workshop.readOnly
   const rootRef = React.useRef<HTMLDivElement>(null)
 
@@ -409,6 +464,57 @@ function StoryWorks({
   const reset = () => {
     setDragId(null)
     setHint(null)
+  }
+
+  // Anchors and arcs: the order of the text, the titles for the marks, the menus of the rows.
+  const canBind = canWrite && Boolean(text?.databaseId) && plot.binding !== null
+  const pageOrder = React.useMemo(() => textOrder(roots), [roots])
+  const ordered = React.useMemo(
+    () =>
+      orderStoryAnchors({
+        anchors: plot.anchors,
+        textOrder: pageOrder,
+        bindings: plot.bindings,
+        manualOrder: anchorOrder,
+        createdOf: (noteId) => anchorCreated[noteId],
+      }),
+    [anchorCreated, anchorOrder, pageOrder, plot.anchors, plot.bindings],
+  )
+  const titles = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const row of plot.anchors) map.set(`anchor:${row.noteId}`, row.title)
+    for (const row of plot.arcs) map.set(`arc:${row.noteId}`, row.title)
+    return map
+  }, [plot.anchors, plot.arcs])
+  const plotTitleOf = (kind: PlotKind, id: string) => titles.get(`${kind}:${id}`)
+  const pageTitleOf = (noteId: string) =>
+    textRows?.find((row) => row.noteId === noteId)?.title ?? ""
+  const arcChoices = React.useMemo(
+    () =>
+      [...plot.arcs].sort((a, b) =>
+        a.title.localeCompare(b.title, undefined, { sensitivity: "base" }),
+      ),
+    [plot.arcs],
+  )
+  const plotMenuOf = (node: TextNode): PlotMenu | undefined => {
+    const binding = plot.binding
+    if (!binding) return undefined
+    const choice = (kind: PlotKind, row: DatabaseRow): PlotChoice => ({
+      id: row.noteId,
+      title: row.title,
+      bound: boundTo(plot.bindings, node.noteId, kind).includes(row.noteId),
+      color: kind === "arc" ? arcColor(row.noteId) : undefined,
+    })
+    return {
+      bind: {
+        anchors: ordered.placed
+          .map((entry) => choice("anchor", entry.row))
+          .concat(ordered.ahead.map((row) => choice("anchor", row))),
+        arcs: arcChoices.map((row) => choice("arc", row)),
+        onToggle: (kind, id, bound) =>
+          void (bound ? binding.unbind : binding.bind)(node.noteId, kind, id),
+      },
+    }
   }
   const plan = (targetId: string, zone: DropZone) =>
     dragId ? planMove(roots, levels, dragId, targetId, zone) : null
@@ -462,6 +568,17 @@ function StoryWorks({
     hint,
     onDragStart: setDragId,
     onDragOver: (event, noteId) => {
+      // An anchor or an arc over a page: it can be bound there, whatever the page is.
+      if (canBind && isPlotDrag(event)) {
+        event.preventDefault()
+        event.dataTransfer.dropEffect = "link"
+        setHint((previous) =>
+          previous?.noteId === noteId && previous.zone === "inside"
+            ? previous
+            : { noteId, zone: "inside" },
+        )
+        return
+      }
       if (!canWrite || !dragId) return
       const zone = zoneOf(event)
       if (plan(noteId, zone) === null) {
@@ -476,6 +593,16 @@ function StoryWorks({
       )
     },
     onDrop: (event, noteId) => {
+      const bound =
+        canBind && isPlotDrag(event)
+          ? decodePlotDrag(event.dataTransfer.getData(PLOT_DRAG_TYPE))
+          : null
+      if (bound) {
+        event.preventDefault()
+        reset()
+        void plot.binding?.bind(noteId, bound.kind, bound.id)
+        return
+      }
       event.preventDefault()
       const zone = zoneOf(event)
       const move = plan(noteId, zone)
@@ -498,26 +625,26 @@ function StoryWorks({
         .finally(onMoved)
     },
     onDragEnd: reset,
+    marksOf: (noteId) => pageMarks(plot.bindings.get(noteId), plotTitleOf),
+    plotMenuOf: canBind ? plotMenuOf : undefined,
+    plotError: plot.binding?.error ?? null,
   }
 
-  const byTitle = (a: DatabaseRow, b: DatabaseRow) =>
-    a.title.localeCompare(b.title, undefined, { sensitivity: "base" })
-
-  // Anchors are events, so they keep the author's order and can be moved: dropped on another
-  // one, a row goes before or after it. The order is the first view's own `manualOrder`.
+  // Anchors stand where the text puts them: a bound anchor at the earliest of its pages, and those
+  // bound to no page of this story ("ahead") in the author's own order, which only they can be
+  // dragged in. The order is the first view's own `manualOrder`.
   const [anchorDrag, setAnchorDrag] = React.useState<{
     id: string
     overId: string | null
     placement: RowDropPlacement
   } | null>(null)
-  const orderedAnchors = orderByAuthor(anchorRows, anchorOrder, (noteId) => anchorCreated[noteId])
   const dropAnchor = (targetId: string, placement: RowDropPlacement) => {
     const moved = anchorDrag?.id
     setAnchorDrag(null)
     if (!moved) return
     const next = moveRowInOrder(
       anchorOrder,
-      orderedAnchors.map((row) => row.noteId),
+      ordered.ahead.map((row) => row.noteId),
       moved,
       targetId,
       placement,
@@ -527,27 +654,49 @@ function StoryWorks({
     onReorderAnchors(next).catch((error: unknown) => setMoveError(projectErrorText(t, error)))
   }
 
-  const rowList = (list: DatabaseRow[], icon: React.ReactNode, reorder = false) =>
-    (reorder ? list : [...list].sort(byTitle)).map((row) => {
-      const over = reorder && anchorDrag?.overId === row.noteId ? anchorDrag.placement : null
-      return (
-        <ItemMenu key={row.noteId} noteId={row.noteId} title={row.title}>
+  /** One anchor of the part. `pageIds` are the pages it is bound to (none: it is ahead). */
+  const anchorRow = (row: DatabaseRow, pageIds: string[]) => {
+    const reorder = pageIds.length === 0 && canWrite
+    const over = reorder && anchorDrag?.overId === row.noteId ? anchorDrag.placement : null
+    const pageTitles = pageIds.map(pageTitleOf)
+    const error = plot.binding?.error?.rowId === row.noteId ? plot.binding.error.message : null
+    return (
+      <React.Fragment key={row.noteId}>
+        <ItemMenu
+          noteId={row.noteId}
+          title={row.title}
+          plot={
+            canBind && pageIds.length > 0
+              ? {
+                  unbind: {
+                    pages: pageIds.map((id) => ({ id, title: pageTitleOf(id) })),
+                    onUnbind: (pageId) => void plot.binding?.unbind(pageId, "anchor", row.noteId),
+                  },
+                }
+              : undefined
+          }
+        >
           <button
             type="button"
-            draggable={reorder && canWrite}
+            draggable={canBind || reorder}
             aria-current={activeNoteId === row.noteId ? "true" : undefined}
+            title={pageIds.length > 0 ? t("creative.plot.placedHint") : undefined}
             onClick={() => onOpenNote(row.noteId)}
             onDragStart={
-              reorder && canWrite
+              canBind || reorder
                 ? (event) => {
                     event.dataTransfer.setData("text/plain", row.noteId)
-                    event.dataTransfer.effectAllowed = "move"
-                    setAnchorDrag({ id: row.noteId, overId: null, placement: "after" })
+                    event.dataTransfer.setData(
+                      PLOT_DRAG_TYPE,
+                      encodePlotDrag({ kind: "anchor", id: row.noteId }),
+                    )
+                    event.dataTransfer.effectAllowed = "linkMove"
+                    if (reorder) setAnchorDrag({ id: row.noteId, overId: null, placement: "after" })
                   }
                 : undefined
             }
             onDragOver={
-              reorder && canWrite
+              reorder
                 ? (event) => {
                     if (!anchorDrag || anchorDrag.id === row.noteId) return
                     event.preventDefault()
@@ -562,14 +711,14 @@ function StoryWorks({
                 : undefined
             }
             onDrop={
-              reorder && canWrite
+              reorder
                 ? (event) => {
                     event.preventDefault()
                     dropAnchor(row.noteId, anchorDrag?.placement ?? "after")
                   }
                 : undefined
             }
-            onDragEnd={reorder ? () => setAnchorDrag(null) : undefined}
+            onDragEnd={() => setAnchorDrag(null)}
             style={{ paddingLeft: treeIndent(1) }}
             className={cn(
               "amby-tree-row flex w-full items-center gap-1.5 rounded border-y-2 border-transparent py-0.5 pr-3 text-left text-[13px] hover:bg-accent",
@@ -579,12 +728,24 @@ function StoryWorks({
               over === "after" && "border-b-primary",
             )}
           >
-            {icon}
+            <Anchor className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate">{row.title}</span>
+            {pageTitles.length > 0 && (
+              <span
+                className="ml-auto max-w-[45%] shrink-0 truncate pl-2 text-[11px] text-muted-foreground"
+                title={pageTitles.join(", ")}
+                data-testid="anchor-place"
+              >
+                {pageTitles[0]}
+                {pageTitles.length > 1 ? ` +${pageTitles.length - 1}` : ""}
+              </span>
+            )}
           </button>
         </ItemMenu>
-      )
-    })
+        {error && <RowError message={error} indent={treeIndent(1)} />}
+      </React.Fragment>
+    )
+  }
   const hintText = (key: string) => (
     <p className="py-1 pr-3 text-xs text-muted-foreground" style={{ paddingLeft: treeIndent(1) }}>
       {t(key)}
@@ -653,6 +814,19 @@ function StoryWorks({
         </div>
       ) : (
         <>
+          {plot.linkAnchors && (
+            <LinkAction
+              label={t("creative.workshop.link.stories")}
+              title={t("creative.workshop.link.storiesHint")}
+              pending={plot.linkAnchors.pending}
+              onClick={plot.linkAnchors.onLink}
+            />
+          )}
+          {plot.linkAnchors?.error && (
+            <p role="alert" className="px-2 py-1 text-[11px] text-destructive">
+              {plot.linkAnchors.error}
+            </p>
+          )}
           {anchorRows.length === 0 && draft?.kind !== "anchor" ? (
             canWrite ? (
               <EmptyAction
@@ -663,11 +837,19 @@ function StoryWorks({
               hintText("creative.workshop.noAnchorsYet")
             )
           ) : (
-            rowList(
-              orderedAnchors,
-              <Anchor className="size-4 shrink-0 text-muted-foreground" />,
-              true,
-            )
+            <>
+              {ordered.placed.map((entry) => anchorRow(entry.row, entry.pageIds))}
+              {ordered.ahead.length > 0 && (
+                <h4
+                  className="pb-0.5 pr-3 pt-1 text-[11px] text-muted-foreground"
+                  style={{ paddingLeft: treeIndent(1) }}
+                  title={t("creative.plot.aheadHint")}
+                >
+                  {t("creative.plot.ahead")}
+                </h4>
+              )}
+              {ordered.ahead.map((row) => anchorRow(row, []))}
+            </>
           )}
           {anchorDraftRow}
         </>
@@ -741,6 +923,7 @@ export function WorksTab({
   onMoved,
   activeNoteId,
   stats,
+  plot,
   anchorOrder,
   anchorCreated,
   onReorderAnchors,
@@ -825,6 +1008,7 @@ export function WorksTab({
             onMoved={onMoved}
             activeNoteId={activeNoteId}
             stats={stats}
+            plot={plot}
             anchorOrder={anchorOrder}
             anchorCreated={anchorCreated}
             onReorderAnchors={onReorderAnchors}

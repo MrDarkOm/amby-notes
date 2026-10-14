@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import type { DatabaseRow, NotebookCatalog, WorkshopSummary } from "@/lib/storage"
 import fixture from "./real-workshop.fixture.json"
 import { buildNotebookTree, noteItemsOf, planNotebookDelete, type NoteItem } from "./notebook-model"
+import { orderStoryAnchors, pageMarks, pagesOf, readBindings } from "./plot-model"
+import { buildTextTree, textOrder } from "./text-tree-model"
 import {
   buildMembership,
   entityItemsOf,
@@ -55,6 +57,7 @@ describe("the real workshop from the backend", () => {
       ["characters", true],
       ["locations", true],
       ["universes", false],
+      ["arcs", true],
     ])
     const stories = workshop.sections.find((section) => section.role === "stories")
     expect(stories?.universePropertyId).toBeTruthy()
@@ -151,5 +154,80 @@ describe("the real workshop from the backend", () => {
       kind: "ready",
       moves: [],
     })
+  })
+
+  it("names the anchors' and arcs' own link properties on the sections and the text relations on the stories", () => {
+    const section = (role: string) => workshop.sections.find((entry) => entry.role === role)!
+    expect(section("anchors").arcsPropertyId).toBe("ID:prop:arcs:anchors")
+    expect(section("anchors").universePropertyId).toBe("ID:prop:universe:anchors")
+    expect(section("arcs").charactersPropertyId).toBe("ID:prop:characters:arcs")
+    expect(section("characters").arcsPropertyId).toBeNull()
+    const properties = (name: string) => workshop.stories.find((s) => s.name === name)!.text!
+    // Two stories were made before the anchors and arcs and got their relations later.
+    expect(properties("Дом").properties.anchors).toBe("ID:prop:text:Дом:anchors")
+    expect(properties("Лес").properties.arcs).toBe("ID:prop:text:Лес:arcs")
+    expect(properties("Одна").properties.anchors).toBeNull()
+  })
+
+  it("reads which anchors and arcs belong to a story from their own relation and from the text", () => {
+    const anchors = "ID:db:anchors"
+    const arcs = "ID:db:arcs"
+    expect(titlesIn(anchors, { kind: "story", storyId: storyIdOf("Дом") }).shown).toEqual([
+      "Встреча",
+      "Финал",
+    ])
+    // The text of "Лес" binds "Побег", which has no relation of its own.
+    expect(titlesIn(anchors, { kind: "story", storyId: storyIdOf("Лес") }).shown).toEqual(["Побег"])
+    expect(titlesIn(anchors, { kind: "story", storyId: storyIdOf("Одна") }).shown).toEqual([])
+    expect(titlesIn(anchors, { kind: "all" }).without).toEqual(["Свободный"])
+    // "Месть" has no relation either; a chapter of "Дом" binds it.
+    expect(titlesIn(arcs, { kind: "story", storyId: storyIdOf("Дом") }).shown).toEqual([
+      "Любовь",
+      "Месть",
+    ])
+    expect(titlesIn(arcs, { kind: "story", storyId: storyIdOf("Лес") }).shown).toEqual([])
+  })
+
+  it("orders the anchors of a story by its text and marks the pages, from the real rows", () => {
+    const house = workshop.stories.find((story) => story.name === "Дом")!
+    const textRows = rows["ID:db:text:Дом"]
+    const roots = buildTextTree(textRows, house.text!.properties)
+    const bindings = readBindings(textRows, house.text!.properties)
+    const anchorItems = entityItemsOf(rows["ID:db:anchors"], "ID:db:anchors", workshop.workshopId)
+    const belonging = scopeEntities(
+      anchorItems,
+      { kind: "story", storyId: house.storyId },
+      membership,
+    ).shown
+    const ordered = orderStoryAnchors({
+      anchors: belonging,
+      textOrder: textOrder(roots),
+      bindings,
+      manualOrder: [],
+      createdOf: () => undefined,
+    })
+    // "Встреча" is on chapter 1 and chapter 2, "Финал" on chapter 2: the text decides.
+    expect(ordered.placed.map((entry) => entry.row.title)).toEqual(["Встреча", "Финал"])
+    const titleOf = new Map(textRows.map((row) => [row.noteId, row.title]))
+    expect(ordered.placed[0].pageIds.map((id) => titleOf.get(id))).toEqual(["Глава 1", "Глава 2"])
+    expect(ordered.ahead).toEqual([])
+
+    const titles = new Map(
+      [...rows["ID:db:anchors"], ...rows["ID:db:arcs"]].map((row) => [row.noteId, row.title]),
+    )
+    const chapter = textRows.find((row) => row.title === "Глава 1")!
+    const marks = pageMarks(bindings.get(chapter.noteId), (_kind, id) => titles.get(id))!
+    expect(marks.anchorCount).toBe(1)
+    expect(marks.dots.map((dot) => dot.title)).toEqual(["Любовь", "Месть"])
+    expect(
+      pagesOf(bindings, textOrder(roots), "arc", "ID:note:Любовь").map((id) => titleOf.get(id)),
+    ).toEqual(["Глава 1", "Глава 2"])
+    // The book above them is bound to nothing and has no marks.
+    const book = textRows.find((row) => row.title === "Книга")!
+    expect(pageMarks(bindings.get(book.noteId), (_kind, id) => titles.get(id))).toBeNull()
+
+    // The story made before the anchors has no relation, so none of its pages is bound.
+    const lone = workshop.stories.find((story) => story.name === "Одна")!
+    expect(readBindings(rows["ID:db:text:Одна"], lone.text!.properties).size).toBe(0)
   })
 })

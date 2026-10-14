@@ -7,6 +7,7 @@ import {
   addTextStatus,
   createStory,
   createWorkshopEntity,
+  ensurePlotLinks,
   createWorkshop,
   createWorkshopSection,
   createTextPage,
@@ -307,6 +308,44 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
       expect.objectContaining({ sectionId: "characters", labels: {} }),
     )
 
+    const ensure = vi.spyOn(commands, "ensurePlotLinks").mockResolvedValue({
+      status: "ok",
+      data: {
+        operationId: "op-plot",
+        workshopId: "w1",
+        target: "story",
+        storyId: "st1",
+        anchorsPropertyId: "prop-anchors",
+        arcsPropertyId: null,
+        universePropertyId: null,
+        revision: "r4",
+        changed: true,
+        replayed: false,
+        warnings: [],
+      },
+    })
+    await expect(
+      ensurePlotLinks({
+        expectedGeneration: 3,
+        operationId: "op-plot",
+        workshopId: "w1",
+        target: "story",
+        storyId: "st1",
+        expectedRevision: "r3",
+      }),
+    ).resolves.toMatchObject({ anchorsPropertyId: "prop-anchors", changed: true })
+    expect(ensure).toHaveBeenCalledWith(
+      expect.objectContaining({ target: "story", storyId: "st1", labels: {} }),
+    )
+    await ensurePlotLinks({
+      expectedGeneration: 3,
+      operationId: "op-plot2",
+      workshopId: "w1",
+      target: "anchors",
+      expectedRevision: "r3",
+    })
+    expect(ensure).toHaveBeenLastCalledWith(expect.objectContaining({ storyId: null }))
+
     const entity = vi.spyOn(commands, "createWorkshopEntity").mockResolvedValue({
       status: "ok",
       data: {
@@ -542,6 +581,15 @@ describe("WebAdapter projects", () => {
         workshopId: "w",
         expectedWorkshopRevision: "r",
         sectionId: "s",
+      }),
+    ).rejects.toBeInstanceOf(ProjectOperationError)
+    await expect(
+      ensurePlotLinks({
+        expectedGeneration: 0,
+        operationId: "op",
+        workshopId: "w",
+        target: "anchors",
+        expectedRevision: "r",
       }),
     ).rejects.toBeInstanceOf(ProjectOperationError)
     await expect(

@@ -41,7 +41,7 @@ describe("project labels", () => {
     expect(en["status:inProgress"]).toBe("In progress")
   })
 
-  it("names the universes and the two link properties in both languages", () => {
+  it("names the universes and the link properties in both languages", () => {
     const ru = projectLabels(i18n.getFixedT("ru"))
     const en = projectLabels(i18n.getFixedT("en"))
     expect(ru["section:universes"]).toBe("Вселенные")
@@ -50,8 +50,14 @@ describe("project labels", () => {
     expect(ru["property:universe"]).toBe("Вселенная")
     expect(en["property:stories"]).toBe("Stories")
     expect(en["property:universe"]).toBe("Universe")
-    // Adding the links later sends only these two.
+    expect(ru["property:anchors"]).toBe("Якоря")
+    expect(ru["property:arcs"]).toBe("Арки")
+    expect(en["property:anchors"]).toBe("Anchors")
+    expect(en["property:arcs"]).toBe("Arcs")
+    // Adding the links later sends only these four.
     expect(Object.keys(linkLabels(i18n.getFixedT("en"))).sort()).toEqual([
+      "property:anchors",
+      "property:arcs",
       "property:stories",
       "property:universe",
     ])
@@ -69,7 +75,7 @@ describe("project labels", () => {
   it("only uses keys the backend accepts", () => {
     for (const key of Object.keys(projectLabels(i18n.getFixedT("en")))) {
       expect(key).toMatch(
-        /^(section:(stories|notes|characters|locations|universes)|property:(stories|universe|level|parent|order|format|status)|level:(book|arc|chapter|page)|format:(manuscript|screenplay|comic|note)|status:(draft|inProgress|done)|preset:(importance|kind|portrait|image)|importance:(main|side|episode)|kind:(city|district|place|nature)|heading:(basic|traits|appearance|biography|description|history)|view:gallery|template:dossier)$/u,
+        /^(section:(stories|notes|characters|locations|universes)|property:(stories|universe|anchors|arcs|level|parent|order|format|status)|level:(book|arc|chapter|page)|format:(manuscript|screenplay|comic|note)|status:(draft|inProgress|done)|preset:(importance|kind|portrait|image)|importance:(main|side|episode)|kind:(city|district|place|nature)|heading:(basic|traits|appearance|biography|description|history)|view:gallery|template:dossier)$/u,
       )
     }
   })

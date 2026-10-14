@@ -60,9 +60,8 @@ parent or a level is a root), with the level icon and word count (`use-text-stat
 open page marked, its parents unfolded and the row scrolled into view once per change, and drag-and-drop
 (`move_text_page`, after `planMove` refused what the backend would). Its "+" makes a top-level page
 (`defaultLevelId`), a row's "+" one inside; a last-level page has none (`canHaveChildPage`). _anchors_
-keep the author's order: the first view's `manualOrder` (`use-view-order.ts`, dragging writes it through
-`updateDatabaseViewConfig`), else creation order (`orderByAuthor`); _notes_ show notebooks
-([map](workshop/MAP.md)). An empty list offers "Add the first …" (`empty-action.tsx`) in place of a plain
+stand where the text puts them, with the rest "Ahead" in the author's order (`manualOrder`); _notes_ show
+notebooks. Anchors, arcs and their marks in the tree: [workshop map](workshop/MAP.md). An empty list offers "Add the first …" (`empty-action.tsx`) in place of a plain
 sentence, unless the story is read-only. Under them the **world** (`world-section.tsx`, caption "World"):
 one folding list per category (by role, or by name for an author's section). The list at the top
 (`story-header.tsx`) is the one filter: a story, a universe or the whole workshop (`resolvePanelFilter`:

@@ -14,7 +14,7 @@ index, and the journaled creation of workshops, sections, and stories. The contr
 | Read-only discovery, diagnostics                             | [discovery.rs](discovery.rs)                           |
 | SQLite projection and catalog read                           | [index.rs](index.rs); tables in `index/schema.rs`      |
 | Create workshop / story / section, preflight, apply          | [create.rs](create.rs)                                 |
-| Story and universe links, pages born linked                  | [links.rs](links.rs)                                   |
+| Story, universe and plot links, pages born linked            | [links.rs](links.rs)                                   |
 | Workshop settings, section order/remove, levels, text status | [settings.rs](settings.rs)                             |
 | Operation journal (`.amby/recovery/projects/`)               | [journal.rs](journal.rs)                               |
 | Conditional cleanup and activation recovery                  | [recovery.rs](recovery.rs)                             |
@@ -79,6 +79,13 @@ journal (`Plan.workshop_file_text`, `PlannedSection.stories_property_id`), so a 
 The contract with the interface is checked on a real workshop: `contract_test.rs` builds it, reads the catalog and
 rows back and compares them with `real-workshop.fixture.json`, which Vitest feeds to the interface's own model.
 
+**Plot links (`links.rs`, [format §6](../../../docs/creative-format.md)).** A story's text may hold "Anchors" and
+"Arcs" relations (`text.properties.anchors`/`arcs` in `amby-story.json`) and the anchors database "Arcs" and "Universe"
+(`arcsPropertyId`, `universePropertyId`), the arcs "Characters" (`charactersPropertyId`). `create_story` and the
+presets add them when the target database already exists; otherwise `ensure_plot_links` (journaled, `plan_links` adopts
+a matching relation) makes what is missing in one database and one structure file (`story` or `anchors` target), and
+writes nothing when nothing is missing. Tests: `plot_links_test.rs`.
+
 **Notebooks (`notebooks.rs`).** A notebook is a plain subfolder of the notes base ([format §8](../../../docs/creative-format.md));
 a note's place is its `category_path`, so this module only reads: `list_notebooks_of` walks the base's folder (no
 links followed, bounded) and `resolve_notebook_dir` checks the `notebook` of `create_entity` before any write.
@@ -108,16 +115,8 @@ with their status groups when `text.properties.status` is present): a deleted op
 `dangling` with a diagnostic and the file is not touched. `create_text_page` goes through
 `rows::create_database_row_with_values` (values and note in one write); `move_text_page` goes
 through `apply_value_batch` (parent and order of one page in one write) after a loop check on
-the projection's parent edges. Nothing here branches on a format `kind`. **Levels.** The four of
-the template are only the default: `textLevels` on `create_project` (a story with base sections)
-or `create_project_section` (role `text`) is an ordered list of 1 to 6 names, normalized and
-checked for case-insensitive repeats by `text_schema::normalize_text_levels` before any write
-(`InvalidName` with field `textLevels`; naming them where no text is created is refused too). They
-become the options of the level Select in that order, IDs issued as always. The list joins the
-request revision (`with_text_levels`, only when present, so a request without it hashes as it
-did before) and the journal already holds the planned manifest and `text` block, so a repeat,
-a replay and a rollback recompute the same bytes. A one-level schema is valid: the parent rule
-(a parent on a shallower level) then allows no nesting and pages go in a row at the top.
+the projection's parent edges. Nothing here branches on a format `kind`. **Levels.** `textLevels` (1 to 6 names) is checked by `text_schema::normalize_text_levels` before any write and
+joins the request revision, so a repeat, a replay and a rollback recompute the same bytes.
 
 **Page numbers.** `list_text_stats(databaseId)` joins `db_members` to `notes` and returns, per page,
 `word_count`, `mtime` and `created_at` as the note index keeps them. Read-only: the panel's word counts,

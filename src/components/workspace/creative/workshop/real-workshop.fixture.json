@@ -32,6 +32,73 @@
     }
   },
   "rows": {
+    "ID:db:anchors": [
+      {
+        "categoryPath": [],
+        "noteId": "ID:note:Встреча",
+        "relativePath": "Saga/Якоря/Встреча.md",
+        "title": "Встреча",
+        "values": {
+          "ID:prop:stories:anchors": {
+            "targetNoteIds": [
+              "ID:card:Дом"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "categoryPath": [],
+        "noteId": "ID:note:Побег",
+        "relativePath": "Saga/Якоря/Побег.md",
+        "title": "Побег",
+        "values": {}
+      },
+      {
+        "categoryPath": [],
+        "noteId": "ID:note:Свободный",
+        "relativePath": "Saga/Якоря/Свободный.md",
+        "title": "Свободный",
+        "values": {}
+      },
+      {
+        "categoryPath": [],
+        "noteId": "ID:note:Финал",
+        "relativePath": "Saga/Якоря/Финал.md",
+        "title": "Финал",
+        "values": {
+          "ID:prop:stories:anchors": {
+            "targetNoteIds": [
+              "ID:card:Дом"
+            ],
+            "type": "relation"
+          }
+        }
+      }
+    ],
+    "ID:db:arcs": [
+      {
+        "categoryPath": [],
+        "noteId": "ID:note:Любовь",
+        "relativePath": "Saga/Арки/Любовь.md",
+        "title": "Любовь",
+        "values": {
+          "ID:prop:stories:arcs": {
+            "targetNoteIds": [
+              "ID:card:Дом"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "categoryPath": [],
+        "noteId": "ID:note:Месть",
+        "relativePath": "Saga/Арки/Месть.md",
+        "title": "Месть",
+        "values": {}
+      }
+    ],
     "ID:db:characters": [
       {
         "categoryPath": [],
@@ -216,7 +283,106 @@
         "values": {}
       }
     ],
-    "ID:db:text:Дом": [],
+    "ID:db:text:Дом": [
+      {
+        "categoryPath": [],
+        "noteId": "ID:note:Глава 1",
+        "relativePath": "Saga/Истории/Дом/Глава 1.md",
+        "title": "Глава 1",
+        "values": {
+          "ID:prop:text:Дом:anchors": {
+            "targetNoteIds": [
+              "ID:note:Встреча"
+            ],
+            "type": "relation"
+          },
+          "ID:prop:text:Дом:arcs": {
+            "targetNoteIds": [
+              "ID:note:Любовь",
+              "ID:note:Месть"
+            ],
+            "type": "relation"
+          },
+          "ID:prop:text:Дом:format": {
+            "optionId": "ID:option:format:Дом:manuscript",
+            "type": "select"
+          },
+          "ID:prop:text:Дом:level": {
+            "optionId": "ID:option:level:Дом:1",
+            "type": "select"
+          },
+          "ID:prop:text:Дом:order": {
+            "type": "text",
+            "value": "a0"
+          },
+          "ID:prop:text:Дом:parent": {
+            "targetNoteIds": [
+              "ID:note:Книга"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "categoryPath": [],
+        "noteId": "ID:note:Глава 2",
+        "relativePath": "Saga/Истории/Дом/Глава 2.md",
+        "title": "Глава 2",
+        "values": {
+          "ID:prop:text:Дом:anchors": {
+            "targetNoteIds": [
+              "ID:note:Финал",
+              "ID:note:Встреча"
+            ],
+            "type": "relation"
+          },
+          "ID:prop:text:Дом:arcs": {
+            "targetNoteIds": [
+              "ID:note:Любовь"
+            ],
+            "type": "relation"
+          },
+          "ID:prop:text:Дом:format": {
+            "optionId": "ID:option:format:Дом:manuscript",
+            "type": "select"
+          },
+          "ID:prop:text:Дом:level": {
+            "optionId": "ID:option:level:Дом:1",
+            "type": "select"
+          },
+          "ID:prop:text:Дом:order": {
+            "type": "text",
+            "value": "a1"
+          },
+          "ID:prop:text:Дом:parent": {
+            "targetNoteIds": [
+              "ID:note:Книга"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "categoryPath": [],
+        "noteId": "ID:note:Книга",
+        "relativePath": "Saga/Истории/Дом/Книга.md",
+        "title": "Книга",
+        "values": {
+          "ID:prop:text:Дом:format": {
+            "optionId": "ID:option:format:Дом:manuscript",
+            "type": "select"
+          },
+          "ID:prop:text:Дом:level": {
+            "optionId": "ID:option:level:Дом:0",
+            "type": "select"
+          },
+          "ID:prop:text:Дом:order": {
+            "type": "text",
+            "value": "a0"
+          }
+        }
+      }
+    ],
     "ID:db:text:Лес": [
       {
         "categoryPath": [],
@@ -224,6 +390,12 @@
         "relativePath": "Saga/Истории/Лес/Глава.md",
         "title": "Глава",
         "values": {
+          "ID:prop:text:Лес:anchors": {
+            "targetNoteIds": [
+              "ID:note:Побег"
+            ],
+            "type": "relation"
+          },
           "ID:prop:text:Лес:cast": {
             "targetNoteIds": [
               "ID:note:Зоя"
@@ -265,6 +437,8 @@
     "readOnly": false,
     "sections": [
       {
+        "arcsPropertyId": null,
+        "charactersPropertyId": null,
         "databaseId": "ID:db:stories",
         "databaseName": "Истории",
         "id": "stories",
@@ -277,6 +451,8 @@
         "universePropertyId": "ID:prop:universe:stories"
       },
       {
+        "arcsPropertyId": null,
+        "charactersPropertyId": null,
         "databaseId": "ID:db:characters",
         "databaseName": "Персонажи",
         "id": "characters",
@@ -289,6 +465,8 @@
         "universePropertyId": null
       },
       {
+        "arcsPropertyId": null,
+        "charactersPropertyId": null,
         "databaseId": "ID:db:locations",
         "databaseName": "Локации",
         "id": "locations",
@@ -301,6 +479,8 @@
         "universePropertyId": null
       },
       {
+        "arcsPropertyId": null,
+        "charactersPropertyId": null,
         "databaseId": "ID:db:universes",
         "databaseName": "Вселенные",
         "id": "universes",
@@ -313,6 +493,8 @@
         "universePropertyId": null
       },
       {
+        "arcsPropertyId": null,
+        "charactersPropertyId": null,
         "databaseId": "ID:db:notes",
         "databaseName": "Заметки",
         "id": "notes",
@@ -322,6 +504,34 @@
         "role": "notes",
         "state": "ok",
         "storiesPropertyId": "ID:prop:stories:notes",
+        "universePropertyId": null
+      },
+      {
+        "arcsPropertyId": "ID:prop:arcs:anchors",
+        "charactersPropertyId": null,
+        "databaseId": "ID:db:anchors",
+        "databaseName": "Якоря",
+        "id": "anchors",
+        "name": "Якоря",
+        "pathHint": "Якоря",
+        "resolvedPath": "Saga/Якоря",
+        "role": "anchors",
+        "state": "ok",
+        "storiesPropertyId": "ID:prop:stories:anchors",
+        "universePropertyId": "ID:prop:universe:anchors"
+      },
+      {
+        "arcsPropertyId": null,
+        "charactersPropertyId": "ID:prop:characters:arcs",
+        "databaseId": "ID:db:arcs",
+        "databaseName": "Арки",
+        "id": "arcs",
+        "name": "Арки",
+        "pathHint": "Арки",
+        "resolvedPath": "Saga/Арки",
+        "role": "arcs",
+        "state": "ok",
+        "storiesPropertyId": "ID:prop:stories:arcs",
         "universePropertyId": null
       }
     ],
@@ -398,8 +608,8 @@
             }
           ],
           "properties": {
-            "anchors": null,
-            "arcs": null,
+            "anchors": "ID:prop:text:Дом:anchors",
+            "arcs": "ID:prop:text:Дом:arcs",
             "format": "ID:prop:text:Дом:format",
             "level": "ID:prop:text:Дом:level",
             "order": "ID:prop:text:Дом:order",
@@ -483,8 +693,8 @@
             }
           ],
           "properties": {
-            "anchors": null,
-            "arcs": null,
+            "anchors": "ID:prop:text:Лес:anchors",
+            "arcs": "ID:prop:text:Лес:arcs",
             "format": "ID:prop:text:Лес:format",
             "level": "ID:prop:text:Лес:level",
             "order": "ID:prop:text:Лес:order",

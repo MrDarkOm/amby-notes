@@ -34,6 +34,9 @@ mod discovery_test;
 #[path = "links_test.rs"]
 mod links_test;
 #[cfg(test)]
+#[path = "plot_links_test.rs"]
+mod plot_links_test;
+#[cfg(test)]
 #[path = "preset_test.rs"]
 mod preset_test;
 #[cfg(test)]

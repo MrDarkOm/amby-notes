@@ -127,6 +127,7 @@ function world(): ProjectCatalog {
         name: "Якоря",
         databaseId: "db_anchors",
         databaseName: "Якоря",
+        storiesPropertyId: "sta",
       }),
     ],
     stories: [
@@ -163,6 +164,10 @@ const importance = { type: "select", optionId: "main" }
 const inStories = (...cards: string[]) => ({
   stp: { type: "relation", targetNoteIds: cards },
 })
+/** The "Stories" relation of an anchor. */
+function inAnchorStories(...cards: string[]) {
+  return { sta: { type: "relation", targetNoteIds: cards } }
+}
 const DATABASES: DatabaseSummary[] = [
   {
     databaseId: "db_uc",
@@ -207,7 +212,7 @@ const ROWS: Record<string, DatabaseRow[]> = {
   db_rc: [row("vera", "Вера")],
   // A note is in a story when its "Stories" relation names the story's card.
   db_notes: [row("n1", "Идея", { stn: { type: "relation", targetNoteIds: ["note_hills"] } })],
-  db_anchors: [row("a1", "Гибель наставника")],
+  db_anchors: [row("a1", "Гибель наставника", inAnchorStories("note_hills"))],
   db_text: [
     row("b1", "Книга первая", {
       lvl: { type: "select", optionId: "book" },
@@ -540,7 +545,7 @@ describe("CreativePanel", () => {
           await screen.findByRole("textbox", { name: "Название заметки — Enter, чтобы создать" }),
         ).toBeTruthy()
       } finally {
-        ROWS.db_anchors.push(row("a1", "Гибель наставника"))
+        ROWS.db_anchors.push(row("a1", "Гибель наставника", inAnchorStories("note_hills")))
         ROWS.db_notes.push(
           row("n1", "Идея", { stn: { type: "relation", targetNoteIds: ["note_hills"] } }),
         )
@@ -589,17 +594,19 @@ describe("CreativePanel", () => {
       const header = part(/Якоря/).parentElement as HTMLElement
       fireEvent.click(within(header).getByRole("button", { name: "Добавить" }))
       // Nothing is made until it has a name.
-      expect(createDatabaseRow).not.toHaveBeenCalled()
+      expect(createWorkshopEntity).not.toHaveBeenCalled()
       const field = await screen.findByRole("textbox", {
         name: "Название якоря — Enter, чтобы создать",
       })
       fireEvent.change(field, { target: { value: "Свадьба" } })
       fireEvent.keyDown(field, { key: "Enter" })
-      await waitFor(() => expect(createDatabaseRow).toHaveBeenCalledTimes(1))
-      expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({
-        databaseId: "db_anchors",
+      // An anchor made while a story is shown belongs to it from the first write.
+      await waitFor(() => expect(createWorkshopEntity).toHaveBeenCalledTimes(1))
+      expect(createWorkshopEntity.mock.calls[0][0]).toMatchObject({
+        workshopId: "verse",
+        sectionId: "anchors",
         title: "Свадьба",
-        template: { kind: "default" },
+        storyId: "hills",
       })
     })
 

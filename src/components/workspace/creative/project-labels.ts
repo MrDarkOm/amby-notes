@@ -19,13 +19,16 @@ export function projectLabels(t: TFunction): Record<string, string> {
 }
 
 /**
- * Names of the two link properties: a world page's "Stories" and a story's "Universe". They become
+ * Names of the link properties: a world page's "Stories", a story's (and an anchor's) "Universe",
+ * and the "Anchors" and "Arcs" of a story's text pages (also the arcs of an anchor). They become
  * property names (and keys in the notes' frontmatter), so they follow the language of the moment.
  */
 export function linkLabels(t: TFunction): Record<string, string> {
   return {
     "property:stories": t("creative.preset.properties.stories"),
     "property:universe": t("creative.preset.properties.universe"),
+    "property:anchors": t("creative.preset.properties.anchors"),
+    "property:arcs": t("creative.preset.properties.arcs"),
   }
 }
 

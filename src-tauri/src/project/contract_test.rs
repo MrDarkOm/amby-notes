@@ -1,8 +1,8 @@
 //! The contract between this backend and the interface, kept honest by a real workshop.
 //!
 //! The test builds a workshop through the real write path (stories, a universe, pages born
-//! linked, a page named by a story's text), reads the catalog and every row back through the
-//! real index and query, and compares the result with
+//! linked, a page named by a story's text, anchors and arcs bound to text pages), reads the catalog
+//! and every row back through the real index and query, and compares the result with
 //! `src/components/workspace/creative/workshop/real-workshop.fixture.json`. A Vitest test feeds
 //! that same file to the interface's own model, so the keys and shapes the interface reads
 //! (`storiesPropertyId`, `universePropertyId`, `cardNoteId`, a relation's `targetNoteIds`) are
@@ -20,10 +20,10 @@ use serde_json::{json, Map, Value};
 
 use super::create_test::{op, story, workshop, Fixture};
 use super::index::{load_catalog, rebuild_project_index};
-use super::links::create_entity;
+use super::links::{create_entity, ensure_plot_links};
 use super::model::{
     CreateTextPageRequest, CreateWorkshopEntityRequest, CreateWorkshopSectionRequest, CreatedStory,
-    CreatedWorkshop,
+    CreatedWorkshop, EnsurePlotLinksRequest, PlotLinksTarget,
 };
 use super::notebooks::list_notebooks_of;
 use super::text::create_page;
@@ -193,6 +193,38 @@ fn build() -> Built {
             labels: BTreeMap::new(),
         })
         .unwrap();
+    // The anchors come after the universes (they start with a "Universe" relation) and the arcs
+    // after the anchors (their creation gives the anchors an "Arcs" relation); the stories were
+    // made before both, so two of them get their text relations by `ensure_plot_links`.
+    for (role, name) in [("anchors", "Якоря"), ("arcs", "Арки")] {
+        fixture
+            .add_section(&CreateWorkshopSectionRequest {
+                expected_generation: 1,
+                operation_id: op(role),
+                workshop_id: created.workshop_id.clone(),
+                expected_workshop_revision: raw_revision(&fixture.workshop_bytes("Saga")),
+                role: role.to_owned(),
+                name: name.to_owned(),
+                labels: BTreeMap::new(),
+            })
+            .unwrap();
+    }
+    for title in ["Дом", "Лес"] {
+        let folder = format!("Saga/Истории/{title}");
+        ensure_plot_links(
+            &fixture.env(),
+            &EnsurePlotLinksRequest {
+                expected_generation: 1,
+                operation_id: op("plot"),
+                workshop_id: created.workshop_id.clone(),
+                target: PlotLinksTarget::Story,
+                story_id: Some(houses[title].story_id.clone()),
+                expected_revision: raw_revision(&fixture.story_bytes(&folder)),
+                labels: BTreeMap::new(),
+            },
+        )
+        .unwrap();
+    }
     Built {
         fixture,
         created,
@@ -222,6 +254,8 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
     let locations_db = section_database(&built, "locations");
     let stories_db = section_database(&built, "stories");
     let notes_db = section_database(&built, "notes");
+    let anchors_db = section_database(&built, "anchors");
+    let arcs_db = section_database(&built, "arcs");
 
     // A universe, and two of the stories in it (the relation lives in the story's card).
     let universe = create_database_row(
@@ -242,17 +276,12 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
 
     // Pages: linked at birth, linked to two stories, linked to none, named only by a text.
     let entity = |section: &str, title: &str, story: Option<&str>| {
-        let section_id = if section == "characters" {
-            "characters"
-        } else {
-            "locations"
-        };
         create_entity(
             &fixture.env(),
             &CreateWorkshopEntityRequest {
                 expected_generation: 1,
                 workshop_id: built.created.workshop_id.clone(),
-                section_id: section_id.to_owned(),
+                section_id: section.to_owned(),
                 title: title.to_owned(),
                 story_id: story.map(|name| built.houses[name].story_id.clone()),
                 notebook: None,
@@ -267,6 +296,13 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
     let zoya = entity("characters", "Зоя", None);
     let eva = entity("characters", "Ева", None);
     let lake = entity("locations", "Озеро", Some("Дом"));
+    // Anchors and arcs: two in a story by their own relation, one named only by a text, one free.
+    let finale = entity("anchors", "Финал", Some("Дом"));
+    let meeting = entity("anchors", "Встреча", Some("Дом"));
+    let escape = entity("anchors", "Побег", None);
+    let loose_anchor = entity("anchors", "Свободный", None);
+    let love = entity("arcs", "Любовь", Some("Дом"));
+    let revenge = entity("arcs", "Месть", None);
 
     // Notes in notebooks: nested ones, an empty one, one in the root, one in no story.
     let notes_folder = fixture.vault.join("Saga/Заметки");
@@ -342,6 +378,52 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
     )
     .unwrap();
     patch_note(&page.note_path, "Кто", &[&zoya.note_id]);
+    patch_note(&page.note_path, "Якоря", &[&escape.note_id]);
+
+    // The text of "Дом": a book with two chapters; the chapters are bound to anchors and arcs.
+    let house = &built.houses["Дом"];
+    let house_file: Value =
+        serde_json::from_slice(&fixture.story_bytes("Saga/Истории/Дом")).unwrap();
+    let house_levels: Vec<String> = house_file["text"]["levels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|level| level["id"].as_str().unwrap().to_owned())
+        .collect();
+    let house_page = |title: &str, level: usize, parent: Option<&str>, order: &str| {
+        create_page(
+            &fixture.env(),
+            &connection,
+            &CreateTextPageRequest {
+                expected_generation: 1,
+                story_id: house.story_id.clone(),
+                title: title.to_owned(),
+                parent_note_id: parent.map(str::to_owned),
+                level_id: house_levels[level].clone(),
+                format_id: None,
+                order_key: order.to_owned(),
+            },
+        )
+        .unwrap()
+    };
+    let book = house_page("Книга", 0, None, "a0");
+    // A child names its parent through the projection, which has to know the parent first.
+    crate::index::sync::sync_vault(&connection, &fixture.vault).unwrap();
+    rebuild_database_projection(&connection, &fixture.vault).unwrap();
+    let chapter_one = house_page("Глава 1", 1, Some(&book.note_id), "a0");
+    let chapter_two = house_page("Глава 2", 1, Some(&book.note_id), "a1");
+    patch_note(&chapter_one.note_path, "Якоря", &[&meeting.note_id]);
+    patch_note(
+        &chapter_one.note_path,
+        "Арки",
+        &[&love.note_id, &revenge.note_id],
+    );
+    patch_note(
+        &chapter_two.note_path,
+        "Якоря",
+        &[&finale.note_id, &meeting.note_id],
+    );
+    patch_note(&chapter_two.note_path, "Арки", &[&love.note_id]);
 
     crate::index::sync::sync_vault(&connection, &fixture.vault).unwrap();
     rebuild_database_projection(&connection, &fixture.vault).unwrap();
@@ -367,6 +449,8 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
         for (field, label) in [
             ("storiesPropertyId", "stories"),
             ("universePropertyId", "universe"),
+            ("arcsPropertyId", "arcs"),
+            ("charactersPropertyId", "characters"),
         ] {
             if let Some(id) = section[field].as_str() {
                 names.give(id, format!("prop:{label}:{role}"));
@@ -375,6 +459,21 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
     }
     names.give(&universe.note_id, "note:Мир");
     names.give(&notes_db, "db:notes");
+    names.give(&anchors_db, "db:anchors");
+    names.give(&arcs_db, "db:arcs");
+    for (title, id) in [
+        ("Финал", &finale.note_id),
+        ("Встреча", &meeting.note_id),
+        ("Побег", &escape.note_id),
+        ("Свободный", &loose_anchor.note_id),
+        ("Любовь", &love.note_id),
+        ("Месть", &revenge.note_id),
+        ("Книга", &book.note_id),
+        ("Глава 1", &chapter_one.note_id),
+        ("Глава 2", &chapter_two.note_id),
+    ] {
+        names.give(id, format!("note:{title}"));
+    }
     for (title, id) in [
         ("Заготовка", &draft.note_id),
         ("Поворот", &twist.note_id),
@@ -440,6 +539,8 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
         locations_db,
         stories_db,
         notes_db.clone(),
+        anchors_db.clone(),
+        arcs_db.clone(),
     ];
     database_ids.extend(
         built
@@ -513,5 +614,47 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
     assert_eq!(
         anna_values["values"]["ID:prop:stories:characters"]["targetNoteIds"],
         json!(["ID:card:Дом"])
+    );
+
+    // The text pages carry anchors and arcs the way the interface reads them, and the sections
+    // name the properties by ID.
+    let chapter = produced["rows"]["ID:db:text:Дом"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["title"] == "Глава 2")
+        .unwrap();
+    assert_eq!(
+        chapter["values"]["ID:prop:text:Дом:anchors"]["targetNoteIds"],
+        json!(["ID:note:Финал", "ID:note:Встреча"])
+    );
+    assert_eq!(
+        chapter["values"]["ID:prop:text:Дом:arcs"]["targetNoteIds"],
+        json!(["ID:note:Любовь"])
+    );
+    let sections = produced["workshop"]["sections"].as_array().unwrap();
+    let section = |role: &str| sections.iter().find(|s| s["role"] == role).unwrap();
+    assert_eq!(
+        section("anchors")["arcsPropertyId"],
+        json!("ID:prop:arcs:anchors")
+    );
+    assert_eq!(
+        section("anchors")["universePropertyId"],
+        json!("ID:prop:universe:anchors")
+    );
+    assert_eq!(
+        section("arcs")["charactersPropertyId"],
+        json!("ID:prop:characters:arcs")
+    );
+    let stories = produced["workshop"]["stories"].as_array().unwrap();
+    let properties =
+        |name: &str| &stories.iter().find(|s| s["name"] == name).unwrap()["text"]["properties"];
+    assert_eq!(
+        properties("Дом")["anchors"],
+        json!("ID:prop:text:Дом:anchors")
+    );
+    assert!(
+        properties("Одна")["anchors"].is_null(),
+        "a text made before the anchors"
     );
 }

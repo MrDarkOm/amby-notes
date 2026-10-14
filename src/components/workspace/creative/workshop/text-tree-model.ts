@@ -136,6 +136,22 @@ export function ancestorIds(roots: TextNode[], noteId: string): string[] | null 
   return walk(roots, [])
 }
 
+/**
+ * The pages in the order the tree shows them, from the first to the last: a page, then everything
+ * under it, then its next sibling. This is the order of the text, which the anchors follow.
+ */
+export function textOrder(roots: TextNode[]): string[] {
+  const order: string[] = []
+  const walk = (nodes: TextNode[]) => {
+    for (const node of nodes) {
+      order.push(node.noteId)
+      walk(node.children)
+    }
+  }
+  walk(roots)
+  return order
+}
+
 /** How many pages the tree holds, at any depth. */
 export function countNodes(nodes: TextNode[]): number {
   return nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0)

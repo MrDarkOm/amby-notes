@@ -6,7 +6,11 @@ import { MotionSpinner } from "@/lib/motion"
 import {
   addStoryLinks,
   createWorkshopEntity,
+  ensurePlotLinks,
+  type EnsuredPlotLinks,
+  type PlotLinksTarget,
   type ProjectDiagnostic,
+  type StorySummary,
   type WorkshopSummary,
 } from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
@@ -195,11 +199,11 @@ export function CreativePanel({
     storyId: string | null,
     notebook?: string[],
   ) => {
-    // The notes base is not a world category, but its pages are made the same way; the notebook
-    // is a folder of the base.
+    // The notes and anchors bases are not world categories, but their pages are made the same way;
+    // a note's notebook is a folder of the base.
     const sectionId =
-      categoryKey === "notes"
-        ? storySection(workshop, "notes")?.id
+      categoryKey === "notes" || categoryKey === "anchors"
+        ? storySection(workshop, categoryKey)?.id
         : categories.find((t) => t.key === categoryKey)?.sectionId
     if (!sectionId || !workshop || vaultGeneration === null) return
     try {
@@ -240,6 +244,43 @@ export function CreativePanel({
     })
     await onCreativeChanged?.()
     await useProjectStore.getState().refresh?.()
+  }
+
+  // One operation ID per request, so a retry of the same request is answered from the record.
+  const plotOperations = React.useRef(new Map<string, string>())
+  /**
+   * Makes the missing anchors and arcs properties (of a story's text, or of the anchors) and reads
+   * the catalog again so the lists see them.
+   */
+  const ensurePlot = async (request: {
+    target: PlotLinksTarget
+    workshop: WorkshopSummary
+    story?: StorySummary
+  }): Promise<EnsuredPlotLinks> => {
+    if (vaultGeneration === null) throw new Error(t("creative.errors.vaultChanged"))
+    const { target, workshop: owner, story } = request
+    const expectedRevision = target === "story" ? story?.fileRevision : owner.fileRevision
+    if (!expectedRevision) throw new Error(t("creative.errors.projectNotFound"))
+    const key = `${target}:${owner.workshopId}:${story?.storyId ?? ""}:${expectedRevision}`
+    let operationId = plotOperations.current.get(key)
+    if (!operationId) {
+      operationId = `plot-${crypto.randomUUID()}`
+      plotOperations.current.set(key, operationId)
+    }
+    const ensured = await ensurePlotLinks({
+      expectedGeneration: vaultGeneration,
+      operationId,
+      workshopId: owner.workshopId,
+      target,
+      storyId: story?.storyId ?? null,
+      expectedRevision,
+      labels: linkLabels(t),
+    })
+    if (ensured.changed) {
+      await onCreativeChanged?.()
+      await useProjectStore.getState().refresh?.()
+    }
+    return ensured
   }
 
   const pickCreate = (choice: CreateChoice) => {
@@ -337,6 +378,7 @@ export function CreativePanel({
           onAddSection={(ws, options) => setSectionRequest({ workshop: ws, initial: options })}
           onCreateEntity={createEntity}
           onLinkSection={linkSection}
+          onEnsurePlot={ensurePlot}
           itemActions={{
             onOpenInNewTab,
             onRename,

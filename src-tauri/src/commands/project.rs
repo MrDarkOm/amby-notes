@@ -12,10 +12,11 @@ use crate::project::model::{
     AddStoryLinksRequest, AddTextStatusRequest, AddedStoryLinks, AddedTextStatus,
     CreateStoryRequest, CreateTextPageRequest, CreateWorkshopEntityRequest, CreateWorkshopRequest,
     CreateWorkshopSectionRequest, CreatedStory, CreatedTextPage, CreatedWorkshop,
-    CreatedWorkshopEntity, CreatedWorkshopSectionResult, MoveTextPageRequest, MovedTextPage,
-    NotebookCatalog, ProjectCatalog, ProjectError, RemoveWorkshopSectionRequest,
-    RemovedWorkshopSection, ReorderWorkshopSectionsRequest, ReorderedWorkshopSections,
-    UpdateTextLevelsRequest, UpdateWorkshopRequest, UpdatedTextLevels, UpdatedWorkshop,
+    CreatedWorkshopEntity, CreatedWorkshopSectionResult, EnsurePlotLinksRequest, EnsuredPlotLinks,
+    MoveTextPageRequest, MovedTextPage, NotebookCatalog, ProjectCatalog, ProjectError,
+    RemoveWorkshopSectionRequest, RemovedWorkshopSection, ReorderWorkshopSectionsRequest,
+    ReorderedWorkshopSections, UpdateTextLevelsRequest, UpdateWorkshopRequest, UpdatedTextLevels,
+    UpdatedWorkshop,
 };
 use crate::project::notebooks;
 use crate::project::references::{self, NoteReference};
@@ -522,6 +523,30 @@ pub fn add_story_links(
         refresh_after_write(active, &runtime, generation, &mut added.warnings);
     }
     Ok(added)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn ensure_plot_links(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: EnsurePlotLinksRequest,
+) -> Result<EnsuredPlotLinks, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher,
+    };
+    let mut ensured = links::ensure_plot_links(&env, &request)?;
+    if !ensured.replayed && ensured.changed {
+        refresh_after_write(active, &runtime, generation, &mut ensured.warnings);
+    }
+    Ok(ensured)
 }
 
 /// A page of a world section, linked to a story in the same write when one is chosen.

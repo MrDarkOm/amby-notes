@@ -31,6 +31,7 @@ pub const OP_REORDER_SECTIONS: &str = "reorderSections";
 pub const OP_UPDATE_TEXT_LEVELS: &str = "updateTextLevels";
 pub const OP_ADD_TEXT_STATUS: &str = "addTextStatus";
 pub const OP_ADD_STORY_LINKS: &str = "addStoryLinks";
+pub const OP_ENSURE_PLOT_LINKS: &str = "ensurePlotLinks";
 
 const LABEL: &str = "Creative recovery";
 const MAX_JOURNAL_BYTES: u64 = 256 * 1024;
@@ -162,6 +163,7 @@ pub fn validate_journal(journal: &Journal) -> Result<(), ProjectError> {
             | OP_UPDATE_TEXT_LEVELS
             | OP_ADD_TEXT_STATUS
             | OP_ADD_STORY_LINKS
+            | OP_ENSURE_PLOT_LINKS
             | "createProject"
             | "updateProject"
     ) || !matches!(

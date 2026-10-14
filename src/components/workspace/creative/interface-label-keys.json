@@ -24,6 +24,8 @@
   "preset:importance",
   "preset:kind",
   "preset:portrait",
+  "property:anchors",
+  "property:arcs",
   "property:format",
   "property:level",
   "property:order",

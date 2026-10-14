@@ -36,8 +36,34 @@ pub struct WorkshopSectionDoc {
     pub path: String,
     /// The ID of the relation property that links this section's pages to stories.
     pub stories_property_id: Option<String>,
-    /// The ID of the relation property of the stories section that links a story to a universe.
+    /// The ID of the relation property that links a story (stories section) or an anchor
+    /// (anchors section) to a universe.
     pub universe_property_id: Option<String>,
+    /// The ID of the relation property of the anchors section that links an anchor to arcs.
+    pub arcs_property_id: Option<String>,
+    /// The ID of the relation property of the arcs section that links an arc to characters.
+    pub characters_property_id: Option<String>,
+}
+
+/// The IDs of the link properties a section entry can name. A `None` is left as it is.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SectionLinks {
+    pub stories: Option<String>,
+    pub universe: Option<String>,
+    pub arcs: Option<String>,
+    pub characters: Option<String>,
+}
+
+impl SectionLinks {
+    /// The keys of a section entry in the structure file, with the ID each one is given.
+    fn entries(&self) -> [(&'static str, Option<&str>); 4] {
+        [
+            ("storiesPropertyId", self.stories.as_deref()),
+            ("universePropertyId", self.universe.as_deref()),
+            ("arcsPropertyId", self.arcs.as_deref()),
+            ("charactersPropertyId", self.characters.as_deref()),
+        ]
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -182,6 +208,10 @@ pub fn parse_workshop_file(bytes: &[u8]) -> Result<WorkshopDoc, FormatProblem> {
                     .filter(|value| !value.is_empty()),
                 universe_property_id: text_field(entry, "universePropertyId")
                     .filter(|value| !value.is_empty()),
+                arcs_property_id: text_field(entry, "arcsPropertyId")
+                    .filter(|value| !value.is_empty()),
+                characters_property_id: text_field(entry, "charactersPropertyId")
+                    .filter(|value| !value.is_empty()),
             });
         }
     }
@@ -264,7 +294,7 @@ pub fn document_bytes(value: &Value, with_bom: bool) -> Result<Vec<u8>, String> 
     Ok(bytes)
 }
 
-/// A section entry in the shape the contract defines. The two property IDs are written only
+/// A section entry in the shape the contract defines. The link property IDs are written only
 /// when the section has the property, so a section without them reads as it always did.
 pub fn workshop_section_entry(
     id: &str,
@@ -272,8 +302,7 @@ pub fn workshop_section_entry(
     name: &str,
     database_id: &str,
     path: &str,
-    stories_property_id: Option<&str>,
-    universe_property_id: Option<&str>,
+    links: &SectionLinks,
 ) -> Value {
     let mut entry = json!({
         "id": id,
@@ -282,22 +311,20 @@ pub fn workshop_section_entry(
         "databaseId": database_id,
         "path": path,
     });
-    if let Some(id) = stories_property_id {
-        entry["storiesPropertyId"] = json!(id);
-    }
-    if let Some(id) = universe_property_id {
-        entry["universePropertyId"] = json!(id);
+    for (key, value) in links.entries() {
+        if let Some(value) = value {
+            entry[key] = json!(value);
+        }
     }
     entry
 }
 
-/// Sets `storiesPropertyId` (and `universePropertyId`) on the section entry with `section_id`,
-/// keeping every other entry and field. A property ID given as `None` is left as it is.
+/// Sets the link property IDs on the section entry with `section_id`, keeping every other entry
+/// and field. A property ID given as `None` is left as it is.
 pub fn with_section_links(
     raw: &Value,
     section_id: &str,
-    stories_property_id: Option<&str>,
-    universe_property_id: Option<&str>,
+    links: &SectionLinks,
 ) -> Result<Value, String> {
     let mut document = raw.clone();
     let object = document
@@ -311,11 +338,10 @@ pub fn with_section_links(
         .find(|entry| entry.get("id").and_then(Value::as_str) == Some(section_id))
         .and_then(Value::as_object_mut)
         .ok_or_else(|| format!("section {section_id} is not in the structure file"))?;
-    if let Some(id) = stories_property_id {
-        entry.insert("storiesPropertyId".to_owned(), json!(id));
-    }
-    if let Some(id) = universe_property_id {
-        entry.insert("universePropertyId".to_owned(), json!(id));
+    for (key, value) in links.entries() {
+        if let Some(value) = value {
+            entry.insert(key.to_owned(), json!(value));
+        }
     }
     Ok(document)
 }
@@ -472,5 +498,34 @@ pub fn with_text_status_property(raw: &Value, property_id: &str) -> Result<Value
         .as_object_mut()
         .ok_or_else(|| "text.properties is not an object".to_owned())?;
     properties.insert("status".to_owned(), json!(property_id));
+    Ok(document)
+}
+
+/// Sets `text.properties.anchors` and `text.properties.arcs` (those given) in `raw`, keeping all
+/// other fields of `text` and `raw`.
+pub fn with_text_plot_properties(
+    raw: &Value,
+    anchors_property_id: Option<&str>,
+    arcs_property_id: Option<&str>,
+) -> Result<Value, String> {
+    let mut document = raw.clone();
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| "The document is not an object".to_owned())?;
+    let text = object
+        .get_mut("text")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "The text block is not an object".to_owned())?;
+    let properties = text
+        .entry("properties")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| "text.properties is not an object".to_owned())?;
+    if let Some(id) = anchors_property_id {
+        properties.insert("anchors".to_owned(), json!(id));
+    }
+    if let Some(id) = arcs_property_id {
+        properties.insert("arcs".to_owned(), json!(id));
+    }
     Ok(document)
 }

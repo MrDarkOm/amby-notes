@@ -112,6 +112,8 @@ import { DatabaseOperationError } from "./database-types"
 import { ProjectOperationError } from "./project-types"
 import type {
   AddStoryLinksRequest,
+  EnsurePlotLinksRequest,
+  EnsuredPlotLinks,
   AddTextStatusRequest,
   AddedStoryLinks,
   AddedTextStatus,
@@ -577,6 +579,13 @@ export class WebAdapterCore implements StoragePort {
 
   async addStoryLinks(_request: AddStoryLinksRequest): Promise<AddedStoryLinks> {
     throw new ProjectOperationError("failed", "Linking a section requires the desktop runtime")
+  }
+
+  async ensurePlotLinks(_request: EnsurePlotLinksRequest): Promise<EnsuredPlotLinks> {
+    throw new ProjectOperationError(
+      "failed",
+      "Linking anchors and arcs requires the desktop runtime",
+    )
   }
 
   async createWorkshopEntity(

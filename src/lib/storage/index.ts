@@ -41,6 +41,7 @@ import type {
 } from "./database-types"
 import type {
   AddStoryLinksRequest,
+  EnsurePlotLinksRequest,
   AddTextStatusRequest,
   CreateStoryRequest,
   CreateWorkshopEntityRequest,
@@ -453,6 +454,14 @@ export const addStoryLinks = (request: AddStoryLinksRequest) => {
     operationId: request.operationId,
   })
   return getAdapter().addStoryLinks(request)
+}
+export const ensurePlotLinks = (request: EnsurePlotLinksRequest) => {
+  logger.info("storage.ensure_plot_links", {
+    target: request.target,
+    storyId: request.storyId ?? null,
+    operationId: request.operationId,
+  })
+  return getAdapter().ensurePlotLinks(request)
 }
 export const createWorkshopEntity = (request: CreateWorkshopEntityRequest) => {
   logger.info("storage.create_workshop_entity", {

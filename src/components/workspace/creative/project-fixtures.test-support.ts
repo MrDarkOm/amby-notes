@@ -17,6 +17,8 @@ export function workshopSection(
     pathHint: id,
     storiesPropertyId: null,
     universePropertyId: null,
+    arcsPropertyId: null,
+    charactersPropertyId: null,
     state: "ok",
     resolvedPath: id,
     databaseName: id,
