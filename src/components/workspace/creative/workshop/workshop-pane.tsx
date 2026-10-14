@@ -7,6 +7,7 @@ import {
   type ProjectCatalog,
   type WorkshopSummary,
 } from "@/lib/storage"
+import { projectErrorText } from "../project-error"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -37,15 +38,20 @@ import { WorldSection } from "./world-section"
 import { ItemActionsContext, type ItemActions } from "./item-actions"
 import {
   WORKS_SECTIONS,
+  buildMembership,
   buildSearchGroups,
   entityTabs,
   groupPropertyOf,
+  resolvePanelFilter,
+  scopeEntities,
   selectedStoryOf,
+  storyLabels,
   storySection,
   workshopScope,
   type EntityItem,
   type GroupContext,
   type WorkshopDraft,
+  type WorkshopTab,
   type WorksSection,
 } from "./workshop-model"
 
@@ -61,8 +67,16 @@ interface WorkshopPaneProps {
   onOpenProject: (projectId: string) => void
   /** `options` prefill the dialog: the anchors section a workshop does not have yet. */
   onAddSection: (workshop: WorkshopSummary, options?: { choice: "anchors"; name: string }) => void
-  /** Creates a page in a world category under the name the author typed; rejects on failure. */
-  onCreateEntity: (categoryKey: string, title: string) => Promise<void>
+  /**
+   * Creates a page in a world category under the name the author typed, linked to `storyId` when
+   * it is given; rejects on failure.
+   */
+  onCreateEntity: (categoryKey: string, title: string, storyId: string | null) => Promise<void>
+  /**
+   * Links a section of an older workshop (a world section to stories, or the stories section to
+   * universes) and reads the catalog again; rejects on failure.
+   */
+  onLinkSection: (workshop: WorkshopSummary, sectionId: string) => Promise<void>
   /** What a page's own menu can do besides opening it. */
   itemActions: Pick<ItemActions, "onOpenInNewTab" | "onRename" | "onDelete" | "onDeleteMany">
   /** The menu of the empty space: what can be created from here, the "Create" button's list. */
@@ -84,6 +98,7 @@ export function WorkshopPane({
   onOpenProject,
   onAddSection,
   onCreateEntity,
+  onLinkSection,
   itemActions,
   createOptions,
   onCreate,
@@ -107,13 +122,17 @@ export function WorkshopPane({
 
   const scope = React.useMemo(() => workshopScope(catalog, scopeId), [catalog, scopeId])
   const categories = React.useMemo(() => entityTabs(scope), [scope])
-  const selectedStory = rawFilter === "all" ? null : selectedStoryOf(scope.stories, rawFilter)
   const searching = search.trim() !== ""
+  // The story the stored choice names, before it is known whether a universe overrides it.
+  const chosenStory = rawFilter === "all" ? null : selectedStoryOf(scope.stories, rawFilter)
+  // Every story's text is read when the whole workshop or a universe is shown: a page is in a
+  // story when that story's text names it. A single story reads only its own.
+  const readsEveryText = universeFilter !== null || rawFilter === "all" || searching
 
   const databaseIds = React.useMemo(() => {
     const ids: string[] = []
-    if (selectedStory?.databaseId) ids.push(selectedStory.databaseId)
-    if (searching) {
+    if (chosenStory?.databaseId) ids.push(chosenStory.databaseId)
+    if (readsEveryText) {
       for (const story of scope.stories) {
         if (story.databaseId) ids.push(story.databaseId)
       }
@@ -124,16 +143,20 @@ export function WorkshopPane({
       const anchorsSec = storySection(scope.workshop, "anchors")
       if (anchorsSec) ids.push(anchorsSec.databaseId)
       const univSec = scope.workshop.sections.find((s) => s.role === "universes")
-      if (univSec) ids.push(univSec.databaseId)
+      if (univSec) {
+        ids.push(univSec.databaseId)
+        // The stories' own cards say which universe each belongs to.
+        const storiesSec = scope.workshop.sections.find((s) => s.role === "stories")
+        if (storiesSec && storiesSec.state !== "missing") ids.push(storiesSec.databaseId)
+      }
     }
     for (const category of categories) {
       ids.push(category.databaseId)
     }
     return ids
-  }, [categories, scope.stories, scope.workshop, searching, selectedStory])
+  }, [categories, chosenStory, readsEveryText, scope.stories, scope.workshop])
 
   const data = useDatabaseRows(databaseIds, dataNonce)
-  const stats = useTextStats(selectedStory?.databaseId, dataNonce)
 
   const anchorsDatabaseId = scope.workshop
     ? storySection(scope.workshop, "anchors")?.databaseId
@@ -170,6 +193,55 @@ export function WorkshopPane({
       title: row.title,
     }))
   }, [data.rows, universesSection])
+
+  const filter = React.useMemo(
+    () =>
+      resolvePanelFilter(
+        scope.stories,
+        universes.map((universe) => universe.noteId),
+        rawFilter,
+        universeFilter,
+      ),
+    [rawFilter, scope.stories, universeFilter, universes],
+  )
+  const selectedStory =
+    filter.kind === "story"
+      ? (scope.stories.find((story) => story.storyId === filter.storyId) ?? null)
+      : null
+
+  const membership = React.useMemo(
+    () =>
+      buildMembership({
+        stories: scope.stories,
+        sections: scope.workshop?.sections ?? [],
+        rows: data.rows,
+      }),
+    [data.rows, scope.stories, scope.workshop?.sections],
+  )
+  const scoped = React.useMemo(() => {
+    const shown: Record<string, EntityItem[]> = {}
+    const withoutStory: Record<string, EntityItem[]> = {}
+    for (const category of categories) {
+      const result = scopeEntities(itemsByCategory[category.key] ?? [], filter, membership)
+      shown[category.key] = result.shown
+      withoutStory[category.key] = result.withoutStory
+    }
+    return { shown, withoutStory }
+  }, [categories, filter, itemsByCategory, membership])
+  const storyNames = React.useMemo(
+    () => new Map(scope.stories.map((story) => [story.storyId, story.name])),
+    [scope.stories],
+  )
+  const labelsOf = React.useMemo(
+    () =>
+      filter.kind === "story"
+        ? null
+        : (noteId: string) =>
+            storyLabels(membership.storiesOf(noteId), (storyId) => storyNames.get(storyId)),
+    [filter.kind, membership, storyNames],
+  )
+
+  const stats = useTextStats(selectedStory?.databaseId, dataNonce)
 
   const groupContext = React.useMemo<GroupContext>(
     () => ({
@@ -227,6 +299,32 @@ export function WorkshopPane({
 
   const [draft, setDraft] = React.useState<WorkshopDraft | null>(null)
 
+  // Linking a section made before the links existed: one operation, shown on the section's row.
+  const [linking, setLinking] = React.useState<string | null>(null)
+  const [linkError, setLinkError] = React.useState<string | null>(null)
+  const linkSection = async (sectionId: string) => {
+    if (!scope.workshop || linking !== null) return
+    setLinking(sectionId)
+    setLinkError(null)
+    try {
+      await onLinkSection(scope.workshop, sectionId)
+      bumpData()
+    } catch (caught) {
+      setLinkError(t("creative.workshop.link.failed", { message: projectErrorText(t, caught) }))
+    } finally {
+      setLinking(null)
+    }
+  }
+  const storiesSection = scope.workshop?.sections.find((section) => section.role === "stories")
+  const canLinkUniverses = Boolean(
+    storiesSection &&
+    storiesSection.state !== "missing" &&
+    !storiesSection.universePropertyId &&
+    universesSection &&
+    universesSection.state !== "missing" &&
+    !scope.workshop?.readOnly,
+  )
+
   const rootsOf = React.useCallback(
     (storyId: string): TextNode[] => {
       const story = scope.stories.find((candidate) => candidate.storyId === storyId)
@@ -262,6 +360,7 @@ export function WorkshopPane({
 
   const startPage = (storyId: string, parentId: string | null) => {
     setSearch("")
+    setUniverseFilter(null)
     setStoryFilter(storyId)
     showPart("text")
     if (parentId) unfold(`page:${parentId}`)
@@ -298,7 +397,10 @@ export function WorkshopPane({
   const commitDraft = async (title: string) => {
     if (!draft || vaultGeneration === null) return
     if (draft.kind === "entity") {
-      await onCreateEntity(draft.categoryKey, title)
+      // Made while a story is shown, a page is linked to it from the first write.
+      const tab = categories.find((category) => category.key === draft.categoryKey)
+      const storyId = filter.kind === "story" && tab?.storiesPropertyId ? filter.storyId : null
+      await onCreateEntity(draft.categoryKey, title, storyId)
       setDraft(null)
       return
     }
@@ -382,11 +484,15 @@ export function WorkshopPane({
                   stories={scope.stories}
                   selectedStoryId={selectedStory?.storyId ?? null}
                   universes={universes}
-                  selectedUniverseId={universeFilter}
+                  selectedUniverseId={filter.kind === "universe" ? filter.universeId : null}
                   onSelectStory={(storyId) => {
+                    // `null` is the whole workshop; it is stored as "all" because an empty choice
+                    // means "the first story".
                     setDraft(null)
-                    setStoryFilter(storyId)
-                    remember({ story: storyId })
+                    setUniverseFilter(null)
+                    const next = storyId ?? "all"
+                    setStoryFilter(next)
+                    remember({ story: next })
                   }}
                   onSelectUniverse={(universeId) => {
                     setDraft(null)
@@ -429,7 +535,17 @@ export function WorkshopPane({
                 >
                   <WorldSection
                     categories={categories}
-                    itemsByCategory={itemsByCategory}
+                    itemsByCategory={scoped.shown}
+                    withoutStoryByCategory={scoped.withoutStory}
+                    storyLabelsOf={labelsOf}
+                    onLinkSection={(tab: WorkshopTab) => void linkSection(tab.sectionId)}
+                    linkingSectionId={linking}
+                    onLinkUniverses={
+                      canLinkUniverses && storiesSection
+                        ? () => void linkSection(storiesSection.id)
+                        : null
+                    }
+                    linkError={linkError}
                     groupContext={groupContext}
                     collapsed={collapsed}
                     onToggle={toggleCollapsed}

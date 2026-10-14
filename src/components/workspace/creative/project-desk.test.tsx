@@ -269,4 +269,57 @@ describe("ProjectDesk", () => {
     await screen.findByRole("region", { name: "Текст" })
     await waitFor(() => expect(screen.getByText("Готово: 2 из 3")).toBeTruthy())
   })
+
+  describe("the world beside the text", () => {
+    const withWorld = workshopSummary("w_hills", {
+      name: "MoleHills Workshop",
+      stories: [story],
+      sections: [
+        section("text", { role: "text", databaseId: "db_text", databaseName: "Текст" }),
+        section("chars", {
+          role: "characters",
+          name: "Персонажи",
+          databaseId: "db_chars",
+          databaseName: "Персонажи",
+          storiesPropertyId: "stp",
+        }),
+      ],
+    })
+    const rel = (...ids: string[]) => ({ type: "relation", targetNoteIds: ids })
+    const CHARS = [
+      row("anna", "Анна", { stp: rel("note_hills") }),
+      row("boris", "Борис", { stp: rel("note_other") }),
+      // Named by a page of this story's text.
+      row("zoya", "Зоя"),
+      row("eva", "Ева"),
+    ]
+    const TEXT_WITH_CAST = ROWS.map((entry) =>
+      entry.noteId === "c1"
+        ? row("c1", "Глава первая", {
+            lvl: { type: "select", optionId: "chapter" },
+            par: { type: "relation", targetNoteIds: ["b1"] },
+            cast: rel("zoya"),
+            ord: { type: "text", value: "a0" },
+          })
+        : entry,
+    )
+
+    it("lists the pages of this story only: those that name it and those its text names", async () => {
+      queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => {
+        const rows = databaseId === "db_chars" ? CHARS : TEXT_WITH_CAST
+        return { rows, nextCursor: null, totalCount: rows.length, diagnostics: [] }
+      })
+      render(
+        <ProjectDesk story={story} workshop={withWorld} vaultPath="/vault" onOpenNote={vi.fn()} />,
+      )
+      const card = await screen.findByRole("region", { name: "Персонажи" })
+      await within(card).findByText("Анна")
+      expect(within(card).getByText("Зоя")).toBeTruthy()
+      expect(within(card).queryByText("Борис")).toBeNull()
+      expect(within(card).queryByText("Ева")).toBeNull()
+      // The tile counts what the card lists.
+      const tile = screen.getByText("Персонажи", { selector: "dt" }).parentElement
+      expect(tile?.textContent).toContain("2")
+    })
+  })
 })

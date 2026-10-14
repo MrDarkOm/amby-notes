@@ -57,6 +57,10 @@ export function projectErrorText(t: TFunction, error: unknown): string {
       return t("creative.errors.textNotConfigured")
     case "statusAlreadyConfigured":
       return t("creative.errors.statusAlreadyConfigured")
+    case "storyLinksAlreadyConfigured":
+      return t("creative.errors.storyLinksAlreadyConfigured")
+    case "storyLinksUnavailable":
+      return t("creative.errors.storyLinksUnavailable")
     case "unknownTextLevel":
       return t("creative.errors.unknownTextLevel")
     case "unknownTextFormat":

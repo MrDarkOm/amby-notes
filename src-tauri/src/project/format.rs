@@ -34,6 +34,10 @@ pub struct WorkshopSectionDoc {
     pub name: String,
     pub database_id: String,
     pub path: String,
+    /// The ID of the relation property that links this section's pages to stories.
+    pub stories_property_id: Option<String>,
+    /// The ID of the relation property of the stories section that links a story to a universe.
+    pub universe_property_id: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -174,6 +178,10 @@ pub fn parse_workshop_file(bytes: &[u8]) -> Result<WorkshopDoc, FormatProblem> {
                 name,
                 database_id,
                 path,
+                stories_property_id: text_field(entry, "storiesPropertyId")
+                    .filter(|value| !value.is_empty()),
+                universe_property_id: text_field(entry, "universePropertyId")
+                    .filter(|value| !value.is_empty()),
             });
         }
     }
@@ -256,21 +264,60 @@ pub fn document_bytes(value: &Value, with_bom: bool) -> Result<Vec<u8>, String> 
     Ok(bytes)
 }
 
-/// A section entry in the shape the contract defines.
+/// A section entry in the shape the contract defines. The two property IDs are written only
+/// when the section has the property, so a section without them reads as it always did.
 pub fn workshop_section_entry(
     id: &str,
     role: &str,
     name: &str,
     database_id: &str,
     path: &str,
+    stories_property_id: Option<&str>,
+    universe_property_id: Option<&str>,
 ) -> Value {
-    json!({
+    let mut entry = json!({
         "id": id,
         "role": role,
         "name": name,
         "databaseId": database_id,
         "path": path,
-    })
+    });
+    if let Some(id) = stories_property_id {
+        entry["storiesPropertyId"] = json!(id);
+    }
+    if let Some(id) = universe_property_id {
+        entry["universePropertyId"] = json!(id);
+    }
+    entry
+}
+
+/// Sets `storiesPropertyId` (and `universePropertyId`) on the section entry with `section_id`,
+/// keeping every other entry and field. A property ID given as `None` is left as it is.
+pub fn with_section_links(
+    raw: &Value,
+    section_id: &str,
+    stories_property_id: Option<&str>,
+    universe_property_id: Option<&str>,
+) -> Result<Value, String> {
+    let mut document = raw.clone();
+    let object = document
+        .as_object_mut()
+        .ok_or_else(|| "The document is not an object".to_owned())?;
+    let Some(Value::Array(sections)) = object.get_mut("sections") else {
+        return Err("sections is not an array".to_owned());
+    };
+    let entry = sections
+        .iter_mut()
+        .find(|entry| entry.get("id").and_then(Value::as_str) == Some(section_id))
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| format!("section {section_id} is not in the structure file"))?;
+    if let Some(id) = stories_property_id {
+        entry.insert("storiesPropertyId".to_owned(), json!(id));
+    }
+    if let Some(id) = universe_property_id {
+        entry.insert("universePropertyId".to_owned(), json!(id));
+    }
+    Ok(document)
 }
 
 /// Appends a section to `raw`, keeping every other field untouched.

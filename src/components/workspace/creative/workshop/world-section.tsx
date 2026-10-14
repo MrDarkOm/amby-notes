@@ -10,6 +10,7 @@ import { treeIndent } from "./tree-indent"
 import { EmptyAction } from "./empty-action"
 import { InlineCreateRow } from "./inline-create-row"
 import { ItemMenu } from "./item-menu"
+import { LinkAction } from "./link-action"
 import { PortraitDot } from "./portrait-dot"
 import { usePortraitResolvers } from "./use-portrait-resolvers"
 import {
@@ -17,12 +18,24 @@ import {
   initialsOf,
   type EntityItem,
   type GroupContext,
+  type StoryLabels,
   type WorkshopTab,
 } from "./workshop-model"
 
 interface WorldSectionProps {
   categories: WorkshopTab[]
   itemsByCategory: Record<string, EntityItem[]>
+  /** Pages in no story and named by no text, per category: a group of their own at the end. */
+  withoutStoryByCategory?: Record<string, EntityItem[]>
+  /** The story names for a page's row (up to two and "+N"); `null` shows none. */
+  storyLabelsOf?: ((noteId: string) => StoryLabels) | null
+  /** Links a section made before the links existed; `null` offers nothing. */
+  onLinkSection?: ((tab: WorkshopTab) => void) | null
+  /** The section being linked right now, if any. */
+  linkingSectionId?: string | null
+  /** Links the stories to the universes that now exist; `null` offers nothing. */
+  onLinkUniverses?: (() => void) | null
+  linkError?: string | null
   groupContext: GroupContext
   /** Folding state: keys `world` and `category:<key>`, unfolded unless set. */
   collapsed: Record<string, boolean>
@@ -51,6 +64,12 @@ interface WorldSectionProps {
 export function WorldSection({
   categories,
   itemsByCategory,
+  withoutStoryByCategory = {},
+  storyLabelsOf = null,
+  onLinkSection = null,
+  linkingSectionId = null,
+  onLinkUniverses = null,
+  linkError = null,
   groupContext,
   collapsed,
   onToggle,
@@ -87,6 +106,19 @@ export function WorldSection({
       <div className="flex items-center justify-between gap-2 pb-1 pl-3.5 pr-2">
         <h3 className="text-[11px] text-muted-foreground">{t("creative.groups.world", "Мир")}</h3>
       </div>
+      {onLinkUniverses && (
+        <LinkAction
+          indent={0}
+          label={t("creative.workshop.link.universes")}
+          title={t("creative.workshop.link.universesHint")}
+          onClick={onLinkUniverses}
+        />
+      )}
+      {linkError && (
+        <p role="alert" className="px-2 py-1 text-[11px] text-destructive">
+          {linkError}
+        </p>
+      )}
       {categories.length === 0 && (
         <p className="px-2 py-1.5 text-[11px] text-muted-foreground">
           {t("creative.workshop.world.noCategories", "Нет разделов мира")}
@@ -94,6 +126,7 @@ export function WorldSection({
       )}
       {categories.map((tab) => {
         const items = itemsByCategory[tab.key] ?? []
+        const withoutStory = withoutStoryByCategory[tab.key] ?? []
         const Fallback = tab.role ? sectionRoleIcon(tab.role) : Database
         const icon = iconOf(tab.databaseId)
         const groups = groupEntities(items, "importance", groupContext)
@@ -121,6 +154,7 @@ export function WorldSection({
                 />
               )}
               <span className="min-w-0 flex-1 truncate">{item.title}</span>
+              {storyLabelsOf && <RowStories labels={storyLabelsOf(item.noteId)} />}
             </button>
           </ItemMenu>
         )
@@ -130,7 +164,7 @@ export function WorldSection({
             key={tab.key}
             icon={Fallback}
             label={tab.name}
-            count={items.length}
+            count={items.length + withoutStory.length}
             open={!collapsed[`category:${tab.key}`]}
             onToggle={() => onToggle(`category:${tab.key}`)}
             onAdd={writable ? () => onAddEntity(tab.key) : null}
@@ -145,6 +179,14 @@ export function WorldSection({
               ) : undefined
             }
           >
+            {writable && !tab.storiesPropertyId && tab.role !== "universes" && onLinkSection && (
+              <LinkAction
+                label={t("creative.workshop.link.stories")}
+                title={t("creative.workshop.link.storiesHint")}
+                pending={linkingSectionId === tab.sectionId}
+                onClick={() => onLinkSection(tab)}
+              />
+            )}
             {draftCategoryKey === tab.key && (
               <InlineCreateRow
                 depth={0}
@@ -155,6 +197,7 @@ export function WorldSection({
               />
             )}
             {items.length === 0 &&
+              withoutStory.length === 0 &&
               draftCategoryKey !== tab.key &&
               (status === "loading" ? null : writable ? (
                 <EmptyAction
@@ -190,6 +233,22 @@ export function WorldSection({
                 {group.items.map(renderItem)}
               </div>
             ))}
+            {withoutStory.length > 0 && (
+              <div data-testid={`without-story:${tab.key}`}>
+                <h4
+                  className="flex items-center gap-1.5 pb-0.5 pr-3 pt-1 text-[11px] text-muted-foreground"
+                  style={{ paddingLeft: treeIndent(1) }}
+                >
+                  <span className="truncate">{t("creative.workshop.noStory")}</span>
+                  <span className="opacity-60">{withoutStory.length}</span>
+                </h4>
+                {[...withoutStory]
+                  .sort((a, b) =>
+                    a.title.localeCompare(b.title, undefined, { sensitivity: "base" }),
+                  )
+                  .map(renderItem)}
+              </div>
+            )}
           </Accordion>
         )
       })}
@@ -199,5 +258,19 @@ export function WorldSection({
         </p>
       )}
     </section>
+  )
+}
+
+/** Up to two story names of a page and "+N" for the rest, quiet at the end of its row. */
+function RowStories({ labels }: { labels: StoryLabels }) {
+  if (labels.names.length === 0) return null
+  return (
+    <span
+      className="ml-auto max-w-[45%] shrink-0 truncate pl-2 text-[11px] text-muted-foreground"
+      title={labels.names.join(", ")}
+    >
+      {labels.names.join(", ")}
+      {labels.more > 0 ? ` +${labels.more}` : ""}
+    </span>
   )
 }

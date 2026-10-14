@@ -8,6 +8,7 @@ pub mod events;
 pub mod format;
 pub mod index;
 pub mod journal;
+pub mod links;
 pub mod model;
 pub mod names;
 pub mod presets;
@@ -20,11 +21,17 @@ pub mod text_schema;
 pub mod text_stats;
 
 #[cfg(test)]
+#[path = "contract_test.rs"]
+mod contract_test;
+#[cfg(test)]
 #[path = "create_test.rs"]
 mod create_test;
 #[cfg(test)]
 #[path = "discovery_test.rs"]
 mod discovery_test;
+#[cfg(test)]
+#[path = "links_test.rs"]
+mod links_test;
 #[cfg(test)]
 #[path = "preset_test.rs"]
 mod preset_test;

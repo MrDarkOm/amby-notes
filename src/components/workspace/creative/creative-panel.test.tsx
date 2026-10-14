@@ -19,6 +19,8 @@ import { useProjectStore } from "./project-store"
 
 const queryDatabase = vi.fn()
 const createDatabaseRow = vi.fn()
+const createWorkshopEntity = vi.fn()
+const addStoryLinks = vi.fn()
 const moveTextPage = vi.fn()
 const createTextPage = vi.fn()
 const listTextStats = vi.fn()
@@ -31,6 +33,8 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     ...original,
     queryDatabase: (...args: unknown[]) => queryDatabase(...args),
     createDatabaseRow: (...args: unknown[]) => createDatabaseRow(...args),
+    createWorkshopEntity: (...args: unknown[]) => createWorkshopEntity(...args),
+    addStoryLinks: (...args: unknown[]) => addStoryLinks(...args),
     moveTextPage: (...args: unknown[]) => moveTextPage(...args),
     createTextPage: (...args: unknown[]) => createTextPage(...args),
     listTextStats: (...args: unknown[]) => listTextStats(...args),
@@ -103,6 +107,7 @@ function world(): ProjectCatalog {
         name: "Персонажи",
         databaseId: "db_uc",
         databaseName: "Персонажи",
+        storiesPropertyId: "stp",
       }),
       section("orgs", {
         role: "custom",
@@ -153,6 +158,10 @@ function world(): ProjectCatalog {
 }
 
 const importance = { type: "select", optionId: "main" }
+/** The "Stories" relation of a character: the cards of the stories it is in. */
+const inStories = (...cards: string[]) => ({
+  stp: { type: "relation", targetNoteIds: cards },
+})
 const DATABASES: DatabaseSummary[] = [
   {
     databaseId: "db_uc",
@@ -185,7 +194,14 @@ const DATABASES: DatabaseSummary[] = [
 ]
 
 const ROWS: Record<string, DatabaseRow[]> = {
-  db_uc: [row("zoya", "Зоя"), row("anna", "Анна", { imp: importance }), row("boris", "Борис")],
+  db_uc: [
+    // Zoya is only named in the text of MoleHills; the others say which story they are in.
+    row("zoya", "Зоя"),
+    row("anna", "Анна", { imp: importance, ...inStories("note_hills") }),
+    row("boris", "Борис", inStories("note_hills", "note_river")),
+    row("vera", "Вера", inStories("note_river")),
+    row("eva", "Ева"),
+  ],
   db_hc: [row("boris", "Борис")],
   db_rc: [row("vera", "Вера")],
   db_notes: [row("n1", "Идея")],
@@ -225,6 +241,8 @@ describe("CreativePanel", () => {
         diagnostics: [],
       }))
     createDatabaseRow.mockReset().mockResolvedValue({ noteId: "new-note" })
+    createWorkshopEntity.mockReset().mockResolvedValue({ noteId: "new-note", linkedStoryId: null })
+    addStoryLinks.mockReset().mockResolvedValue({ propertyId: "stp", link: "stories" })
     moveTextPage.mockReset().mockResolvedValue({})
     createTextPage.mockReset().mockResolvedValue({ noteId: "new-page" })
     listTextStats.mockReset().mockResolvedValue([])
@@ -728,7 +746,7 @@ describe("CreativePanel", () => {
       act(() => useProjectStore.getState().setCatalog(base))
       render(<CreativePanel {...props()} />)
       await title(/Анна/)
-      ROWS.db_uc.push(row("nina", "Нина"))
+      ROWS.db_uc.push(row("nina", "Нина", inStories("note_hills")))
       try {
         act(() => useCreativeNavStore.getState().bumpData())
         expect(await title(/Нина/)).toBeTruthy()
@@ -774,11 +792,13 @@ describe("CreativePanel", () => {
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: "Марта" } })
       fireEvent.keyDown(field, { key: "Enter" })
-      await waitFor(() => expect(createDatabaseRow).toHaveBeenCalledTimes(1))
-      expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({
-        databaseId: "db_uc",
+      await waitFor(() => expect(createWorkshopEntity).toHaveBeenCalledTimes(1))
+      // Made while MoleHills is shown, the page is born linked to it.
+      expect(createWorkshopEntity.mock.calls[0][0]).toMatchObject({
+        workshopId: "verse",
+        sectionId: "chars",
         title: "Марта",
-        template: { kind: "default" },
+        storyId: "hills",
       })
       await waitFor(() => expect(onSelect).toHaveBeenCalledWith("new-note"))
     })
@@ -795,10 +815,11 @@ describe("CreativePanel", () => {
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: "Нина" } })
       fireEvent.keyDown(field, { key: "Enter" })
-      await waitFor(() => expect(createDatabaseRow).toHaveBeenCalledTimes(1))
-      expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({
-        databaseId: "db_uc",
+      await waitFor(() => expect(createWorkshopEntity).toHaveBeenCalledTimes(1))
+      expect(createWorkshopEntity.mock.calls[0][0]).toMatchObject({
+        sectionId: "chars",
         title: "Нина",
+        storyId: "hills",
       })
     })
 
@@ -970,10 +991,11 @@ describe("CreativePanel", () => {
       const field = await screen.findByRole("textbox", { name: "Название — Персонажи" })
       fireEvent.change(field, { target: { value: "Лев" } })
       fireEvent.keyDown(field, { key: "Enter" })
-      await waitFor(() => expect(createDatabaseRow).toHaveBeenCalledTimes(1))
-      expect(createDatabaseRow.mock.calls[0][0]).toMatchObject({
-        databaseId: "db_uc",
+      await waitFor(() => expect(createWorkshopEntity).toHaveBeenCalledTimes(1))
+      expect(createWorkshopEntity.mock.calls[0][0]).toMatchObject({
+        sectionId: "chars",
         title: "Лев",
+        storyId: "hills",
       })
     })
 

@@ -976,6 +976,25 @@ async addTextStatus(request: AddTextStatusRequest) : Promise<Result<AddedTextSta
     else return { status: "error", error: e  as any };
 }
 },
+async addStoryLinks(request: AddStoryLinksRequest) : Promise<Result<AddedStoryLinks, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("add_story_links", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * A page of a world section, linked to a story in the same write when one is chosen.
+ */
+async createWorkshopEntity(request: CreateWorkshopEntityRequest) : Promise<Result<CreatedWorkshopEntity, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_workshop_entity", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async openInExplorer(path: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("open_in_explorer", { path }) };
@@ -1359,7 +1378,17 @@ async flushDebugLogs() : Promise<Result<null, string>> {
 
 /** user-defined types **/
 
+/**
+ * Links a section to stories (a world section) or a story to universes (the stories section).
+ * Which one is decided by the section's role.
+ */
+export type AddStoryLinksRequest = { expectedGeneration: number; operationId: string; workshopId: string; expectedWorkshopRevision: string; sectionId: string; labels?: Partial<{ [key in string]: string }> }
 export type AddTextStatusRequest = { expectedGeneration: number; operationId: string; storyId: string; expectedStoryRevision: string; labels?: Partial<{ [key in string]: string }> }
+export type AddedStoryLinks = { operationId: string; workshopId: string; sectionId: string; 
+/**
+ * `stories` for a world section, `universe` for the stories section.
+ */
+link: string; propertyId: string; workshopRevision: string; replayed: boolean; warnings: string[] }
 export type AddedTextStatus = { operationId: string; storyId: string; propertyId: string; storyRevision: string; manifestRevision: string; replayed: boolean; warnings: string[] }
 export type AiChatError = { code: AiErrorCode; provider: string }
 export type AiConfig = { 
@@ -1395,6 +1424,10 @@ export type CreateDatabaseRowRequest = { expectedGeneration: number; databaseId:
 export type CreateDatabaseViewRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; layout: string }
 export type CreateStoryRequest = { expectedGeneration: number; operationId: string; workshopId: string; title: string; textLevels?: string[] | null; labels?: Partial<{ [key in string]: string }> }
 export type CreateTextPageRequest = { expectedGeneration: number; storyId: string; title: string; parentNoteId?: string | null; levelId: string; formatId?: string | null; orderKey: string }
+/**
+ * A page of a world section. With `story_id` the page is born linked to that story's card.
+ */
+export type CreateWorkshopEntityRequest = { expectedGeneration: number; workshopId: string; sectionId: string; title: string; storyId?: string | null }
 export type CreateWorkshopRequest = { expectedGeneration: number; operationId: string; name: string; parentPath?: string | null; icon?: string | null; tags?: string[]; labels?: Partial<{ [key in string]: string }> }
 export type CreateWorkshopSectionRequest = { expectedGeneration: number; operationId: string; workshopId: string; expectedWorkshopRevision: string; role: string; name: string; labels?: Partial<{ [key in string]: string }> }
 export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string; notePath: string | null; warnings: string[] }
@@ -1403,6 +1436,7 @@ export type CreatedDatabaseRow = { databaseId: string; noteId: string; title: st
 export type CreatedStory = { operationId: string; workshopId: string; storyId: string; title: string; folderPath: string; cardPath: string; cardNoteId: string; databaseId: string; storyFileRevision: string; replayed: boolean; warnings: string[] }
 export type CreatedTextPage = { databaseId: string; noteId: string; title: string; notePath: string; levelId: string; formatId: string | null; parentNoteId: string | null; orderKey: string; warnings: string[] }
 export type CreatedWorkshop = { operationId: string; workshopId: string; name: string; path: string; filePath: string; fileRevision: string; sections: CreatedWorkshopSection[]; replayed: boolean; warnings: string[] }
+export type CreatedWorkshopEntity = { databaseId: string; noteId: string; title: string; notePath: string; linkedStoryId: string | null; warnings: string[] }
 export type CreatedWorkshopSection = { sectionId: string; role: string; name: string; databaseId: string; path: string; containerPath: string; manifestRevision: string }
 export type CreatedWorkshopSectionResult = { operationId: string; workshopId: string; section: CreatedWorkshopSection; workshopRevision: string; replayed: boolean; warnings: string[] }
 export type CredentialInfo = { exists: boolean; masked: string | null }
@@ -1588,7 +1622,7 @@ path: string; workshopId: string | null; storyId: string | null; detail: string 
 /**
  * Typed failures of every project / workshop command.
  */
-export type ProjectError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actualGeneration: number } | { kind: "invalidOperationId" } | { kind: "operationIdReused"; operationId: string } | { kind: "invalidName"; field: string; reason: string } | { kind: "invalidParent"; reason: string } | { kind: "pathCollision"; path: string } | { kind: "workshopNotFound"; workshopId: string } | { kind: "storyNotFound"; storyId: string } | { kind: "workshopReadOnly"; formatVersion: number } | { kind: "storyReadOnly"; formatVersion: number } | { kind: "revisionConflict"; actualRevision: string } | { kind: "unsupportedRole"; role: string } | { kind: "unsupportedPreset"; preset: string } | { kind: "sectionNotFound"; sectionId: string } | { kind: "cannotRemoveStoriesSection" } | { kind: "cannotRemoveTextSection" } | { kind: "statusAlreadyConfigured" } | { kind: "textNotConfigured" } | { kind: "unknownTextLevel"; levelId: string } | { kind: "unknownTextFormat"; formatId: string } | { kind: "invalidOrderKey" } | { kind: "pageNotFound"; noteId: string } | { kind: "parentCycle" } | { kind: "parentLevelNotShallower"; parentLevelId: string; levelId: string } | { kind: "levelInUse"; levelId: string; count: number } | { kind: "rolledBack"; operationId: string; message: string } | { kind: "recoveryRequired"; operationId: string; message: string } | { kind: "failed"; code: string; message: string }
+export type ProjectError = { kind: "moduleDisabled" } | { kind: "vaultNotOpen" } | { kind: "vaultGenerationConflict"; actualGeneration: number } | { kind: "invalidOperationId" } | { kind: "operationIdReused"; operationId: string } | { kind: "invalidName"; field: string; reason: string } | { kind: "invalidParent"; reason: string } | { kind: "pathCollision"; path: string } | { kind: "workshopNotFound"; workshopId: string } | { kind: "storyNotFound"; storyId: string } | { kind: "workshopReadOnly"; formatVersion: number } | { kind: "storyReadOnly"; formatVersion: number } | { kind: "revisionConflict"; actualRevision: string } | { kind: "unsupportedRole"; role: string } | { kind: "unsupportedPreset"; preset: string } | { kind: "sectionNotFound"; sectionId: string } | { kind: "cannotRemoveStoriesSection" } | { kind: "cannotRemoveTextSection" } | { kind: "statusAlreadyConfigured" } | { kind: "storyLinksAlreadyConfigured" } | { kind: "storyLinksUnavailable"; reason: string } | { kind: "textNotConfigured" } | { kind: "unknownTextLevel"; levelId: string } | { kind: "unknownTextFormat"; formatId: string } | { kind: "invalidOrderKey" } | { kind: "pageNotFound"; noteId: string } | { kind: "parentCycle" } | { kind: "parentLevelNotShallower"; parentLevelId: string; levelId: string } | { kind: "levelInUse"; levelId: string; count: number } | { kind: "rolledBack"; operationId: string; message: string } | { kind: "recoveryRequired"; operationId: string; message: string } | { kind: "failed"; code: string; message: string }
 export type ProjectTextSummary = { databaseId: string | null; properties: TextPropertyIds; levels: TextLevelSummary[]; formats: TextFormatSummary[]; statusOptions: TextStatusOptionSummary[] }
 /**
  * Version of the rebuildable database projection. DB-02 does not publish a
@@ -1804,7 +1838,15 @@ export type WorkshopSectionSummary = { id: string; role: string; name: string; d
 /**
  * The relative path recorded in the structure file (a hint).
  */
-pathHint: string; state: SectionState; 
+pathHint: string; 
+/**
+ * The ID of the relation property linking this section's pages to stories, when set.
+ */
+storiesPropertyId: string | null; 
+/**
+ * The ID of the relation property linking a story to a universe (stories section only).
+ */
+universePropertyId: string | null; state: SectionState; 
 /**
  * Vault-relative container of the database when it was found.
  */

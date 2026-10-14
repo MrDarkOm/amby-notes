@@ -1358,50 +1358,20 @@ fn a_workshop_of_an_unknown_format_version_is_listed_read_only_and_never_rewritt
 }
 
 /// The keys `projectLabels(t)` in `src/components/workspace/creative/project-labels.ts` sends with
-/// every creation, so the real backend must accept the whole set.
+/// every creation. The list is the file `interface-label-keys.json`, which a Vitest test keeps equal
+/// to what the interface really sends, so the real backend must accept the whole set.
 fn interface_labels() -> BTreeMap<String, String> {
-    let mut labels = BTreeMap::new();
-    let mut put = |key: String, value: &str| {
-        labels.insert(key, value.to_owned());
-    };
-    for key in [
-        "section:stories",
-        "section:notes",
-        "section:characters",
-        "section:locations",
-        "view:gallery",
-        "template:dossier",
-    ] {
-        put(key.to_owned(), &key.replace(':', " "));
-    }
-    for (prefix, keys) in [
-        (
-            "property",
-            &["level", "parent", "order", "format", "status"][..],
-        ),
-        ("level", &["book", "arc", "chapter", "page"][..]),
-        ("format", &["manuscript", "screenplay", "comic", "note"][..]),
-        ("status", &["draft", "inProgress", "done"][..]),
-        ("preset", &["importance", "kind", "portrait", "image"][..]),
-        ("importance", &["main", "side", "episode"][..]),
-        ("kind", &["city", "district", "place", "nature"][..]),
-        (
-            "heading",
-            &[
-                "basic",
-                "traits",
-                "appearance",
-                "biography",
-                "description",
-                "history",
-            ][..],
-        ),
-    ] {
-        for key in keys {
-            put(format!("{prefix}:{key}"), &format!("{prefix}-{key}"));
-        }
-    }
-    labels
+    let keys: Vec<String> = serde_json::from_str(include_str!(
+        "../../../src/components/workspace/creative/interface-label-keys.json"
+    ))
+    .expect("the list of the interface's label keys");
+    assert!(keys.len() > 40, "the list is read");
+    keys.into_iter()
+        .map(|key| {
+            let value = key.replace(':', " ");
+            (key, value)
+        })
+        .collect()
 }
 
 #[test]
@@ -1422,4 +1392,26 @@ fn the_labels_the_interface_sends_are_accepted_by_every_creation() {
     fixture
         .add_section(&section)
         .expect("a section with the interface's labels");
+    // The universes section, with the stories' relation to it, takes the same set.
+    let mut universes = section_request(&created, "Вселенные");
+    universes.role = "universes".to_owned();
+    universes.labels = interface_labels();
+    universes.expected_workshop_revision = raw_revision(&fixture.workshop_bytes("Saga"));
+    fixture
+        .add_section(&universes)
+        .expect("the universes with the interface's labels");
+    let stories: serde_json::Value = serde_json::from_slice(
+        &fs::read(
+            fixture
+                .vault
+                .join("Saga/section stories/section stories.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(stories["properties"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|property| property["name"] == "property universe"));
 }

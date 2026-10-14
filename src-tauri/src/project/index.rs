@@ -73,7 +73,7 @@ fn publish(conn: &Connection, discovery: &WorkshopDiscovery) -> Result<String, S
 
         for (s_idx, section) in doc.sections.iter().enumerate() {
             tx.execute(
-                "INSERT INTO project_sections (workshop_id, section_id, position, role, name, database_id, path_hint) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO project_sections (workshop_id, section_id, position, role, name, database_id, path_hint, stories_property_id, universe_property_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     doc.workshop_id,
                     section.id,
@@ -82,6 +82,8 @@ fn publish(conn: &Connection, discovery: &WorkshopDiscovery) -> Result<String, S
                     section.name,
                     section.database_id,
                     section.path,
+                    section.stories_property_id,
+                    section.universe_property_id,
                 ],
             )
             .map_err(sql_error)?;
@@ -407,7 +409,8 @@ pub fn load_catalog(
 
     let mut section_stmt = conn
         .prepare(
-            "SELECT s.section_id, s.role, s.name, s.database_id, s.path_hint, d.container_path, d.name
+            "SELECT s.section_id, s.role, s.name, s.database_id, s.path_hint, d.container_path, d.name,
+                    s.stories_property_id, s.universe_property_id
              FROM project_sections s
              LEFT JOIN db_databases d ON d.database_id = s.database_id
              WHERE s.workshop_id = ?1
@@ -479,6 +482,8 @@ pub fn load_catalog(
                     name: row.get(2)?,
                     database_id: row.get(3)?,
                     path_hint,
+                    stories_property_id: row.get(7)?,
+                    universe_property_id: row.get(8)?,
                     state,
                     resolved_path: resolved,
                     database_name: row.get(6)?,

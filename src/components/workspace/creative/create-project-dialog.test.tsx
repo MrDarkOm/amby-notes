@@ -156,6 +156,8 @@ describe("CreateProjectDialog", () => {
           name: "Вселенные",
           databaseId: "db_universes",
           pathHint: "universes",
+          storiesPropertyId: null,
+          universePropertyId: null,
           state: "ok",
           resolvedPath: "universes",
           databaseName: "Вселенные",

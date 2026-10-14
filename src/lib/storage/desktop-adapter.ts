@@ -8,13 +8,17 @@ import { FileRevisionConflictError, NoteRevisionConflictError } from "./types"
 import { unwrapDatabaseCommand } from "./database-port"
 import { unwrapProjectCommand } from "./project-port"
 import type {
+  AddStoryLinksRequest,
   AddTextStatusRequest,
+  AddedStoryLinks,
   AddedTextStatus,
   CreateStoryRequest,
+  CreateWorkshopEntityRequest,
   CreateWorkshopRequest,
   CreateWorkshopSectionRequest,
   CreatedStory,
   CreatedWorkshop,
+  CreatedWorkshopEntity,
   CreatedWorkshopSectionResult,
   CreatedTextPage,
   CreateTextPageRequest,
@@ -557,6 +561,24 @@ export class DesktopAdapter implements StoragePort {
       await commands.addTextStatus({
         ...request,
         labels: request.labels ?? {},
+      }),
+    )
+  }
+
+  async addStoryLinks(request: AddStoryLinksRequest): Promise<AddedStoryLinks> {
+    return unwrapProjectCommand(
+      await commands.addStoryLinks({
+        ...request,
+        labels: request.labels ?? {},
+      }),
+    )
+  }
+
+  async createWorkshopEntity(request: CreateWorkshopEntityRequest): Promise<CreatedWorkshopEntity> {
+    return unwrapProjectCommand(
+      await commands.createWorkshopEntity({
+        ...request,
+        storyId: request.storyId ?? null,
       }),
     )
   }

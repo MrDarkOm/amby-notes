@@ -19,10 +19,20 @@ const KINDS: [&str; 4] = ["city", "district", "place", "nature"];
 const ARC_KINDS: [&str; 3] = ["character", "plot", "mini"];
 const TAGS: [&str; 3] = ["blue", "green", "red"];
 const STATUSES: [&str; 3] = ["draft", "inProgress", "done"];
+/// Names of the two link properties: a world page's stories, and a story's universe.
+const LINK_KEYS: [&str; 2] = ["stories", "universe"];
+
+/// Keys of `labels` that name a link property (`add_story_links` accepts only these).
+pub fn is_link_label(key: &str) -> bool {
+    key.strip_prefix("property:")
+        .is_some_and(|rest| LINK_KEYS.contains(&rest))
+}
 
 fn default_label(key: &str) -> &'static str {
     match key {
         "preset:stories" => "Истории",
+        "property:stories" => "Истории",
+        "property:universe" => "Вселенная",
         "preset:characters" => "Персонажи",
         "preset:locations" => "Локации",
         "preset:universes" => "Вселенные",
@@ -91,7 +101,8 @@ pub fn is_preset_label(key: &str) -> bool {
             "participants",
             "tag",
         ],
-    ) || known("importance:", &IMPORTANCE)
+    ) || known("property:", &LINK_KEYS)
+        || known("importance:", &IMPORTANCE)
         || known("kind:", &KINDS)
         || known("arcKind:", &ARC_KINDS)
         || known("tag:", &TAGS)
@@ -150,6 +161,40 @@ pub fn template_file_bytes(
 pub struct PresetPlan {
     pub extras: NewDatabaseExtras,
     pub template: Option<PlannedTemplate>,
+    /// The ID of the "Stories" relation a world section starts with.
+    pub stories_property_id: Option<String>,
+}
+
+/// The name of a link property in the language of `labels` (`stories` or `universe`).
+pub fn link_property_name(
+    labels: &BTreeMap<String, String>,
+    kind: &str,
+) -> Result<String, ProjectError> {
+    label(labels, &format!("property:{kind}"))
+}
+
+/// Roles whose pages belong to stories: every world section, the author's own included.
+pub fn links_to_stories(role: &str) -> bool {
+    !matches!(role, "stories" | "universes")
+}
+
+/// The "Stories" relation of a world section: to every story, none required, no other side
+/// (the story card never lists its members; they are found by query).
+fn add_stories_link(
+    builder: &mut PropertyBuilder,
+    labels: &BTreeMap<String, String>,
+    stories_id: &str,
+) -> Result<(serde_json::Value, String), ProjectError> {
+    let (property, ids) = builder.add(
+        "relation",
+        &label(labels, "property:stories")?,
+        &[],
+        &|spec| {
+            spec.relation_target_database_id = Some(stories_id.to_owned());
+            spec.relation_two_way = Some(false);
+        },
+    )?;
+    Ok((property, ids.property_id))
 }
 
 /// Plans starting properties, view and template for a workshop section database.
@@ -168,6 +213,7 @@ pub fn plan(
     let view;
     let mut template = None;
     let mut icon = None;
+    let mut stories_property_id = None;
 
     match role {
         "stories" => {
@@ -192,16 +238,10 @@ pub fn plan(
         "characters" => {
             icon = Some("amby-icon:users:%2364748b".to_owned());
             if let Some(stories_id) = target_databases.get("stories") {
-                let (stories_prop, _) = builder.add(
-                    "relation",
-                    &label(labels, "preset:stories")?,
-                    &[],
-                    &|spec| {
-                        spec.relation_target_database_id = Some(stories_id.clone());
-                        spec.relation_two_way = Some(false);
-                    },
-                )?;
+                let (stories_prop, stories_prop_id) =
+                    add_stories_link(&mut builder, labels, stories_id)?;
                 properties.push(stories_prop);
+                stories_property_id = Some(stories_prop_id);
             }
             let importance_options = IMPORTANCE
                 .iter()
@@ -240,16 +280,10 @@ pub fn plan(
         "locations" => {
             icon = Some("amby-icon:map-pin:%2364748b".to_owned());
             if let Some(stories_id) = target_databases.get("stories") {
-                let (stories_prop, _) = builder.add(
-                    "relation",
-                    &label(labels, "preset:stories")?,
-                    &[],
-                    &|spec| {
-                        spec.relation_target_database_id = Some(stories_id.clone());
-                        spec.relation_two_way = Some(false);
-                    },
-                )?;
+                let (stories_prop, stories_prop_id) =
+                    add_stories_link(&mut builder, labels, stories_id)?;
                 properties.push(stories_prop);
+                stories_property_id = Some(stories_prop_id);
             }
             let kind_options = KINDS
                 .iter()
@@ -298,16 +332,10 @@ pub fn plan(
         "arcs" => {
             icon = Some("amby-icon:git-branch:%2364748b".to_owned());
             if let Some(stories_id) = target_databases.get("stories") {
-                let (stories_prop, _) = builder.add(
-                    "relation",
-                    &label(labels, "preset:stories")?,
-                    &[],
-                    &|spec| {
-                        spec.relation_target_database_id = Some(stories_id.clone());
-                        spec.relation_two_way = Some(false);
-                    },
-                )?;
+                let (stories_prop, stories_prop_id) =
+                    add_stories_link(&mut builder, labels, stories_id)?;
                 properties.push(stories_prop);
+                stories_property_id = Some(stories_prop_id);
             }
             if let Some(chars_id) = target_databases.get("characters") {
                 let (chars_prop, _) = builder.add(
@@ -350,16 +378,10 @@ pub fn plan(
         "anchors" => {
             icon = Some("amby-icon:anchor:%2364748b".to_owned());
             if let Some(stories_id) = target_databases.get("stories") {
-                let (stories_prop, _) = builder.add(
-                    "relation",
-                    &label(labels, "preset:stories")?,
-                    &[],
-                    &|spec| {
-                        spec.relation_target_database_id = Some(stories_id.clone());
-                        spec.relation_two_way = Some(false);
-                    },
-                )?;
+                let (stories_prop, stories_prop_id) =
+                    add_stories_link(&mut builder, labels, stories_id)?;
                 properties.push(stories_prop);
+                stories_property_id = Some(stories_prop_id);
             }
             if let Some(chars_id) = target_databases.get("characters") {
                 let (chars_prop, _) = builder.add(
@@ -389,20 +411,23 @@ pub fn plan(
         "notes" => {
             icon = Some("amby-icon:file-text:%2364748b".to_owned());
             if let Some(stories_id) = target_databases.get("stories") {
-                let (stories_prop, _) = builder.add(
-                    "relation",
-                    &label(labels, "preset:stories")?,
-                    &[],
-                    &|spec| {
-                        spec.relation_target_database_id = Some(stories_id.clone());
-                        spec.relation_two_way = Some(false);
-                    },
-                )?;
+                let (stories_prop, stories_prop_id) =
+                    add_stories_link(&mut builder, labels, stories_id)?;
                 properties.push(stories_prop);
+                stories_property_id = Some(stories_prop_id);
             }
             view = Some(default_table_view(ids));
         }
         _ => {
+            // An author's own section is a world section too: its pages belong to stories.
+            if links_to_stories(role) {
+                if let Some(stories_id) = target_databases.get("stories") {
+                    let (stories_prop, stories_prop_id) =
+                        add_stories_link(&mut builder, labels, stories_id)?;
+                    properties.push(stories_prop);
+                    stories_property_id = Some(stories_prop_id);
+                }
+            }
             view = Some(default_table_view(ids));
         }
     }
@@ -417,5 +442,6 @@ pub fn plan(
             template_id: template.as_ref().map(|t| t.template_id.clone()),
         },
         template,
+        stories_property_id,
     })
 }

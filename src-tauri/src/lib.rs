@@ -161,6 +161,8 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::project::reorder_workshop_sections,
         commands::project::update_text_levels,
         commands::project::add_text_status,
+        commands::project::add_story_links,
+        commands::project::create_workshop_entity,
         commands::assets::open_in_explorer,
         commands::external::open_attachment,
         commands::external::open_web_address,

@@ -141,7 +141,7 @@ export function CreateProjectDialog({
             workshopId: workshop.workshopId,
             expectedWorkshopRevision: workshop.fileRevision,
             role: "universes",
-            name: t("creative.sections.universes", "Вселенные"),
+            name: t("creative.sections.universes"),
             labels: projectLabels(t),
           })
           databaseId = sectionRes.section.databaseId

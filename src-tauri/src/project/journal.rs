@@ -30,6 +30,7 @@ pub const OP_REMOVE_SECTION: &str = "removeSection";
 pub const OP_REORDER_SECTIONS: &str = "reorderSections";
 pub const OP_UPDATE_TEXT_LEVELS: &str = "updateTextLevels";
 pub const OP_ADD_TEXT_STATUS: &str = "addTextStatus";
+pub const OP_ADD_STORY_LINKS: &str = "addStoryLinks";
 
 const LABEL: &str = "Creative recovery";
 const MAX_JOURNAL_BYTES: u64 = 256 * 1024;
@@ -47,6 +48,9 @@ pub struct PlannedSection {
     pub extras: NewDatabaseExtras,
     #[serde(default)]
     pub template: Option<PlannedTemplate>,
+    /// The "Stories" relation the section starts with, recorded in the structure file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stories_property_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -94,6 +98,10 @@ pub struct Plan {
     pub story_file_revision: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manifest_write: Option<PlannedManifestWrite>,
+    /// The exact text (BOM included) the operation writes to `amby-workshop.json`, so a resume
+    /// writes the same IDs. Absent in journals of operations that do not need it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workshop_file_text: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -153,6 +161,7 @@ pub fn validate_journal(journal: &Journal) -> Result<(), ProjectError> {
             | OP_REORDER_SECTIONS
             | OP_UPDATE_TEXT_LEVELS
             | OP_ADD_TEXT_STATUS
+            | OP_ADD_STORY_LINKS
             | "createProject"
             | "updateProject"
     ) || !matches!(

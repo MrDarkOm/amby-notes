@@ -1,0 +1,462 @@
+{
+  "rows": {
+    "ID:db:characters": [
+      {
+        "noteId": "ID:note:Анна",
+        "title": "Анна",
+        "values": {
+          "ID:prop:stories:characters": {
+            "targetNoteIds": [
+              "ID:card:Дом"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "noteId": "ID:note:Борис",
+        "title": "Борис",
+        "values": {
+          "ID:prop:stories:characters": {
+            "targetNoteIds": [
+              "ID:card:Дом",
+              "ID:card:Лес"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "noteId": "ID:note:Вера",
+        "title": "Вера",
+        "values": {
+          "ID:prop:stories:characters": {
+            "targetNoteIds": [
+              "ID:card:Лес"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "noteId": "ID:note:Глеб",
+        "title": "Глеб",
+        "values": {
+          "ID:prop:stories:characters": {
+            "targetNoteIds": [
+              "ID:card:Одна"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "noteId": "ID:note:Ева",
+        "title": "Ева",
+        "values": {}
+      },
+      {
+        "noteId": "ID:note:Зоя",
+        "title": "Зоя",
+        "values": {}
+      }
+    ],
+    "ID:db:locations": [
+      {
+        "noteId": "ID:note:Озеро",
+        "title": "Озеро",
+        "values": {
+          "ID:prop:stories:locations": {
+            "targetNoteIds": [
+              "ID:card:Дом"
+            ],
+            "type": "relation"
+          }
+        }
+      }
+    ],
+    "ID:db:stories": [
+      {
+        "noteId": "ID:card:Дом",
+        "title": "Дом",
+        "values": {
+          "ID:prop:universe:stories": {
+            "targetNoteIds": [
+              "ID:note:Мир"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "noteId": "ID:card:Лес",
+        "title": "Лес",
+        "values": {
+          "ID:prop:universe:stories": {
+            "targetNoteIds": [
+              "ID:note:Мир"
+            ],
+            "type": "relation"
+          }
+        }
+      },
+      {
+        "noteId": "ID:card:Одна",
+        "title": "Одна",
+        "values": {}
+      }
+    ],
+    "ID:db:text:Дом": [],
+    "ID:db:text:Лес": [
+      {
+        "noteId": "ID:note:Глава",
+        "title": "Глава",
+        "values": {
+          "ID:prop:text:Лес:cast": {
+            "targetNoteIds": [
+              "ID:note:Зоя"
+            ],
+            "type": "relation"
+          },
+          "ID:prop:text:Лес:format": {
+            "optionId": "ID:option:format:Лес:manuscript",
+            "type": "select"
+          },
+          "ID:prop:text:Лес:level": {
+            "optionId": "ID:option:level:Лес:0",
+            "type": "select"
+          },
+          "ID:prop:text:Лес:order": {
+            "type": "text",
+            "value": "a0"
+          }
+        }
+      }
+    ],
+    "ID:db:text:Одна": [],
+    "ID:db:universes": [
+      {
+        "noteId": "ID:note:Мир",
+        "title": "Мир",
+        "values": {}
+      }
+    ]
+  },
+  "workshop": {
+    "fileRevision": "REV",
+    "formatVersion": 3,
+    "icon": null,
+    "name": "Saga",
+    "path": "Saga",
+    "readOnly": false,
+    "sections": [
+      {
+        "databaseId": "ID:db:stories",
+        "databaseName": "Истории",
+        "id": "stories",
+        "name": "Истории",
+        "pathHint": "Истории",
+        "resolvedPath": "Saga/Истории",
+        "role": "stories",
+        "state": "ok",
+        "storiesPropertyId": null,
+        "universePropertyId": "ID:prop:universe:stories"
+      },
+      {
+        "databaseId": "ID:db:characters",
+        "databaseName": "Персонажи",
+        "id": "characters",
+        "name": "Персонажи",
+        "pathHint": "Персонажи",
+        "resolvedPath": "Saga/Персонажи",
+        "role": "characters",
+        "state": "ok",
+        "storiesPropertyId": "ID:prop:stories:characters",
+        "universePropertyId": null
+      },
+      {
+        "databaseId": "ID:db:locations",
+        "databaseName": "Локации",
+        "id": "locations",
+        "name": "Локации",
+        "pathHint": "Локации",
+        "resolvedPath": "Saga/Локации",
+        "role": "locations",
+        "state": "ok",
+        "storiesPropertyId": "ID:prop:stories:locations",
+        "universePropertyId": null
+      },
+      {
+        "databaseId": "ID:db:universes",
+        "databaseName": "Вселенные",
+        "id": "universes",
+        "name": "Вселенные",
+        "pathHint": "Вселенные",
+        "resolvedPath": "Saga/Вселенные",
+        "role": "universes",
+        "state": "ok",
+        "storiesPropertyId": null,
+        "universePropertyId": null
+      }
+    ],
+    "stories": [
+      {
+        "cardNoteId": "ID:card:Дом",
+        "cardPath": "Saga/Истории/Дом/Дом.md",
+        "databaseId": "ID:db:text:Дом",
+        "fileRevision": "REV",
+        "folderPath": "Saga/Истории/Дом",
+        "formatVersion": 3,
+        "name": "Дом",
+        "storyId": "ID:story:Дом",
+        "text": {
+          "databaseId": "ID:db:text:Дом",
+          "formats": [
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Дом:manuscript",
+              "kind": "manuscript",
+              "name": "Рукопись",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Дом:screenplay",
+              "kind": "screenplay",
+              "name": "Сценарий",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Дом:comic",
+              "kind": "comic",
+              "name": "Комикс",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Дом:note",
+              "kind": "note",
+              "name": "Заметка",
+              "state": "ok"
+            }
+          ],
+          "levels": [
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Дом:0",
+              "name": "Книга",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Дом:1",
+              "name": "Арка",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Дом:2",
+              "name": "Глава",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Дом:3",
+              "name": "Страница",
+              "state": "ok"
+            }
+          ],
+          "properties": {
+            "anchors": null,
+            "arcs": null,
+            "format": "ID:prop:text:Дом:format",
+            "level": "ID:prop:text:Дом:level",
+            "order": "ID:prop:text:Дом:order",
+            "parent": "ID:prop:text:Дом:parent",
+            "status": "ID:prop:text:Дом:status"
+          },
+          "statusOptions": []
+        },
+        "textJson": "",
+        "workshopId": "ID:workshop"
+      },
+      {
+        "cardNoteId": "ID:card:Лес",
+        "cardPath": "Saga/Истории/Лес/Лес.md",
+        "databaseId": "ID:db:text:Лес",
+        "fileRevision": "REV",
+        "folderPath": "Saga/Истории/Лес",
+        "formatVersion": 3,
+        "name": "Лес",
+        "storyId": "ID:story:Лес",
+        "text": {
+          "databaseId": "ID:db:text:Лес",
+          "formats": [
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Лес:manuscript",
+              "kind": "manuscript",
+              "name": "Рукопись",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Лес:screenplay",
+              "kind": "screenplay",
+              "name": "Сценарий",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Лес:comic",
+              "kind": "comic",
+              "name": "Комикс",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Лес:note",
+              "kind": "note",
+              "name": "Заметка",
+              "state": "ok"
+            }
+          ],
+          "levels": [
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Лес:0",
+              "name": "Книга",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Лес:1",
+              "name": "Арка",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Лес:2",
+              "name": "Глава",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Лес:3",
+              "name": "Страница",
+              "state": "ok"
+            }
+          ],
+          "properties": {
+            "anchors": null,
+            "arcs": null,
+            "format": "ID:prop:text:Лес:format",
+            "level": "ID:prop:text:Лес:level",
+            "order": "ID:prop:text:Лес:order",
+            "parent": "ID:prop:text:Лес:parent",
+            "status": "ID:prop:text:Лес:status"
+          },
+          "statusOptions": []
+        },
+        "textJson": "",
+        "workshopId": "ID:workshop"
+      },
+      {
+        "cardNoteId": "ID:card:Одна",
+        "cardPath": "Saga/Истории/Одна/Одна.md",
+        "databaseId": "ID:db:text:Одна",
+        "fileRevision": "REV",
+        "folderPath": "Saga/Истории/Одна",
+        "formatVersion": 3,
+        "name": "Одна",
+        "storyId": "ID:story:Одна",
+        "text": {
+          "databaseId": "ID:db:text:Одна",
+          "formats": [
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Одна:manuscript",
+              "kind": "manuscript",
+              "name": "Рукопись",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Одна:screenplay",
+              "kind": "screenplay",
+              "name": "Сценарий",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Одна:comic",
+              "kind": "comic",
+              "name": "Комикс",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "id": "ID:option:format:Одна:note",
+              "kind": "note",
+              "name": "Заметка",
+              "state": "ok"
+            }
+          ],
+          "levels": [
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Одна:0",
+              "name": "Книга",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Одна:1",
+              "name": "Арка",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Одна:2",
+              "name": "Глава",
+              "state": "ok"
+            },
+            {
+              "color": "#94a3b8",
+              "icon": null,
+              "id": "ID:option:level:Одна:3",
+              "name": "Страница",
+              "state": "ok"
+            }
+          ],
+          "properties": {
+            "anchors": null,
+            "arcs": null,
+            "format": "ID:prop:text:Одна:format",
+            "level": "ID:prop:text:Одна:level",
+            "order": "ID:prop:text:Одна:order",
+            "parent": "ID:prop:text:Одна:parent",
+            "status": "ID:prop:text:Одна:status"
+          },
+          "statusOptions": []
+        },
+        "textJson": "",
+        "workshopId": "ID:workshop"
+      }
+    ],
+    "tags": [],
+    "workshopId": "ID:workshop"
+  }
+}

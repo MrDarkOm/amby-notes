@@ -8,6 +8,8 @@ import { useDatabaseStore } from "../database/database-store"
 import { CreateSectionDialog } from "./create-section-dialog"
 import { ProjectDesk } from "./project-desk"
 import { ProjectSettingsDialog } from "./project-settings-dialog"
+import { UniverseDesk } from "./universe-desk"
+import { useDatabaseRows } from "./workshop/use-database-rows"
 import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative-nav-store"
 import { useProjectStore } from "./project-store"
 import { groupSections, resolveProjectTarget, type SidebarSection } from "./project-tree-model"
@@ -89,6 +91,25 @@ export function ProjectPage({
 
   const target = React.useMemo(() => resolveProjectTarget(catalog, projectId), [catalog, projectId])
 
+  // A universe is named by its card, which is a row of the universes section.
+  const dataNonce = useCreativeNavStore((state) => state.dataNonce)
+  const universeSection =
+    target?.kind === "universe"
+      ? target.workshop.sections.find(
+          (section) => section.role === "universes" && section.state !== "missing",
+        )
+      : undefined
+  const universeRows = useDatabaseRows(
+    universeSection ? [universeSection.databaseId] : [],
+    dataNonce,
+  )
+  const universeTitle =
+    target?.kind === "universe" && universeSection
+      ? universeRows.rows[universeSection.databaseId]?.find(
+          (row) => row.noteId === target.universeId,
+        )?.title
+      : undefined
+
   if (!target) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-[var(--note-surface)] p-8">
@@ -115,14 +136,14 @@ export function ProjectPage({
   const pageTitle = isStory
     ? (story?.name ?? "")
     : isUniverse
-      ? t("creative.sections.universes", "Вселенная")
+      ? (universeTitle ?? t("creative.kind.universe"))
       : workshop.name
   const pageIcon = isStory ? null : isUniverse ? null : workshop.icon
   const pageTags: string[] = isStory ? [] : isUniverse ? [] : workshop.tags
   const kindLabel = isStory
     ? t("creative.kind.story")
     : isUniverse
-      ? t("creative.sections.universes", "Вселенная")
+      ? t("creative.kind.universe")
       : t("creative.welcome.title", "Творческая мастерская")
 
   const groups = groupSections(workshop)
@@ -133,6 +154,8 @@ export function ProjectPage({
   const stories = workshop.stories
 
   const hasDesk = isStory && Boolean(story?.text?.databaseId) && Boolean(onOpenNote)
+  const universeId = target.kind === "universe" ? target.universeId : null
+  const hasUniverseDesk = universeId !== null && Boolean(onOpenNote)
 
   const tabClass = (isActive: boolean) =>
     cn(
@@ -268,7 +291,16 @@ export function ProjectPage({
                 onOpenSection={(_ownerId, sectionId) => showSection(projectId, sectionId)}
               />
             )}
-            {!hasDesk && stories.length > 0 && (
+            {hasUniverseDesk && onOpenNote && universeId && (
+              <UniverseDesk
+                workshop={workshop}
+                universeId={universeId}
+                onOpenNote={onOpenNote}
+                onOpenStory={(storyId) => onOpenProject(storyId)}
+                onOpenSection={(_ownerId, sectionId) => showSection(projectId, sectionId)}
+              />
+            )}
+            {!hasDesk && !hasUniverseDesk && stories.length > 0 && (
               <section className="mb-8">
                 <h2 className="mb-3 text-sm font-semibold">{t("creative.page.stories")}</h2>
                 <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -289,6 +321,7 @@ export function ProjectPage({
               </section>
             )}
             {!hasDesk &&
+              !hasUniverseDesk &&
               groups.map((group) => (
                 <section key={group.id ?? "loose"} className="mb-8">
                   {group.name && <h2 className="mb-3 text-sm font-semibold">{group.name}</h2>}
@@ -303,7 +336,7 @@ export function ProjectPage({
                   </div>
                 </section>
               ))}
-            {!hasDesk && sections.length === 0 && stories.length === 0 && (
+            {!hasDesk && !hasUniverseDesk && sections.length === 0 && stories.length === 0 && (
               <p className="text-sm text-muted-foreground">{t("creative.page.noSections")}</p>
             )}
           </div>

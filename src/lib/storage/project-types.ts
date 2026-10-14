@@ -3,13 +3,17 @@ import type { ProjectError } from "@/lib/bindings"
 // The contract lives in Rust (`src-tauri/src/project/model.rs`); the types are
 // the generated ones so the two sides cannot drift apart.
 export type {
+  AddStoryLinksRequest,
   AddTextStatusRequest,
+  AddedStoryLinks,
   AddedTextStatus,
   CreateStoryRequest,
+  CreateWorkshopEntityRequest,
   CreateWorkshopRequest,
   CreateWorkshopSectionRequest,
   CreatedStory,
   CreatedWorkshop,
+  CreatedWorkshopEntity,
   CreatedWorkshopSection,
   CreatedWorkshopSectionResult,
   CreatedTextPage,
@@ -106,6 +110,10 @@ export function projectErrorMessage(error: ProjectError): string {
       return "The story has no text schema"
     case "statusAlreadyConfigured":
       return "The story text already has a status property"
+    case "storyLinksAlreadyConfigured":
+      return "The section is already linked"
+    case "storyLinksUnavailable":
+      return `The section cannot be linked: ${error.reason}`
     case "unknownTextLevel":
       return `Unknown text level ${error.levelId}`
     case "unknownTextFormat":

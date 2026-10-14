@@ -111,13 +111,17 @@ import type {
 import { DatabaseOperationError } from "./database-types"
 import { ProjectOperationError } from "./project-types"
 import type {
+  AddStoryLinksRequest,
   AddTextStatusRequest,
+  AddedStoryLinks,
   AddedTextStatus,
   CreateStoryRequest,
+  CreateWorkshopEntityRequest,
   CreateWorkshopRequest,
   CreateWorkshopSectionRequest,
   CreatedStory,
   CreatedWorkshop,
+  CreatedWorkshopEntity,
   CreatedWorkshopSectionResult,
   CreatedTextPage,
   CreateTextPageRequest,
@@ -568,6 +572,16 @@ export class WebAdapterCore implements StoragePort {
 
   async addTextStatus(_request: AddTextStatusRequest): Promise<AddedTextStatus> {
     throw new ProjectOperationError("failed", "Adding text status requires the desktop runtime")
+  }
+
+  async addStoryLinks(_request: AddStoryLinksRequest): Promise<AddedStoryLinks> {
+    throw new ProjectOperationError("failed", "Linking a section requires the desktop runtime")
+  }
+
+  async createWorkshopEntity(
+    _request: CreateWorkshopEntityRequest,
+  ): Promise<CreatedWorkshopEntity> {
+    throw new ProjectOperationError("failed", "Creating a world page requires the desktop runtime")
   }
 
   async createTextPage(_request: CreateTextPageRequest): Promise<CreatedTextPage> {

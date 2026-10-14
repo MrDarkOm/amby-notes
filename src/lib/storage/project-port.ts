@@ -2,13 +2,17 @@ import type { Result } from "@/lib/bindings"
 import {
   projectErrorMessage,
   ProjectOperationError,
+  type AddStoryLinksRequest,
   type AddTextStatusRequest,
+  type AddedStoryLinks,
   type AddedTextStatus,
   type CreateStoryRequest,
+  type CreateWorkshopEntityRequest,
   type CreateWorkshopRequest,
   type CreateWorkshopSectionRequest,
   type CreatedStory,
   type CreatedWorkshop,
+  type CreatedWorkshopEntity,
   type CreatedWorkshopSectionResult,
   type CreatedTextPage,
   type CreateTextPageRequest,
@@ -55,6 +59,13 @@ export interface ProjectPort {
   updateTextLevels(request: UpdateTextLevelsRequest): Promise<UpdatedTextLevels>
   /** Adds the optional `status` property to an existing story's text database. */
   addTextStatus(request: AddTextStatusRequest): Promise<AddedTextStatus>
+  /**
+   * Links a section of an older workshop: a world section to stories, or the stories section to
+   * universes. Adopts a relation the section already has, else adds one.
+   */
+  addStoryLinks(request: AddStoryLinksRequest): Promise<AddedStoryLinks>
+  /** A page of a world section, born linked to a story's card when `storyId` is given. */
+  createWorkshopEntity(request: CreateWorkshopEntityRequest): Promise<CreatedWorkshopEntity>
   /** A page of a story's text with its level, format, parent and place, in one write. */
   createTextPage(request: CreateTextPageRequest): Promise<CreatedTextPage>
   /** Moves a page: parent and order in one write, refused when it would make a loop. */

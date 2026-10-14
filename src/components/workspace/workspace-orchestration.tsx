@@ -590,7 +590,7 @@ export function WorkspaceOrchestration() {
         target?.kind === "story"
           ? target.story.name
           : target?.kind === "universe"
-            ? t("creative.sections.universes", "Вселенная")
+            ? t("creative.kind.universe")
             : target?.kind === "workshop"
               ? target.workshop.name
               : t("creative.welcome.title", "Творческая мастерская")

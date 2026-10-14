@@ -40,8 +40,10 @@ import type {
   UpdateDatabaseRelationValueRequest,
 } from "./database-types"
 import type {
+  AddStoryLinksRequest,
   AddTextStatusRequest,
   CreateStoryRequest,
+  CreateWorkshopEntityRequest,
   CreateWorkshopRequest,
   CreateWorkshopSectionRequest,
   CreateTextPageRequest,
@@ -444,6 +446,20 @@ export const addTextStatus = (request: AddTextStatusRequest) => {
     operationId: request.operationId,
   })
   return getAdapter().addTextStatus(request)
+}
+export const addStoryLinks = (request: AddStoryLinksRequest) => {
+  logger.info("storage.add_story_links", {
+    sectionId: request.sectionId,
+    operationId: request.operationId,
+  })
+  return getAdapter().addStoryLinks(request)
+}
+export const createWorkshopEntity = (request: CreateWorkshopEntityRequest) => {
+  logger.info("storage.create_workshop_entity", {
+    sectionId: request.sectionId,
+    linked: request.storyId != null,
+  })
+  return getAdapter().createWorkshopEntity(request)
 }
 export const createTextPage = (request: CreateTextPageRequest) => {
   logger.info("storage.create_text_page", {

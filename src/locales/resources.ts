@@ -2419,6 +2419,16 @@ const ru = {
       search: "Поиск",
       shared: "Общие",
       noImportance: "Без значимости",
+      noStory: "Без истории",
+      link: {
+        stories: "Связать с историями",
+        storiesHint:
+          "Добавит в раздел связь «Истории»: так страницы раздела можно привязывать к историям.",
+        universes: "Связать истории со вселенными",
+        universesHint:
+          "Добавит историям связь «Вселенная»: так видно, какие истории и страницы принадлежат вселенной.",
+        failed: "Не удалось связать: {{message}}",
+      },
       empty: "Здесь пока пусто.",
       nothingFound: "Ничего не найдено.",
       loadFailed: "Не удалось загрузить список.",
@@ -2456,6 +2466,7 @@ const ru = {
       notes: "Заметки",
       characters: "Персонажи",
       locations: "Локации",
+      universes: "Вселенные",
     },
     groups: { work: "История", world: "Мир" },
     dossier: {
@@ -2478,6 +2489,8 @@ const ru = {
         kind: "Тип",
         portrait: "Портрет",
         image: "Изображение",
+        stories: "Истории",
+        universe: "Вселенная",
       },
       importance: { main: "Главные", side: "Второстепенные", episode: "Эпизодические" },
       kinds: { city: "Город", district: "Район", place: "Место", nature: "Природа" },
@@ -2667,6 +2680,10 @@ const ru = {
       sections: "Разделы проекта",
       stories: "Истории",
       noSections: "В проекте пока нет разделов. Добавьте первый кнопкой «Раздел».",
+      universe: {
+        noStories:
+          "В этой вселенной пока нет историй. Укажите вселенную в карточке истории (свойство «Вселенная»).",
+      },
       desk: {
         continue: "Продолжить с…",
         continueEmpty: "Когда в тексте появятся страницы, здесь будут последние изменённые.",
@@ -2729,6 +2746,9 @@ const ru = {
       cannotRemoveTextSection: "Раздел с текстом истории нельзя убрать из проекта.",
       textNotConfigured: "У истории нет настроенного текста: уровни и форматы не созданы.",
       statusAlreadyConfigured: "Свойство статуса уже добавлено в раздел «Текст».",
+      storyLinksAlreadyConfigured: "Этот раздел уже связан с историями.",
+      storyLinksUnavailable:
+        "Раздел нельзя связать: его база недоступна для записи, а нужной связи в ней нет.",
       unknownTextLevel: "Этого уровня больше нет в разделе «Текст». Выберите другой.",
       unknownTextFormat: "Этого формата больше нет в разделе «Текст». Выберите другой.",
       pageNotFound: "Страница не найдена: возможно, её перенесли или удалили.",
@@ -5138,6 +5158,16 @@ const en: typeof ru = {
       search: "Search",
       shared: "Shared",
       noImportance: "No importance",
+      noStory: "No story",
+      link: {
+        stories: "Link to stories",
+        storiesHint:
+          'Adds a "Stories" relation to the section, so its pages can be attached to stories.',
+        universes: "Link stories to universes",
+        universesHint:
+          'Adds a "Universe" relation to the stories, so it shows which stories and pages belong to a universe.',
+        failed: "Could not link: {{message}}",
+      },
       empty: "Nothing here yet.",
       nothingFound: "Nothing found.",
       loadFailed: "The list could not be loaded.",
@@ -5173,6 +5203,7 @@ const en: typeof ru = {
       notes: "Notes",
       characters: "Characters",
       locations: "Locations",
+      universes: "Universes",
     },
     groups: { work: "Story", world: "World" },
     dossier: {
@@ -5193,6 +5224,8 @@ const en: typeof ru = {
         kind: "Kind",
         portrait: "Portrait",
         image: "Image",
+        stories: "Stories",
+        universe: "Universe",
       },
       importance: { main: "Main", side: "Supporting", episode: "Minor" },
       kinds: { city: "City", district: "District", place: "Place", nature: "Nature" },
@@ -5381,6 +5414,10 @@ const en: typeof ru = {
       sections: "Project sections",
       stories: "Stories",
       noSections: 'The project has no sections yet. Add the first with the "Section" button.',
+      universe: {
+        noStories:
+          'No stories in this universe yet. Set the universe in a story\'s card (the "Universe" property).',
+      },
       desk: {
         continue: "Continue with…",
         continueEmpty: "Once the text has pages, the last changed ones appear here.",
@@ -5443,6 +5480,9 @@ const en: typeof ru = {
       cannotRemoveTextSection: "The story's text section cannot be removed from the project.",
       textNotConfigured: "The story has no text set up: levels and formats were not created.",
       statusAlreadyConfigured: "The status property is already configured in the Text section.",
+      storyLinksAlreadyConfigured: "This section is already linked to stories.",
+      storyLinksUnavailable:
+        "The section cannot be linked: its database cannot be written to and has no suitable relation.",
       unknownTextLevel: "This level is no longer in the Text section. Choose another.",
       unknownTextFormat: "This format is no longer in the Text section. Choose another.",
       pageNotFound: "The page was not found: it may have been moved or deleted.",

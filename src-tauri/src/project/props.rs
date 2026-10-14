@@ -60,6 +60,17 @@ impl<'a> PropertyBuilder<'a> {
         })
     }
 
+    /// A builder for a database that already exists, so a new property is checked against the
+    /// properties it really has (names and storage keys).
+    pub fn for_manifest(vault: &'a Path, manifest: DatabaseManifest) -> Self {
+        Self {
+            vault,
+            database_id: manifest.database_id.clone(),
+            manifest,
+            pending_databases: Vec::new(),
+        }
+    }
+
     /// Names the databases that the operation creates alongside this one.
     pub fn with_pending_databases(mut self, pending: &[String]) -> Self {
         self.pending_databases = pending.to_vec();

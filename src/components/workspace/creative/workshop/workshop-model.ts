@@ -1,5 +1,6 @@
 import type {
   DatabasePropertySummary,
+  DatabaseRow,
   DatabaseSummary,
   ProjectCatalog,
   StorySummary,
@@ -47,10 +48,14 @@ export type WorkshopDraft =
 export interface WorkshopTab {
   key: string
   role: string | null
+  /** The ID of the section in the workshop file. */
+  sectionId: string
   /** The section database's display name. */
   name: string
   databaseId: string
   readOnly: boolean
+  /** The relation property that links this section's pages to stories; `null` before it is set. */
+  storiesPropertyId: string | null
 }
 
 export interface WorkshopScope {
@@ -99,9 +104,11 @@ export function entityTabs(target: WorkshopScope | WorkshopSummary | null): Work
     tabs.push({
       key,
       role: section.role,
+      sectionId: section.id,
       name: section.name,
       databaseId: section.databaseId,
       readOnly: workshop.readOnly,
+      storiesPropertyId: section.storiesPropertyId,
     })
   }
   const rank = (tab: WorkshopTab) => {
@@ -135,6 +142,21 @@ export interface EntityItem {
   databaseId: string
   workshopId: string
   valuesJson: string
+}
+
+/** Rows of one database as the list items the panel and the pages work with. */
+export function entityItemsOf(
+  rows: readonly DatabaseRow[],
+  databaseId: string,
+  workshopId: string,
+): EntityItem[] {
+  return rows.map((row) => ({
+    noteId: row.noteId,
+    title: row.title,
+    databaseId,
+    workshopId,
+    valuesJson: row.valuesJson,
+  }))
 }
 
 /**
@@ -262,6 +284,16 @@ export function groupEntities(
   return result.map(({ rank: _rank, ...group }) => group)
 }
 
+/** Relation targets stored under one property of a row's values. */
+export function relationTargetsOf(valuesJson: string, propertyId: string): string[] {
+  const value = parseValues(valuesJson)[propertyId]
+  if (value && typeof value === "object" && (value as { type?: unknown }).type === "relation") {
+    const targets = (value as { targetNoteIds?: unknown }).targetNoteIds
+    if (Array.isArray(targets)) return targets.filter((id): id is string => typeof id === "string")
+  }
+  return []
+}
+
 /** Relation targets stored in one row's values. */
 export function relationTargets(valuesJson: string): string[] {
   const ids: string[] = []
@@ -296,4 +328,162 @@ export function buildSearchGroups(query: string, sources: SearchSource[]): Searc
         .sort(compareTitle),
     }))
     .filter((source) => source.items.length > 0)
+}
+
+// ── Belonging: stories and universes ───────────────────────────────────────────────────────────
+
+/**
+ * What the panel shows. A page belongs to a story when its "Stories" relation names the story's
+ * card or when a relation of one of the story's own text pages points at it (the text names it);
+ * it belongs to a universe through any story whose "Universe" relation is that universe.
+ */
+export type PanelFilter =
+  { kind: "all" } | { kind: "story"; storyId: string } | { kind: "universe"; universeId: string }
+
+/**
+ * The filter the stored choices mean. A universe wins over a story; `"all"` is "the whole
+ * workshop"; a story that is unknown (or none chosen yet) falls back on the first one, and a
+ * workshop without stories on the whole workshop.
+ */
+export function resolvePanelFilter(
+  stories: readonly StorySummary[],
+  universeIds: readonly string[],
+  storyFilter: string | null,
+  universeFilter: string | null,
+): PanelFilter {
+  if (universeFilter !== null && universeIds.includes(universeFilter)) {
+    return { kind: "universe", universeId: universeFilter }
+  }
+  if (storyFilter === "all") return { kind: "all" }
+  const story = selectedStoryOf([...stories], storyFilter)
+  return story ? { kind: "story", storyId: story.storyId } : { kind: "all" }
+}
+
+export interface Membership {
+  /** The stories a page is in, in the order of the catalog. */
+  storiesOf: (noteId: string) => readonly string[]
+  /** The universe note a story is in, if it has one. */
+  universeOf: (storyId: string) => string | null
+}
+
+interface MembershipInput {
+  stories: readonly StorySummary[]
+  sections: readonly WorkshopSectionSummary[]
+  /** Rows by database ID: the sections, the stories section, and the text of every story whose
+   * text should count (a story whose text is not loaded counts through its relations only). */
+  rows: Readonly<Record<string, readonly DatabaseRow[] | undefined>>
+}
+
+/** Who belongs to which story, read from the rows the panel already holds. */
+export function buildMembership({ stories, sections, rows }: MembershipInput): Membership {
+  const storyIndex = new Map(stories.map((story, index) => [story.storyId, index]))
+  const storyOfCard = new Map<string, string>()
+  for (const story of stories) {
+    if (story.cardNoteId) storyOfCard.set(story.cardNoteId, story.storyId)
+  }
+
+  const inStories = new Map<string, Set<string>>()
+  const add = (noteId: string, storyId: string) => {
+    const set = inStories.get(noteId) ?? new Set<string>()
+    set.add(storyId)
+    inStories.set(noteId, set)
+  }
+
+  // The page names the story.
+  for (const section of sections) {
+    if (!section.storiesPropertyId) continue
+    for (const row of rows[section.databaseId] ?? []) {
+      for (const target of relationTargetsOf(row.valuesJson, section.storiesPropertyId)) {
+        const storyId = storyOfCard.get(target)
+        if (storyId) add(row.noteId, storyId)
+      }
+    }
+  }
+  // The story's text names the page. Only this story's own pages are read.
+  for (const story of stories) {
+    for (const row of story.databaseId ? (rows[story.databaseId] ?? []) : []) {
+      for (const target of relationTargets(row.valuesJson)) add(target, story.storyId)
+    }
+  }
+
+  // The universe of a story is a relation of its card.
+  const universeOfStory = new Map<string, string>()
+  const storiesSection = sections.find((section) => section.role === "stories")
+  if (storiesSection?.universePropertyId) {
+    const cards = new Map((rows[storiesSection.databaseId] ?? []).map((row) => [row.noteId, row]))
+    for (const story of stories) {
+      const card = story.cardNoteId ? cards.get(story.cardNoteId) : undefined
+      const universe = card
+        ? relationTargetsOf(card.valuesJson, storiesSection.universePropertyId)[0]
+        : undefined
+      if (universe) universeOfStory.set(story.storyId, universe)
+    }
+  }
+  // A universe is "in" the stories that belong to it.
+  for (const [storyId, universeId] of universeOfStory) add(universeId, storyId)
+
+  const sortedStories = (noteId: string): readonly string[] =>
+    [...(inStories.get(noteId) ?? [])].sort(
+      (a, b) => (storyIndex.get(a) ?? 0) - (storyIndex.get(b) ?? 0),
+    )
+  return {
+    storiesOf: sortedStories,
+    universeOf: (storyId) => universeOfStory.get(storyId) ?? null,
+  }
+}
+
+export interface ScopedEntities {
+  shown: EntityItem[]
+  /** Pages in no story and named by no text: the workshop's "no story" group, only for "all". */
+  withoutStory: EntityItem[]
+}
+
+/** The pages the filter lets through. */
+export function scopeEntities(
+  items: readonly EntityItem[],
+  filter: PanelFilter,
+  membership: Membership,
+): ScopedEntities {
+  if (filter.kind === "all") {
+    const shown: EntityItem[] = []
+    const withoutStory: EntityItem[] = []
+    for (const item of items) {
+      ;(membership.storiesOf(item.noteId).length > 0 ? shown : withoutStory).push(item)
+    }
+    return { shown, withoutStory }
+  }
+  if (filter.kind === "story") {
+    return {
+      shown: items.filter((item) => membership.storiesOf(item.noteId).includes(filter.storyId)),
+      withoutStory: [],
+    }
+  }
+  return {
+    shown: items.filter(
+      (item) =>
+        item.noteId === filter.universeId ||
+        membership
+          .storiesOf(item.noteId)
+          .some((storyId) => membership.universeOf(storyId) === filter.universeId),
+    ),
+    withoutStory: [],
+  }
+}
+
+export interface StoryLabels {
+  names: string[]
+  /** How many more stories there are than names. */
+  more: number
+}
+
+/** Up to `limit` story names for a row, then how many were left out. */
+export function storyLabels(
+  storyIds: readonly string[],
+  nameOf: (storyId: string) => string | undefined,
+  limit = 2,
+): StoryLabels {
+  const names = storyIds
+    .map(nameOf)
+    .filter((name): name is string => name !== undefined && name !== "")
+  return { names: names.slice(0, limit), more: Math.max(0, names.length - limit) }
 }

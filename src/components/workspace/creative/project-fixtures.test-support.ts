@@ -15,6 +15,8 @@ export function workshopSection(
     name: overrides.name ?? overrides.databaseName ?? id,
     databaseId: `db_${id}`,
     pathHint: id,
+    storiesPropertyId: null,
+    universePropertyId: null,
     state: "ok",
     resolvedPath: id,
     databaseName: id,

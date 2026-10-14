@@ -245,6 +245,8 @@ pub fn init_schema(conn: &Connection) -> Result<(), String> {
             name TEXT NOT NULL,
             database_id TEXT NOT NULL,
             path_hint TEXT NOT NULL,
+            stories_property_id TEXT,
+            universe_property_id TEXT,
             PRIMARY KEY (workshop_id, section_id)
         );
         CREATE TABLE IF NOT EXISTS project_stories (
@@ -347,6 +349,35 @@ pub fn init_schema(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
     tx.commit().map_err(|error| error.to_string())?;
+
+    // `project_sections` gained the two link columns. The table is a cache rebuilt from the
+    // structure files, so an older one is widened and the project index is marked unbuilt: the
+    // next read rebuilds it and fills the columns.
+    let has_link_columns: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('project_sections') WHERE name = 'stories_property_id')",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| error.to_string())?;
+    if !has_link_columns {
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|error| error.to_string())?;
+        for column in ["stories_property_id", "universe_property_id"] {
+            tx.execute(
+                &format!("ALTER TABLE project_sections ADD COLUMN {column} TEXT"),
+                [],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        tx.execute(
+            "DELETE FROM index_metadata WHERE key = 'project_index_epoch'",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+        tx.commit().map_err(|error| error.to_string())?;
+    }
 
     conn.execute(
         "INSERT INTO index_metadata (key, value) VALUES ('database_schema_version', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value",

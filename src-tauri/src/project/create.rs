@@ -15,15 +15,15 @@ use serde_json::{json, Value};
 use super::discovery::discover_projects;
 use super::format::{document_bytes, with_section_appended, workshop_section_entry};
 use super::journal::{
-    create_journal, read_journal, remove_journal, replace_journal, Journal, Plan, PlannedSection,
-    PlannedStory, JOURNAL_FORMAT, JOURNAL_VERSION, OP_CREATE_SECTION, OP_CREATE_STORY,
-    OP_CREATE_WORKSHOP, STATUS_COMPLETED, STATUS_IN_PROGRESS,
+    create_journal, read_journal, remove_journal, replace_journal, Journal, Plan,
+    PlannedManifestWrite, PlannedSection, PlannedStory, JOURNAL_FORMAT, JOURNAL_VERSION,
+    OP_CREATE_SECTION, OP_CREATE_STORY, OP_CREATE_WORKSHOP, STATUS_COMPLETED, STATUS_IN_PROGRESS,
 };
 use super::model::{
     CreateStoryRequest, CreateWorkshopRequest, CreateWorkshopSectionRequest, CreatedStory,
     CreatedWorkshop, CreatedWorkshopSection, CreatedWorkshopSectionResult, ProjectError,
     KNOWN_FORMAT_VERSION, KNOWN_ROLES, ROLE_CHARACTERS, ROLE_CUSTOM, ROLE_LOCATIONS, ROLE_STORIES,
-    STORY_FILE_NAME, WORKSHOP_FILE_NAME,
+    ROLE_UNIVERSES, STORY_FILE_NAME, WORKSHOP_FILE_NAME,
 };
 use super::names::{exists_ignoring_case, normalize_entry_name, normalize_icon, normalize_tags};
 use super::presets::{self, template_file_bytes, PlannedTemplate};
@@ -55,6 +55,8 @@ pub(crate) enum Step {
     FolderCreated,
     BeforeDatabase(usize),
     DatabaseCreated(usize),
+    BeforeManifest,
+    ManifestWritten,
     BeforeWorkshopFile,
     WorkshopFileWritten,
     StoryFolderCreated,
@@ -89,14 +91,14 @@ pub(crate) fn clear_step_hook() {
     STEP_HOOK.with(|slot| *slot.borrow_mut() = None);
 }
 
-enum Interrupt {
+pub(super) enum Interrupt {
     Error(String),
     Conflict(String),
     #[cfg_attr(not(test), allow(dead_code))]
     Crash,
 }
 
-fn checkpoint(step: Step) -> Result<(), Interrupt> {
+pub(super) fn checkpoint(step: Step) -> Result<(), Interrupt> {
     #[cfg(test)]
     {
         let fault = STEP_HOOK.with(|slot| slot.borrow_mut().as_mut().and_then(|hook| hook(&step)));
@@ -142,7 +144,7 @@ pub(super) fn join_relative(parent: &str, name: &str) -> String {
     }
 }
 
-fn guarded(vault: &Path, relative: &str) -> Result<PathBuf, ProjectError> {
+pub(super) fn guarded(vault: &Path, relative: &str) -> Result<PathBuf, ProjectError> {
     durable::guarded_path(vault, relative, LABEL)
         .map_err(|message| ProjectError::failed("invalidPath", message))
 }
@@ -241,7 +243,7 @@ pub(super) enum FileWrite {
     },
 }
 
-fn write_file_safe(
+pub(super) fn write_file_safe(
     env: &Env,
     path: &Path,
     write: &FileWrite,
@@ -301,8 +303,160 @@ fn write_file_safe(
 }
 
 // ---------------------------------------------------------------------------
+// Settling an operation
+// ---------------------------------------------------------------------------
+
+/// Closes an operation after its apply step: marks the journal completed, or cleans up through
+/// the journal. The structure file reaching its planned bytes is the commit point, so an error
+/// after it still reports success.
+pub(super) fn settle<T>(
+    env: &Env,
+    journal: Journal,
+    result: T,
+    run: Result<(), Interrupt>,
+) -> Result<T, ProjectError> {
+    match run {
+        Ok(()) => {
+            let mut journal = journal;
+            journal.status = STATUS_COMPLETED.to_owned();
+            let _ = replace_journal(env.vault, &journal);
+            Ok(result)
+        }
+        Err(interrupt) => {
+            let (message, conflict) = match interrupt {
+                Interrupt::Crash => {
+                    return Err(ProjectError::failed("interrupted", "operation interrupted"))
+                }
+                Interrupt::Error(m) => (m, None),
+                Interrupt::Conflict(actual) => ("revision conflict".to_owned(), Some(actual)),
+            };
+            match recovery::rollback(env.vault, &journal) {
+                Ok(Rollback::Committed) => Ok(result),
+                Ok(Rollback::Clean) => {
+                    remove_journal(env.vault, &journal.operation_id);
+                    if let Some(actual_revision) = conflict {
+                        Err(ProjectError::RevisionConflict { actual_revision })
+                    } else {
+                        Err(ProjectError::RolledBack {
+                            operation_id: journal.operation_id.clone(),
+                            message,
+                        })
+                    }
+                }
+                Ok(Rollback::Leftovers(left)) => Err(ProjectError::RecoveryRequired {
+                    operation_id: journal.operation_id.clone(),
+                    message: left.join("; "),
+                }),
+                Err(e) => Err(e),
+            }
+        }
+    }
+}
+
+/// One section of a new workshop: its plan for the journal, its entry in the structure file and
+/// its line in the answer.
+struct BaseSection {
+    planned: PlannedSection,
+    entry: Value,
+    created: CreatedWorkshopSection,
+}
+
+/// Plans a base section (`stories`, `characters`, `locations`). `target_databases` holds the
+/// databases planned so far, and every one of them is created by this same operation.
+fn plan_base_section(
+    env: &Env,
+    labels: &BTreeMap<String, String>,
+    workshop_rel: &str,
+    role: &str,
+    default_name: &str,
+    target_databases: &mut BTreeMap<String, String>,
+) -> Result<BaseSection, ProjectError> {
+    let name = normalize_entry_name(
+        &format!("section:{role}"),
+        labels
+            .get(&format!("section:{role}"))
+            .or_else(|| labels.get(&format!("preset:{role}")))
+            .map(String::as_str)
+            .unwrap_or(default_name),
+    )?;
+    let ids = PlannedDatabaseIds {
+        database_id: ulid::Ulid::generate().to_string(),
+        view_id: ulid::Ulid::generate().to_string(),
+    };
+    target_databases.insert(role.to_owned(), ids.database_id.clone());
+    let pending = target_databases.values().cloned().collect::<Vec<_>>();
+    let preset = presets::plan(
+        env.vault,
+        role,
+        &name,
+        &ids,
+        labels,
+        target_databases,
+        &pending,
+    )?;
+    let entry = workshop_section_entry(
+        role,
+        role,
+        &name,
+        &ids.database_id,
+        &name,
+        preset.stories_property_id.as_deref(),
+        None,
+    );
+    let created = CreatedWorkshopSection {
+        section_id: role.to_owned(),
+        role: role.to_owned(),
+        name: name.clone(),
+        database_id: ids.database_id.clone(),
+        path: name.clone(),
+        container_path: join_relative(workshop_rel, &name),
+        manifest_revision: manifest_revision(&name, &ids, &preset.extras)?,
+    };
+    let planned = PlannedSection {
+        id: role.to_owned(),
+        role: role.to_owned(),
+        name: name.clone(),
+        path: name,
+        database_id: ids.database_id,
+        view_id: ids.view_id,
+        extras: preset.extras,
+        template: preset.template,
+        stories_property_id: preset.stories_property_id,
+    };
+    Ok(BaseSection {
+        planned,
+        entry,
+        created,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // 1. Create Workshop
 // ---------------------------------------------------------------------------
+
+/// Everything `create_workshop` decides before the first write, whether freshly planned or read
+/// back from a journal on resume (so the IDs and the structure file are the ones already planned).
+struct WorkshopPlan {
+    planned_sections: Vec<PlannedSection>,
+    file_text: String,
+    file_revision: String,
+    created: CreatedWorkshop,
+}
+
+fn workshop_plan_from_journal(journal: &Journal) -> Option<WorkshopPlan> {
+    let file_text = journal.plan.workshop_file_text.clone()?;
+    let file_revision = journal.plan.workshop_file_revision.clone()?;
+    if raw_revision(file_text.as_bytes()) != file_revision || journal.plan.sections.is_empty() {
+        return None;
+    }
+    let created: CreatedWorkshop = serde_json::from_value(journal.expected_result.clone()).ok()?;
+    Some(WorkshopPlan {
+        planned_sections: journal.plan.sections.clone(),
+        file_text,
+        file_revision,
+        created,
+    })
+}
 
 pub fn create_workshop(
     env: &Env,
@@ -366,197 +520,69 @@ pub fn create_workshop(
     let icon = normalize_icon(request.icon.as_deref())?;
     let tags = normalize_tags(&request.tags)?;
 
-    let workshop_id = ulid::Ulid::generate().to_string();
+    let WorkshopPlan {
+        planned_sections,
+        file_text,
+        file_revision: workshop_rev,
+        created,
+    } = match resumed.as_deref().and_then(workshop_plan_from_journal) {
+        Some(plan) => plan,
+        None => {
+            let workshop_id = ulid::Ulid::generate().to_string();
+            let mut target_databases = BTreeMap::new();
+            let mut planned_sections = Vec::new();
+            let mut section_docs = Vec::new();
+            let mut created_sections = Vec::new();
+            for (role, default_name) in [
+                (ROLE_STORIES, "Истории"),
+                (ROLE_CHARACTERS, "Персонажи"),
+                (ROLE_LOCATIONS, "Локации"),
+            ] {
+                let base = plan_base_section(
+                    env,
+                    &request.labels,
+                    &workshop_rel,
+                    role,
+                    default_name,
+                    &mut target_databases,
+                )?;
+                planned_sections.push(base.planned);
+                section_docs.push(base.entry);
+                created_sections.push(base.created);
+            }
 
-    // Plan base sections: stories, characters, locations
-    let mut planned_sections = Vec::new();
-    let mut section_docs = Vec::new();
-    let mut created_sections = Vec::new();
-    let mut target_databases = BTreeMap::new();
-
-    // Stories section first
-    let stories_name = normalize_entry_name(
-        "section:stories",
-        request
-            .labels
-            .get("section:stories")
-            .or_else(|| request.labels.get("preset:stories"))
-            .map(String::as_str)
-            .unwrap_or("Истории"),
-    )?;
-    let stories_ids = PlannedDatabaseIds {
-        database_id: ulid::Ulid::generate().to_string(),
-        view_id: ulid::Ulid::generate().to_string(),
-    };
-    target_databases.insert("stories".to_owned(), stories_ids.database_id.clone());
-
-    let stories_preset = presets::plan(
-        env.vault,
-        ROLE_STORIES,
-        &stories_name,
-        &stories_ids,
-        &request.labels,
-        &target_databases,
-        &target_databases.values().cloned().collect::<Vec<_>>(),
-    )?;
-    let stories_section = PlannedSection {
-        id: "stories".to_owned(),
-        role: ROLE_STORIES.to_owned(),
-        name: stories_name.clone(),
-        path: stories_name.clone(),
-        database_id: stories_ids.database_id.clone(),
-        view_id: stories_ids.view_id.clone(),
-        extras: stories_preset.extras.clone(),
-        template: stories_preset.template,
-    };
-    section_docs.push(workshop_section_entry(
-        "stories",
-        ROLE_STORIES,
-        &stories_name,
-        &stories_ids.database_id,
-        &stories_name,
-    ));
-    created_sections.push(CreatedWorkshopSection {
-        section_id: "stories".to_owned(),
-        role: ROLE_STORIES.to_owned(),
-        name: stories_name.clone(),
-        database_id: stories_ids.database_id.clone(),
-        path: stories_name.clone(),
-        container_path: join_relative(&workshop_rel, &stories_name),
-        manifest_revision: manifest_revision(&stories_name, &stories_ids, &stories_preset.extras)?,
-    });
-    planned_sections.push(stories_section);
-
-    // Characters section
-    let chars_name = normalize_entry_name(
-        "section:characters",
-        request
-            .labels
-            .get("section:characters")
-            .or_else(|| request.labels.get("preset:characters"))
-            .map(String::as_str)
-            .unwrap_or("Персонажи"),
-    )?;
-    let chars_ids = PlannedDatabaseIds {
-        database_id: ulid::Ulid::generate().to_string(),
-        view_id: ulid::Ulid::generate().to_string(),
-    };
-    target_databases.insert("characters".to_owned(), chars_ids.database_id.clone());
-
-    let chars_preset = presets::plan(
-        env.vault,
-        ROLE_CHARACTERS,
-        &chars_name,
-        &chars_ids,
-        &request.labels,
-        &target_databases,
-        &target_databases.values().cloned().collect::<Vec<_>>(),
-    )?;
-    let chars_section = PlannedSection {
-        id: "characters".to_owned(),
-        role: ROLE_CHARACTERS.to_owned(),
-        name: chars_name.clone(),
-        path: chars_name.clone(),
-        database_id: chars_ids.database_id.clone(),
-        view_id: chars_ids.view_id.clone(),
-        extras: chars_preset.extras.clone(),
-        template: chars_preset.template.clone(),
-    };
-    section_docs.push(workshop_section_entry(
-        "characters",
-        ROLE_CHARACTERS,
-        &chars_name,
-        &chars_ids.database_id,
-        &chars_name,
-    ));
-    created_sections.push(CreatedWorkshopSection {
-        section_id: "characters".to_owned(),
-        role: ROLE_CHARACTERS.to_owned(),
-        name: chars_name.clone(),
-        database_id: chars_ids.database_id.clone(),
-        path: chars_name.clone(),
-        container_path: join_relative(&workshop_rel, &chars_name),
-        manifest_revision: manifest_revision(&chars_name, &chars_ids, &chars_preset.extras)?,
-    });
-    planned_sections.push(chars_section);
-
-    // Locations section
-    let locs_name = normalize_entry_name(
-        "section:locations",
-        request
-            .labels
-            .get("section:locations")
-            .or_else(|| request.labels.get("preset:locations"))
-            .map(String::as_str)
-            .unwrap_or("Локации"),
-    )?;
-    let locs_ids = PlannedDatabaseIds {
-        database_id: ulid::Ulid::generate().to_string(),
-        view_id: ulid::Ulid::generate().to_string(),
-    };
-
-    let locs_preset = presets::plan(
-        env.vault,
-        ROLE_LOCATIONS,
-        &locs_name,
-        &locs_ids,
-        &request.labels,
-        &target_databases,
-        &target_databases.values().cloned().collect::<Vec<_>>(),
-    )?;
-    let locs_section = PlannedSection {
-        id: "locations".to_owned(),
-        role: ROLE_LOCATIONS.to_owned(),
-        name: locs_name.clone(),
-        path: locs_name.clone(),
-        database_id: locs_ids.database_id.clone(),
-        view_id: locs_ids.view_id.clone(),
-        extras: locs_preset.extras.clone(),
-        template: locs_preset.template.clone(),
-    };
-    section_docs.push(workshop_section_entry(
-        "locations",
-        ROLE_LOCATIONS,
-        &locs_name,
-        &locs_ids.database_id,
-        &locs_name,
-    ));
-    created_sections.push(CreatedWorkshopSection {
-        section_id: "locations".to_owned(),
-        role: ROLE_LOCATIONS.to_owned(),
-        name: locs_name.clone(),
-        database_id: locs_ids.database_id.clone(),
-        path: locs_name.clone(),
-        container_path: join_relative(&workshop_rel, &locs_name),
-        manifest_revision: manifest_revision(&locs_name, &locs_ids, &locs_preset.extras)?,
-    });
-    planned_sections.push(locs_section);
-
-    // Workshop document
-    let mut workshop_doc_val = json!({
-        "formatVersion": KNOWN_FORMAT_VERSION,
-        "workshopId": workshop_id,
-        "name": name,
-        "tags": tags,
-        "sections": section_docs,
-    });
-    if let Some(ic) = &icon {
-        workshop_doc_val["icon"] = json!(ic);
-    }
-    let workshop_bytes =
-        document_bytes(&workshop_doc_val, false).map_err(|e| io_failure("serialize", e))?;
-    let workshop_rev = raw_revision(&workshop_bytes);
-
-    let created = CreatedWorkshop {
-        operation_id: request.operation_id.clone(),
-        workshop_id: workshop_id.clone(),
-        name: name.clone(),
-        path: workshop_rel.clone(),
-        file_path: join_relative(&workshop_rel, WORKSHOP_FILE_NAME),
-        file_revision: workshop_rev.clone(),
-        sections: created_sections,
-        replayed: false,
-        warnings: Vec::new(),
+            let mut workshop_doc_val = json!({
+                "formatVersion": KNOWN_FORMAT_VERSION,
+                "workshopId": workshop_id,
+                "name": name,
+                "tags": tags,
+                "sections": section_docs,
+            });
+            if let Some(ic) = &icon {
+                workshop_doc_val["icon"] = json!(ic);
+            }
+            let workshop_bytes =
+                document_bytes(&workshop_doc_val, false).map_err(|e| io_failure("serialize", e))?;
+            let workshop_rev = raw_revision(&workshop_bytes);
+            let created = CreatedWorkshop {
+                operation_id: request.operation_id.clone(),
+                workshop_id,
+                name: name.clone(),
+                path: workshop_rel.clone(),
+                file_path: join_relative(&workshop_rel, WORKSHOP_FILE_NAME),
+                file_revision: workshop_rev.clone(),
+                sections: created_sections,
+                replayed: false,
+                warnings: Vec::new(),
+            };
+            WorkshopPlan {
+                planned_sections,
+                file_text: String::from_utf8(workshop_bytes)
+                    .map_err(|e| io_failure("serialize", e))?,
+                file_revision: workshop_rev,
+                created,
+            }
+        }
     };
 
     let journal = Journal {
@@ -567,7 +593,7 @@ pub fn create_workshop(
         request_revision: request_rev,
         status: STATUS_IN_PROGRESS.to_owned(),
         plan: Plan {
-            workshop_id: Some(workshop_id),
+            workshop_id: Some(created.workshop_id.clone()),
             workshop_path: Some(workshop_rel.clone()),
             creates_workshop_folder: true,
             workshop_file_revision: Some(workshop_rev.clone()),
@@ -575,6 +601,7 @@ pub fn create_workshop(
             story: None,
             story_file_path: None,
             story_file_revision: None,
+            workshop_file_text: Some(file_text.clone()),
             manifest_write: None,
         },
         expected_result: serde_json::to_value(&created).unwrap(),
@@ -588,7 +615,7 @@ pub fn create_workshop(
     }
 
     // Apply
-    let run_res = (|| -> Result<(), Interrupt> {
+    let run = (|| -> Result<(), Interrupt> {
         checkpoint(Step::JournalWritten)?;
         fs::create_dir(&workshop_dir).map_err(|e| Interrupt::Error(e.to_string()))?;
         checkpoint(Step::FolderCreated)?;
@@ -621,7 +648,7 @@ pub fn create_workshop(
             env,
             &workshop_dir.join(WORKSHOP_FILE_NAME),
             &FileWrite::New {
-                bytes: workshop_bytes,
+                bytes: file_text.clone().into_bytes(),
             },
             &workshop_rev,
             "workshop-structure",
@@ -631,38 +658,7 @@ pub fn create_workshop(
         Ok(())
     })();
 
-    match run_res {
-        Ok(()) => {
-            let mut j = journal;
-            j.status = STATUS_COMPLETED.to_owned();
-            let _ = replace_journal(env.vault, &j);
-            Ok(created)
-        }
-        Err(interrupt) => {
-            let message = match interrupt {
-                Interrupt::Crash => {
-                    return Err(ProjectError::failed("interrupted", "operation interrupted"))
-                }
-                Interrupt::Error(m) => m,
-                Interrupt::Conflict(_) => "conflict".to_owned(),
-            };
-            match recovery::rollback(env.vault, &journal) {
-                Ok(Rollback::Committed) => Ok(created),
-                Ok(Rollback::Clean) => {
-                    remove_journal(env.vault, &request.operation_id);
-                    Err(ProjectError::RolledBack {
-                        operation_id: request.operation_id.clone(),
-                        message,
-                    })
-                }
-                Ok(Rollback::Leftovers(left)) => Err(ProjectError::RecoveryRequired {
-                    operation_id: request.operation_id.clone(),
-                    message: left.join("; "),
-                }),
-                Err(e) => Err(e),
-            }
-        }
-    }
+    settle(env, journal, created, run)
 }
 
 // ---------------------------------------------------------------------------
@@ -911,6 +907,7 @@ pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedSt
             }),
             story_file_path: Some(story_file_rel.clone()),
             story_file_revision: Some(story_file_rev.clone()),
+            workshop_file_text: None,
             manifest_write: None,
         },
         expected_result: serde_json::to_value(&created).unwrap(),
@@ -1017,6 +1014,34 @@ pub fn create_story(env: &Env, request: &CreateStoryRequest) -> Result<CreatedSt
 // 3. Create Workshop Section (Lazy W11 & Custom)
 // ---------------------------------------------------------------------------
 
+/// Everything `create_workshop_section` decides before the first write, fresh or read back from
+/// a journal. Creating the universes section also adds the "Universe" relation to the stories
+/// section, which is why a manifest write can be part of it.
+struct SectionPlan {
+    planned: PlannedSection,
+    file_text: String,
+    file_revision: String,
+    manifest_write: Option<PlannedManifestWrite>,
+    result: CreatedWorkshopSectionResult,
+}
+
+fn section_plan_from_journal(journal: &Journal) -> Option<SectionPlan> {
+    let file_text = journal.plan.workshop_file_text.clone()?;
+    let file_revision = journal.plan.workshop_file_revision.clone()?;
+    if raw_revision(file_text.as_bytes()) != file_revision || journal.plan.sections.len() != 1 {
+        return None;
+    }
+    let result: CreatedWorkshopSectionResult =
+        serde_json::from_value(journal.expected_result.clone()).ok()?;
+    Some(SectionPlan {
+        planned: journal.plan.sections[0].clone(),
+        file_text,
+        file_revision,
+        manifest_write: journal.plan.manifest_write.clone(),
+        result,
+    })
+}
+
 pub fn create_workshop_section(
     env: &Env,
     request: &CreateWorkshopSectionRequest,
@@ -1024,15 +1049,16 @@ pub fn create_workshop_section(
     validate_operation_id(&request.operation_id)?;
     let request_rev = request_revision(&serde_json::to_value(request).unwrap())?;
 
-    match replay(env, &request.operation_id, OP_CREATE_SECTION, &request_rev)? {
-        Replay::Fresh | Replay::Resume(_) => {}
+    let resumed = match replay(env, &request.operation_id, OP_CREATE_SECTION, &request_rev)? {
+        Replay::Fresh => None,
+        Replay::Resume(journal) => Some(journal),
         Replay::Done(value) => {
             let mut created: CreatedWorkshopSectionResult =
                 serde_json::from_value(value).map_err(|e| io_failure("deserialize", e))?;
             created.replayed = true;
             return Ok(created);
         }
-    }
+    };
 
     let discovery = discover_projects(env.vault).map_err(|e| io_failure("discovery", e))?;
     let workshop = discovery
@@ -1078,6 +1104,110 @@ pub fn create_workshop_section(
         });
     }
 
+    let SectionPlan {
+        planned: planned_section,
+        file_text,
+        file_revision: updated_rev,
+        manifest_write,
+        result,
+    } = match resumed.as_deref().and_then(section_plan_from_journal) {
+        Some(plan) => plan,
+        None => plan_section(env, workshop, request, role, &name)?,
+    };
+
+    let journal = Journal {
+        format: JOURNAL_FORMAT.to_owned(),
+        format_version: JOURNAL_VERSION,
+        operation_id: request.operation_id.clone(),
+        operation: OP_CREATE_SECTION.to_owned(),
+        request_revision: request_rev,
+        status: STATUS_IN_PROGRESS.to_owned(),
+        plan: Plan {
+            workshop_id: Some(request.workshop_id.clone()),
+            workshop_path: Some(workshop.path.clone()),
+            creates_workshop_folder: false,
+            workshop_file_revision: Some(updated_rev.clone()),
+            sections: vec![planned_section.clone()],
+            story: None,
+            story_file_path: None,
+            story_file_revision: None,
+            workshop_file_text: Some(file_text.clone()),
+            manifest_write: manifest_write.clone(),
+        },
+        expected_result: serde_json::to_value(&result).unwrap(),
+        extra: BTreeMap::new(),
+    };
+
+    if resumed.is_some() {
+        replace_journal(env.vault, &journal)?;
+    } else {
+        create_journal(env.vault, &journal)?;
+    }
+
+    // Apply
+    let run = (|| -> Result<(), Interrupt> {
+        checkpoint(Step::JournalWritten)?;
+        checkpoint(Step::BeforeDatabase(0))?;
+
+        create_database_with_ids(
+            env.vault,
+            env.watcher,
+            &CreateDatabaseRequest {
+                expected_generation: 0,
+                mode: DatabaseCreateMode::Standalone,
+                parent_path: Some(workshop_dir.to_string_lossy().to_string()),
+                note_path: None,
+                name: planned_section.name.clone(),
+            },
+            Some(&planned_ids(&planned_section)),
+            &planned_section.extras,
+        )
+        .map_err(Interrupt::Error)?;
+
+        if let Some(template) = &planned_section.template {
+            write_template(
+                env,
+                &workshop_dir.join(&planned_section.path),
+                &planned_section,
+                template,
+            )?;
+        }
+        checkpoint(Step::DatabaseCreated(0))?;
+
+        if let Some(write) = &manifest_write {
+            checkpoint(Step::BeforeManifest)?;
+            super::links::write_planned_manifest(env, write)?;
+            checkpoint(Step::ManifestWritten)?;
+        }
+
+        checkpoint(Step::BeforeWorkshopFile)?;
+        write_file_safe(
+            env,
+            &workshop_dir.join(WORKSHOP_FILE_NAME),
+            &FileWrite::Replace {
+                expected_revision: workshop.doc.revision.clone(),
+                bytes: file_text.clone().into_bytes(),
+            },
+            &updated_rev,
+            "workshop-structure",
+        )?;
+        checkpoint(Step::WorkshopFileWritten)?;
+        checkpoint(Step::BeforeCompletion)?;
+        Ok(())
+    })();
+
+    settle(env, journal, result, run)
+}
+
+/// Plans a new section from scratch: its database, its entry in the structure file and, for the
+/// universes section, the "Universe" relation that joins the stories section.
+fn plan_section(
+    env: &Env,
+    workshop: &super::discovery::DiscoveredWorkshop,
+    request: &CreateWorkshopSectionRequest,
+    role: &str,
+    name: &str,
+) -> Result<SectionPlan, ProjectError> {
     let section_id = if role != ROLE_CUSTOM {
         role.to_owned()
     } else {
@@ -1097,149 +1227,99 @@ pub fn create_workshop_section(
     let preset = presets::plan(
         env.vault,
         role,
-        &name,
+        name,
         &ids,
         &request.labels,
         &target_databases,
         &[],
     )?;
 
-    let planned_section = PlannedSection {
+    let planned = PlannedSection {
         id: section_id.clone(),
         role: role.to_owned(),
-        name: name.clone(),
-        path: name.clone(),
+        name: name.to_owned(),
+        path: name.to_owned(),
         database_id: ids.database_id.clone(),
         view_id: ids.view_id.clone(),
         extras: preset.extras.clone(),
         template: preset.template.clone(),
+        stories_property_id: preset.stories_property_id.clone(),
     };
 
-    let new_entry = workshop_section_entry(&section_id, role, &name, &ids.database_id, &name);
-    let updated_doc =
+    let new_entry = workshop_section_entry(
+        &section_id,
+        role,
+        name,
+        &ids.database_id,
+        name,
+        preset.stories_property_id.as_deref(),
+        None,
+    );
+    let mut updated_doc =
         with_section_appended(&workshop.doc.raw, new_entry).map_err(|e| io_failure("format", e))?;
+
+    // The first universe also gives the stories a "Universe" relation, in the same operation.
+    let mut manifest_write = None;
+    if role == ROLE_UNIVERSES {
+        if let Some(stories) = workshop
+            .doc
+            .sections
+            .iter()
+            .find(|s| s.role == ROLE_STORIES && s.universe_property_id.is_none())
+        {
+            match super::links::plan_link(
+                env.vault,
+                super::links::LinkKind::Universe,
+                &stories.database_id,
+                &ids.database_id,
+                std::slice::from_ref(&ids.database_id),
+                &request.labels,
+                false,
+            ) {
+                Ok(link) => {
+                    updated_doc = super::format::with_section_links(
+                        &updated_doc,
+                        &stories.id,
+                        None,
+                        Some(&link.property_id),
+                    )
+                    .map_err(|e| io_failure("format", e))?;
+                    manifest_write = link.write;
+                }
+                // A stories database that cannot take the relation (missing, locked, read-only)
+                // never stops a universe from being made; "Link to universes" offers it again.
+                Err(ProjectError::StoryLinksUnavailable { .. }) => {}
+                Err(other) => return Err(other),
+            }
+        }
+    }
+
     let updated_bytes = document_bytes(&updated_doc, workshop.doc.has_bom)
         .map_err(|e| io_failure("serialize", e))?;
     let updated_rev = raw_revision(&updated_bytes);
 
     let created_section = CreatedWorkshopSection {
-        section_id: section_id.clone(),
+        section_id,
         role: role.to_owned(),
-        name: name.clone(),
+        name: name.to_owned(),
         database_id: ids.database_id.clone(),
-        path: name.clone(),
-        container_path: join_relative(&workshop.path, &name),
-        manifest_revision: manifest_revision(&name, &ids, &preset.extras)?,
+        path: name.to_owned(),
+        container_path: join_relative(&workshop.path, name),
+        manifest_revision: manifest_revision(name, &ids, &preset.extras)?,
     };
 
-    let result = CreatedWorkshopSectionResult {
-        operation_id: request.operation_id.clone(),
-        workshop_id: request.workshop_id.clone(),
-        section: created_section,
-        workshop_revision: updated_rev.clone(),
-        replayed: false,
-        warnings: Vec::new(),
-    };
-
-    let journal = Journal {
-        format: JOURNAL_FORMAT.to_owned(),
-        format_version: JOURNAL_VERSION,
-        operation_id: request.operation_id.clone(),
-        operation: OP_CREATE_SECTION.to_owned(),
-        request_revision: request_rev,
-        status: STATUS_IN_PROGRESS.to_owned(),
-        plan: Plan {
-            workshop_id: Some(request.workshop_id.clone()),
-            workshop_path: Some(workshop.path.clone()),
-            creates_workshop_folder: false,
-            workshop_file_revision: Some(updated_rev.clone()),
-            sections: vec![planned_section.clone()],
-            story: None,
-            story_file_path: None,
-            story_file_revision: None,
-            manifest_write: None,
+    Ok(SectionPlan {
+        planned,
+        file_text: String::from_utf8(updated_bytes).map_err(|e| io_failure("serialize", e))?,
+        file_revision: updated_rev.clone(),
+        manifest_write,
+        result: CreatedWorkshopSectionResult {
+            operation_id: request.operation_id.clone(),
+            workshop_id: request.workshop_id.clone(),
+            section: created_section,
+            workshop_revision: updated_rev,
+            replayed: false,
+            warnings: Vec::new(),
         },
-        expected_result: serde_json::to_value(&result).unwrap(),
-        extra: BTreeMap::new(),
-    };
-
-    create_journal(env.vault, &journal)?;
-
-    // Apply
-    let run_res = (|| -> Result<(), Interrupt> {
-        checkpoint(Step::JournalWritten)?;
-        checkpoint(Step::BeforeDatabase(0))?;
-
-        create_database_with_ids(
-            env.vault,
-            env.watcher,
-            &CreateDatabaseRequest {
-                expected_generation: 0,
-                mode: DatabaseCreateMode::Standalone,
-                parent_path: Some(workshop_dir.to_string_lossy().to_string()),
-                note_path: None,
-                name: name.clone(),
-            },
-            Some(&ids),
-            &preset.extras,
-        )
-        .map_err(Interrupt::Error)?;
-
-        if let Some(template) = &preset.template {
-            write_template(env, &workshop_dir.join(&name), &planned_section, template)?;
-        }
-        checkpoint(Step::DatabaseCreated(0))?;
-
-        checkpoint(Step::BeforeWorkshopFile)?;
-        write_file_safe(
-            env,
-            &workshop_dir.join(WORKSHOP_FILE_NAME),
-            &FileWrite::Replace {
-                expected_revision: workshop.doc.revision.clone(),
-                bytes: updated_bytes,
-            },
-            &updated_rev,
-            "workshop-structure",
-        )?;
-        checkpoint(Step::WorkshopFileWritten)?;
-        checkpoint(Step::BeforeCompletion)?;
-        Ok(())
-    })();
-
-    match run_res {
-        Ok(()) => {
-            let mut j = journal;
-            j.status = STATUS_COMPLETED.to_owned();
-            let _ = replace_journal(env.vault, &j);
-            Ok(result)
-        }
-        Err(interrupt) => {
-            let (message, conflict) = match interrupt {
-                Interrupt::Crash => {
-                    return Err(ProjectError::failed("interrupted", "operation interrupted"))
-                }
-                Interrupt::Error(m) => (m, None),
-                Interrupt::Conflict(actual) => ("revision conflict".to_owned(), Some(actual)),
-            };
-            match recovery::rollback(env.vault, &journal) {
-                Ok(Rollback::Committed) => Ok(result),
-                Ok(Rollback::Clean) => {
-                    remove_journal(env.vault, &request.operation_id);
-                    if let Some(actual_revision) = conflict {
-                        Err(ProjectError::RevisionConflict { actual_revision })
-                    } else {
-                        Err(ProjectError::RolledBack {
-                            operation_id: request.operation_id.clone(),
-                            message,
-                        })
-                    }
-                }
-                Ok(Rollback::Leftovers(left)) => Err(ProjectError::RecoveryRequired {
-                    operation_id: request.operation_id.clone(),
-                    message: left.join("; "),
-                }),
-                Err(e) => Err(e),
-            }
-        }
-    }
+    })
 }

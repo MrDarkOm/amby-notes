@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { DatabaseSummary } from "@/lib/storage"
+import type { DatabaseRow, DatabaseSummary } from "@/lib/storage"
 import {
   catalog,
   storySummary,
@@ -7,14 +7,20 @@ import {
   workshopSummary,
 } from "../project-fixtures.test-support"
 import {
+  buildMembership,
   buildSearchGroups,
+  entityItemsOf,
   entityTabs,
   groupEntities,
   groupPropertyOf,
   initialsOf,
   orderByAuthor,
   relationTargets,
+  relationTargetsOf,
+  resolvePanelFilter,
+  scopeEntities,
   sectionTabKey,
+  storyLabels,
   workshopScope,
   worksSectionsFromPrefs,
   type EntityItem,
@@ -248,5 +254,256 @@ describe("initialsOf", () => {
     expect(initialsOf("«Тихий» порт")).toBe("ТП")
     expect(initialsOf("  ")).toBe("?")
     expect(initialsOf("***")).toBe("?")
+  })
+})
+
+// ── Belonging ────────────────────────────────────────────────────────────────────────────────
+
+function row(noteId: string, title: string, values: Record<string, unknown> = {}): DatabaseRow {
+  return {
+    noteId,
+    title,
+    relativePath: `${noteId}.md`,
+    parentNoteId: null,
+    depth: 0,
+    categoryPath: [],
+    valuesJson: JSON.stringify(values),
+    rowRevision: `rev-${noteId}`,
+  }
+}
+const rel = (...ids: string[]) => ({ type: "relation", targetNoteIds: ids })
+
+const belonging = {
+  stories: [
+    storySummary("hills", { name: "Холмы", databaseId: "t_hills" }),
+    storySummary("river", { name: "Река", databaseId: "t_river" }),
+    storySummary("lone", { name: "Одна", databaseId: "t_lone" }),
+  ],
+  sections: [
+    workshopSection("stories", {
+      role: "stories",
+      databaseId: "db_stories",
+      universePropertyId: "up",
+    }),
+    workshopSection("universes", { role: "universes", databaseId: "db_univ" }),
+    workshopSection("chars", {
+      role: "characters",
+      databaseId: "db_chars",
+      storiesPropertyId: "stp",
+    }),
+    workshopSection("orgs", { role: "custom", databaseId: "db_orgs", storiesPropertyId: "stp3" }),
+  ],
+  rows: {
+    db_stories: [
+      row("note_hills", "Холмы", { up: rel("u1") }),
+      row("note_river", "Река", { up: rel("u1") }),
+      row("note_lone", "Одна"),
+    ],
+    db_univ: [row("u1", "Мир"), row("u2", "Пустой")],
+    db_chars: [
+      row("anna", "Анна", { stp: rel("note_hills") }),
+      row("boris", "Борис", { stp: rel("note_river", "note_hills") }),
+      row("gleb", "Глеб", { stp: rel("note_lone") }),
+      row("zoya", "Зоя"),
+      row("eva", "Ева"),
+      // A link to a card that is not a story of this workshop counts for nothing.
+      row("ghost", "Призрак", { stp: rel("note_gone") }),
+    ],
+    db_orgs: [row("guild", "Гильдия", { stp3: rel("note_lone") })],
+    t_hills: [row("h1", "Глава", { par: rel("h0") })],
+    t_river: [row("r1", "Глава", { cast: rel("zoya"), par: rel("r0") })],
+    // t_lone is not loaded: its text counts for nothing yet.
+  } as Record<string, DatabaseRow[]>,
+}
+
+const items = (databaseId: string) => entityItemsOf(belonging.rows[databaseId], databaseId, "w1")
+const ids = (list: { noteId: string }[]) => list.map((item) => item.noteId)
+
+describe("relationTargetsOf", () => {
+  it("reads one relation property of a row, and nothing else", () => {
+    const values = JSON.stringify({ stp: rel("a", "b"), other: rel("c"), n: { type: "number" } })
+    expect(relationTargetsOf(values, "stp")).toEqual(["a", "b"])
+    expect(relationTargetsOf(values, "n")).toEqual([])
+    expect(relationTargetsOf(values, "none")).toEqual([])
+    expect(relationTargetsOf("not json", "stp")).toEqual([])
+  })
+})
+
+describe("buildMembership", () => {
+  const membership = buildMembership(belonging)
+
+  it("puts a page in the stories its relation names", () => {
+    expect(membership.storiesOf("anna")).toEqual(["hills"])
+    expect(membership.storiesOf("guild")).toEqual(["lone"])
+  })
+
+  it("puts a page in a story whose own text names it, without any note being written", () => {
+    expect(membership.storiesOf("zoya")).toEqual(["river"])
+  })
+
+  it("lists both ways of belonging once, in the order of the catalog", () => {
+    expect(membership.storiesOf("boris")).toEqual(["hills", "river"])
+    const both = buildMembership({
+      ...belonging,
+      rows: { ...belonging.rows, t_hills: [row("h1", "Глава", { cast: rel("boris", "eva") })] },
+    })
+    expect(both.storiesOf("boris")).toEqual(["hills", "river"])
+    expect(both.storiesOf("eva")).toEqual(["hills"])
+  })
+
+  it("leaves a page in no story that no relation and no text names", () => {
+    expect(membership.storiesOf("eva")).toEqual([])
+    expect(membership.storiesOf("ghost")).toEqual([])
+    expect(membership.storiesOf("nobody")).toEqual([])
+  })
+
+  it("reads the universe of a story from its card, and a universe is in its stories", () => {
+    expect(membership.universeOf("hills")).toBe("u1")
+    expect(membership.universeOf("river")).toBe("u1")
+    expect(membership.universeOf("lone")).toBeNull()
+    expect(membership.storiesOf("u1")).toEqual(["hills", "river"])
+    expect(membership.storiesOf("u2")).toEqual([])
+  })
+
+  it("knows no universe without the property that names it", () => {
+    const old = buildMembership({
+      ...belonging,
+      sections: belonging.sections.map((section) =>
+        section.role === "stories" ? { ...section, universePropertyId: null } : section,
+      ),
+    })
+    expect(old.universeOf("hills")).toBeNull()
+  })
+
+  it("does not take a section without the property for linked", () => {
+    const old = buildMembership({
+      ...belonging,
+      sections: belonging.sections.map((section) =>
+        section.role === "characters" ? { ...section, storiesPropertyId: null } : section,
+      ),
+    })
+    expect(old.storiesOf("anna")).toEqual([])
+    // The text still names Zoya.
+    expect(old.storiesOf("zoya")).toEqual(["river"])
+  })
+})
+
+describe("scopeEntities", () => {
+  const membership = buildMembership(belonging)
+
+  it("shows a story's pages: those that name it and those its text names", () => {
+    const river = scopeEntities(items("db_chars"), { kind: "story", storyId: "river" }, membership)
+    expect(ids(river.shown)).toEqual(["boris", "zoya"])
+    expect(river.withoutStory).toEqual([])
+    const hills = scopeEntities(items("db_chars"), { kind: "story", storyId: "hills" }, membership)
+    expect(ids(hills.shown)).toEqual(["anna", "boris"])
+  })
+
+  it("shows a universe's pages through any of its stories, and the universe itself", () => {
+    const filter = { kind: "universe", universeId: "u1" } as const
+    expect(ids(scopeEntities(items("db_chars"), filter, membership).shown)).toEqual([
+      "anna",
+      "boris",
+      "zoya",
+    ])
+    // Lone is in no universe, so neither is Gleb or the guild.
+    expect(ids(scopeEntities(items("db_orgs"), filter, membership).shown)).toEqual([])
+    expect(ids(scopeEntities(items("db_univ"), filter, membership).shown)).toEqual(["u1"])
+    const empty = { kind: "universe", universeId: "u2" } as const
+    expect(ids(scopeEntities(items("db_univ"), empty, membership).shown)).toEqual(["u2"])
+  })
+
+  it("shows the whole workshop with the pages in no story set apart", () => {
+    const all = scopeEntities(items("db_chars"), { kind: "all" }, membership)
+    expect(ids(all.shown)).toEqual(["anna", "boris", "gleb", "zoya"])
+    expect(ids(all.withoutStory)).toEqual(["eva", "ghost"])
+    // Every page is in exactly one of the two.
+    expect(all.shown.length + all.withoutStory.length).toBe(belonging.rows.db_chars.length)
+  })
+
+  it("puts a universe in no story into the group of its own", () => {
+    const all = scopeEntities(items("db_univ"), { kind: "all" }, membership)
+    expect(ids(all.shown)).toEqual(["u1"])
+    expect(ids(all.withoutStory)).toEqual(["u2"])
+  })
+})
+
+describe("resolvePanelFilter", () => {
+  const stories = belonging.stories
+  it("keeps the first story as the default and the whole workshop when chosen", () => {
+    expect(resolvePanelFilter(stories, ["u1"], null, null)).toEqual({
+      kind: "story",
+      storyId: "hills",
+    })
+    expect(resolvePanelFilter(stories, ["u1"], "river", null)).toEqual({
+      kind: "story",
+      storyId: "river",
+    })
+    expect(resolvePanelFilter(stories, ["u1"], "all", null)).toEqual({ kind: "all" })
+  })
+
+  it("lets a universe win, but only one that exists", () => {
+    expect(resolvePanelFilter(stories, ["u1"], "river", "u1")).toEqual({
+      kind: "universe",
+      universeId: "u1",
+    })
+    expect(resolvePanelFilter(stories, ["u1"], "river", "gone")).toEqual({
+      kind: "story",
+      storyId: "river",
+    })
+  })
+
+  it("falls back on a known story, and on the whole workshop without any", () => {
+    expect(resolvePanelFilter(stories, [], "gone", null)).toEqual({
+      kind: "story",
+      storyId: "hills",
+    })
+    expect(resolvePanelFilter([], [], null, null)).toEqual({ kind: "all" })
+  })
+})
+
+describe("storyLabels", () => {
+  const names = new Map([
+    ["a", "Холмы"],
+    ["b", "Река"],
+    ["c", "Лес"],
+    ["d", "Дом"],
+  ])
+  const nameOf = (id: string) => names.get(id)
+
+  it("shows up to two names and counts the rest", () => {
+    expect(storyLabels(["a"], nameOf)).toEqual({ names: ["Холмы"], more: 0 })
+    expect(storyLabels(["a", "b"], nameOf)).toEqual({ names: ["Холмы", "Река"], more: 0 })
+    expect(storyLabels(["a", "b", "c"], nameOf)).toEqual({ names: ["Холмы", "Река"], more: 1 })
+    expect(storyLabels(["a", "b", "c", "d"], nameOf)).toEqual({
+      names: ["Холмы", "Река"],
+      more: 2,
+    })
+  })
+
+  it("has nothing for no story and skips one the catalog does not know", () => {
+    expect(storyLabels([], nameOf)).toEqual({ names: [], more: 0 })
+    expect(storyLabels(["x", "a"], nameOf)).toEqual({ names: ["Холмы"], more: 0 })
+  })
+})
+
+describe("entityTabs and the link property", () => {
+  it("carries the section and the property that links it to stories", () => {
+    const tabs = entityTabs(
+      workshopSummary("w", {
+        sections: [
+          workshopSection("chars", {
+            role: "characters",
+            databaseId: "db_c",
+            storiesPropertyId: "stp",
+          }),
+          workshopSection("locs", { role: "locations", databaseId: "db_l" }),
+        ],
+      }),
+    )
+    expect(tabs.map((tab) => [tab.sectionId, tab.storiesPropertyId])).toEqual([
+      ["chars", "stp"],
+      ["locs", null],
+    ])
   })
 })

@@ -14,6 +14,7 @@ index, and the journaled creation of workshops, sections, and stories. The contr
 | Read-only discovery, diagnostics                             | [discovery.rs](discovery.rs)                           |
 | SQLite projection and catalog read                           | [index.rs](index.rs); tables in `index/schema.rs`      |
 | Create workshop / story / section, preflight, apply          | [create.rs](create.rs)                                 |
+| Story and universe links, pages born linked                  | [links.rs](links.rs)                                   |
 | Workshop settings, section order/remove, levels, text status | [settings.rs](settings.rs)                             |
 | Operation journal (`.amby/recovery/projects/`)               | [journal.rs](journal.rs)                               |
 | Conditional cleanup and activation recovery                  | [recovery.rs](recovery.rs)                             |
@@ -45,8 +46,10 @@ no reserved names) before the journal exists; the other labels (property and opt
 `amby-story-id` as JSON-escaped strings and its bytes live in the journal, so a resume writes the same
 bytes. A relation to a database the same operation creates (`PropertyBuilder::with_pending_databases`)
 is not looked up on disk; every other target must already exist. `create_workshop` accepts the keys of
-`presets::is_preset_label`, `text_schema::is_schema_label` and `section:<role>`; the interface sends
-one shared set (`project-labels.ts`), and `create_test::the_labels_the_interface_sends_...` keeps the two in step.
+`presets::is_preset_label` (including `property:stories` and `property:universe`), `text_schema::is_schema_label` and
+`section:<role>`; the interface sends one shared set (`project-labels.ts`), written to
+`interface-label-keys.json`, which `project-labels.test.ts` keeps equal to what is sent and
+`create_test::the_labels_the_interface_sends_...` feeds to every creation.
 
 **Creation.** `create_workshop`, `create_story`, and `create_workshop_section` run one journaled operation:
 preflight without writes (generation, names, parent, case-insensitive collision, revision), then the journal
@@ -59,6 +62,23 @@ and quarantines a journal it cannot clean; it never blocks opening the vault. Th
 returns the recorded answer without writing; a different request under the same ID is `OperationIdReused`.
 A new section rewrites the file through a history snapshot and a raw-byte `expectedWorkshopRevision`; unknown
 fields and a BOM survive.
+
+**Links (`links.rs`).** A world section keeps a "Stories" relation (many, no other side) and the
+stories section a "Universe" relation (one, no other side); the workshop file names them on the section
+entry (`storiesPropertyId`, `universePropertyId`), so nothing finds them by name. `presets::plan` adds the
+first for every world role (the author's own sections too) and returns its ID in `PresetPlan`;
+`create_workshop_section` for `universes` also plans the second with `links::plan_link` into the stories
+manifest. That is one operation over several files: the new database, the stories manifest (`manifest_write`
+in the journal, original bytes kept, `recovery::rollback` restores them) and the workshop file last; a
+failure or crash at any step puts both files back byte for byte. `add_story_links` links a section of a
+workshop made before (the same journal, `expectedWorkshopRevision`, a snapshot of each file) and adopts a
+relation to the right database with the right limit when the section already has one. `create_entity`
+(`create_workshop_entity`) writes a world page with its "Stories" value in the same write as the note
+(`create_database_row_with_values`); a repeated title gets `Title 2.md` and keeps `amby-title`.
+`create_workshop` and `create_workshop_section` keep the structure file's text and the planned IDs in the
+journal (`Plan.workshop_file_text`, `PlannedSection.stories_property_id`), so a resume writes what was planned.
+The contract with the interface is checked on a real workshop: `contract_test.rs` builds it, reads the catalog and
+rows back and compares them with `real-workshop.fixture.json`, which Vitest feeds to the interface's own model.
 
 **Settings (`settings.rs`).** `update_workshop`, `remove_workshop_section` and
 `reorder_workshop_sections` rewrite `amby-workshop.json` with `expectedWorkshopRevision`, a

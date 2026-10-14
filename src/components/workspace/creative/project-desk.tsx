@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Database, FileText, NotebookPen, Play } from "lucide-react"
+import { FileText, NotebookPen, Play } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,15 +15,12 @@ import { compileManuscript, ManuscriptReadError } from "@/lib/storage/manuscript
 import { cn } from "@/lib/utils"
 import { IconValue } from "../icon-value"
 import { useDatabaseStore } from "../database/database-store"
-import { resolveGalleryPreview } from "../database/layouts/gallery-preview"
 import { formatModified } from "../workspace-tree-utils"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { useProjectStore } from "./project-store"
-import { sectionRoleIcon } from "./section-icons"
 import { useTextStats } from "./use-text-stats"
-import { PortraitDot } from "./workshop/portrait-dot"
 import { useDatabaseRows } from "./workshop/use-database-rows"
-import { usePortraitResolvers } from "./workshop/use-portrait-resolvers"
+import { WorldCards, type WorldCard } from "./workshop/world-cards"
 import {
   buildTextTree,
   countNodes,
@@ -31,11 +28,9 @@ import {
   resolvePageStatus,
   type TextNode,
 } from "./workshop/text-tree-model"
-import { initialsOf } from "./workshop/workshop-model"
+import { buildMembership, entityItemsOf, scopeEntities } from "./workshop/workshop-model"
 
 const CONTINUE_COUNT = 3
-/** How many pages of a section its card lists before "all". */
-const CARD_ITEMS = 6
 
 interface ProjectDeskProps {
   story?: StorySummary | null
@@ -90,10 +85,6 @@ type Compile =
   | { status: "done"; pages: number; path: string }
   | { status: "failed"; message: string }
 
-function sectionTitle(section: WorkshopSectionSummary): string {
-  return section.databaseName?.trim() || section.pathHint.split("/").pop() || section.id
-}
-
 /**
  * A story's desk: where to continue, the numbers of the work, the outline of the text and the
  * world beside it, and the manuscript. All of it is read from the databases and the note index;
@@ -121,7 +112,6 @@ export function ProjectDesk({
   const databaseId = text?.databaseId ?? null
   const dataNonce = useCreativeNavStore((state) => state.dataNonce)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
-  const resolverFor = usePortraitResolvers(vaultGeneration)
   // The cards beside the text: the workshop's sections
   const cards = React.useMemo<DeskSection[]>(() => {
     if (!resolvedWorkshop) return []
@@ -138,6 +128,28 @@ export function ProjectDesk({
   )
   const data = useDatabaseRows(databaseIds, dataNonce)
   const stats = useTextStats(databaseId, dataNonce)
+
+  // The pages beside the text are those that belong to this story: its "Stories" relation names
+  // its card, or its text names them. The sections of the universes are not filtered.
+  const worldCards = React.useMemo<WorldCard[]>(() => {
+    const membership = buildMembership({
+      stories: resolvedStory ? [resolvedStory] : [],
+      sections: resolvedWorkshop?.sections ?? [],
+      rows: data.rows,
+    })
+    return cards.map(({ owner, section }) => {
+      const rows = data.rows[section.databaseId] ?? []
+      if (!resolvedStory || section.role === "universes") return { owner, section, rows }
+      const keep = new Set(
+        scopeEntities(
+          entityItemsOf(rows, section.databaseId, owner.workshopId),
+          { kind: "story", storyId: resolvedStory.storyId },
+          membership,
+        ).shown.map((item) => item.noteId),
+      )
+      return { owner, section, rows: rows.filter((row) => keep.has(row.noteId)) }
+    })
+  }, [cards, data.rows, resolvedStory, resolvedWorkshop?.sections])
   const [compile, setCompile] = React.useState<Compile>({ status: "idle" })
 
   const rows: DatabaseRow[] | undefined = databaseId ? data.rows[databaseId] : undefined
@@ -206,9 +218,9 @@ export function ProjectDesk({
   const latestLevel = latest ? levelOf(latest) : undefined
   const latestWords = latest ? (stats[latest.noteId]?.wordCount ?? 0) : 0
   const countOf = (role: string) =>
-    cards
+    worldCards
       .filter((entry) => entry.section.role === role)
-      .reduce((total, entry) => total + (data.rows[entry.section.databaseId]?.length ?? 0), 0)
+      .reduce((total, entry) => total + entry.rows.length, 0)
   const statusOptions = text?.properties.status ? (text.statusOptions ?? []) : []
   const donePages =
     statusOptions.length > 0
@@ -405,69 +417,13 @@ export function ProjectDesk({
         </section>
 
         <div className="grid gap-5 lg:col-span-2">
-          {cards.map(({ owner, section }) => {
-            const items = data.rows[section.databaseId] ?? []
-            const Icon = section.role ? sectionRoleIcon(section.role) : Database
-            const people = section.role === "characters"
-            const shared = false
-            return (
-              <section key={section.databaseId} aria-label={sectionTitle(section)} className={card}>
-                <div className="mb-2 flex items-center gap-2">
-                  <Icon className="size-4 shrink-0 text-muted-foreground" />
-                  <h2 className={cn(heading, "min-w-0 truncate")}>{sectionTitle(section)}</h2>
-                  <span className="text-xs text-muted-foreground">
-                    {[items.length || null, shared ? owner.name : null].filter(Boolean).join(" · ")}
-                  </span>
-                  {onOpenSection && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenSection(owner.workshopId, section.id)}
-                      className="ml-auto shrink-0 rounded-md px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-                    >
-                      {t("creative.page.desk.openSection")}
-                    </button>
-                  )}
-                </div>
-                {items.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
-                    {data.status === "loading" ? "" : t("creative.workshop.world.noItems")}
-                  </p>
-                ) : (
-                  <ul className={cn("grid gap-0.5", people && "grid-cols-2")}>
-                    {items.slice(0, CARD_ITEMS).map((row) => {
-                      const preview = people ? resolveGalleryPreview(row.valuesJson) : null
-                      return (
-                        <li key={row.noteId} className="min-w-0">
-                          <button
-                            type="button"
-                            onClick={() => onOpenNote(row.noteId)}
-                            className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] hover:bg-accent"
-                          >
-                            {people && (
-                              <PortraitDot
-                                relativePath={
-                                  preview?.kind === "asset" ? preview.relativePath : null
-                                }
-                                resolver={resolverFor(section.databaseId)}
-                                initials={initialsOf(row.title)}
-                                className="size-7 text-[10px]"
-                              />
-                            )}
-                            <span className="min-w-0 truncate">{row.title}</span>
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-                {items.length > CARD_ITEMS && (
-                  <p className="px-2 pt-1 text-xs text-muted-foreground">
-                    {t("creative.page.desk.more", { count: items.length - CARD_ITEMS })}
-                  </p>
-                )}
-              </section>
-            )
-          })}
+          <WorldCards
+            cards={worldCards}
+            loading={data.status === "loading"}
+            vaultGeneration={vaultGeneration}
+            onOpenNote={onOpenNote}
+            onOpenSection={onOpenSection}
+          />
         </div>
       </div>
     </div>

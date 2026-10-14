@@ -1,0 +1,443 @@
+//! The contract between this backend and the interface, kept honest by a real workshop.
+//!
+//! The test builds a workshop through the real write path (stories, a universe, pages born
+//! linked, a page named by a story's text), reads the catalog and every row back through the
+//! real index and query, and compares the result with
+//! `src/components/workspace/creative/workshop/real-workshop.fixture.json`. A Vitest test feeds
+//! that same file to the interface's own model, so the keys and shapes the interface reads
+//! (`storiesPropertyId`, `universePropertyId`, `cardNoteId`, a relation's `targetNoteIds`) are
+//! the ones this backend really writes, not ones a mock invented.
+//!
+//! IDs are random, so the file holds stable names for them (`ID:...`). When the output changes on
+//! purpose, regenerate it: `UPDATE_CREATIVE_FIXTURE=1 cargo test --lib contract_test`.
+
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::PathBuf;
+
+use rusqlite::Connection;
+use serde_json::{json, Map, Value};
+
+use super::create_test::{op, story, workshop, Fixture};
+use super::index::{load_catalog, rebuild_project_index};
+use super::links::create_entity;
+use super::model::{
+    CreateTextPageRequest, CreateWorkshopEntityRequest, CreateWorkshopSectionRequest, CreatedStory,
+    CreatedWorkshop,
+};
+use super::text::create_page;
+use crate::database::format::raw_revision;
+use crate::database::model::{
+    DatabasePageRequest, DatabaseQueryRequest, DatabaseQuerySource, DatabaseQuerySpec,
+};
+use crate::database::mutations::{create_database_property, CreateDatabasePropertyRequest};
+use crate::database::projection::rebuild_database_projection;
+use crate::database::query::query_database;
+use crate::database::rows::{create_database_row, CreateDatabaseRowRequest, DatabaseRowTemplate};
+use crate::index::schema::init_schema;
+
+fn fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../src/components/workspace/creative/workshop/real-workshop.fixture.json")
+}
+
+fn is_ulid_char(byte: u8) -> bool {
+    byte.is_ascii_digit()
+        || (byte.is_ascii_uppercase() && !matches!(byte, b'I' | b'L' | b'O' | b'U'))
+}
+
+/// Every 26-character ULID in `text`.
+fn ulids_in(text: &str) -> Vec<String> {
+    let bytes = text.as_bytes();
+    let mut found = Vec::new();
+    let mut start = 0;
+    while start < bytes.len() {
+        if !is_ulid_char(bytes[start]) {
+            start += 1;
+            continue;
+        }
+        let mut end = start;
+        while end < bytes.len() && is_ulid_char(bytes[end]) {
+            end += 1;
+        }
+        if end - start == 26 {
+            found.push(text[start..end].to_owned());
+        }
+        start = end;
+    }
+    found
+}
+
+/// Names for the IDs the test knows the meaning of. An ID without a name is a mistake of the
+/// test (or a new ID in the output), never silently numbered: numbering by order of appearance
+/// would depend on the random IDs.
+#[derive(Default)]
+struct Names(BTreeMap<String, String>);
+
+impl Names {
+    fn give(&mut self, id: &str, name: impl Into<String>) {
+        let name = name.into();
+        if let Some(previous) = self.0.insert(id.to_owned(), format!("ID:{name}")) {
+            panic!("{id} named twice: {previous} and {name}");
+        }
+    }
+
+    fn rename(&self, text: &str) -> String {
+        let mut out = text.to_owned();
+        for id in ulids_in(text) {
+            let name = self
+                .0
+                .get(&id)
+                .unwrap_or_else(|| panic!("an ID without a name in the output: {id} in {text}"));
+            out = out.replace(&id, name);
+        }
+        out
+    }
+
+    fn value(&self, value: &Value) -> Value {
+        match value {
+            Value::String(text) => Value::String(self.rename(text)),
+            Value::Array(items) => {
+                Value::Array(items.iter().map(|item| self.value(item)).collect())
+            }
+            Value::Object(map) => {
+                let mut renamed = Map::new();
+                for (key, item) in map {
+                    renamed.insert(self.rename(key), self.value(item));
+                }
+                Value::Object(renamed)
+            }
+            other => other.clone(),
+        }
+    }
+}
+
+struct Built {
+    fixture: Fixture,
+    created: CreatedWorkshop,
+    houses: BTreeMap<&'static str, CreatedStory>,
+}
+
+fn rows_of(connection: &Connection, database_id: &str) -> Vec<crate::database::model::DatabaseRow> {
+    query_database(
+        connection,
+        &DatabaseQueryRequest {
+            expected_generation: 1,
+            database_id: database_id.to_owned(),
+            source: DatabaseQuerySource::Inline {
+                spec: DatabaseQuerySpec {
+                    filter: None,
+                    sorts: Vec::new(),
+                },
+            },
+            page: DatabasePageRequest {
+                limit: 200,
+                cursor: None,
+            },
+            search: None,
+            sorts: None,
+            filter: None,
+            manual_order: None,
+            context_page_id: None,
+        },
+    )
+    .unwrap()
+    .rows
+}
+
+fn patch_note(path: &str, key: &str, ids: &[&str]) {
+    let content = fs::read_to_string(path).unwrap();
+    let sequence = serde_yaml::Value::Sequence(
+        ids.iter()
+            .map(|id| serde_yaml::Value::String((*id).to_owned()))
+            .collect(),
+    );
+    let updated =
+        crate::frontmatter::replace_yaml_binding_lossless(&content, key, &sequence).unwrap();
+    fs::write(path, updated).unwrap();
+}
+
+fn build() -> Built {
+    let fixture = Fixture::new();
+    let created = fixture.create_workshop(&workshop("Saga")).unwrap();
+    let mut houses = BTreeMap::new();
+    for title in ["Дом", "Лес", "Одна"] {
+        houses.insert(
+            title,
+            fixture
+                .create_story(&story(&created.workshop_id, title))
+                .unwrap(),
+        );
+    }
+    fixture
+        .add_section(&CreateWorkshopSectionRequest {
+            expected_generation: 1,
+            operation_id: op("universes"),
+            workshop_id: created.workshop_id.clone(),
+            expected_workshop_revision: raw_revision(&fixture.workshop_bytes("Saga")),
+            role: "universes".to_owned(),
+            name: "Вселенные".to_owned(),
+            labels: BTreeMap::new(),
+        })
+        .unwrap();
+    Built {
+        fixture,
+        created,
+        houses,
+    }
+}
+
+fn section_database(built: &Built, role: &str) -> String {
+    let file: Value = serde_json::from_slice(&built.fixture.workshop_bytes("Saga")).unwrap();
+    file["sections"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|section| section["role"] == role)
+        .unwrap()["databaseId"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
+#[test]
+fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
+    let built = build();
+    let fixture = &built.fixture;
+    let universes_db = section_database(&built, "universes");
+    let characters_db = section_database(&built, "characters");
+    let locations_db = section_database(&built, "locations");
+    let stories_db = section_database(&built, "stories");
+
+    // A universe, and two of the stories in it (the relation lives in the story's card).
+    let universe = create_database_row(
+        &fixture.vault,
+        &fixture.watcher,
+        &CreateDatabaseRowRequest {
+            expected_generation: 1,
+            database_id: universes_db.clone(),
+            title: "Мир".to_owned(),
+            template: DatabaseRowTemplate::Default,
+        },
+    )
+    .unwrap();
+    for title in ["Дом", "Лес"] {
+        let card = fixture.vault.join(&built.houses[title].card_path);
+        patch_note(card.to_str().unwrap(), "Вселенная", &[&universe.note_id]);
+    }
+
+    // Pages: linked at birth, linked to two stories, linked to none, named only by a text.
+    let entity = |section: &str, title: &str, story: Option<&str>| {
+        let section_id = if section == "characters" {
+            "characters"
+        } else {
+            "locations"
+        };
+        create_entity(
+            &fixture.env(),
+            &CreateWorkshopEntityRequest {
+                expected_generation: 1,
+                workshop_id: built.created.workshop_id.clone(),
+                section_id: section_id.to_owned(),
+                title: title.to_owned(),
+                story_id: story.map(|name| built.houses[name].story_id.clone()),
+            },
+        )
+        .unwrap()
+    };
+    let anna = entity("characters", "Анна", Some("Дом"));
+    let boris = entity("characters", "Борис", Some("Дом"));
+    let vera = entity("characters", "Вера", Some("Лес"));
+    let gleb = entity("characters", "Глеб", Some("Одна"));
+    let zoya = entity("characters", "Зоя", None);
+    let eva = entity("characters", "Ева", None);
+    let lake = entity("locations", "Озеро", Some("Дом"));
+    patch_note(
+        &boris.note_path,
+        "Истории",
+        &[
+            &built.houses["Дом"].card_note_id,
+            &built.houses["Лес"].card_note_id,
+        ],
+    );
+
+    // The text of "Лес" names Zoya through a relation the author added to its pages.
+    let forest = &built.houses["Лес"];
+    let connection = Connection::open_in_memory().unwrap();
+    init_schema(&connection).unwrap();
+    let text_manifest = fixture.vault.join("Saga/Истории/Лес/Лес.json");
+    let manifest_revision = raw_revision(&fs::read(&text_manifest).unwrap());
+    let cast = create_database_property(
+        &fixture.vault,
+        &fixture.watcher,
+        &CreateDatabasePropertyRequest {
+            expected_generation: 1,
+            database_id: forest.database_id.clone(),
+            expected_manifest_revision: manifest_revision,
+            name: "Кто".to_owned(),
+            property_type: "relation".to_owned(),
+            relation_target_database_id: Some(characters_db.clone()),
+            relation_two_way: Some(false),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let story_file: Value =
+        serde_json::from_slice(&fixture.story_bytes("Saga/Истории/Лес")).unwrap();
+    let level_id = story_file["text"]["levels"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let page = create_page(
+        &fixture.env(),
+        &connection,
+        &CreateTextPageRequest {
+            expected_generation: 1,
+            story_id: forest.story_id.clone(),
+            title: "Глава".to_owned(),
+            parent_note_id: None,
+            level_id,
+            format_id: None,
+            order_key: "a0".to_owned(),
+        },
+    )
+    .unwrap();
+    patch_note(&page.note_path, "Кто", &[&zoya.note_id]);
+
+    crate::index::sync::sync_vault(&connection, &fixture.vault).unwrap();
+    rebuild_database_projection(&connection, &fixture.vault).unwrap();
+    rebuild_project_index(&connection, &fixture.vault).unwrap();
+    let catalog = load_catalog(&connection, &fixture.vault, 1).unwrap();
+    assert!(catalog.diagnostics.is_empty(), "{:?}", catalog.diagnostics);
+    let mut summary = serde_json::to_value(&catalog.workshops[0]).unwrap();
+
+    // Names for every ID the output may hold.
+    let mut names = Names::default();
+    names.give(&built.created.workshop_id, "workshop");
+    for (role, id) in [
+        ("universes", &universes_db),
+        ("characters", &characters_db),
+        ("locations", &locations_db),
+        ("stories", &stories_db),
+    ] {
+        names.give(id, format!("db:{role}"));
+    }
+    let file: Value = serde_json::from_slice(&fixture.workshop_bytes("Saga")).unwrap();
+    for section in file["sections"].as_array().unwrap() {
+        let role = section["role"].as_str().unwrap();
+        for (field, label) in [
+            ("storiesPropertyId", "stories"),
+            ("universePropertyId", "universe"),
+        ] {
+            if let Some(id) = section[field].as_str() {
+                names.give(id, format!("prop:{label}:{role}"));
+            }
+        }
+    }
+    names.give(&universe.note_id, "note:Мир");
+    for (title, id) in [
+        ("Анна", &anna.note_id),
+        ("Борис", &boris.note_id),
+        ("Вера", &vera.note_id),
+        ("Глеб", &gleb.note_id),
+        ("Зоя", &zoya.note_id),
+        ("Ева", &eva.note_id),
+        ("Озеро", &lake.note_id),
+    ] {
+        names.give(id, format!("note:{title}"));
+    }
+    for (title, created) in &built.houses {
+        names.give(&created.story_id, format!("story:{title}"));
+        names.give(&created.card_note_id, format!("card:{title}"));
+        names.give(&created.database_id, format!("db:text:{title}"));
+        // The text properties and the options the pages of this story hold.
+        let block: Value =
+            serde_json::from_slice(&fixture.story_bytes(&format!("Saga/Истории/{title}"))).unwrap();
+        for (key, id) in block["text"]["properties"].as_object().unwrap() {
+            names.give(id.as_str().unwrap(), format!("prop:text:{title}:{key}"));
+        }
+        for (index, level) in block["text"]["levels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+        {
+            names.give(
+                level["id"].as_str().unwrap(),
+                format!("option:level:{title}:{index}"),
+            );
+        }
+        for format in block["text"]["formats"].as_array().unwrap() {
+            names.give(
+                format["id"].as_str().unwrap(),
+                format!("option:format:{title}:{}", format["kind"].as_str().unwrap()),
+            );
+        }
+    }
+    names.give(&page.note_id, "note:Глава");
+    names.give(&cast.property_id, "prop:text:Лес:cast");
+
+    // The catalog: what the interface reads, minus what is random or irrelevant here.
+    summary["fileRevision"] = json!("REV");
+    for story in summary["stories"].as_array_mut().unwrap() {
+        story["fileRevision"] = json!("REV");
+        story["textJson"] = json!("");
+        // Option IDs of the status property are only names for the status dots.
+        story["text"]["statusOptions"] = json!([]);
+    }
+    let mut rows = Map::new();
+    let mut database_ids = vec![universes_db, characters_db, locations_db, stories_db];
+    database_ids.extend(
+        built
+            .houses
+            .values()
+            .map(|created| created.database_id.clone()),
+    );
+    for database_id in database_ids {
+        let mut list = rows_of(&connection, &database_id);
+        list.sort_by(|a, b| {
+            a.title
+                .cmp(&b.title)
+                .then(a.relative_path.cmp(&b.relative_path))
+        });
+        rows.insert(
+            database_id,
+            Value::Array(
+                list.into_iter()
+                    .map(|row| {
+                        json!({
+                            "noteId": row.note_id,
+                            "title": row.title,
+                            "values": serde_json::from_str::<Value>(&row.values_json).unwrap(),
+                        })
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    let produced = names.value(&json!({ "workshop": summary, "rows": rows }));
+    let text = serde_json::to_string_pretty(&produced).unwrap() + "\n";
+
+    let path = fixture_path();
+    if std::env::var_os("UPDATE_CREATIVE_FIXTURE").is_some() {
+        fs::write(&path, &text).unwrap();
+    }
+    let recorded = fs::read_to_string(&path).unwrap_or_default();
+    assert_eq!(
+        recorded, text,
+        "the interface's fixture is out of date; run `UPDATE_CREATIVE_FIXTURE=1 cargo test --lib contract_test`"
+    );
+
+    // The pages carry the relation the way the interface reads it.
+    let characters = &produced["rows"]["ID:db:characters"];
+    let anna_values = characters
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["title"] == "Анна")
+        .unwrap();
+    assert_eq!(
+        anna_values["values"]["ID:prop:stories:characters"]["targetNoteIds"],
+        json!(["ID:card:Дом"])
+    );
+}

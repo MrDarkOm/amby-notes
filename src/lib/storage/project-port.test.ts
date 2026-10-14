@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { commands, type ProjectError } from "@/lib/bindings"
 import { DesktopAdapter } from "./desktop-adapter"
 import {
+  addStoryLinks,
   addTextStatus,
   createStory,
+  createWorkshopEntity,
   createWorkshop,
   createWorkshopSection,
   createTextPage,
@@ -278,6 +280,72 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
     })
     expect(addStat).toHaveBeenCalledWith(expect.objectContaining({ labels: {} }))
 
+    const links = vi.spyOn(commands, "addStoryLinks").mockResolvedValue({
+      status: "ok",
+      data: {
+        operationId: "op-links",
+        workshopId: "w1",
+        sectionId: "characters",
+        link: "stories",
+        propertyId: "prop-stories",
+        workshopRevision: "r3",
+        replayed: false,
+        warnings: [],
+      },
+    })
+    await expect(
+      addStoryLinks({
+        expectedGeneration: 3,
+        operationId: "op-links",
+        workshopId: "w1",
+        expectedWorkshopRevision: "r2",
+        sectionId: "characters",
+      }),
+    ).resolves.toMatchObject({ propertyId: "prop-stories", link: "stories" })
+    expect(links).toHaveBeenCalledWith(
+      expect.objectContaining({ sectionId: "characters", labels: {} }),
+    )
+
+    const entity = vi.spyOn(commands, "createWorkshopEntity").mockResolvedValue({
+      status: "ok",
+      data: {
+        databaseId: "db",
+        noteId: "n9",
+        title: "Анна",
+        notePath: "/v/Saga/Персонажи/Анна.md",
+        linkedStoryId: "st1",
+        warnings: [],
+      },
+    })
+    await createWorkshopEntity({
+      expectedGeneration: 3,
+      workshopId: "w1",
+      sectionId: "characters",
+      title: "Анна",
+      storyId: "st1",
+    })
+    expect(entity).toHaveBeenLastCalledWith(expect.objectContaining({ storyId: "st1" }))
+    await createWorkshopEntity({
+      expectedGeneration: 3,
+      workshopId: "w1",
+      sectionId: "characters",
+      title: "Борис",
+    })
+    expect(entity).toHaveBeenLastCalledWith(expect.objectContaining({ storyId: null }))
+    vi.spyOn(commands, "createWorkshopEntity").mockResolvedValue({
+      status: "error",
+      error: { kind: "storyLinksUnavailable", reason: "the section is not linked to stories" },
+    })
+    await expect(
+      createWorkshopEntity({
+        expectedGeneration: 3,
+        workshopId: "w1",
+        sectionId: "characters",
+        title: "В",
+        storyId: "st1",
+      }),
+    ).rejects.toMatchObject({ kind: "storyLinksUnavailable" })
+
     const page = vi.spyOn(commands, "createTextPage").mockResolvedValue({
       status: "ok",
       data: {
@@ -435,6 +503,23 @@ describe("WebAdapter projects", () => {
         operationId: "op",
         storyId: "s",
         expectedStoryRevision: "r",
+      }),
+    ).rejects.toBeInstanceOf(ProjectOperationError)
+    await expect(
+      addStoryLinks({
+        expectedGeneration: 0,
+        operationId: "op",
+        workshopId: "w",
+        expectedWorkshopRevision: "r",
+        sectionId: "s",
+      }),
+    ).rejects.toBeInstanceOf(ProjectOperationError)
+    await expect(
+      createWorkshopEntity({
+        expectedGeneration: 0,
+        workshopId: "w",
+        sectionId: "s",
+        title: "t",
       }),
     ).rejects.toBeInstanceOf(ProjectOperationError)
   })

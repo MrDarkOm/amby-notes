@@ -96,6 +96,10 @@ pub enum ProjectError {
     CannotRemoveStoriesSection,
     CannotRemoveTextSection,
     StatusAlreadyConfigured,
+    StoryLinksAlreadyConfigured,
+    StoryLinksUnavailable {
+        reason: String,
+    },
     TextNotConfigured,
     UnknownTextLevel {
         #[serde(rename = "levelId")]
@@ -204,6 +208,12 @@ impl std::fmt::Display for ProjectError {
                     "Page status is already configured for this story"
                 )
             }
+            ProjectError::StoryLinksAlreadyConfigured => {
+                write!(formatter, "This section is already linked")
+            }
+            ProjectError::StoryLinksUnavailable { reason } => {
+                write!(formatter, "This section cannot be linked: {reason}")
+            }
             ProjectError::TextNotConfigured => write!(formatter, "The story has no text schema"),
             ProjectError::UnknownTextLevel { level_id } => {
                 write!(formatter, "Unknown text level {level_id}")
@@ -266,6 +276,10 @@ pub struct WorkshopSectionSummary {
     pub database_id: String,
     /// The relative path recorded in the structure file (a hint).
     pub path_hint: String,
+    /// The ID of the relation property linking this section's pages to stories, when set.
+    pub stories_property_id: Option<String>,
+    /// The ID of the relation property linking a story to a universe (stories section only).
+    pub universe_property_id: Option<String>,
     pub state: SectionState,
     /// Vault-relative container of the database when it was found.
     pub resolved_path: Option<String>,
@@ -622,6 +636,57 @@ pub struct AddedTextStatus {
     pub story_revision: String,
     pub manifest_revision: String,
     pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+/// Links a section to stories (a world section) or a story to universes (the stories section).
+/// Which one is decided by the section's role.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddStoryLinksRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub expected_workshop_revision: String,
+    pub section_id: String,
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AddedStoryLinks {
+    pub operation_id: String,
+    pub workshop_id: String,
+    pub section_id: String,
+    /// `stories` for a world section, `universe` for the stories section.
+    pub link: String,
+    pub property_id: String,
+    pub workshop_revision: String,
+    pub replayed: bool,
+    pub warnings: Vec<String>,
+}
+
+/// A page of a world section. With `story_id` the page is born linked to that story's card.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkshopEntityRequest {
+    pub expected_generation: u64,
+    pub workshop_id: String,
+    pub section_id: String,
+    pub title: String,
+    #[serde(default)]
+    pub story_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedWorkshopEntity {
+    pub database_id: String,
+    pub note_id: String,
+    pub title: String,
+    pub note_path: String,
+    pub linked_story_id: Option<String>,
     pub warnings: Vec<String>,
 }
 

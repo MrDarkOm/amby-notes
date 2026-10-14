@@ -3,7 +3,12 @@ import { AlertTriangle, Feather, Loader2, Plus, Settings } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
-import { createDatabaseRow, type ProjectDiagnostic, type WorkshopSummary } from "@/lib/storage"
+import {
+  addStoryLinks,
+  createWorkshopEntity,
+  type ProjectDiagnostic,
+  type WorkshopSummary,
+} from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
 import { useDatabaseStore } from "../database/database-store"
 import { PanelHeader } from "../panels/panel-header"
@@ -18,6 +23,7 @@ import { CreateSectionDialog } from "./create-section-dialog"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { CreativeScopePicker } from "./creative-scope-picker"
 import { readStoredScope, readWorkshopPrefs, writeStoredScope } from "./creative-scope-storage"
+import { linkLabels } from "./project-labels"
 import { listScopes, resolveScope } from "./project-tree-model"
 import { useProjectStore } from "./project-store"
 import { sectionRoleIcon } from "./section-icons"
@@ -84,6 +90,7 @@ export function CreativePanel({
   const scope = useCreativeNavStore((state) => state.scope)
   const setScope = useCreativeNavStore((state) => state.setScope)
   const rawStoryFilter = useCreativeNavStore((state) => state.storyFilter)
+  const universeFilter = useCreativeNavStore((state) => state.universeFilter)
   const bumpData = useCreativeNavStore((state) => state.bumpData)
   const createRequest = useCreativeNavStore((state) => state.createRequest)
   const [newProject, setNewProject] = React.useState<NewProjectRequest | null>(null)
@@ -123,8 +130,9 @@ export function CreativePanel({
   )
   const workshop = workshopScopeResult?.workshop ?? null
   const categories = React.useMemo(() => (workshop ? entityTabs(workshop) : []), [workshop])
+  // A universe, or the whole workshop, has no story of its own to add a page to.
   const selectedStory =
-    rawStoryFilter === "all"
+    rawStoryFilter === "all" || universeFilter !== null
       ? null
       : workshop
         ? selectedStoryOf(workshop.stories, rawStoryFilter)
@@ -175,16 +183,20 @@ export function CreativePanel({
 
   const chooserOptions = useChooserOptions(workshop, extra)
 
-  /** Creates a world page under the name the author typed in its row. */
-  const createEntity = async (categoryKey: string, title: string) => {
+  /**
+   * Creates a world page under the name the author typed in its row. With a story it is born
+   * linked to it: the relation is written together with the note, not set afterwards.
+   */
+  const createEntity = async (categoryKey: string, title: string, storyId: string | null) => {
     const tab = categories.find((t) => t.key === categoryKey)
-    if (!tab || vaultGeneration === null) return
+    if (!tab || !workshop || vaultGeneration === null) return
     try {
-      const created = await createDatabaseRow({
+      const created = await createWorkshopEntity({
         expectedGeneration: vaultGeneration,
-        databaseId: tab.databaseId,
+        workshopId: workshop.workshopId,
+        sectionId: tab.sectionId,
         title,
-        template: { kind: "default" },
+        storyId,
       })
       bumpData()
       openNote(created.noteId)
@@ -192,6 +204,29 @@ export function CreativePanel({
       bumpData()
       throw caught
     }
+  }
+
+  // One operation ID per link intent, so a retry of the same request is answered from the record.
+  const linkOperations = React.useRef(new Map<string, string>())
+  /** Links a section of an older workshop and reads the catalog again; rejects on failure. */
+  const linkSection = async (target: WorkshopSummary, sectionId: string) => {
+    if (vaultGeneration === null) return
+    const key = `${target.workshopId}:${target.fileRevision}:${sectionId}`
+    let operationId = linkOperations.current.get(key)
+    if (!operationId) {
+      operationId = `links-${crypto.randomUUID()}`
+      linkOperations.current.set(key, operationId)
+    }
+    await addStoryLinks({
+      expectedGeneration: vaultGeneration,
+      operationId,
+      workshopId: target.workshopId,
+      expectedWorkshopRevision: target.fileRevision,
+      sectionId,
+      labels: linkLabels(t),
+    })
+    await onCreativeChanged?.()
+    await useProjectStore.getState().refresh?.()
   }
 
   const pickCreate = (choice: CreateChoice) => {
@@ -288,6 +323,7 @@ export function CreativePanel({
           onOpenProject={openProject}
           onAddSection={(ws, options) => setSectionRequest({ workshop: ws, initial: options })}
           onCreateEntity={createEntity}
+          onLinkSection={linkSection}
           itemActions={{
             onOpenInNewTab,
             onRename,

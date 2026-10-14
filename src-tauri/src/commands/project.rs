@@ -7,10 +7,12 @@ use crate::database::model::ProjectionVersion;
 use crate::database::runtime_state::DatabaseRuntimeState;
 use crate::project::create::{self, Env};
 use crate::project::index;
+use crate::project::links;
 use crate::project::model::{
-    AddTextStatusRequest, AddedTextStatus, CreateStoryRequest, CreateTextPageRequest,
-    CreateWorkshopRequest, CreateWorkshopSectionRequest, CreatedStory, CreatedTextPage,
-    CreatedWorkshop, CreatedWorkshopSectionResult, MoveTextPageRequest, MovedTextPage,
+    AddStoryLinksRequest, AddTextStatusRequest, AddedStoryLinks, AddedTextStatus,
+    CreateStoryRequest, CreateTextPageRequest, CreateWorkshopEntityRequest, CreateWorkshopRequest,
+    CreateWorkshopSectionRequest, CreatedStory, CreatedTextPage, CreatedWorkshop,
+    CreatedWorkshopEntity, CreatedWorkshopSectionResult, MoveTextPageRequest, MovedTextPage,
     ProjectCatalog, ProjectError, RemoveWorkshopSectionRequest, RemovedWorkshopSection,
     ReorderWorkshopSectionsRequest, ReorderedWorkshopSections, UpdateTextLevelsRequest,
     UpdateWorkshopRequest, UpdatedTextLevels, UpdatedWorkshop,
@@ -474,4 +476,88 @@ pub fn add_text_status(
         refresh_after_write(active, &runtime, generation, &mut added.warnings);
     }
     Ok(added)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn add_story_links(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: AddStoryLinksRequest,
+) -> Result<AddedStoryLinks, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher,
+    };
+    let mut added = links::add_story_links(&env, &request)?;
+    if !added.replayed {
+        refresh_after_write(active, &runtime, generation, &mut added.warnings);
+    }
+    Ok(added)
+}
+
+/// A page of a world section, linked to a story in the same write when one is chosen.
+#[tauri::command]
+#[specta::specta]
+pub fn create_workshop_entity(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: CreateWorkshopEntityRequest,
+) -> Result<CreatedWorkshopEntity, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher,
+    };
+    let mut created = links::create_entity(&env, &request)?;
+    let note_path = std::path::Path::new(&created.note_path);
+    let indexed = std::fs::read_to_string(note_path)
+        .map_err(|error| error.to_string())
+        .and_then(|source| {
+            crate::vault_index::index_update_note(
+                &active.connection,
+                &active.root,
+                note_path,
+                &source,
+            )
+        });
+    if let Err(error) = indexed {
+        tracing::warn!(event = "workshop_entity_index_update_failed", %error);
+        active
+            .index_health
+            .set(crate::model::IndexState::RebuildRequired);
+        created
+            .warnings
+            .push("Note index rebuild required".to_owned());
+    }
+    match crate::database::projection::rebuild_database_projection(&active.connection, &active.root)
+    {
+        Ok(report) => {
+            runtime.set_projection(
+                generation,
+                Some(ProjectionVersion {
+                    epoch: report.epoch,
+                    seq: report.seq,
+                }),
+            );
+        }
+        Err(error) => {
+            tracing::warn!(event = "database_projection_rebuild_failed", %error);
+            created
+                .warnings
+                .push("Projection rebuild required".to_owned());
+        }
+    }
+    Ok(created)
 }
