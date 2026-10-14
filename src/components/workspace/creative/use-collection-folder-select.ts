@@ -12,7 +12,7 @@ interface CollectionFolderSelectOptions {
   catalog: ProjectCatalog | null
   /** Finds a tree item by its ID or path. */
   itemById: (id: string) => TreeItem | undefined
-  /** What a selection does for everything that is not a collection's folder. */
+  /** What a selection does for everything that is not a workshop's folder. */
   fallback: (id: string) => void
   /** Brings the module's sidebar panel to the front. */
   showPanel: () => void
@@ -21,8 +21,8 @@ interface CollectionFolderSelectOptions {
 }
 
 /**
- * The selection handler of the tree. The folder of a universe or a collection does not open as
- * a folder: it opens the workshop with that collection chosen, in the sidebar and on its page.
+ * The selection handler of the tree. The folder of a workshop does not open as a folder: it
+ * opens that workshop, in the sidebar and on its page.
  * Any other item, and every item while the module is off, goes to `fallback` unchanged.
  */
 export function useCollectionFolderSelect({

@@ -10,10 +10,10 @@ and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The 
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Module registration (panel `creative`)  | [creative-module.tsx](creative-module.tsx)                                                                       |
 | Catalog state and lifecycle             | [project-store.ts](project-store.ts), [use-project-controller.ts](use-project-controller.ts)                     |
-| Panel: header, "Create", switcher       | [creative-panel.tsx](creative-panel.tsx), [creative-scope-picker.tsx](creative-scope-picker.tsx)                 |
+| Panel: header, "Create", workshops      | [creative-panel.tsx](creative-panel.tsx), [creative-scope-picker.tsx](creative-scope-picker.tsx)                 |
 | "Create" chooser                        | [create-chooser-dialog.tsx](create-chooser-dialog.tsx)                                                           |
 | Panel state (scope, tab, filter), prefs | [creative-nav-store.ts](creative-nav-store.ts), [creative-scope-storage.ts](creative-scope-storage.ts)           |
-| Scopes, section grouping (pure)         | [project-tree-model.ts](project-tree-model.ts)                                                                   |
+| Workshop scopes, section groups (pure)  | [project-tree-model.ts](project-tree-model.ts)                                                                   |
 | Workshop: tabs, lists, text tree, notes | [workshop/](workshop/MAP.md): `workshop-pane.tsx` composes; models: `workshop-model.ts`, `text-tree-model.ts`    |
 | Belonging to stories and universes      | `workshop-model.ts` (`resolvePanelFilter`, `buildMembership`, `scopeEntities`, `storyLabels`); `world-cards.tsx` |
 | Universe page (stories, events, world)  | [universe-desk.tsx](universe-desk.tsx)                                                                           |
@@ -26,7 +26,7 @@ and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The 
 | Errors, operation IDs                   | [project-error.ts](project-error.ts), [use-operation-id.ts](use-operation-id.ts)                                 |
 | Dossier of a world page                 | [dossier/](dossier/)                                                                                             |
 | File tree: icons, hiding                | [creative-tree-model.ts](creative-tree-model.ts), [use-creative-tree-items.ts](use-creative-tree-items.ts)       |
-| Collection folder opens the workshop    | [use-collection-folder-select.ts](use-collection-folder-select.ts)                                               |
+| A workshop folder opens that workshop   | [use-collection-folder-select.ts](use-collection-folder-select.ts)                                               |
 | Settings (`moduleSettings.creative`)    | [creative-settings-store.ts](creative-settings-store.ts), [creative-settings.tsx](creative-settings.tsx)         |
 | Section icons                           | [section-icons.ts](section-icons.ts)                                                                             |
 
@@ -48,8 +48,7 @@ pass (`applyCreativeTree`): project folders by vault-relative path, section data
 module is off the vault's own tree passes through untouched. An icon the author chose is kept. With
 `showInTree` off the folders are left out of that tree only; search, quick open and file actions
 still see everything, nothing is written. The setting is saved in the settings window and announced
-to the main window by an event. A collection's folder carries `statusIcon`; selecting it opens the workshop on
-it. Every other folder, and every folder while the module is off, selects as before.
+to the main window by an event. A workshop's folder carries `statusIcon`; selecting it opens that workshop. Every other folder, and every folder while the module is off, selects as before.
 
 **Workshop panel.** One column under the one search (`search-results.tsx` replaces it while it has
 text; session state). Top: the chosen story's header (`story-header.tsx`: icon, name, one quiet line
@@ -61,8 +60,7 @@ open page marked, its parents unfolded and the row scrolled into view once per c
 (`move_text_page`, after `planMove` refused what the backend would). Its "+" makes a top-level page
 (`defaultLevelId`), a row's "+" one inside; a last-level page has none (`canHaveChildPage`). _anchors_
 stand where the text puts them, with the rest "Ahead" in the author's order (`manualOrder`); _notes_ show
-notebooks. Anchors, arcs and their marks in the tree: [workshop map](workshop/MAP.md). An empty list offers "Add the first …" (`empty-action.tsx`) in place of a plain
-sentence, unless the story is read-only. Under them the **world** (`world-section.tsx`, caption "World"):
+notebooks. Anchors, arcs and their marks in the tree: [workshop map](workshop/MAP.md). An empty list offers "Add the first …" (`empty-action.tsx`). Under them the **world** (`world-section.tsx`, caption "World"):
 one folding list per category (by role, or by name for an author's section). The list at the top
 (`story-header.tsx`) is the one filter: a story, a universe or the whole workshop (`resolvePanelFilter`:
 `storyFilter` is a story ID, `"all"` or unset = the first story; a universe wins). A page is in a story when
@@ -84,7 +82,7 @@ pages below it is deleted with them, after one confirmation naming them); a leaf
 by its status group (`pageStatusDotClass` from `text-tree-model.ts`, falling back to word-count presence
 when the story has no status property); the empty space has a menu that
 creates with the "Create" options (`useChooserOptions`: a page or a world page first as a 2-column tile grid
-with section role icons in `create-chooser-dialog.tsx`, a story, section, universe, collection after as
+with section role icons in `create-chooser-dialog.tsx`, a story, universe, section and workshop after as
 compact menu rows).
 
 **Creating where it will stand.** A page, note, anchor or world page is named on a row of its own
@@ -95,7 +93,7 @@ the row. A page starts one level below its parent (`startLevelId`).
 `labels` (the backend only has Russian fallbacks). Add a language with `creative.*` keys, not in Rust.
 
 **Levels of a new story.** The dialog asks for the text schema: Novel (Book → Chapter → Scene, the default), Short story
-(Page), Comic (Book → Arc → Chapter → Page) or Custom (1 to 6 names). The names go as `textLevels` in the active
+(Page), Comic (Book → Volume → Chapter → Page; "Arc" belongs to story arcs) or Custom (1 to 6 names). The names go as `textLevels` in the active
 language; `levelsProblem` mirrors what the backend refuses; the list is part of the operation-ID payload.
 
 **Project settings.** `project-settings-dialog.tsx` (the "Settings" button of `project-page.tsx`, off on

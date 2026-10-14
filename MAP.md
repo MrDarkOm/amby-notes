@@ -12,6 +12,8 @@ This is an ownership index of the working code, not a feature-completion claim.
 | Autosave, dirty state, recovery, external-edit conflicts       | [Save lifecycle](src/components/workspace/autosave/MAP.md) |
 | Database views, cells, query state, note peek                  | [Database UI](src/components/workspace/database/MAP.md)    |
 | Database files, formula, projection, mutations                 | [Database backend](src-tauri/src/database/MAP.md)          |
+| Creative workshop panel, pages, dossier, plot                  | [Creative](src/components/workspace/creative/MAP.md)       |
+| Creative workshop files, creation, recovery (`amby-workshop`)  | [Workshop backend](src-tauri/src/project/MAP.md)           |
 | Canvas nodes, edges, layout, undo                              | [Canvas](src/components/workspace/canvas/MAP.md)           |
 | Excalidraw scenes, embedded notes                              | [Sketch](src/components/workspace/sketch/MAP.md)           |
 | IPC, storage contracts, web fallback                           | [Storage](src/lib/storage/MAP.md)                          |
@@ -33,6 +35,8 @@ This is an ownership index of the working code, not a feature-completion claim.
   `commands/mutations.rs` → bundle/vault/trash services → tree reconciliation.
 - Database edits: database controller → storage database port →
   `commands/database.rs` → durable database mutation → rebuildable projection.
+- Creative workshop: panel / page → `project-port.ts` → `commands/project.rs` → journaled
+  operation (`project/`) → structure file and databases → index/watch (`project:changed`).
 - Optional features: module definition → module host registries/capabilities →
   feature UI → storage boundary. A roadmap does not prove a feature exists.
 

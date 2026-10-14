@@ -207,7 +207,7 @@ fn a_story_text_is_created_with_its_system_properties_and_the_block_that_names_t
         .iter()
         .find(|p| p.id() == properties["level"].as_str())
         .unwrap();
-    let option_names = ["Книга", "Арка", "Глава", "Страница"];
+    let option_names = ["Книга", "Том", "Глава", "Страница"];
     for (entry, name) in levels.iter().zip(option_names) {
         assert_eq!(
             entry.as_object().unwrap().keys().collect::<Vec<_>>(),
@@ -398,7 +398,7 @@ fn the_catalog_resolves_levels_and_formats_against_the_database() {
             .iter()
             .map(|level| level.name.as_deref().unwrap())
             .collect::<Vec<_>>(),
-        ["Книга", "Арка", "Глава", "Страница"]
+        ["Книга", "Том", "Глава", "Страница"]
     );
     assert!(summary
         .levels

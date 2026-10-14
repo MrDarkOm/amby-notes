@@ -22,6 +22,9 @@ const listTextStats = vi.fn()
 const resolveDatabaseAssetPaths = vi.fn()
 const dialogs = vi.hoisted(() => ({
   project: { current: null as null | ((created: { kind: string; id: string }) => void) },
+  section: {
+    current: null as null | ((created: { section: { sectionId: string } }) => void),
+  },
 }))
 
 vi.mock("@/lib/storage", async (importOriginal) => {
@@ -41,7 +44,14 @@ vi.mock("./create-project-dialog", () => ({
     return null
   },
 }))
-vi.mock("./create-section-dialog", () => ({ CreateSectionDialog: () => null }))
+vi.mock("./create-section-dialog", () => ({
+  CreateSectionDialog: (props: {
+    onCreated: (created: { section: { sectionId: string } }) => void
+  }) => {
+    dialogs.section.current = props.onCreated
+    return null
+  },
+}))
 
 function row(noteId: string, title: string, values: Record<string, unknown> = {}): DatabaseRow {
   return {
@@ -292,5 +302,155 @@ describe("CreativePanel: the anchors' relations after a base was made", () => {
     const alert = await screen.findByRole("alert")
     expect(alert.textContent).toContain("файл занят")
     expect(alert.textContent).toContain("Не удалось подготовить связи якорей")
+  })
+})
+
+describe("CreativePanel: the anchors' relations after a section was made", () => {
+  /** A workshop with a story and a universe but no anchors yet; or, after the section was made. */
+  function workshopWith(options: { anchors: boolean; arcs?: boolean; universes?: boolean }) {
+    const { anchors, arcs = false, universes = true } = options
+    const sections = [
+      section("stories", { role: "stories", name: "Истории", databaseId: "db_stories" }),
+      ...(universes
+        ? [section("universes", { role: "universes", name: "Вселенные", databaseId: "db_univ" })]
+        : []),
+      ...(arcs ? [section("arcs", { role: "arcs", name: "Арки", databaseId: "db_arcs" })] : []),
+      ...(anchors
+        ? [
+            section("anchors", {
+              role: "anchors",
+              name: "Якоря",
+              databaseId: "db_anch",
+              storiesPropertyId: "ast",
+            }),
+          ]
+        : []),
+    ]
+    return catalog([
+      workshopSummary("verse", {
+        name: "Verse",
+        fileRevision: "rev-verse",
+        sections,
+        stories: [
+          storySummary("hills", {
+            workshopId: "verse",
+            name: "MoleHills",
+            databaseId: "db_t_hills",
+          }),
+        ],
+      }),
+    ])
+  }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+    localStorage.clear()
+    dialogs.section.current = null
+    queryDatabase.mockReset().mockResolvedValue({
+      rows: [],
+      nextCursor: null,
+      totalCount: 0,
+      diagnostics: [],
+    })
+    ensurePlotLinks.mockReset().mockResolvedValue({ changed: true })
+    listTextStats.mockReset().mockResolvedValue([])
+    resolveDatabaseAssetPaths.mockReset().mockResolvedValue({ paths: [] })
+    useProjectStore.getState().reset()
+    useDatabaseStore.setState({ vaultGeneration: 1, databases: [], invalidationSeq: 0 })
+    useCreativeNavStore.setState({
+      sectionByProject: {},
+      collapsed: {},
+      scope: "verse",
+      worksOpen: { text: true, anchors: true, notes: false },
+      storyFilter: null,
+      universeFilter: null,
+      dataNonce: 0,
+      search: "",
+      pageRequest: null,
+      entityRequest: null,
+      createRequest: null,
+    })
+  })
+  afterEach(cleanup)
+
+  /**
+   * "Create anchors" in the story's anchors part opens the section dialog; the dialog finishes
+   * and the catalog, read again, holds the new base (the test sets it where the store would).
+   */
+  async function makeAnchors(after: ProjectCatalog) {
+    act(() => useProjectStore.getState().setCatalog(workshopWith({ anchors: false })))
+    render(
+      <CreativePanel
+        {...props({ onCreativeChanged: async () => undefined, onOpenCreativeProject: vi.fn() })}
+      />,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Создать раздел «Якоря»" }))
+    await waitFor(() => expect(dialogs.section.current).not.toBeNull())
+    act(() => useProjectStore.getState().setCatalog(after))
+    await act(async () => {
+      dialogs.section.current?.({ section: { sectionId: "anchors" } })
+    })
+  }
+
+  it("makes the Universe relation of anchors born after the universes", async () => {
+    await makeAnchors(workshopWith({ anchors: true }))
+    await waitFor(() => expect(ensurePlotLinks).toHaveBeenCalledTimes(1))
+    expect(ensurePlotLinks).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: "anchors",
+        workshopId: "verse",
+        expectedRevision: "rev-verse",
+      }),
+    )
+  })
+
+  it("makes the Arcs relation too when the arcs exist, in the one call", async () => {
+    act(() => useProjectStore.getState().setCatalog(workshopWith({ anchors: false, arcs: true })))
+    await makeAnchors(workshopWith({ anchors: true, arcs: true }))
+    await waitFor(() => expect(ensurePlotLinks).toHaveBeenCalledTimes(1))
+    expect(ensurePlotLinks.mock.calls[0][0]).toMatchObject({ target: "anchors" })
+  })
+
+  it("asks for nothing when there is nothing to relate the new anchors to", async () => {
+    // No universes and no arcs in the workshop: the anchors need no relation of their own.
+    act(() => useProjectStore.getState().setCatalog(workshopWith({ anchors: false })))
+    render(
+      <CreativePanel
+        {...props({ onCreativeChanged: async () => undefined, onOpenCreativeProject: vi.fn() })}
+      />,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Создать раздел «Якоря»" }))
+    await waitFor(() => expect(dialogs.section.current).not.toBeNull())
+    act(() =>
+      useProjectStore
+        .getState()
+        .setCatalog(workshopWith({ anchors: true, universes: false, arcs: false })),
+    )
+    await act(async () => {
+      dialogs.section.current?.({ section: { sectionId: "anchors" } })
+    })
+    await act(async () => {})
+    expect(ensurePlotLinks).not.toHaveBeenCalled()
+  })
+
+  it("shows the failure instead of swallowing it, and still opens the new section", async () => {
+    ensurePlotLinks.mockReset().mockRejectedValue(new Error("файл занят"))
+    const onOpenCreativeProject = vi.fn()
+    act(() => useProjectStore.getState().setCatalog(workshopWith({ anchors: false })))
+    render(
+      <CreativePanel
+        {...props({ onCreativeChanged: async () => undefined, onOpenCreativeProject })}
+      />,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Создать раздел «Якоря»" }))
+    await waitFor(() => expect(dialogs.section.current).not.toBeNull())
+    act(() => useProjectStore.getState().setCatalog(workshopWith({ anchors: true })))
+    await act(async () => {
+      dialogs.section.current?.({ section: { sectionId: "anchors" } })
+    })
+    const alert = await screen.findByRole("alert")
+    expect(alert.textContent).toContain("файл занят")
+    expect(alert.textContent).toContain("Не удалось подготовить связи якорей")
+    expect(onOpenCreativeProject).toHaveBeenCalledWith("verse", "anchors")
   })
 })

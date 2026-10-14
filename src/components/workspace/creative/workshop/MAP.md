@@ -20,6 +20,7 @@ backend of notebooks is [notebooks.rs](../../../../../src-tauri/src/project/note
 | Plot seen from a place (pure): neighbours, ribbon, buckets | [plot-views.ts](plot-views.ts)                                                                                             |
 | Anchors with no single story; the ribbon of a desk         | [anchors-overview.tsx](anchors-overview.tsx), [anchor-ribbon.tsx](anchor-ribbon.tsx), [quick-create.tsx](quick-create.tsx) |
 | Anchor order, `ensure_plot_links` from the interface       | [use-anchor-order.ts](use-anchor-order.ts), [use-ensure-plot.ts](use-ensure-plot.ts)                                       |
+| Moves by menu: pages, anchors ahead                        | `pageMoves` (`text-tree-model.ts`), `stepAheadAnchor` (`plot-model.ts`), `ArrangeMenu` ([item-menu.tsx](item-menu.tsx))    |
 | Real backend data for the model tests                      | `real-workshop.fixture.json`, kept equal to the Rust output by `contract_test.rs`; read by `workshop-contract.test.ts`     |
 
 **Notes and notebooks.** The notes part is the notes base shown as notebooks, under the same story / universe /
@@ -75,3 +76,10 @@ order (the first view's `manualOrder` and the creation times) for the panel, the
 `usePlotEnsurer` owns `ensure_plot_links`: the panel and the project page call `ensureAnchorLinks` after a base was made and
 before an event is written, and show its failure; the binding of a page only logs a failure of the anchors' own relations.
 The aside of a text page and the blocks of an arc and a character live in [dossier/](../dossier/).
+
+**Moving without the mouse.** Every row's menu (`ItemMenu`) opens from the keyboard as in the file tree (the Menu key or
+Shift+F10, `openMenuOnKey`). A page of the text has "Move up", "Move down", "Nest under the previous page" and "Move out one
+level": `pageMoves` is `planMove` (the drop's own rules: levels, loop, edges) over the neighbours, so an entry that a drop would
+refuse is greyed out and the others call `move_text_page` through the same `commitMove` as a drop. An anchor in "Ahead" has
+"Move up" / "Move down", which write the first view's `manualOrder` as dragging does (`stepAheadAnchor`); a bound anchor has none,
+its place is the text's. Tests: `creative-panel-arrange.test.tsx`.

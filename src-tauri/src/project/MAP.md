@@ -3,7 +3,7 @@
 Owns discovery of creative workshops (`amby-workshop.json`), their rebuildable SQLite
 index, and the journaled creation of workshops, sections, and stories. The contract is
 [creative format](../../../docs/creative-format.md); IPC is
-[commands/project.rs](../commands/project.rs); the renderer port is
+[commands/project.rs](../commands/project.rs) (commands: format §10); the renderer port is
 [project-port.ts](../../../src/lib/storage/project-port.ts). The interface is
 [the creative map](../../../src/components/workspace/creative/MAP.md).
 
@@ -16,11 +16,11 @@ index, and the journaled creation of workshops, sections, and stories. The contr
 | Create workshop / story / section, preflight, apply          | [create.rs](create.rs)                                 |
 | Story, universe and plot links, pages born linked            | [links.rs](links.rs)                                   |
 | Workshop settings, section order/remove, levels, text status | [settings.rs](settings.rs)                             |
-| Operation journal (`.amby/recovery/projects/`)               | [journal.rs](journal.rs)                               |
+| Operation journal (`.amby/recovery/creative/`)               | [journal.rs](journal.rs)                               |
 | Conditional cleanup and activation recovery                  | [recovery.rs](recovery.rs)                             |
 | Section presets (properties, gallery view, dossier template) | [presets.rs](presets.rs), [props.rs](props.rs)         |
 | Relations of one note, both ways (dossier)                   | [references.rs](references.rs)                         |
-| Text schema (5 properties, `text` block)                     | [text_schema.rs](text_schema.rs)                       |
+| Text schema (5 properties + plot links, `text` block)        | [text_schema.rs](text_schema.rs)                       |
 | Text pages: create, move, loop check                         | [text.rs](text.rs)                                     |
 | Words, modified and created times of a database's pages      | [text_stats.rs](text_stats.rs)                         |
 | Folder-name, tag and icon validation                         | [names.rs](names.rs)                                   |
@@ -28,8 +28,9 @@ index, and the journaled creation of workshops, sections, and stories. The contr
 
 **Discovery.** Any `amby-workshop.json` outside hidden/service folders is a workshop. Peer
 databases (`stories`, `characters`, `locations`, `universes`, `arcs`, `anchors`, `notes`) live
-under the workshop folder; stories are attached databases in `<Workshop>/Истории/<StoryName>/` with
-`amby-story.json`. Legacy v2 `amby-project.json` is reported as `legacyProjectFormat` and left untouched.
+under the workshop folder; a story is a folder `<Workshop>/Истории/<Name>/` holding `<Name>.md` (card),
+`<Name>.json` (text manifest) and `amby-story.json`. Legacy v2 `amby-project.json` is only reported
+(`legacyProjectFormat`), never read or changed. Every diagnostic code and its effect: [format §9](../../../docs/creative-format.md).
 Section `path` is a hint: the catalog matches a section to its database by `databaseId` through
 `db_databases`, so a moved database works (`moved`) and a missing one is shown `missing`.
 
@@ -67,8 +68,7 @@ entry (`storiesPropertyId`, `universePropertyId`), so nothing finds them by name
 first for every world role (the author's own sections too) and returns its ID in `PresetPlan`;
 `create_workshop_section` for `universes` also plans the second with `links::plan_link` into the stories
 manifest. That is one operation over several files: the new database, the stories manifest (`manifest_write`
-in the journal, original bytes kept, `recovery::rollback` restores them) and the workshop file last; a
-failure or crash at any step puts both files back byte for byte. `add_story_links` links a section of a
+in the journal; rollback restores its bytes) and the workshop file last; a failure or crash puts both back. `add_story_links` links a section of a
 workshop made before (the same journal, `expectedWorkshopRevision`, a snapshot of each file) and adopts a
 relation to the right database with the right limit when the section already has one. `create_entity`
 (`create_workshop_entity`) writes a world page with its "Stories" value in the same write as the note
@@ -99,14 +99,14 @@ failure or crash comes before `amby-story.json` reaches its planned bytes. A lev
 or added: leaving one out (even an unused one) is refused before any write (`UnknownTextLevel`).
 
 **Tests.** `create_test.rs` writes real files in a temporary vault and fails or "crashes" the operation at every durable
-step (`Step` hooks) and at `inject_nth_atomic_write_failure`; `discovery_test.rs` covers nesting, diagnostics and rebuilds.
+step (`Step` hooks) and at `inject_nth_atomic_write_failure`; `discovery_test.rs` covers diagnostics and rebuilds.
 Run `npm run rust:test -- project::`. After changing the commit order or the journal, break the cleanup and confirm the
 crash tests fail.
 
 **Text.** A story's text database is created with its five system properties in the same
 manifest (`text_schema.rs` plans them with `database::mutations::build_new_property` and IDs
 fixed up front; the properties and the `text` block are journaled, so cleanup recomputes the
-manifest byte for byte; `status` is optional in `amby-project.json` for older stories and can
+manifest byte for byte; `status` is optional in `amby-story.json` for older stories and can
 be added later by `add_text_status`). `text.levels[].id` and `text.formats[].id` are option IDs, never
 names. The catalog resolves them against `db_options` at read time (and resolves `statusOptions`
 with their status groups when `text.properties.status` is present): a deleted option is
@@ -124,7 +124,6 @@ the story desk's "continue with" and the order anchors were made in come from it
 gallery grouped by one of them, the page template) through `props.rs`, which builds properties
 with `build_new_property` against the manifest being created. The result is journaled
 (`PlannedSection.extras`, `.template`), so a repeat or a cleanup recomputes the manifest and
-the template file byte for byte; `recovery::rollback` removes the template only when it is the
-file we wrote, then the empty `.ambd` folders. **Page rules.** A parent must sit on a shallower
+the template file byte for byte; rollback removes the template only when it is the file we wrote. **Page rules.** A parent must sit on a shallower
 level than its page; a loop is refused first. A stale page is `ProjectError::RevisionConflict` with the revision on disk.
 

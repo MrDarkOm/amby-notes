@@ -1072,7 +1072,7 @@ describe("CreativePanel", () => {
               detail: null,
             },
             {
-              code: "nestedCollection",
+              code: "legacyProjectFormat",
               severity: "warning",
               path: "C/amby-workshop.json",
               workshopId: null,
@@ -1086,7 +1086,11 @@ describe("CreativePanel", () => {
     render(<CreativePanel {...props()} />)
     fireEvent.click(screen.getByText("2 замечания к проектам"))
     expect(screen.getByText("B/amby-workshop.json")).toBeTruthy()
-    expect(screen.getByText("Сборник внутри сборника не поддерживается")).toBeTruthy()
+    expect(
+      screen.getByText(
+        "Проект прежнего формата: открыт как обычные папки и базы, модуль его не меняет",
+      ),
+    ).toBeTruthy()
   })
 
   it("switches the scope from the switcher and shows that scope's stories", async () => {

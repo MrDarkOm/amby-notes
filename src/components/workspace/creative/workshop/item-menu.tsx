@@ -1,14 +1,19 @@
 import * as React from "react"
 import {
   Anchor,
+  ArrowDown,
+  ArrowUp,
   Check,
   ExternalLink,
   FileText,
   FolderInput,
   GitBranch,
+  IndentDecrease,
+  IndentIncrease,
   Link2Off,
   Pencil,
   Trash2,
+  type LucideIcon,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
@@ -27,6 +32,7 @@ import { cn } from "@/lib/utils"
 import { ItemActionsContext } from "./item-actions"
 import type { NotebookTarget } from "./notebook-model"
 import type { PlotKind } from "./plot-model"
+import type { ArrangeKey } from "./text-tree-model"
 
 /**
  * Where a note can be moved from its menu: the notebooks to choose from and the root of the base
@@ -37,6 +43,75 @@ export interface MoveMenu {
   /** The notebook the note is in; empty in the root. */
   current: readonly string[]
   onMove: (segments: string[] | null) => void
+}
+
+/**
+ * "Up", "Down", and for a page of the text "Nest under the previous" and "Move out one level":
+ * the keyboard-reachable way to what dragging a row does. An entry the row has but cannot do now
+ * is `null` and shows greyed out; an entry left out is not offered (an anchor has no levels).
+ */
+export interface ArrangeMenu {
+  moves: Partial<Record<ArrangeKey, (() => void) | null>>
+}
+
+const ARRANGE_ITEMS: Array<{ key: ArrangeKey; icon: LucideIcon }> = [
+  { key: "up", icon: ArrowUp },
+  { key: "down", icon: ArrowDown },
+  { key: "indent", icon: IndentIncrease },
+  { key: "outdent", icon: IndentDecrease },
+]
+
+/** The entries of one row's arrangement. Mounted only while the menu is open, so a row that is
+ * never right-clicked never works out where it could go. */
+function ArrangeItems({ arrange }: { arrange: () => ArrangeMenu | null }) {
+  const { t } = useTranslation()
+  const menu = arrange()
+  if (!menu) return null
+  const offered = ARRANGE_ITEMS.filter((item) => item.key in menu.moves)
+  if (offered.length === 0) return null
+  return (
+    <>
+      <ContextMenuSeparator />
+      {offered.map(({ key, icon: Icon }) => {
+        const run = menu.moves[key] ?? null
+        return (
+          <ContextMenuItem
+            key={key}
+            disabled={run === null}
+            className="gap-2 text-[13px]"
+            onSelect={() => run?.()}
+          >
+            <Icon className="size-3.5 text-muted-foreground" />
+            {t(`creative.arrange.${key}`)}
+          </ContextMenuItem>
+        )
+      })}
+    </>
+  )
+}
+
+/**
+ * Opens a row's menu from the keyboard the way the file tree does: the Menu key or Shift+F10 on a
+ * focused row sends the context-menu event the mouse would, at the middle of the row.
+ */
+function openMenuOnKey(event: React.KeyboardEvent<HTMLElement>): boolean {
+  const asksForMenu = event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)
+  if (!asksForMenu) return false
+  if ((event.target as HTMLElement).closest("input, textarea, [contenteditable='true']")) {
+    return false
+  }
+  event.preventDefault()
+  event.stopPropagation()
+  const rect = event.currentTarget.getBoundingClientRect()
+  event.currentTarget.dispatchEvent(
+    new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    }),
+  )
+  return true
 }
 
 /** One anchor or arc a text page can be bound to, and whether it already is. */
@@ -131,6 +206,7 @@ export function ItemMenu({
   statusOptionId,
   onSelectStatus,
   move,
+  arrange,
   plot,
   children,
 }: {
@@ -148,10 +224,15 @@ export function ItemMenu({
   onSelectStatus?: (optionId: string | null) => void
   /** "Move to notebook": the keyboard-reachable way to what dragging does. */
   move?: MoveMenu
+  /** "Up", "Down" and, for a page of the text, "Nest" / "Move out": what dragging does, by keyboard. */
+  arrange?: () => ArrangeMenu | null
   /** "Anchors", "Arcs" and "Unbind from a page": the keyboard-reachable way to what dragging does. */
   plot?: PlotMenu
   /** The row; it receives the trigger's props. */
-  children: React.ReactElement<{ onContextMenu?: React.MouseEventHandler }>
+  children: React.ReactElement<{
+    onContextMenu?: React.MouseEventHandler
+    onKeyDown?: React.KeyboardEventHandler<HTMLElement>
+  }>
 }) {
   const { t } = useTranslation()
   const actions = React.useContext(ItemActionsContext)
@@ -161,6 +242,10 @@ export function ItemMenu({
     onContextMenu: (event: React.MouseEvent) => {
       event.stopPropagation()
       children.props.onContextMenu?.(event)
+    },
+    onKeyDown: (event: React.KeyboardEvent<HTMLElement>) => {
+      children.props.onKeyDown?.(event)
+      if (!event.defaultPrevented) openMenuOnKey(event)
     },
   })
   const canDeleteWithNested = nested.length > 0 && Boolean(actions.onDeleteMany)
@@ -292,6 +377,7 @@ export function ItemMenu({
               </ContextMenuSubContent>
             </ContextMenuSub>
           )}
+          {arrange && <ArrangeItems arrange={arrange} />}
           {hasStatusChoices && statusOptions && onSelectStatus && (
             <>
               <ContextMenuSeparator />

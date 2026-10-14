@@ -53,7 +53,7 @@ fn default_label(key: &str) -> &'static str {
         "property:anchors" => "Якоря",
         "property:arcs" => "Арки",
         "level:book" => "Книга",
-        "level:arc" => "Арка",
+        "level:arc" => "Том",
         "level:chapter" => "Глава",
         "level:page" => "Страница",
         "format:manuscript" => "Рукопись",

@@ -29,7 +29,7 @@ import { treeIndent } from "./tree-indent"
 import { EmptyAction } from "./empty-action"
 import { InlineCreateRow } from "./inline-create-row"
 import { StoryHeader } from "./story-header"
-import { ItemMenu, type PlotChoice, type PlotMenu } from "./item-menu"
+import { ItemMenu, type ArrangeMenu, type PlotChoice, type PlotMenu } from "./item-menu"
 import { LinkAction } from "./link-action"
 import { PageMarksView, RowError } from "./page-marks"
 import {
@@ -40,6 +40,7 @@ import {
   encodePlotDrag,
   orderStoryAnchors,
   pageMarks,
+  stepAheadAnchor,
   type PageBinding,
   type PlotKind,
 } from "./plot-model"
@@ -60,11 +61,13 @@ import {
   canHaveChildPage,
   countNodes,
   descendantIds,
+  pageMoves,
   pageStatusDotClass,
   planMove,
   resolvePageStatus,
   textOrder,
   type DropZone,
+  type MovePlan,
   type TextNode,
 } from "./text-tree-model"
 
@@ -204,6 +207,8 @@ interface TreeContext {
   marksOf: (noteId: string) => ReturnType<typeof pageMarks>
   /** The page's menu entries for anchors and arcs; absent when nothing can be bound. */
   plotMenuOf?: (node: TextNode) => PlotMenu | undefined
+  /** The page's "Up" / "Down" / "Nest" / "Move out" menu entries; absent when it cannot be moved. */
+  arrangeOf?: (node: TextNode) => ArrangeMenu | null
   /** An anchor or an arc was dropped on a page. */
   onPlotDrop?: (pageId: string, kind: PlotKind, targetId: string) => void
   /** The failure of the last binding, shown under the row it belongs to. */
@@ -251,6 +256,7 @@ function TreeRows({
                   : undefined
               }
               plot={context.plotMenuOf?.(node)}
+              arrange={context.arrangeOf ? () => context.arrangeOf?.(node) ?? null : undefined}
             >
               <div
                 draggable
@@ -532,6 +538,35 @@ function StoryWorks({
   const plan = (targetId: string, zone: DropZone) =>
     dragId ? planMove(roots, levels, dragId, targetId, zone) : null
 
+  // A page goes where a plan says: by a drop or by the page's menu. The plan was made by
+  // `planMove`, which refuses what the backend would; the backend still has the last word.
+  const commitMove = (pageId: string, move: MovePlan) => {
+    const moved = textRows?.find((row) => row.noteId === pageId)
+    if (!moved || vaultGeneration === null) return
+    setMoveError(null)
+    void moveTextPage({
+      expectedGeneration: vaultGeneration,
+      operationId: `move-${crypto.randomUUID()}`,
+      storyId: story.storyId,
+      noteId: pageId,
+      newParentNoteId: move.newParentId,
+      orderKey: move.orderKey,
+      expectedRevision: moved.rowRevision,
+    })
+      .catch((error: unknown) => setMoveError(projectErrorText(t, error)))
+      .finally(onMoved)
+  }
+  const arrangeOf = (node: TextNode): ArrangeMenu => {
+    const moves = pageMoves(roots, levels, node.noteId)
+    const run = (key: keyof typeof moves) => {
+      const move = moves[key]
+      return move ? () => commitMove(node.noteId, move) : null
+    }
+    return {
+      moves: { up: run("up"), down: run("down"), indent: run("indent"), outdent: run("outdent") },
+    }
+  }
+
   const statusOptions = text?.properties.status ? (text.statusOptions ?? []) : []
 
   const context: TreeContext = {
@@ -621,25 +656,12 @@ function StoryWorks({
       const move = plan(noteId, zone)
       const draggedId = dragId
       reset()
-      if (!move || !draggedId || vaultGeneration === null) return
-      const dragged = textRows?.find((row) => row.noteId === draggedId)
-      if (!dragged) return
-      setMoveError(null)
-      void moveTextPage({
-        expectedGeneration: vaultGeneration,
-        operationId: `move-${crypto.randomUUID()}`,
-        storyId: story.storyId,
-        noteId: draggedId,
-        newParentNoteId: move.newParentId,
-        orderKey: move.orderKey,
-        expectedRevision: dragged.rowRevision,
-      })
-        .catch((error: unknown) => setMoveError(projectErrorText(t, error)))
-        .finally(onMoved)
+      if (move && draggedId) commitMove(draggedId, move)
     },
     onDragEnd: reset,
     marksOf: (noteId) => pageMarks(plot.bindings.get(noteId), plotTitleOf),
     plotMenuOf: canBind ? plotMenuOf : undefined,
+    arrangeOf: canWrite && text?.databaseId ? arrangeOf : undefined,
     plotError: plot.binding?.error ?? null,
   }
 
@@ -651,20 +673,33 @@ function StoryWorks({
     overId: string | null
     placement: RowDropPlacement
   } | null>(null)
+  const saveAnchorOrder = (next: string[] | null) => {
+    if (!next) return
+    setMoveError(null)
+    onReorderAnchors(next).catch((error: unknown) => setMoveError(projectErrorText(t, error)))
+  }
   const dropAnchor = (targetId: string, placement: RowDropPlacement) => {
     const moved = anchorDrag?.id
     setAnchorDrag(null)
     if (!moved) return
-    const next = moveRowInOrder(
-      anchorOrder,
-      ordered.ahead.map((row) => row.noteId),
-      moved,
-      targetId,
-      placement,
+    saveAnchorOrder(
+      moveRowInOrder(
+        anchorOrder,
+        ordered.ahead.map((row) => row.noteId),
+        moved,
+        targetId,
+        placement,
+      ),
     )
-    if (!next) return
-    setMoveError(null)
-    onReorderAnchors(next).catch((error: unknown) => setMoveError(projectErrorText(t, error)))
+  }
+  // The menu does the same as a drop: only an anchor "ahead" can be placed, one step at a time.
+  const aheadIds = ordered.ahead.map((row) => row.noteId)
+  const arrangeAnchor = (anchorId: string): ArrangeMenu => {
+    const step = (direction: "up" | "down") => {
+      const next = stepAheadAnchor(anchorOrder, aheadIds, anchorId, direction)
+      return next ? () => saveAnchorOrder(next) : null
+    }
+    return { moves: { up: step("up"), down: step("down") } }
   }
 
   /** One anchor of the part. `pageIds` are the pages it is bound to (none: it is ahead). */
@@ -678,6 +713,7 @@ function StoryWorks({
         <ItemMenu
           noteId={row.noteId}
           title={row.title}
+          arrange={reorder ? () => arrangeAnchor(row.noteId) : undefined}
           plot={
             canBind && pageIds.length > 0
               ? {

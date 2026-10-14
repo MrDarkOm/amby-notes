@@ -14,7 +14,7 @@ describe("text schema presets", () => {
     const en = i18n.getFixedT("en")
     expect(presetLevelNames("novel", ru)).toEqual(["Книга", "Глава", "Сцена"])
     expect(presetLevelNames("story", ru)).toEqual(["Страница"])
-    expect(presetLevelNames("comic", ru)).toEqual(["Книга", "Арка", "Глава", "Страница"])
+    expect(presetLevelNames("comic", ru)).toEqual(["Книга", "Том", "Глава", "Страница"])
     expect(presetLevelNames("novel", en)).toEqual(["Book", "Chapter", "Scene"])
   })
 

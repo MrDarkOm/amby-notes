@@ -319,11 +319,11 @@ describe("CreateProjectDialog", () => {
       cleanup()
       mount()
       fireEvent.click(screen.getByRole("radio", { name: "Комикс" }))
-      expect(chain()).toBe("Уровни: Книга → Арка → Глава → Страница")
+      expect(chain()).toBe("Уровни: Книга → Том → Глава → Страница")
       type("Tale")
       submit()
       await waitFor(() => expect(createStory).toHaveBeenCalledTimes(2))
-      expect(levelsSent(1)).toEqual(["Книга", "Арка", "Глава", "Страница"])
+      expect(levelsSent(1)).toEqual(["Книга", "Том", "Глава", "Страница"])
     })
 
     it("keeps the operation ID for a retry and takes a new one when the schema changes", async () => {

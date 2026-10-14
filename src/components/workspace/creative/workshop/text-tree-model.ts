@@ -162,6 +162,29 @@ export function descendantIds(node: TextNode): string[] {
   return node.children.flatMap((child) => [child.noteId, ...descendantIds(child)])
 }
 
+/**
+ * Where the tree holds a page: the page above it and the list it stands in (its siblings, itself
+ * included). Read from the tree as shown, not from the page's own parent value, so a page the
+ * tree put at the top because of a missing or looping parent counts as being at the top.
+ */
+function locate(
+  roots: TextNode[],
+  noteId: string,
+): { parent: TextNode | null; siblings: TextNode[] } | null {
+  const walk = (
+    siblings: TextNode[],
+    parent: TextNode | null,
+  ): { parent: TextNode | null; siblings: TextNode[] } | null => {
+    for (const node of siblings) {
+      if (node.noteId === noteId) return { parent, siblings }
+      const inner = walk(node.children, node)
+      if (inner) return inner
+    }
+    return null
+  }
+  return walk(roots, null)
+}
+
 function isDescendant(node: TextNode, noteId: string): boolean {
   return node.children.some((child) => child.noteId === noteId || isDescendant(child, noteId))
 }
@@ -240,8 +263,7 @@ export function planMove(
   if (!dragged || !target || dragged === target) return null
   if (isDescendant(dragged, targetId)) return null
 
-  const parentOf = (node: TextNode) => (node.parentId ? findNode(roots, node.parentId) : null)
-  const newParent = zone === "inside" ? target : parentOf(target)
+  const newParent = zone === "inside" ? target : (locate(roots, target.noteId)?.parent ?? null)
   if (newParent) {
     const parentLevel = levelIndex(levels, newParent.levelId)
     const draggedLevel = levelIndex(levels, dragged.levelId)
@@ -259,5 +281,33 @@ export function planMove(
   return {
     newParentId: newParent ? newParent.noteId : null,
     orderKey: generateFractionalIndex(before, after),
+  }
+}
+
+/** The four moves of the menu: a place up, down, into the previous page, out of the parent. */
+export type ArrangeKey = "up" | "down" | "indent" | "outdent"
+
+/**
+ * What a page can do without the mouse, each as the plan a drop would make, or `null` when it
+ * cannot: at the edge of its list, nothing before it to nest under, no parent to leave, or a move
+ * the levels of the schema forbid. These are `planMove` over the neighbours, so the rules are
+ * the drag's own; the menu greys an entry out instead of letting the backend refuse it.
+ */
+export function pageMoves(
+  roots: TextNode[],
+  levels: { id: string }[],
+  noteId: string,
+): Record<ArrangeKey, MovePlan | null> {
+  const none = { up: null, down: null, indent: null, outdent: null }
+  const place = locate(roots, noteId)
+  if (!place) return none
+  const at = place.siblings.findIndex((node) => node.noteId === noteId)
+  const previous = place.siblings[at - 1]
+  const next = place.siblings[at + 1]
+  return {
+    up: previous ? planMove(roots, levels, noteId, previous.noteId, "before") : null,
+    down: next ? planMove(roots, levels, noteId, next.noteId, "after") : null,
+    indent: previous ? planMove(roots, levels, noteId, previous.noteId, "inside") : null,
+    outdent: place.parent ? planMove(roots, levels, noteId, place.parent.noteId, "after") : null,
   }
 }

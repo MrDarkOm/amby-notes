@@ -10,6 +10,7 @@ import {
   pageMarks,
   pagesOf,
   readBindings,
+  stepAheadAnchor,
   type PageBinding,
 } from "./plot-model"
 import { buildTextTree, textOrder } from "./text-tree-model"
@@ -263,5 +264,29 @@ describe("the drag of an anchor or an arc", () => {
     for (const bad of ["", "page-id", "{}", '{"kind":"page","id":"x"}', '{"kind":"arc","id":""}']) {
       expect(decodePlotDrag(bad)).toBeNull()
     }
+  })
+})
+
+describe("stepAheadAnchor: one place up or down in the group ahead", () => {
+  const ahead = ["x1", "x2", "x3"]
+
+  it("swaps with the neighbour and keeps the visible rest as it was", () => {
+    expect(stepAheadAnchor([], ahead, "x2", "up")).toEqual(["x2", "x1", "x3"])
+    expect(stepAheadAnchor([], ahead, "x2", "down")).toEqual(["x1", "x3", "x2"])
+    // An order the author set by hand is respected, and other entries (anchors of other
+    // stories, not shown here) keep their place.
+    expect(stepAheadAnchor(["z", "x3", "x1", "x2"], ["x3", "x1", "x2"], "x1", "down")).toEqual([
+      "z",
+      "x3",
+      "x2",
+      "x1",
+    ])
+  })
+
+  it("cannot go past the ends, and cannot move an anchor that is not ahead", () => {
+    expect(stepAheadAnchor([], ahead, "x1", "up")).toBeNull()
+    expect(stepAheadAnchor([], ahead, "x3", "down")).toBeNull()
+    expect(stepAheadAnchor([], ahead, "bound", "up")).toBeNull()
+    expect(stepAheadAnchor([], ["only"], "only", "down")).toBeNull()
   })
 })

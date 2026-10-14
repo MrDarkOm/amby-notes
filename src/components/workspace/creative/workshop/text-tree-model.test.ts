@@ -9,6 +9,7 @@ import {
   descendantIds,
   findNode,
   lastOrderKey,
+  pageMoves,
   pageStatusDotClass,
   planMove,
   resolvePageStatus,
@@ -274,5 +275,113 @@ describe("page status", () => {
     expect(pageStatusDotClass(statusOptions, null, 500)).toBe("border border-muted-foreground/50")
     expect(pageStatusDotClass([], null, 500)).toBe("bg-primary")
     expect(pageStatusDotClass([], null, 0)).toBe("border border-muted-foreground/50")
+  })
+})
+
+describe("pageMoves: the moves a page can make from its menu", () => {
+  // b1 ─ c1 ─ p1
+  //    ├ p2
+  //    └ c3
+  // b2
+  const pages = [
+    row("b1", "book", null, "a0"),
+    row("c1", "chapter", "b1", "a0"),
+    row("p1", "page", "c1", "a0"),
+    row("p2", "page", "b1", "a1"),
+    row("c3", "chapter", "b1", "a2"),
+    row("b2", "book", null, "a1"),
+  ]
+  const tree = buildTextTree(pages, PROPS)
+  const moves = (id: string) => pageMoves(tree, LEVELS, id)
+
+  /** The tree after a page took a plan: parent and key rewritten, as the backend would. */
+  function applied(id: string, plan: { newParentId: string | null; orderKey: string }) {
+    return buildTextTree(
+      pages.map((page) => {
+        if (page.noteId !== id) return page
+        const values = JSON.parse(page.valuesJson) as Record<string, unknown>
+        values.par = { type: "relation", targetNoteIds: plan.newParentId ? [plan.newParentId] : [] }
+        values.ord = { type: "text", value: plan.orderKey }
+        return { ...page, valuesJson: JSON.stringify(values) }
+      }),
+      PROPS,
+    )
+  }
+  const childrenOf = (nodes: TextNode[], id: string | null) =>
+    (id ? findNode(nodes, id)!.children : nodes).map((node) => node.noteId)
+
+  it("has no move up for the first of a list, none down for the last, whatever its depth", () => {
+    expect(moves("p1").up).toBeNull()
+    expect(moves("p1").down).toBeNull()
+    expect(moves("c1").up).toBeNull()
+    expect(moves("c3").down).toBeNull()
+    expect(moves("b1").up).toBeNull()
+    expect(moves("b2").down).toBeNull()
+    expect(moves("c3").up).not.toBeNull()
+    expect(moves("b1").down).not.toBeNull()
+  })
+
+  it("puts a page one place up or down among its siblings, under the same parent", () => {
+    const up = moves("p2").up!
+    expect(up.newParentId).toBe("b1")
+    expect(childrenOf(applied("p2", up), "b1")).toEqual(["p2", "c1", "c3"])
+    const down = moves("p2").down!
+    expect(down.newParentId).toBe("b1")
+    expect(childrenOf(applied("p2", down), "b1")).toEqual(["c1", "c3", "p2"])
+    // In the middle of three, a step is a swap with the neighbour.
+    expect(childrenOf(applied("c3", moves("c3").up!), "b1")).toEqual(["c1", "c3", "p2"])
+    expect(childrenOf(applied("b1", moves("b1").down!), null)).toEqual(["b2", "b1"])
+  })
+
+  it("nests a page into the previous sibling, last among its children, if the levels allow", () => {
+    const indent = moves("p2").indent!
+    expect(indent.newParentId).toBe("c1")
+    expect(childrenOf(applied("p2", indent), "c1")).toEqual(["p1", "p2"])
+    // No previous sibling to nest under.
+    expect(moves("c1").indent).toBeNull()
+    expect(moves("b1").indent).toBeNull()
+    // A chapter cannot go into a page, a book not into a book.
+    expect(moves("c3").indent).toBeNull()
+    expect(moves("b2").indent).toBeNull()
+  })
+
+  it("moves a page out of its parent to just after it", () => {
+    const out = moves("p1").outdent!
+    expect(out.newParentId).toBe("b1")
+    expect(childrenOf(applied("p1", out), "b1")).toEqual(["c1", "p1", "p2", "c3"])
+    const top = moves("c3").outdent!
+    expect(top.newParentId).toBeNull()
+    expect(childrenOf(applied("c3", top), null)).toEqual(["b1", "c3", "b2"])
+    // A page at the top has nowhere to go out to.
+    expect(moves("b1").outdent).toBeNull()
+    expect(moves("b2").outdent).toBeNull()
+  })
+
+  it("refuses a move out that would put a page under a parent of its own depth or deeper", () => {
+    // A book that sits under a chapter (data edited by hand): leaving the chapter would put it
+    // under the book above, which is not shallower than itself.
+    const odd = buildTextTree(
+      [
+        row("b1", "book", null, "a0"),
+        row("c1", "chapter", "b1", "a0"),
+        row("bx", "book", "c1", "a0"),
+      ],
+      PROPS,
+    )
+    expect(pageMoves(odd, LEVELS, "bx").outdent).toBeNull()
+  })
+
+  it("treats a page the tree put at the top as being at the top, whatever its parent says", () => {
+    const orphaned = [...pages, row("o", "chapter", "ghost", "a5")]
+    const found = pageMoves(buildTextTree(orphaned, PROPS), LEVELS, "o")
+    expect(found.outdent).toBeNull()
+    expect(found.up?.newParentId).toBeNull()
+    expect(found.down).toBeNull()
+    // The sibling before it is the book b2, which is shallower than a chapter.
+    expect(found.indent?.newParentId).toBe("b2")
+  })
+
+  it("has no moves for a page the tree does not hold", () => {
+    expect(moves("nowhere")).toEqual({ up: null, down: null, indent: null, outdent: null })
   })
 })

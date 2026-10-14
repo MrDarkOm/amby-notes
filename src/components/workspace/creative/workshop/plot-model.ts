@@ -1,5 +1,6 @@
 import type { DatabaseRow } from "@/lib/storage"
 import { ARC_COLORS } from "@/themes/palettes"
+import { moveRowInOrder } from "../../database/row-order"
 import { orderByAuthor, relationTargetsOf } from "./workshop-model"
 
 /**
@@ -141,6 +142,31 @@ export function orderStoryAnchors<T extends AnchorLike>(input: {
   })
   ahead.sort((a, b) => authored(a) - authored(b))
   return { placed, ahead }
+}
+
+/**
+ * The hand-placed order after an anchor of the "ahead" group goes one place up or down, for the
+ * menu that does what dragging does. `aheadIds` are the group as shown. `null` when it cannot: the
+ * anchor is not in the group (a bound anchor stands where the text puts it) or is already at that
+ * end. The result is what `moveRowInOrder` makes of a drop on the neighbour.
+ */
+export function stepAheadAnchor(
+  manualOrder: readonly string[],
+  aheadIds: readonly string[],
+  anchorId: string,
+  direction: "up" | "down",
+): string[] | null {
+  const at = aheadIds.indexOf(anchorId)
+  if (at === -1) return null
+  const neighbour = aheadIds[direction === "up" ? at - 1 : at + 1]
+  if (neighbour === undefined) return null
+  return moveRowInOrder(
+    [...manualOrder],
+    [...aheadIds],
+    anchorId,
+    neighbour,
+    direction === "up" ? "before" : "after",
+  )
 }
 
 /** The position of an anchor in the author's order: placed by hand, else when it was made. */

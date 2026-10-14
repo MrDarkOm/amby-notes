@@ -18,7 +18,7 @@ describe("project labels", () => {
       "property:format": "Формат",
       "property:status": "Статус",
       "level:book": "Книга",
-      "level:arc": "Арка",
+      "level:arc": "Том",
       "level:chapter": "Глава",
       "level:page": "Страница",
       "format:manuscript": "Рукопись",

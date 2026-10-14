@@ -2469,6 +2469,13 @@ const ru = {
       universes: "Вселенные",
     },
     groups: { work: "История", world: "Мир" },
+    // Menu entries that do by keyboard what dragging a row does.
+    arrange: {
+      up: "Выше",
+      down: "Ниже",
+      indent: "Вложить в предыдущую",
+      outdent: "Вынести на уровень выше",
+    },
     notebooks: {
       root: "Без блокнота",
       add: "Новый блокнот",
@@ -2634,7 +2641,9 @@ const ru = {
       },
       levels: {
         book: "Книга",
-        arc: "Арка",
+        // The second level of the comic schema. The key stays `arc` (it is part of the label
+        // contract with the backend), but the name is "Volume": "Arc" belongs to story arcs.
+        arc: "Том",
         chapter: "Глава",
         scene: "Сцена",
         page: "Страница",
@@ -2655,11 +2664,10 @@ const ru = {
     },
     kind: {
       story: "История",
-      storyHint: "Текст истории и свои разделы: персонажи, локации, заметки.",
+      storyHint:
+        "Текст со своей схемой уровней; персонажи, локации и заметки общие для мастерской.",
       universe: "Вселенная",
       universeHint: "Общий мир для нескольких историй: общие персонажи и локации.",
-      collection: "Сборник",
-      collectionHint: "Просто группа историй, без общих разделов.",
     },
     panel: {
       newProject: "Новый проект",
@@ -2682,17 +2690,25 @@ const ru = {
       diagnostics_other: "{{count}} замечаний к проектам",
     },
     diagnostic: {
-      duplicateProjectId:
-        "Повторяющийся идентификатор проекта: копия папки не считается вторым проектом",
-      nestedCollection: "Сборник внутри сборника не поддерживается",
-      storyInsideStory: "История внутри истории",
-      invalidProjectFile: "Файл структуры проекта повреждён",
-      unreadableProjectFile: "Файл структуры проекта не читается",
-      unsupportedFormatVersion: "Неизвестная версия формата: проект открыт только для чтения",
-      invalidSection: "Описание раздела в файле структуры неполное",
+      legacyProjectFormat:
+        "Проект прежнего формата: открыт как обычные папки и базы, модуль его не меняет",
+      invalidWorkshopFile: "Файл мастерской amby-workshop.json повреждён",
+      unreadableWorkshopFile: "Файл мастерской не читается",
+      duplicateWorkshopId:
+        "Повторяющийся идентификатор мастерской: копия папки не считается второй мастерской",
+      unsupportedFormatVersion: "Неизвестная версия формата: мастерская открыта только для чтения",
+      invalidSection: "Описание раздела в файле мастерской неполное",
       duplicateSectionId: "Повторяющийся идентификатор раздела",
       unsafeSectionPath: "Небезопасный путь раздела",
-      symlinkIgnored: "Файл структуры — символическая ссылка, он пропущен",
+      symlinkIgnored: "Файл мастерской — символическая ссылка, он пропущен",
+      storyMissingMainFile: "У истории нет карточки (главного файла): история не показана",
+      storyMissingConfigFile: "У истории нет файла настроек amby-story.json: история не показана",
+      brokenManifest: "Файл истории или манифест её базы текста повреждён или отсутствует",
+      duplicateStoryId:
+        "Повторяющийся идентификатор истории: копия папки не считается второй историей",
+      missingTextProperty: "В базе текста истории нет системного свойства",
+      danglingTextLevel: "Уровень текста удалён из базы: страницы с ним не меняются",
+      danglingTextFormat: "Формат страницы удалён из базы: страницы с ним не меняются",
     },
     scope: {
       caption: "Мастерская",
@@ -2818,7 +2834,7 @@ const ru = {
       sectionMissingHint:
         "Папка этого раздела не найдена в хранилище. Раздел остаётся в файле проекта: верните папку на место, и он заработает.",
       notFoundTitle: "Проект не найден",
-      notFoundHint: "Файл amby-project.json перенесён или удалён. Обновите список проектов.",
+      notFoundHint: "Файл amby-workshop.json перенесён или удалён. Обновите список мастерских.",
       readOnlyBanner:
         "Формат проекта (версия {{version}}) новее известного этой версии Amby: проект открыт только для чтения, файл не изменяется.",
     },
@@ -2837,7 +2853,6 @@ const ru = {
       },
       invalidName: "Недопустимое название: {{reason}}",
       pathCollision: "«{{path}}» уже существует. Выберите другое название.",
-      nestedCollection: "Сборник нельзя создать внутри сборника «{{path}}».",
       parentReadOnly:
         "Проект «{{path}}» в неизвестном формате: внутри него ничего нельзя создавать.",
       projectReadOnly: "Проект в неизвестном формате открыт только для чтения.",
@@ -5314,6 +5329,13 @@ const en: typeof ru = {
       universes: "Universes",
     },
     groups: { work: "Story", world: "World" },
+    // Menu entries that do by keyboard what dragging a row does.
+    arrange: {
+      up: "Move up",
+      down: "Move down",
+      indent: "Nest under the previous page",
+      outdent: "Move out one level",
+    },
     notebooks: {
       root: "No notebook",
       add: "New notebook",
@@ -5475,7 +5497,8 @@ const en: typeof ru = {
       },
       levels: {
         book: "Book",
-        arc: "Arc",
+        // The second level of the comic schema; see the Russian entry.
+        arc: "Volume",
         chapter: "Chapter",
         scene: "Scene",
         page: "Page",
@@ -5496,11 +5519,10 @@ const en: typeof ru = {
     },
     kind: {
       story: "Story",
-      storyHint: "The text of a story and its own sections: characters, locations, notes.",
+      storyHint:
+        "A text with its own level schema; characters, locations and notes are shared by the workshop.",
       universe: "Universe",
       universeHint: "A shared world for several stories: common characters and locations.",
-      collection: "Collection",
-      collectionHint: "Just a group of stories, without shared sections.",
     },
     panel: {
       newProject: "New project",
@@ -5523,16 +5545,25 @@ const en: typeof ru = {
       diagnostics_other: "{{count}} project warnings",
     },
     diagnostic: {
-      duplicateProjectId: "Duplicate project ID: a copied folder is not a second project",
-      nestedCollection: "A collection inside a collection is not supported",
-      storyInsideStory: "A story inside a story",
-      invalidProjectFile: "The project structure file is damaged",
-      unreadableProjectFile: "The project structure file cannot be read",
-      unsupportedFormatVersion: "Unknown format version: the project is read-only",
-      invalidSection: "A section description in the structure file is incomplete",
+      legacyProjectFormat:
+        "A project of the former format: opened as ordinary folders and databases, the module leaves it alone",
+      invalidWorkshopFile: "The workshop file amby-workshop.json is damaged",
+      unreadableWorkshopFile: "The workshop file cannot be read",
+      duplicateWorkshopId: "Duplicate workshop ID: a copied folder is not a second workshop",
+      unsupportedFormatVersion: "Unknown format version: the workshop is read-only",
+      invalidSection: "A section description in the workshop file is incomplete",
       duplicateSectionId: "Duplicate section ID",
       unsafeSectionPath: "Unsafe section path",
-      symlinkIgnored: "The structure file is a symbolic link and was skipped",
+      symlinkIgnored: "The workshop file is a symbolic link and was skipped",
+      storyMissingMainFile: "The story has no card (main file): the story is not shown",
+      storyMissingConfigFile: "The story has no amby-story.json: the story is not shown",
+      brokenManifest: "A story file or the manifest of its text database is damaged or missing",
+      duplicateStoryId: "Duplicate story ID: a copied folder is not a second story",
+      missingTextProperty: "The story's text database lacks a system property",
+      danglingTextLevel:
+        "A text level was deleted from the database: pages that hold it are not changed",
+      danglingTextFormat:
+        "A page format was deleted from the database: pages that hold it are not changed",
     },
     scope: {
       caption: "Workshop",
@@ -5660,7 +5691,7 @@ const en: typeof ru = {
       sectionMissingHint:
         "This section's folder was not found in the vault. The section stays in the project file: put the folder back and it works again.",
       notFoundTitle: "Project not found",
-      notFoundHint: "The amby-project.json file was moved or deleted. Refresh the project list.",
+      notFoundHint: "The amby-workshop.json file was moved or deleted. Refresh the workshop list.",
       readOnlyBanner:
         "The project format (version {{version}}) is newer than this Amby knows: it is read-only and the file is not changed.",
     },
@@ -5679,7 +5710,6 @@ const en: typeof ru = {
       },
       invalidName: "Invalid name: {{reason}}",
       pathCollision: '"{{path}}" already exists. Choose another name.',
-      nestedCollection: 'A collection cannot be created inside the collection "{{path}}".',
       parentReadOnly:
         'The project "{{path}}" has an unknown format: nothing can be created inside it.',
       projectReadOnly: "A project with an unknown format is read-only.",

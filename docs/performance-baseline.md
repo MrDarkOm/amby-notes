@@ -120,3 +120,26 @@ continuation pages of 50).
 
 Backend query only (`searchRelationCandidates`); IPC and WebView rendering are not
 included. The target in the database parity plan is p95 ≤ 150 ms.
+
+## Creative workshop: 300 stories × 50 pages — 2026-10-14
+
+Stage 0 of the [workshop plan](creative-workshop-plan.md) measured this only in the debug profile
+(discover 1.34 s, first open 6.5 s, reopen 4.4 s); stage 7 repeats it in **release**. Command:
+`cargo test --release --manifest-path src-tauri/Cargo.toml --lib bench_300_stories_50_pages -- --ignored --nocapture`
+(`src-tauri/src/desktop_e2e_tests.rs`). Apple M5, macOS 26.7.1, Rust 1.95.0, release profile (opt-level 3,
+no LTO), AC power, local temporary filesystem, nothing heavy running. Three consecutive runs, each on a fresh
+disposable vault of 301 databases and 15,300 notes (a plain dataset of databases and notes: no
+`amby-workshop.json`, so the workshop catalog itself costs almost nothing in it).
+
+| Build                                    | `discover_vault` | First open (activation + index + projection) | Warm reopen |
+| ---------------------------------------- | ---------------- | -------------------------------------------- | ----------- |
+| debug (stage 0, Apple M-series, one run) | 1.340 s          | 6.511 s                                      | 4.444 s     |
+| release                                  | 0.962 s          | 3.302 s                                      | 2.199 s     |
+| release                                  | 0.964 s          | 3.243 s                                      | 2.244 s     |
+| release                                  | 1.068 s          | 3.307 s                                      | 2.236 s     |
+
+Reading: release is about 2x faster than debug, the spread across release runs is under 10%. **Risk:** warm
+reopen of a 300-story vault is about 2.2 s in release, above the ~1.5 s that feels instant; the cost is the
+vault scan and database projection that grow with the note count (compare the 10,000-note rows above), not
+the workshop layer. Nothing was changed to improve the numbers. WebView first paint, input latency and
+resident memory with this vault remain unmeasured.
