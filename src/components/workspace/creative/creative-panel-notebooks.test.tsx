@@ -127,7 +127,9 @@ const props = (extra: Partial<PanelRenderProps> = {}) =>
   ({ databaseRuntimeEnabled: true, vault: "/v", ...extra }) as PanelRenderProps
 
 async function choose(name: RegExp) {
-  fireEvent.click(screen.getByRole("combobox", { name: "История" }))
+  // A story, or "All stories", is chosen on the card above the lists; a universe on the one below.
+  const card = name.test("Мир") ? "Вселенная" : "История"
+  fireEvent.click(screen.getByRole("combobox", { name: card }))
   fireEvent.click(await screen.findByRole("option", { name }))
 }
 
@@ -177,7 +179,6 @@ describe("CreativePanel: notebooks of the notes base", () => {
     useCreativeNavStore.setState({
       sectionByProject: {},
       collapsed: {},
-      scope: "verse",
       worksOpen: { text: false, anchors: false, notes: false },
       storyFilter: null,
       universeFilter: null,
@@ -229,8 +230,8 @@ describe("CreativePanel: notebooks of the notes base", () => {
     expect(notebookRow("Идеи").textContent?.replace(/\D/gu, "")).toBe("1")
     expect(screen.queryByTestId("notes-without-story")).toBeNull()
 
-    await choose(/Вся мастерская/)
-    await waitFor(() => expect(selectedText("История")).toContain("Вся мастерская"))
+    await choose(/Все истории/)
+    await waitFor(() => expect(selectedText("История")).toContain("Все истории"))
     // All the notes in a story are shown, with the names of their stories.
     expect((await screen.findByText("Корневая")).closest("button")?.textContent).toContain(
       "MoleHills",
@@ -322,8 +323,8 @@ describe("CreativePanel: notebooks of the notes base", () => {
     })
     createWorkshopEntity.mockClear()
 
-    await choose(/Вся мастерская/)
-    await waitFor(() => expect(selectedText("История")).toContain("Вся мастерская"))
+    await choose(/Все истории/)
+    await waitFor(() => expect(selectedText("История")).toContain("Все истории"))
     const wholeHeader = screen.getByRole("button", { name: /Заметки/ }).parentElement as HTMLElement
     fireEvent.click(within(wholeHeader).getByRole("button", { name: "Добавить" }))
     const next = await screen.findByRole("textbox", {

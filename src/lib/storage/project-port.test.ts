@@ -8,7 +8,8 @@ import {
   createStory,
   createWorkshopEntity,
   ensurePlotLinks,
-  createWorkshop,
+  completeWorkshop,
+  initWorkshop,
   createWorkshopSection,
   createTextPage,
   listNoteReferences,
@@ -116,21 +117,39 @@ describe("DesktopAdapter project delegation (mocked commands, not a live contrac
   it("passes requests through with explicit nulls and unwraps typed failures", async () => {
     vi.stubGlobal("window", { __TAURI_INTERNALS__: {} })
     setStorageAdapter(new DesktopAdapter())
-    const createW = vi.spyOn(commands, "createWorkshop").mockResolvedValue({
+    const initW = vi.spyOn(commands, "initWorkshop").mockResolvedValue({
       status: "ok",
       data: createdWorkshop,
     })
     const workshopReq = {
       expectedGeneration: 3,
       operationId: "op-1",
-      name: "MoleHills",
+      path: "Мастерская",
     }
-    await expect(createWorkshop(workshopReq)).resolves.toEqual(createdWorkshop)
-    expect(createW).toHaveBeenCalledWith({
-      ...workshopReq,
-      parentPath: null,
-      icon: null,
-      tags: [],
+    await expect(initWorkshop(workshopReq)).resolves.toEqual(createdWorkshop)
+    expect(initW).toHaveBeenCalledWith({ ...workshopReq, labels: {} })
+
+    const completed = {
+      operationId: "op-c",
+      workshopId: "w",
+      createdRoles: ["arcs"],
+      linked: [],
+      changed: true,
+      skipped: [],
+      workshopRevision: "r".repeat(64),
+      warnings: [],
+    }
+    const completeW = vi.spyOn(commands, "completeWorkshop").mockResolvedValue({
+      status: "ok",
+      data: completed,
+    })
+    await expect(
+      completeWorkshop({ expectedGeneration: 3, operationId: "op-c", workshopId: "w" }),
+    ).resolves.toEqual(completed)
+    expect(completeW).toHaveBeenCalledWith({
+      expectedGeneration: 3,
+      operationId: "op-c",
+      workshopId: "w",
       labels: {},
     })
 
@@ -496,11 +515,14 @@ describe("WebAdapter projects", () => {
     await expect(listTextStats("db_text")).resolves.toEqual([])
     await expect(listNotebooks("db_notes")).resolves.toMatchObject({ notebooks: [] })
     await expect(
-      createWorkshop({
+      initWorkshop({
         expectedGeneration: 0,
         operationId: "op",
-        name: "x",
+        path: "x",
       }),
+    ).rejects.toMatchObject({ name: "ProjectOperationError", kind: "failed" })
+    await expect(
+      completeWorkshop({ expectedGeneration: 0, operationId: "op", workshopId: "w" }),
     ).rejects.toMatchObject({ name: "ProjectOperationError", kind: "failed" })
     await expect(
       createStory({

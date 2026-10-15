@@ -73,13 +73,13 @@ import {
 
 interface WorksTabProps {
   workshop: WorkshopSummary
+  /** The stories listed in the card above: those in the scope of the universe chosen. */
   stories: StorySummary[]
   /** The story whose parts are shown: the one chosen in the list above them. */
   selectedStoryId: string | null
-  universes?: Array<{ noteId: string; title: string }>
+  /** The universe chosen in the card below, if any: where the open button leads without a story. */
   selectedUniverseId?: string | null
   onSelectStory: (storyId: string | null) => void
-  onSelectUniverse?: (universeId: string | null) => void
   /** Which accordion parts are unfolded. */
   open: Record<WorksSection, boolean>
   onToggleSection: (section: WorksSection) => void
@@ -99,13 +99,12 @@ interface WorksTabProps {
   /**
    * The notes part: the count, the "+" and the notebooks with their notes, already filtered by
    * what is shown. `null` when the workshop has no notes section. It stands under a story's
-   * parts, or alone when a universe or the whole workshop is shown.
+   * parts, or alone when a universe or the standalone stories are shown.
    */
   notes: NotesSlot | null
-  /** The anchors part for a universe or the whole workshop (no single story shown). */
+  /** The anchors part for a universe or the standalone stories (no single story shown). */
   anchorsSlot: AnchorsSlot | null
   /** The story has no anchors section: offers making one. */
-  onCreateAnchors: (story: StorySummary) => void
   /** A page moved or a move was refused: the lists read the files again. */
   onMoved: () => void
   /** The page open in the editor: its row is marked and its parents are unfolded. */
@@ -147,7 +146,7 @@ export interface PlotPart {
 }
 
 /**
- * The anchors part when no single story is shown (a universe, or the whole workshop): its count,
+ * The anchors part when no single story is shown (a universe, or the standalone stories): its count,
  * the "+" and the rows, built by the pane because they depend on what the filter lets through.
  */
 export interface AnchorsSlot {
@@ -389,7 +388,6 @@ function StoryWorks({
   onAddPage,
   onAddAnchor,
   notes,
-  onCreateAnchors,
   onMoved,
   activeNoteId,
   stats,
@@ -411,7 +409,6 @@ function StoryWorks({
   onAddPage: (story: StorySummary, parent: TextNode | null) => void
   onAddAnchor: (story: StorySummary) => void
   notes: NotesSlot | null
-  onCreateAnchors: (story: StorySummary) => void
   onMoved: () => void
   activeNoteId: string | null
   stats: Record<string, TextPageStat>
@@ -795,9 +792,12 @@ function StoryWorks({
       </React.Fragment>
     )
   }
-  const hintText = (key: string) => (
-    <p className="py-1 pr-3 text-xs text-muted-foreground" style={{ paddingLeft: treeIndent(1) }}>
-      {t(key)}
+  const hintText = (key: string, values?: Record<string, string>) => (
+    <p
+      className="break-words py-1 pr-3 text-xs text-muted-foreground"
+      style={{ paddingLeft: treeIndent(1) }}
+    >
+      {t(key, values)}
     </p>
   )
   const anchorDraftRow =
@@ -850,17 +850,7 @@ function StoryWorks({
       count: anchorsSection ? anchorRows.length : null,
       add: canWrite && anchorsSection ? () => onAddAnchor(story) : null,
       content: !anchorsSection ? (
-        <div
-          className="flex flex-col items-start gap-1.5 py-1 pr-3"
-          style={{ paddingLeft: treeIndent(1) }}
-        >
-          <p className="text-xs text-muted-foreground">{t("creative.workshop.noAnchors")}</p>
-          {canWrite && (
-            <Button variant="outline" size="sm" onClick={() => onCreateAnchors(story)}>
-              {t("creative.workshop.createAnchors")}
-            </Button>
-          )}
-        </div>
+        hintText("creative.complete.part", { name: t("creative.sections.anchors") })
       ) : (
         <>
           {plot.linkAnchors && (
@@ -907,7 +897,9 @@ function StoryWorks({
     notes: {
       count: notes?.count ?? null,
       add: canWrite && notes?.onAdd ? notes.onAdd : null,
-      content: notes ? notes.content : hintText("creative.workshop.noNotesSection"),
+      content: notes
+        ? notes.content
+        : hintText("creative.complete.part", { name: t("creative.sections.notes") }),
     },
   }
 
@@ -951,10 +943,8 @@ export function WorksTab({
   workshop,
   stories,
   selectedStoryId,
-  universes = [],
   selectedUniverseId = null,
   onSelectStory,
-  onSelectUniverse,
   open,
   onToggleSection,
   rows,
@@ -969,7 +959,6 @@ export function WorksTab({
   onAddAnchor,
   notes,
   anchorsSlot,
-  onCreateAnchors,
   onMoved,
   activeNoteId,
   stats,
@@ -1015,30 +1004,22 @@ export function WorksTab({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <StoryHeader
-        workshop={workshop}
         stories={stories}
         selectedStoryId={selectedStoryId}
-        universes={universes}
-        selectedUniverseId={selectedUniverseId}
         pages={totals.pages}
         words={totals.words}
         onSelectStory={onSelectStory}
-        onSelectUniverse={onSelectUniverse}
         onNewStory={onNewStory}
+        openTarget={story ? "story" : selectedUniverseId ? "universe" : "workshop"}
         onOpenTarget={handleOpenTarget}
         resume={resume}
         onOpenNote={onOpenNote}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
         {status === "error" && (
           <p role="alert" className="px-2 py-3 text-xs text-destructive">
             {t("creative.workshop.loadFailed")}
             {error ? ` ${error}` : ""}
-          </p>
-        )}
-        {stories.length === 0 && status !== "error" && (
-          <p className="px-2 py-3 text-xs text-muted-foreground">
-            {t("creative.workshop.noStories")}
           </p>
         )}
         {story && (
@@ -1054,7 +1035,6 @@ export function WorksTab({
             onAddPage={onAddPage}
             onAddAnchor={onAddAnchor}
             notes={notes}
-            onCreateAnchors={onCreateAnchors}
             onMoved={onMoved}
             activeNoteId={activeNoteId}
             stats={stats}
@@ -1069,9 +1049,6 @@ export function WorksTab({
         )}
         {!story && (anchorsSlot || notes) && (
           <div>
-            <h3 className="pb-0.5 pl-3.5 pt-1 text-[11px] text-muted-foreground">
-              {t("creative.groups.work")}
-            </h3>
             {anchorsSlot && (
               <Accordion
                 icon={SECTION_ICONS.anchors}

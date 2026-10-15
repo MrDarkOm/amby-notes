@@ -217,7 +217,6 @@ describe("CreativePanel: moving pages and anchors without the mouse", () => {
     useCreativeNavStore.setState({
       sectionByProject: {},
       collapsed: {},
-      scope: "verse",
       worksOpen: { text: true, anchors: true, notes: false },
       storyFilter: null,
       universeFilter: null,

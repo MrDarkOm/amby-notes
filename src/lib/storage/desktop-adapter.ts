@@ -11,12 +11,14 @@ import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
   EnsuredPlotLinks,
+  InitWorkshopRequest,
   AddTextStatusRequest,
   AddedStoryLinks,
   AddedTextStatus,
   CreateStoryRequest,
   CreateWorkshopEntityRequest,
-  CreateWorkshopRequest,
+  CompleteWorkshopRequest,
+  CompletedWorkshop,
   CreateWorkshopSectionRequest,
   CreatedStory,
   CreatedWorkshop,
@@ -490,13 +492,23 @@ export class DesktopAdapter implements StoragePort {
     return unwrapProjectCommand(await commands.refreshProjects(expectedGeneration))
   }
 
-  async createWorkshop(request: CreateWorkshopRequest): Promise<CreatedWorkshop> {
+  async initWorkshop(request: InitWorkshopRequest): Promise<CreatedWorkshop> {
     return unwrapProjectCommand(
-      await commands.createWorkshop({
+      await commands.initWorkshop({
         ...request,
-        parentPath: request.parentPath ?? null,
-        icon: request.icon ?? null,
-        tags: request.tags ?? [],
+        labels: request.labels ?? {},
+      }),
+    )
+  }
+
+  async resolveWorkshopFolder(pickedPath: string): Promise<string> {
+    return unwrapProjectCommand(await commands.resolveWorkshopFolder(pickedPath))
+  }
+
+  async completeWorkshop(request: CompleteWorkshopRequest): Promise<CompletedWorkshop> {
+    return unwrapProjectCommand(
+      await commands.completeWorkshop({
+        ...request,
         labels: request.labels ?? {},
       }),
     )

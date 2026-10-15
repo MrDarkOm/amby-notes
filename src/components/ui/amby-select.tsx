@@ -38,6 +38,8 @@ interface AmbySelectProps {
   className?: string
   /** Extra classes of the list itself. */
   listClassName?: string
+  /** Extra classes of the arrow, for a control that shows it only while hovered. */
+  chevronClassName?: string
   /** What the closed control shows for the active choice, instead of its label. */
   renderValue?: (active: AmbySelectOption | undefined) => React.ReactNode
   /** A last, separate item of the list that acts instead of choosing. */
@@ -61,6 +63,7 @@ export function AmbySelect({
   size = "md",
   className,
   listClassName,
+  chevronClassName,
   renderValue,
   action,
   ...rest
@@ -151,7 +154,11 @@ export function AmbySelect({
           )}
           <ChevronDown
             aria-hidden="true"
-            className={cn("size-3.5 shrink-0 text-muted-foreground", open && "rotate-180")}
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground",
+              open && "rotate-180",
+              chevronClassName,
+            )}
           />
         </button>
       </PopoverTrigger>

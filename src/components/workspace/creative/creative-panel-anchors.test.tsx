@@ -5,6 +5,7 @@ import i18n from "@/lib/i18n"
 import type { DatabaseRow, ProjectCatalog } from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
 import { useDatabaseStore } from "../database/database-store"
+import { selectedText } from "@/lib/test-utils/amby-select"
 import { CreativePanel } from "./creative-panel"
 import { useCreativeNavStore } from "./creative-nav-store"
 import {
@@ -115,7 +116,11 @@ const props = (extra: Partial<PanelRenderProps> = {}) =>
   ({ databaseRuntimeEnabled: true, ...extra }) as PanelRenderProps
 
 async function choose(name: RegExp) {
-  fireEvent.click(screen.getByRole("combobox", { name: "История" }))
+  // A story, or "All stories", is chosen on the card above the lists; a universe on the one below.
+  const card = ["Мир", "Отдельные истории"].some((label) => name.test(label))
+    ? "Вселенная"
+    : "История"
+  fireEvent.click(screen.getByRole("combobox", { name: card }))
   fireEvent.click(await screen.findByRole("option", { name }))
 }
 
@@ -141,7 +146,6 @@ describe("CreativePanel: the anchors when no single story is shown", () => {
     useCreativeNavStore.setState({
       sectionByProject: {},
       collapsed: {},
-      scope: "verse",
       worksOpen: { text: true, anchors: true, notes: false },
       storyFilter: null,
       universeFilter: null,
@@ -161,23 +165,25 @@ describe("CreativePanel: the anchors when no single story is shown", () => {
       .map((button) => button.textContent ?? "")
       .filter((text) => /Встреча|Потоп|Одинокий|Ничей/.test(text))
 
-  it("lists all the anchors of the whole workshop in the author's order, those of no story last", async () => {
+  it("lists the anchors of the standalone stories in the author's order, those of no story last", async () => {
     render(<CreativePanel {...props()} />)
-    await choose(/Вся мастерская/)
-    await screen.findByRole("button", { name: /Встреча/ })
+    // The panel opens on the first standalone story; all of them are chosen with the top card.
+    await waitFor(() => expect(selectedText("История")).toContain("Lone"))
+    await choose(/Все истории/)
+    await screen.findByRole("button", { name: /Одинокий/ })
     const names = titles(document.body)
     expect(names.map((text) => text.replace(/MoleHills|Lone/, "").trim())).toEqual([
-      "Встреча",
       "Одинокий",
-      "Потоп",
       "Ничей",
     ])
-    // The story names show on the rows, and "No story" holds only what belongs nowhere: the event
-    // of a universe is not one of them.
-    expect(screen.getByRole("button", { name: /Встреча/ }).textContent).toContain("MoleHills")
+    // The story names show on the rows, and "No story" holds only what belongs nowhere.
+    expect(screen.getByRole("button", { name: /Одинокий/ }).textContent).toContain("Lone")
     const heading = screen.getByRole("heading", { name: /Без истории/ })
     expect(heading.textContent).toContain("1")
     expect(heading.nextElementSibling?.textContent).toContain("Ничей")
+    // The anchor of a universe's story and the event of the universe are in that universe's scope.
+    expect(screen.queryByRole("button", { name: /Встреча/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /Потоп/ })).toBeNull()
     expect(screen.queryByText("События вселенной")).toBeNull()
   })
 
@@ -196,10 +202,11 @@ describe("CreativePanel: the anchors when no single story is shown", () => {
     expect(screen.queryByRole("button", { name: /Ничей/ })).toBeNull()
   })
 
-  async function addIn(filter: RegExp, title: string) {
+  async function addIn(filter: RegExp, title: string, shown = /Потоп|Встреча/) {
     render(<CreativePanel {...props()} />)
+    await waitFor(() => expect(selectedText("История")).toContain("Lone"))
     await choose(filter)
-    await screen.findAllByRole("button", { name: /Потоп|Встреча/ })
+    await screen.findAllByRole("button", { name: shown })
     fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
     const field = await screen.findByPlaceholderText("Название якоря — Enter, чтобы создать")
     fireEvent.change(field, { target: { value: title } })
@@ -227,8 +234,8 @@ describe("CreativePanel: the anchors when no single story is shown", () => {
     expect(ensurePlotLinks).not.toHaveBeenCalled()
   })
 
-  it("links nothing to a universe or a story when the whole workshop is shown", async () => {
-    await addIn(/Вся мастерская/, "Свободный")
+  it("links nothing to a universe or a story when the standalone stories are shown", async () => {
+    await addIn(/Все истории/, "Свободный", /Одинокий|Ничей/)
     await waitFor(() => expect(createWorkshopEntity).toHaveBeenCalledTimes(1))
     expect(createWorkshopEntity).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Свободный", storyId: null, universeId: null }),
@@ -261,7 +268,7 @@ describe("CreativePanel: the anchors' relations after a base was made", () => {
     resolveDatabaseAssetPaths.mockReset().mockResolvedValue({ paths: [] })
     useProjectStore.getState().reset()
     useDatabaseStore.setState({ vaultGeneration: 1, databases: [], invalidationSeq: 0 })
-    useCreativeNavStore.setState({ scope: "verse", storyFilter: null, universeFilter: null })
+    useCreativeNavStore.setState({ storyFilter: null, universeFilter: null })
   })
   afterEach(cleanup)
 
@@ -360,7 +367,6 @@ describe("CreativePanel: the anchors' relations after a section was made", () =>
     useCreativeNavStore.setState({
       sectionByProject: {},
       collapsed: {},
-      scope: "verse",
       worksOpen: { text: true, anchors: true, notes: false },
       storyFilter: null,
       universeFilter: null,
@@ -373,8 +379,14 @@ describe("CreativePanel: the anchors' relations after a section was made", () =>
   })
   afterEach(cleanup)
 
+  /** The panel no longer has a "Create the Anchors section" button: the chooser's "Section" is it. */
+  async function openSectionDialog() {
+    fireEvent.click(await screen.findByRole("button", { name: "Создать" }))
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /Раздел/ }))
+  }
+
   /**
-   * "Create anchors" in the story's anchors part opens the section dialog; the dialog finishes
+   * "Section" in the chooser opens the section dialog; the dialog finishes
    * and the catalog, read again, holds the new base (the test sets it where the store would).
    */
   async function makeAnchors(after: ProjectCatalog) {
@@ -384,7 +396,7 @@ describe("CreativePanel: the anchors' relations after a section was made", () =>
         {...props({ onCreativeChanged: async () => undefined, onOpenCreativeProject: vi.fn() })}
       />,
     )
-    fireEvent.click(await screen.findByRole("button", { name: "Создать раздел «Якоря»" }))
+    await openSectionDialog()
     await waitFor(() => expect(dialogs.section.current).not.toBeNull())
     act(() => useProjectStore.getState().setCatalog(after))
     await act(async () => {
@@ -419,7 +431,7 @@ describe("CreativePanel: the anchors' relations after a section was made", () =>
         {...props({ onCreativeChanged: async () => undefined, onOpenCreativeProject: vi.fn() })}
       />,
     )
-    fireEvent.click(await screen.findByRole("button", { name: "Создать раздел «Якоря»" }))
+    await openSectionDialog()
     await waitFor(() => expect(dialogs.section.current).not.toBeNull())
     act(() =>
       useProjectStore
@@ -442,7 +454,7 @@ describe("CreativePanel: the anchors' relations after a section was made", () =>
         {...props({ onCreativeChanged: async () => undefined, onOpenCreativeProject })}
       />,
     )
-    fireEvent.click(await screen.findByRole("button", { name: "Создать раздел «Якоря»" }))
+    await openSectionDialog()
     await waitFor(() => expect(dialogs.section.current).not.toBeNull())
     act(() => useProjectStore.getState().setCatalog(workshopWith({ anchors: true })))
     await act(async () => {

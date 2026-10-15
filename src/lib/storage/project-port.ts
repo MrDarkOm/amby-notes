@@ -8,7 +8,8 @@ import {
   type AddedTextStatus,
   type CreateStoryRequest,
   type CreateWorkshopEntityRequest,
-  type CreateWorkshopRequest,
+  type CompleteWorkshopRequest,
+  type CompletedWorkshop,
   type CreateWorkshopSectionRequest,
   type CreatedStory,
   type CreatedWorkshop,
@@ -18,6 +19,7 @@ import {
   type CreateTextPageRequest,
   type EnsurePlotLinksRequest,
   type EnsuredPlotLinks,
+  type InitWorkshopRequest,
   type MoveTextPageRequest,
   type MovedTextPage,
   type NoteReference,
@@ -45,7 +47,21 @@ export interface ProjectPort {
   listProjects(): Promise<ProjectCatalog>
   /** Rebuild the index from the files (after a `project:changed` event), then list. */
   refreshProjects(expectedGeneration: number): Promise<ProjectCatalog>
-  createWorkshop(request: CreateWorkshopRequest): Promise<CreatedWorkshop>
+  /**
+   * Makes the workshop of the vault at the folder `request.path`: the folder, its marker and all
+   * seven bases with every link, as one journaled operation. The folder must be absent or empty.
+   */
+  initWorkshop(request: InitWorkshopRequest): Promise<CreatedWorkshop>
+  /**
+   * Adds what a workshop made before is missing (bases and links); what is there is not touched,
+   * and repeating it writes nothing.
+   */
+  completeWorkshop(request: CompleteWorkshopRequest): Promise<CompletedWorkshop>
+  /**
+   * The vault-relative form of an absolute folder path picked in a dialog, checked in Rust: the
+   * folder must exist, lie inside the open vault and be usable as a workshop folder.
+   */
+  resolveWorkshopFolder(pickedPath: string): Promise<string>
   createStory(request: CreateStoryRequest): Promise<CreatedStory>
   createWorkshopSection(
     request: CreateWorkshopSectionRequest,

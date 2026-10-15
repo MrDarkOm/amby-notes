@@ -12,6 +12,8 @@ export function projectLabels(t: TFunction): Record<string, string> {
     "section:characters": t("creative.sections.characters"),
     "section:locations": t("creative.sections.locations"),
     "section:universes": t("creative.sections.universes"),
+    "section:arcs": t("creative.sections.arcs"),
+    "section:anchors": t("creative.sections.anchors"),
     ...linkLabels(t),
     ...schemaLabels(t),
     ...presetLabels(t),
@@ -75,7 +77,18 @@ const HEADING_KEYS = [
   "description",
   "history",
 ] as const
-const PRESET_PROPERTY_KEYS = ["importance", "kind", "portrait", "image"] as const
+const PRESET_PROPERTY_KEYS = [
+  "importance",
+  "kind",
+  "portrait",
+  "image",
+  "status",
+  "synopsis",
+  "description",
+  "participants",
+  "characters",
+] as const
+const ARC_KIND_KEYS = ["character", "plot", "mini"] as const
 
 /**
  * Names a section preset starts with: its properties and their options, the starter headings
@@ -92,6 +105,7 @@ function presetLabels(t: TFunction): Record<string, string> {
   for (const key of IMPORTANCE_KEYS)
     labels[`importance:${key}`] = t(`creative.preset.importance.${key}`)
   for (const key of KIND_KEYS) labels[`kind:${key}`] = t(`creative.preset.kinds.${key}`)
+  for (const key of ARC_KIND_KEYS) labels[`arcKind:${key}`] = t(`creative.preset.arcKinds.${key}`)
   for (const key of HEADING_KEYS) labels[`heading:${key}`] = t(`creative.preset.headings.${key}`)
   return labels
 }

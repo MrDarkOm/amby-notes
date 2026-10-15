@@ -1,5 +1,5 @@
 import * as React from "react"
-import { BookOpen, Feather, Globe2, Plus, X } from "lucide-react"
+import { BookOpen, Globe2, Plus, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,9 +13,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import {
-  createDatabaseRow,
   createStory,
-  createWorkshop,
+  createWorkshopEntity,
   createWorkshopSection,
   type WorkshopSummary,
 } from "@/lib/storage"
@@ -31,15 +30,16 @@ import {
 } from "./text-schema-presets"
 import { useOperationId } from "./use-operation-id"
 
-export type CreativeCreationKind = "workshop" | "story" | "universe"
+export type CreativeCreationKind = "story" | "universe"
 
 export interface CreatedItemResult {
   kind: CreativeCreationKind
   id: string
+  /** A story's card (its row in the stories base), as the creation answered it. */
+  cardNoteId?: string
 }
 
 const KIND_ICONS = {
-  workshop: Feather,
   story: BookOpen,
   universe: Globe2,
 } as const
@@ -64,8 +64,7 @@ export function CreateProjectDialog({
   onCreated,
 }: CreateProjectDialogProps) {
   const { t } = useTranslation()
-  const kinds: CreativeCreationKind[] =
-    offeredKinds ?? (workshop ? ["story", "universe"] : ["workshop"])
+  const kinds: CreativeCreationKind[] = offeredKinds ?? ["story", "universe"]
   const startKind: CreativeCreationKind = initialKind ?? kinds[0] ?? "story"
   const [name, setName] = React.useState("")
   const [kind, setKind] = React.useState<CreativeCreationKind>(startKind)
@@ -112,15 +111,7 @@ export function CreateProjectDialog({
     setPending(true)
     setError(null)
     try {
-      if (kind === "workshop") {
-        const created = await createWorkshop({
-          expectedGeneration: vaultGeneration,
-          operationId: operationId(),
-          name: trimmed,
-          labels: projectLabels(t),
-        })
-        onCreated({ kind: "workshop", id: created.workshopId })
-      } else if (kind === "story") {
+      if (kind === "story") {
         if (!workshop) throw new Error(t("creative.errors.projectNotFound"))
         const created = await createStory({
           expectedGeneration: vaultGeneration,
@@ -130,11 +121,12 @@ export function CreateProjectDialog({
           textLevels: textLevels ?? [],
           labels: projectLabels(t),
         })
-        onCreated({ kind: "story", id: created.storyId })
+        onCreated({ kind: "story", id: created.storyId, cardNoteId: created.cardNoteId })
       } else if (kind === "universe") {
         if (!workshop) throw new Error(t("creative.errors.projectNotFound"))
-        let databaseId = workshop.sections.find((s) => s.role === "universes")?.databaseId
-        if (!databaseId) {
+        // A universe is a page of the "Universes" base, made the way any world page is.
+        let sectionId = workshop.sections.find((s) => s.role === "universes")?.id
+        if (!sectionId) {
           const sectionRes = await createWorkshopSection({
             expectedGeneration: vaultGeneration,
             operationId: operationId(),
@@ -144,13 +136,14 @@ export function CreateProjectDialog({
             name: t("creative.sections.universes"),
             labels: projectLabels(t),
           })
-          databaseId = sectionRes.section.databaseId
+          sectionId = sectionRes.section.sectionId
         }
-        const created = await createDatabaseRow({
+        const created = await createWorkshopEntity({
           expectedGeneration: vaultGeneration,
-          databaseId,
+          workshopId: workshop.workshopId,
+          sectionId,
           title: trimmed,
-          template: { kind: "default" },
+          storyId: null,
         })
         onCreated({ kind: "universe", id: created.noteId })
       }
@@ -162,11 +155,9 @@ export function CreateProjectDialog({
   }
 
   const titleKey =
-    kind === "workshop"
-      ? "creative.createProject.workshopTitle"
-      : kind === "universe"
-        ? "creative.createProject.universeTitle"
-        : "creative.createProject.storyTitle"
+    kind === "universe"
+      ? "creative.createProject.universeTitle"
+      : "creative.createProject.storyTitle"
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && !pending && onClose()}>

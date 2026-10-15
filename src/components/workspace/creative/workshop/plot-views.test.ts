@@ -131,11 +131,31 @@ describe("bucketAnchors", () => {
     createdOf: created,
   }
 
-  it("the whole workshop: all in the author's order, the ones that belong nowhere last", () => {
-    const result = bucketAnchors({ ...common, filter: { kind: "all" } })
-    expect(result.shown.map((row) => row.noteId)).toEqual(["a", "b", "c"])
+  it("the standalone stories: theirs in the author's order, the ones that belong nowhere last", () => {
+    const result = bucketAnchors({ ...common, filter: { kind: "standalone" } })
+    // "a" is in a story of the universe and "c" is an event of it: neither is shown here.
+    expect(result.shown.map((row) => row.noteId)).toEqual(["b"])
     expect(result.withoutStory.map((row) => row.noteId)).toEqual(["d"])
     expect(result.events).toEqual([])
+  })
+
+  it("an anchor of a universe's story and of a standalone one is in both scopes", () => {
+    const both: Membership = {
+      storiesOf: (noteId) => (noteId === "a" ? ["s1", "s2"] : (stories[noteId] ?? [])),
+      universeOf: membership.universeOf,
+    }
+    const standalone = bucketAnchors({
+      ...common,
+      membership: both,
+      filter: { kind: "standalone" },
+    })
+    expect(standalone.shown.map((row) => row.noteId)).toEqual(["a", "b"])
+    const universe = bucketAnchors({
+      ...common,
+      membership: both,
+      filter: { kind: "universe", universeId: "u1" },
+    })
+    expect(universe.shown.map((row) => row.noteId)).toEqual(["a"])
   })
 
   it("a universe: its own events first, then the anchors of its stories", () => {

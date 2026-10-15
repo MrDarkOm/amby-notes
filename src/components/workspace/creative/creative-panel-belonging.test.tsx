@@ -117,7 +117,11 @@ const props = (extra: Partial<PanelRenderProps> = {}) =>
 
 /** Chooses an item of the list at the top of the panel: a story, a universe or the whole workshop. */
 async function choose(name: RegExp) {
-  fireEvent.click(screen.getByRole("combobox", { name: "История" }))
+  // A story, or "All stories", is chosen on the card above the lists; a universe on the one below.
+  const card = ["Мир", "Отдельные истории"].some((label) => name.test(label))
+    ? "Вселенная"
+    : "История"
+  fireEvent.click(screen.getByRole("combobox", { name: card }))
   fireEvent.click(await screen.findByRole("option", { name }))
 }
 
@@ -144,10 +148,10 @@ describe("CreativePanel: belonging to stories and universes", () => {
     useCreativeNavStore.setState({
       sectionByProject: {},
       collapsed: {},
-      scope: "verse",
       worksOpen: { text: true, anchors: false, notes: false },
       storyFilter: null,
-      universeFilter: null,
+      // The universe the first two stories are in; the panel opens on the standalone stories.
+      universeFilter: "u1",
       dataNonce: 0,
       search: "",
       pageRequest: null,
@@ -182,19 +186,22 @@ describe("CreativePanel: belonging to stories and universes", () => {
     expect(boris.textContent).not.toMatch(/MoleHills|River|\+/)
   })
 
-  it("shows the whole workshop, each page with up to two story names and '+N', and a group of its own for pages in no story", async () => {
+  it("shows the standalone stories: each page with up to two story names and '+N', and a group of its own for pages in no story", async () => {
     render(<CreativePanel {...props()} />)
     await screen.findByRole("button", { name: /Анна/ })
-    await choose(/Вся мастерская/)
-    // The header says so, and it did not fall back on the first story.
-    await waitFor(() => expect(selectedText("История")).toContain("Вся мастерская"))
-    const boris = await screen.findByRole("button", { name: /Борис/ })
-    expect(boris.textContent).toContain("MoleHills, River")
+    await choose(/Отдельные истории/)
+    // The first story of the standalone scope is shown, until all of them are chosen.
+    await waitFor(() => expect(selectedText("История")).toContain("Все истории"))
+    expect(selectedText("Вселенная")).toContain("Отдельные истории")
+    await choose(/Все истории/)
+    // Gleb is in Lone; the lake names Lone as well as the stories of the universe.
+    const gleb = await screen.findByRole("button", { name: /Глеб/ })
+    expect(gleb.textContent).toContain("Lone")
     expect((await screen.findByRole("button", { name: /Озеро/ })).textContent).toContain(
       "MoleHills, River +1",
     )
-    expect(screen.getByRole("button", { name: /Анна/ }).textContent).toContain("MoleHills")
-    expect(screen.getByRole("button", { name: /Зоя/ }).textContent).toContain("River")
+    // Pages of the universe's stories only are not here.
+    for (const inUniverse of [/Анна/, /Борис/, /Вера/, /Зоя/]) expect(has(inUniverse)).toBe(false)
 
     // Eva is named nowhere: she is listed last, under "Без истории", and nobody else is.
     const group = screen.getByTestId("without-story:characters")
@@ -202,36 +209,40 @@ describe("CreativePanel: belonging to stories and universes", () => {
     const members = within(group).getAllByRole("button")
     expect(members).toHaveLength(1)
     expect(members[0].textContent).toContain("Ева")
-    expect(members[0].textContent).not.toMatch(/MoleHills|River/)
+    expect(members[0].textContent).not.toMatch(/MoleHills|River|Lone/)
     expect(group.previousElementSibling).not.toBeNull()
     expect(screen.queryByTestId("without-story:locations")).toBeNull()
-    // The whole workshop has no story's parts.
+    // No single story is shown, so there are no story's parts.
     expect(screen.queryByRole("button", { name: /Текст/ })).toBeNull()
   })
 
   it("shows a universe through its stories", async () => {
     render(<CreativePanel {...props()} />)
     await screen.findByRole("button", { name: /Анна/ })
-    await choose(/Мир/)
+    await choose(/Все истории/)
     await screen.findByRole("button", { name: /Вера/ })
     for (const inside of [/Анна/, /Борис/, /Вера/, /Зоя/, /Озеро/]) expect(has(inside)).toBe(true)
-    // Lone is in no universe; Eva is in no story.
+    // Lone is in no universe; Eva is in no story: neither belongs to this universe.
     for (const outside of [/Глеб/, /Ева/]) expect(has(outside)).toBe(false)
     expect(screen.queryByTestId("without-story:characters")).toBeNull()
-    expect(selectedText("История")).toContain("Мир")
+    expect(selectedText("Вселенная")).toContain("Мир")
   })
 
-  it("remembers the whole workshop for the next time", async () => {
+  it("remembers the universe and 'all the stories' for the next time", async () => {
     render(<CreativePanel {...props({ vault: "/vaults/one" })} />)
-    await screen.findByRole("button", { name: /Анна/ })
-    await choose(/Вся мастерская/)
-    expect(JSON.parse(localStorage.getItem("amby:creative-workshop") ?? "{}")).toEqual({
-      "/vaults/one": { story: "all" },
-    })
+    await screen.findByRole("combobox", { name: "Вселенная" })
+    await choose(/Мир/)
+    await choose(/Все истории/)
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem("amby:creative-workshop") ?? "{}")).toEqual({
+        "/vaults/one": { story: "all", universe: "u1" },
+      }),
+    )
     cleanup()
-    act(() => useCreativeNavStore.setState({ storyFilter: null }))
+    act(() => useCreativeNavStore.setState({ storyFilter: null, universeFilter: null }))
     render(<CreativePanel {...props({ vault: "/vaults/one" })} />)
-    await waitFor(() => expect(selectedText("История")).toContain("Вся мастерская"))
+    await waitFor(() => expect(selectedText("История")).toContain("Все истории"))
+    expect(selectedText("Вселенная")).toContain("Мир")
   })
 
   it("creates a page in the shown story linked to it, and in a universe or the whole workshop with no link", async () => {
@@ -258,17 +269,26 @@ describe("CreativePanel: belonging to stories and universes", () => {
     await screen.findByRole("button", { name: /Вера/ })
     expect(await make("Другая")).toMatchObject({ storyId: "river" })
 
+    // River is inside the universe, so it keeps narrowing: a story wins over the universe.
     await choose(/Мир/)
     await screen.findByRole("button", { name: /Вера/ })
+    expect(await make("Той же истории")).toMatchObject({ storyId: "river" })
+
+    // "All stories" inside the universe: the universe's own pages, linked to no story.
+    await choose(/Все истории/)
+    await screen.findByRole("button", { name: /Анна/ })
     expect((await make("Общая")).storyId).toBeNull()
 
-    await choose(/Вся мастерская/)
-    await screen.findByRole("button", { name: /Анна/ })
+    await choose(/Отдельные истории/)
+    await screen.findByRole("button", { name: /Глеб/ })
     expect((await make("Ничья")).storyId).toBeNull()
   })
 
   it("makes no link for a section of an older workshop and offers to link it", async () => {
     act(() => useProjectStore.getState().setCatalog(world({ linked: false, universeLink: false })))
+    // The stories are in no universe here, so they are the standalone ones: the scope that holds
+    // them. (A scope with no story shows no empty part to link.)
+    act(() => useCreativeNavStore.setState({ universeFilter: null }))
     render(<CreativePanel {...props()} />)
     await screen.findByRole("button", { name: /Зоя|Анна|Озеро|Борис/ }).catch(() => null)
     // Without the property a page is in a story only through its text.
@@ -296,6 +316,8 @@ describe("CreativePanel: belonging to stories and universes", () => {
 
   it("offers to link the stories to the universes that exist, once", async () => {
     act(() => useProjectStore.getState().setCatalog(world({ universeLink: false })))
+    // With no relation to universes every story is a standalone one.
+    act(() => useCreativeNavStore.setState({ universeFilter: null }))
     render(<CreativePanel {...props()} />)
     await screen.findByRole("button", { name: /Анна/ })
     fireEvent.click(screen.getByRole("button", { name: "Связать истории со вселенными" }))

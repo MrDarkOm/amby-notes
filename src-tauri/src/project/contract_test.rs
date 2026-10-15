@@ -1,6 +1,6 @@
 //! The contract between this backend and the interface, kept honest by a real workshop.
 //!
-//! The test builds a workshop through the real write path (stories, a universe, pages born
+//! The test builds a workshop through the real write path (one initialization, stories, a universe, pages born
 //! linked, a page named by a story's text, anchors and arcs bound to text pages), reads the catalog
 //! and every row back through the real index and query, and compares the result with
 //! `src/components/workspace/creative/workshop/real-workshop.fixture.json`. A Vitest test feeds
@@ -18,12 +18,13 @@ use std::path::PathBuf;
 use rusqlite::Connection;
 use serde_json::{json, Map, Value};
 
-use super::create_test::{op, story, workshop, Fixture};
+use super::create::init_workshop;
+use super::create_test::{op, story, Fixture};
 use super::index::{load_catalog, rebuild_project_index};
-use super::links::{create_entity, ensure_plot_links};
+use super::links::create_entity;
 use super::model::{
-    CreateTextPageRequest, CreateWorkshopEntityRequest, CreateWorkshopSectionRequest, CreatedStory,
-    CreatedWorkshop, EnsurePlotLinksRequest, PlotLinksTarget,
+    CreateTextPageRequest, CreateWorkshopEntityRequest, CreatedStory, CreatedWorkshop,
+    InitWorkshopRequest,
 };
 use super::notebooks::list_notebooks_of;
 use super::text::create_page;
@@ -160,7 +161,17 @@ fn patch_note(path: &str, key: &str, ids: &[&str]) {
 
 fn build() -> Built {
     let fixture = Fixture::new();
-    let created = fixture.create_workshop(&workshop("Saga")).unwrap();
+    // The workshop as the interface makes it: one initialization, all seven bases with every link.
+    let created = init_workshop(
+        &fixture.env(),
+        &InitWorkshopRequest {
+            expected_generation: 1,
+            operation_id: op("init"),
+            path: "Saga".to_owned(),
+            labels: BTreeMap::new(),
+        },
+    )
+    .unwrap();
     let mut houses = BTreeMap::new();
     for title in ["Дом", "Лес", "Одна"] {
         houses.insert(
@@ -169,61 +180,6 @@ fn build() -> Built {
                 .create_story(&story(&created.workshop_id, title))
                 .unwrap(),
         );
-    }
-    fixture
-        .add_section(&CreateWorkshopSectionRequest {
-            expected_generation: 1,
-            operation_id: op("universes"),
-            workshop_id: created.workshop_id.clone(),
-            expected_workshop_revision: raw_revision(&fixture.workshop_bytes("Saga")),
-            role: "universes".to_owned(),
-            name: "Вселенные".to_owned(),
-            labels: BTreeMap::new(),
-        })
-        .unwrap();
-    // The notes base is made lazily, as the first note would make it.
-    fixture
-        .add_section(&CreateWorkshopSectionRequest {
-            expected_generation: 1,
-            operation_id: op("notes"),
-            workshop_id: created.workshop_id.clone(),
-            expected_workshop_revision: raw_revision(&fixture.workshop_bytes("Saga")),
-            role: "notes".to_owned(),
-            name: "Заметки".to_owned(),
-            labels: BTreeMap::new(),
-        })
-        .unwrap();
-    // The anchors come after the universes (they start with a "Universe" relation) and the arcs
-    // after the anchors (their creation gives the anchors an "Arcs" relation); the stories were
-    // made before both, so two of them get their text relations by `ensure_plot_links`.
-    for (role, name) in [("anchors", "Якоря"), ("arcs", "Арки")] {
-        fixture
-            .add_section(&CreateWorkshopSectionRequest {
-                expected_generation: 1,
-                operation_id: op(role),
-                workshop_id: created.workshop_id.clone(),
-                expected_workshop_revision: raw_revision(&fixture.workshop_bytes("Saga")),
-                role: role.to_owned(),
-                name: name.to_owned(),
-                labels: BTreeMap::new(),
-            })
-            .unwrap();
-    }
-    for title in ["Дом", "Лес"] {
-        let folder = format!("Saga/Истории/{title}");
-        ensure_plot_links(
-            &fixture.env(),
-            &EnsurePlotLinksRequest {
-                expected_generation: 1,
-                operation_id: op("plot"),
-                workshop_id: created.workshop_id.clone(),
-                target: PlotLinksTarget::Story,
-                story_id: Some(houses[title].story_id.clone()),
-                expected_revision: raw_revision(&fixture.story_bytes(&folder)),
-                labels: BTreeMap::new(),
-            },
-        )
-        .unwrap();
     }
     Built {
         fixture,
@@ -705,8 +661,10 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
         properties("Дом")["anchors"],
         json!("ID:prop:text:Дом:anchors")
     );
-    assert!(
-        properties("Одна")["anchors"].is_null(),
-        "a text made before the anchors"
+    // A workshop made whole gives every text its relations at birth, the last story included.
+    assert_eq!(
+        properties("Одна")["anchors"],
+        json!("ID:prop:text:Одна:anchors")
     );
+    assert_eq!(properties("Одна")["arcs"], json!("ID:prop:text:Одна:arcs"));
 }

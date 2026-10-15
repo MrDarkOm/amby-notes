@@ -5,18 +5,19 @@
 use crate::database::history::DatabaseHistoryState;
 use crate::database::model::ProjectionVersion;
 use crate::database::runtime_state::DatabaseRuntimeState;
+use crate::project::complete;
 use crate::project::create::{self, Env};
 use crate::project::index;
 use crate::project::links;
 use crate::project::model::{
     AddStoryLinksRequest, AddTextStatusRequest, AddedStoryLinks, AddedTextStatus,
-    CreateStoryRequest, CreateTextPageRequest, CreateWorkshopEntityRequest, CreateWorkshopRequest,
-    CreateWorkshopSectionRequest, CreatedStory, CreatedTextPage, CreatedWorkshop,
-    CreatedWorkshopEntity, CreatedWorkshopSectionResult, EnsurePlotLinksRequest, EnsuredPlotLinks,
-    MoveTextPageRequest, MovedTextPage, NotebookCatalog, ProjectCatalog, ProjectError,
-    RemoveWorkshopSectionRequest, RemovedWorkshopSection, ReorderWorkshopSectionsRequest,
-    ReorderedWorkshopSections, UpdateTextLevelsRequest, UpdateWorkshopRequest, UpdatedTextLevels,
-    UpdatedWorkshop,
+    CompleteWorkshopRequest, CompletedWorkshop, CreateStoryRequest, CreateTextPageRequest,
+    CreateWorkshopEntityRequest, CreateWorkshopSectionRequest, CreatedStory, CreatedTextPage,
+    CreatedWorkshop, CreatedWorkshopEntity, CreatedWorkshopSectionResult, EnsurePlotLinksRequest,
+    EnsuredPlotLinks, InitWorkshopRequest, MoveTextPageRequest, MovedTextPage, NotebookCatalog,
+    ProjectCatalog, ProjectError, RemoveWorkshopSectionRequest, RemovedWorkshopSection,
+    ReorderWorkshopSectionsRequest, ReorderedWorkshopSections, UpdateTextLevelsRequest,
+    UpdateWorkshopRequest, UpdatedTextLevels, UpdatedWorkshop,
 };
 use crate::project::notebooks;
 use crate::project::references::{self, NoteReference};
@@ -118,13 +119,15 @@ fn refresh_after_write(
     }
 }
 
+/// Makes the workshop of the vault at one folder: the folder, its marker and all seven bases
+/// with every link between them, as one journaled operation.
 #[tauri::command]
 #[specta::specta]
-pub fn create_workshop(
+pub fn init_workshop(
     context: tauri::State<'_, VaultContext>,
     runtime: tauri::State<'_, DatabaseRuntimeState>,
     watcher: tauri::State<'_, WatcherState>,
-    request: CreateWorkshopRequest,
+    request: InitWorkshopRequest,
 ) -> Result<CreatedWorkshop, ProjectError> {
     let _mutation_guard = context.mutation_gate.lock().unwrap();
     let generation = check_generation(&context, request.expected_generation)?;
@@ -135,11 +138,52 @@ pub fn create_workshop(
         vault: &active.root,
         watcher: &watcher,
     };
-    let mut created = create::create_workshop(&env, &request)?;
+    let mut created = create::init_workshop(&env, &request)?;
     if !created.replayed {
         refresh_after_write(active, &runtime, generation, &mut created.warnings);
     }
     Ok(created)
+}
+
+/// Adds the bases and links a workshop of the earlier stages lacks (see `project::complete`).
+#[tauri::command]
+#[specta::specta]
+pub fn complete_workshop(
+    context: tauri::State<'_, VaultContext>,
+    runtime: tauri::State<'_, DatabaseRuntimeState>,
+    watcher: tauri::State<'_, WatcherState>,
+    request: CompleteWorkshopRequest,
+) -> Result<CompletedWorkshop, ProjectError> {
+    let _mutation_guard = context.mutation_gate.lock().unwrap();
+    let generation = check_generation(&context, request.expected_generation)?;
+    require_enabled(&runtime, generation)?;
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    let env = Env {
+        vault: &active.root,
+        watcher: &watcher,
+    };
+    // Every step is written to the files; the index is read again once, at the end, and also
+    // after a step that failed halfway, so the panel shows what is there.
+    let outcome = complete::complete_workshop(&env, &request);
+    let mut warnings = Vec::new();
+    refresh_after_write(active, &runtime, generation, &mut warnings);
+    let mut completed = outcome?;
+    completed.warnings.extend(warnings);
+    Ok(completed)
+}
+
+/// The vault-relative form of a folder picked in a dialog, checked in Rust: it must exist, lie
+/// inside the open vault and be usable as a workshop folder.
+#[tauri::command]
+#[specta::specta]
+pub fn resolve_workshop_folder(
+    context: tauri::State<'_, VaultContext>,
+    picked_path: String,
+) -> Result<String, ProjectError> {
+    let active = context.conn.lock().expect("vault context poisoned");
+    let active = active.as_ref().ok_or(ProjectError::VaultNotOpen)?;
+    create::workshop_folder_of(&active.root, &picked_path)
 }
 
 #[tauri::command]

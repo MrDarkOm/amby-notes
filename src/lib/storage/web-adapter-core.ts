@@ -114,12 +114,14 @@ import type {
   AddStoryLinksRequest,
   EnsurePlotLinksRequest,
   EnsuredPlotLinks,
+  InitWorkshopRequest,
   AddTextStatusRequest,
   AddedStoryLinks,
   AddedTextStatus,
   CreateStoryRequest,
   CreateWorkshopEntityRequest,
-  CreateWorkshopRequest,
+  CompleteWorkshopRequest,
+  CompletedWorkshop,
   CreateWorkshopSectionRequest,
   CreatedStory,
   CreatedWorkshop,
@@ -530,8 +532,16 @@ export class WebAdapterCore implements StoragePort {
     return this.listProjects()
   }
 
-  async createWorkshop(_request: CreateWorkshopRequest): Promise<CreatedWorkshop> {
+  async initWorkshop(_request: InitWorkshopRequest): Promise<CreatedWorkshop> {
     throw new ProjectOperationError("failed", "Workshop creation requires the desktop runtime")
+  }
+
+  async resolveWorkshopFolder(_pickedPath: string): Promise<string> {
+    throw new ProjectOperationError("failed", "Workshop folders require the desktop runtime")
+  }
+
+  async completeWorkshop(_request: CompleteWorkshopRequest): Promise<CompletedWorkshop> {
+    throw new ProjectOperationError("failed", "Workshop completion requires the desktop runtime")
   }
 
   async createStory(_request: CreateStoryRequest): Promise<CreatedStory> {

@@ -20,6 +20,7 @@ import {
   resolvePanelFilter,
   scopeEntities,
   sectionTabKey,
+  storiesInScope,
   storyLabels,
   workshopScope,
   worksSectionsFromPrefs,
@@ -413,52 +414,119 @@ describe("scopeEntities", () => {
     expect(ids(scopeEntities(items("db_univ"), empty, membership).shown)).toEqual(["u2"])
   })
 
-  it("shows the whole workshop with the pages in no story set apart", () => {
-    const all = scopeEntities(items("db_chars"), { kind: "all" }, membership)
-    expect(ids(all.shown)).toEqual(["anna", "boris", "gleb", "zoya"])
-    expect(ids(all.withoutStory)).toEqual(["eva", "ghost"])
-    // Every page is in exactly one of the two.
-    expect(all.shown.length + all.withoutStory.length).toBe(belonging.rows.db_chars.length)
+  it("shows the standalone scope: pages of a standalone story, with the pages in no story set apart", () => {
+    const standalone = scopeEntities(items("db_chars"), { kind: "standalone" }, membership)
+    // Only Gleb is in a story no universe holds; the others are in Hills or River.
+    expect(ids(standalone.shown)).toEqual(["gleb"])
+    expect(ids(standalone.withoutStory)).toEqual(["eva", "ghost"])
+    expect(ids(scopeEntities(items("db_orgs"), { kind: "standalone" }, membership).shown)).toEqual([
+      "guild",
+    ])
   })
 
-  it("puts a universe in no story into the group of its own", () => {
-    const all = scopeEntities(items("db_univ"), { kind: "all" }, membership)
-    expect(ids(all.shown)).toEqual(["u1"])
-    expect(ids(all.withoutStory)).toEqual(["u2"])
+  it("keeps a page of a standalone story and of a universe's in both scopes", () => {
+    const both = buildMembership({
+      ...belonging,
+      rows: { ...belonging.rows, t_lone: [row("l1", "Глава", { cast: rel("anna") })] },
+    })
+    expect(ids(scopeEntities(items("db_chars"), { kind: "standalone" }, both).shown)).toEqual([
+      "anna",
+      "gleb",
+    ])
+    expect(
+      ids(scopeEntities(items("db_chars"), { kind: "universe", universeId: "u1" }, both).shown),
+    ).toContain("anna")
+  })
+
+  it("puts a universe that holds no story into the group of its own, a universe with stories out", () => {
+    const standalone = scopeEntities(items("db_univ"), { kind: "standalone" }, membership)
+    expect(ids(standalone.shown)).toEqual([])
+    expect(ids(standalone.withoutStory)).toEqual(["u2"])
   })
 })
 
 describe("resolvePanelFilter", () => {
   const stories = belonging.stories
-  it("keeps the first story as the default and the whole workshop when chosen", () => {
-    expect(resolvePanelFilter(stories, ["u1"], null, null)).toEqual({
+  // The stories the universe "u1" holds, and the standalone ones, as the card below reads them.
+  const inU1 = new Set(["hills", "river"])
+  const standalone = new Set(["lone"])
+
+  it("shows the first story of the scope while none was chosen, or the scope when it has none", () => {
+    expect(resolvePanelFilter(stories, null, null, standalone)).toEqual({
+      kind: "story",
+      storyId: "lone",
+    })
+    expect(resolvePanelFilter(stories, null, "u1", inU1)).toEqual({
       kind: "story",
       storyId: "hills",
     })
-    expect(resolvePanelFilter(stories, ["u1"], "river", null)).toEqual({
+    expect(resolvePanelFilter(stories, null, "u2", new Set())).toEqual({
+      kind: "universe",
+      universeId: "u2",
+    })
+    expect(resolvePanelFilter(stories, null, null, new Set())).toEqual({ kind: "standalone" })
+    expect(resolvePanelFilter([], null, null)).toEqual({ kind: "standalone" })
+    // Before the cards are read the first story of the scope is not known: the scope is shown.
+    expect(resolvePanelFilter(stories, null, null)).toEqual({ kind: "standalone" })
+    expect(resolvePanelFilter(stories, null, "u1")).toEqual({ kind: "universe", universeId: "u1" })
+  })
+
+  it("lets a story win over a universe: the universe sets the scope, the story narrows it", () => {
+    expect(resolvePanelFilter(stories, "river", "u1", inU1)).toEqual({
       kind: "story",
       storyId: "river",
     })
-    expect(resolvePanelFilter(stories, ["u1"], "all", null)).toEqual({ kind: "all" })
+    // The same before the scope is read.
+    expect(resolvePanelFilter(stories, "river", "u1")).toEqual({ kind: "story", storyId: "river" })
   })
 
-  it("lets a universe win, but only one that exists", () => {
-    expect(resolvePanelFilter(stories, ["u1"], "river", "u1")).toEqual({
+  it('shows the whole scope for "all": the universe, or the standalone stories', () => {
+    expect(resolvePanelFilter(stories, "all", "u1", inU1)).toEqual({
       kind: "universe",
       universeId: "u1",
     })
-    expect(resolvePanelFilter(stories, ["u1"], "river", "gone")).toEqual({
-      kind: "story",
-      storyId: "river",
-    })
+    expect(resolvePanelFilter(stories, "all", null, standalone)).toEqual({ kind: "standalone" })
   })
 
-  it("falls back on a known story, and on the whole workshop without any", () => {
-    expect(resolvePanelFilter(stories, [], "gone", null)).toEqual({
-      kind: "story",
-      storyId: "hills",
+  it("gives way to the scope when the story is outside it", () => {
+    expect(resolvePanelFilter(stories, "lone", "u1", inU1)).toEqual({
+      kind: "universe",
+      universeId: "u1",
     })
-    expect(resolvePanelFilter([], [], null, null)).toEqual({ kind: "all" })
+    expect(resolvePanelFilter(stories, "river", null, standalone)).toEqual({ kind: "standalone" })
+  })
+
+  it("counts a story that is gone as all the stories of the scope, not as the first one", () => {
+    expect(resolvePanelFilter(stories, "gone", null, standalone)).toEqual({ kind: "standalone" })
+    expect(resolvePanelFilter(stories, "gone", "u1", inU1)).toEqual({
+      kind: "universe",
+      universeId: "u1",
+    })
+  })
+})
+
+describe("storiesInScope", () => {
+  const membership = buildMembership(belonging)
+  const names = (list: { storyId: string }[]) => list.map((story) => story.storyId)
+
+  it("lists the standalone stories with no universe chosen", () => {
+    expect(names(storiesInScope(belonging.stories, membership, null))).toEqual(["lone"])
+  })
+
+  it("lists the stories whose card names the universe, in the order of the catalog", () => {
+    expect(names(storiesInScope(belonging.stories, membership, "u1"))).toEqual(["hills", "river"])
+    // A universe no story names holds none.
+    expect(storiesInScope(belonging.stories, membership, "u2")).toEqual([])
+  })
+
+  it("takes every story for a standalone one while the cards say no universe", () => {
+    const old = buildMembership({
+      ...belonging,
+      sections: belonging.sections.map((section) =>
+        section.role === "stories" ? { ...section, universePropertyId: null } : section,
+      ),
+    })
+    expect(names(storiesInScope(belonging.stories, old, null))).toEqual(["hills", "river", "lone"])
   })
 })
 

@@ -17,13 +17,15 @@ use super::format::{document_bytes, with_section_appended, workshop_section_entr
 use super::journal::{
     create_journal, read_journal, remove_journal, replace_journal, Journal, Plan,
     PlannedManifestWrite, PlannedSection, PlannedStory, JOURNAL_FORMAT, JOURNAL_VERSION,
-    OP_CREATE_SECTION, OP_CREATE_STORY, OP_CREATE_WORKSHOP, STATUS_COMPLETED, STATUS_IN_PROGRESS,
+    OP_CREATE_SECTION, OP_CREATE_STORY, OP_CREATE_WORKSHOP, OP_INIT_WORKSHOP, STATUS_COMPLETED,
+    STATUS_IN_PROGRESS,
 };
 use super::model::{
     CreateStoryRequest, CreateWorkshopRequest, CreateWorkshopSectionRequest, CreatedStory,
-    CreatedWorkshop, CreatedWorkshopSection, CreatedWorkshopSectionResult, ProjectError,
-    KNOWN_FORMAT_VERSION, KNOWN_ROLES, ROLE_ANCHORS, ROLE_ARCS, ROLE_CHARACTERS, ROLE_CUSTOM,
-    ROLE_LOCATIONS, ROLE_STORIES, ROLE_UNIVERSES, STORY_FILE_NAME, WORKSHOP_FILE_NAME,
+    CreatedWorkshop, CreatedWorkshopSection, CreatedWorkshopSectionResult, InitWorkshopRequest,
+    ProjectError, KNOWN_FORMAT_VERSION, KNOWN_ROLES, ROLE_ANCHORS, ROLE_ARCS, ROLE_CHARACTERS,
+    ROLE_CUSTOM, ROLE_LOCATIONS, ROLE_NOTES, ROLE_STORIES, ROLE_UNIVERSES, STORY_FILE_NAME,
+    WORKSHOP_FILE_NAME,
 };
 use super::names::{exists_ignoring_case, normalize_entry_name, normalize_icon, normalize_tags};
 use super::presets::{self, template_file_bytes, PlannedTemplate};
@@ -361,15 +363,17 @@ struct BaseSection {
     created: CreatedWorkshopSection,
 }
 
-/// Plans a base section (`stories`, `characters`, `locations`). `target_databases` holds the
-/// databases planned so far, and every one of them is created by this same operation.
+/// Plans one base section of a new workshop. `target_databases` holds every database the
+/// operation creates (the whole set is known up front, so a base can point at one made after it)
+/// and `pending` the same IDs for relations that are not looked up on disk.
 fn plan_base_section(
     env: &Env,
     labels: &BTreeMap<String, String>,
     workshop_rel: &str,
     role: &str,
     default_name: &str,
-    target_databases: &mut BTreeMap<String, String>,
+    ids: &PlannedDatabaseIds,
+    target_databases: &BTreeMap<String, String>,
 ) -> Result<BaseSection, ProjectError> {
     let name = normalize_entry_name(
         &format!("section:{role}"),
@@ -379,17 +383,12 @@ fn plan_base_section(
             .map(String::as_str)
             .unwrap_or(default_name),
     )?;
-    let ids = PlannedDatabaseIds {
-        database_id: ulid::Ulid::generate().to_string(),
-        view_id: ulid::Ulid::generate().to_string(),
-    };
-    target_databases.insert(role.to_owned(), ids.database_id.clone());
     let pending = target_databases.values().cloned().collect::<Vec<_>>();
     let preset = presets::plan(
         env.vault,
         role,
         &name,
-        &ids,
+        ids,
         labels,
         target_databases,
         &pending,
@@ -402,15 +401,15 @@ fn plan_base_section(
         database_id: ids.database_id.clone(),
         path: name.clone(),
         container_path: join_relative(workshop_rel, &name),
-        manifest_revision: manifest_revision(&name, &ids, &preset.extras)?,
+        manifest_revision: manifest_revision(&name, ids, &preset.extras)?,
     };
     let planned = PlannedSection {
         id: role.to_owned(),
         role: role.to_owned(),
         name: name.clone(),
         path: name,
-        database_id: ids.database_id,
-        view_id: ids.view_id,
+        database_id: ids.database_id.clone(),
+        view_id: ids.view_id.clone(),
         extras: preset.extras,
         template: preset.template,
         stories_property_id: preset.links.stories,
@@ -450,14 +449,165 @@ fn workshop_plan_from_journal(journal: &Journal) -> Option<WorkshopPlan> {
     })
 }
 
+/// Which workshop a creation makes. `Whole` is what the interface offers: all seven bases and
+/// every link between them. `Partial` is the three bases of the earlier stages, kept so tests can
+/// build a workshop as it was made then and check what `complete_workshop` adds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), allow(dead_code))]
+enum WorkshopKind {
+    Partial,
+    Whole,
+}
+
+impl WorkshopKind {
+    fn operation(self) -> &'static str {
+        match self {
+            Self::Partial => OP_CREATE_WORKSHOP,
+            Self::Whole => OP_INIT_WORKSHOP,
+        }
+    }
+
+    /// The bases in the order they are made, with the names used when no label is sent.
+    fn roles(self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            Self::Partial => &[
+                (ROLE_STORIES, "Истории"),
+                (ROLE_CHARACTERS, "Персонажи"),
+                (ROLE_LOCATIONS, "Локации"),
+            ],
+            Self::Whole => &[
+                (ROLE_STORIES, "Истории"),
+                (ROLE_CHARACTERS, "Персонажи"),
+                (ROLE_LOCATIONS, "Локации"),
+                (ROLE_UNIVERSES, "Вселенные"),
+                (ROLE_ARCS, "Арки"),
+                (ROLE_ANCHORS, "Якоря"),
+                (ROLE_NOTES, "Заметки"),
+            ],
+        }
+    }
+}
+
+/// Files an operating system leaves in a folder nobody put anything in.
+const IGNORABLE_FILES: [&str; 3] = [".DS_Store", "Thumbs.db", "desktop.ini"];
+
+fn folder_has_content(folder: &Path) -> Result<bool, ProjectError> {
+    let entries =
+        fs::read_dir(folder).map_err(|error| io_failure("readDirectory", error.to_string()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| io_failure("readDirectory", error.to_string()))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !IGNORABLE_FILES.contains(&name.as_str()) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// The workshop of a vault, made in one journaled operation at the folder `request.path`: the
+/// folder (or an empty one that is already there), its marker and all seven bases with every
+/// link between them. The name of the workshop is the name of the folder.
+pub fn init_workshop(
+    env: &Env,
+    request: &InitWorkshopRequest,
+) -> Result<CreatedWorkshop, ProjectError> {
+    // Not trimmed: a name with spaces at its edges is refused, not quietly changed.
+    let path = request.path.as_str();
+    let invalid = |reason: &str| ProjectError::InvalidName {
+        field: "path".to_owned(),
+        reason: reason.to_owned(),
+    };
+    if path.is_empty() || path.contains('\\') {
+        return Err(invalid(if path.is_empty() {
+            "empty"
+        } else {
+            "forbidden character"
+        }));
+    }
+    let segments = path.split('/').collect::<Vec<_>>();
+    for segment in &segments {
+        if matches!(*segment, "" | "." | "..") {
+            return Err(invalid("invalid"));
+        }
+        if normalize_entry_name("path", segment)? != *segment {
+            return Err(invalid("invalid"));
+        }
+    }
+    let (name, parent) = segments.split_last().expect("a path has a segment");
+    let created = create_workshop_of(
+        env,
+        &CreateWorkshopRequest {
+            expected_generation: request.expected_generation,
+            operation_id: request.operation_id.clone(),
+            name: (*name).to_owned(),
+            parent_path: if parent.is_empty() {
+                None
+            } else {
+                Some(parent.join("/"))
+            },
+            icon: None,
+            tags: Vec::new(),
+            labels: request.labels.clone(),
+        },
+        WorkshopKind::Whole,
+    )?;
+    Ok(created)
+}
+
+/// The vault-relative form of a folder the author picked in a dialog, for the "workshop folder"
+/// setting: canonicalized (so a link out of the vault is the place it leads to), required to be a
+/// folder strictly inside the vault, and made of names a workshop folder can have.
+pub fn workshop_folder_of(vault: &Path, picked: &str) -> Result<String, ProjectError> {
+    let outside = |reason: &str| ProjectError::InvalidParent {
+        reason: reason.to_owned(),
+    };
+    let root = vault
+        .canonicalize()
+        .map_err(|error| io_failure("vault", error))?;
+    let folder = Path::new(picked)
+        .canonicalize()
+        .map_err(|_| outside("the folder does not exist"))?;
+    if !folder.is_dir() {
+        return Err(outside("not a directory"));
+    }
+    let relative = folder
+        .strip_prefix(&root)
+        .map_err(|_| outside("the folder is outside the vault"))?;
+    let mut names = Vec::new();
+    for component in relative.components() {
+        let name = component
+            .as_os_str()
+            .to_str()
+            .ok_or_else(|| outside("the folder name is not text"))?;
+        if normalize_entry_name("path", name)? != name {
+            return Err(outside("the folder name cannot be used"));
+        }
+        names.push(name.to_owned());
+    }
+    if names.is_empty() {
+        return Err(outside("the vault itself cannot be the workshop folder"));
+    }
+    Ok(names.join("/"))
+}
+
+/// The three-base workshop of stages 2 to 7, for tests of what `complete_workshop` adds to it.
+#[cfg(test)]
 pub fn create_workshop(
     env: &Env,
     request: &CreateWorkshopRequest,
 ) -> Result<CreatedWorkshop, ProjectError> {
+    create_workshop_of(env, request, WorkshopKind::Partial)
+}
+
+fn create_workshop_of(
+    env: &Env,
+    request: &CreateWorkshopRequest,
+    kind: WorkshopKind,
+) -> Result<CreatedWorkshop, ProjectError> {
     validate_operation_id(&request.operation_id)?;
     let request_rev = request_revision(&serde_json::to_value(request).unwrap())?;
 
-    let resumed = match replay(env, &request.operation_id, OP_CREATE_WORKSHOP, &request_rev)? {
+    let resumed = match replay(env, &request.operation_id, kind.operation(), &request_rev)? {
         Replay::Fresh => None,
         Replay::Resume(j) => Some(j),
         Replay::Done(value) => {
@@ -504,8 +654,25 @@ pub fn create_workshop(
     }
     let workshop_rel = join_relative(parent_rel, &name);
 
+    // A whole workshop may take an empty folder that is already there (the folder the author
+    // chose in the settings); any other content, or anything but a plain folder, is refused
+    // before the first write.
+    let mut folder_exists = false;
     if exists_ignoring_case(&parent_dir, &name)? {
-        return Err(ProjectError::PathCollision { path: workshop_rel });
+        let candidate = parent_dir.join(&name);
+        let plain_folder = fs::symlink_metadata(&candidate)
+            .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink());
+        if kind == WorkshopKind::Whole && plain_folder {
+            if folder_has_content(&candidate)? {
+                return Err(ProjectError::failed(
+                    "folderNotEmpty",
+                    format!("The folder {workshop_rel} is not empty and is not a workshop"),
+                ));
+            }
+            folder_exists = true;
+        } else {
+            return Err(ProjectError::PathCollision { path: workshop_rel });
+        }
     }
     let workshop_dir = guarded(env.vault, &workshop_rel)?;
 
@@ -521,26 +688,46 @@ pub fn create_workshop(
         Some(plan) => plan,
         None => {
             let workshop_id = ulid::Ulid::generate().to_string();
+            // Every database is named before any is planned: a base may point at one made later.
             let mut target_databases = BTreeMap::new();
+            let mut all_ids = Vec::new();
+            for (role, _) in kind.roles() {
+                let ids = PlannedDatabaseIds {
+                    database_id: ulid::Ulid::generate().to_string(),
+                    view_id: ulid::Ulid::generate().to_string(),
+                };
+                target_databases.insert((*role).to_owned(), ids.database_id.clone());
+                all_ids.push(ids);
+            }
             let mut planned_sections = Vec::new();
             let mut section_docs = Vec::new();
             let mut created_sections = Vec::new();
-            for (role, default_name) in [
-                (ROLE_STORIES, "Истории"),
-                (ROLE_CHARACTERS, "Персонажи"),
-                (ROLE_LOCATIONS, "Локации"),
-            ] {
+            for ((role, default_name), ids) in kind.roles().iter().zip(&all_ids) {
                 let base = plan_base_section(
                     env,
                     &request.labels,
                     &workshop_rel,
                     role,
                     default_name,
-                    &mut target_databases,
+                    ids,
+                    &target_databases,
                 )?;
                 planned_sections.push(base.planned);
                 section_docs.push(base.entry);
                 created_sections.push(base.created);
+            }
+            // Two bases cannot share a folder; the same name in another case is the same folder
+            // on a case-insensitive disk.
+            let mut seen = Vec::new();
+            for section in &planned_sections {
+                let lower = section.name.to_lowercase();
+                if seen.contains(&lower) {
+                    return Err(ProjectError::InvalidName {
+                        field: "section".to_owned(),
+                        reason: "duplicate".to_owned(),
+                    });
+                }
+                seen.push(lower);
             }
 
             let mut workshop_doc_val = json!({
@@ -581,13 +768,14 @@ pub fn create_workshop(
         format: JOURNAL_FORMAT.to_owned(),
         format_version: JOURNAL_VERSION,
         operation_id: request.operation_id.clone(),
-        operation: OP_CREATE_WORKSHOP.to_owned(),
+        operation: kind.operation().to_owned(),
         request_revision: request_rev,
         status: STATUS_IN_PROGRESS.to_owned(),
         plan: Plan {
             workshop_id: Some(created.workshop_id.clone()),
             workshop_path: Some(workshop_rel.clone()),
-            creates_workshop_folder: true,
+            // A folder that was there before is never removed by a rollback.
+            creates_workshop_folder: !folder_exists,
             workshop_file_revision: Some(workshop_rev.clone()),
             sections: planned_sections.clone(),
             story: None,
@@ -609,7 +797,9 @@ pub fn create_workshop(
     // Apply
     let run = (|| -> Result<(), Interrupt> {
         checkpoint(Step::JournalWritten)?;
-        fs::create_dir(&workshop_dir).map_err(|e| Interrupt::Error(e.to_string()))?;
+        if !folder_exists {
+            fs::create_dir(&workshop_dir).map_err(|e| Interrupt::Error(e.to_string()))?;
+        }
         checkpoint(Step::FolderCreated)?;
 
         for (i, section) in planned_sections.iter().enumerate() {

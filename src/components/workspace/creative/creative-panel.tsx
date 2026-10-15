@@ -1,5 +1,13 @@
 import * as React from "react"
-import { AlertTriangle, Feather, Loader2, Plus, Settings } from "lucide-react"
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  Feather,
+  Loader2,
+  Plus,
+  Settings,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
@@ -13,6 +21,7 @@ import type { PanelRenderProps } from "../panel-registry"
 import { useDatabaseStore } from "../database/database-store"
 import { PanelHeader } from "../panels/panel-header"
 import { type ChooserExtra, type CreateChoice, useChooserOptions } from "./chooser-options"
+import { CompleteWorkshopNotice } from "./complete-workshop-notice"
 import { CreateChooserDialog } from "./create-chooser-dialog"
 import {
   CreateProjectDialog,
@@ -21,26 +30,31 @@ import {
 } from "./create-project-dialog"
 import { CreateSectionDialog } from "./create-section-dialog"
 import { useCreativeNavStore } from "./creative-nav-store"
-import { CreativeScopePicker } from "./creative-scope-picker"
-import { readStoredScope, readWorkshopPrefs, writeStoredScope } from "./creative-scope-storage"
+import { useCreativeSettingsStore } from "./creative-settings-store"
+import { readWorkshopPrefs, writeWorkshopPrefs, type WorkshopPrefs } from "./creative-scope-storage"
 import { linkLabels } from "./project-labels"
 import { projectErrorText } from "./project-error"
-import { listScopes, resolveScope } from "./project-tree-model"
+import { writeStoryUniverseLink } from "./story-universe-link"
 import { useProjectStore } from "./project-store"
 import { sectionRoleIcon } from "./section-icons"
-import {
-  entityTabs,
-  selectedStoryOf,
-  storySection,
-  workshopScope,
-  worksSectionsFromPrefs,
-} from "./workshop/workshop-model"
+import { useCompleteWorkshop } from "./use-complete-workshop"
+import { hasGaps, workshopGaps } from "./workshop-gaps"
+import { WorkshopInitScreen } from "./workshop-init-screen"
+import { resolveWorkshopPlace } from "./workshop-location"
+import { entityTabs, storySection, worksSectionsFromPrefs } from "./workshop/workshop-model"
+import { UniverseCard } from "./workshop/universe-card"
 import { usePlotEnsurer } from "./workshop/use-ensure-plot"
+import { useUniverses } from "./workshop/use-universes"
 import { WorkshopPane } from "./workshop/workshop-pane"
+
+/** What the card of the universes stores for the stories that no universe holds. */
+const STANDALONE = "standalone"
 
 interface NewProjectRequest {
   workshop: WorkshopSummary | null
   kind?: CreativeCreationKind
+  /** What the dialog offers; the card of the universes offers only a universe. */
+  kinds?: CreativeCreationKind[]
 }
 
 function DiagnosticsNotice({ diagnostics }: { diagnostics: ProjectDiagnostic[] }) {
@@ -48,7 +62,7 @@ function DiagnosticsNotice({ diagnostics }: { diagnostics: ProjectDiagnostic[] }
   const [open, setOpen] = React.useState(false)
   if (diagnostics.length === 0) return null
   return (
-    <div className="mx-3 mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-[10px] text-amber-800 dark:text-amber-200">
+    <div className="mx-3 mb-2 min-w-0 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-[10px] text-amber-800 dark:text-amber-200">
       <button
         type="button"
         className="flex w-full items-start gap-2 text-left"
@@ -63,7 +77,45 @@ function DiagnosticsNotice({ diagnostics }: { diagnostics: ProjectDiagnostic[] }
           {diagnostics.map((entry, index) => (
             <li key={`${entry.code}:${entry.path}:${index}`} className="break-words">
               {t(`creative.diagnostic.${entry.code}`, { defaultValue: entry.code })}
-              <span className="block text-muted-foreground">{entry.path}</span>
+              <span className="block break-all text-muted-foreground">{entry.path}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Folders of the former format (`amby-project.json`) are not damage: they open as ordinary folders.
+ * One quiet, folded line at the foot of the panel lists them; the banner is for what needs a look.
+ */
+function LegacyFoldersRow({ diagnostics }: { diagnostics: ProjectDiagnostic[] }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = React.useState(false)
+  if (diagnostics.length === 0) return null
+  return (
+    <div className="shrink-0 border-t border-border/60 px-3 py-1 text-[10px] text-muted-foreground">
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-center gap-1 text-left hover:text-foreground"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {open ? (
+          <ChevronDown className="size-3 shrink-0" />
+        ) : (
+          <ChevronRight className="size-3 shrink-0" />
+        )}
+        <span className="min-w-0 break-words">
+          {t("creative.panel.legacyFolders", { count: diagnostics.length })}
+        </span>
+      </button>
+      {open && (
+        <ul className="mt-1 max-h-32 space-y-0.5 overflow-y-auto overflow-x-hidden pl-4">
+          {diagnostics.map((entry, index) => (
+            <li key={`${entry.path}:${index}`} className="break-all">
+              {entry.path}
             </li>
           ))}
         </ul>
@@ -91,9 +143,8 @@ export function CreativePanel({
   const catalog = useProjectStore((state) => state.catalog)
   const error = useProjectStore((state) => state.error)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
-  const scope = useCreativeNavStore((state) => state.scope)
-  const setScope = useCreativeNavStore((state) => state.setScope)
-  const rawStoryFilter = useCreativeNavStore((state) => state.storyFilter)
+  const rawCatalog = useProjectStore((state) => state.rawCatalog)
+  const workshopSetting = useCreativeSettingsStore((state) => state.workshopPath)
   const universeFilter = useCreativeNavStore((state) => state.universeFilter)
   const bumpData = useCreativeNavStore((state) => state.bumpData)
   const createRequest = useCreativeNavStore((state) => state.createRequest)
@@ -101,18 +152,17 @@ export function CreativePanel({
   const [chooserOpen, setChooserOpen] = React.useState(false)
   const [sectionRequest, setSectionRequest] = React.useState<{
     workshop: WorkshopSummary
-    initial?: { name: string; choice: string }
   } | null>(null)
   const setSectionFor = (ws: WorkshopSummary | null) =>
     setSectionRequest(ws ? { workshop: ws } : null)
 
-  // What was last chosen in this vault: the scope, and what the lists were showing.
+  // What was last chosen in this vault: what the lists were showing.
   React.useEffect(() => {
     if (!vault) return
     const nav = useCreativeNavStore.getState()
-    nav.setScope(readStoredScope(vault))
     const prefs = readWorkshopPrefs(vault)
     nav.setStoryFilter(prefs.story ?? null)
+    nav.setUniverseFilter(prefs.universe && prefs.universe !== STANDALONE ? prefs.universe : null)
     const open = worksSectionsFromPrefs(prefs.works)
     nav.setWorksOpen({
       text: open.includes("text"),
@@ -121,31 +171,69 @@ export function CreativePanel({
     })
   }, [vault])
 
-  const chooseScope = (next: string | null) => {
-    setScope(next)
-    if (vault) writeStoredScope(vault, next)
-  }
-
-  // A stale scope falls back on every render.
-  const resolvedScope = catalog ? resolveScope(catalog, scope) : null
-  const workshopScopeResult = React.useMemo(
-    () => (catalog ? workshopScope(catalog, resolvedScope) : null),
-    [catalog, resolvedScope],
+  // The catalog already holds only the workshop the setting names (or the one found).
+  const workshop = catalog?.workshops[0] ?? null
+  const place = React.useMemo(
+    () =>
+      resolveWorkshopPlace(
+        rawCatalog?.workshops ?? [],
+        workshopSetting,
+        t("creative.workshop.defaultFolder"),
+      ),
+    [rawCatalog, t, workshopSetting],
   )
-  const workshop = workshopScopeResult?.workshop ?? null
   const categories = React.useMemo(() => (workshop ? entityTabs(workshop) : []), [workshop])
-  // A universe, or the whole workshop, has no story of its own to add a page to.
-  const selectedStory =
-    rawStoryFilter === "all" || universeFilter !== null
-      ? null
-      : workshop
-        ? selectedStoryOf(workshop.stories, rawStoryFilter)
-        : null
+  // A page is added to the story the lists show now; a universe or the standalone stories as a
+  // whole have no story of their own.
+  const shownStoryId = useCreativeNavStore((state) => state.shownStoryId)
+  const selectedStory = workshop?.stories.find((story) => story.storyId === shownStoryId) ?? null
+  // The universes of the workshop: the card below and the lists above read the same rows.
+  const { universes, known: universesKnown } = useUniverses(workshop)
+  // The universe chosen stands until the list is read and shows it gone.
+  const activeUniverseId =
+    universeFilter !== null &&
+    (!universesKnown || universes.some((universe) => universe.noteId === universeFilter))
+      ? universeFilter
+      : null
+  // A universe made a moment ago is chosen before the list has read it: it is not "missing".
+  const justCreatedUniverse = React.useRef<string | null>(null)
+  const remember = React.useCallback(
+    (patch: WorkshopPrefs) => {
+      if (vault) writeWorkshopPrefs(vault, patch)
+    },
+    [vault],
+  )
+  // A remembered universe that is gone (deleted, or the base is) is dropped, not kept as a ghost.
+  React.useEffect(() => {
+    if (universeFilter === null || !universesKnown) return
+    if (universes.some((universe) => universe.noteId === universeFilter)) {
+      if (justCreatedUniverse.current === universeFilter) justCreatedUniverse.current = null
+      return
+    }
+    if (justCreatedUniverse.current === universeFilter) return
+    useCreativeNavStore.getState().setUniverseFilter(null)
+    remember({ universe: STANDALONE })
+  }, [remember, universeFilter, universes, universesKnown])
+
+  /** Sets the scope: a universe, or `null` for the standalone stories. */
+  const chooseUniverse = (universeId: string | null) => {
+    const nav = useCreativeNavStore.getState()
+    nav.setUniverseFilter(universeId)
+    const patch: WorkshopPrefs = { universe: universeId ?? STANDALONE }
+    // "No story chosen yet" meant the first story of the scope: choosing a scope shows it whole.
+    if (nav.storyFilter === null) {
+      nav.setStoryFilter("all")
+      patch.story = "all"
+    }
+    remember(patch)
+  }
 
   // "Create a story / a universe" asked for from the empty tab.
   React.useEffect(() => {
     if (!createRequest || !catalog) return
     useCreativeNavStore.getState().clearCreateRequest()
+    // Without a workshop there is nothing to make a story in: the panel offers to initialize.
+    if (!workshop) return
     if (createRequest === "universe") {
       setNewProject({ workshop, kind: "universe" })
     } else {
@@ -156,6 +244,11 @@ export function CreativePanel({
   // The operation that makes the missing link properties of anchors and arcs; the first binding
   // needs them, and so does an anchor made as an event of a universe.
   const { ensure: ensurePlot, ensureAnchorLinks } = usePlotEnsurer(onCreativeChanged)
+  // "Create the missing sections" of a workshop made before every base was made at once.
+  const completion = useCompleteWorkshop(workshop, async () => {
+    await onCreativeChanged?.()
+    useCreativeNavStore.getState().bumpData()
+  })
 
   const openProject = React.useCallback(
     (projectId: string, sectionId?: string) => {
@@ -169,12 +262,14 @@ export function CreativePanel({
   const afterWrite = async (
     projectId: string,
     sectionId?: string,
-    nextScope?: string | null,
     /** The workshop whose anchors may need a relation to the base that was just made. */
     anchorsOf?: string,
+    /** What goes on once the catalog is read again and before the page opens; it shows its own failures. */
+    between?: () => Promise<void>,
   ) => {
     await onCreativeChanged?.()
     await useProjectStore.getState().refresh?.()
+    if (between) await between()
     if (anchorsOf) {
       try {
         await ensureAnchorLinks(anchorsOf)
@@ -182,7 +277,6 @@ export function CreativePanel({
         setLinkNotice(t("creative.plot.linksFailed", { message: projectErrorText(t, caught) }))
       }
     }
-    if (nextScope !== undefined) chooseScope(nextScope)
     openProject(projectId, sectionId)
   }
 
@@ -247,17 +341,16 @@ export function CreativePanel({
 
   // One operation ID per link intent, so a retry of the same request is answered from the record.
   const linkOperations = React.useRef(new Map<string, string>())
-  /** Links a section of an older workshop and reads the catalog again; rejects on failure. */
-  const linkSection = async (target: WorkshopSummary, sectionId: string) => {
-    if (vaultGeneration === null) return
+  /** Adds the link property to a section and reads the catalog again; rejects on failure. */
+  const addLinks = async (target: WorkshopSummary, sectionId: string, generation: number) => {
     const key = `${target.workshopId}:${target.fileRevision}:${sectionId}`
     let operationId = linkOperations.current.get(key)
     if (!operationId) {
       operationId = `links-${crypto.randomUUID()}`
       linkOperations.current.set(key, operationId)
     }
-    await addStoryLinks({
-      expectedGeneration: vaultGeneration,
+    const added = await addStoryLinks({
+      expectedGeneration: generation,
       operationId,
       workshopId: target.workshopId,
       expectedWorkshopRevision: target.fileRevision,
@@ -266,6 +359,57 @@ export function CreativePanel({
     })
     await onCreativeChanged?.()
     await useProjectStore.getState().refresh?.()
+    return added
+  }
+  /** Links a section of an older workshop and reads the catalog again; rejects on failure. */
+  const linkSection = async (target: WorkshopSummary, sectionId: string) => {
+    if (vaultGeneration === null) return
+    await addLinks(target, sectionId, vaultGeneration)
+  }
+
+  /**
+   * A story made while a universe is chosen is in it from the start: the "Universe" relation of its
+   * card is written (after the section's relation is made, for a workshop that has none). A failure
+   * never undoes the story: it stays, under "Standalone stories", and the author is told why.
+   */
+  const linkNewStory = async (
+    created: CreatedItemResult,
+    universeId: string,
+    workshopId: string,
+  ) => {
+    try {
+      if (vaultGeneration === null) throw new Error(t("creative.errors.projectNotFound"))
+      const workshopNow = () =>
+        useProjectStore.getState().catalog?.workshops.find((w) => w.workshopId === workshopId)
+      const current = workshopNow()
+      const stories = current?.sections.find((s) => s.role === "stories" && s.state !== "missing")
+      if (!current || !stories) throw new Error(t("creative.errors.projectNotFound"))
+      const propertyId =
+        stories.universePropertyId ??
+        (await addLinks(current, stories.id, vaultGeneration)).propertyId
+      const cardNoteId =
+        created.cardNoteId ??
+        workshopNow()?.stories.find((story) => story.storyId === created.id)?.cardNoteId
+      if (!cardNoteId) throw new Error(t("creative.errors.projectNotFound"))
+      await writeStoryUniverseLink({
+        vaultGeneration,
+        databaseId: stories.databaseId,
+        cardNoteId,
+        propertyId,
+        universeId,
+      })
+      // Shown at once: the lists read the cards again, and the story is not "outside" meanwhile.
+      const nav = useCreativeNavStore.getState()
+      nav.setFreshStoryId(created.id)
+      nav.setStoryFilter(created.id)
+      remember({ story: created.id })
+    } catch (caught) {
+      setLinkNotice(
+        t("creative.workshop.link.storyUniverseFailed", { message: projectErrorText(t, caught) }),
+      )
+    } finally {
+      bumpData()
+    }
   }
 
   const pickCreate = (choice: CreateChoice) => {
@@ -280,8 +424,6 @@ export function CreativePanel({
       setNewProject({ workshop, kind: "story" })
     } else if (choice === "universe") {
       setNewProject({ workshop, kind: "universe" })
-    } else if (choice === "workshop") {
-      setNewProject({ workshop: null, kind: "workshop" })
     }
   }
 
@@ -304,7 +446,9 @@ export function CreativePanel({
     />
   )
 
-  const hasWorkshops = Boolean(catalog && catalog.workshops.length > 0)
+  const legacyFolders = catalog?.diagnostics.filter((d) => d.code === "legacyProjectFormat") ?? []
+  const attention = catalog?.diagnostics.filter((d) => d.code !== "legacyProjectFormat") ?? []
+  const gaps = workshop ? workshopGaps(workshop) : null
   let body: React.ReactNode
   if (!databaseRuntimeEnabled || status === "disabled") {
     body = (
@@ -337,21 +481,29 @@ export function CreativePanel({
         </MotionSpinner>
       </div>
     )
-  } else if (!hasWorkshops) {
+  } else if (!workshop) {
     body = (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center">
-        <Feather className="size-7 text-muted-foreground" />
-        <p className="text-xs font-medium">{t("creative.panel.empty")}</p>
-        <p className="text-[11px] text-muted-foreground">{t("creative.panel.emptyHint")}</p>
-        <Button size="sm" onClick={() => setNewProject({ workshop: null, kind: "workshop" })}>
-          {t("creative.panel.newProject")}
-        </Button>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <DiagnosticsNotice diagnostics={attention} />
+        <WorkshopInitScreen
+          path={place.path}
+          others={place.others}
+          vaultGeneration={vaultGeneration}
+          onInitialized={(created) => afterWrite(created.workshopId)}
+          onOpenSettings={
+            onOpenSettings
+              ? () => onOpenSettings({ section: "modules", moduleId: "creative" })
+              : undefined
+          }
+        />
+        <LegacyFoldersRow diagnostics={legacyFolders} />
       </div>
     )
   } else {
     body = (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <DiagnosticsNotice diagnostics={catalog.diagnostics} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <DiagnosticsNotice diagnostics={attention} />
+        {gaps && hasGaps(gaps) && <CompleteWorkshopNotice gaps={gaps} state={completion} />}
         {linkNotice && (
           <div
             role="alert"
@@ -369,13 +521,13 @@ export function CreativePanel({
         )}
         <WorkshopPane
           catalog={catalog}
-          scopeId={resolvedScope}
+          scopeId={workshop.workshopId}
           vault={vault ?? null}
           vaultGeneration={vaultGeneration}
           onOpenNote={openNote}
           activeNoteId={selectedId}
           onOpenProject={openProject}
-          onAddSection={(ws, options) => setSectionRequest({ workshop: ws, initial: options })}
+          universeId={activeUniverseId}
           onCreateEntity={createEntity}
           onLinkSection={linkSection}
           onEnsurePlot={ensurePlot}
@@ -389,13 +541,14 @@ export function CreativePanel({
           createOptions={chooserOptions}
           onCreate={pickCreate}
         />
+        <LegacyFoldersRow diagnostics={legacyFolders} />
       </div>
     )
   }
 
   const bottom =
-    databaseRuntimeEnabled && catalog && status !== "disabled" ? (
-      <div className="shrink-0 p-2">
+    databaseRuntimeEnabled && workshop && status !== "disabled" ? (
+      <div className="shrink-0 space-y-2 p-2">
         <Button
           className="w-full gap-2 border border-foreground/10 bg-foreground/10 font-medium text-foreground shadow-sm hover:bg-foreground/15 hover:shadow-md active:shadow-sm focus-visible:ring-1 focus-visible:ring-foreground/20"
           whileTap={{ y: 1, scale: 0.99 }}
@@ -404,13 +557,19 @@ export function CreativePanel({
           <Plus className="size-4" />
           {t("creative.panel.create")}
         </Button>
-        <div className="mt-2">
-          <CreativeScopePicker
-            scopes={listScopes(catalog)}
-            current={resolvedScope}
-            onSelect={chooseScope}
-          />
-        </div>
+        <UniverseCard
+          universes={universes}
+          selectedUniverseId={activeUniverseId}
+          onSelectUniverse={chooseUniverse}
+          onNewUniverse={
+            workshop.readOnly
+              ? null
+              : () => setNewProject({ workshop, kind: "universe", kinds: ["universe"] })
+          }
+          onOpenTarget={() =>
+            openProject(activeUniverseId ? `universe:${activeUniverseId}` : workshop.workshopId)
+          }
+        />
       </div>
     ) : null
 
@@ -431,16 +590,27 @@ export function CreativePanel({
         vaultGeneration={vaultGeneration}
         workshop={newProject?.workshop ?? workshop}
         initialKind={newProject?.kind}
-        onCreated={(created: CreatedItemResult) =>
+        kinds={newProject?.kinds}
+        onCreated={(created: CreatedItemResult) => {
+          if (created.kind === "universe") {
+            // The universe made is the one shown from now on.
+            justCreatedUniverse.current = created.id
+            chooseUniverse(created.id)
+          }
+          const target = newProject?.workshop ?? workshop
+          const intoUniverse =
+            created.kind === "story" && activeUniverseId !== null && target !== null
+              ? { universeId: activeUniverseId, workshopId: target.workshopId }
+              : null
           void afterWrite(
-            created.id,
+            created.kind === "universe" ? `universe:${created.id}` : created.id,
             undefined,
-            created.kind === "workshop" ? created.id : undefined,
-            created.kind === "universe"
-              ? (newProject?.workshop ?? workshop)?.workshopId
+            created.kind === "universe" ? target?.workshopId : undefined,
+            intoUniverse
+              ? () => linkNewStory(created, intoUniverse.universeId, intoUniverse.workshopId)
               : undefined,
           )
-        }
+        }}
       />
       {sectionRequest && (
         <CreateSectionDialog
@@ -448,12 +618,10 @@ export function CreativePanel({
           onClose={() => setSectionRequest(null)}
           vaultGeneration={vaultGeneration}
           workshop={sectionRequest.workshop}
-          initial={sectionRequest.initial}
           onCreated={(created) =>
             void afterWrite(
               sectionRequest.workshop.workshopId,
               created.section.sectionId,
-              undefined,
               sectionRequest.workshop.workshopId,
             )
           }

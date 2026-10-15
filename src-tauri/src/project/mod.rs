@@ -2,6 +2,7 @@
 //! of projects and sections, and their recovery. The contract is
 //! `docs/creative-format.md`; the map is [MAP.md](MAP.md).
 
+pub mod complete;
 pub mod create;
 pub mod discovery;
 pub mod events;
@@ -30,6 +31,9 @@ mod create_test;
 #[cfg(test)]
 #[path = "discovery_test.rs"]
 mod discovery_test;
+#[cfg(test)]
+#[path = "init_test.rs"]
+mod init_test;
 #[cfg(test)]
 #[path = "links_test.rs"]
 mod links_test;

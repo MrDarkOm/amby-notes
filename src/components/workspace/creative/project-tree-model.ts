@@ -77,27 +77,6 @@ export function groupSections(workshop: WorkshopSummary): SidebarGroup[] {
   return groups
 }
 
-export const STANDALONE_SCOPE = null
-
-/** The workshops in the catalog: the choices of the scope switcher. */
-export function listScopes(catalog: ProjectCatalog): WorkshopSummary[] {
-  return catalog.workshops
-}
-
-/**
- * The workshop scope to show for a wanted ID.
- * Returns the wanted workshop if it exists, otherwise the first workshop in the catalog, or null.
- */
-export function resolveScope(
-  catalog: ProjectCatalog,
-  wanted: string | null | undefined,
-): string | null {
-  if (wanted && catalog.workshops.some((w) => w.workshopId === wanted)) {
-    return wanted
-  }
-  return catalog.workshops[0]?.workshopId ?? null
-}
-
 export function findWorkshop(
   catalog: ProjectCatalog | null,
   workshopId: string,

@@ -2,8 +2,6 @@ import * as React from "react"
 import type { ProjectCatalog } from "@/lib/storage"
 import type { TreeItem } from "../tree/tree-types"
 import { collectionForFolder } from "./creative-tree-model"
-import { useCreativeNavStore } from "./creative-nav-store"
-import { writeStoredScope } from "./creative-scope-storage"
 
 interface CollectionFolderSelectOptions {
   /** The module is on; while it is off every folder is an ordinary folder. */
@@ -42,8 +40,6 @@ export function useCollectionFolderSelect({
         fallback(id)
         return
       }
-      useCreativeNavStore.getState().setScope(collection.workshopId)
-      if (vault) writeStoredScope(vault, collection.workshopId)
       showPanel()
       openProject(collection.workshopId)
     },

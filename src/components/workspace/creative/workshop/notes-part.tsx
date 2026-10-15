@@ -30,7 +30,7 @@ import type { StoryLabels, WorkshopDraft } from "./workshop-model"
 interface NotesPartProps {
   /** The notebooks and notes the filter lets through; every notebook is in it, empty or not. */
   tree: NotebookTree
-  /** Notes in no story, only when the whole workshop is shown: a group of their own at the end. */
+  /** Notes in no story, only when the standalone stories are shown: a group of their own at the end. */
   withoutStory: NotebookTree | null
   canWrite: boolean
   /** The lists are still being read: an empty list is not yet "no notes". */

@@ -74,7 +74,7 @@ describe("ProjectPage", () => {
     cleanup()
     act(() => useProjectStore.getState().setCatalog(catalog([])))
     mount("nope")
-    expect(screen.getByText("Проект не найден")).toBeTruthy()
+    expect(screen.getByText("Мастерская не найдена")).toBeTruthy()
   })
 
   it("starts on the overview, with the sections of a story under their groups", () => {
@@ -90,7 +90,7 @@ describe("ProjectPage", () => {
   it("shows a section as the ordinary database and remembers it", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
     const { renderDatabase } = mount("molehills")
-    const nav = screen.getByRole("navigation", { name: "Разделы проекта" })
+    const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
     fireEvent.click(
       Array.from(nav.querySelectorAll("button")).find((b) => b.textContent === "Персонажи")!,
     )
@@ -166,7 +166,7 @@ describe("ProjectPage", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
     mount("molehills")
     fireEvent.click(screen.getByRole("button", { name: "Настройки" }))
-    expect(screen.getByRole("heading", { name: "Настройки проекта" })).toBeTruthy()
+    expect(screen.getByRole("heading", { name: "Настройки мастерской" })).toBeTruthy()
   })
 })
 
@@ -250,7 +250,7 @@ describe("ProjectSettingsDialog", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Разделы" }))
 
-    const unlinkButtons = screen.getAllByRole("button", { name: "Убрать из проекта" })
+    const unlinkButtons = screen.getAllByRole("button", { name: "Убрать из мастерской" })
     expect((unlinkButtons[0] as HTMLButtonElement).disabled).toBe(true)
     expect((unlinkButtons[1] as HTMLButtonElement).disabled).toBe(false)
 

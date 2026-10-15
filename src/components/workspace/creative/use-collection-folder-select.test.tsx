@@ -2,7 +2,6 @@
 import { renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { TreeItem } from "../tree/tree-types"
-import { useCreativeNavStore } from "./creative-nav-store"
 import { catalog, project } from "./project-fixtures.test-support"
 import { useCollectionFolderSelect } from "./use-collection-folder-select"
 
@@ -45,16 +44,13 @@ function setup(enabled: boolean) {
 describe("useCollectionFolderSelect", () => {
   beforeEach(() => {
     localStorage.clear()
-    useCreativeNavStore.setState({ scope: undefined })
   })
 
   it("opens the workshop on the universe whose folder was selected", () => {
     const { select, fallback, showPanel, openProject } = setup(true)
     select(universe.id)
-    expect(useCreativeNavStore.getState().scope).toBe("verse")
-    expect(JSON.parse(localStorage.getItem("amby:creative-scope") ?? "{}")).toEqual({
-      [VAULT]: "verse",
-    })
+    // There is one workshop: opening it chooses nothing and remembers nothing.
+    expect(localStorage.getItem("amby:creative-scope")).toBeNull()
     expect(showPanel).toHaveBeenCalled()
     expect(openProject).toHaveBeenCalledWith("verse")
     expect(fallback).not.toHaveBeenCalled()
@@ -66,7 +62,6 @@ describe("useCollectionFolderSelect", () => {
     expect(fallback).toHaveBeenCalledWith(ordinary.id)
     expect(showPanel).not.toHaveBeenCalled()
     expect(openProject).not.toHaveBeenCalled()
-    expect(useCreativeNavStore.getState().scope).toBeUndefined()
   })
 
   it("treats the universe's folder as an ordinary folder while the module is off", () => {

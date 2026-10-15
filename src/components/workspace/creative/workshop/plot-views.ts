@@ -92,21 +92,21 @@ export function anchorRibbon<T extends AnchorLike>(
   ]
 }
 
-// ── Anchors of a universe or of the whole workshop ──────────────────────────────────────────────
+// ── Anchors of a universe or of the standalone stories ──────────────────────────────────────────────
 
 export interface AnchorBuckets<T> {
   /** The events of the shown universe: anchors that name it themselves. Only for a universe. */
   events: T[]
-  /** The anchors of the shown stories (or all the anchors that belong somewhere). */
+  /** The anchors of the shown stories. */
   shown: T[]
-  /** Only for the whole workshop: in no story, bound to no page and with no universe. */
+  /** Only for the standalone scope: in no story, bound to no page and with no universe. */
   withoutStory: T[]
 }
 
 /**
- * The anchors a panel shows when it is not about one story, all in the author's own order. In the
- * whole workshop those that belong nowhere (no story, no page, no universe) come last; in a
- * universe its events come first and then the anchors of its stories.
+ * The anchors a panel shows when it is not about one story, all in the author's own order. Among
+ * the standalone stories those that belong nowhere (no story, no page, no universe) come last; in
+ * a universe its events come first and then the anchors of its stories.
  */
 export function bucketAnchors<T extends AnchorLike>(input: {
   anchors: readonly T[]
@@ -122,11 +122,12 @@ export function bucketAnchors<T extends AnchorLike>(input: {
   const result: AnchorBuckets<T> = { events: [], shown: [], withoutStory: [] }
   for (const row of ordered) {
     const stories = membership.storiesOf(row.noteId)
-    if (filter.kind === "all") {
-      ;(stories.length > 0 || universeOf(row.noteId) !== null
-        ? result.shown
-        : result.withoutStory
-      ).push(row)
+    if (filter.kind === "standalone") {
+      // The events of a universe are not shown here: an anchor is, when it stands in a standalone
+      // story; one in no story, bound to no page and with no universe comes last.
+      if (stories.some((storyId) => membership.universeOf(storyId) === null)) result.shown.push(row)
+      else if (stories.length === 0 && universeOf(row.noteId) === null)
+        result.withoutStory.push(row)
     } else if (filter.kind === "universe") {
       if (universeOf(row.noteId) === filter.universeId) result.events.push(row)
       else if (stories.some((storyId) => membership.universeOf(storyId) === filter.universeId)) {

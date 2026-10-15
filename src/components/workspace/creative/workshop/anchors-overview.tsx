@@ -1,6 +1,5 @@
 import { Anchor } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Button } from "@/components/ui/button"
 import type { DatabaseRow } from "@/lib/storage"
 import { cn } from "@/lib/utils"
 import { EmptyAction } from "./empty-action"
@@ -24,11 +23,10 @@ interface AnchorsOverviewProps {
   onCommitDraft: (title: string) => Promise<void>
   onCancelDraft: () => void
   onAddAnchor: () => void
-  onCreateAnchors: () => void
 }
 
 /**
- * The anchors part when the panel is not about one story: the whole workshop in the author's own
+ * The anchors part when the panel is not about one story: the standalone stories in the author's own
  * order, the ones that belong nowhere last under "No story"; or a universe, with its events first.
  * Where the order of a story's text decides, the story's own part shows it; here the author's
  * order is all there is.
@@ -45,20 +43,18 @@ export function AnchorsOverview({
   onCommitDraft,
   onCancelDraft,
   onAddAnchor,
-  onCreateAnchors,
 }: AnchorsOverviewProps) {
   const { t } = useTranslation()
   const indent = treeIndent(1)
   if (!buckets) {
+    // The base is made by the panel's "Create the missing sections", not from here.
     return (
-      <div className="flex flex-col items-start gap-1.5 py-1 pr-3" style={{ paddingLeft: indent }}>
-        <p className="text-xs text-muted-foreground">{t("creative.workshop.noAnchors")}</p>
-        {canWrite && (
-          <Button variant="outline" size="sm" onClick={onCreateAnchors}>
-            {t("creative.workshop.createAnchors")}
-          </Button>
-        )}
-      </div>
+      <p
+        className="break-words py-1 pr-3 text-xs text-muted-foreground"
+        style={{ paddingLeft: indent }}
+      >
+        {t("creative.complete.part", { name: t("creative.sections.anchors") })}
+      </p>
     )
   }
 

@@ -90,7 +90,7 @@ describe("CreateSectionDialog", () => {
     const onCreated = mount()
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Организации" } })
     fireEvent.click(screen.getByRole("button", { name: "Добавить" }))
-    expect((await screen.findByRole("alert")).textContent).toContain("Файл проекта изменился")
+    expect((await screen.findByRole("alert")).textContent).toContain("Файл мастерской изменился")
     expect(onCreated).not.toHaveBeenCalled()
   })
 

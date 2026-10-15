@@ -2,7 +2,12 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
-import type { DatabaseRow, DatabaseSummary, ProjectCatalog } from "@/lib/storage"
+import {
+  ProjectOperationError,
+  type DatabaseRow,
+  type DatabaseSummary,
+  type ProjectCatalog,
+} from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
 import { useDatabaseStore } from "../database/database-store"
 import { CreativePanel } from "./creative-panel"
@@ -15,12 +20,15 @@ import {
   storySummary,
   workshopSummary,
 } from "./project-fixtures.test-support"
+import { useCreativeSettingsStore } from "./creative-settings-store"
 import { useProjectStore } from "./project-store"
 
 const queryDatabase = vi.fn()
 const createDatabaseRow = vi.fn()
 const createWorkshopEntity = vi.fn()
 const addStoryLinks = vi.fn()
+const completeWorkshop = vi.fn()
+const initWorkshop = vi.fn()
 const moveTextPage = vi.fn()
 const createTextPage = vi.fn()
 const listTextStats = vi.fn()
@@ -35,6 +43,8 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     createDatabaseRow: (...args: unknown[]) => createDatabaseRow(...args),
     createWorkshopEntity: (...args: unknown[]) => createWorkshopEntity(...args),
     addStoryLinks: (...args: unknown[]) => addStoryLinks(...args),
+    completeWorkshop: (...args: unknown[]) => completeWorkshop(...args),
+    initWorkshop: (...args: unknown[]) => initWorkshop(...args),
     moveTextPage: (...args: unknown[]) => moveTextPage(...args),
     createTextPage: (...args: unknown[]) => createTextPage(...args),
     listTextStats: (...args: unknown[]) => listTextStats(...args),
@@ -61,8 +71,17 @@ vi.mock("./create-section-dialog", () => ({
 const props = (extra: Partial<PanelRenderProps> = {}) =>
   ({ databaseRuntimeEnabled: true, ...extra }) as PanelRenderProps
 
+/** The fixture's workshops sit in a folder named like their ID; the setting picks one of them. */
+const WORKSHOP_FOLDERS: Record<string, string> = { verse: "Verse", tale: "Рассказ" }
 const selectScope = (projectId: string | null) =>
-  act(() => useCreativeNavStore.setState({ scope: projectId }))
+  act(() =>
+    useProjectStore
+      .getState()
+      .setPlace(
+        projectId === null ? null : (WORKSHOP_FOLDERS[projectId] ?? projectId),
+        "Мастерская",
+      ),
+  )
 
 function row(noteId: string, title: string, values: Record<string, unknown> = {}): DatabaseRow {
   return {
@@ -259,12 +278,14 @@ describe("CreativePanel", () => {
         paths: relativePaths.map(() => null),
       }))
     applyDatabaseValueBatch.mockReset().mockResolvedValue({ revisions: [], warnings: [] })
+    completeWorkshop.mockReset()
+    initWorkshop.mockReset()
     useProjectStore.getState().reset()
+    useProjectStore.getState().setPlace(null, "Мастерская")
     useDatabaseStore.setState({ vaultGeneration: 1, databases: DATABASES, invalidationSeq: 0 })
     useCreativeNavStore.setState({
       sectionByProject: {},
       collapsed: {},
-      scope: null,
       worksOpen: { text: true, anchors: false, notes: false },
       storyFilter: null,
       dataNonce: 0,
@@ -282,12 +303,107 @@ describe("CreativePanel", () => {
     expect(screen.queryByRole("button", { name: "Создать" })).toBeNull()
   })
 
-  it("offers the first project when there is none, through the chooser", () => {
-    act(() => useProjectStore.getState().setCatalog(catalog([])))
-    render(<CreativePanel {...props()} />)
-    expect(screen.getByText("Проектов пока нет")).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "Новый проект" }))
-    expect(screen.getByTestId("project-dialog").textContent).toBe("root")
+  describe("a vault with no workshop", () => {
+    const created = {
+      operationId: "op",
+      workshopId: "w_new",
+      name: "Мастерская",
+      path: "Мастерская",
+      filePath: "Мастерская/amby-workshop.json",
+      fileRevision: "r".repeat(64),
+      sections: [],
+      replayed: false,
+      warnings: [],
+    }
+
+    it("offers to initialize at the default folder, with no chooser and no name to type", async () => {
+      act(() => useProjectStore.getState().setCatalog(catalog([])))
+      initWorkshop.mockResolvedValue(created)
+      const onOpenCreativeProject = vi.fn()
+      render(<CreativePanel {...props({ onOpenCreativeProject })} />)
+      expect(screen.getByTestId("workshop-init")).toBeTruthy()
+      expect(screen.getByText("Папка: Мастерская")).toBeTruthy()
+      expect(screen.queryByRole("textbox")).toBeNull()
+      expect(screen.queryByRole("button", { name: "Создать" })).toBeNull()
+      expect(screen.queryByRole("button", { name: "Новый проект" })).toBeNull()
+      expect(screen.queryByText(/проект/iu)).toBeNull()
+
+      fireEvent.click(screen.getByRole("button", { name: "Инициализировать" }))
+      await waitFor(() => expect(initWorkshop).toHaveBeenCalledTimes(1))
+      expect(initWorkshop.mock.calls[0][0]).toMatchObject({
+        expectedGeneration: 1,
+        path: "Мастерская",
+      })
+      expect(initWorkshop.mock.calls[0][0].labels).toMatchObject({
+        "section:stories": "Истории",
+        "section:universes": "Вселенные",
+        "section:arcs": "Арки",
+        "section:anchors": "Якоря",
+        "section:notes": "Заметки",
+      })
+      await waitFor(() => expect(onOpenCreativeProject).toHaveBeenCalledWith("w_new", undefined))
+    })
+
+    it("names the folder of the setting and sends it", async () => {
+      act(() => useProjectStore.getState().setCatalog(catalog([])))
+      act(() => useProjectStore.getState().setPlace("Книги/Моя", "Мастерская"))
+      act(() => useCreativeSettingsStore.setState({ workshopPath: "Книги/Моя" }))
+      initWorkshop.mockResolvedValue(created)
+      render(<CreativePanel {...props()} />)
+      expect(screen.getByText("Папка: Книги/Моя")).toBeTruthy()
+      fireEvent.click(screen.getByRole("button", { name: "Инициализировать" }))
+      await waitFor(() => expect(initWorkshop).toHaveBeenCalled())
+      expect(initWorkshop.mock.calls[0][0].path).toBe("Книги/Моя")
+      act(() => useCreativeSettingsStore.setState({ workshopPath: null }))
+    })
+
+    it("explains a folder that holds other files and points at the setting", async () => {
+      act(() => useProjectStore.getState().setCatalog(catalog([])))
+      initWorkshop.mockRejectedValue(
+        new ProjectOperationError("failed", "The folder Мастерская is not empty", {
+          kind: "failed",
+          code: "folderNotEmpty",
+          message: "The folder Мастерская is not empty",
+        }),
+      )
+      const onOpenSettings = vi.fn()
+      render(<CreativePanel {...props({ onOpenSettings })} />)
+      fireEvent.click(screen.getByRole("button", { name: "Инициализировать" }))
+      const alert = await screen.findByRole("alert")
+      expect(alert.textContent).toContain("«Мастерская» не пуста")
+      expect(alert.textContent).toContain("в настройках модуля")
+      // Nothing was made, and the button is there to try again.
+      expect(screen.getByRole("button", { name: "Инициализировать" })).toBeTruthy()
+      fireEvent.click(screen.getByRole("button", { name: "Настройки" }))
+      expect(onOpenSettings).toHaveBeenCalledWith({ section: "modules", moduleId: "creative" })
+    })
+
+    it("shows other workshops of the vault by path and does not use them", () => {
+      const other = (id: string, path: string) => project(id, { name: id, path })
+      act(() =>
+        useProjectStore.getState().setCatalog(catalog([other("a", "Одна"), other("b", "Две")])),
+      )
+      render(<CreativePanel {...props()} />)
+      expect(screen.getByTestId("workshop-init").textContent).toContain("Одна, Две")
+      expect(screen.queryByRole("button", { name: "Выбрать мастерскую" })).toBeNull()
+    })
+
+    it("works with the one workshop found when no folder is set, and writes no setting", () => {
+      act(() => useProjectStore.getState().setCatalog(catalog([project("only", { path: "Мои" })])))
+      render(<CreativePanel {...props()} />)
+      expect(screen.queryByTestId("workshop-init")).toBeNull()
+      expect(useCreativeSettingsStore.getState().workshopPath).toBeNull()
+    })
+
+    it("asks to initialize when the setting names a folder with no workshop in it", () => {
+      act(() => useProjectStore.getState().setCatalog(catalog([project("only", { path: "Мои" })])))
+      act(() => useProjectStore.getState().setPlace("Новая", "Мастерская"))
+      act(() => useCreativeSettingsStore.setState({ workshopPath: "Новая" }))
+      render(<CreativePanel {...props()} />)
+      expect(screen.getByText("Папка: Новая")).toBeTruthy()
+      expect(screen.getByTestId("workshop-init").textContent).toContain("Мои")
+      act(() => useCreativeSettingsStore.setState({ workshopPath: null }))
+    })
   })
 
   it("opens the module's settings from the header", () => {
@@ -499,7 +615,8 @@ describe("CreativePanel", () => {
       listTextStats.mockImplementation(() => new Promise(() => {}))
       render(<CreativePanel {...props()} />)
       const header = screen.getByRole("combobox", { name: "История" })
-      expect(header.textContent).toBe("MoleHills")
+      expect(header.textContent).toContain("MoleHills")
+      expect(header.textContent).not.toMatch(/стр\.|сл\.|\d/)
     })
 
     it("ends the list of stories with 'New story', the same action as in Create", async () => {
@@ -577,14 +694,67 @@ describe("CreativePanel", () => {
       expect(within(chapter).queryByRole("button", { name: "Добавить страницу внутрь" })).toBeNull()
     })
 
-    it("offers to make missing anchors section when the workshop lacks one", async () => {
+    it("says what is missing and adds it with the one button, not a button in the part", async () => {
       const base = world()
       base.workshops[0].sections = base.workshops[0].sections.filter((s) => s.role !== "anchors")
       act(() => useProjectStore.getState().setCatalog(base))
+      completeWorkshop.mockResolvedValue({
+        operationId: "op",
+        workshopId: "verse",
+        createdRoles: ["anchors"],
+        linked: [],
+        changed: true,
+        skipped: [],
+        workshopRevision: "r".repeat(64),
+        warnings: [],
+      })
       render(<CreativePanel {...props()} />)
+      const notice = screen.getByTestId("complete-workshop-notice")
+      expect(notice.textContent).toContain("Якоря")
+      // The part says where the base comes from; it has no button of its own.
       fireEvent.click(part(/Якоря/))
-      fireEvent.click(await screen.findByRole("button", { name: "Создать раздел «Якоря»" }))
-      expect(screen.getByTestId("section-dialog").textContent).toBe("Verse")
+      expect(screen.queryByRole("button", { name: "Создать раздел «Якоря»" })).toBeNull()
+      expect(screen.getByText(/Раздела «Якоря» ещё нет/u)).toBeTruthy()
+
+      fireEvent.click(within(notice).getByRole("button", { name: "Создать недостающие разделы" }))
+      await waitFor(() => expect(completeWorkshop).toHaveBeenCalledTimes(1))
+      expect(completeWorkshop.mock.calls[0][0]).toMatchObject({
+        expectedGeneration: 1,
+        workshopId: "verse",
+      })
+      expect(completeWorkshop.mock.calls[0][0].labels).toMatchObject({
+        "section:anchors": "Якоря",
+        "section:arcs": "Арки",
+      })
+    })
+
+    it("shows no notice for a workshop that has everything, and writes nothing to find out", () => {
+      const whole = (role: string, extra: Record<string, string | null> = {}) =>
+        section(role, {
+          role,
+          name: role,
+          databaseId: `db_${role}`,
+          storiesPropertyId: role === "stories" || role === "universes" ? null : "p_stories",
+          ...extra,
+        })
+      const complete = workshopSummary("verse", {
+        name: "Verse",
+        path: "Verse",
+        sections: [
+          whole("stories", { universePropertyId: "p_universe" }),
+          whole("characters"),
+          whole("locations"),
+          whole("universes"),
+          whole("arcs", { charactersPropertyId: "p_chars" }),
+          whole("anchors", { arcsPropertyId: "p_arcs", universePropertyId: "p_universe" }),
+          whole("notes"),
+        ],
+      })
+      act(() => useProjectStore.getState().setCatalog(catalog([complete])))
+      render(<CreativePanel {...props()} />)
+      expect(screen.queryByTestId("complete-workshop-notice")).toBeNull()
+      expect(completeWorkshop).not.toHaveBeenCalled()
+      expect(initWorkshop).not.toHaveBeenCalled()
     })
 
     it("adds an anchor from the header of its part", async () => {
@@ -775,7 +945,7 @@ describe("CreativePanel", () => {
     })
 
     it("has no switch without a shared world", async () => {
-      selectScope(null)
+      selectScope("verse")
       render(<CreativePanel {...props()} />)
       expect(screen.getByRole("region", { name: "Мир" })).toBeTruthy()
       expect(screen.queryByRole("button", { name: "Вселенная" })).toBeNull()
@@ -1058,23 +1228,53 @@ describe("CreativePanel", () => {
     expect(screen.queryByRole("button", { name: "Раздел" })).toBeNull()
   })
 
-  it("counts diagnostics and shows them on request", () => {
+  it("counts the diagnostics that need a look and leaves old-format folders to a quiet row", () => {
+    const diagnostic = (code: string, path: string) => ({
+      code,
+      severity: "warning",
+      path,
+      workshopId: null,
+      storyId: null,
+      detail: null,
+    })
+    act(() =>
+      useProjectStore.getState().setCatalog(
+        catalog([project("a")], {
+          diagnostics: [
+            diagnostic("duplicateWorkshopId", "B/amby-workshop.json"),
+            diagnostic("legacyProjectFormat", "C/amby-project.json"),
+            diagnostic("legacyProjectFormat", "C/D/amby-project.json"),
+            diagnostic("legacyProjectFormat", "E/amby-project.json"),
+          ],
+        }),
+      ),
+    )
+    render(<CreativePanel {...props()} />)
+    // One banner entry: the damaged file. The three old folders are not in it, and the word
+    // "projects" is not in the title.
+    const banner = screen.getByText("1 замечание")
+    expect(banner).toBeTruthy()
+    expect(screen.queryByText(/к проектам/u)).toBeNull()
+    fireEvent.click(banner)
+    expect(screen.getByText("B/amby-workshop.json")).toBeTruthy()
+    expect(screen.queryByText("C/amby-project.json")).toBeNull()
+
+    // The old folders: a folded line with the count, the paths on request.
+    const legacy = screen.getByRole("button", { name: /Папки старого формата: 3/u })
+    expect(legacy.getAttribute("aria-expanded")).toBe("false")
+    fireEvent.click(legacy)
+    expect(screen.getByText("C/D/amby-project.json")).toBeTruthy()
+  })
+
+  it("shows no banner at all when the only notes are old-format folders", () => {
     act(() =>
       useProjectStore.getState().setCatalog(
         catalog([project("a")], {
           diagnostics: [
             {
-              code: "duplicateWorkshopId",
-              severity: "error",
-              path: "B/amby-workshop.json",
-              workshopId: "a",
-              storyId: null,
-              detail: null,
-            },
-            {
               code: "legacyProjectFormat",
               severity: "warning",
-              path: "C/amby-workshop.json",
+              path: "C/amby-project.json",
               workshopId: null,
               storyId: null,
               detail: null,
@@ -1084,57 +1284,100 @@ describe("CreativePanel", () => {
       ),
     )
     render(<CreativePanel {...props()} />)
-    fireEvent.click(screen.getByText("2 замечания к проектам"))
-    expect(screen.getByText("B/amby-workshop.json")).toBeTruthy()
-    expect(
-      screen.getByText(
-        "Проект прежнего формата: открыт как обычные папки и базы, модуль его не меняет",
-      ),
-    ).toBeTruthy()
+    expect(screen.queryByText(/замечани/u)).toBeNull()
+    expect(screen.getByRole("button", { name: /Папки старого формата: 1/u })).toBeTruthy()
   })
 
-  it("switches the scope from the switcher and shows that scope's stories", async () => {
-    act(() => useProjectStore.getState().setCatalog(world()))
-    selectScope("verse")
-    render(<CreativePanel {...props()} />)
-    expect(await screen.findByText("MoleHills")).toBeTruthy()
-  })
-
-  it("remembers the scope and the chosen story per vault", async () => {
+  it("remembers the chosen story per vault", async () => {
     localStorage.clear()
     act(() => useProjectStore.getState().setCatalog(world()))
     selectScope("verse")
     const first = render(<CreativePanel {...props({ vault: "/vaults/one" })} />)
     expect(await screen.findByRole("button", { name: /Анна/ })).toBeTruthy()
 
-    // The workshop is chosen in the switcher; the story in the list of stories.
-    const switchTo = async (name: RegExp) => {
-      fireEvent.pointerDown(screen.getByRole("button", { name: "Сменить мастерскую" }), {
-        button: 0,
-        ctrlKey: false,
-      })
-      fireEvent.click(await screen.findByRole("menuitem", { name }))
-    }
-    await switchTo(/Рассказ/)
-    expect(JSON.parse(localStorage.getItem("amby:creative-scope") ?? "{}")).toEqual({
-      "/vaults/one": "tale",
-    })
-    await switchTo(/Verse/)
-    expect(JSON.parse(localStorage.getItem("amby:creative-scope") ?? "{}")).toEqual({
-      "/vaults/one": "verse",
-    })
     fireEvent.click(screen.getByRole("combobox", { name: "История" }))
     fireEvent.click(await screen.findByRole("option", { name: /River/ }))
     expect(JSON.parse(localStorage.getItem("amby:creative-workshop") ?? "{}")).toEqual({
       "/vaults/one": { story: "river" },
     })
+    // Nothing about a workshop is remembered: there is one, named by the setting.
+    expect(localStorage.getItem("amby:creative-scope")).toBeNull()
     first.unmount()
 
-    // The next time the vault opens, both are read back.
-    act(() => useCreativeNavStore.setState({ scope: null, storyFilter: null }))
+    // The next time the vault opens, the story is read back.
+    act(() => useCreativeNavStore.setState({ storyFilter: null }))
     render(<CreativePanel {...props({ vault: "/vaults/one" })} />)
     await waitFor(() => expect(selectedText("История")).toContain("River"))
-    expect(useCreativeNavStore.getState().scope).toBe("verse")
+  })
+
+  it('captions the parts "Story" only for a story, never for the whole workshop or a universe', async () => {
+    act(() => useProjectStore.getState().setCatalog(world()))
+    selectScope("verse")
+    act(() => useCreativeNavStore.setState({ storyFilter: "hills" }))
+    const first = render(<CreativePanel {...props()} />)
+    expect(await screen.findByRole("heading", { name: "История" })).toBeTruthy()
+    first.unmount()
+
+    act(() =>
+      useCreativeNavStore.setState({
+        storyFilter: "all",
+        worksOpen: { text: true, anchors: true, notes: true },
+      }),
+    )
+    render(<CreativePanel {...props()} />)
+    await screen.findByText("Гибель наставника")
+    expect(screen.queryByRole("heading", { name: "История" })).toBeNull()
+    expect(screen.queryByText(/У истории нет раздела/u)).toBeNull()
+  })
+
+  it("fits a narrow panel: nothing sideways, nothing cut by an ellipsis, the name once", async () => {
+    const named = workshopSummary("w", { name: "Мастерская", path: "Мастерская" })
+    named.sections = [section("stories", { role: "stories", name: "Истории", databaseId: "db_s" })]
+    act(() => useProjectStore.getState().setCatalog(catalog([named])))
+    const { container } = render(<CreativePanel {...props()} />)
+
+    // The word is the title of the panel and nothing else: neither card repeats it.
+    expect(screen.getAllByText("Мастерская")).toHaveLength(1)
+    expect(screen.queryByText("Творческая мастерская")).toBeNull()
+
+    // The two cards wrap a long name instead of cutting it with an ellipsis. With no story the
+    // top card is the prompt that offers the first one.
+    const cards = [
+      screen.getByRole("button", { name: /Создать первую историю/ }),
+      screen.getByRole("combobox", { name: "Вселенная" }),
+    ]
+    for (const card of cards) {
+      for (const element of [card, ...Array.from(card.querySelectorAll("*"))]) {
+        expect(element.className.toString()).not.toMatch(/\btruncate\b/u)
+      }
+    }
+
+    // Every scrolling list of the panel holds its width: a wide row wraps or is cut by its own
+    // box, and never produces a horizontal scrollbar at the bottom.
+    const scrollers = Array.from(container.querySelectorAll<HTMLElement>(".overflow-y-auto"))
+    expect(scrollers.length).toBeGreaterThan(0)
+    for (const scroller of scrollers) {
+      expect(scroller.className, scroller.className).toMatch(/\boverflow-x-hidden\b/u)
+    }
+
+    // The notice of what is missing and its button wrap their text.
+    const notice = screen.getByTestId("complete-workshop-notice")
+    const button = within(notice).getByRole("button", { name: "Создать недостающие разделы" })
+    expect(button.className).toMatch(/\bwhitespace-normal\b/u)
+    expect(notice.className).toMatch(/\bmin-w-0\b/u)
+    for (const element of [notice, ...Array.from(notice.querySelectorAll("*"))]) {
+      expect(element.className.toString()).not.toMatch(/\b(truncate|whitespace-nowrap)\b/u)
+    }
+  })
+
+  it("has no switch of workshops: not a card, not a menu, the name only twice at most", () => {
+    act(() => useProjectStore.getState().setCatalog(world()))
+    selectScope("verse")
+    render(<CreativePanel {...props()} />)
+    expect(screen.queryByRole("button", { name: "Сменить мастерскую" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Выбрать мастерскую" })).toBeNull()
+    expect(screen.queryByText("Творческая мастерская")).toBeNull()
+    expect(screen.queryByText("Рассказ")).toBeNull()
   })
 
   it("offers a section in the chooser inside a workshop", () => {
@@ -1159,6 +1402,7 @@ describe("CreativePanel", () => {
   })
 
   it("keeps a request until the catalog is there, then consumes it once", async () => {
+    selectScope("verse")
     act(() => useCreativeNavStore.getState().requestCreate("universe"))
     render(<CreativePanel {...props()} />)
     expect(screen.queryByTestId("project-dialog")).toBeNull()

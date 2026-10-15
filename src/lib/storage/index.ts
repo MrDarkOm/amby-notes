@@ -45,7 +45,8 @@ import type {
   AddTextStatusRequest,
   CreateStoryRequest,
   CreateWorkshopEntityRequest,
-  CreateWorkshopRequest,
+  CompleteWorkshopRequest,
+  InitWorkshopRequest,
   CreateWorkshopSectionRequest,
   CreateTextPageRequest,
   MoveTextPageRequest,
@@ -385,13 +386,21 @@ export const resolveDatabaseYamlConflict = (request: DatabaseYamlResolveRequest)
 export const listProjects = () => getAdapter().listProjects()
 export const refreshProjects = (expectedGeneration: number) =>
   traceOperation("project.refresh", {}, () => getAdapter().refreshProjects(expectedGeneration))
-export const createWorkshop = (request: CreateWorkshopRequest) => {
-  logger.info("storage.create_workshop", {
-    name: request.name,
-    parentPath: request.parentPath ?? null,
+export const initWorkshop = (request: InitWorkshopRequest) => {
+  logger.info("storage.init_workshop", {
+    path: request.path,
     operationId: request.operationId,
   })
-  return getAdapter().createWorkshop(request)
+  return getAdapter().initWorkshop(request)
+}
+export const resolveWorkshopFolder = (pickedPath: string) =>
+  getAdapter().resolveWorkshopFolder(pickedPath)
+export const completeWorkshop = (request: CompleteWorkshopRequest) => {
+  logger.info("storage.complete_workshop", {
+    workshopId: request.workshopId,
+    operationId: request.operationId,
+  })
+  return getAdapter().completeWorkshop(request)
 }
 export const createStory = (request: CreateStoryRequest) => {
   logger.info("storage.create_story", {

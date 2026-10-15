@@ -75,7 +75,7 @@ describe("project labels", () => {
   it("only uses keys the backend accepts", () => {
     for (const key of Object.keys(projectLabels(i18n.getFixedT("en")))) {
       expect(key).toMatch(
-        /^(section:(stories|notes|characters|locations|universes)|property:(stories|universe|anchors|arcs|level|parent|order|format|status)|level:(book|arc|chapter|page)|format:(manuscript|screenplay|comic|note)|status:(draft|inProgress|done)|preset:(importance|kind|portrait|image)|importance:(main|side|episode)|kind:(city|district|place|nature)|heading:(basic|traits|appearance|biography|description|history)|view:gallery|template:dossier)$/u,
+        /^(section:(stories|notes|characters|locations|universes|arcs|anchors)|property:(stories|universe|anchors|arcs|level|parent|order|format|status)|level:(book|arc|chapter|page)|format:(manuscript|screenplay|comic|note)|status:(draft|inProgress|done)|preset:(importance|kind|portrait|image|status|synopsis|description|participants|characters)|importance:(main|side|episode)|kind:(city|district|place|nature)|arcKind:(character|plot|mini)|heading:(basic|traits|appearance|biography|description|history)|view:gallery|template:dossier)$/u,
       )
     }
   })

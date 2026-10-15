@@ -1,4 +1,5 @@
 import * as React from "react"
+import { useTranslation } from "react-i18next"
 import { listen } from "@tauri-apps/api/event"
 import { isTauri, listProjects, refreshProjects, type ProjectChangedPayload } from "@/lib/storage"
 import { adoptAsyncDisposer } from "@/lib/async-disposable"
@@ -37,6 +38,10 @@ export function useProjectController({ enabled, vaultGeneration }: ProjectContro
   const databases = useDatabaseStore((state) => state.databases)
   const ready = enabled && vaultGeneration !== null && databaseStatus === "ready"
   const loadSettings = useCreativeSettingsStore((state) => state.load)
+  const workshopPath = useCreativeSettingsStore((state) => state.workshopPath)
+  const setPlace = useProjectStore((state) => state.setPlace)
+  const { t } = useTranslation()
+  const defaultFolder = t("creative.workshop.defaultFolder")
   const generationRef = React.useRef(vaultGeneration)
   generationRef.current = vaultGeneration
 
@@ -44,6 +49,11 @@ export function useProjectController({ enabled, vaultGeneration }: ProjectContro
   React.useEffect(() => {
     if (enabled && vaultGeneration !== null) void loadSettings()
   }, [enabled, loadSettings, vaultGeneration])
+
+  // Which marker is the workshop follows the setting and, for the default folder, the language.
+  React.useEffect(() => {
+    setPlace(workshopPath, defaultFolder)
+  }, [defaultFolder, setPlace, workshopPath])
 
   // Settings live in their own window: a change made there arrives as an event.
   React.useEffect(() => {
@@ -53,6 +63,9 @@ export function useProjectController({ enabled, vaultGeneration }: ProjectContro
       (event) => {
         if (typeof event.payload.showInTree === "boolean") {
           useCreativeSettingsStore.setState({ showInTree: event.payload.showInTree })
+        }
+        if (event.payload.workshopPath !== undefined) {
+          useCreativeSettingsStore.setState({ workshopPath: event.payload.workshopPath })
         }
       },
     )

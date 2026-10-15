@@ -1,36 +1,10 @@
-const CREATIVE_SCOPE_STORAGE_KEY = "amby:creative-scope"
-
-/** The scope last chosen in a vault, stored as `{ [vaultPath]: scope }`. */
-export function readStoredScope(vault: string): string | null | undefined {
-  try {
-    const saved = JSON.parse(localStorage.getItem(CREATIVE_SCOPE_STORAGE_KEY) ?? "{}") as Record<
-      string,
-      unknown
-    >
-    const scope = saved[vault]
-    return typeof scope === "string" || scope === null ? scope : undefined
-  } catch {
-    return undefined
-  }
-}
-
-export function writeStoredScope(vault: string, scope: string | null) {
-  try {
-    const saved = JSON.parse(localStorage.getItem(CREATIVE_SCOPE_STORAGE_KEY) ?? "{}") as Record<
-      string,
-      unknown
-    >
-    localStorage.setItem(CREATIVE_SCOPE_STORAGE_KEY, JSON.stringify({ ...saved, [vault]: scope }))
-  } catch {
-    // Remembering the scope is a convenience: the sidebar works without it.
-  }
-}
-
 const WORKSHOP_STORAGE_KEY = "amby:creative-workshop"
 
-/** What the lists remember per vault: the tab, the story filter and how they group. */
+/** What the lists remember per vault: the story and the universe chosen and the parts unfolded. */
 export interface WorkshopPrefs {
   story?: string | null
+  /** The universe chosen, or `"standalone"`. A universe that is gone is dropped on reading. */
+  universe?: string | null
   /**
    * The folding parts of the works tab that were unfolded: "text", "anchors", "notes". Older
    * saves hold "books" and "arcs", which are read as "text" (`worksSectionsFromPrefs`).

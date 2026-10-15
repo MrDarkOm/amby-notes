@@ -3,9 +3,7 @@ import {
   findStory,
   findWorkshop,
   groupSections,
-  listScopes,
   resolveProjectTarget,
-  resolveScope,
   sectionName,
 } from "./project-tree-model"
 import {
@@ -63,19 +61,7 @@ describe("project tree model", () => {
   })
 })
 
-describe("creative scopes", () => {
-  it("lists workshops in catalog order", () => {
-    const cat = catalog([workshopSummary("first"), workshopSummary("second")])
-    expect(listScopes(cat).map((entry) => entry.workshopId)).toEqual(["first", "second"])
-  })
-
-  it("resolves a wanted workshop if it exists, otherwise falls back to the first", () => {
-    const cat = catalog([workshopSummary("first"), workshopSummary("second")])
-    expect(resolveScope(cat, "second")).toBe("second")
-    expect(resolveScope(cat, "unknown")).toBe("first")
-    expect(resolveScope(cat, null)).toBe("first")
-  })
-
+describe("finding projects", () => {
   it("finds workshop and story by id", () => {
     const ws = workshopSummary("w1", {
       stories: [storySummary("s1", { workshopId: "w1", name: "Story 1" })],
@@ -108,6 +94,5 @@ describe("resolving a creative target", () => {
   it("is nothing for an unknown id or without a catalog", () => {
     expect(resolveProjectTarget(cat, "unknown")).toBeNull()
     expect(resolveProjectTarget(null, "w1")).toBeNull()
-    expect(resolveScope(catalog([]), "w1")).toBeNull()
   })
 })

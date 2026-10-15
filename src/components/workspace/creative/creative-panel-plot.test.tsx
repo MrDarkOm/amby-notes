@@ -244,7 +244,6 @@ describe("CreativePanel: anchors and arcs bound to the pages of a story", () => 
     useCreativeNavStore.setState({
       sectionByProject: {},
       collapsed: {},
-      scope: "verse",
       worksOpen: { text: true, anchors: true, notes: false },
       storyFilter: null,
       universeFilter: null,

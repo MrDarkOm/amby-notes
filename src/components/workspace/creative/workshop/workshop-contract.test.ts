@@ -108,13 +108,16 @@ describe("the real workshop from the backend", () => {
     expect(titlesIn("ID:db:universes", universe).shown).toEqual(["Мир"])
   })
 
-  it("sets apart the pages that are in no story, and labels the rest", () => {
-    const all = titlesIn("ID:db:characters", { kind: "all" })
-    expect(all.without).toEqual(["Ева"])
-    expect(all.shown).toEqual(["Анна", "Борис", "Вера", "Глеб", "Зоя"])
+  it("shows the standalone stories' pages, sets apart those in no story, and labels the rest", () => {
+    const standalone = titlesIn("ID:db:characters", { kind: "standalone" })
+    // Of the characters only Gleb is in a story no universe holds; Eva is in none.
+    expect(standalone.shown).toEqual(["Глеб"])
+    expect(standalone.without).toEqual(["Ева"])
     const boris = storyLabels(membership.storiesOf("ID:note:Борис"), (id) => storyName.get(id))
     expect(boris).toEqual({ names: ["Дом", "Лес"], more: 0 })
-    expect(titlesIn("ID:db:universes", { kind: "all" }).shown).toEqual(["Мир"])
+    // The universe is in its stories, which no standalone scope holds.
+    const universes = titlesIn("ID:db:universes", { kind: "standalone" })
+    expect([...universes.shown, ...universes.without]).toEqual([])
   })
 
   it("groups the notes of the real notes base by notebook, under the filter, with the empty notebook listed", () => {
@@ -143,8 +146,8 @@ describe("the real workshop from the backend", () => {
     const wood = scopeEntities(items, { kind: "story", storyId: storyIdOf("Лес") }, membership)
     expect(wood.shown.map((note) => note.title)).toEqual(["Поворот"])
 
-    // The whole workshop: the note in no story is set apart, and stays in its notebook.
-    const all = scopeEntities(items, { kind: "all" }, membership)
+    // The standalone scope: the note in no story is set apart, and stays in its notebook.
+    const all = scopeEntities(items, { kind: "standalone" }, membership)
     expect(all.withoutStory.map((note) => note.title)).toEqual(["Ничья"])
     const apart = buildNotebookTree(listing.notebooks, all.withoutStory, { showEmpty: false })
     expect(apart.nodes.map((node) => node.name)).toEqual(["Идеи"])
@@ -173,10 +176,11 @@ describe("the real workshop from the backend", () => {
     expect(section("arcs").charactersPropertyId).toBe("ID:prop:characters:arcs")
     expect(section("characters").arcsPropertyId).toBeNull()
     const properties = (name: string) => workshop.stories.find((s) => s.name === name)!.text!
-    // Two stories were made before the anchors and arcs and got their relations later.
+    // The workshop was initialized whole, so every text has both relations from its birth.
     expect(properties("Дом").properties.anchors).toBe("ID:prop:text:Дом:anchors")
     expect(properties("Лес").properties.arcs).toBe("ID:prop:text:Лес:arcs")
-    expect(properties("Одна").properties.anchors).toBeNull()
+    expect(properties("Одна").properties.anchors).toBe("ID:prop:text:Одна:anchors")
+    expect(properties("Одна").properties.arcs).toBe("ID:prop:text:Одна:arcs")
   })
 
   it("reads which anchors and arcs belong to a story from their own relation and from the text", () => {
@@ -190,7 +194,7 @@ describe("the real workshop from the backend", () => {
     expect(titlesIn(anchors, { kind: "story", storyId: storyIdOf("Лес") }).shown).toEqual(["Побег"])
     expect(titlesIn(anchors, { kind: "story", storyId: storyIdOf("Одна") }).shown).toEqual([])
     // "Потоп" names its universe only, so it is in no story and no text.
-    expect(titlesIn(anchors, { kind: "all" }).without).toEqual(["Потоп", "Свободный"])
+    expect(titlesIn(anchors, { kind: "standalone" }).without).toEqual(["Потоп", "Свободный"])
     // "Месть" has no relation either; a chapter of "Дом" binds it.
     expect(titlesIn(arcs, { kind: "story", storyId: storyIdOf("Дом") }).shown).toEqual([
       "Любовь",
@@ -272,15 +276,18 @@ describe("the real workshop from the backend", () => {
     }
 
     it("sets apart the anchors of no story, and the events of a universe", () => {
-      const all = bucketAnchors({
+      const standalone = bucketAnchors({
         anchors: anchorRows,
-        filter: { kind: "all" },
+        filter: { kind: "standalone" },
         membership,
         universeOf,
         ...common,
       })
-      expect(all.shown.map((row) => row.title)).toEqual(["Встреча", "Побег", "Потоп", "Финал"])
-      expect(all.withoutStory.map((row) => row.title)).toEqual(["Свободный"])
+      // Every anchor of a story belongs to "Дом" or "Лес", which the universe holds; "Потоп" is
+      // an event of it. Only the anchor of no story is left for the standalone scope.
+      expect(standalone.shown).toEqual([])
+      expect(standalone.events).toEqual([])
+      expect(standalone.withoutStory.map((row) => row.title)).toEqual(["Свободный"])
 
       const inUniverse = bucketAnchors({
         anchors: anchorRows,

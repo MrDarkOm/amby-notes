@@ -239,6 +239,22 @@ pub fn plan(
                 builder.add("text", &label(labels, "preset:synopsis")?, &[], &|_| {})?;
             properties.push(status_prop);
             properties.push(synopsis_prop);
+            // A workshop made whole at once gives the stories their "Universe" with the base
+            // itself; one made earlier gets it with the first universes (`links.rs`).
+            if let Some(universes_id) = target_databases.get("universes") {
+                let (universe_prop, universe_ids) = builder.add(
+                    "relation",
+                    &label(labels, "property:universe")?,
+                    &[],
+                    &|spec| {
+                        spec.relation_target_database_id = Some(universes_id.clone());
+                        spec.relation_two_way = Some(false);
+                        spec.relation_max_items = Some(1);
+                    },
+                )?;
+                properties.push(universe_prop);
+                links.universe = Some(universe_ids.property_id);
+            }
             view = Some(default_table_view(ids));
         }
         "characters" => {

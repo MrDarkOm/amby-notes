@@ -23,19 +23,25 @@ interface CreativeNavState {
   collapsed: Record<string, boolean>
   showSection: (projectId: string, sectionId: string) => void
   toggleCollapsed: (key: string) => void
-  /** The workshop the sidebar shows, or `undefined` before a choice. */
-  scope: string | null | undefined
-  setScope: (scope: string | null | undefined) => void
   /** Which folding parts of the works tab are unfolded: text, anchors, notes. */
   worksOpen: Record<WorksSection, boolean>
   setWorksOpen: (open: Record<WorksSection, boolean>) => void
   toggleWorksSection: (section: WorksSection) => void
-  /** The story chosen in the works list; `null` means "Вся мастерская" / none. */
+  /** The story chosen in the works list: `"all"` is every story of the scope, `null` none yet. */
   storyFilter: string | null
   setStoryFilter: (storyId: string | null) => void
-  /** The universe chosen, if any. */
+  /** The universe chosen on the card below the lists; `null` is the standalone stories. */
   universeFilter: string | null
   setUniverseFilter: (universeId: string | null) => void
+  /**
+   * A story just put into the universe chosen: the lists have not read its card yet, so it must not
+   * be taken for one that the scope does not hold. Cleared once the scope lists it.
+   */
+  freshStoryId: string | null
+  setFreshStoryId: (storyId: string | null) => void
+  /** The story the lists show now (set by the panel's body), for the "Create" menu. */
+  shownStoryId: string | null
+  setShownStoryId: (storyId: string | null) => void
   /** The one search above the tabs: it looks through every list at once. Not remembered. */
   search: string
   setSearch: (search: string) => void
@@ -48,16 +54,14 @@ interface CreativeNavState {
   entityRequest: EntityRequest | null
   requestEntity: (categoryKey: string) => void
   /** A project to create, asked for from outside the panel (the empty tab); the panel clears it. */
-  createRequest: "workshop" | "story" | "universe" | null
-  requestCreate: (kind: "workshop" | "story" | "universe") => void
+  createRequest: "story" | "universe" | null
+  requestCreate: (kind: "story" | "universe") => void
   clearCreateRequest: () => void
 }
 
 export const useCreativeNavStore = create<CreativeNavState>((set) => ({
   sectionByProject: {},
   collapsed: {},
-  scope: undefined,
-  setScope: (scope) => set({ scope }),
   worksOpen: { text: true, anchors: false, notes: false },
   setWorksOpen: (worksOpen) => set({ worksOpen }),
   toggleWorksSection: (section) =>
@@ -66,6 +70,10 @@ export const useCreativeNavStore = create<CreativeNavState>((set) => ({
   setStoryFilter: (storyFilter) => set({ storyFilter }),
   universeFilter: null,
   setUniverseFilter: (universeFilter) => set({ universeFilter }),
+  freshStoryId: null,
+  setFreshStoryId: (freshStoryId) => set({ freshStoryId }),
+  shownStoryId: null,
+  setShownStoryId: (shownStoryId) => set({ shownStoryId }),
   search: "",
   setSearch: (search) => set({ search }),
   dataNonce: 0,

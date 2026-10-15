@@ -1,17 +1,8 @@
-import {
-  BookOpen,
-  Feather,
-  FilePlus,
-  FileText,
-  Globe2,
-  Section,
-  type LucideIcon,
-} from "lucide-react"
+import { BookOpen, FilePlus, FileText, Globe2, Section, type LucideIcon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import type { WorkshopSummary } from "@/lib/storage"
 
 export type CreateChoice =
-  | "workshop"
   | "story"
   | "section"
   | "universe"
@@ -100,12 +91,5 @@ export function useChooserOptions(
           },
         ]
       : []),
-    {
-      value: "workshop" as const,
-      group: "rare" as const,
-      icon: Feather,
-      title: t("creative.panel.newWorkshop", "Новая мастерская"),
-      hint: t("creative.createProject.description", "Корневая мастерская с базами и историями"),
-    },
   ]
 }

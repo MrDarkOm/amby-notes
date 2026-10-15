@@ -145,7 +145,13 @@ function CreateSectionForm({
               onValueChange={setChoice}
               options={[
                 { value: NO_VALUE, label: t("creative.preset.choices.plain", "Пользовательский") },
-                ...SECTION_CHOICES.map((entry) => ({
+                // A workshop has one base of each role: only the ones it lacks (a section that was
+                // taken out of it) are offered again, besides the author's own.
+                ...SECTION_CHOICES.filter(
+                  (entry) =>
+                    entry.role === "custom" ||
+                    !workshop.sections.some((section) => section.role === entry.role),
+                ).map((entry) => ({
                   value: entry.value,
                   label: t(`creative.preset.choices.${entry.value}`, entry.value),
                 })),

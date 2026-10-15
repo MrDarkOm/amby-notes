@@ -440,6 +440,48 @@ pub struct CreateWorkshopRequest {
     pub labels: BTreeMap<String, String>,
 }
 
+/// Initializes the workshop of the vault: the folder at `path` (vault-relative, `/`-separated),
+/// its marker and all seven bases with every link between them, as one journaled operation.
+/// The workshop's name is the name of the folder.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct InitWorkshopRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub path: String,
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
+}
+
+/// Adds what a workshop made before is missing: bases of the seven roles and their links.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CompleteWorkshopRequest {
+    pub expected_generation: u64,
+    pub operation_id: String,
+    pub workshop_id: String,
+    #[serde(default)]
+    pub labels: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletedWorkshop {
+    pub operation_id: String,
+    pub workshop_id: String,
+    /// Roles of the bases made now, in the order they were made.
+    pub created_roles: Vec<String>,
+    /// Links added or adopted now: `section:<id>` for a section's own links, `story:<id>` for the
+    /// anchors and arcs of a story's text.
+    pub linked: Vec<String>,
+    /// Whether any file was written.
+    pub changed: bool,
+    /// Why a part was left alone (a locked or read-only database), the rest being done.
+    pub skipped: Vec<String>,
+    pub workshop_revision: String,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct CreatedWorkshopSection {

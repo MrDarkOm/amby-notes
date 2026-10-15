@@ -2372,6 +2372,7 @@ const ru = {
   creative: {
     welcome: { title: "Творческая мастерская" },
     workshop: {
+      defaultFolder: "Мастерская",
       works: "Истории",
       world: {
         title: "Мир",
@@ -2398,12 +2399,22 @@ const ru = {
         create: "Создать здесь",
       },
       chooseStory: "История",
+      chooseUniverse: "Вселенная",
       openStory: "Открыть страницу истории",
+      openUniverse: "Открыть страницу вселенной",
+      openWorkshop: "Открыть страницу мастерской",
+      // The two cards: the stories above the lists and the universes below them.
+      storiesLabel: "Истории",
+      universesLabel: "Вселенные",
+      allStories: "Все истории",
+      createFirstStory: "Создать первую историю",
+      standalone: "Отдельные истории",
+      storiesCount_one: "{{count}} история",
+      storiesCount_few: "{{count}} истории",
+      storiesCount_many: "{{count}} историй",
+      storiesCount_other: "{{count}} историй",
       sections: { anchors: "Якоря" },
-      anchorsName: "Якоря",
       add: "Добавить",
-      noAnchors: "У истории нет раздела «Якоря» — ключевых, неизменных событий.",
-      createAnchors: "Создать раздел «Якоря»",
       noAnchorsYet: "Якорей пока нет.",
       addFirstPage: "Добавить первую страницу",
       addFirstAnchor: "Добавить первый якорь",
@@ -2414,7 +2425,6 @@ const ru = {
       pageBlank: "Пока без текста",
       anchorsHint:
         "Якоря — ключевые, неизменные события истории. Привязанные к страницам стоят по порядку текста; те, что впереди, вы расставляете сами. Перетащите якорь на страницу, чтобы привязать его.",
-      noNotesSection: "У истории нет раздела «Заметки».",
       noNotesYet: "Заметок пока нет.",
       search: "Поиск",
       shared: "Общие",
@@ -2428,12 +2438,12 @@ const ru = {
         universesHint:
           "Добавит историям связь «Вселенная»: так видно, какие истории и страницы принадлежат вселенной.",
         failed: "Не удалось связать: {{message}}",
+        storyUniverseFailed: "История создана, но не привязана к вселенной: {{message}}",
       },
       empty: "Здесь пока пусто.",
       nothingFound: "Ничего не найдено.",
       loadFailed: "Не удалось загрузить список.",
       truncated: "Показаны первые страницы: в разделе их больше.",
-      noStories: "Историй пока нет. Создайте первую кнопкой «Создать».",
       noText: "У истории нет раздела с текстом.",
       noPages: "Страниц пока нет.",
       addPage: "Добавить страницу",
@@ -2453,12 +2463,41 @@ const ru = {
       newPageHint: "В историю «{{name}}»",
       page: { title: "Новая страница" },
     },
+    // The screen of a vault with no workshop at the chosen folder.
+    init: {
+      title: "Мастерской здесь ещё нет",
+      hint: "Мастерская — одна папка, в которой лежат истории, персонажи, локации, вселенные, арки, якоря и заметки. Она переносится вместе с хранилищем.",
+      folder: "Папка: {{path}}",
+      button: "Инициализировать",
+      working: "Создаю…",
+      settingsHint: "Другую папку можно выбрать в настройках модуля.",
+      settings: "Настройки",
+      others:
+        "В хранилище есть другие мастерские: {{paths}}. Чтобы работать с одной из них, выберите её папку в настройках.",
+    },
+    // The notice of a workshop made before every base was created at once.
+    complete: {
+      title: "В мастерской не хватает разделов",
+      sections: "Нет баз: {{names}}.",
+      links: "Не хватает связей между базами.",
+      button: "Создать недостающие разделы",
+      working: "Создаю…",
+      part: "Раздела «{{name}}» ещё нет: его добавит кнопка «Создать недостающие разделы» вверху панели.",
+      failed: "Не удалось дополнить мастерскую: {{message}}",
+      skipped: "Не тронуто: {{items}}. Папка занята или база заблокирована.",
+    },
     settings: {
       showInTree: "Показывать творческие папки в дереве файлов",
       showInTreeHint:
         "Выключите, чтобы вселенные, истории и их разделы показывались только в панели «Мастерская». Файлы на диске не меняются.",
+      workshopFolder: "Папка мастерской",
+      workshopFolderHint:
+        "Папка внутри хранилища, где лежит мастерская. Смена папки файлы не переносит: если там нет мастерской, панель предложит создать её.",
+      workshopFolderChoose: "Выбрать…",
+      workshopFolderReset: "По умолчанию",
+      workshopFolderFailed: "Папка не выбрана: {{message}}",
     },
-    // Names given to the base sections and groups when a project is created: they
+    // Names given to the base sections and groups when the workshop is made: they
     // become folder names, so they follow the language that is active at that moment.
     sections: {
       stories: "Истории",
@@ -2467,6 +2506,8 @@ const ru = {
       characters: "Персонажи",
       locations: "Локации",
       universes: "Вселенные",
+      arcs: "Арки",
+      anchors: "Якоря",
     },
     groups: { work: "История", world: "Мир" },
     // Menu entries that do by keyboard what dragging a row does.
@@ -2606,9 +2647,15 @@ const ru = {
         universe: "Вселенная",
         anchors: "Якоря",
         arcs: "Арки",
+        status: "Статус",
+        synopsis: "Синопсис",
+        description: "Описание",
+        participants: "Участники",
+        characters: "Персонажи",
       },
       importance: { main: "Главные", side: "Второстепенные", episode: "Эпизодические" },
       kinds: { city: "Город", district: "Район", place: "Место", nature: "Природа" },
+      arcKinds: { character: "Линия персонажа", plot: "Сюжетная", mini: "Мини-арка" },
       headings: {
         basic: "Основное",
         traits: "Характеристика",
@@ -2670,32 +2717,32 @@ const ru = {
       universeHint: "Общий мир для нескольких историй: общие персонажи и локации.",
     },
     panel: {
-      newProject: "Новый проект",
       create: "Создать",
       newStory: "Новая история",
+      newUniverse: "Новая вселенная",
       newSection: "Раздел",
       expand: "Развернуть",
       collapse: "Свернуть",
-      readOnly: "Проект в неизвестном формате: только чтение",
+      readOnly: "Мастерская в неизвестном формате: только чтение",
       sectionMissing: "Раздел не найден",
-      empty: "Проектов пока нет",
-      emptyHint: "Создайте историю или вселенную: папка проекта переносится вместе с ним.",
       disabledTitle: "Нужен модуль «Базы данных»",
       disabledHint: "Разделы работают на модуле «Базы данных». Включите его.",
-      loadFailed: "Не удалось загрузить проекты",
+      loadFailed: "Не удалось загрузить мастерскую",
       retry: "Повторить",
-      diagnostics_one: "{{count}} замечание к проектам",
-      diagnostics_few: "{{count}} замечания к проектам",
-      diagnostics_many: "{{count}} замечаний к проектам",
-      diagnostics_other: "{{count}} замечаний к проектам",
+      legacyFolders: "Папки старого формата: {{count}}",
+      diagnostics_one: "{{count}} замечание",
+      diagnostics_few: "{{count}} замечания",
+      diagnostics_many: "{{count}} замечаний",
+      diagnostics_other: "{{count}} замечаний",
     },
     diagnostic: {
       legacyProjectFormat:
-        "Проект прежнего формата: открыт как обычные папки и базы, модуль его не меняет",
+        "Папка старого формата: открыта как обычные папки и базы, модуль её не меняет",
       invalidWorkshopFile: "Файл мастерской amby-workshop.json повреждён",
       unreadableWorkshopFile: "Файл мастерской не читается",
       duplicateWorkshopId:
         "Повторяющийся идентификатор мастерской: копия папки не считается второй мастерской",
+      otherWorkshop: "Другая мастерская в хранилище: не используется, её файлы не менялись",
       unsupportedFormatVersion: "Неизвестная версия формата: мастерская открыта только для чтения",
       invalidSection: "Описание раздела в файле мастерской неполное",
       duplicateSectionId: "Повторяющийся идентификатор раздела",
@@ -2710,11 +2757,6 @@ const ru = {
       danglingTextLevel: "Уровень текста удалён из базы: страницы с ним не меняются",
       danglingTextFormat: "Формат страницы удалён из базы: страницы с ним не меняются",
     },
-    scope: {
-      caption: "Мастерская",
-      standalone: "Одиночные истории",
-      switch: "Сменить мастерскую",
-    },
     chooser: {
       title: "Что создать?",
       sectionInStory: "Раздел в «{{name}}»",
@@ -2727,12 +2769,14 @@ const ru = {
       rare: "Нужно реже",
     },
     createProject: {
-      title: "Новый проект",
-      description: "Папка проекта создаётся в хранилище вместе с базовыми разделами.",
-      insideCollection: "История будет создана внутри сборника «{{name}}».",
+      title: "Новая история",
+      storyTitle: "Новая история",
+      universeTitle: "Новая вселенная",
+      description: "История создаётся в мастерской вместе со своим текстом.",
+      insideCollection: "История будет создана в мастерской «{{name}}».",
       name: "Название",
       namePlaceholder: "Например, MoleHills",
-      kind: "Вид проекта",
+      kind: "Что создать",
       textSchema: {
         label: "Схема текста",
         chain: "Уровни: {{chain}}",
@@ -2761,7 +2805,7 @@ const ru = {
       creating: "Добавляю…",
     },
     projectSettings: {
-      title: "Настройки проекта",
+      title: "Настройки мастерской",
       tabs: {
         general: "Основное",
         sections: "Разделы",
@@ -2777,11 +2821,11 @@ const ru = {
       saving: "Сохраняю…",
       close: "Закрыть",
       sectionsHint:
-        "Переименовывайте разделы, меняйте порядок вкладок или убирайте раздел из проекта (база данных и заметки останутся на диске).",
+        "Переименовывайте разделы, меняйте порядок вкладок или убирайте раздел из мастерской (база данных и заметки останутся на диске).",
       moveUp: "Выше",
       moveDown: "Ниже",
-      unlinkSection: "Убрать из проекта",
-      unlinkConfirm: "Убрать раздел «{{name}}» из проекта? Папка и заметки останутся на диске.",
+      unlinkSection: "Убрать из мастерской",
+      unlinkConfirm: "Убрать раздел «{{name}}» из мастерской? Папка и заметки останутся на диске.",
       confirmUnlink: "Убрать",
       textSectionFixed: "Раздел с текстом истории нельзя убрать",
       addSection: "Добавить раздел",
@@ -2801,9 +2845,9 @@ const ru = {
     page: {
       overview: "Обзор",
       settings: "Настройки",
-      sections: "Разделы проекта",
+      sections: "Разделы мастерской",
       stories: "Истории",
-      noSections: "В проекте пока нет разделов. Добавьте первый кнопкой «Раздел».",
+      noSections: "В мастерской пока нет разделов. Добавьте первый кнопкой «Раздел».",
       universe: {
         noStories:
           "В этой вселенной пока нет историй. Укажите вселенную в карточке истории (свойство «Вселенная»).",
@@ -2832,11 +2876,11 @@ const ru = {
       sectionMissing: "Раздел не найден",
       sectionMoved: "Перенесена: {{path}}",
       sectionMissingHint:
-        "Папка этого раздела не найдена в хранилище. Раздел остаётся в файле проекта: верните папку на место, и он заработает.",
-      notFoundTitle: "Проект не найден",
+        "Папка этого раздела не найдена в хранилище. Раздел остаётся в файле мастерской: верните папку на место, и он заработает.",
+      notFoundTitle: "Мастерская не найдена",
       notFoundHint: "Файл amby-workshop.json перенесён или удалён. Обновите список мастерских.",
       readOnlyBanner:
-        "Формат проекта (версия {{version}}) новее известного этой версии Amby: проект открыт только для чтения, файл не изменяется.",
+        "Формат мастерской (версия {{version}}) новее известного этой версии Amby: мастерская открыта только для чтения, файл не изменяется.",
     },
     errors: {
       nameReason: {
@@ -2854,19 +2898,21 @@ const ru = {
       invalidName: "Недопустимое название: {{reason}}",
       pathCollision: "«{{path}}» уже существует. Выберите другое название.",
       parentReadOnly:
-        "Проект «{{path}}» в неизвестном формате: внутри него ничего нельзя создавать.",
-      projectReadOnly: "Проект в неизвестном формате открыт только для чтения.",
-      projectNotFound: "Проект не найден: возможно, его папку перенесли.",
-      revisionConflict: "Файл проекта изменился. Список обновлён, повторите действие.",
+        "Мастерская «{{path}}» в неизвестном формате: внутри неё ничего нельзя создавать.",
+      projectReadOnly: "Мастерская в неизвестном формате открыта только для чтения.",
+      projectNotFound: "Мастерская не найдена: возможно, её папку перенесли.",
+      revisionConflict: "Файл мастерской изменился. Список обновлён, повторите действие.",
       rolledBack: "Не удалось создать, изменения отменены: {{message}}",
       recoveryRequired:
         "Не удалось создать, и часть созданного осталась в хранилище: {{message}}. Уберите лишнее и повторите.",
       moduleDisabled: "Нужен включённый модуль «Базы данных».",
       vaultChanged: "Хранилище изменилось. Повторите действие.",
-      invalidParent: "Папка для проекта недоступна.",
+      invalidParent: "Папка для мастерской недоступна.",
       generic: "Не удалось выполнить действие: {{message}}",
-      sectionNotFound: "Раздел не найден в проекте.",
-      cannotRemoveTextSection: "Раздел с текстом истории нельзя убрать из проекта.",
+      folderNotEmpty:
+        "Папка «{{path}}» не пуста и не является мастерской. Мастерскую не смешивают с чужими файлами: выберите другую папку в настройках модуля.",
+      sectionNotFound: "Раздел не найден в мастерской.",
+      cannotRemoveTextSection: "Раздел с текстом истории нельзя убрать из мастерской.",
       textNotConfigured: "У истории нет настроенного текста: уровни и форматы не созданы.",
       statusAlreadyConfigured: "Свойство статуса уже добавлено в раздел «Текст».",
       storyLinksAlreadyConfigured: "Этот раздел уже связан с историями.",
@@ -5234,6 +5280,7 @@ const en: typeof ru = {
   creative: {
     welcome: { title: "Creative Studio" },
     workshop: {
+      defaultFolder: "Workshop",
       works: "Stories",
       world: {
         title: "World",
@@ -5260,12 +5307,22 @@ const en: typeof ru = {
         create: "Create here",
       },
       chooseStory: "Story",
+      chooseUniverse: "Universe",
       openStory: "Open the story's page",
+      openUniverse: "Open the universe's page",
+      openWorkshop: "Open the workshop's page",
+      // The two cards: the stories above the lists and the universes below them.
+      storiesLabel: "Stories",
+      universesLabel: "Universes",
+      allStories: "All stories",
+      createFirstStory: "Create the first story",
+      standalone: "Standalone stories",
+      storiesCount_one: "{{count}} story",
+      storiesCount_few: "{{count}} stories",
+      storiesCount_many: "{{count}} stories",
+      storiesCount_other: "{{count}} stories",
       sections: { anchors: "Anchors" },
-      anchorsName: "Anchors",
       add: "Add",
-      noAnchors: "This story has no “Anchors” section: the key, unchanging events.",
-      createAnchors: "Create the “Anchors” section",
       noAnchorsYet: "No anchors yet.",
       addFirstPage: "Add the first page",
       addFirstAnchor: "Add the first anchor",
@@ -5276,7 +5333,6 @@ const en: typeof ru = {
       pageBlank: "No text yet",
       anchorsHint:
         "Anchors are the key, unchanging events of a story. Those bound to pages follow the order of the text; you place the ones ahead yourself. Drag an anchor onto a page to bind it.",
-      noNotesSection: "This story has no “Notes” section.",
       noNotesYet: "No notes yet.",
       search: "Search",
       shared: "Shared",
@@ -5290,12 +5346,12 @@ const en: typeof ru = {
         universesHint:
           'Adds a "Universe" relation to the stories, so it shows which stories and pages belong to a universe.',
         failed: "Could not link: {{message}}",
+        storyUniverseFailed: "The story was created but is not linked to the universe: {{message}}",
       },
       empty: "Nothing here yet.",
       nothingFound: "Nothing found.",
       loadFailed: "The list could not be loaded.",
       truncated: "Only the first pages are shown: the section has more.",
-      noStories: "No stories yet. Create the first one with “Create”.",
       noText: "This story has no text section.",
       noPages: "No pages yet.",
       addPage: "Add a page",
@@ -5315,10 +5371,39 @@ const en: typeof ru = {
       newPageHint: "In the story “{{name}}”",
       page: { title: "New page" },
     },
+    // The screen of a vault with no workshop at the chosen folder.
+    init: {
+      title: "There is no workshop here yet",
+      hint: "A workshop is one folder that holds your stories, characters, locations, universes, arcs, anchors and notes. It moves with the vault.",
+      folder: "Folder: {{path}}",
+      button: "Initialize",
+      working: "Creating…",
+      settingsHint: "Pick another folder in the module settings.",
+      settings: "Settings",
+      others:
+        "Other workshops are in this vault: {{paths}}. To use one of them, pick its folder in the settings.",
+    },
+    // The notice of a workshop made before every base was created at once.
+    complete: {
+      title: "The workshop is missing parts",
+      sections: "Missing bases: {{names}}.",
+      links: "Some links between the bases are missing.",
+      button: "Create the missing sections",
+      working: "Creating…",
+      part: "There is no “{{name}}” section yet: the “Create the missing sections” button at the top of the panel adds it.",
+      failed: "Could not complete the workshop: {{message}}",
+      skipped: "Left alone: {{items}}. The folder is taken or the database is locked.",
+    },
     settings: {
       showInTree: "Show creative folders in the file tree",
       showInTreeHint:
         "Turn off to list universes, stories and their sections only in the Studio panel. Files on disk are not changed.",
+      workshopFolder: "Workshop folder",
+      workshopFolderHint:
+        "A folder inside the vault that holds the workshop. Changing it moves no files: if there is no workshop there, the panel offers to create one.",
+      workshopFolderChoose: "Choose…",
+      workshopFolderReset: "Default",
+      workshopFolderFailed: "The folder was not chosen: {{message}}",
     },
     sections: {
       stories: "Stories",
@@ -5327,6 +5412,8 @@ const en: typeof ru = {
       characters: "Characters",
       locations: "Locations",
       universes: "Universes",
+      arcs: "Arcs",
+      anchors: "Anchors",
     },
     groups: { work: "Story", world: "World" },
     // Menu entries that do by keyboard what dragging a row does.
@@ -5464,9 +5551,15 @@ const en: typeof ru = {
         universe: "Universe",
         anchors: "Anchors",
         arcs: "Arcs",
+        status: "Status",
+        synopsis: "Synopsis",
+        description: "Description",
+        participants: "Participants",
+        characters: "Characters",
       },
       importance: { main: "Main", side: "Supporting", episode: "Minor" },
       kinds: { city: "City", district: "District", place: "Place", nature: "Nature" },
+      arcKinds: { character: "Character line", plot: "Plot", mini: "Mini-arc" },
       headings: {
         basic: "Basics",
         traits: "Traits",
@@ -5525,31 +5618,31 @@ const en: typeof ru = {
       universeHint: "A shared world for several stories: common characters and locations.",
     },
     panel: {
-      newProject: "New project",
       create: "Create",
       newStory: "New story",
+      newUniverse: "New universe",
       newSection: "Section",
       expand: "Expand",
       collapse: "Collapse",
-      readOnly: "The project has an unknown format: read-only",
+      readOnly: "The workshop has an unknown format: read-only",
       sectionMissing: "Section not found",
-      empty: "No projects yet",
-      emptyHint: "Create a story or a universe: the project folder moves with it.",
       disabledTitle: "The Databases module is required",
       disabledHint: "Sections run on the Databases module. Turn it on.",
-      loadFailed: "Could not load projects",
+      loadFailed: "Could not load the workshop",
       retry: "Retry",
-      diagnostics_one: "{{count}} project warning",
-      diagnostics_few: "{{count}} project warnings",
-      diagnostics_many: "{{count}} project warnings",
-      diagnostics_other: "{{count}} project warnings",
+      legacyFolders: "Folders of the former format: {{count}}",
+      diagnostics_one: "{{count}} warning",
+      diagnostics_few: "{{count}} warnings",
+      diagnostics_many: "{{count}} warnings",
+      diagnostics_other: "{{count}} warnings",
     },
     diagnostic: {
       legacyProjectFormat:
-        "A project of the former format: opened as ordinary folders and databases, the module leaves it alone",
+        "A folder of the former format: opened as ordinary folders and databases, the module leaves it alone",
       invalidWorkshopFile: "The workshop file amby-workshop.json is damaged",
       unreadableWorkshopFile: "The workshop file cannot be read",
       duplicateWorkshopId: "Duplicate workshop ID: a copied folder is not a second workshop",
+      otherWorkshop: "Another workshop in the vault: not used, its files are untouched",
       unsupportedFormatVersion: "Unknown format version: the workshop is read-only",
       invalidSection: "A section description in the workshop file is incomplete",
       duplicateSectionId: "Duplicate section ID",
@@ -5565,11 +5658,6 @@ const en: typeof ru = {
       danglingTextFormat:
         "A page format was deleted from the database: pages that hold it are not changed",
     },
-    scope: {
-      caption: "Workshop",
-      standalone: "Standalone stories",
-      switch: "Switch workshop",
-    },
     chooser: {
       title: "What to create?",
       sectionInStory: "Section in “{{name}}”",
@@ -5582,12 +5670,14 @@ const en: typeof ru = {
       rare: "Needed less often",
     },
     createProject: {
-      title: "New project",
-      description: "The project folder is created in the vault together with its base sections.",
-      insideCollection: 'The story will be created inside the collection "{{name}}".',
+      title: "New story",
+      storyTitle: "New story",
+      universeTitle: "New universe",
+      description: "The story is created in the workshop together with its own text.",
+      insideCollection: 'The story will be created in the workshop "{{name}}".',
       name: "Name",
       namePlaceholder: "For example, MoleHills",
-      kind: "Project kind",
+      kind: "What to create",
       textSchema: {
         label: "Text structure",
         chain: "Levels: {{chain}}",
@@ -5617,7 +5707,7 @@ const en: typeof ru = {
       creating: "Adding…",
     },
     projectSettings: {
-      title: "Project settings",
+      title: "Workshop settings",
       tabs: {
         general: "General",
         sections: "Sections",
@@ -5633,12 +5723,12 @@ const en: typeof ru = {
       saving: "Saving…",
       close: "Close",
       sectionsHint:
-        "Rename sections, reorder tabs, or unlink a section from the project (the database and notes stay on disk).",
+        "Rename sections, reorder tabs, or unlink a section from the workshop (the database and notes stay on disk).",
       moveUp: "Move up",
       moveDown: "Move down",
-      unlinkSection: "Remove from project",
+      unlinkSection: "Remove from workshop",
       unlinkConfirm:
-        'Remove section "{{name}}" from the project? Its folder and notes will stay on disk.',
+        'Remove section "{{name}}" from the workshop? Its folder and notes will stay on disk.',
       confirmUnlink: "Remove",
       textSectionFixed: "The story's text section cannot be removed",
       addSection: "Add section",
@@ -5658,9 +5748,9 @@ const en: typeof ru = {
     page: {
       overview: "Overview",
       settings: "Settings",
-      sections: "Project sections",
+      sections: "Workshop sections",
       stories: "Stories",
-      noSections: 'The project has no sections yet. Add the first with the "Section" button.',
+      noSections: 'The workshop has no sections yet. Add the first with the "Section" button.',
       universe: {
         noStories:
           'No stories in this universe yet. Set the universe in a story\'s card (the "Universe" property).',
@@ -5689,11 +5779,11 @@ const en: typeof ru = {
       sectionMissing: "Section not found",
       sectionMoved: "Moved: {{path}}",
       sectionMissingHint:
-        "This section's folder was not found in the vault. The section stays in the project file: put the folder back and it works again.",
-      notFoundTitle: "Project not found",
+        "This section's folder was not found in the vault. The section stays in the workshop file: put the folder back and it works again.",
+      notFoundTitle: "Workshop not found",
       notFoundHint: "The amby-workshop.json file was moved or deleted. Refresh the workshop list.",
       readOnlyBanner:
-        "The project format (version {{version}}) is newer than this Amby knows: it is read-only and the file is not changed.",
+        "The workshop format (version {{version}}) is newer than this Amby knows: it is read-only and the file is not changed.",
     },
     errors: {
       nameReason: {
@@ -5711,19 +5801,21 @@ const en: typeof ru = {
       invalidName: "Invalid name: {{reason}}",
       pathCollision: '"{{path}}" already exists. Choose another name.',
       parentReadOnly:
-        'The project "{{path}}" has an unknown format: nothing can be created inside it.',
-      projectReadOnly: "A project with an unknown format is read-only.",
-      projectNotFound: "Project not found: its folder may have been moved.",
-      revisionConflict: "The project file changed. The list was refreshed, try again.",
+        'The workshop "{{path}}" has an unknown format: nothing can be created inside it.',
+      projectReadOnly: "A workshop with an unknown format is read-only.",
+      projectNotFound: "Workshop not found: its folder may have been moved.",
+      revisionConflict: "The workshop file changed. The list was refreshed, try again.",
       rolledBack: "Could not create it, the changes were undone: {{message}}",
       recoveryRequired:
         "Could not create it, and part of what was created is still in the vault: {{message}}. Remove it and try again.",
       moduleDisabled: "The Databases module must be on.",
       vaultChanged: "The vault changed. Try again.",
-      invalidParent: "The folder for the project is not available.",
+      invalidParent: "The folder for the workshop is not available.",
       generic: "The action failed: {{message}}",
-      sectionNotFound: "The section was not found in the project.",
-      cannotRemoveTextSection: "The story's text section cannot be removed from the project.",
+      folderNotEmpty:
+        "The folder “{{path}}” is not empty and is not a workshop. A workshop is not mixed with other files: choose another folder in the module settings.",
+      sectionNotFound: "The section was not found in the workshop.",
+      cannotRemoveTextSection: "The story's text section cannot be removed from the workshop.",
       textNotConfigured: "The story has no text set up: levels and formats were not created.",
       statusAlreadyConfigured: "The status property is already configured in the Text section.",
       storyLinksAlreadyConfigured: "This section is already linked to stories.",

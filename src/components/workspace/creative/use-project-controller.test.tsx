@@ -82,7 +82,14 @@ describe("useProjectController", () => {
     })
     expect(storage.refreshProjects).toHaveBeenCalledTimes(1)
     expect(storage.refreshProjects).toHaveBeenCalledWith(1)
-    expect(useProjectStore.getState().catalog?.workshops).toHaveLength(2)
+    // Two markers and no folder named by the setting: the store keeps both, and none is active
+    // until the default folder or the setting picks one.
+    expect(useProjectStore.getState().rawCatalog?.workshops).toHaveLength(2)
+    expect(useProjectStore.getState().catalog?.workshops).toHaveLength(0)
+    expect(useProjectStore.getState().catalog?.diagnostics.map((entry) => entry.code)).toEqual([
+      "otherWorkshop",
+      "otherWorkshop",
+    ])
   })
 
   it("ignores events of another vault generation", async () => {

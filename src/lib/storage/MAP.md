@@ -46,7 +46,7 @@ Existing Relation configuration and conversion to/from Relation use one
 read through `listDatabases`. Results include all written `manifestRevisions`.
 The renderer submits one intent; Rust plans and journals reciprocal changes.
 
-Workshop writes (`createWorkshop`, `createStory`, `createWorkshopSection`, `ensurePlotLinks`, …) take an
+Workshop writes (`initWorkshop`, `completeWorkshop`, `createStory`, `createWorkshopSection`, `ensurePlotLinks`, …) take an
 `operationId` per user intent: repeating the same call returns the recorded answer (`replayed: true`) and
 never a second set, and the same ID with another payload is `operationIdReused`. Changes to a structure file
 carry the `expectedWorkshopRevision` (or story revision) the caller last read. Paths in results are

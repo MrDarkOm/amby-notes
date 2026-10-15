@@ -1,29 +1,26 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@/lib/i18n"
 import i18n from "@/lib/i18n"
 import {
   ProjectOperationError,
   type CreatedStory,
-  type CreatedWorkshop,
   type CreatedWorkshopSectionResult,
   type WorkshopSummary,
 } from "@/lib/storage"
 import { CreateProjectDialog } from "./create-project-dialog"
 import { workshopSummary } from "./project-fixtures.test-support"
 
-const createWorkshop = vi.hoisted(() => vi.fn())
 const createStory = vi.hoisted(() => vi.fn())
 const createWorkshopSection = vi.hoisted(() => vi.fn())
-const createDatabaseRow = vi.hoisted(() => vi.fn())
+const createWorkshopEntity = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
-  createWorkshop,
   createStory,
   createWorkshopSection,
-  createDatabaseRow,
+  createWorkshopEntity,
 }))
 
 const sampleWorkshop: WorkshopSummary = workshopSummary("w1", { name: "Palooverse" })
@@ -38,18 +35,6 @@ const createdStoryRes: CreatedStory = {
   cardNoteId: "note_s1",
   databaseId: "db_s1",
   storyFileRevision: "r".repeat(64),
-  replayed: false,
-  warnings: [],
-}
-
-const createdWorkshopRes: CreatedWorkshop = {
-  operationId: "op",
-  workshopId: "w1",
-  name: "Palooverse",
-  path: "Palooverse",
-  filePath: "Palooverse/.workshop.json",
-  fileRevision: "r".repeat(64),
-  sections: [],
   replayed: false,
   warnings: [],
 }
@@ -95,10 +80,9 @@ const submit = () => fireEvent.click(screen.getByRole("button", { name: "Соз�
 
 describe("CreateProjectDialog", () => {
   beforeEach(async () => {
-    createWorkshop.mockReset()
     createStory.mockReset()
     createWorkshopSection.mockReset()
-    createDatabaseRow.mockReset()
+    createWorkshopEntity.mockReset()
     await i18n.changeLanguage("ru")
   })
   afterEach(cleanup)
@@ -119,7 +103,13 @@ describe("CreateProjectDialog", () => {
     const { onCreated, onClose } = mount()
     type("  Saga ")
     submit()
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ kind: "story", id: "s1" }))
+    await waitFor(() =>
+      expect(onCreated).toHaveBeenCalledWith({
+        kind: "story",
+        id: "s1",
+        cardNoteId: "note_s1",
+      }),
+    )
     expect(onClose).toHaveBeenCalled()
     expect(createStory).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -131,23 +121,8 @@ describe("CreateProjectDialog", () => {
     )
   })
 
-  it("creates a workshop when kind is workshop", async () => {
-    createWorkshop.mockResolvedValue(createdWorkshopRes)
-    const { onCreated, onClose } = mount({ initialKind: "workshop", workshop: null })
-    type("Palooverse")
-    submit()
-    await waitFor(() => expect(onCreated).toHaveBeenCalledWith({ kind: "workshop", id: "w1" }))
-    expect(onClose).toHaveBeenCalled()
-    expect(createWorkshop).toHaveBeenCalledWith(
-      expect.objectContaining({
-        expectedGeneration: 4,
-        name: "Palooverse",
-      }),
-    )
-  })
-
-  it("creates a universe by creating database row", async () => {
-    createDatabaseRow.mockResolvedValue({ noteId: "note_univ_1" })
+  it("creates a universe as a page of the universes section, the way a world page is made", async () => {
+    createWorkshopEntity.mockResolvedValue({ noteId: "note_univ_1" })
     const univWorkshop = workshopSummary("w1", {
       sections: [
         {
@@ -172,10 +147,12 @@ describe("CreateProjectDialog", () => {
     await waitFor(() =>
       expect(onCreated).toHaveBeenCalledWith({ kind: "universe", id: "note_univ_1" }),
     )
-    expect(createDatabaseRow).toHaveBeenCalledWith(
+    expect(createWorkshopEntity).toHaveBeenCalledWith(
       expect.objectContaining({
-        databaseId: "db_universes",
+        workshopId: "w1",
+        sectionId: "sec_u",
         title: "Cosmos",
+        storyId: null,
       }),
     )
   })
@@ -183,9 +160,9 @@ describe("CreateProjectDialog", () => {
   it("makes the universes section first when the workshop has none", async () => {
     createWorkshopSection.mockResolvedValue({
       ...createdSectionRes,
-      section: { ...createdSectionRes.section, databaseId: "db_new_universes" },
+      section: { ...createdSectionRes.section, sectionId: "sec_u", databaseId: "db_new_universes" },
     })
-    createDatabaseRow.mockResolvedValue({ noteId: "note_univ_2" })
+    createWorkshopEntity.mockResolvedValue({ noteId: "note_univ_2" })
     const { onCreated } = mount({ initialKind: "universe" })
     type("Cosmos")
     submit()
@@ -199,8 +176,8 @@ describe("CreateProjectDialog", () => {
         expectedWorkshopRevision: sampleWorkshop.fileRevision,
       }),
     )
-    expect(createDatabaseRow).toHaveBeenCalledWith(
-      expect.objectContaining({ databaseId: "db_new_universes", title: "Cosmos" }),
+    expect(createWorkshopEntity).toHaveBeenCalledWith(
+      expect.objectContaining({ workshopId: "w1", sectionId: "sec_u", title: "Cosmos" }),
     )
   })
 
@@ -270,23 +247,29 @@ describe("CreateProjectDialog", () => {
 
   it("sends the names of the base sections in the language that is active", async () => {
     await i18n.changeLanguage("en")
-    createWorkshop.mockResolvedValue(createdWorkshopRes)
-    mount({ initialKind: "workshop", workshop: null })
-    type("Palooverse")
+    createStory.mockResolvedValue(createdStoryRes)
+    mount()
+    type("Saga")
     fireEvent.click(screen.getByRole("button", { name: "Create" }))
-    await waitFor(() => expect(createWorkshop).toHaveBeenCalled())
-    expect(createWorkshop.mock.calls[0][0].labels).toMatchObject({
+    await waitFor(() => expect(createStory).toHaveBeenCalled())
+    expect(createStory.mock.calls[0][0].labels).toMatchObject({
       "section:stories": "Stories",
       "section:characters": "Characters",
       "section:locations": "Locations",
+      "section:arcs": "Arcs",
+      "section:anchors": "Anchors",
     })
-    expect(createWorkshop.mock.calls[0][0]).not.toHaveProperty("textLevels")
   })
 
-  it("is not asked for a text schema when it makes a workshop or a universe", () => {
-    mount({ initialKind: "workshop", workshop: null })
-    expect(screen.queryByRole("radio", { name: "Роман" })).toBeNull()
-    cleanup()
+  it("no longer makes workshops: the dialog offers a story and a universe only", () => {
+    mount()
+    const kinds = within(screen.getByRole("radiogroup", { name: "Что создать" }))
+    expect(kinds.getAllByRole("radio")).toHaveLength(2)
+    expect(screen.getByRole("radio", { name: /^История/u })).toBeTruthy()
+    expect(screen.getByRole("radio", { name: /^Вселенная/u })).toBeTruthy()
+  })
+
+  it("is not asked for a text schema when it makes a universe", () => {
     mount({ initialKind: "universe", workshop: sampleWorkshop })
     expect(screen.queryByRole("radio", { name: "Роман" })).toBeNull()
   })

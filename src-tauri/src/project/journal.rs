@@ -23,6 +23,7 @@ pub const STATUS_IN_PROGRESS: &str = "inProgress";
 pub const STATUS_COMPLETED: &str = "completed";
 
 pub const OP_CREATE_WORKSHOP: &str = "createWorkshop";
+pub const OP_INIT_WORKSHOP: &str = "initWorkshop";
 pub const OP_CREATE_STORY: &str = "createStory";
 pub const OP_CREATE_SECTION: &str = "createSection";
 pub const OP_UPDATE_WORKSHOP: &str = "updateWorkshop";
@@ -155,6 +156,7 @@ pub fn validate_journal(journal: &Journal) -> Result<(), ProjectError> {
     if !matches!(
         journal.operation.as_str(),
         OP_CREATE_WORKSHOP
+            | OP_INIT_WORKSHOP
             | OP_CREATE_STORY
             | OP_CREATE_SECTION
             | OP_UPDATE_WORKSHOP

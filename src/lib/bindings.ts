@@ -874,9 +874,36 @@ async refreshProjects(expectedGeneration: number) : Promise<Result<ProjectCatalo
     else return { status: "error", error: e  as any };
 }
 },
-async createWorkshop(request: CreateWorkshopRequest) : Promise<Result<CreatedWorkshop, ProjectError>> {
+/**
+ * Makes the workshop of the vault at one folder: the folder, its marker and all seven bases
+ * with every link between them, as one journaled operation.
+ */
+async initWorkshop(request: InitWorkshopRequest) : Promise<Result<CreatedWorkshop, ProjectError>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("create_workshop", { request }) };
+    return { status: "ok", data: await TAURI_INVOKE("init_workshop", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Adds the bases and links a workshop of the earlier stages lacks (see `project::complete`).
+ */
+async completeWorkshop(request: CompleteWorkshopRequest) : Promise<Result<CompletedWorkshop, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("complete_workshop", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The vault-relative form of a folder picked in a dialog, checked in Rust: it must exist, lie
+ * inside the open vault and be usable as a workshop folder.
+ */
+async resolveWorkshopFolder(pickedPath: string) : Promise<Result<string, ProjectError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("resolve_workshop_folder", { pickedPath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -1435,6 +1462,28 @@ export type AiMessage = {
 role: string; content: string }
 export type ChangeDatabasePropertyTypeRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; propertyType: string; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedRelatedManifestRevisions?: DatabaseManifestRevision[] }
 export type ChangedDatabasePropertyType = { databaseId: string; propertyId: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
+/**
+ * Adds what a workshop made before is missing: bases of the seven roles and their links.
+ */
+export type CompleteWorkshopRequest = { expectedGeneration: number; operationId: string; workshopId: string; labels?: Partial<{ [key in string]: string }> }
+export type CompletedWorkshop = { operationId: string; workshopId: string; 
+/**
+ * Roles of the bases made now, in the order they were made.
+ */
+createdRoles: string[]; 
+/**
+ * Links added or adopted now: `section:<id>` for a section's own links, `story:<id>` for the
+ * anchors and arcs of a story's text.
+ */
+linked: string[]; 
+/**
+ * Whether any file was written.
+ */
+changed: boolean; 
+/**
+ * Why a part was left alone (a locked or read-only database), the rest being done.
+ */
+skipped: string[]; workshopRevision: string; warnings: string[] }
 export type ConfigureDatabaseRollupRequest = { expectedGeneration: number; databaseId: string; propertyId: string; expectedManifestRevision: string; relationPropertyId: string; targetPropertyId: string; aggregation: string }
 export type ConfiguredDatabaseRollup = { databaseId: string; propertyId: string; aggregation: string; manifestRevision: string; warnings: string[] }
 export type CreateDatabasePropertyRequest = { expectedGeneration: number; databaseId: string; expectedManifestRevision: string; name: string; propertyType: string; beforePropertyId: string | null; options?: string[]; formulaExpression?: string | null; relationTargetDatabaseId?: string | null; relationMaxItems?: number | null; relationTwoWay?: boolean | null; relationInversePropertyName?: string | null; operationId?: string | null; expectedTargetManifestRevision?: string | null; rollupRelationPropertyId?: string | null; rollupTargetPropertyId?: string | null; rollupAggregation?: string | null }
@@ -1458,7 +1507,6 @@ notebook?: string[] | null;
  * relation (`universePropertyId`); it is written in the same write as the note.
  */
 universeId?: string | null }
-export type CreateWorkshopRequest = { expectedGeneration: number; operationId: string; name: string; parentPath?: string | null; icon?: string | null; tags?: string[]; labels?: Partial<{ [key in string]: string }> }
 export type CreateWorkshopSectionRequest = { expectedGeneration: number; operationId: string; workshopId: string; expectedWorkshopRevision: string; role: string; name: string; labels?: Partial<{ [key in string]: string }> }
 export type CreatedDatabase = { databaseId: string; title: string; manifestRevision: string; viewId: string; viewRevision: string; manifestPath: string; viewPath: string; notePath: string | null; warnings: string[] }
 export type CreatedDatabaseProperty = { databaseId: string; propertyId: string; name: string; propertyType: string; manifestRevision: string; operationId: string | null; inversePropertyId: string | null; manifestRevisions: DatabaseManifestRevision[]; warnings: string[] }
@@ -1612,6 +1660,12 @@ export type ImportedDatabaseAsset = { databaseId: string; noteId: string; assetI
  */
 export type IndexState = "healthy" | "degraded" | "rebuildRequired"
 export type IndexedNote = { id: string; path: string; title: string; modified: number | null; wordCount: number }
+/**
+ * Initializes the workshop of the vault: the folder at `path` (vault-relative, `/`-separated),
+ * its marker and all seven bases with every link between them, as one journaled operation.
+ * The workshop's name is the name of the folder.
+ */
+export type InitWorkshopRequest = { expectedGeneration: number; operationId: string; path: string; labels?: Partial<{ [key in string]: string }> }
 export type InstalledModuleInfo = { moduleId: string; activeVersion: string; installedVersions: string[]; installPath: string; entryPath: string; sizeBytes: number }
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
 export type LayerResult = { notePath: string; layerPath: string; kind: string; pathChanges: PathChange[] }
