@@ -70,7 +70,12 @@ if (!gitMayFail("rev-parse", "--verify", "MERGE_HEAD").ok) {
 }
 
 // Development files go, in the index and on disk (dev keeps them; checking dev out restores them).
-gitMayFail("rm", "-r", "-q", "--ignore-unmatch", "--", ...pathspecs)
+// `-f`: the merge has just staged them, and git keeps staged files unless forced.
+const removed = gitMayFail("rm", "-r", "-q", "-f", "--ignore-unmatch", "--", ...pathspecs)
+if (!removed.ok) {
+  restore()
+  fail(`could not remove the development files:\n${removed.output}`)
+}
 
 const unmerged = git("diff", "--name-only", "--diff-filter=U")
 if (unmerged) {
