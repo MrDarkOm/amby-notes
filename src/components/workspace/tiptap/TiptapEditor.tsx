@@ -93,6 +93,9 @@ const MENU_HEIGHT = 44
 // Shared rich-text editor used by both Live (editable) and Read (editable=false)
 // modes. Markdown is the source of truth: `value` is parsed on the way in and
 // re-serialized on every update.
+/** How far a press may move and still count as a click, in pixels. */
+const DRAG_DISTANCE = 4
+
 export function TiptapEditor({
   value,
   onChange,
@@ -434,10 +437,24 @@ export function TiptapEditor({
     }
   }, [editable, editor, closeMenu])
 
+  // Where the last press began. A drag across several lines ends in a click on their common
+  // parent, which reads as a click in the empty page; a press that moved is a drag, and the text
+  // it selected must stay selected.
+  const pressRef = React.useRef<{ x: number; y: number } | null>(null)
+  React.useEffect(() => {
+    const onPress = (event: PointerEvent) => {
+      pressRef.current = { x: event.clientX, y: event.clientY }
+    }
+    document.addEventListener("pointerdown", onPress, true)
+    return () => document.removeEventListener("pointerdown", onPress, true)
+  }, [])
+
   // Click in the empty page: the cursor goes to the nearest line, or to the end of the note.
   const focusAtPoint = React.useCallback(
     (x: number, y: number) => {
       if (editor.isDestroyed || !editor.isEditable) return
+      const press = pressRef.current
+      if (press && Math.hypot(x - press.x, y - press.y) > DRAG_DISTANCE) return
       const children = Array.from(editor.view.dom.children)
       if (children.length === 0) return
       const top = children[0].getBoundingClientRect().top

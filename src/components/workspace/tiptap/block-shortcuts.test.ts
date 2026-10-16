@@ -8,7 +8,7 @@ import {
   BlockShortcuts,
   OPEN_LINK_PANEL_EVENT,
   duplicateBlock,
-  headingToParagraph,
+  backspaceAtHeadingStart,
   moveBlock,
 } from "./block-shortcuts"
 import { docToMarkdown, editorSchema, markdownToDoc, roundTripCheck } from "./markdown"
@@ -141,28 +141,60 @@ describe("typing a task, a numbered list and a rule", () => {
 })
 
 describe("Backspace at the start of a heading", () => {
-  it("makes the heading a paragraph and keeps the paragraph above apart", () => {
-    const state = open("Above\n\n## Title", 8)
-    expect(state.selection.$from.parent.type.name).toBe("heading")
-    const result = run(headingToParagraph, state)
+  /** The position at the start of the heading's text in `doc`. */
+  const headingStart = (state: EditorState) => {
+    let at = -1
+    state.doc.descendants((node, pos) => {
+      if (at < 0 && node.type.name === "heading") at = pos + 1
+    })
+    return at
+  }
+  const at = (markdown: string) => {
+    const state = open(markdown, 1)
+    return state.apply(state.tr.setSelection(TextSelection.create(state.doc, headingStart(state))))
+  }
+
+  it("removes the empty line above and keeps the heading, the caret at its start", () => {
+    const { paragraph, heading } = editorSchema.nodes
+    const doc = editorSchema.node("doc", null, [
+      paragraph.create(null, editorSchema.text("Above")),
+      paragraph.create(),
+      heading.create({ level: 2 }, editorSchema.text("Title")),
+    ])
+    const base = EditorState.create({ schema: editorSchema, doc })
+    const state = base.apply(base.tr.setSelection(TextSelection.create(doc, headingStart(base))))
+    const result = run(backspaceAtHeadingStart, state)
     expect(result.handled).toBe(true)
-    expect(docToMarkdown(result.state.doc)).toBe("Above\n\nTitle")
+    expect(result.state.doc.childCount).toBe(2)
+    expect(result.state.doc.child(0).textContent).toBe("Above")
+    expect(result.state.doc.child(1).type.name).toBe("heading")
+    expect(result.state.doc.child(1).attrs.level).toBe(2)
+    expect(result.state.selection.$from.parent.type.name).toBe("heading")
     expect(result.state.selection.$from.parentOffset).toBe(0)
-    // The second Backspace is the ordinary one.
-    expect(run(headingToParagraph, result.state).handled).toBe(false)
+  })
+
+  it("leaves text above to the ordinary Backspace, which joins the lines", () => {
+    expect(run(backspaceAtHeadingStart, at("Above\n\n# Title")).handled).toBe(false)
+  })
+
+  it("turns the first heading of the note into a paragraph: there is nothing above to remove", () => {
+    const result = run(backspaceAtHeadingStart, at("# Title\n\nBelow"))
+    expect(result.handled).toBe(true)
+    expect(docToMarkdown(result.state.doc)).toBe("Title\n\nBelow")
   })
 
   it("does nothing inside the heading text, with a selection, or in a paragraph", () => {
-    expect(run(headingToParagraph, open("## Title", 3)).handled).toBe(false)
-    expect(run(headingToParagraph, open("## Title", 1, 4)).handled).toBe(false)
-    expect(run(headingToParagraph, open("Text", 1)).handled).toBe(false)
+    expect(run(backspaceAtHeadingStart, open("## Title", 3)).handled).toBe(false)
+    expect(run(backspaceAtHeadingStart, open("## Title", 1, 4)).handled).toBe(false)
+    expect(run(backspaceAtHeadingStart, open("Text", 1)).handled).toBe(false)
   })
 
-  it("is what the Backspace key does in the editor", () => {
+  it("is what the Backspace key does in the editor: text above joins, the heading stays a block", () => {
     const target = mount("Above\n\n# Title")
     target.commands.setTextSelection(8)
     expect(press(target, "Backspace")).toBe(true)
-    expect(docToMarkdown(target.state.doc)).toBe("Above\n\nTitle")
+    // Deleting the line break joins the heading's text to the line above, as in any editor.
+    expect(docToMarkdown(target.state.doc)).toBe("AboveTitle")
   })
 })
 

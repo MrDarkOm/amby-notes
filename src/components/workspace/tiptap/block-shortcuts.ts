@@ -9,9 +9,9 @@ import {
 } from "@tiptap/pm/state"
 
 // Typing and keyboard habits carried over from other Markdown editors: `- [ ] ` makes
-// a task, `1) ` a numbered list, Backspace at the start of a heading makes it a
-// paragraph, Mod-D duplicates the block, Mod-Shift-Up/Down moves it, Mod-K opens the
-// link panel.
+// a task, `1) ` a numbered list, Backspace at the start of a heading removes the empty line
+// above it and keeps the heading, Mod-D duplicates the block, Mod-Shift-Up/Down moves it, Mod-K
+// opens the link panel.
 
 type Dispatch = ((tr: Transaction) => void) | undefined
 
@@ -83,19 +83,31 @@ export function moveBlock(direction: "up" | "down") {
 }
 
 /**
- * Backspace at the very start of a heading. The default joins the heading to the
- * paragraph above, which turns that paragraph's text into part of something else;
- * the heading becomes a paragraph first.
+ * Backspace at the very start of a heading removes what is before the caret, as anywhere else,
+ * and the heading stays a heading. An empty line above goes away; text above is joined by the
+ * ordinary Backspace, as deleting a line break. Only a heading with nothing above it in its block
+ * (the first line of the note, of a column or of a callout) turns into a paragraph: there is
+ * nothing else for the key to remove.
  */
-export function headingToParagraph(state: EditorState, dispatch?: Dispatch): boolean {
+export function backspaceAtHeadingStart(state: EditorState, dispatch?: Dispatch): boolean {
   const { selection, schema } = state
   const { $from } = selection
   if (!selection.empty || $from.parentOffset !== 0) return false
   if ($from.parent.type !== schema.nodes.heading) return false
-  dispatch?.(
-    state.tr.setBlockType($from.before(), $from.after(), schema.nodes.paragraph).scrollIntoView(),
-  )
-  return true
+  const index = $from.index($from.depth - 1)
+  if (index === 0) {
+    dispatch?.(
+      state.tr.setBlockType($from.before(), $from.after(), schema.nodes.paragraph).scrollIntoView(),
+    )
+    return true
+  }
+  const above = $from.node($from.depth - 1).child(index - 1)
+  if (above.type === schema.nodes.paragraph && above.content.size === 0) {
+    const headingStart = $from.before()
+    dispatch?.(state.tr.delete(headingStart - above.nodeSize, headingStart).scrollIntoView())
+    return true
+  }
+  return false
 }
 
 const KEPT_SOURCE = {
@@ -159,7 +171,7 @@ export function bulletItemToTask(
 
 export const BlockShortcuts = Extension.create({
   name: "blockShortcuts",
-  // Before the default Backspace, which would join the heading to the block above.
+  // Before the default Backspace, which would join the heading to an empty line above it.
   priority: 150,
 
   addInputRules() {
@@ -192,7 +204,7 @@ export const BlockShortcuts = Extension.create({
       ({ editor }: { editor: { view: { state: EditorState; dispatch: Dispatch } } }) =>
         command(editor.view.state, editor.view.dispatch)
     return {
-      Backspace: run(headingToParagraph),
+      Backspace: run(backspaceAtHeadingStart),
       "Mod-d": run(duplicateBlock),
       "Mod-Shift-ArrowUp": run(moveBlock("up")),
       "Mod-Shift-ArrowDown": run(moveBlock("down")),
