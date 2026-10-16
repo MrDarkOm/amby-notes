@@ -403,8 +403,10 @@ mod failure_tests {
             fs::remove_dir_all(root).unwrap();
             sender.send(()).unwrap();
         });
+        // A deadlock never returns; the limit only has to outlast a slow, loaded CI runner,
+        // where activating the vault alone once took longer than five seconds.
         receiver
-            .recv_timeout(std::time::Duration::from_secs(5))
+            .recv_timeout(std::time::Duration::from_secs(30))
             .expect("index failure must return without deadlocking on the held vault mutex");
     }
 }
