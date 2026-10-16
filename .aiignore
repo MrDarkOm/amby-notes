@@ -1,5 +1,0 @@
-src-tauri/target/
-node_modules/
-dist/
-.git/
-build/

@@ -13,7 +13,7 @@ SHA-256 manifest. The exact final artifacts report `NotSigned`: MSI SHA-256
 `ADAA5D09A641C7343A84E5B2A28862CA8ECD7DA5994A891B84D722F4BF6CC6BA`, NSIS SHA-256
 `BBEDCF0F6FCE7773AE4A98EAFCB003733386BAD2F0A193A992EDFC55E716F984`.
 Symlink-тест остановлен системным отказом 1314 (недостаточно привилегий).
-Подробности: [remaining-critical-progress.md](archive/remaining-critical-progress.md).
+Подробности: remaining-critical-progress.md.
 Этот файл — инструкция,
 а не свидетельство прохождения. Заполняй результат каждого шага после проверки.
 MacOS/APFS, unit-тесты и успешная Windows-сборка не заменяют Windows runtime.

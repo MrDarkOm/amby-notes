@@ -4,8 +4,8 @@
 Дата инвентаризации: 2026-09-30, рабочее дерево с незакоммиченными изменениями.
 
 Связанные документы: [контракт](./ai-harness.md), [журнал](./ai-state-format.md),
-[план](./Road/ai-harness-plan.md), [оркестрация](./Road/ai-harness-orchestration.md),
-[приёмка](./Road/ai-harness-acceptance.md).
+план, оркестрация,
+приёмка.
 
 ## 1. Как читать каталог
 
@@ -88,7 +88,7 @@ locks и snapshots определяются adapter, согласно контр
 
 ### 4.1 Расхождение текущих контрактов удаления
 
-AGENTS.md и [data-safety-contract](./data-safety-contract.md) задают vault-local
+Правила проекта и [data-safety-contract](./data-safety-contract.md) задают vault-local
 restorable deletion. [Актуальный vault-format](./vault-format.md) и проверенные
 `delete_item`/`archive_item` в рабочем дереве различают system trash и internal
 archive. H-00 обязан зафиксировать это расхождение перед реализацией. Настоящий
@@ -126,13 +126,13 @@ inverse adapter. Два независимых undo механизма не до
 дважды или потерять промежуточные пользовательские изменения.
 
 Все layouts и property types перечисляет актуальный module descriptor. Новые
-возможности из [плана баз](./notion-database-parity-audit-2026-09-30.md) появляются
+возможности из плана баз появляются
 в каталоге после их реализации и проверки. Обязательный scenario нельзя закрыть
 «табличным view» вместо запрошенного другого layout без решения пользователя.
 
 ## 6. Canvas и Excalidraw
 
-Согласовать с [планом единой доски](./excalidraw-canvas-claude-plan.md).
+Согласовать с планом единой доски.
 Один renderer не означает один формат: `.canvas` и `.excalidraw` сохраняют
 свои источники и ограничения. Предлагаемая внешняя family `board` использует
 общий command service и отдельные codec adapters; старый Canvas UI не становится
@@ -244,7 +244,7 @@ Learning services вызываются host по настройке пользо
 
 ## 10. Правило расширения каталога
 
-Для каждого нового модуля, включая [творческий модуль](./creative-workshop-plan.md),
+Для каждого нового модуля, включая творческий модуль,
 реализация предоставляет domain descriptor, source-of-truth, typed operations,
 scope resolver, preconditions, verifier, undo/recovery и acceptance evidence.
 Только после этого новая возможность появляется в агентном каталоге.

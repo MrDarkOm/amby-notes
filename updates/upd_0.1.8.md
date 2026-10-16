@@ -91,8 +91,7 @@
 ## Для разработчиков
 
 - Формат творческого модуля v3: маркер `amby-workshop.json`, настройки истории `amby-story.json`, история —
-  прикреплённая база внутри базы «Истории». Контракт — `docs/creative-format.md`, план и решения —
-  `docs/creative-workshop-plan.md`.
+  прикреплённая база внутри базы «Истории». Контракт — `docs/creative-format.md`.
 - Новые журналируемые операции с откатом: `init_workshop`, `complete_workshop`, `create_story`,
   `create_workshop_section`, `add_story_links`, `ensure_plot_links`, `create_workshop_entity`; чтение —
   `list_notebooks`, `list_text_stats`, `resolve_workshop_folder`.

@@ -3,7 +3,7 @@
 Статус: проект durable-формата v1, ещё не реализован. Версия документа: 1.
 Дата: 2026-09-30.
 
-Основания: [контракт harness](./ai-harness.md), [план](./Road/ai-harness-plan.md),
+Основания: [контракт harness](./ai-harness.md), план,
 [сохранность данных](./data-safety-contract.md), [vault format](./vault-format.md).
 Этот документ задаёт формат в терминах записей и инвариантов; schemas и их
 исполняемые валидаторы создаются в H-01/H-21. Markdown и вложения остаются
@@ -310,5 +310,5 @@ workspace/global run, отказ на повреждённых путях жур
 H-24/H-32 подтверждают scope для исторических payloads, queued UI events,
 summaries и provider requests после revoke. H-50/H-63/H-74 добавляют provenance
 и retention для skills, learning и plugins. Сценарии привязаны к Q01–Q70 в
-[матрице приёмки](./Road/ai-harness-acceptance.md); новый формат сам по себе
+матрице приёмки; новый формат сам по себе
 не означает PASS ни одного сценария.

@@ -889,6 +889,6 @@ Virtualization geometry и pointer drag не полагаются только �
 ## 28. Следующий шаг
 
 Архитектурных продуктовых вопросов, блокирующих первый slice, не осталось.
-[DB Roadmap](<./Road/DB Roadmap.md>) превращает контракты в конкретный backlog
+DB Roadmap превращает контракты в конкретный backlog
 PR: изменяемые файлы, зависимости, acceptance criteria, tests и безопасный
 порядок включения feature flag.

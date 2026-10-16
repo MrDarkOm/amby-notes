@@ -64,12 +64,11 @@ Add the complete private-key contents to the repository Actions secret
 replaced with a password-protected key, add its password as that second secret.
 
 Platform code signing and notarization are separate from updater signatures.
-Production releases must still satisfy the macOS and Windows signing gates in
-`docs/archive/release-readiness.md`.
+Production releases must still satisfy the macOS and Windows signing gates.
 
 ## Publishing a release
 
-1. Follow the cumulative release workflow in `AGENTS.md`: finalize the public
+1. Follow the cumulative release workflow: finalize the public
    notes in `updates/upd_<version>.md` and increment the patch version exactly once.
 2. Run `npm run version:check`, `npm run verify`, and `npm run build`.
 3. Commit and push the release candidate when explicitly requested.

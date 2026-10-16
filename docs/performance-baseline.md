@@ -123,7 +123,7 @@ included. The target in the database parity plan is p95 ≤ 150 ms.
 
 ## Creative workshop: 300 stories × 50 pages — 2026-10-14
 
-Stage 0 of the [workshop plan](creative-workshop-plan.md) measured this only in the debug profile
+Stage 0 of the workshop plan measured this only in the debug profile
 (discover 1.34 s, first open 6.5 s, reopen 4.4 s); stage 7 repeats it in **release**. Command:
 `cargo test --release --manifest-path src-tauri/Cargo.toml --lib bench_300_stories_50_pages -- --ignored --nocapture`
 (`src-tauri/src/desktop_e2e_tests.rs`). Apple M5, macOS 26.7.1, Rust 1.95.0, release profile (opt-level 3,
