@@ -13,9 +13,17 @@ if (versions.size !== 1 || !cargoVersion) {
   )
 }
 
+// A stable release is tagged `v<version>` (from main); a pre-release for testing is tagged
+// `v<version>-beta.<n>` (from beta) and carries the same application version, since installers
+// such as MSI accept only numeric versions.
 const releaseTag = process.env.RELEASE_TAG
-if (releaseTag && releaseTag !== `v${packageVersion}`) {
-  throw new Error(`Release tag ${releaseTag} must match application version v${packageVersion}`)
+if (
+  releaseTag &&
+  !new RegExp(`^v${packageVersion.replaceAll(".", "\\.")}(-beta\\.\\d+)?$`).test(releaseTag)
+) {
+  throw new Error(
+    `Release tag ${releaseTag} must be v${packageVersion} or v${packageVersion}-beta.<n>`,
+  )
 }
 
 process.stdout.write(`Application version ${packageVersion} is synchronized.\n`)
