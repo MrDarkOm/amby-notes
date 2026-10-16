@@ -5,6 +5,7 @@ AGENTS.md
 CLAUDE.md
 GEMINI.md
 .aiignore
+.vscode
 :(glob)**/MAP.md
 docs/agent-guidelines.md
 docs/agent-context.md
