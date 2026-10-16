@@ -12,6 +12,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "docs:check": "node scripts/check-project-map.mjs",
+    "promote": "node scripts/promote.mjs",
     "build:modules": "node scripts/build-modules.mjs",
     "preview": "vite preview",
     "tauri": "tauri",

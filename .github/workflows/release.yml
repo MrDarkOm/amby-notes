@@ -16,6 +16,21 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # A stable release is tagged on main, a pre-release for testing (`-beta.<n>`) on beta;
+      # dev is never released.
+      - name: The tag sits on its branch
+        shell: bash
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-beta.*) branch=beta ;;
+            *) branch=main ;;
+          esac
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$branch"; then
+            echo "::error::$GITHUB_REF_NAME must be tagged on a commit of $branch"
+            exit 1
+          fi
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -38,7 +53,9 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
       - name: Release notes exist (updates/upd_<version>.md)
         shell: bash
-        run: test -s "updates/upd_${GITHUB_REF_NAME#v}.md"
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test -s "updates/upd_${version%%-beta.*}.md"
       - run: npm run verify:full
       - run: npm run audit
 
@@ -101,9 +118,14 @@ jobs:
         id: notes
         shell: bash
         run: |
+          version="${GITHUB_REF_NAME#v}"
           {
             echo "body<<AMBY_RELEASE_NOTES"
-            tail -n +2 "updates/upd_${GITHUB_REF_NAME#v}.md"
+            if [[ "$GITHUB_REF_NAME" == *-beta.* ]]; then
+              echo "> **Пробная версия для обкатки.** Автообновление её не ставит: она скачивается вручную."
+              echo
+            fi
+            tail -n +2 "updates/upd_${version%%-beta.*}.md"
             echo
             cat updates/release-footer.md
             echo "AMBY_RELEASE_NOTES"
@@ -116,10 +138,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: Amby v__VERSION__
+          releaseName: Amby ${{ github.ref_name }}
           releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-beta.') }}
           args: ${{ matrix.args }}
 
   publish-release:
@@ -131,4 +153,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
+        # A pre-release never becomes "latest": the in-app updater reads only the latest release.
+        run: |
+          if [[ "$RELEASE_TAG" == *-beta.* ]]; then
+            gh release edit "$RELEASE_TAG" --draft=false --prerelease --repo "$GITHUB_REPOSITORY"
+          else
+            gh release edit "$RELEASE_TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
+          fi
