@@ -1,11 +1,12 @@
-import type * as React from "react"
-import { ChevronDown, ExternalLink } from "lucide-react"
+import * as React from "react"
+import { ArrowRight, ChevronDown } from "lucide-react"
+import { motion } from "motion/react"
 import {
   AmbySelect,
   type AmbySelectAction,
   type AmbySelectOption,
 } from "@/components/ui/amby-select"
-import { Button } from "@/components/ui/button"
+import { motionTransition, motionTransitions } from "@/lib/motion-config"
 
 interface ScopeCardProps {
   /** The quiet caption in capitals: what the list chooses among ("Stories", "Universes"). */
@@ -31,7 +32,7 @@ interface ScopeCardProps {
 const SHOWN_ICON =
   "flex group-hover/card:hidden group-has-[:focus-visible]/card:hidden group-has-[[aria-expanded=true]]/card:hidden"
 const SHOWN_ARROW =
-  "hidden size-4 group-hover/card:block group-has-[:focus-visible]/card:block group-has-[[aria-expanded=true]]/card:block"
+  "hidden size-4 group-hover/card:block group-has-[:focus-visible]/card:block group-has-[[aria-expanded=true]]/card:block group-has-[[aria-expanded=true]]/card:rotate-180"
 
 /**
  * One of the two cards of the panel, one shape for both: the stories above the lists and the
@@ -71,34 +72,69 @@ export function ScopeCard({
     </>
   )
 
-  // The control fills the whole card and the open button lies over its right end, so the list
-  // opens from the card and is as wide as it with no separate anchor element.
+  // A split button: one frame, the choice on the left and, while the pointer is over it (or the
+  // list is open, or the keyboard is in it), a narrow segment with the arrow that opens the page
+  // slides out at the right behind a thin divider. The list opens from the frame's left edge at
+  // the frame's whole width.
+  const frameRef = React.useRef<HTMLDivElement>(null)
+  const [hovered, setHovered] = React.useState(false)
+  const [listOpen, setListOpen] = React.useState(false)
+  const [keyboard, setKeyboard] = React.useState(false)
+  const [listWidth, setListWidth] = React.useState<number | undefined>(undefined)
+  const shown = hovered || listOpen || keyboard
+
   return (
-    <div className="group/card relative rounded-lg border border-border bg-background/70 hover:bg-accent">
-      <AmbySelect
-        aria-label={ariaLabel}
-        value={value}
-        onValueChange={onValueChange}
-        options={options}
-        variant="bare"
-        listClassName="w-[var(--radix-popover-trigger-width)]"
-        className="h-auto rounded-lg py-2 pl-3 pr-11 hover:bg-transparent"
-        // The card draws its own arrow, in the icon's place.
-        chevronClassName="hidden"
-        title={name}
-        renderValue={() => face}
-        action={action}
-      />
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-        title={openLabel}
-        aria-label={openLabel}
-        onClick={onOpen}
+    <div
+      ref={frameRef}
+      className="group/card flex min-w-0 overflow-hidden rounded-lg border border-border bg-background"
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={(event) => {
+        const target = event.target
+        setKeyboard(target instanceof HTMLElement && target.matches(":focus-visible"))
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setKeyboard(false)
+      }}
+    >
+      <div className="min-w-0 flex-1 hover:bg-accent">
+        <AmbySelect
+          aria-label={ariaLabel}
+          value={value}
+          onValueChange={onValueChange}
+          options={options}
+          variant="bare"
+          listClassName="w-[var(--radix-popover-trigger-width)]"
+          listWidth={listWidth}
+          className="h-auto rounded-none px-3 py-2 hover:bg-transparent"
+          // The card draws its own arrow, in the icon's place.
+          chevronClassName="hidden"
+          onOpenChange={(open) => {
+            if (open) setListWidth(frameRef.current?.offsetWidth || undefined)
+            setListOpen(open)
+          }}
+          title={name}
+          renderValue={() => face}
+          action={action}
+        />
+      </div>
+      <motion.div
+        data-shown={shown}
+        initial={false}
+        animate={{ width: shown ? 36 : 0, opacity: shown ? 1 : 0 }}
+        transition={motionTransition(motionTransitions.slow)}
+        className="flex shrink-0 overflow-hidden"
       >
-        <ExternalLink className="size-4" />
-      </Button>
+        <button
+          type="button"
+          title={openLabel}
+          aria-label={openLabel}
+          onClick={onOpen}
+          className="flex w-9 shrink-0 items-center justify-center border-l border-border text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          <ArrowRight className="size-4" />
+        </button>
+      </motion.div>
     </div>
   )
 }

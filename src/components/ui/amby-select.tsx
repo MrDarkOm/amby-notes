@@ -40,6 +40,10 @@ interface AmbySelectProps {
   listClassName?: string
   /** Extra classes of the arrow, for a control that shows it only while hovered. */
   chevronClassName?: string
+  /** Told when the list opens and closes, for a control that changes around an open list. */
+  onOpenChange?: (open: boolean) => void
+  /** A width in pixels for the list, when it must match something wider than the control. */
+  listWidth?: number
   /** What the closed control shows for the active choice, instead of its label. */
   renderValue?: (active: AmbySelectOption | undefined) => React.ReactNode
   /** A last, separate item of the list that acts instead of choosing. */
@@ -64,11 +68,20 @@ export function AmbySelect({
   className,
   listClassName,
   chevronClassName,
+  onOpenChange,
+  listWidth,
   renderValue,
   action,
   ...rest
 }: AmbySelectProps) {
-  const [open, setOpen] = React.useState(false)
+  const [open, setOpenState] = React.useState(false)
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      setOpenState(next)
+      onOpenChange?.(next)
+    },
+    [onOpenChange],
+  )
   const listRef = React.useRef<HTMLDivElement>(null)
   const active = options.find((option) => option.value === value)
   const others = options.filter((option) => option !== active)
@@ -166,7 +179,10 @@ export function AmbySelect({
         align="start"
         sideOffset={4}
         className={cn("w-auto max-w-[min(24rem,90vw)] rounded-xl p-1 shadow-md", listClassName)}
-        style={{ minWidth: "max(var(--radix-popover-trigger-width), 9rem)" }}
+        style={{
+          minWidth: "max(var(--radix-popover-trigger-width), 9rem)",
+          ...(listWidth ? { width: listWidth } : null),
+        }}
         onOpenAutoFocus={(event) => {
           // Focus goes to the active choice, which is the first in the list.
           event.preventDefault()

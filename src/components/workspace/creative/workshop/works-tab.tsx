@@ -47,6 +47,7 @@ import {
 import type { PlotBinding } from "./use-plot-binding"
 import { useCreativeNavStore } from "../creative-nav-store"
 import { projectErrorText } from "../project-error"
+import { standaloneTargetId, universeTargetId } from "../project-tree-model"
 import { formatModified } from "../../workspace-tree-utils"
 import { moveRowInOrder, type RowDropPlacement } from "../../database/row-order"
 import {
@@ -995,9 +996,9 @@ export function WorksTab({
     if (selectedStoryId) {
       onOpenProject(selectedStoryId)
     } else if (selectedUniverseId) {
-      onOpenProject(`universe:${selectedUniverseId}`)
+      onOpenProject(universeTargetId(selectedUniverseId))
     } else {
-      onOpenProject(workshop.workshopId)
+      onOpenProject(standaloneTargetId(workshop.workshopId))
     }
   }
 
@@ -1010,7 +1011,7 @@ export function WorksTab({
         words={totals.words}
         onSelectStory={onSelectStory}
         onNewStory={onNewStory}
-        openTarget={story ? "story" : selectedUniverseId ? "universe" : "workshop"}
+        openTarget={story ? "story" : selectedUniverseId ? "universe" : "standalone"}
         onOpenTarget={handleOpenTarget}
         resume={resume}
         onOpenNote={onOpenNote}

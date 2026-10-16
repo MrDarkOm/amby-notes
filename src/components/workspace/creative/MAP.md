@@ -19,7 +19,7 @@ and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The 
 | Section groups, find a workshop (pure)  | [project-tree-model.ts](project-tree-model.ts)                                                                      |
 | Workshop: tabs, lists, text tree, notes | [workshop/](workshop/MAP.md): `workshop-pane.tsx` composes; models: `workshop-model.ts`, `text-tree-model.ts`       |
 | Belonging to stories and universes      | `workshop-model.ts` (`resolvePanelFilter`, `storiesInScope`, `buildMembership`, `scopeEntities`); `world-cards.tsx` |
-| Universe page (stories, events, world)  | [universe-desk.tsx](universe-desk.tsx)                                                                              |
+| Universe / standalone page              | [scope-desk.tsx](scope-desk.tsx); `page-header.tsx`, `scoped-section.tsx`, `workshop/use-scope-data.ts`             |
 | Project tab: header, sections, overview | [project-page.tsx](project-page.tsx); a story's desk: [project-desk.tsx](project-desk.tsx)                          |
 | Project settings dialog                 | [project-settings-dialog.tsx](project-settings-dialog.tsx)                                                          |
 | Words and last-change time of pages     | [use-text-stats.ts](use-text-stats.ts) (one read-only call)                                                         |

@@ -17,12 +17,17 @@ const base = {
 describe("ScopeCard", () => {
   afterEach(cleanup)
 
-  it("puts the arrow in the icon's place and the open button at the right", () => {
+  const segmentOf = () => screen.getByRole("combobox").parentElement as HTMLElement
+  const frameOf = () => segmentOf().parentElement as HTMLElement
+  const reveal = () =>
+    screen.getByRole("button", { name: "Открыть вселенную" }).parentElement as HTMLElement
+
+  it("is a split button: the choice and the arrow in one frame, the arrow behind a divider", () => {
     const onOpen = vi.fn()
     const { container } = render(<ScopeCard {...base} onOpen={onOpen} />)
-    const card = container.firstElementChild as HTMLElement
-    expect(card.className).toContain("border")
-    expect(card.className).toContain("group/card")
+    const frame = frameOf()
+    expect(frame.className).toContain("border")
+    expect(frame.className).toContain("group/card")
     const arrows = Array.from(container.querySelectorAll("svg.lucide-chevron-down"))
     // The select's own arrow is hidden; the visible one replaces the icon.
     const own = arrows.find((arrow) => (arrow.getAttribute("class") ?? "").includes("hidden"))
@@ -33,18 +38,48 @@ describe("ScopeCard", () => {
     expect(swapped).toBeTruthy()
     expect(screen.getByTestId("icon").parentElement?.className).toContain("group-hover/card:hidden")
     const open = screen.getByRole("button", { name: "Открыть вселенную" })
-    expect(card.lastElementChild).toBe(open)
+    expect(frame.contains(open)).toBe(true)
+    expect(segmentOf().contains(open)).toBe(false)
+    expect(open.className).toContain("border-l")
+    // Neutral, not the accent: the second action does not outshout the choice.
+    expect(open.className).not.toMatch(/primary/u)
+    expect(container.querySelector("svg.lucide-arrow-right")).toBeTruthy()
     fireEvent.click(open)
     expect(onOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it("slides the open button out while hovered and back when the pointer leaves", () => {
+    const { container } = render(<ScopeCard {...base} onOpen={() => undefined} />)
+    const row = container.firstElementChild as HTMLElement
+    expect(reveal().dataset.shown).toBe("false")
+    fireEvent.pointerEnter(row)
+    expect(reveal().dataset.shown).toBe("true")
+    fireEvent.pointerLeave(row)
+    expect(reveal().dataset.shown).toBe("false")
+  })
+
+  it("keeps the button out while the list is open, so the list keeps the card's width", async () => {
+    const { container } = render(<ScopeCard {...base} onOpen={() => undefined} />)
+    const row = container.firstElementChild as HTMLElement
+    fireEvent.pointerEnter(row)
+    fireEvent.click(screen.getByRole("combobox"))
+    await waitFor(() => screen.getByRole("listbox"))
+    // The pointer goes down into the list, which lies outside the card.
+    fireEvent.pointerLeave(row)
+    expect(reveal().dataset.shown).toBe("true")
   })
 
   it("does not keep the arrow after a click: only hover, keyboard focus and an open list show it", () => {
     const { container } = render(<ScopeCard {...base} onOpen={() => undefined} />)
     const html = container.innerHTML
-    // Plain focus-within would leave the arrow showing after the open button was clicked.
     expect(html).not.toContain("focus-within")
     expect(html).toContain("group-has-[:focus-visible]/card:block")
     expect(html).toContain("group-has-[[aria-expanded=true]]/card:block")
+  })
+
+  it("turns the arrow over while the list is open", () => {
+    const { container } = render(<ScopeCard {...base} onOpen={() => undefined} />)
+    expect(container.innerHTML).toContain("group-has-[[aria-expanded=true]]/card:rotate-180")
   })
 
   it("sets the name in a small type and wraps it instead of cutting it", () => {
@@ -61,20 +96,12 @@ describe("ScopeCard", () => {
     expect(note.parentElement).toBe(caption.parentElement)
   })
 
-  it("makes the control fill the card and lays the open button over its end", () => {
-    const { container } = render(<ScopeCard {...base} onOpen={() => undefined} />)
-    const card = container.firstElementChild as HTMLElement
-    const control = screen.getByRole("combobox")
-    // The list takes the control's width, so the control is the card: no inner box, no anchor.
-    expect(control.parentElement).toBe(card)
-    expect(control.className).toContain("w-full")
-    const open = screen.getByRole("button", { name: "Открыть вселенную" })
-    expect(open.className).toContain("absolute")
-  })
-
-  it("opens its list from the whole card, as wide as the card", async () => {
+  it("makes the control fill its segment, so the list opens from the frame's left edge", async () => {
     render(<ScopeCard {...base} onOpen={() => undefined} />)
-    fireEvent.click(screen.getByRole("combobox"))
+    const control = screen.getByRole("combobox")
+    expect(control.parentElement).toBe(segmentOf())
+    expect(control.className).toContain("w-full")
+    fireEvent.click(control)
     const list = await waitFor(() => screen.getByRole("listbox"))
     const content = list.closest("[data-popover-content]")
     expect(content?.className).toContain("w-[var(--radix-popover-trigger-width)]")

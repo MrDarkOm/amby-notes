@@ -77,19 +77,38 @@ describe("ProjectPage", () => {
     expect(screen.getByText("Мастерская не найдена")).toBeTruthy()
   })
 
-  it("starts on the overview, with the sections of a story under their groups", () => {
+  it("opens a story on its desk and lists only the lists that can hold its pages", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
     const { renderDatabase } = mount("molehills")
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("MoleHills")
     expect(screen.getByText("История")).toBeTruthy()
     expect(renderDatabase).not.toHaveBeenCalled()
-    // cards on the overview: one per section
-    expect(screen.getAllByRole("button", { name: /Персонажи/u }).length).toBeGreaterThan(0)
+    const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
+    const tabs = Array.from(nav.querySelectorAll("button")).map((b) => b.textContent)
+    // The desk, then the world's lists, the anchors and the notes: no list of stories, no text,
+    // no universes, which are not about this story.
+    expect(tabs).toEqual(["Рабочий стол", "Персонажи", "Локации", "Прочее", "Якоря", "Заметки"])
+    // A story without text has no desk to show.
+    expect(screen.getByText("У истории нет раздела с текстом.")).toBeTruthy()
+    // None of the cards of the old nested model.
+    expect(screen.queryByText("Произведение")).toBeNull()
   })
 
-  it("shows a section as the ordinary database and remembers it", () => {
+  it("shows a section of a story as the pages that belong to it, not as the shared database", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
     const { renderDatabase } = mount("molehills")
+    const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
+    fireEvent.click(
+      Array.from(nav.querySelectorAll("button")).find((b) => b.textContent === "Персонажи")!,
+    )
+    expect(renderDatabase).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "Вся база" })).toBeTruthy()
+    expect(useCreativeNavStore.getState().sectionByProject.molehills).toBe("characters")
+  })
+
+  it("shows a section of the workshop as the ordinary database and remembers it", () => {
+    act(() => useProjectStore.getState().setCatalog(universeCatalog()))
+    const { renderDatabase } = mount("palooverse")
     const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
     fireEvent.click(
       Array.from(nav.querySelectorAll("button")).find((b) => b.textContent === "Персонажи")!,
@@ -101,31 +120,32 @@ describe("ProjectPage", () => {
       toolbarHost: expect.any(HTMLElement),
     })
     expect(screen.getByTestId("database").textContent).toBe("Персонажи:db_characters")
-    expect(useCreativeNavStore.getState().sectionByProject.molehills).toBe("characters")
+    expect(useCreativeNavStore.getState().sectionByProject.palooverse).toBe("characters")
   })
 
   it("opens the section the sidebar asked for", () => {
     act(() => {
       useProjectStore.getState().setCatalog(universeCatalog())
-      useCreativeNavStore.getState().showSection("molehills", "notes")
+      useCreativeNavStore.getState().showSection("palooverse", "notes")
     })
-    mount("molehills")
+    mount("palooverse")
     expect(screen.getByTestId("database").textContent).toBe("Заметки:db_notes")
   })
 
   it("falls back to the overview when the remembered section no longer exists", () => {
     act(() => {
       useProjectStore.getState().setCatalog(universeCatalog())
-      useCreativeNavStore.getState().showSection("molehills", "gone")
+      useCreativeNavStore.getState().showSection("palooverse", "gone")
     })
-    mount("molehills")
+    mount("palooverse")
     expect(screen.queryByTestId("database")).toBeNull()
   })
 
-  it("lists the stories of a collection and opens one", () => {
+  it("lists the stories of the workshop and opens one", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
     const { onOpenProject } = mount("palooverse")
     expect(screen.getByRole("heading", { name: "Истории" })).toBeTruthy()
+    expect(screen.getByRole("heading", { name: "Мир" })).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "MoleHills" }))
     expect(onOpenProject).toHaveBeenCalledWith("molehills")
   })

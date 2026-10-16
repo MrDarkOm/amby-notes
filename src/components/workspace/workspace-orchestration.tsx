@@ -91,7 +91,8 @@ import { useProjectStore } from "./creative/project-store"
 import { useCollectionFolderSelect } from "./creative/use-collection-folder-select"
 import { useCreativeTreeItems } from "./creative/use-creative-tree-items"
 import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative/creative-nav-store"
-import { resolveProjectTarget } from "./creative/project-tree-model"
+import { creativeTitleLabels } from "./creative/project-labels"
+import { projectTargetTitle, resolveProjectTarget } from "./creative/project-tree-model"
 import { useDatabaseStore } from "./database/database-store"
 import type { DatabaseRowActions } from "./database/use-row-menu"
 import { ModuleRequiredFallback } from "./editor/module-required-fallback"
@@ -586,14 +587,8 @@ export function WorkspaceOrchestration() {
         return
       }
       const target = resolveProjectTarget(useProjectStore.getState().catalog, projectId)
-      const title =
-        target?.kind === "story"
-          ? target.story.name
-          : target?.kind === "universe"
-            ? t("creative.kind.universe")
-            : target?.kind === "workshop"
-              ? target.workshop.name
-              : t("creative.welcome.title", "Творческая мастерская")
+      // A universe is named by its card's row, which the page reads and hands back (`onTitle`).
+      const title = projectTargetTitle(target, creativeTitleLabels(t))
       const key = newTabKey()
       setTabs((prev) => [
         ...prev,
@@ -803,6 +798,17 @@ export function WorkspaceOrchestration() {
   const handleRenameDatabaseTab = React.useCallback(
     (tabKey: string, title: string) => {
       setTabs((previous) => previous.map((tab) => (tab.key === tabKey ? { ...tab, title } : tab)))
+    },
+    [setTabs],
+  )
+  // A page tells its tab the name it has now; an unchanged name leaves the tabs as they are.
+  const retitleTab = React.useCallback(
+    (tabKey: string, title: string) => {
+      setTabs((previous) =>
+        previous.some((tab) => tab.key === tabKey && tab.title !== title)
+          ? previous.map((tab) => (tab.key === tabKey ? { ...tab, title } : tab))
+          : previous,
+      )
     },
     [setTabs],
   )
@@ -1445,9 +1451,11 @@ export function WorkspaceOrchestration() {
                         ? "📖"
                         : target?.kind === "universe"
                           ? "🌌"
-                          : target?.kind === "workshop"
-                            ? target.workshop.icon
-                            : null) ?? "🪶"
+                          : target?.kind === "standalone"
+                            ? "📚"
+                            : target?.kind === "workshop"
+                              ? target.workshop.icon
+                              : null) ?? "🪶"
                     )
                   })()
                 : item?.icon,
@@ -2215,6 +2223,7 @@ export function WorkspaceOrchestration() {
       <ProjectPage
         projectId={activeTab.fileId.replace(/^creative:/u, "")}
         onOpenProject={openCreativeTab}
+        onTitle={(title) => retitleTab(activeTab.key, title)}
         onOpenNote={(noteId) => handleSelect(noteId)}
         vaultPath={vault ?? null}
         onChanged={refreshAfterCreativeWrite}

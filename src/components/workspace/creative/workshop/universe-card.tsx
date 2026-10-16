@@ -13,7 +13,7 @@ interface UniverseCardProps {
   onSelectUniverse: (universeId: string | null) => void
   /** Starts making a universe; `null` when the workshop cannot be written to. */
   onNewUniverse: (() => void) | null
-  /** Opens the page of the chosen universe, or the workshop's for the standalone stories. */
+  /** Opens the page of the chosen universe, or that of the standalone stories. */
   onOpenTarget: () => void
 }
 
@@ -63,7 +63,7 @@ export function UniverseCard({
           : undefined
       }
       openLabel={
-        selected ? t("creative.workshop.openUniverse") : t("creative.workshop.openWorkshop")
+        selected ? t("creative.workshop.openUniverse") : t("creative.workshop.openStandalone")
       }
       onOpen={onOpenTarget}
     />

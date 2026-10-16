@@ -143,12 +143,16 @@ const has = (name: RegExp) => screen.queryByRole("button", { name }) !== null
 /** The card a drop-down list sits in: the list and the button that opens its page. */
 // The control fills its card: the card is the control's parent.
 const cardOf = (name: string) => screen.getByRole("combobox", { name }).parentElement as HTMLElement
+/** The row of a card: the card itself and the open button that slides out beside it. */
+const rowOf = (name: string) => cardOf(name).parentElement as HTMLElement
 
 async function open(name: string) {
   fireEvent.click(screen.getByRole("combobox", { name }))
   return screen.findAllByRole("option")
 }
 async function pick(name: string, option: RegExp) {
+  // A list that was just used may still be closing.
+  await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull())
   fireEvent.click(screen.getByRole("combobox", { name }))
   fireEvent.click(await screen.findByRole("option", { name: option }))
 }
@@ -247,7 +251,7 @@ describe("CreativePanel: the stories above the lists, the universes below them",
     it("opens the page of the story, of the universe, or of the workshop, as it stands", async () => {
       const onOpenCreativeProject = vi.fn()
       render(<CreativePanel {...props({ onOpenCreativeProject })} />)
-      const top = () => within(cardOf("История"))
+      const top = () => within(rowOf("История"))
       await waitFor(() => expect(selectedText("История")).toContain("Lone"))
       fireEvent.click(top().getByRole("button", { name: "Открыть страницу истории" }))
       expect(onOpenCreativeProject).toHaveBeenLastCalledWith("lone", undefined)
@@ -259,8 +263,8 @@ describe("CreativePanel: the stories above the lists, the universes below them",
 
       await pick("Вселенная", /Отдельные истории/)
       await waitFor(() => expect(selectedText("Вселенная")).toContain("Отдельные истории"))
-      fireEvent.click(top().getByRole("button", { name: "Открыть страницу мастерской" }))
-      expect(onOpenCreativeProject).toHaveBeenLastCalledWith("verse", undefined)
+      fireEvent.click(top().getByRole("button", { name: "Открыть страницу отдельных историй" }))
+      expect(onOpenCreativeProject).toHaveBeenLastCalledWith("standalone:verse", undefined)
     })
   })
 
@@ -422,18 +426,42 @@ describe("CreativePanel: the stories above the lists, the universes below them",
       expect(prefs().universe).toBe("u9")
     })
 
-    it("opens the page of the universe, or of the workshop for the standalone stories", async () => {
+    it("opens the page of the universe, or of the standalone stories", async () => {
       const onOpenCreativeProject = vi.fn()
       render(<CreativePanel {...props({ onOpenCreativeProject })} />)
       await waitFor(() => expect(screen.getByRole("combobox", { name: "Вселенная" })).toBeTruthy())
-      const bottom = () => within(cardOf("Вселенная"))
-      fireEvent.click(bottom().getByRole("button", { name: "Открыть страницу мастерской" }))
-      expect(onOpenCreativeProject).toHaveBeenLastCalledWith("verse", undefined)
+      const bottom = () => within(rowOf("Вселенная"))
+      fireEvent.click(bottom().getByRole("button", { name: "Открыть страницу отдельных историй" }))
+      expect(onOpenCreativeProject).toHaveBeenLastCalledWith("standalone:verse", undefined)
 
       await pick("Вселенная", /Мир/)
       await waitFor(() => expect(selectedText("Вселенная")).toContain("Мир"))
       fireEvent.click(bottom().getByRole("button", { name: "Открыть страницу вселенной" }))
       expect(onOpenCreativeProject).toHaveBeenLastCalledWith("universe:u1", undefined)
+    })
+  })
+
+  describe("the header of the panel", () => {
+    it("opens the page of the workshop, next to the settings, whatever the scope", async () => {
+      const onOpenCreativeProject = vi.fn()
+      const onOpenSettings = vi.fn()
+      render(<CreativePanel {...props({ onOpenCreativeProject, onOpenSettings })} />)
+      const header = screen.getByRole("banner")
+      const open = within(header).getByRole("button", { name: "Открыть страницу мастерской" })
+      const settings = within(header).getByRole("button", { name: "Настройки мастерской" })
+      expect(open.parentElement).toBe(settings.parentElement)
+      fireEvent.click(open)
+      expect(onOpenCreativeProject).toHaveBeenLastCalledWith("verse", undefined)
+      await pick("Вселенная", /Мир/)
+      await waitFor(() => expect(selectedText("Вселенная")).toContain("Мир"))
+      fireEvent.click(within(header).getByRole("button", { name: "Открыть страницу мастерской" }))
+      expect(onOpenCreativeProject).toHaveBeenLastCalledWith("verse", undefined)
+    })
+
+    it("is not there before a workshop is", () => {
+      act(() => useProjectStore.getState().setCatalog(catalog([])))
+      render(<CreativePanel {...props({ onOpenCreativeProject: vi.fn() })} />)
+      expect(screen.queryByRole("button", { name: "Открыть страницу мастерской" })).toBeNull()
     })
   })
 

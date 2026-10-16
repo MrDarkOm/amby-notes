@@ -12,6 +12,7 @@ import {
 import { ProjectDesk } from "./project-desk"
 
 const queryDatabase = vi.fn()
+const createWorkshopEntity = vi.fn()
 const listTextStats = vi.fn()
 const readNote = vi.fn()
 const exportTextFile = vi.fn()
@@ -24,6 +25,7 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     listTextStats: (...args: unknown[]) => listTextStats(...args),
     readNote: (...args: unknown[]) => readNote(...args),
     exportTextFile: (...args: unknown[]) => exportTextFile(...args),
+    createWorkshopEntity: (...args: unknown[]) => createWorkshopEntity(...args),
   }
 })
 
@@ -150,19 +152,83 @@ describe("ProjectDesk", () => {
     expect(onOpenNote).toHaveBeenCalledWith("c2")
   })
 
-  it("counts the pages and words of the text and of each top-level page", async () => {
+  it("counts the pages and words of each top-level page; the whole work's numbers are the page header's", async () => {
     renderDesk()
     const progress = await screen.findByRole("region", { name: "Текст" })
-    // The numbers of the whole work stand in tiles above the outline.
-    const tile = (label: string) => screen.getByText(label).parentElement?.textContent ?? ""
-    await waitFor(() => expect(tile("Слов")).toMatch(/1\D?580/))
-    expect(tile("Страниц")).toContain("4")
+    await within(progress).findByRole("button", { name: /Книга первая/ })
+    // The totals stand in the header of the page above the desk, not in tiles that repeat them.
+    expect(screen.queryByText("Слов")).toBeNull()
+    expect(screen.queryByText("Страниц")).toBeNull()
     expect(within(progress).getByRole("button", { name: /Книга первая/ }).textContent).toContain(
       "3 стр. · 1500 сл.",
     )
     expect(within(progress).getByRole("button", { name: /Книга вторая/ }).textContent).toContain(
       "1 стр. · 80 сл.",
     )
+  })
+
+  it("offers to make the first page in a list the story has none in, linked to the story", async () => {
+    const withCharacters = workshopSummary("w_hills", {
+      name: "MoleHills Workshop",
+      stories: [story],
+      sections: [
+        section("text", { role: "text", databaseId: "db_text", databaseName: "Текст" }),
+        section("chars", {
+          role: "characters",
+          databaseId: "db_chars",
+          databaseName: "Персонажи",
+          storiesPropertyId: "stp",
+        }),
+      ],
+    })
+    queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => {
+      const rows = databaseId === "db_text" ? ROWS : []
+      return { rows, nextCursor: null, totalCount: rows.length, diagnostics: [] }
+    })
+    createWorkshopEntity.mockReset().mockResolvedValue({ noteId: "new" })
+    render(
+      <ProjectDesk
+        story={story}
+        workshop={withCharacters}
+        vaultPath="/vault"
+        onOpenNote={vi.fn()}
+      />,
+    )
+    const card = await screen.findByRole("region", { name: "Персонажи" })
+    expect(await within(card).findByText("Пока пусто.")).toBeTruthy()
+    fireEvent.click(within(card).getByRole("button", { name: "Добавить: Персонажи" }))
+    const field = within(card).getByLabelText("Название — Персонажи")
+    fireEvent.change(field, { target: { value: "Анна" } })
+    fireEvent.submit(field.closest("form") as HTMLFormElement)
+    await waitFor(() => expect(createWorkshopEntity).toHaveBeenCalledTimes(1))
+    expect(createWorkshopEntity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workshopId: "w_hills",
+        sectionId: "chars",
+        title: "Анна",
+        storyId: "hills",
+      }),
+    )
+  })
+
+  it("takes the numbers the page above already read instead of reading them again", async () => {
+    const stats = Object.fromEntries(STATS.map((entry) => [entry.noteId, entry]))
+    render(
+      <ProjectDesk
+        story={story}
+        workshop={workshop}
+        vaultPath="/vault"
+        onOpenNote={vi.fn()}
+        stats={stats}
+      />,
+    )
+    const progress = await screen.findByRole("region", { name: "Текст" })
+    await waitFor(() =>
+      expect(within(progress).getByRole("button", { name: /Книга первая/ }).textContent).toContain(
+        "3 стр. · 1500 сл.",
+      ),
+    )
+    expect(listTextStats).not.toHaveBeenCalled()
   })
 
   it("compiles the text in the order of the tree and saves it as a new file", async () => {

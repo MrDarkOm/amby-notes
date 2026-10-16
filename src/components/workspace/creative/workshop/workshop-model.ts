@@ -136,6 +136,21 @@ export function storySection(
   return workshop?.sections.find((s) => s.role === role && s.state !== "missing") ?? null
 }
 
+/**
+ * The sections a page of one story, one universe or the standalone stories lists, in tab order:
+ * the world's categories, then the anchors and the notes. The stories themselves, their text and
+ * the universes are not among them: the page shows those in its own way.
+ */
+export function scopeSections(workshop: WorkshopSummary | null): WorkshopSectionSummary[] {
+  if (!workshop) return []
+  const byId = new Map(workshop.sections.map((section) => [section.id, section]))
+  const world = entityTabs(workshop)
+    .filter((tab) => tab.role !== "universes")
+    .flatMap((tab) => byId.get(tab.sectionId) ?? [])
+  const rest = (["anchors", "notes"] as const).flatMap((role) => storySection(workshop, role) ?? [])
+  return [...world, ...rest]
+}
+
 // ── Entities ────────────────────────────────────────────────────────────────────────────────────
 
 export interface EntityItem {

@@ -16,9 +16,9 @@ export interface SidebarSection {
   readOnly: boolean
 }
 
+/** The blocks of the workshop page: the world's lists, the work's lists, and the author's own. */
 export interface SidebarGroup {
-  id: string | null
-  name: string | null
+  id: "world" | "work" | "custom"
   sections: SidebarSection[]
 }
 
@@ -26,7 +26,7 @@ export function sectionName(section: WorkshopSectionSummary): string {
   return section.name.trim() || section.id
 }
 
-function toSidebarSection(
+export function toSidebarSection(
   workshop: WorkshopSummary,
   section: WorkshopSectionSummary,
 ): SidebarSection {
@@ -66,13 +66,13 @@ export function groupSections(workshop: WorkshopSummary): SidebarGroup[] {
 
   const groups: SidebarGroup[] = []
   if (worldSections.length > 0) {
-    groups.push({ id: "world", name: "Мир", sections: worldSections })
+    groups.push({ id: "world", sections: worldSections })
   }
   if (workSections.length > 0) {
-    groups.push({ id: "work", name: "Произведение", sections: workSections })
+    groups.push({ id: "work", sections: workSections })
   }
   if (customSections.length > 0) {
-    groups.push({ id: "custom", name: null, sections: customSections })
+    groups.push({ id: "custom", sections: customSections })
   }
   return groups
 }
@@ -118,13 +118,29 @@ export function storiesOfWorkshop(workshop: WorkshopSummary): StorySummary[] {
   return workshop.stories
 }
 
+/** Prefix of the tab target of a universe: `universe:<note ID of its card>`. */
+const UNIVERSE_PREFIX = "universe:"
+/** Prefix of the tab target of the stories that no universe holds: `standalone:<workshop ID>`. */
+const STANDALONE_PREFIX = "standalone:"
+
+export function universeTargetId(universeId: string): string {
+  return `${UNIVERSE_PREFIX}${universeId}`
+}
+
+export function standaloneTargetId(workshopId: string): string {
+  return `${STANDALONE_PREFIX}${workshopId}`
+}
+
 export type ProjectTarget =
   | { kind: "workshop"; workshop: WorkshopSummary }
   | { kind: "story"; workshop: WorkshopSummary; story: StorySummary }
   | { kind: "universe"; workshop: WorkshopSummary; universeId: string }
+  /** The stories that belong to no universe, with their world: a page of the workshop. */
+  | { kind: "standalone"; workshop: WorkshopSummary }
 
 /**
- * Resolves a creative target (workshop, story, or universe) from catalog.
+ * Resolves a creative target (workshop, story, universe or the standalone stories) from the
+ * catalog. A target that names nothing in the catalog is `null`.
  */
 export function resolveProjectTarget(
   catalog: ProjectCatalog | null,
@@ -136,9 +152,47 @@ export function resolveProjectTarget(
   for (const w of catalog.workshops) {
     const story = w.stories.find((s) => s.storyId === id)
     if (story) return { kind: "story", workshop: w, story }
-    if (id.startsWith("universe:")) {
-      return { kind: "universe", workshop: w, universeId: id.slice("universe:".length) }
-    }
+  }
+  if (id.startsWith(STANDALONE_PREFIX)) {
+    const owner = catalog.workshops.find((w) => w.workshopId === id.slice(STANDALONE_PREFIX.length))
+    return owner ? { kind: "standalone", workshop: owner } : null
+  }
+  if (id.startsWith(UNIVERSE_PREFIX)) {
+    // There is one workshop per vault; its first one is the universe's.
+    const owner = catalog.workshops[0]
+    return owner
+      ? { kind: "universe", workshop: owner, universeId: id.slice(UNIVERSE_PREFIX.length) }
+      : null
   }
   return null
+}
+
+/** The words a tab or page is named with when the catalog does not name it. */
+export interface TargetLabels {
+  universe: string
+  standalone: string
+  /** For a target the catalog does not know. */
+  fallback: string
+}
+
+/**
+ * The name of a page and of its tab: a story's name, the name of the universe's card (the row's
+ * title, once read), the "Standalone stories" label, or the workshop's name.
+ */
+export function projectTargetTitle(
+  target: ProjectTarget | null,
+  labels: TargetLabels,
+  universeTitle?: string | null,
+): string {
+  if (!target) return labels.fallback
+  switch (target.kind) {
+    case "story":
+      return target.story.name
+    case "universe":
+      return universeTitle?.trim() || labels.universe
+    case "standalone":
+      return labels.standalone
+    case "workshop":
+      return target.workshop.name
+  }
 }

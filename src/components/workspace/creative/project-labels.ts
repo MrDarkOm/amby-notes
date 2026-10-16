@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next"
+import type { TargetLabels } from "./project-tree-model"
 
 /**
  * Names of the base sections in the active language. The folder of
@@ -124,4 +125,13 @@ export function projectRequestKind(kind: NewProjectKind): {
   if (kind === "story") return { kind: "story", baseSections: true }
   if (kind === "universe") return { kind: "collection", baseSections: true }
   return { kind: "collection", baseSections: false }
+}
+
+/** The words a page and its tab are named with when the catalog does not name them. */
+export function creativeTitleLabels(t: TFunction): TargetLabels {
+  return {
+    universe: t("creative.kind.universe"),
+    standalone: t("creative.workshop.standalone"),
+    fallback: t("creative.welcome.title"),
+  }
 }

@@ -19,6 +19,7 @@ import {
   relationTargetsOf,
   resolvePanelFilter,
   scopeEntities,
+  scopeSections,
   sectionTabKey,
   storiesInScope,
   storyLabels,
@@ -573,5 +574,31 @@ describe("entityTabs and the link property", () => {
       ["chars", "stp"],
       ["locs", null],
     ])
+  })
+})
+
+describe("scopeSections", () => {
+  it("lists the world's categories, then the anchors and the notes", () => {
+    expect(scopeSections(ws).map((section) => section.id)).toEqual([
+      "chars",
+      "locs",
+      "orgs",
+      "anchors",
+      "notes",
+    ])
+  })
+
+  it("leaves out the stories, the text, the universes and a section whose folder is gone", () => {
+    const withMore = workshopSummary("w3", {
+      sections: [
+        workshopSection("stories", { role: "stories" }),
+        workshopSection("text", { role: "text" }),
+        workshopSection("universes", { role: "universes" }),
+        workshopSection("chars", { role: "characters", state: "missing" }),
+        workshopSection("arcs", { role: "arcs" }),
+      ],
+    })
+    expect(scopeSections(withMore).map((section) => section.id)).toEqual(["arcs"])
+    expect(scopeSections(null)).toEqual([])
   })
 })

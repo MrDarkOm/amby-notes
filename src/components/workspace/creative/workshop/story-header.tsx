@@ -16,8 +16,8 @@ interface StoryHeaderProps {
   words: number | null
   onSelectStory: (storyId: string | null) => void
   onNewStory: () => void
-  /** What the open button leads to: the page of the story, of the universe or of the workshop. */
-  openTarget: "story" | "universe" | "workshop"
+  /** What the open button leads to: the page of the story, of the universe or of the standalone stories. */
+  openTarget: "story" | "universe" | "standalone"
   onOpenTarget: () => void
   /** The page of the text changed last, offered as the place to go on from; none hides the row. */
   resume?: { noteId: string; title: string; when: string } | null
@@ -48,8 +48,9 @@ export function StoryHeader({
 
   const meta = selected
     ? [
-        pages === null ? null : t("creative.workshop.pagesShort", { count: pages }),
-        words === null ? null : t("docEditor.wordCount", { count: words }),
+        // An empty story shows no numbers: "0 pages" reads as a fault.
+        pages ? t("creative.workshop.pagesShort", { count: pages }) : null,
+        words ? t("docEditor.wordCount", { count: words }) : null,
       ]
         .filter(Boolean)
         .join(" · ")
@@ -66,7 +67,7 @@ export function StoryHeader({
       ? t("creative.workshop.openStory")
       : openTarget === "universe"
         ? t("creative.workshop.openUniverse")
-        : t("creative.workshop.openWorkshop")
+        : t("creative.workshop.openStandalone")
 
   // With no story in the scope there is nothing to choose: the card offers the first one.
   if (stories.length === 0) {

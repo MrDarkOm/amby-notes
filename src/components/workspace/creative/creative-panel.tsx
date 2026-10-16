@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   Feather,
   Loader2,
   Plus,
@@ -11,12 +12,7 @@ import {
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { MotionSpinner } from "@/lib/motion"
-import {
-  addStoryLinks,
-  createWorkshopEntity,
-  type ProjectDiagnostic,
-  type WorkshopSummary,
-} from "@/lib/storage"
+import { createWorkshopEntity, type ProjectDiagnostic, type WorkshopSummary } from "@/lib/storage"
 import type { PanelRenderProps } from "../panel-registry"
 import { useDatabaseStore } from "../database/database-store"
 import { PanelHeader } from "../panels/panel-header"
@@ -32,12 +28,12 @@ import { CreateSectionDialog } from "./create-section-dialog"
 import { useCreativeNavStore } from "./creative-nav-store"
 import { useCreativeSettingsStore } from "./creative-settings-store"
 import { readWorkshopPrefs, writeWorkshopPrefs, type WorkshopPrefs } from "./creative-scope-storage"
-import { linkLabels } from "./project-labels"
 import { projectErrorText } from "./project-error"
-import { writeStoryUniverseLink } from "./story-universe-link"
 import { useProjectStore } from "./project-store"
+import { standaloneTargetId, universeTargetId } from "./project-tree-model"
 import { sectionRoleIcon } from "./section-icons"
 import { useCompleteWorkshop } from "./use-complete-workshop"
+import { useStoryLinks } from "./use-story-links"
 import { hasGaps, workshopGaps } from "./workshop-gaps"
 import { WorkshopInitScreen } from "./workshop-init-screen"
 import { resolveWorkshopPlace } from "./workshop-location"
@@ -339,28 +335,8 @@ export function CreativePanel({
     }
   }
 
-  // One operation ID per link intent, so a retry of the same request is answered from the record.
-  const linkOperations = React.useRef(new Map<string, string>())
-  /** Adds the link property to a section and reads the catalog again; rejects on failure. */
-  const addLinks = async (target: WorkshopSummary, sectionId: string, generation: number) => {
-    const key = `${target.workshopId}:${target.fileRevision}:${sectionId}`
-    let operationId = linkOperations.current.get(key)
-    if (!operationId) {
-      operationId = `links-${crypto.randomUUID()}`
-      linkOperations.current.set(key, operationId)
-    }
-    const added = await addStoryLinks({
-      expectedGeneration: generation,
-      operationId,
-      workshopId: target.workshopId,
-      expectedWorkshopRevision: target.fileRevision,
-      sectionId,
-      labels: linkLabels(t),
-    })
-    await onCreativeChanged?.()
-    await useProjectStore.getState().refresh?.()
-    return added
-  }
+  // The writes that link a section to the stories and a story to a universe.
+  const { addLinks, putStoryInUniverse } = useStoryLinks(onCreativeChanged)
   /** Links a section of an older workshop and reads the catalog again; rejects on failure. */
   const linkSection = async (target: WorkshopSummary, sectionId: string) => {
     if (vaultGeneration === null) return
@@ -368,9 +344,8 @@ export function CreativePanel({
   }
 
   /**
-   * A story made while a universe is chosen is in it from the start: the "Universe" relation of its
-   * card is written (after the section's relation is made, for a workshop that has none). A failure
-   * never undoes the story: it stays, under "Standalone stories", and the author is told why.
+   * A story made while a universe is chosen is in it from the start. A failure never undoes the
+   * story: it stays, under "Standalone stories", and the author is told why.
    */
   const linkNewStory = async (
     created: CreatedItemResult,
@@ -378,26 +353,7 @@ export function CreativePanel({
     workshopId: string,
   ) => {
     try {
-      if (vaultGeneration === null) throw new Error(t("creative.errors.projectNotFound"))
-      const workshopNow = () =>
-        useProjectStore.getState().catalog?.workshops.find((w) => w.workshopId === workshopId)
-      const current = workshopNow()
-      const stories = current?.sections.find((s) => s.role === "stories" && s.state !== "missing")
-      if (!current || !stories) throw new Error(t("creative.errors.projectNotFound"))
-      const propertyId =
-        stories.universePropertyId ??
-        (await addLinks(current, stories.id, vaultGeneration)).propertyId
-      const cardNoteId =
-        created.cardNoteId ??
-        workshopNow()?.stories.find((story) => story.storyId === created.id)?.cardNoteId
-      if (!cardNoteId) throw new Error(t("creative.errors.projectNotFound"))
-      await writeStoryUniverseLink({
-        vaultGeneration,
-        databaseId: stories.databaseId,
-        cardNoteId,
-        propertyId,
-        universeId,
-      })
+      await putStoryInUniverse(created, universeId, workshopId)
       // Shown at once: the lists read the cards again, and the story is not "outside" meanwhile.
       const nav = useCreativeNavStore.getState()
       nav.setFreshStoryId(created.id)
@@ -427,20 +383,37 @@ export function CreativePanel({
     }
   }
 
+  const settingsButton = onOpenSettings ? (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      title={t("activityBar.creativeSettings")}
+      aria-label={t("activityBar.creativeSettings")}
+      onClick={() => onOpenSettings({ section: "modules", moduleId: "creative" })}
+    >
+      <Settings className="size-4" />
+    </Button>
+  ) : undefined
+  // The workshop's own page (every section, the whole workshop) is reached from its title.
   const header = (
     <PanelHeader
       title={t("panels.creative")}
       actions={
-        onOpenSettings ? (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            title={t("activityBar.creativeSettings")}
-            aria-label={t("activityBar.creativeSettings")}
-            onClick={() => onOpenSettings({ section: "modules", moduleId: "creative" })}
-          >
-            <Settings className="size-4" />
-          </Button>
+        workshop || settingsButton ? (
+          <>
+            {workshop && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title={t("creative.workshop.openWorkshop")}
+                aria-label={t("creative.workshop.openWorkshop")}
+                onClick={() => openProject(workshop.workshopId)}
+              >
+                <ExternalLink className="size-4" />
+              </Button>
+            )}
+            {settingsButton}
+          </>
         ) : undefined
       }
     />
@@ -567,7 +540,11 @@ export function CreativePanel({
               : () => setNewProject({ workshop, kind: "universe", kinds: ["universe"] })
           }
           onOpenTarget={() =>
-            openProject(activeUniverseId ? `universe:${activeUniverseId}` : workshop.workshopId)
+            openProject(
+              activeUniverseId
+                ? universeTargetId(activeUniverseId)
+                : standaloneTargetId(workshop.workshopId),
+            )
           }
         />
       </div>
@@ -603,7 +580,7 @@ export function CreativePanel({
               ? { universeId: activeUniverseId, workshopId: target.workshopId }
               : null
           void afterWrite(
-            created.kind === "universe" ? `universe:${created.id}` : created.id,
+            created.kind === "universe" ? universeTargetId(created.id) : created.id,
             undefined,
             created.kind === "universe" ? target?.workshopId : undefined,
             intoUniverse

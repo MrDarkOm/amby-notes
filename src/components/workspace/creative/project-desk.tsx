@@ -9,7 +9,6 @@ import {
   type DatabaseRow,
   type StorySummary,
   type TextPageStat,
-  type WorkshopSectionSummary,
   type WorkshopSummary,
 } from "@/lib/storage"
 import { compileManuscript, ManuscriptReadError } from "@/lib/storage/manuscript-compiler"
@@ -34,7 +33,13 @@ import {
   textOrder,
   type TextNode,
 } from "./workshop/text-tree-model"
-import { buildMembership, entityItemsOf, scopeEntities } from "./workshop/workshop-model"
+import { useCreateInScope } from "./workshop/use-create-in-scope"
+import {
+  buildMembership,
+  entityItemsOf,
+  scopeEntities,
+  scopeSections,
+} from "./workshop/workshop-model"
 
 const CONTINUE_COUNT = 3
 
@@ -46,14 +51,13 @@ interface ProjectDeskProps {
   /** Needed to read the pages for the manuscript; without it the button is not offered. */
   vaultPath: string | null
   onOpenNote: (noteId: string) => void
-  /** Opens a section as a table: the story's own, or a shared one of its universe. */
-  onOpenSection?: (ownerId: string, sectionId: string) => void
-}
-
-/** A section shown as a card of the desk, with the workshop whose folder holds it. */
-interface DeskSection {
-  owner: WorkshopSummary
-  section: WorkshopSectionSummary
+  /** Opens a section's list for this story. */
+  onOpenSection?: (sectionId: string) => void
+  /**
+   * The words and times of the story's pages, when the page above the desk already read them (its
+   * header counts them); without it the desk reads them itself.
+   */
+  stats?: Record<string, TextPageStat>
 }
 
 interface PartProgress {
@@ -103,6 +107,7 @@ export function ProjectDesk({
   vaultPath,
   onOpenNote,
   onOpenSection,
+  stats: givenStats,
 }: ProjectDeskProps) {
   const { t } = useTranslation()
   const catalog = useProjectStore((state) => state.catalog)
@@ -119,25 +124,28 @@ export function ProjectDesk({
   const dataNonce = useCreativeNavStore((state) => state.dataNonce)
   const bumpData = useCreativeNavStore((state) => state.bumpData)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
-  // The cards beside the text: the workshop's sections
-  const cards = React.useMemo<DeskSection[]>(() => {
-    if (!resolvedWorkshop) return []
-    return resolvedWorkshop.sections
-      .filter(
-        (section) =>
-          section.state !== "missing" && section.role !== "stories" && section.role !== "text",
-      )
-      .map((section) => ({ owner: resolvedWorkshop, section }))
-  }, [resolvedWorkshop])
+  // The cards beside the text: the lists of the workshop that can hold a page of this story.
+  const cards = React.useMemo<WorldCard[]>(
+    () =>
+      resolvedWorkshop
+        ? scopeSections(resolvedWorkshop).map((section) => ({
+            owner: resolvedWorkshop,
+            section,
+            rows: [],
+          }))
+        : [],
+    [resolvedWorkshop],
+  )
   const databaseIds = React.useMemo(
     () => [...(databaseId ? [databaseId] : []), ...cards.map((card) => card.section.databaseId)],
     [cards, databaseId],
   )
   const data = useDatabaseRows(databaseIds, dataNonce)
-  const stats = useTextStats(databaseId, dataNonce)
+  const ownStats = useTextStats(givenStats ? null : databaseId, dataNonce)
+  const stats = givenStats ?? ownStats
 
   // The pages beside the text are those that belong to this story: its "Stories" relation names
-  // its card, or its text names them. The sections of the universes are not filtered.
+  // its card, or its text names them.
   const worldCards = React.useMemo<WorldCard[]>(() => {
     const membership = buildMembership({
       stories: resolvedStory ? [resolvedStory] : [],
@@ -146,7 +154,7 @@ export function ProjectDesk({
     })
     return cards.map(({ owner, section }) => {
       const rows = data.rows[section.databaseId] ?? []
-      if (!resolvedStory || section.role === "universes") return { owner, section, rows }
+      if (!resolvedStory) return { owner, section, rows }
       const keep = new Set(
         scopeEntities(
           entityItemsOf(rows, section.databaseId, owner.workshopId),
@@ -157,6 +165,10 @@ export function ProjectDesk({
       return { owner, section, rows: rows.filter((row) => keep.has(row.noteId)) }
     })
   }, [cards, data.rows, resolvedStory, resolvedWorkshop?.sections])
+  const createFor = useCreateInScope(
+    resolvedWorkshop,
+    resolvedStory ? { kind: "story", storyId: resolvedStory.storyId } : null,
+  )
   const [compile, setCompile] = React.useState<Compile>({ status: "idle" })
 
   const rows: DatabaseRow[] | undefined = databaseId ? data.rows[databaseId] : undefined
@@ -165,10 +177,6 @@ export function ProjectDesk({
     [text, rows],
   )
   const all = React.useMemo(() => flatten(roots), [roots])
-  const totalWords = React.useMemo(
-    () => roots.reduce((total, node) => total + wordsOf(node, stats), 0),
-    [roots, stats],
-  )
   const parts = React.useMemo<PartProgress[]>(
     () =>
       roots.map((node) => ({
@@ -278,8 +286,6 @@ export function ProjectDesk({
         ).length
       : null
   const tiles: { label: string; value: number | string }[] = [
-    { label: t("creative.page.desk.pages"), value: all.length },
-    { label: t("creative.page.desk.words"), value: totalWords },
     ...(donePages !== null
       ? [
           {
@@ -304,8 +310,8 @@ export function ProjectDesk({
             <p className="text-xs text-muted-foreground">{t("creative.page.desk.continue")}</p>
             {latest ? (
               <>
-                <h2 className="truncate text-xl font-semibold tracking-tight">{latest.title}</h2>
-                <p className="truncate text-xs text-muted-foreground">
+                <h2 className="break-words text-xl font-semibold tracking-tight">{latest.title}</h2>
+                <p className="break-words text-xs text-muted-foreground">
                   {[
                     latestLevel?.name,
                     formatModified(stats[latest.noteId]?.modified ?? undefined),
@@ -360,7 +366,7 @@ export function ProjectDesk({
                     className="size-4"
                   />
                 </span>
-                <span className="min-w-0 truncate font-medium">{node.title}</span>
+                <span className="min-w-0 break-words font-medium">{node.title}</span>
                 <span className="shrink-0 text-muted-foreground">
                   {formatModified(stats[node.noteId]?.modified ?? undefined)}
                 </span>
@@ -380,16 +386,18 @@ export function ProjectDesk({
         )}
       </section>
 
-      <dl className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {tiles.map((tile) => (
-          <div key={tile.label} className="rounded-2xl bg-accent/50 px-4 py-3">
-            <dt className="text-xs text-muted-foreground">{tile.label}</dt>
-            <dd className="text-2xl font-semibold tabular-nums tracking-tight">
-              {typeof tile.value === "number" ? tile.value.toLocaleString() : tile.value}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      {tiles.length > 0 && (
+        <dl className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          {tiles.map((tile) => (
+            <div key={tile.label} className="min-w-0 rounded-2xl bg-accent/50 px-4 py-3">
+              <dt className="text-xs text-muted-foreground">{tile.label}</dt>
+              <dd className="text-2xl font-semibold tabular-nums tracking-tight">
+                {typeof tile.value === "number" ? tile.value.toLocaleString() : tile.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
 
       {ribbon && (
         <section aria-label={t("creative.plot.ribbon.title")} className={card}>
@@ -424,7 +432,7 @@ export function ProjectDesk({
                     className="flex w-full flex-col gap-1.5 rounded-lg px-2 py-1.5 text-left hover:bg-accent"
                   >
                     <span className="flex items-baseline justify-between gap-3 text-sm">
-                      <span className="min-w-0 truncate font-medium">{part.node.title}</span>
+                      <span className="min-w-0 break-words font-medium">{part.node.title}</span>
                       <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                         {t("creative.page.desk.partTotals", {
                           pages: part.pages,
@@ -462,7 +470,7 @@ export function ProjectDesk({
                                   pageStatusDotClass(statusOptions, child.statusOptionId, words),
                                 )}
                               />
-                              <span className="min-w-0 flex-1 truncate">{child.title}</span>
+                              <span className="min-w-0 flex-1 break-words">{child.title}</span>
                               <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
                                 {words.toLocaleString()}
                               </span>
@@ -487,7 +495,10 @@ export function ProjectDesk({
             loading={data.status === "loading"}
             vaultGeneration={vaultGeneration}
             onOpenNote={onOpenNote}
-            onOpenSection={onOpenSection}
+            onOpenSection={
+              onOpenSection ? (_ownerId, sectionId) => onOpenSection(sectionId) : undefined
+            }
+            createFor={(card) => createFor(card.section)}
           />
         </div>
       </div>
