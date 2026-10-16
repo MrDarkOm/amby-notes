@@ -1,0 +1,21 @@
+# Files that live only on the dev branch: instructions for AI agents, code maps and working
+# plans. `npm run promote` removes them when dev is promoted to beta, so beta and main carry
+# only the product. One git pathspec per line; blank lines and lines starting with # are skipped.
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.aiignore
+.vscode
+:(glob)**/MAP.md
+docs/agent-guidelines.md
+docs/agent-context.md
+docs/claude-handoff.md
+docs/Road
+docs/archive
+docs/editor-audit-2026-10
+docs/excalidraw-canvas-claude-plan.md
+docs/creative-workshop-plan.md
+docs/notion-database-parity-audit-2026-09-30.md
+docs/windows-audit-2026-09-28.md
+docs/storage-issues-audit.md
+docs/IDEAS.md

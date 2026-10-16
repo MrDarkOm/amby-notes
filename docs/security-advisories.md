@@ -35,6 +35,17 @@ Browser checks covered Excalidraw element creation, drawing, JSON restoration, A
 
 The updated lockfile was compared locally against the findings of the earlier npm audit. A fresh npm audit has not run: it requires sending dependency names and versions to registry.npmjs.org, and that transfer is awaiting explicit authorization. The package updates are not evidence of a clean, current, whole-tree npm audit. No additional Rust advisory exceptions were added.
 
+## Dependency remediation — 2026-10-16
+
+Found by the release gate of 0.1.8 (`npm run audit`), fixed before the release:
+
+- [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) (`braces`, every version): reached only through Excalidraw's `sass` 1.51 → `chokidar` 3. A scoped override selects `sass` 1.105.2, whose `chokidar` 5 does not use `braces`. Excalidraw ships prebuilt styles and does not run `sass` in the app.
+- [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7) (KaTeX ≤ 0.18.1): KaTeX is a direct dependency (formulas in Live) and Mermaid's; both resolve to 0.18.10 (`mermaid` override `"katex": "$katex"`). Formula rendering was checked in the editor: inline formulas and fractions render with no KaTeX errors; all unit tests pass.
+- [GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q) (`source-map-js` ≤ 1.2.1): lockfile update to 1.2.2.
+- RUSTSEC-2026-0338 to RUSTSEC-2026-0342 (`quinn-proto`) and RUSTSEC-2026-0346 to RUSTSEC-2026-0349 (`rustls`): compatible lockfile updates to `quinn-proto` 0.11.19 and `rustls` 0.23.46.
+
+`npm audit --omit=dev` reports no vulnerabilities; `npm run audit:rust` passes with the two allowed warnings (unmaintained `unsafe-libyaml`, yanked `zip` 4.6.1).
+
 ## Known limitation — Windows system trash
 
 `DeleteMode::System` uses `SHFileOperationW` with `FOF_ALLOWUNDO | FOF_NOCONFIRMATION`.
