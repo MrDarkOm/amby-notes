@@ -6,6 +6,13 @@ import process from "node:process"
 import { fileURLToPath, URL } from "node:url"
 
 const root = fileURLToPath(new URL("../", import.meta.url))
+
+// The code maps and agent guides live only in local working copies (they are not published),
+// so a clean checkout such as CI has nothing to check.
+if (!existsSync(path.join(root, "MAP.md")) && !existsSync(path.join(root, "AGENTS.md"))) {
+  console.log("Project navigation: no local maps in this checkout, nothing to check.")
+  process.exit(0)
+}
 const skipped = new Set(["node_modules", "target", "dist", ".git"])
 const maps = ["MAP.md"]
 const errors = []

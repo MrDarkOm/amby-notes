@@ -36,6 +36,9 @@ jobs:
       - run: npm run version:check
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+      - name: Release notes exist (updates/upd_<version>.md)
+        shell: bash
+        run: test -s "updates/upd_${GITHUB_REF_NAME#v}.md"
       - run: npm run verify:full
       - run: npm run audit
 
@@ -92,6 +95,20 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
 
+      # The text of the release and of the in-app update: the version's notes without their
+      # title line (the title is the release name), then the shared installation footer.
+      - name: Release notes
+        id: notes
+        shell: bash
+        run: |
+          {
+            echo "body<<AMBY_RELEASE_NOTES"
+            tail -n +2 "updates/upd_${GITHUB_REF_NAME#v}.md"
+            echo
+            cat updates/release-footer.md
+            echo "AMBY_RELEASE_NOTES"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -100,7 +117,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Amby v__VERSION__
-          releaseBody: Signed installers and automatic-update metadata for Amby v__VERSION__.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}

@@ -100,5 +100,4 @@
 - Замер в релизной сборке, 300 историй по 50 страниц: первое открытие ~3,3 с, повторное ~2,2 с
   (`docs/performance-baseline.md`).
 - `AmbySelect`: `renderValue`, `action`, `onOpenChange`, `listWidth`, `chevronClassName`.
-- Исправлен тест, падавший в CI на Windows при уборке временной папки; сервер разработки снова подхватывает
-  правки, запущенный из `.claude/worktrees/…`.
+- Исправлен тест, падавший в CI на Windows при уборке временной папки.
