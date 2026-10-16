@@ -173,8 +173,13 @@ describe("Backspace at the start of a heading", () => {
     expect(result.state.selection.$from.parentOffset).toBe(0)
   })
 
-  it("leaves text above to the ordinary Backspace, which joins the lines", () => {
-    expect(run(backspaceAtHeadingStart, at("Above\n\n# Title")).handled).toBe(false)
+  it("turns the heading into a paragraph when text is above it; the next Backspace joins them", () => {
+    const first = run(backspaceAtHeadingStart, at("Above\n\n# Title"))
+    expect(first.handled).toBe(true)
+    expect(docToMarkdown(first.state.doc)).toBe("Above\n\nTitle")
+    expect(first.state.selection.$from.parentOffset).toBe(0)
+    // Now a paragraph: the rule steps aside for the ordinary Backspace.
+    expect(run(backspaceAtHeadingStart, first.state).handled).toBe(false)
   })
 
   it("turns the first heading of the note into a paragraph: there is nothing above to remove", () => {
@@ -189,11 +194,12 @@ describe("Backspace at the start of a heading", () => {
     expect(run(backspaceAtHeadingStart, open("Text", 1)).handled).toBe(false)
   })
 
-  it("is what the Backspace key does in the editor: text above joins, the heading stays a block", () => {
+  it("is what the Backspace key does: first a paragraph, then joined to the text above", () => {
     const target = mount("Above\n\n# Title")
     target.commands.setTextSelection(8)
     expect(press(target, "Backspace")).toBe(true)
-    // Deleting the line break joins the heading's text to the line above, as in any editor.
+    expect(docToMarkdown(target.state.doc)).toBe("Above\n\nTitle")
+    expect(press(target, "Backspace")).toBe(true)
     expect(docToMarkdown(target.state.doc)).toBe("AboveTitle")
   })
 })
