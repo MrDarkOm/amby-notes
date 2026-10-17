@@ -4755,3 +4755,132 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
     min-height: 60px;
   }
 }
+
+/* Link graph settings: range sliders with a pill thumb over a filled track. */
+.amby-graph-slider {
+  outline: none;
+}
+.amby-graph-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 22px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  cursor: pointer;
+}
+.amby-graph-slider::-moz-range-thumb {
+  width: 22px;
+  height: 14px;
+  border-radius: 9999px;
+  background: #fff;
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  cursor: pointer;
+}
+.amby-graph-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px hsl(var(--ring));
+}
+
+/*
+ * Link graph scene. Zoom, label fade and hover dimming are driven by the variables the view
+ * sets on the <svg>, so panning and hovering never re-render the nodes.
+ */
+.amby-graph {
+  --graph-dim: 1;
+  --graph-label-opacity: 1;
+  --graph-label-display: inline;
+  --graph-font: 11px;
+  --graph-stroke: 1.2px;
+  cursor: grab;
+}
+.amby-graph[data-panning] {
+  cursor: grabbing;
+}
+.amby-graph line {
+  stroke-width: var(--graph-stroke);
+}
+.amby-graph .graph-edge {
+  stroke: hsl(var(--foreground) / 0.16);
+}
+.amby-graph .graph-edge-unresolved {
+  stroke: hsl(var(--foreground) / 0.08);
+}
+.amby-graph .graph-arrow {
+  fill: hsl(var(--foreground) / 0.35);
+}
+/* Nodes are opaque: mixed with the surface instead of see-through, so links pass under them. */
+.amby-graph .graph-node-note {
+  fill: color-mix(in srgb, hsl(var(--foreground)) 62%, var(--note-surface));
+}
+.amby-graph .graph-node-missing {
+  fill: color-mix(in srgb, hsl(var(--foreground)) 28%, var(--note-surface));
+}
+.amby-graph .graph-node-tag {
+  fill: #10b981;
+}
+.amby-graph .graph-node-attachment {
+  fill: #f59e0b;
+}
+/* A halo in the surface colour keeps a label readable where a link crosses it. */
+.amby-graph text {
+  display: var(--graph-label-display);
+  opacity: var(--graph-label-opacity);
+  font-size: var(--graph-font);
+  font-weight: 500;
+  fill: hsl(var(--foreground) / 0.82);
+  stroke: var(--note-surface);
+  stroke-width: calc(var(--graph-font) * 0.28);
+  stroke-linejoin: round;
+  paint-order: stroke;
+  pointer-events: none;
+  translate: 0 var(--graph-gap, 0);
+}
+.amby-graph [data-dim] {
+  opacity: var(--graph-dim);
+}
+.amby-graph text[data-dim] {
+  opacity: calc(var(--graph-dim) * var(--graph-label-opacity));
+}
+.amby-graph line[data-lit] {
+  stroke: hsl(var(--primary));
+  stroke-width: calc(var(--graph-stroke) * 1.6);
+}
+.amby-graph g[data-hovered] > circle {
+  fill: hsl(var(--primary)) !important;
+}
+/* Hover swell: the circle scales around its centre and the label moves down with its rim. */
+.amby-graph g[data-hovered] > circle {
+  transform: scale(var(--graph-grow, 1));
+}
+.amby-graph g[data-leaving] > circle {
+  transform: scale(var(--graph-shrink, 1));
+}
+.amby-graph text[data-hovered] {
+  translate: 0 calc(var(--graph-gap, 0px) + (var(--graph-grow, 1) - 1) * var(--graph-r, 0) * 1px);
+  font-size: calc(var(--graph-font) * (1 + (var(--graph-grow, 1) - 1) * 0.4));
+}
+.amby-graph text[data-leaving] {
+  translate: 0 calc(var(--graph-gap, 0px) + (var(--graph-shrink, 1) - 1) * var(--graph-r, 0) * 1px);
+  font-size: calc(var(--graph-font) * (1 + (var(--graph-shrink, 1) - 1) * 0.4));
+}
+.amby-graph text[data-focus],
+.amby-graph text[data-near],
+.amby-graph text[data-hovered] {
+  display: inline;
+  opacity: 1;
+}
+.amby-graph text[data-focus] {
+  fill: hsl(var(--primary));
+}
+.amby-graph text[data-hovered] {
+  fill: hsl(var(--foreground));
+  font-weight: 600;
+}
+
+/* A barely visible backing in the surface colour keeps nodes from showing through the graph's buttons. */
+.amby-graph-toolbar {
+  background: color-mix(in srgb, var(--note-surface) 88%, transparent);
+  backdrop-filter: blur(6px);
+}

@@ -5,6 +5,9 @@ import { logger } from "@/lib/logger"
 export type TabKind =
   "document" | "folder" | "graph" | "canvas" | "database" | "sketch" | "creative"
 
+/** The link graph is a page of its own: it has no file, so tabs and history name it by this id. */
+export const GRAPH_TAB_FILE_ID = "__graph__"
+
 export interface Tab {
   key: string
   kind: TabKind
@@ -15,7 +18,7 @@ export interface Tab {
 }
 
 export type TabTarget = Pick<Tab, "fileId" | "title"> & {
-  kind: Exclude<TabKind, "graph" | "creative">
+  kind: Exclude<TabKind, "creative">
 }
 
 type Updater<T> = T | ((prev: T) => T)
@@ -109,8 +112,7 @@ export const useTabsStore = create<TabsStore>((set) => ({
         if (active) {
           const history = active.history.length
             ? active.history.slice(0, active.historyIndex + 1)
-            : active.kind === "graph" ||
-                active.kind === "database" ||
+            : active.kind === "database" ||
                 active.kind === "canvas" ||
                 active.kind === "sketch" ||
                 active.kind === "creative"

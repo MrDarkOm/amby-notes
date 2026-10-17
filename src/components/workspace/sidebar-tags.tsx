@@ -10,6 +10,7 @@ import type { TreeItem } from "./sidebar-tree"
 import { extractObsidianTags } from "./markdown-tags"
 import { isTauri, listTags } from "@/lib/storage"
 import { PanelHeader, PanelSearch } from "./panels/panel-header"
+import { useTagFocusStore } from "./tags/tag-focus-store"
 
 interface TagEntry {
   tag: string
@@ -105,6 +106,18 @@ export function SidebarTags({ items, onSelect, readFile, vault }: SidebarTagsPro
       cancelled = true
     }
   }, [items, readFile, vault])
+
+  // A tag clicked elsewhere is searched for here and unfolded once the tags are known.
+  const pendingFocus = useTagFocusStore((s) => s.pending)
+  React.useEffect(() => {
+    if (pendingFocus === null) return
+    setQuery(pendingFocus)
+    if (loading || tags.length === 0) return
+    const wanted = pendingFocus.toLocaleLowerCase()
+    const match = tags.find((entry) => entry.tag.toLocaleLowerCase() === wanted)
+    if (match) setOpenTags((prev) => new Set(prev).add(match.tag))
+    useTagFocusStore.getState().clear()
+  }, [loading, pendingFocus, tags])
 
   function toggleTag(tag: string) {
     setOpenTags((prev) => {

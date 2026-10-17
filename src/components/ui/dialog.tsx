@@ -50,9 +50,10 @@ function DialogContent({
   children,
   showCloseButton = true,
   ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
-  showCloseButton?: boolean
-}) {
+}: React.ComponentProps<typeof DialogPrimitive.Content> &
+  Pick<React.ComponentProps<typeof MotionDialogContent>, "initial" | "transition"> & {
+    showCloseButton?: boolean
+  }) {
   const verticalOffset =
     typeof className === "string" && className.includes("translate-y-0") ? 0 : "-50%"
 

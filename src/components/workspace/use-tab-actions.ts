@@ -1,4 +1,5 @@
-import { useTabsStore, type Tab } from "./use-tabs-store"
+import i18n from "@/lib/i18n"
+import { GRAPH_TAB_FILE_ID, useTabsStore, type Tab, type TabTarget } from "./use-tabs-store"
 import { findTabTreeItem, treeItemTabTarget } from "./tab-target"
 import type { TreeItem } from "./sidebar-tree"
 import { flushEditorSerializations } from "./tiptap/editor-serialization-lifecycle"
@@ -37,36 +38,37 @@ export function useTabActions({
 }: UseTabActionsParams) {
   const { setTabs, setActiveTabKey, setSecondaryTabKey } = useTabsStore.getState()
 
+  /** A history entry is a file of the tree or the link graph, which has no file. */
+  function historyTarget(fileId: string): TabTarget | null {
+    if (fileId === GRAPH_TAB_FILE_ID)
+      return { kind: "graph", fileId, title: i18n.t("workspace.graphTab") }
+    const item = findTabTreeItem(treeItems, fileId)
+    return item ? treeItemTabTarget(item) : null
+  }
+
+  function goToHistoryIndex(newIndex: number) {
+    if (!activeTab) return
+    flushEditorSerializations()
+    const fileId = activeTab.history[newIndex]
+    const target = fileId ? historyTarget(fileId) : null
+    if (!target) return
+    setTabs((prev) =>
+      prev.map((t) => (t.key !== activeTabKey ? t : { ...t, ...target, historyIndex: newIndex })),
+    )
+    // A split pairs two documents, so it ends when this tab turns into another kind of page.
+    if (target.kind !== "document" && secondaryTabKey === activeTabKey) setSecondaryTabKey(null)
+    if (target.kind !== "graph") navigateToFile(fileId)
+    onTabUsageChanged?.()
+  }
+
   function handleBack() {
     if (!activeTab || !canGoBack) return
-    flushEditorSerializations()
-    const newIndex = activeTab.historyIndex - 1
-    const prevFileId = activeTab.history[newIndex]
-    const item = findTabTreeItem(treeItems, prevFileId)
-    if (!item) return
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.key !== activeTabKey ? t : { ...t, ...treeItemTabTarget(item), historyIndex: newIndex },
-      ),
-    )
-    navigateToFile(prevFileId)
-    onTabUsageChanged?.()
+    goToHistoryIndex(activeTab.historyIndex - 1)
   }
 
   function handleForward() {
     if (!activeTab || !canGoForward) return
-    flushEditorSerializations()
-    const newIndex = activeTab.historyIndex + 1
-    const nextFileId = activeTab.history[newIndex]
-    const item = findTabTreeItem(treeItems, nextFileId)
-    if (!item) return
-    setTabs((prev) =>
-      prev.map((t) =>
-        t.key !== activeTabKey ? t : { ...t, ...treeItemTabTarget(item), historyIndex: newIndex },
-      ),
-    )
-    navigateToFile(nextFileId)
-    onTabUsageChanged?.()
+    goToHistoryIndex(activeTab.historyIndex + 1)
   }
 
   const handleTabChange = (key: string) => {

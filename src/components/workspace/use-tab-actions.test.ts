@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest"
 import { collectDocumentBufferUsage } from "./document-buffer-lifecycle"
 import { useTabActions } from "./use-tab-actions"
-import { useTabsStore, type Tab } from "./use-tabs-store"
+import { GRAPH_TAB_FILE_ID, useTabsStore, type Tab } from "./use-tabs-store"
 import type { TreeItem } from "./sidebar-tree"
 
 const tab = (key: string, fileId: string): Tab => ({
@@ -126,5 +126,51 @@ describe("useTabActions buffer ownership", () => {
     })
     expect(useTabsStore.getState().tabs).toHaveLength(1)
     expect(loaded).toEqual(["folder", "note", "folder", history[2]])
+  })
+
+  it("passes through the link graph: note → graph → note and back again", () => {
+    const treeItems: TreeItem[] = [
+      { id: "first", path: "/vault/First.md", name: "First", type: "file" },
+      { id: "second", path: "/vault/Second.md", name: "Second", type: "file" },
+    ]
+    useTabsStore.setState({ tabs: [tab("active", "first")], activeTabKey: "active" })
+    const { openItem } = useTabsStore.getState()
+    openItem({ kind: "graph", fileId: GRAPH_TAB_FILE_ID, title: "Graph" })
+    openItem({ kind: "document", fileId: "second", title: "Second" })
+    expect(useTabsStore.getState().tabs[0]).toMatchObject({
+      history: ["first", GRAPH_TAB_FILE_ID, "second"],
+      historyIndex: 2,
+    })
+
+    const loaded: string[] = []
+    function useHistoryActions() {
+      const state = useTabsStore.getState()
+      const active = state.tabs[0]
+      return useTabActions({
+        ...state,
+        activeTab: active,
+        treeItems,
+        canGoBack: active.historyIndex > 0,
+        canGoForward: active.historyIndex < active.history.length - 1,
+        navigateToFile: async (id) => {
+          loaded.push(id)
+        },
+      })
+    }
+    useHistoryActions().handleBack()
+    expect(useTabsStore.getState().tabs[0]).toMatchObject({
+      kind: "graph",
+      fileId: GRAPH_TAB_FILE_ID,
+      historyIndex: 1,
+    })
+    useHistoryActions().handleBack()
+    expect(useTabsStore.getState().tabs[0]).toMatchObject({ kind: "document", fileId: "first" })
+    useHistoryActions().handleForward()
+    expect(useTabsStore.getState().tabs[0]).toMatchObject({ kind: "graph" })
+    useHistoryActions().handleForward()
+    expect(useTabsStore.getState().tabs[0]).toMatchObject({ kind: "document", fileId: "second" })
+    expect(useTabsStore.getState().tabs).toHaveLength(1)
+    // The graph has no file to load.
+    expect(loaded).toEqual(["first", "second"])
   })
 })

@@ -226,7 +226,17 @@ function TabItem({
       layout="position"
       initial={{ opacity: 0, scale: 0.9, y: -2 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.85, transition: { duration: 0.12 } }}
+      // A closing tab folds its width away in the normal flow, so its neighbours slide over at
+      // once and stay in the flow; nothing is lifted out with absolute positioning.
+      exit={{
+        opacity: 0,
+        width: 0,
+        minWidth: 0,
+        paddingLeft: 0,
+        paddingRight: 0,
+        marginRight: -4,
+        transition: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
+      }}
       transition={motionTransitions.reorder}
       onClick={() => onTabChange(tab.key)}
       onMouseEnter={() => setIsHovered(true)}
@@ -590,7 +600,7 @@ export function HeaderTabs({
         )}
       >
         <div className="flex h-full min-w-0 max-w-full items-center gap-1 overflow-hidden shrink">
-          <AnimatePresence initial={false} mode="popLayout">
+          <AnimatePresence initial={false}>
             {tabs.map((tab, index) => {
               const isSelected = activeTabKey === tab.key
               const nextTab = tabs[index + 1]
@@ -615,6 +625,7 @@ export function HeaderTabs({
         <motion.button
           type="button"
           title={t("tabs.newTab")}
+          data-spotlight-origin="new-tab"
           onClick={onOpenPlusModal}
           className={HEADER_ICON_BTN}
           whileHover={{ scale: 1.08 }}

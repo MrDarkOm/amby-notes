@@ -89,7 +89,7 @@ describe("ordinary item navigation", () => {
     expect(useTabsStore.getState().tabs[0].historyIndex).toBe(1)
   })
 
-  it("reuses a graph tab when a graph node is selected", () => {
+  it("keeps the graph in the tab history when a graph node is selected", () => {
     useTabsStore.setState({
       tabs: [
         {
@@ -105,7 +105,7 @@ describe("ordinary item navigation", () => {
     })
     useTabsStore.getState().openItem(targets[0])
     expect(useTabsStore.getState().tabs).toEqual([
-      { ...targets[0], key: "graph", history: [targets[0].fileId], historyIndex: 0 },
+      { ...targets[0], key: "graph", history: ["__graph__", targets[0].fileId], historyIndex: 1 },
     ])
   })
 

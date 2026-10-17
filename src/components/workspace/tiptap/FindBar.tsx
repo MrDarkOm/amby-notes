@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
 import { ChevronDown, ChevronUp, X } from "lucide-react"
 import type { Editor } from "@tiptap/react"
@@ -19,6 +20,11 @@ interface FindBarProps {
 /** The find bar of Live and Read: a field, the count, previous / next, close. */
 export function FindBar({ editor, initialQuery, request, onClose }: FindBarProps) {
   const { t } = useTranslation()
+  // The pane around the note's scroll area: the bar sits in its top-right corner, where it
+  // stays put while the note scrolls. An editor outside the document pane keeps the bar inline.
+  const [overlayHost] = React.useState(
+    () => editor.view.dom.closest<HTMLElement>(".amby-editor-scroll")?.parentElement ?? null,
+  )
   const inputRef = React.useRef<HTMLInputElement>(null)
   const [query, setQuery] = React.useState(initialQuery)
   const [, setVersion] = React.useState(0)
@@ -85,8 +91,14 @@ export function FindBar({ editor, initialQuery, request, onClose }: FindBarProps
   const buttonClass =
     "flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
 
-  return (
-    <div className="pointer-events-none sticky top-2 z-20 flex h-0 justify-end">
+  const bar = (
+    <div
+      className={
+        overlayHost
+          ? "pointer-events-none absolute top-2 right-4 z-20"
+          : "pointer-events-none sticky top-2 z-20 flex h-0 justify-end"
+      }
+    >
       <div
         role="search"
         className="amby-find-bar pointer-events-auto flex h-9 items-center gap-1 rounded-lg border border-border bg-popover px-2 text-foreground shadow-lg"
@@ -150,4 +162,6 @@ export function FindBar({ editor, initialQuery, request, onClose }: FindBarProps
       </div>
     </div>
   )
+
+  return overlayHost ? createPortal(bar, overlayHost) : bar
 }

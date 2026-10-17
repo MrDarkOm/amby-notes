@@ -20,6 +20,7 @@ import { useViewStateStore } from "../use-view-state-store"
 import { TreeNode } from "./tree-row"
 import { useTreeKeyboard } from "./use-tree-keyboard"
 import { useTreeDnd } from "./use-tree-dnd"
+import { useStableCallback } from "./use-stable-callback"
 
 export function SidebarTree({
   items,
@@ -50,6 +51,23 @@ export function SidebarTree({
   findActiveKey,
 }: SidebarTreeProps) {
   const { t } = useTranslation()
+  // Handlers reach the memoized rows with a fixed identity, so a workspace render (a tab
+  // switch, a keystroke elsewhere) no longer re-renders every visible row.
+  const stableOnSelect = useStableCallback(onSelect)
+  const stableOnRename = useStableCallback(onRename)
+  const stableOnDelete = useStableCallback(onDelete)
+  const stableOnDeleteMany = useStableCallback(onDeleteMany)
+  const stableOnNewFile = useStableCallback(onNewFile)
+  const stableOnAttachCanvas = useStableCallback(onAttachCanvas)
+  const stableOnAttachSketch = useStableCallback(onAttachSketch)
+  const stableOnOpenInNewTab = useStableCallback(onOpenInNewTab)
+  const stableOnOpenInNewWindow = useStableCallback(onOpenInNewWindow)
+  const stableOnCloneFile = useStableCallback(onCloneFile)
+  const stableOnOpenInExplorer = useStableCallback(onOpenInExplorer)
+  const stableOnSetIcon = useStableCallback(onSetIcon)
+  const stableOnContextMenuSelect = useStableCallback(onContextMenuSelect)
+  const stableOnToggleFavorite = useStableCallback(onToggleFavorite)
+  const stableOnAttachLayer = useStableCallback(onAttachLayer)
   const closedIds = useViewStateStore((s) => s.closedTreeIds)
   const toggleOpen = useViewStateStore((s) => s.toggleTreeItem)
   const rainbowTree = useSettingsStore((s) => s.prefs.rainbowTree)
@@ -140,9 +158,9 @@ export function SidebarTree({
 
       setSelectedIds(new Set([id]))
       selectionAnchorRef.current = id
-      onSelect(id)
+      stableOnSelect(id)
     },
-    [onSelect],
+    [stableOnSelect],
   )
 
   const handleKeyboardSelect = React.useCallback((id: string) => handleSelect(id), [handleSelect])
@@ -232,16 +250,16 @@ export function SidebarTree({
     (id: string) => {
       setSelectedIds(new Set([id]))
       selectionAnchorRef.current = id
-      onContextMenuSelect?.(id)
+      stableOnContextMenuSelect?.(id)
     },
-    [onContextMenuSelect],
+    [stableOnContextMenuSelect],
   )
   const handleFinishEdit = React.useCallback(
     (id: string, newName: string | null) => {
-      if (newName) onRename?.(id, newName)
+      if (newName) stableOnRename?.(id, newName)
       setEditingId(null)
     },
-    [onRename],
+    [stableOnRename],
   )
 
   return (
@@ -299,16 +317,16 @@ export function SidebarTree({
                   isKeyboardFocused={keyboardFocusId === row.item.id}
                   onKeyboardFocus={setKeyboardFocusId}
                   onSelect={handleSelect}
-                  onDelete={onDelete}
-                  onDeleteMany={onDeleteMany}
-                  onNewFile={onNewFile}
-                  onAttachCanvas={onAttachCanvas}
-                  onAttachSketch={onAttachSketch}
-                  onOpenInNewTab={onOpenInNewTab}
-                  onOpenInNewWindow={onOpenInNewWindow}
-                  onCloneFile={onCloneFile}
-                  onOpenInExplorer={onOpenInExplorer}
-                  onSetIcon={onSetIcon}
+                  onDelete={stableOnDelete}
+                  onDeleteMany={stableOnDeleteMany}
+                  onNewFile={stableOnNewFile}
+                  onAttachCanvas={stableOnAttachCanvas}
+                  onAttachSketch={stableOnAttachSketch}
+                  onOpenInNewTab={stableOnOpenInNewTab}
+                  onOpenInNewWindow={stableOnOpenInNewWindow}
+                  onCloneFile={stableOnCloneFile}
+                  onOpenInExplorer={stableOnOpenInExplorer}
+                  onSetIcon={stableOnSetIcon}
                   onContextMenuSelect={handleContextMenuSelect}
                   onPtrDragStart={onPtrDragStart}
                   isPtrDragSource={ptrDragSourceIds.has(row.item.id)}
@@ -316,8 +334,8 @@ export function SidebarTree({
                     ptrDrag?.targetId === row.item.id && ptrDrag.dropPosition === null
                   }
                   favorites={favorites}
-                  onToggleFavorite={onToggleFavorite}
-                  onAttachLayer={onAttachLayer}
+                  onToggleFavorite={stableOnToggleFavorite}
+                  onAttachLayer={stableOnAttachLayer}
                   canCreateDatabaseLayer={canCreateDatabaseLayer}
                   linkedLayersByDoc={linkedLayersByDoc}
                   canvasEnabled={canvasEnabled}

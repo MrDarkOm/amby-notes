@@ -686,7 +686,10 @@ export const TreeNode = React.memo(
   (prev, next) =>
     prev.item === next.item &&
     prev.level === next.level &&
-    prev.selectedIds === next.selectedIds &&
+    // The selection only matters to a row that is or was part of it (its own highlight and the
+    // context menu of a multi-selection); other rows skip the re-render a new set would cause.
+    (prev.selectedIds === next.selectedIds ||
+      (!prev.selectedIds.has(prev.item.id) && !next.selectedIds.has(next.item.id))) &&
     prev.isKeyboardFocused === next.isKeyboardFocused &&
     prev.isOpen === next.isOpen &&
     prev.isEditing === next.isEditing &&

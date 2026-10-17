@@ -31,13 +31,15 @@ import type { ActionContext, PanelRenderProps } from "./panel-registry"
 import { buttonsForSide } from "./panel-definitions"
 import { usePresets } from "./use-presets"
 import { useDocStore, type Document } from "./use-doc-store"
-import { useTabsStore, type Tab } from "./use-tabs-store"
+import { GRAPH_TAB_FILE_ID, useTabsStore, type Tab } from "./use-tabs-store"
 import { useVaultStore } from "./use-vault-store"
 import type { DocumentEditorProps, DocumentViewMode } from "./document-editor"
 import type { ContentWidth, WindowPreferences } from "./app-config"
 import { HeaderTabs, type HeaderTab } from "./header-tabs"
 import { QuickOpenModal } from "./quick-open-modal"
 import { SearchModal } from "./search-modal"
+import { SPOTLIGHT_ORIGIN } from "./spotlight-motion"
+import { spotlightCreateActions } from "./spotlight-create-actions"
 import { SettingsDialog } from "./settings-dialog"
 import { HelpModal, type HelpContext } from "./help-modal"
 import { WorkspaceProfileModal } from "./modules/workspace-profile-modal"
@@ -125,10 +127,11 @@ import { DATABASE_LAYER_CREATION_AVAILABLE } from "./modules"
 
 import { EmptyStateHeader, workspaceRelativePath } from "./vault/use-vault-session"
 import { useNoteWindows } from "./windows/use-note-windows"
+import { flushEditorSerializations } from "./tiptap/editor-serialization-lifecycle"
+import { useTagFocusStore } from "./tags/tag-focus-store"
 import { MotionSpinner } from "@/lib/motion"
 import { motionTransitions } from "@/lib/motion-config"
 
-const GRAPH_TAB_FILE_ID = "__graph__"
 const databaseContentWidthKey = (databaseId: string) => `database:${databaseId}`
 const EMPTY_CONTENT_WIDTHS: Record<string, ContentWidth> = {}
 const EMPTY_DATABASE_TITLE_LABELS: Record<string, string> = {}
@@ -211,8 +214,15 @@ const CachedDocumentEditor = React.memo(
     }
     const controls = controlsRef.current
 
+    // A hidden pane stays mounted and keeps its own scroll offset, so the saved position is
+    // applied only the first time a document is shown here. Re-applying it on every return to
+    // the tab used a position captured when the pane was created and jumped back to the top.
+    const restoredKeyRef = React.useRef<string | undefined>(undefined)
     React.useLayoutEffect(() => {
       if (!visible) return
+      const key = editorProps.scrollPositionKey ?? ""
+      if (restoredKeyRef.current === key) return
+      restoredKeyRef.current = key
       const top = Math.max(0, editorProps.scrollPosition ?? 0)
       const restore = () => {
         const element = editorRootRef.current?.querySelector<HTMLElement>(".amby-editor-scroll")
@@ -362,6 +372,7 @@ export function WorkspaceOrchestration() {
     setTreeItems,
     displayTreeItems,
     linkGraph,
+    refreshLinkGraph,
     loadVault,
     refreshTree,
     reloadVaultData,
@@ -554,25 +565,18 @@ export function WorkspaceOrchestration() {
   const canGoBack = (activeTab?.historyIndex ?? 0) > 0
   const canGoForward = activeTab ? activeTab.historyIndex < activeTab.history.length - 1 : false
 
+  /** Opens the tags panel with the tag searched and unfolded. */
+  function showTagInPanel(tag: string) {
+    useTagFocusStore.getState().focusTag(tag)
+    activatePanelAnywhere("tags")
+  }
+
+  // The graph opens in the current tab like a note, so Back and Forward pass through it.
   function openGraphTab() {
-    const existing = tabs.find((t) => t.kind === "graph")
-    if (existing) {
-      setActiveTabKey(existing.key)
-      return
-    }
-    const key = newTabKey()
-    setTabs((prev) => [
-      ...prev,
-      {
-        key,
-        kind: "graph",
-        fileId: GRAPH_TAB_FILE_ID,
-        title: t("workspace.graphTab"),
-        history: [],
-        historyIndex: 0,
-      },
-    ])
-    setActiveTabKey(key)
+    flushEditorSerializations()
+    useTabsStore
+      .getState()
+      .openItem({ kind: "graph", fileId: GRAPH_TAB_FILE_ID, title: t("workspace.graphTab") })
   }
 
   const openCreativeTab = React.useCallback(
@@ -1121,9 +1125,25 @@ export function WorkspaceOrchestration() {
     ],
   )
 
+  // Freeing the buffers of a closed note re-renders the workspace; it waits until the tab
+  // animation has played instead of stalling it. The release re-checks unsaved edits and
+  // recovery drafts when it runs, so the delay only postpones freeing memory.
+  const releaseBuffersRef = React.useRef(releaseUnusedDocumentBuffers)
+  releaseBuffersRef.current = releaseUnusedDocumentBuffers
+  const releaseTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  React.useEffect(
+    () => () => {
+      if (releaseTimerRef.current) clearTimeout(releaseTimerRef.current)
+    },
+    [],
+  )
   const handleTabUsageChanged = React.useCallback(() => {
-    void releaseUnusedDocumentBuffers()
-  }, [releaseUnusedDocumentBuffers])
+    if (releaseTimerRef.current) clearTimeout(releaseTimerRef.current)
+    releaseTimerRef.current = setTimeout(() => {
+      releaseTimerRef.current = null
+      void releaseBuffersRef.current()
+    }, 400)
+  }, [])
 
   const { handleBack, handleForward, handleTabChange, handleTabClose, handleCloseAllTabs } =
     useTabActions({
@@ -1473,6 +1493,23 @@ export function WorkspaceOrchestration() {
     () => activatePanelAnywhere("creative"),
     [activatePanelAnywhere],
   )
+  // Shown as icons next to "Create a new note" in the Spotlight window.
+  const quickOpenCreateActions = spotlightCreateActions({
+    t,
+    databasesEnabled,
+    canvasEnabled,
+    sketchEnabled,
+    onNewFolder: () => handleNewFolderIn(null),
+    onNewDatabase: () =>
+      void handleNewDatabase(
+        null,
+        // Made without asking for a name, so it must not collide with what is at the root.
+        nextAvailableNoteName(displayTreeItems, vault ?? "", t("defaults.untitled")),
+      ),
+    onNewCanvas: () => handleNewCanvasIn(null),
+    onNewSketch: () => handleNewSketchIn(null),
+  })
+
   const handleTreeSelect = useCollectionFolderSelect({
     enabled: databasesEnabled && creativeEnabled,
     vault,
@@ -1784,9 +1821,7 @@ export function WorkspaceOrchestration() {
         ),
       onQuickOpen: () => setQuickOpenMode("current"),
       onOpenVault: handleOpenVault,
-      onTagClick: (_tag: string) => {
-        activatePanelAnywhere("tags")
-      },
+      onTagClick: showTagInPanel,
       onWikiLinkClick: handleWikiLinkClick,
       resolveWikiLinkTarget: (target: string): string | null => {
         if (!vault) return target
@@ -2264,6 +2299,12 @@ export function WorkspaceOrchestration() {
     )
   }
 
+  // The graph stays mounted while any tab shows it; notes stay mounted always (see the stage).
+  const graphActive = activeTab?.kind === "graph" && graphEnabled
+  const graphMounted = graphEnabled && tabs.some((tab) => tab.kind === "graph")
+  const documentsActive =
+    activeTab?.kind !== "graph" && activeTab?.kind !== "creative" && activeFolder?.type !== "folder"
+
   function renderCachedTabSurfaces(isFocusMode: boolean) {
     return (
       <div className="relative flex min-h-0 min-w-0 flex-1">
@@ -2326,7 +2367,22 @@ export function WorkspaceOrchestration() {
                 className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
                 style={{ boxShadow: "var(--note-surface-shadow)" }}
               >
-                <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
+                <GraphTabView
+                  graph={linkGraph}
+                  selectedId={null}
+                  onSelect={handleSelect}
+                  vault={vault}
+                  treeItems={treeItems}
+                  onBack={handleBack}
+                  onOpenInNewTab={handleOpenInNewTab}
+                  onTagClick={showTagInPanel}
+                  onRefresh={refreshLinkGraph}
+                  isFocusMode={isFocusMode}
+                  onToggleFocusMode={isFocusMode ? handleExitFocusMode : handleEnterFocusMode}
+                  onForward={handleForward}
+                  canGoBack={canGoBack}
+                  canGoForward={canGoForward}
+                />
               </div>
             </React.Suspense>
           ) : (
@@ -2444,6 +2500,10 @@ export function WorkspaceOrchestration() {
           vault={vault}
           onSelectFile={quickOpenMode === "new" ? handleOpenInNewTab : handleSelect}
           onNewNote={() => handleNewFileIn(null, quickOpenMode === "new")}
+          searchNotes={searchNotes}
+          contextItemId={activeFileId}
+          createActions={quickOpenCreateActions}
+          originSelector={quickOpenMode === "new" ? SPOTLIGHT_ORIGIN.newTab : undefined}
         />
 
         <SearchModal
@@ -2452,6 +2512,9 @@ export function WorkspaceOrchestration() {
           items={displayTreeItems}
           onSelect={handleSelect}
           searchNotes={searchNotes}
+          vault={vault}
+          contextItemId={activeFileId}
+          originSelector={SPOTLIGHT_ORIGIN.dockSearch}
         />
 
         <SettingsDialog
@@ -2628,17 +2691,44 @@ export function WorkspaceOrchestration() {
         )}
 
         <main className={cn("flex flex-1 gap-0 overflow-hidden", !rightPanelEnabled && "pr-2")}>
-          {activeTab?.kind === "graph" ? (
-            graphEnabled ? (
-              <React.Suspense fallback={<LazyEditorFallback />}>
-                <div
-                  className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
-                  style={{ boxShadow: "var(--note-surface-shadow)" }}
-                >
-                  <GraphTabView graph={linkGraph} selectedId={null} onSelect={handleSelect} />
-                </div>
-              </React.Suspense>
-            ) : (
+          {/* One stage for every kind of page. The graph and the open notes stay mounted and are
+              only hidden while another tab is shown, so switching tabs never rebuilds them: a
+              note keeps its scroll position and the graph its layout. */}
+          <div className="relative flex min-h-0 min-w-0 flex-1">
+            {graphMounted ? (
+              <div
+                aria-hidden={!graphActive}
+                className={cn(
+                  "absolute inset-0 flex flex-col",
+                  !graphActive && "invisible pointer-events-none",
+                )}
+              >
+                <React.Suspense fallback={<LazyEditorFallback />}>
+                  <div
+                    className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                    style={{ boxShadow: "var(--note-surface-shadow)" }}
+                  >
+                    <GraphTabView
+                      graph={linkGraph}
+                      selectedId={null}
+                      onSelect={handleSelect}
+                      vault={vault}
+                      treeItems={treeItems}
+                      onBack={handleBack}
+                      onOpenInNewTab={handleOpenInNewTab}
+                      onTagClick={showTagInPanel}
+                      onRefresh={refreshLinkGraph}
+                      isFocusMode={isFocusMode}
+                      onToggleFocusMode={isFocusMode ? handleExitFocusMode : handleEnterFocusMode}
+                      onForward={handleForward}
+                      canGoBack={canGoBack}
+                      canGoForward={canGoForward}
+                    />
+                  </div>
+                </React.Suspense>
+              </div>
+            ) : null}
+            {activeTab?.kind === "graph" && !graphEnabled ? (
               <ModuleRequiredFallback
                 moduleId="amby.graph"
                 moduleName={t("settings.modules.graph")}
@@ -2646,37 +2736,45 @@ export function WorkspaceOrchestration() {
                   void setModuleEnabled("graph", true, { vault })
                 }}
               />
-            )
-          ) : activeTab?.kind === "creative" ? (
-            creativeEnabled ? (
-              <React.Suspense fallback={<LazyEditorFallback />}>
-                <div
-                  className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
-                  style={{ boxShadow: "var(--note-surface-shadow)" }}
-                >
-                  {renderCreativeProject()}
-                </div>
-              </React.Suspense>
-            ) : (
-              <ModuleRequiredFallback
-                moduleId="amby.creative"
-                moduleName={t("creative.welcome.title", "Творческая мастерская")}
-                onEnableModule={() => {
-                  void setModuleEnabled("creative", true, { vault })
-                }}
+            ) : activeTab?.kind === "creative" ? (
+              creativeEnabled ? (
+                <React.Suspense fallback={<LazyEditorFallback />}>
+                  <div
+                    className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                    style={{ boxShadow: "var(--note-surface-shadow)" }}
+                  >
+                    {renderCreativeProject()}
+                  </div>
+                </React.Suspense>
+              ) : (
+                <ModuleRequiredFallback
+                  moduleId="amby.creative"
+                  moduleName={t("creative.welcome.title", "Творческая мастерская")}
+                  onEnableModule={() => {
+                    void setModuleEnabled("creative", true, { vault })
+                  }}
+                />
+              )
+            ) : activeFolder?.type === "folder" ? (
+              <FolderView
+                folder={activeFolder}
+                onOpenItem={handleSelect}
+                onNewNote={handleNewFileIn}
+                onNewFolder={handleNewFolderIn}
+                onIconChange={(icon) => handleSetIcon(activeFolder.id, icon)}
               />
-            )
-          ) : activeFolder?.type === "folder" ? (
-            <FolderView
-              folder={activeFolder}
-              onOpenItem={handleSelect}
-              onNewNote={handleNewFileIn}
-              onNewFolder={handleNewFolderIn}
-              onIconChange={(icon) => handleSetIcon(activeFolder.id, icon)}
-            />
-          ) : (
-            renderCachedTabSurfaces(false)
-          )}
+            ) : null}
+            <div
+              aria-hidden={!documentsActive}
+              className={
+                documentsActive
+                  ? "relative flex min-h-0 min-w-0 flex-1"
+                  : "invisible pointer-events-none absolute inset-0 flex min-h-0 min-w-0 overflow-hidden"
+              }
+            >
+              {renderCachedTabSurfaces(false)}
+            </div>
+          </div>
         </main>
 
         {rightPanelEnabled && rightDockPinned && isRightSidebarOpen && (
@@ -2783,6 +2881,10 @@ export function WorkspaceOrchestration() {
         vault={vault}
         onSelectFile={quickOpenMode === "new" ? handleOpenInNewTab : handleSelect}
         onNewNote={() => handleNewFileIn(null, quickOpenMode === "new")}
+        searchNotes={searchNotes}
+        contextItemId={activeFileId}
+        createActions={quickOpenCreateActions}
+        originSelector={quickOpenMode === "new" ? SPOTLIGHT_ORIGIN.newTab : undefined}
       />
 
       <SearchModal
@@ -2791,6 +2893,9 @@ export function WorkspaceOrchestration() {
         items={displayTreeItems}
         onSelect={handleSelect}
         searchNotes={searchNotes}
+        vault={vault}
+        contextItemId={activeFileId}
+        originSelector={SPOTLIGHT_ORIGIN.dockSearch}
       />
 
       <SettingsDialog

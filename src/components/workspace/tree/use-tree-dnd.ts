@@ -51,18 +51,26 @@ export function useTreeDnd({
     reorderEnabledRef.current = Boolean(onReorderItems)
   }, [onReorderItems])
 
+  // Read through a ref so the handler keeps its identity when the selection changes; the
+  // memoized tree rows would otherwise all re-render with every click.
+  const selectedIdsRef = React.useRef(selectedIds)
+  React.useEffect(() => {
+    selectedIdsRef.current = selectedIds
+  }, [selectedIds])
+
   const onPtrDragStart = React.useCallback(
     (id: string, name: string, path: string, x: number, y: number) => {
+      const selection = selectedIdsRef.current
       pointerDownRef.current = {
         id,
-        sourceIds: selectedIds.has(id) ? [...selectedIds] : [id],
+        sourceIds: selection.has(id) ? [...selection] : [id],
         name,
         path,
         x,
         y,
       }
     },
-    [selectedIds],
+    [],
   )
 
   React.useEffect(() => {
