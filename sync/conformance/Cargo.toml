@@ -1,0 +1,15 @@
+[package]
+name = "amby-sync-conformance"
+description = "Amby sync: conformance suite that runs against any server address"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+amby-sync-proto.workspace = true
+
+[lints]
+workspace = true

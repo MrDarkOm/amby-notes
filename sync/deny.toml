@@ -1,0 +1,32 @@
+# cargo-deny: licenses and known vulnerabilities of the sync workspace (docs/sync-plan.md, Э0).
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+  "AGPL-3.0-only",
+  "MIT",
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "BSD-2-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

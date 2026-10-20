@@ -1,0 +1,16 @@
+[package]
+name = "amby-sync-core-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+amby-sync-core = { path = ".." }
+
+# Detached from the workspace: cargo-fuzz builds with nightly and its own profile.
+[workspace]
