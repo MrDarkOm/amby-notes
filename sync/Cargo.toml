@@ -28,8 +28,15 @@ serde_json = "1"
 thiserror = "2"
 unicode-normalization = "0.1"
 zeroize = { version = "1", features = ["derive"] }
+# Server (Э2). rusqlite is the same version as in the app (src-tauri).
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
 # Only for tests.
 hex = "0.4"
+tempfile = "3"
+# HTTP client of the conformance suite: plain HTTP only, no TLS stack.
+ureq = { version = "2", default-features = false }
 proptest = "1"
 
 [workspace.lints.rust]
