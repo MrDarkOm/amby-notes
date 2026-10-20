@@ -1,5 +1,8 @@
+# Keeps the build context small: the compiler output, the fuzz crate and the Python reference
+# are not needed to build the server image.
 target
-**/target
 core/fuzz
-reference/.venv
-reference/__pycache__
+reference
+vectors
+**/.venv
+**/__pycache__

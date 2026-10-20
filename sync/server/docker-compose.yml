@@ -1,0 +1,44 @@
+# Amby sync server with automatic HTTPS (Caddy gets and renews the certificate itself).
+#
+#   1. Point a DNS name at this machine and open ports 80 and 443.
+#   2. Put the name in a file called .env next to this one:   AMBY_SYNC_DOMAIN=sync.example.org
+#   3. docker compose up -d --build
+#
+# The server speaks plain HTTP inside the compose network only; the world sees Caddy.
+# AMBY_SYNC_TRUST_PROXY=1 makes the server count failed sign-ins per client address from the
+# header Caddy sets. Never set it when clients can reach the server directly: they could then
+# write that header themselves.
+services:
+  amby-sync:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    image: amby-sync-server:local
+    restart: unless-stopped
+    environment:
+      AMBY_SYNC_PUBLIC_URL: "https://${AMBY_SYNC_DOMAIN:?set AMBY_SYNC_DOMAIN in .env}"
+      AMBY_SYNC_TRUST_PROXY: "1"
+    volumes:
+      - amby-data:/data
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - amby-sync
+    environment:
+      AMBY_SYNC_DOMAIN: "${AMBY_SYNC_DOMAIN:?set AMBY_SYNC_DOMAIN in .env}"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  amby-data:
+  caddy-data:
+  caddy-config:
