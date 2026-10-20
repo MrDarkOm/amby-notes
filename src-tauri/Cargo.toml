@@ -1,8 +1,9 @@
 [package]
 name = "amby-notes"
-version = "0.1.8"
+version = "0.1.9"
 description = "Local-first desktop knowledge workspace"
 authors = ["Amby Authors"]
+license = "AGPL-3.0-only"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

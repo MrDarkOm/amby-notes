@@ -46,6 +46,13 @@ Found by the release gate of 0.1.8 (`npm run audit`), fixed before the release:
 
 `npm audit --omit=dev` reports no vulnerabilities; `npm run audit:rust` passes with the two allowed warnings (unmaintained `unsafe-libyaml`, yanked `zip` 4.6.1).
 
+## Dependency remediation — 2026-10-20
+
+Found by the nightly audit after the 0.1.8 release:
+
+- RUSTSEC-2026-0367, RUSTSEC-2026-0368 and RUSTSEC-2026-0369 (`zip` 4.6.1, unsafe extraction of permissions and symlinks): reached only through the default `zip` feature of `tauri-plugin-updater`, which unpacks legacy zipped Windows updates and gzipped AppImages. Amby's updater artifacts are plain `.exe`, `.msi`, `.AppImage` and `.app.tar.gz` (macOS extraction does not use that feature), so the dependency now disables default features and keeps `rustls-tls` and `system-proxy`. `zip` is no longer in `Cargo.lock`.
+- New unmaintained warnings for `zbus_names`, `zvariant` and `zvariant_derive` (RUSTSEC-2026-0370 to RUSTSEC-2026-0372) come from the Linux D-Bus chain and do not fail the audit.
+
 ## Known limitation — Windows system trash
 
 `DeleteMode::System` uses `SHFileOperationW` with `FOF_ALLOWUNDO | FOF_NOCONFIRMATION`.

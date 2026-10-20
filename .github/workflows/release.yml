@@ -59,9 +59,41 @@ jobs:
       - run: npm run verify:full
       - run: npm run audit
 
+  # The full gate above runs on Linux; the backend's Windows and macOS code (paths, trash,
+  # credentials, durable writes) and the editor in WebKit are checked on their own systems.
+  gate-platforms:
+    name: Release gate (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            platform: windows-latest
+            browser: false
+          - name: macOS
+            platform: macos-latest
+            browser: true
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+      - run: npm ci
+      - run: npm run rust:test
+      - if: matrix.browser
+        run: npm run test:browser:install
+      - if: matrix.browser
+        run: npm run test:browser
+
   publish:
     name: Build ${{ matrix.name }}
-    needs: gate
+    needs: [gate, gate-platforms]
     strategy:
       fail-fast: false
       matrix:
@@ -79,17 +111,28 @@ jobs:
             # AppImage updates require no package-manager authorization dialog.
             args: --config src-tauri/tauri.release.conf.json --bundles appimage
             rust-targets: ""
+          # Built natively on an arm64 runner: AppImage tooling does not cross-compile.
+          - name: Linux arm64
+            platform: ubuntu-22.04-arm
+            args: --config src-tauri/tauri.release.conf.json --bundles appimage --target aarch64-unknown-linux-gnu
+            rust-targets: aarch64-unknown-linux-gnu
           - name: Windows x64
             platform: windows-latest
             args: --config src-tauri/tauri.release.conf.json
             rust-targets: ""
+          # Cross-compiled on x64 Windows, as macOS x64 is on arm64 macOS. WiX (MSI) has no
+          # arm64 support, so this build ships only the NSIS installer, which is also its update.
+          - name: Windows arm64
+            platform: windows-latest
+            args: --config src-tauri/tauri.release.conf.json --bundles nsis --target aarch64-pc-windows-msvc
+            rust-targets: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.platform }}
 
     steps:
       - uses: actions/checkout@v7
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu-')
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
@@ -106,6 +149,16 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
+          # The two Windows builds share a runner image; their caches must not overwrite each other.
+          key: ${{ matrix.rust-targets }}
+
+      # ring and aws-lc build their arm64 assembly for Windows with clang (LLVM on the image).
+      - name: Put clang on the path
+        if: matrix.rust-targets == 'aarch64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          & "C:\Program Files\LLVM\bin\clang.exe" --version
 
       - run: npm ci
       - run: npm run version:check

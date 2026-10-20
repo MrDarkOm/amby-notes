@@ -11,8 +11,11 @@ import {
   type AvailableAppUpdate,
   type UpdateInstallProgress,
 } from "@/lib/app-updater"
+import { openWebAddressInBrowser } from "../tiptap/external-open"
 import { useSettingsStore } from "../use-settings-store"
 import { Row } from "./settings-common"
+
+const SOURCE_CODE_URL = "https://github.com/MrDarkOm/amby-notes"
 
 type UpdateUiState =
   | { phase: "idle" }
@@ -95,6 +98,16 @@ export function UpdateSettings() {
       </Row>
       <Row label={t("settings.updates.currentVersion")}>
         <span className="text-[13px] tabular-nums text-muted-foreground">{version}</span>
+      </Row>
+      <Row label={t("settings.updates.license")} hint={t("settings.updates.licenseHint")}>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => void openWebAddressInBrowser(SOURCE_CODE_URL)}
+        >
+          {t("settings.updates.sourceAction")}
+        </Button>
       </Row>
       <Row label={t("settings.updates.check")} hint={status}>
         <Button

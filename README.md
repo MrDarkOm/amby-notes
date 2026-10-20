@@ -11,7 +11,7 @@ Everything lives as plain Markdown files in a folder on your disk — no cloud, 
 
 [![Latest release](https://img.shields.io/github/v/release/MrDarkOm/amby-notes?style=flat-square&color=8b5cf6&label=release)](https://github.com/MrDarkOm/amby-notes/releases/latest)
 [![Platforms](https://img.shields.io/badge/macOS%20·%20Windows%20·%20Linux-1c1c1c?style=flat-square)](#-download)
-[![License: MIT](https://img.shields.io/badge/license-MIT-fecbc8?style=flat-square)](#license)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-fecbc8?style=flat-square)](#license)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db?style=flat-square)](https://tauri.app)
 
 [**Download**](#-download) · [Features](#-features) · [Creative workshop](#-creative-workshop) · [Your files](#-your-files) · [Release notes](updates/README.md) · [Develop](#-development)
@@ -27,7 +27,9 @@ Everything lives as plain Markdown files in a folder on your disk — no cloud, 
 | 🍎 **macOS** — Apple Silicon | [`Amby_aarch64.dmg`](https://github.com/MrDarkOm/amby-notes/releases/latest)             |
 | 🍎 **macOS** — Intel         | [`Amby_x64.dmg`](https://github.com/MrDarkOm/amby-notes/releases/latest)                 |
 | 🪟 **Windows** 10 / 11       | [`Amby_x64-setup.exe`](https://github.com/MrDarkOm/amby-notes/releases/latest) or `.msi` |
+| 🪟 **Windows** on ARM        | [`Amby_arm64-setup.exe`](https://github.com/MrDarkOm/amby-notes/releases)                |
 | 🐧 **Linux** — any distro    | [`Amby_amd64.AppImage`](https://github.com/MrDarkOm/amby-notes/releases/latest)          |
+| 🐧 **Linux** on ARM          | [`Amby_aarch64.AppImage`](https://github.com/MrDarkOm/amby-notes/releases)               |
 
 All builds are on the [Releases](https://github.com/MrDarkOm/amby-notes/releases) page. Amby updates
 itself, and every update is signed.
@@ -271,7 +273,17 @@ build). Start feature and fix work from `dev` and promote in one direction only.
 
 ## License
 
-[MIT](https://opensource.org/licenses/MIT) — free to use, change and share.
+Amby is free software: you can use, study, change and share it under the
+[GNU Affero General Public License v3.0](LICENSE). If you distribute a changed version, or run
+one as a service for others, you must publish its source code under the same license. Plugins
+that use only the public module API may use any license; see the
+[plugin exception](LICENSE-PLUGIN-EXCEPTION.md).
+
+Versions up to and including 0.1.8 were published under the MIT license, and the copies of those
+versions remain under it.
+
+Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). A one-time
+[Contributor License Agreement](CLA.md) is required.
 
 <div align="center">
 <br />
