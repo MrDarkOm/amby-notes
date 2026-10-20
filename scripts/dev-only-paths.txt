@@ -15,6 +15,7 @@ docs/archive
 docs/editor-audit-2026-10
 docs/excalidraw-canvas-claude-plan.md
 docs/creative-workshop-plan.md
+docs/sync-plan.md
 docs/notion-database-parity-audit-2026-09-30.md
 docs/windows-audit-2026-09-28.md
 docs/storage-issues-audit.md
