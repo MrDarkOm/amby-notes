@@ -266,7 +266,7 @@ async fn a_weak_or_short_password_does_not_get_as_far_as_the_keys() {
 
 #[tokio::test]
 async fn a_bad_user_name_or_device_name_is_told_at_once() {
-    // П11, Ф34
+    // П11, Ф34: before the person has copied a code, not after they have typed it back
     let target = Target::from_env();
     let device = Device::new();
     let ticket = target.new_ticket();
@@ -275,18 +275,14 @@ async fn a_bad_user_name_or_device_name_is_told_at_once() {
         code_of(device.service.prepare_account(bad_user)).await,
         "invalid_username"
     );
-    let long_name = prepare_request(
-        &target,
-        &ticket.username,
-        &ticket.enroll_code,
-        &"x".repeat(65),
-    );
-    let view = device.service.prepare_account(long_name).await.unwrap();
-    // the name is checked when it is sealed, which is at confirmation
-    assert_eq!(
-        code_of(device.service.confirm_recovery_code(&typed_groups(&view))).await,
-        "invalid_device_name"
-    );
+    for name in ["x".repeat(65), "Ж".repeat(33)] {
+        let long_name = prepare_request(&target, &ticket.username, &ticket.enroll_code, &name);
+        assert_eq!(
+            code_of(device.service.prepare_account(long_name)).await,
+            "invalid_device_name"
+        );
+    }
+    assert!(!device.service.status().unwrap().pending);
 }
 
 #[tokio::test]
