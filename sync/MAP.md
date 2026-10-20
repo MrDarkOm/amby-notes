@@ -10,17 +10,18 @@ License AGPL-3.0-only. Not wired into `src-tauri` yet.
 
 | Path                                   | Owns                                                                                 |
 | -------------------------------------- | ------------------------------------------------------------------------------------ |
-| [proto/](proto/src/lib.rs)             | wire types and format constants (empty until Э2)                                     |
+| [proto/](proto/src/lib.rs)             | wire constants of the protocol: part size, machine error codes (appendix Б)          |
 | [core/](core/src/lib.rs)               | cryptography (Э1) and the sync engine (Э3), no Tauri; I/O only through interfaces    |
-| [server/](server/src/main.rs)          | blind storage server and Dockerfile (Э2)                                             |
-| [conformance/](conformance/src/lib.rs) | server conformance suite that runs against any address (Э2)                          |
+| [server/](server/src/lib.rs)           | blind storage server (Э2): today the interface and 501 stubs; Dockerfile             |
+| [conformance/](conformance/src/lib.rs) | server conformance suite: HTTP tests against any address, real client crypto (Э2)    |
 | [reference/](reference/)               | independent Python reference of the byte format; generates `vectors/format-v1.json`  |
 | [vectors/](vectors/)                   | test vectors: `standards.json` (from RFCs, by hand) and `format-v1.json` (generated) |
 | [deny.toml](deny.toml)                 | cargo-deny: licenses and advisories                                                  |
 | [core/fuzz/](core/fuzz/Cargo.toml)     | cargo-fuzz targets (nightly only)                                                    |
 
 Commands (see [package.json](../package.json)): `npm run sync:test`, `sync:lint` (fmt, clippy,
-cargo-deny), `sync:req-check` ([script](../scripts/sync-req-check.mjs): every requirement is named
+cargo-deny), `sync:conformance:red` (sorts the failures of the stub server by reason),
+`sync:conformance:docker` (build the image, run the suite against the container), `sync:req-check` ([script](../scripts/sync-req-check.mjs): every requirement is named
 in a test), `sync:mutants`, `sync:fuzz -- <target>`, `sync:reference:setup`,
 `sync:reference:vectors`. CI: [sync.yml](../.github/workflows/sync.yml).
 
@@ -28,3 +29,9 @@ The exact byte format is appendix "Точный формат v1" of the plan; th
 code must agree with it byte for byte.
 
 Stage report with the red run and open questions for review: [sync-e1-report.md](../docs/Road/sync-e1-report.md).
+
+The protocol is appendix Б of the plan (decisions П1–П41). The suite starts a server in the process
+(`AMBY_SYNC_URL` unset) or goes to the address in `AMBY_SYNC_URL`, creating users through
+`AMBY_SYNC_ADMIN_CMD`; tests that move the clock, restart the server or read its data directory
+always use their own server in the process. Stage report with the red run and the open protocol
+questions: [sync-e2-report.md](../docs/Road/sync-e2-report.md).
