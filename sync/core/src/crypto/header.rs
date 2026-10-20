@@ -48,15 +48,16 @@ pub struct Header {
 }
 
 /// Canonical JSON of a header (Ф14, Ф15): known and unknown fields sorted by key, no spaces,
-/// minimal escapes. A known key in `extra` is [`CryptoError::ReservedKey`], a non-NFC path is
-/// `PathNotNfc`, a non-integer number in `extra` is `Malformed`. Р2, Р6, Р13.
+/// minimal escapes. A known key in `extra` is [`CryptoError::ReservedKey`], a path that breaks
+/// the syntax rules of Ф33 is `InvalidPath` (checked first), a non-NFC path is `PathNotNfc`, a non-integer number in `extra` is `Malformed`. Р2, Р6, Р13.
 pub fn canonical_header_json(_header: &Header) -> Result<Vec<u8>, CryptoError> {
     todo!("Р6, Ф14–Ф16: canonical header JSON")
 }
 
 /// Parses header JSON (without the padding): checks types, lowercase hex of `content_hash` and
-/// `body_id`, `kind`, `format`. A format above 1 is `UnsupportedFormat` (Р13), a non-NFC path is
-/// `PathNotNfc`, anything else wrong is `Malformed`. Unknown fields go to `extra`. This is a
+/// `body_id`, `kind`, `format`. A format above 1 is `UnsupportedFormat` (Р13), a bad path is `InvalidPath` (Ф33) or,
+/// if only not NFC, `PathNotNfc`; a repeated key in any object (Ф16) and anything else wrong is
+/// `Malformed`. Unknown fields go to `extra`. This is a
 /// fuzzing target (Р6, С5).
 pub fn parse_header_json(_json: &[u8]) -> Result<Header, CryptoError> {
     todo!("Р6, Р13, Ф14–Ф19: parse header JSON")
@@ -78,8 +79,8 @@ pub fn seal_header(
 /// Decrypts the envelope of `item` at `version` (the one the server announced). Fails with
 /// `Authentication` for any change of the data, another item, space, version or key; with
 /// `EpochMismatch` if the epoch in the envelope is not the epoch of `vk`; `UnsupportedVersion`
-/// for another envelope version; `BadPadding`, `VersionMismatch`, `UnsupportedFormat`, `Malformed`
-/// and `PathNotNfc` for what is inside (Ф17–Ф19). Nothing is returned on error (С5, С6). This is
+/// for another envelope version; `BadPadding`, `VersionMismatch`, `UnsupportedFormat`, `Malformed`,
+/// `InvalidPath` and `PathNotNfc` for what is inside (Ф17–Ф19, Ф33). Nothing is returned on error (С5, С6). This is
 /// a fuzzing target.
 pub fn open_header(
     _vk: &SpaceKey,
@@ -91,7 +92,8 @@ pub fn open_header(
     todo!("Р6, Р13, С5, С6, Ф17–Ф19: open header")
 }
 
-/// The epoch stored in an envelope, to pick the right VK before opening it (Ф18).
+/// The epoch stored in an envelope, to pick the right VK before opening it (Ф18). Epoch 0 is
+/// `Malformed`.
 pub fn header_envelope_epoch(_envelope: &[u8]) -> Result<u32, CryptoError> {
     todo!("Ф18: read the epoch of an envelope")
 }

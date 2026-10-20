@@ -92,5 +92,22 @@ class LawsTest(unittest.TestCase):
             self.assertEqual(len(ref.pad_header(b"x" * n)) % 256, 0)
 
 
+    def test_path_rules_and_strict_json(self):
+        # Р6, Р9, Р13: Ф33 path syntax and Ф16 repeated keys, as the Rust side must see them
+        for case in load("format-v1.json")["paths"]:
+            self.assertEqual(ref.valid_path(case["path"]), case["valid"], case["path"][:20])
+        with self.assertRaises(ValueError):
+            ref.parse_json_strict(b'{"a":1,"a":2}')
+        with self.assertRaises(ValueError):
+            ref.parse_json_strict(b'{"x":{"a":1,"a":2}}')
+        self.assertEqual(ref.parse_json_strict(b'{"a":1,"b":{"a":2}}'), {"a": 1, "b": {"a": 2}})
+
+    def test_padme_limit(self):
+        # Р6, Ф26: 2^62 is valid, above it the reference refuses
+        self.assertEqual(ref.padme(1 << 62), 1 << 62)
+        with self.assertRaises(AssertionError):
+            ref.padme((1 << 62) + 1)
+
+
 if __name__ == "__main__":
     unittest.main()

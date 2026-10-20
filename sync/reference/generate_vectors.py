@@ -235,7 +235,7 @@ def sample_headers():
             header(
                 12,
                 "file",
-                'a "q" \\ b\tc\u0001d \u007f   \U0001f600.md',
+                'Notes/a "q" \u2028 \U0001f600.md',
                 0,
                 -5,
                 ref.blake3_hash(b""),
@@ -244,9 +244,10 @@ def sample_headers():
                 {
                     "zeta": {"b": [1, 2, {"y": None, "x": True}], "a": -7},
                     "\U0001f600": 1,
-                    "￿": 2,
-                    "é": 3,
+                    "\uffff": 2,
+                    "\u00e9": 3,
                     "alpha": "text",
+                    "escapes": 'a "q" \\ b\tc\nd\u0001e \u007f \u2028 \U0001f600',
                 },
             ),
         ),
@@ -286,6 +287,46 @@ def header_envelope_vectors():
             }
         )
     return out
+
+
+INVALID_PATHS = [
+    ("empty", ""),
+    ("leading_slash", "/a.md"),
+    ("trailing_slash", "a/"),
+    ("empty_segment", "a//b.md"),
+    ("dot_segment", "a/./b.md"),
+    ("dotdot_segment", "../outside.md"),
+    ("dotdot_inside", "a/../../b.md"),
+    ("backslash", "a\\b.md"),
+    ("control_nul", "a\u0000b.md"),
+    ("control_tab", "a\tb.md"),
+    ("control_us", "a\u001fb.md"),
+    ("control_del", "a\u007fb.md"),
+    ("too_long", "a" * 4097),
+]
+
+VALID_PATHS = [
+    "a",
+    "a.md",
+    "Notes/\u0418\u0434\u0435\u044f.md",
+    "a/b/c/d.md",
+    ".hidden",
+    "a/.hidden/b",
+    "..a",
+    "a..",
+    "a/b..c",
+    "name with spaces/\u2028.md",
+    "a" * 4096,
+    "\U0001f600/\U0001f600.md",
+]
+
+
+def path_vectors():
+    cases = [{"path": path, "valid": True} for path in VALID_PATHS]
+    cases += [{"path": path, "valid": False} for _, path in INVALID_PATHS]
+    for case in cases:
+        assert ref.valid_path(case["path"]) == case["valid"], case["path"][:20]
+    return cases
 
 
 def header_negative_vectors():
@@ -338,6 +379,19 @@ def header_negative_vectors():
     add("short_body_id", ref.pad_header(ref.canonical_json({**base, "body_id": base["body_id"][:30]})), "Malformed")
     add("fractional_number", ref.pad_header(raw[:-1] + b',"fraction":1.5}'), "Malformed")
     add("not_an_object", ref.pad_header(b"[1,2]"), "Malformed")
+    # Ф16: a repeated key is an error, at the top level and inside an unknown field.
+    for raw_json in (raw[:-1] + b',"size":6}', raw[:-1] + b',"x":{"a":1,"a":2}}'):
+        try:
+            ref.parse_json_strict(raw_json)
+            raise AssertionError("the reference must reject a repeated key")
+        except ValueError:
+            pass
+    add("duplicate_key", ref.pad_header(raw[:-1] + b',"size":6}'), "Malformed")
+    add("duplicate_key_nested", ref.pad_header(raw[:-1] + b',"x":{"a":1,"a":2}}'), "Malformed")
+    # Ф33: path syntax
+    for name, bad_path in INVALID_PATHS:
+        assert not ref.valid_path(bad_path)
+        add("path_" + name, ref.pad_header(ref.canonical_json({**base, "path": bad_path})), "InvalidPath")
     return out
 
 
@@ -447,6 +501,7 @@ def main():
         "header_json": header_json_vectors(),
         "header_envelope": header_envelope_vectors(),
         "header_negative": header_negative_vectors(),
+        "paths": path_vectors(),
         "body": body_vectors(),
         "body_negative": body_negative_vectors(),
     }

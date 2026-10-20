@@ -29,7 +29,8 @@ pub fn seal_body(
 
 /// Decrypts a body and verifies it against the header (`size`, `content_hash`).
 ///
-/// In order: magic and version (`Malformed`, `UnsupportedVersion`), epoch (`EpochMismatch`),
+/// In order: `size` above 2^62 (`SizeTooLarge`, checked first), magic and version (`Malformed`,
+/// `UnsupportedVersion`), epoch, zero included (`EpochMismatch`),
 /// authenticity of every chunk including order and the last one (`Authentication`), length
 /// `padme(size)` (`LengthMismatch`), zero padding (`PaddingNotZero`), BLAKE3 equals
 /// `content_hash` (`HashMismatch`). Returns exactly the original bytes (О7). Nothing is returned

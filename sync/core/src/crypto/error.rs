@@ -17,10 +17,12 @@ pub enum CryptoError {
     /// The header `format` is newer than this build understands (Ф19, Р13, С13).
     #[error("header format {0} is newer than supported")]
     UnsupportedFormat(u64),
-    /// The bytes are not a valid envelope, body or header (truncated, bad magic, bad JSON, ...).
+    /// The bytes are not a valid envelope, body or header (truncated, bad magic, bad JSON, a
+    /// repeated JSON key, epoch 0 in `header_envelope_epoch`, ...).
     #[error("malformed data: {0}")]
     Malformed(&'static str),
-    /// The epoch stored with the data differs from the epoch of the key (Ф18, Ф25).
+    /// The epoch stored with the data differs from the epoch of the key, zero included
+    /// (Ф18, Ф25).
     #[error("key epoch does not match")]
     EpochMismatch,
     /// The `version` inside the header differs from the version it was opened for (Ф19, Р6).
@@ -41,6 +43,13 @@ pub enum CryptoError {
     /// The header path is not in Unicode NFC (Ф19, Р9).
     #[error("path is not in NFC")]
     PathNotNfc,
+    /// The header path breaks the syntax rules of Ф33: empty, leading or trailing `/`, empty
+    /// segment, `.` or `..` segment, `\\`, control characters, longer than 4096 bytes.
+    #[error("invalid path")]
+    InvalidPath,
+    /// A size above 2^62 (Ф26): no panic, no overflow.
+    #[error("size is too large")]
+    SizeTooLarge,
     /// An unknown header field uses the name of a known one (Ф16).
     #[error("reserved key among unknown header fields: {0}")]
     ReservedKey(String),

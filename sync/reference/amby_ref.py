@@ -72,6 +72,7 @@ def blake3_hash(data):
 
 def padme(length):
     """Ф26."""
+    assert length <= MAX_SIZE
     if length < 2:
         return length
     e = length.bit_length() - 1  # floor(log2 L)
@@ -216,6 +217,29 @@ def canonical_json(obj):
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
+def _no_duplicates(pairs):
+    keys = [key for key, _ in pairs]
+    if len(keys) != len(set(keys)):
+        raise ValueError("repeated key")  # Ф16
+    return dict(pairs)
+
+
+def parse_json_strict(raw):
+    """Ф16: a repeated key in any object is an error (the reference's `object_pairs_hook`)."""
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)
+
+
+def valid_path(path):
+    """Ф33: the syntax rules of a header path (not the rules of a particular system)."""
+    if path == "" or len(path.encode("utf-8")) > 4096:
+        return False
+    if path.startswith("/") or path.endswith("/") or "\\" in path:
+        return False
+    if any(ord(ch) <= 0x1F or ord(ch) == 0x7F for ch in path):
+        return False
+    return all(segment not in ("", ".", "..") for segment in path.split("/"))
+
+
 def pad_header(raw):
     """Ф17."""
     return raw + bytes(-len(raw) % 256)
@@ -263,7 +287,11 @@ def seal_body(vk, epoch, body_id, content, prefix, *, padding=None, last_flag=Tr
     return out
 
 
+MAX_SIZE = 1 << 62  # Ф26
+
+
 def sealed_body_len(size):
     """Ф26."""
+    assert size <= MAX_SIZE
     padded = padme(size)
     return 32 + padded + TAG * max(1, -(-padded // CHUNK))

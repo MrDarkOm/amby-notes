@@ -305,7 +305,7 @@ fn bodies_match_the_reference() {
         rng.assert_spent();
         assert_eq!(sealed.len() as u64, number(case, "sealed_len"), "{name}");
         assert_eq!(
-            sealed_body_len(content.len() as u64),
+            sealed_body_len(content.len() as u64).unwrap(),
             number(case, "sealed_len"),
             "{name}"
         );
@@ -352,5 +352,35 @@ fn bodies_from_the_reference_are_rejected_for_the_right_reason() {
         )
         .unwrap_err();
         assert_eq!(error_name(&error), text(case, "error"), "{name}");
+    }
+}
+
+#[test]
+fn path_syntax_matches_the_reference() {
+    // Р9, Р6, Ф33: the same paths are accepted and refused as in the reference, when sealing
+    let vectors = format_vectors();
+    let cases = vectors["paths"].as_array().unwrap();
+    assert!(cases.len() >= 20, "the path vectors are missing");
+    let vk = SpaceKey::from_bytes([0x11; 32], 1);
+    let space = SpaceId::from_bytes([0xA1; 16]);
+    let item = ItemId::from_bytes([0xB2; 16]);
+    for case in cases {
+        let path = text(case, "path");
+        let header = common::file_header(1, path);
+        let sealed = seal_header(&vk, &space, &item, &header, &mut common::SeedRandom(1));
+        let shown: String = path.chars().take(30).collect();
+        if case["valid"].as_bool().unwrap() {
+            let envelope = sealed.unwrap_or_else(|e| panic!("{shown:?} refused: {e:?}"));
+            assert_eq!(
+                open_header(&vk, &space, &item, 1, &envelope).unwrap().path,
+                path
+            );
+        } else {
+            assert_eq!(
+                sealed.unwrap_err(),
+                amby_sync_core::crypto::CryptoError::InvalidPath,
+                "{shown:?}"
+            );
+        }
     }
 }

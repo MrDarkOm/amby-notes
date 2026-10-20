@@ -168,7 +168,7 @@ fn padme_matches_the_papers_algorithm() {
     for case in standard_vectors()["padme"]["cases"].as_array().unwrap() {
         let pair = case.as_array().unwrap();
         let (length, expected) = (pair[0].as_u64().unwrap(), pair[1].as_u64().unwrap());
-        assert_eq!(padme(length), expected, "padme({length})");
+        assert_eq!(padme(length).unwrap(), expected, "padme({length})");
     }
 }
 
@@ -176,11 +176,27 @@ fn padme_matches_the_papers_algorithm() {
 fn padme_never_costs_more_than_twelve_percent() {
     // Р6, О2: the size is hidden within Padmé, and the waste is at most 12%
     for length in 2u64..20_000 {
-        let padded = padme(length);
+        let padded = padme(length).unwrap();
         assert!(padded >= length, "padme({length}) = {padded} is smaller");
         assert!(
             (padded - length) * 100 <= length * 12,
             "padme({length}) = {padded} wastes too much"
+        );
+    }
+}
+
+#[test]
+fn sizes_above_two_to_the_62_are_an_error_not_a_panic() {
+    // Р6, Ф26: 2^62 is the largest valid size; above it no overflow and no panic
+    let limit = 1u64 << 62;
+    assert_eq!(padme(limit).unwrap(), limit);
+    assert!(sealed_body_len(limit).is_ok());
+    for size in [limit + 1, limit + (1 << 40), u64::MAX - 1, u64::MAX] {
+        assert_eq!(padme(size), Err(CryptoError::SizeTooLarge), "padme({size})");
+        assert_eq!(
+            sealed_body_len(size),
+            Err(CryptoError::SizeTooLarge),
+            "sealed_body_len({size})"
         );
     }
 }
@@ -191,18 +207,18 @@ proptest! {
     #[test]
     fn padme_is_idempotent_monotone_and_bounded(length in 0u64..(1 << 40)) {
         // Р6, Ф26: padme(padme(L)) = padme(L), L <= padme(L) <= 1.12 L, monotone
-        let padded = padme(length);
+        let padded = padme(length).unwrap();
         prop_assert!(padded >= length);
-        prop_assert_eq!(padme(padded), padded);
-        prop_assert!(padme(length + 1) >= padded);
+        prop_assert_eq!(padme(padded).unwrap(), padded);
+        prop_assert!(padme(length + 1).unwrap() >= padded);
         prop_assert!((padded - length) * 100 <= length * 12);
     }
 
     #[test]
     fn sealed_body_len_follows_the_layout(size in 0u64..(1 << 30)) {
         // Р6, О2, Ф21, Ф26: 32 + P + 16 * max(1, ceil(P / 65536)) with P = padme(size)
-        let padded = padme(size);
+        let padded = padme(size).unwrap();
         let chunks = padded.div_ceil(65_536).max(1);
-        prop_assert_eq!(sealed_body_len(size), 32 + padded + 16 * chunks);
+        prop_assert_eq!(sealed_body_len(size).unwrap(), 32 + padded + 16 * chunks);
     }
 }

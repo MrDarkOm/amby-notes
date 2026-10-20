@@ -304,7 +304,7 @@ fn canonical_json_has_sorted_keys_and_no_spaces() {
         r#"{"body_id":null,"content_hash":null,"deleted":false,"format":1,"kind":"folder","mtime_ms":7,"path":"a","size":0,"version":2}"#
     );
 
-    let mut file = file_header(1, "a \"q\" \\ \t\n/é😀.md");
+    let mut file = file_header(1, "a \"q\"/é😀.md");
     file.size = 9;
     file.mtime_ms = -3;
     file.content_hash = Some([0xAB; 32]);
@@ -312,11 +312,14 @@ fn canonical_json_has_sorted_keys_and_no_spaces() {
     file.extra.insert("zz".into(), json!(1));
     file.extra
         .insert("aa".into(), json!({"y": 2, "x": [true, null]}));
+    // escapes: quote, backslash, tab, newline, U+0001 as \u0001; U+007F stays as it is (Ф15)
+    file.extra
+        .insert("note".into(), json!("a\\b\tc\nd\u{1}e\u{7f}"));
     let expected = format!(
-        "{{\"aa\":{{\"x\":[true,null],\"y\":2}},\"body_id\":\"{}\",\"content_hash\":\"{}\",\"deleted\":false,\
-         \"format\":1,\"kind\":\"file\",\"mtime_ms\":-3,\"path\":\"a \\\"q\\\" \\\\ \\t\\n/é😀.md\",\"size\":9,\"version\":1,\"zz\":1}}",
+        r#"{{"aa":{{"x":[true,null],"y":2}},"body_id":"{}","content_hash":"{}","deleted":false,"format":1,"kind":"file","mtime_ms":-3,"note":"a\\b\tc\nd\u0001e{}","path":"a \"q\"/é😀.md","size":9,"version":1,"zz":1}}"#,
         "01".repeat(16),
-        "ab".repeat(32)
+        "ab".repeat(32),
+        '\u{7f}'
     );
     assert_eq!(
         String::from_utf8(canonical_header_json(&file).unwrap()).unwrap(),
@@ -399,10 +402,179 @@ fn parsing_rejects_malformed_headers_and_accepts_the_valid_one() {
     }
 }
 
+/// The path rules of Ф33, written independently of the implementation.
+fn path_syntax_ok(path: &str) -> bool {
+    !path.is_empty()
+        && path.len() <= 4096
+        && !path.starts_with('/')
+        && !path.ends_with('/')
+        && !path.contains('\\')
+        && !path.chars().any(|c| (c as u32) <= 0x1F || c as u32 == 0x7F)
+        && path
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+}
+
+#[test]
+fn a_repeated_key_in_the_header_json_is_an_error() {
+    // Р6, Р13, Ф16: parsers disagree about repeats, so none is accepted (top level and nested)
+    let valid = br#"{"body_id":null,"content_hash":null,"deleted":false,"format":1,"kind":"folder","mtime_ms":0,"path":"a","size":0,"version":1}"#;
+    assert!(parse_header_json(valid).is_ok(), "control");
+    let top = br#"{"body_id":null,"content_hash":null,"deleted":false,"format":1,"kind":"folder","mtime_ms":0,"path":"a","size":0,"size":1,"version":1}"#;
+    assert!(matches!(
+        parse_header_json(top),
+        Err(CryptoError::Malformed(_))
+    ));
+    let nested = br#"{"body_id":null,"content_hash":null,"deleted":false,"format":1,"kind":"folder","mtime_ms":0,"path":"a","size":0,"version":1,"x":{"a":1,"a":2}}"#;
+    assert!(matches!(
+        parse_header_json(nested),
+        Err(CryptoError::Malformed(_))
+    ));
+    let same_name_in_two_objects = br#"{"body_id":null,"content_hash":null,"deleted":false,"format":1,"kind":"folder","mtime_ms":0,"path":"a","size":0,"version":1,"x":{"a":1},"y":{"a":2}}"#;
+    assert!(
+        parse_header_json(same_name_in_two_objects).is_ok(),
+        "the same name in different objects is fine"
+    );
+}
+
+#[test]
+fn paths_that_could_leave_the_vault_are_refused() {
+    // Р9, Р6, Ф33: every rule, when sealing, when producing JSON and when parsing
+    let long_ok = "a".repeat(4096);
+    let long_bad = "a".repeat(4097);
+    let bad: Vec<(&str, String)> = vec![
+        ("empty", String::new()),
+        ("leading slash", "/a.md".into()),
+        ("trailing slash", "a/".into()),
+        ("only a slash", "/".into()),
+        ("empty segment", "a//b.md".into()),
+        ("dot segment", "a/./b.md".into()),
+        ("single dot", ".".into()),
+        ("dotdot", "..".into()),
+        ("dotdot first", "../outside.md".into()),
+        ("dotdot inside", "a/../../b.md".into()),
+        ("dotdot last", "a/..".into()),
+        ("backslash", "a\\b.md".into()),
+        ("nul", "a\u{0}b.md".into()),
+        ("tab", "a\tb.md".into()),
+        ("newline", "a\nb.md".into()),
+        ("unit separator", "a\u{1f}b.md".into()),
+        ("delete", "a\u{7f}b.md".into()),
+        ("too long", long_bad),
+        // 1025 four-byte characters: 4100 bytes although only 1025 characters
+        ("too long in bytes", "😀".repeat(1025)),
+    ];
+    for (why, path) in &bad {
+        let header = file_header(1, path);
+        assert_eq!(
+            seal_header(&vk(), &space(), &item(), &header, &mut OsRandom).unwrap_err(),
+            CryptoError::InvalidPath,
+            "seal: {why}"
+        );
+        assert_eq!(
+            canonical_header_json(&header).unwrap_err(),
+            CryptoError::InvalidPath,
+            "json: {why}"
+        );
+    }
+    let good = [
+        "a",
+        "a.md",
+        ".hidden",
+        "a/.hidden/b",
+        "..a",
+        "a..",
+        "a/b..c",
+        "a/\u{2028}",
+        "😀/😀.md",
+        long_ok.as_str(),
+        &"😀".repeat(1024),
+    ];
+    for path in good {
+        let header = file_header(1, path);
+        let envelope = seal_header(&vk(), &space(), &item(), &header, &mut OsRandom)
+            .unwrap_or_else(|e| panic!("{path:?}: {e:?}"));
+        assert_eq!(
+            open_header(&vk(), &space(), &item(), 1, &envelope)
+                .unwrap()
+                .path,
+            path
+        );
+    }
+    // parsing refuses the same paths in a header that arrives from outside
+    let json = |path: &str| {
+        let mut value = json!({
+            "format": 1, "version": 1, "kind": "folder", "path": "a", "size": 0, "mtime_ms": 0,
+            "content_hash": null, "body_id": null, "deleted": false
+        });
+        value["path"] = json!(path);
+        value.to_string().into_bytes()
+    };
+    assert!(parse_header_json(&json("a/b.md")).is_ok(), "control");
+    for (why, path) in &bad {
+        assert_eq!(
+            parse_header_json(&json(path)).unwrap_err(),
+            CryptoError::InvalidPath,
+            "parse: {why}"
+        );
+    }
+}
+
+#[test]
+fn the_path_syntax_is_checked_before_nfc() {
+    // Р9, Ф33: a path that is bad twice reports the syntax error
+    let nfd_and_bad = "../cafe\u{301}.md";
+    assert_eq!(
+        seal_header(
+            &vk(),
+            &space(),
+            &item(),
+            &file_header(1, nfd_and_bad),
+            &mut OsRandom
+        )
+        .unwrap_err(),
+        CryptoError::InvalidPath
+    );
+}
+
+#[test]
+fn an_epoch_of_zero_in_a_header_is_a_mismatch() {
+    // Р5, Ф3, Ф18: opening says EpochMismatch, reading the epoch alone says Malformed
+    let envelope = seal(&file_header(2, "a.md"));
+    assert_eq!(header_envelope_epoch(&envelope).unwrap(), 1, "control");
+    let mut zero = envelope.clone();
+    zero[1..5].copy_from_slice(&0u32.to_be_bytes());
+    assert_eq!(
+        open_header(&vk(), &space(), &item(), 2, &zero),
+        Err(CryptoError::EpochMismatch)
+    );
+    assert!(matches!(
+        header_envelope_epoch(&zero),
+        Err(CryptoError::Malformed(_))
+    ));
+    let mut two = envelope.clone();
+    two[1..5].copy_from_slice(&2u32.to_be_bytes());
+    assert_eq!(
+        open_header(&vk(), &space(), &item(), 2, &two),
+        Err(CryptoError::EpochMismatch)
+    );
+}
+
 fn nfc_path() -> impl Strategy<Value = String> {
-    "\\PC{1,300}"
-        .prop_map(|text| text.nfc().collect::<String>())
-        .prop_filter("not empty", |p| !p.is_empty())
+    // a valid path: 1–4 segments of printable characters, none of them `.` or `..` (Ф33), in NFC
+    proptest::collection::vec(
+        "[^/\\\\\\p{Cc}]{1,20}".prop_filter("not a dot segment", |segment| {
+            segment != "." && segment != ".."
+        }),
+        1..4,
+    )
+    .prop_map(|segments| {
+        segments
+            .iter()
+            .map(|segment| segment.nfc().collect::<String>())
+            .collect::<Vec<_>>()
+            .join("/")
+    })
 }
 
 fn extra_fields() -> impl Strategy<Value = BTreeMap<String, Value>> {
@@ -445,6 +617,32 @@ proptest! {
         let envelope = seal_header(&vk(), &space(), &item(), &header, &mut SeedRandom(seed)).unwrap();
         prop_assert_eq!((envelope.len() - 45) % 256, 0);
         prop_assert_eq!(open_header(&vk(), &space(), &item(), version, &envelope).unwrap(), header);
+    }
+
+    #[test]
+    fn no_accepted_path_leaves_the_vault(
+        parts in proptest::collection::vec(
+            proptest::sample::select(vec!["a", "b", ".", "..", "/", "//", "\\", "\u{1}", "\u{7f}", "é", "e\u{301}", " ", "😀", "x/y", "../.."]),
+            0..8,
+        ),
+    ) {
+        // Р9, Р6, Ф33: whatever is accepted has only ordinary segments, below the root
+        let path: String = parts.concat();
+        let result = seal_header(&vk(), &space(), &item(), &file_header(1, &path), &mut SeedRandom(5));
+        if !path_syntax_ok(&path) {
+            prop_assert_eq!(result.unwrap_err(), CryptoError::InvalidPath);
+        } else if path.nfc().collect::<String>() != path {
+            prop_assert_eq!(result.unwrap_err(), CryptoError::PathNotNfc);
+        } else {
+            let envelope = result.unwrap();
+            let opened = open_header(&vk(), &space(), &item(), 1, &envelope).unwrap();
+            prop_assert_eq!(&opened.path, &path);
+            prop_assert!(!std::path::Path::new(&path).is_absolute());
+            prop_assert!(std::path::Path::new(&path)
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_))));
+            prop_assert!(!path.contains('\\'));
+        }
     }
 
     #[test]

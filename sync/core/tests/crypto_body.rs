@@ -76,11 +76,15 @@ fn the_sealed_length_follows_the_padme_layout() {
     assert_eq!(seal(&[]).len(), 48);
     for size in [0usize, 1, 100, 1000, 65_535, 65_536, 65_537, 140_000] {
         let content = pattern(size);
-        let padded = padme(size as u64);
+        let padded = padme(size as u64).unwrap();
         let chunks = (padded as usize).div_ceil(CHUNK_SIZE).max(1);
         let expected = PREAMBLE_LEN + padded as usize + 16 * chunks;
         assert_eq!(seal(&content).len(), expected, "size {size}");
-        assert_eq!(sealed_body_len(size as u64), expected as u64, "size {size}");
+        assert_eq!(
+            sealed_body_len(size as u64).unwrap(),
+            expected as u64,
+            "size {size}"
+        );
     }
 }
 
@@ -89,8 +93,8 @@ fn files_of_similar_size_look_alike_to_the_server() {
     // О2, Р6: sizes in one Padmé class give equal sealed lengths; another class differs
     for (a, b) in [(1000usize, 1023usize), (1025, 1087), (65_537, 67_000)] {
         assert_eq!(
-            padme(a as u64),
-            padme(b as u64),
+            padme(a as u64).unwrap(),
+            padme(b as u64).unwrap(),
             "the sample sizes share a class"
         );
         assert_eq!(
@@ -339,13 +343,13 @@ fn the_header_values_are_checked_against_the_decrypted_body() {
         Err(CryptoError::HashMismatch)
     );
     // size 1001 is in the same Padmé class (1024): length fits, the hash does not
-    assert_eq!(padme(1001), padme(1000));
+    assert_eq!(padme(1001).unwrap(), padme(1000).unwrap());
     assert_eq!(
         open_body(&vk(), &body_id(), 1001, &hash, &sealed),
         Err(CryptoError::HashMismatch)
     );
     // another class: the length does not fit
-    assert_ne!(padme(1100), padme(1000));
+    assert_ne!(padme(1100).unwrap(), padme(1000).unwrap());
     assert_eq!(
         open_body(&vk(), &body_id(), 1100, &hash, &sealed),
         Err(CryptoError::LengthMismatch)
@@ -364,10 +368,46 @@ fn a_larger_file_keeps_its_exact_size() {
         let opened = open(&content, &seal(&content)).unwrap();
         assert_eq!(opened.len(), size);
         assert!(
-            padme(size as u64) > size as u64,
+            padme(size as u64).unwrap() > size as u64,
             "the sample size has padding to remove"
         );
     }
+}
+
+#[test]
+fn a_size_above_two_to_the_62_is_refused_first_without_panic() {
+    // Р6, Ф26: an error, not an overflow; it is checked before the data is looked at
+    let content = pattern(1000);
+    let sealed = seal(&content);
+    let hash = blake3_hash(&content);
+    assert!(
+        open_body(&vk(), &body_id(), 1000, &hash, &sealed).is_ok(),
+        "control"
+    );
+    for size in [(1u64 << 62) + 1, u64::MAX] {
+        assert_eq!(
+            open_body(&vk(), &body_id(), size, &hash, &sealed),
+            Err(CryptoError::SizeTooLarge)
+        );
+        assert_eq!(
+            open_body(&vk(), &body_id(), size, &hash, &[]),
+            Err(CryptoError::SizeTooLarge)
+        );
+    }
+}
+
+#[test]
+fn epoch_zero_in_a_body_is_an_epoch_mismatch() {
+    // Р5, Ф3, Ф25: any difference from the epoch of the key, zero included, is EpochMismatch
+    let content = pattern(100);
+    let sealed = seal(&content);
+    assert!(open(&content, &sealed).is_ok(), "control");
+    let mut zero = sealed.clone();
+    zero[9..13].copy_from_slice(&0u32.to_be_bytes());
+    assert_eq!(open(&content, &zero), Err(CryptoError::EpochMismatch));
+    let mut two = sealed.clone();
+    two[9..13].copy_from_slice(&2u32.to_be_bytes());
+    assert_eq!(open(&content, &two), Err(CryptoError::EpochMismatch));
 }
 
 proptest! {
@@ -377,7 +417,7 @@ proptest! {
     fn any_content_roundtrips(content in proptest::collection::vec(any::<u8>(), 0..150_000), seed in any::<u64>()) {
         // О7, Р6: arbitrary bytes come back unchanged; the sealed length depends on the size only
         let sealed = seal_body(&vk(), &body_id(), &content, &mut SeedRandom(seed)).unwrap();
-        prop_assert_eq!(sealed.len() as u64, sealed_body_len(content.len() as u64));
+        prop_assert_eq!(sealed.len() as u64, sealed_body_len(content.len() as u64).unwrap());
         prop_assert_eq!(open(&content, &sealed).unwrap(), content);
     }
 
