@@ -1,0 +1,81 @@
+name: Sync
+
+# Encrypted sync workspace (docs/sync-plan.md). Separate from the app gates in verify.yml.
+on:
+  pull_request:
+    paths:
+      - "sync/**"
+      - "scripts/sync-req-check.mjs"
+      - ".github/workflows/sync.yml"
+  push:
+    branches: [main, beta, dev]
+    paths:
+      - "sync/**"
+      - "scripts/sync-req-check.mjs"
+      - ".github/workflows/sync.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Sync workspace (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Rust stable
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./sync -> target
+      - run: cargo fmt --manifest-path sync/Cargo.toml --all --check
+      - run: cargo clippy --manifest-path sync/Cargo.toml --workspace --all-targets -- -D warnings
+      - run: cargo test --manifest-path sync/Cargo.toml --workspace
+
+  deny:
+    name: Licenses and advisories (cargo-deny)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          manifest-path: sync/Cargo.toml
+          command: check
+
+  requirements:
+    name: Requirement coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      # Informational until every stage has its tests: the script exits 1 while a requirement
+      # of docs/sync-plan.md has no test. docs/sync-plan.md is development-only, so on beta and
+      # main the script finds no plan and passes.
+      - run: node scripts/sync-req-check.mjs
+        continue-on-error: true
+
+  reference:
+    name: Reference vectors are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r sync/reference/requirements.txt
+      # The reference must agree with the standards, and its output must be the committed vectors.
+      - run: python -m unittest -q
+        working-directory: sync/reference
+      - run: python sync/reference/generate_vectors.py
+      - run: git diff --exit-code -- sync/vectors

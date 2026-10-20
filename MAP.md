@@ -23,6 +23,7 @@ This is an ownership index of the working code, not a feature-completion claim.
 | Vault I/O, IDs, indexing, links, bundles, history, trash       | [Rust services](src-tauri/src/MAP.md)                      |
 | Desktop bootstrap, permissions, packaging                      | [Tauri](src-tauri/MAP.md)                                  |
 | Commands, CI, benchmarks, release automation                   | [Tooling](scripts/MAP.md)                                  |
+| Encrypted sync: crypto, server, conformance (`sync/`)          | [Sync](sync/MAP.md)                                        |
 | Test selection, fixtures, native verification                  | [Tests](tests/MAP.md)                                      |
 | Product contracts versus proposals and historical audits       | [Documentation](docs/MAP.md)                               |
 | Public release notes                                           | [Updates](updates/README.md)                               |

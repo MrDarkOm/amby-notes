@@ -38,3 +38,11 @@ dist-ssr
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 OldPlans/
+
+# Encrypted sync workspace (docs/sync-plan.md, Р12)
+sync/target/
+sync/core/fuzz/target/
+sync/core/fuzz/artifacts/
+sync/core/fuzz/corpus/
+sync/reference/.venv/
+sync/reference/__pycache__/
