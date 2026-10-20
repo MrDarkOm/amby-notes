@@ -4,26 +4,70 @@
 import type { TFunction } from "i18next"
 import { SyncPortError } from "./sync-port"
 
-/** Every code the interface knows a text for. */
-export const KNOWN_SYNC_ERROR_CODES: readonly string[] = []
+/** Every code the interface knows a text for: table Б.0.1, the client, the application. */
+export const KNOWN_SYNC_ERROR_CODES: readonly string[] = [
+  // table Б.0.1: what the connect screen can meet
+  "bad_request",
+  "unauthorized",
+  "token_revoked",
+  "invalid_credentials",
+  "invalid_enroll_code",
+  "enroll_code_expired",
+  "invalid_proof",
+  "not_found",
+  "keys_conflict",
+  "payload_too_large",
+  "rate_limited",
+  "internal",
+  "not_implemented",
+  // the client (sync/client)
+  "invalid_url",
+  "insecure_url",
+  "invalid_username",
+  "invalid_device_name",
+  "network",
+  "timeout",
+  "bad_response",
+  "server_unavailable",
+  "unsupported_server",
+  "cannot_decrypt",
+  "crypto",
+  // the application
+  "weak_password",
+  "password_too_short",
+  "no_pending_account",
+  "recovery_confirmation_mismatch",
+  "invalid_recovery_code",
+  "not_connected",
+  "already_connected",
+  "keychain_unavailable",
+  "storage_error",
+  "unavailable",
+  "ipc_failed",
+]
+
+const UNKNOWN_KEY = "sync.errors.unknown"
 
 /** The translation key of an error code; an unknown code has the general key. */
 export function syncErrorKey(code: string): string {
-  void code
-  throw new Error("not implemented")
+  return KNOWN_SYNC_ERROR_CODES.includes(code) ? `sync.errors.${code}` : UNKNOWN_KEY
 }
 
-/** "14 мин", "45 с": the wait of a rate limit in words. */
+/** "14 мин", "45 с": the wait of a rate limit in words, rounded up to the largest unit. */
 export function formatWait(seconds: number, t: TFunction): string {
-  void seconds
-  void t
-  throw new Error("not implemented")
+  const whole = Math.max(1, Math.ceil(seconds))
+  if (whole < 60) return t("sync.wait.seconds", { n: whole })
+  if (whole < 3600) return t("sync.wait.minutes", { n: Math.ceil(whole / 60) })
+  return t("sync.wait.hours", { n: Math.ceil(whole / 3600) })
 }
 
 /** The text for a thrown value: a `SyncPortError` is translated, anything else is the general text. */
 export function syncErrorMessage(error: unknown, t: TFunction): string {
-  void error
-  void t
-  void SyncPortError
-  throw new Error("not implemented")
+  if (!(error instanceof SyncPortError)) return t(UNKNOWN_KEY, { code: "unknown" })
+  if (error.code === "rate_limited") {
+    return error.retryAfterSecs === null
+      ? t("sync.errors.rate_limited_nowait")
+      : t("sync.errors.rate_limited", { wait: formatWait(error.retryAfterSecs, t) })
+  }
+  return t(syncErrorKey(error.code), { code: error.code })
 }

@@ -14,7 +14,17 @@ export interface RecoveryFileContext {
 
 /** The whole text of the file. */
 export function recoveryFileText(context: RecoveryFileContext, t: TFunction): string {
-  void context
-  void t
-  throw new Error("not implemented")
+  return [
+    t("sync.recovery.file.title"),
+    "",
+    `${t("sync.recovery.file.server")}: ${context.host}`,
+    `${t("sync.recovery.file.user")}: ${context.username}`,
+    "",
+    `${t("sync.recovery.file.code")}:`,
+    context.recoveryCode,
+    "",
+    t("sync.recovery.warning"),
+    t("sync.recovery.file.keepSafe"),
+    "",
+  ].join("\n")
 }

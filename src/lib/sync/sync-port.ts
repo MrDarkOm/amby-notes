@@ -3,7 +3,11 @@
 // generated commands, the browser port refuses. Every failure is a `SyncPortError` with the
 // machine code of the Rust side — the UI translates the code (sync-errors.ts), never a text.
 
+import { commands } from "@/lib/bindings"
+import { isTauri } from "@/lib/storage"
 import type {
+  Result,
+  SyncError,
   DeviceView,
   PasswordCheck,
   PreparedAccountView,
@@ -12,14 +16,7 @@ import type {
   SyncStatus,
 } from "@/lib/bindings"
 
-export type {
-  DeviceView,
-  PasswordCheck,
-  PreparedAccountView,
-  ServerCheck,
-  SignOutResult,
-  SyncStatus,
-}
+export type { DeviceView, PasswordCheck, PreparedAccountView, ServerCheck, SyncStatus }
 
 /** The default name of the recovery code file offered by "Save to file". */
 export const RECOVERY_CODE_FILE_NAME = "amby-recovery-code.txt"
@@ -38,25 +35,25 @@ export class SyncPortError extends Error {
 }
 
 /** The server a command goes to: the address as typed and the "local network" switch (П41). */
-export interface ServerTarget {
+interface ServerTarget {
   url: string
   allowHttp: boolean
 }
 
-export interface PrepareAccountInput extends ServerTarget {
+interface PrepareAccountInput extends ServerTarget {
   username: string
   enrollCode: string
   password: string
   deviceName: string
 }
 
-export interface SignInInput extends ServerTarget {
+interface SignInInput extends ServerTarget {
   username: string
   password: string
   deviceName: string
 }
 
-export interface RecoverInput extends ServerTarget {
+interface RecoverInput extends ServerTarget {
   username: string
   recoveryCode: string
   newPassword: string
@@ -86,19 +83,95 @@ export interface SyncPort {
   saveRecoveryCode(contents: string): Promise<string | null>
 }
 
-/** The port that calls the Rust commands. */
-export function createDesktopSyncPort(): SyncPort {
-  throw new Error("not implemented")
+/** Unwraps the answer of a command. A failure of the IPC layer itself carries no text on purpose. */
+async function call<T>(command: Promise<Result<T, SyncError>>): Promise<T> {
+  let result: Result<T, SyncError>
+  try {
+    result = await command
+  } catch {
+    throw new SyncPortError("ipc_failed")
+  }
+  if (result.status === "ok") return result.data
+  throw new SyncPortError(result.error.code, result.error.retryAfterSecs)
 }
 
+/** The port that calls the Rust commands. */
+export function createDesktopSyncPort(): SyncPort {
+  return {
+    status: () => call(commands.syncStatus()),
+    checkServer: ({ url, allowHttp }) => call(commands.syncCheckServer(url, allowHttp)),
+    checkPassword: async (password, username) => {
+      try {
+        return await commands.syncCheckPassword(password, username)
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+    },
+    prepareAccount: ({ url, allowHttp, username, enrollCode, password, deviceName }) =>
+      call(commands.syncPrepareAccount(url, allowHttp, username, enrollCode, password, deviceName)),
+    confirmRecoveryCode: (groups) => call(commands.syncConfirmRecoveryCode(groups)),
+    cancelPending: async () => {
+      try {
+        await commands.syncCancelPending()
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+    },
+    signIn: ({ url, allowHttp, username, password, deviceName }) =>
+      call(commands.syncSignIn(url, allowHttp, username, password, deviceName)),
+    recover: ({ url, allowHttp, username, recoveryCode, newPassword, deviceName }) =>
+      call(commands.syncRecover(url, allowHttp, username, recoveryCode, newPassword, deviceName)),
+    listDevices: () => call(commands.syncListDevices()),
+    disconnectDevice: async (deviceId) => {
+      await call(commands.syncDisconnectDevice(deviceId))
+    },
+    signOut: () => call(commands.syncSignOut()),
+    saveRecoveryCode: async (contents) => {
+      let result: Result<string | null, string>
+      try {
+        result = await commands.exportTextFile(contents, RECOVERY_CODE_FILE_NAME)
+      } catch {
+        throw new SyncPortError("ipc_failed")
+      }
+      if (result.status === "ok") return result.data
+      // The text of a file error may name a path: only the code is kept.
+      throw new SyncPortError("storage_error")
+    },
+  }
+}
+
+const unavailable = (): Promise<never> => Promise.reject(new SyncPortError("unavailable"))
+
 /** The port of the browser build: sync needs the desktop application. */
-export const unavailableSyncPort: SyncPort = new Proxy({} as SyncPort, {
-  get() {
-    throw new Error("not implemented")
-  },
-})
+export const unavailableSyncPort: SyncPort = {
+  status: async () => ({
+    connected: false,
+    keysMissing: false,
+    pending: false,
+    serverUrl: null,
+    host: null,
+    username: null,
+    deviceId: null,
+    allowHttp: false,
+  }),
+  checkServer: unavailable,
+  checkPassword: unavailable,
+  prepareAccount: unavailable,
+  confirmRecoveryCode: unavailable,
+  cancelPending: async () => {},
+  signIn: unavailable,
+  recover: unavailable,
+  listDevices: unavailable,
+  disconnectDevice: unavailable,
+  signOut: unavailable,
+  saveRecoveryCode: unavailable,
+}
+
+let desktopPort: SyncPort | null = null
 
 /** The desktop port in the application, the unavailable one in a browser. */
 export function resolveSyncPort(): SyncPort {
-  throw new Error("not implemented")
+  if (!isTauri()) return unavailableSyncPort
+  desktopPort ??= createDesktopSyncPort()
+  return desktopPort
 }

@@ -10,8 +10,13 @@ export const SYNC_MODULE_DEFINITION: ModuleDefinition = {
     publisher: "Amby",
     kind: "official",
     minAppVersion: "0.1.5",
-    permissions: [],
+    permissions: ["network", "secrets.use"],
+    contributions: {
+      settings: true,
+    },
   },
+  // The module only adds a section to the settings (settings-dialog.tsx shows it while the
+  // module is on); there is nothing to register or to clean up yet.
   activate: () => {},
   deactivate: () => {},
 }

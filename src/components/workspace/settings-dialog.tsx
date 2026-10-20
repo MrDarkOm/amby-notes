@@ -20,6 +20,7 @@ import {
   Keyboard,
   Palette,
   PencilLine,
+  RefreshCw,
   Search,
   Sparkles,
   Type,
@@ -77,6 +78,7 @@ import {
   DebugSettings,
 } from "./settings"
 import { StopSlider } from "./database/stop-slider"
+import { SyncSettings } from "./sync/sync-settings"
 
 const FONT_SCALES = ["sm", "md", "lg"] as const satisfies readonly FontScale[]
 const TOOLTIP_DELAY_STOPS = ["0", "500", "1000", "1500", "2000", "-1"] as const
@@ -197,6 +199,7 @@ const SETTINGS_NAV = [
   { id: "editor", labelKey: "settings.tabs.editor", icon: PencilLine },
   { id: "shortcuts", labelKey: "settings.tabs.shortcuts", icon: Keyboard },
   { id: "modules", labelKey: "settings.tabs.modules", icon: Blocks },
+  { id: "sync", labelKey: "settings.tabs.sync", icon: RefreshCw },
 ] as const
 
 interface SettingsDialogProps {
@@ -278,6 +281,13 @@ export function SettingsDialog({
   const [query, setQuery] = React.useState("")
   const [maximized, setMaximized] = React.useState(false)
   const [useInlineFallback, setUseInlineFallback] = React.useState(false)
+  // The Synchronization section exists only while the optional module is on.
+  const syncActive = activeModules.includes("sync")
+  const navItems = SETTINGS_NAV.filter((item) => item.id !== "sync" || syncActive)
+
+  React.useEffect(() => {
+    if (!syncActive && activeSection === "sync") setActiveSection("general")
+  }, [activeSection, syncActive])
 
   React.useEffect(() => {
     if (!navigationTarget) return
@@ -356,6 +366,15 @@ export function SettingsDialog({
         label: t("settings.tabs.shortcuts"),
         description: SHORTCUT_DEFINITIONS.map(({ labelKey }) => t(labelKey)).join(" · "),
       },
+      ...(syncActive
+        ? [
+            {
+              section: "sync" as const,
+              label: t("sync.title"),
+              description: `${t("sync.wizard.server.address")} · ${t("sync.wizard.choice.create")} · ${t("sync.recovery.title")} · ${t("sync.connected.devices")}`,
+            },
+          ]
+        : []),
       ...MODULE_REGISTRY.map((module) => ({
         section: "modules" as const,
         label: t(module.labelKey),
@@ -366,7 +385,7 @@ export function SettingsDialog({
     return entries.filter(({ label, description }) =>
       `${label} ${description}`.toLocaleLowerCase().includes(normalized),
     )
-  }, [query, t])
+  }, [query, syncActive, t])
 
   React.useEffect(() => {
     if (standalone || !isTauri()) return
@@ -458,7 +477,7 @@ export function SettingsDialog({
               {saveError}
             </p>
           )}
-          {SETTINGS_NAV.map(({ id, labelKey, icon: Icon }) => (
+          {navItems.map(({ id, labelKey, icon: Icon }) => (
             <TabsTrigger
               key={id}
               value={id}
@@ -794,6 +813,13 @@ export function SettingsDialog({
               <TabsContent value="shortcuts" className="space-y-6">
                 <ShortcutsTab />
               </TabsContent>
+
+              {/* ── Synchronization (optional module) ────────────────────── */}
+              {syncActive && (
+                <TabsContent value="sync" className="space-y-6">
+                  <SyncSettings />
+                </TabsContent>
+              )}
 
               <TabsContent value="modules">
                 <ModulesTab

@@ -5355,3 +5355,42 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 .amby-resize-handle[data-resizing="true"] .amby-resize-handle-line {
   background: hsl(var(--foreground) / 0.35);
 }
+
+/* Sync: the sheet with the recovery code. Hidden on screen. While the page is printed the
+   recovery step puts `sync-printing` on <html>, and then only this sheet is shown. */
+.sync-print-sheet {
+  display: none;
+}
+
+@media print {
+  html.sync-printing body * {
+    visibility: hidden;
+  }
+
+  html.sync-printing .sync-print-sheet,
+  html.sync-printing .sync-print-sheet * {
+    visibility: visible;
+  }
+
+  html.sync-printing .sync-print-sheet {
+    display: block;
+    position: fixed;
+    inset: 0;
+    padding: 24mm 20mm;
+    background: #fff;
+    color: #000;
+  }
+
+  html.sync-printing .sync-print-sheet h1 {
+    margin: 0 0 8mm;
+    font-size: 20pt;
+  }
+
+  html.sync-printing .sync-print-sheet .sync-print-code {
+    margin: 10mm 0;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 18pt;
+    letter-spacing: 0.08em;
+    word-break: break-all;
+  }
+}
