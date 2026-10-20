@@ -48,6 +48,15 @@ pub struct Config {
     pub login_max_failures: u32,
     /// The window in which failed attempts count, in seconds (П16).
     pub login_window_secs: u64,
+    /// Failed attempts per user name from all addresses together (П16, the soft counter).
+    pub login_max_failures_per_user: u32,
+    /// The window of the soft counter, in seconds (П16).
+    pub login_window_per_user_secs: u64,
+    /// Believe `X-Forwarded-For` (the last address) when counting attempts per address
+    /// (`AMBY_SYNC_TRUST_PROXY`, П16).
+    pub trust_proxy: bool,
+    /// Sealed bytes one user may keep (`AMBY_SYNC_QUOTA_BYTES_PER_USER`); `None` is no quota (П42).
+    pub quota_bytes_per_user: Option<u64>,
     /// Seconds between `: ping` lines on an event stream (П34).
     pub sse_keepalive_secs: u64,
 }
@@ -61,14 +70,18 @@ impl Default for Config {
             public_url: "http://localhost:8080".to_string(),
             allow_http: false,
             max_blob_bytes: 536_870_912,
-            max_commit_items: 1000,
+            max_commit_items: 10_000,
             max_header_bytes: 16_384,
-            max_json_bytes: 16_777_216,
+            max_json_bytes: 67_108_864,
             retain_version_days: 30,
             orphan_blob_hours: 24,
             enroll_code_hours: 24,
             login_max_failures: 5,
             login_window_secs: 900,
+            login_max_failures_per_user: 50,
+            login_window_per_user_secs: 3600,
+            trust_proxy: false,
+            quota_bytes_per_user: None,
             sse_keepalive_secs: 15,
         }
     }

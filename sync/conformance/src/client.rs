@@ -13,7 +13,7 @@ use amby_sync_core::crypto::body::{open_body, seal_body};
 use amby_sync_core::crypto::header::{open_header, seal_header, Header, ItemKind};
 use amby_sync_core::crypto::keys::{AccountKey, AuthKey, BodyId, ItemId, SpaceId, SpaceKey};
 use amby_sync_core::crypto::primitives::{
-    blake3_hash, xchacha20poly1305_open, xchacha20poly1305_seal,
+    blake3_hash, hkdf_sha256, xchacha20poly1305_open, xchacha20poly1305_seal,
 };
 use amby_sync_core::crypto::random::{OsRandom, Random};
 use amby_sync_core::crypto::recovery_code::RecoveryCode;
@@ -62,25 +62,75 @@ pub fn params_from_json(value: &Value) -> Argon2Params {
 }
 
 const AAD_DEVICE_NAME: &[u8] = b"amby-sync/device-name/1";
+const AAD_SPACE_NAME: &[u8] = b"amby-sync/space-name/1";
+const INFO_NAME_KEY: &[u8] = b"amby-sync/name-key/1";
+/// Names are padded with zeros to 64 bytes, so every envelope is 105 bytes (Ф34).
+pub const NAME_PLAIN_LEN: usize = 64;
+pub const NAME_ENVELOPE_LEN: usize = 1 + 24 + NAME_PLAIN_LEN + 16;
 
-/// The name of a device encrypted with AK: `0x01 ‖ nonce ‖ ciphertext ‖ tag`. The format is not in
-/// appendix А yet (open question Б.10-6); the server only keeps these bytes.
-pub fn seal_device_name(ak: &AccountKey, name: &str) -> String {
+fn name_key(ak: &AccountKey) -> [u8; 32] {
+    hkdf_sha256(&[], ak.as_bytes(), INFO_NAME_KEY, 32)
+        .expect("HKDF failed")
+        .try_into()
+        .expect("HKDF gave a wrong length")
+}
+
+fn seal_name(ak: &AccountKey, aad: &[u8], name: &str) -> String {
+    assert!(
+        name.len() <= NAME_PLAIN_LEN,
+        "a name is at most 64 bytes (Ф34)"
+    );
+    let mut plain = name.as_bytes().to_vec();
+    plain.resize(NAME_PLAIN_LEN, 0);
     let mut nonce = [0u8; 24];
     OsRandom.fill(&mut nonce);
-    let sealed = xchacha20poly1305_seal(ak.as_bytes(), &nonce, AAD_DEVICE_NAME, name.as_bytes());
+    let sealed = xchacha20poly1305_seal(&name_key(ak), &nonce, aad, &plain);
     let mut out = vec![1u8];
     out.extend_from_slice(&nonce);
     out.extend_from_slice(&sealed);
+    assert_eq!(out.len(), NAME_ENVELOPE_LEN);
     hex::encode(out)
 }
 
-pub fn open_device_name(ak: &AccountKey, name_enc: &str) -> String {
+fn open_name(ak: &AccountKey, aad: &[u8], name_enc: &str) -> String {
     let bytes = unhex(name_enc);
-    let nonce: [u8; 24] = bytes[1..25].try_into().expect("device name is too short");
-    let plain = xchacha20poly1305_open(ak.as_bytes(), &nonce, AAD_DEVICE_NAME, &bytes[25..])
-        .expect("the device name does not open with AK");
-    String::from_utf8(plain).expect("device name is not UTF-8")
+    assert_eq!(
+        bytes.len(),
+        NAME_ENVELOPE_LEN,
+        "a name envelope is 105 bytes (Ф34)"
+    );
+    let nonce: [u8; 24] = bytes[1..25].try_into().expect("name envelope is too short");
+    let mut plain = xchacha20poly1305_open(&name_key(ak), &nonce, aad, &bytes[25..])
+        .expect("the name does not open with the key of AK");
+    while plain.last() == Some(&0) {
+        plain.pop();
+    }
+    String::from_utf8(plain).expect("name is not UTF-8")
+}
+
+/// The name of a device, as Ф34 says: key `HKDF(AK, "amby-sync/name-key/1")`, text padded to 64
+/// bytes, AAD `amby-sync/device-name/1`. The server only keeps these 105 bytes (П12).
+pub fn seal_device_name(ak: &AccountKey, name: &str) -> String {
+    seal_name(ak, AAD_DEVICE_NAME, name)
+}
+
+pub fn open_device_name(ak: &AccountKey, name_enc: &str) -> String {
+    open_name(ak, AAD_DEVICE_NAME, name_enc)
+}
+
+fn space_aad(space: &[u8; 16]) -> Vec<u8> {
+    let mut aad = AAD_SPACE_NAME.to_vec();
+    aad.extend_from_slice(space);
+    aad
+}
+
+/// The name of a space: AAD `amby-sync/space-name/1 ‖ space_id` (Ф34).
+pub fn seal_space_name(ak: &AccountKey, space: &[u8; 16], name: &str) -> String {
+    seal_name(ak, &space_aad(space), name)
+}
+
+pub fn open_space_name(ak: &AccountKey, space: &[u8; 16], name_enc: &str) -> String {
+    open_name(ak, &space_aad(space), name_enc)
 }
 
 /// The `device` object of an enrol, login or recover request (П12).
@@ -226,7 +276,7 @@ impl Account {
             "/v1/spaces",
             json!({
                 "space_id": hex16(id.as_bytes()),
-                "name_enc": seal_device_name(&self.ak, name),
+                "name_enc": seal_space_name(&self.ak, id.as_bytes(), name),
                 "key_epoch": 1,
                 "wrapped_vk": hex::encode(wrapped),
             }),

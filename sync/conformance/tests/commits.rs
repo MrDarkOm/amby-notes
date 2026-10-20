@@ -183,7 +183,8 @@ fn seq_counts_accepted_commits_without_gaps_and_a_commit_shares_one_seq() {
     assert_eq!(space.commit_ok(&[space.folder(&new_item(), 0, "E")]), 4);
     let feed = space.all_changes(0);
     let seqs: Vec<u64> = feed.iter().map(|c| c["seq"].as_u64().unwrap()).collect();
-    assert_eq!(seqs, vec![1, 2, 3, 3, 3, 4]);
+    // The first item moved from seq 1 to seq 2 (П31): the feed holds its latest version only.
+    assert_eq!(seqs, vec![2, 3, 3, 3, 4]);
 }
 
 #[test]
@@ -218,8 +219,8 @@ fn racing_commits_from_one_base_accept_exactly_one() {
         .count();
     assert_eq!((accepted, refused), (1, 7), "answers: {statuses:?}");
     let feed = space.all_changes(0);
-    assert_eq!(feed.len(), 2, "the create and exactly one winner");
-    assert_eq!(feed[1]["version"], 2);
+    assert_eq!(feed.len(), 1, "one entry for the item (П31)");
+    assert_eq!(feed[0]["version"], 2, "exactly one winner");
 }
 
 #[test]
@@ -432,10 +433,11 @@ fn a_rename_reuses_the_body_without_uploading_it_again() {
     let renamed = space.file_with_uploaded_body(&item, 1, "new name.md", b"same bytes", &body);
     space.commit_ok(&[renamed]);
     let feed = space.all_changes(0);
-    assert_eq!(feed.len(), 2);
-    assert_eq!(feed[1]["blob_id"], hex16(body.as_bytes()).as_str());
-    assert_eq!(space.open_change(&feed[1]).path, "new name.md");
-    assert_eq!(space.fetch_file(&feed[1]), b"same bytes");
+    assert_eq!(feed.len(), 1, "the feed has the latest version only (П31)");
+    assert_eq!(feed[0]["version"], 2);
+    assert_eq!(feed[0]["blob_id"], hex16(body.as_bytes()).as_str());
+    assert_eq!(space.open_change(&feed[0]).path, "new name.md");
+    assert_eq!(space.fetch_file(&feed[0]), b"same bytes");
 }
 
 #[test]
@@ -451,10 +453,16 @@ fn a_deletion_is_a_new_version_with_an_open_mark_and_an_encrypted_header() {
         .json();
     assert_eq!(answer["items"][0]["version"], 2);
     let feed = space.all_changes(0);
-    assert_eq!(feed[1]["deleted"], true);
-    assert_eq!(feed[1]["blob_id"], Value::Null);
-    assert!(space.open_change(&feed[1]).deleted);
-    assert_eq!(feed[0]["deleted"], false);
+    assert_eq!(feed.len(), 1, "the deletion replaces the entry (П31)");
+    assert_eq!(feed[0]["deleted"], true);
+    assert_eq!(feed[0]["blob_id"], Value::Null);
+    assert!(space.open_change(&feed[0]).deleted);
+    let history = space.versions(&item).expect(200).json();
+    assert_eq!(
+        history["versions"].as_array().unwrap().len(),
+        2,
+        "the content stays in the history"
+    );
 }
 
 #[test]

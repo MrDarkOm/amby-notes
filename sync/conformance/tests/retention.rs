@@ -131,8 +131,9 @@ fn a_body_stays_while_a_live_version_still_uses_it() {
 }
 
 #[test]
-fn removed_versions_are_reported_as_a_gap_in_the_feed() {
-    // П32: a device that has not seen the removed versions is told so; one that has is not.
+fn removed_old_versions_leave_no_gap_because_the_feed_never_showed_them() {
+    // П32, П31, П35: the feed holds only the latest version of an item; dropping the old ones
+    // changes nothing in it, so a device that is behind is not told to resync.
     let target = Target::in_process();
     let control = in_process_or_skip!(target);
     let space = fresh(&target);
@@ -140,16 +141,44 @@ fn removed_versions_are_reported_as_a_gap_in_the_feed() {
     space.commit_ok(&[space.file(&item, 0, "a.md", b"1")]);
     space.commit_ok(&[space.file(&item, 1, "a.md", b"2")]);
     space.commit_ok(&[space.file(&item, 2, "a.md", b"3")]);
-    assert_eq!(space.changes(0, None).expect(200).json()["gap"], false);
+    let before = space.changes(0, None).expect(200).json();
     days(control, 31);
     control.run_maintenance();
     assert_eq!(version_numbers(&space, &item), vec![3]);
+    let after = space.changes(0, None).expect(200).json();
+    assert_eq!(after["gap"], false);
+    assert_eq!(
+        after["changes"], before["changes"],
+        "the feed did not change"
+    );
+}
+
+#[test]
+fn a_gap_appears_only_after_a_whole_deleted_item_is_removed() {
+    // П32, П36: a device that has not seen the deletion is told so; one that is past it is not.
+    let target = Target::in_process();
+    let control = in_process_or_skip!(target);
+    let space = fresh(&target);
+    let (gone, kept) = (new_item(), new_item());
+    space.commit_ok(&[space.file(&gone, 0, "gone.md", b"1")]); // seq 1
+    space.commit_ok(&[space.deletion(&gone, 1, "gone.md")]); // seq 2
+    space.commit_ok(&[space.file(&kept, 0, "kept.md", b"k")]); // seq 3
+    days(control, 20);
+    control.run_maintenance();
+    assert_eq!(
+        space.changes(0, None).expect(200).json()["gap"],
+        false,
+        "not yet removed"
+    );
+    days(control, 11);
+    control.run_maintenance();
+    space.versions(&gone).expect_error(404, "not_found");
     assert_eq!(space.changes(0, None).expect(200).json()["gap"], true);
     assert_eq!(space.changes(1, None).expect(200).json()["gap"], true);
     assert_eq!(
         space.changes(2, None).expect(200).json()["gap"],
         false,
-        "seq 2 was the last removed"
+        "seq 2 was the deletion itself"
     );
     assert_eq!(space.changes(3, None).expect(200).json()["gap"], false);
 }
@@ -286,7 +315,7 @@ fn old_attempt_counters_do_not_survive_cleanup_as_a_lock() {
                 "/v1/auth/login",
                 None,
                 json!({ "username": account.username, "auth_key": "00".repeat(32),
-                        "device": { "name_enc": "ab".repeat(40) } }),
+                        "device": { "name_enc": "ab".repeat(105) } }),
             )
             .expect_error(401, "invalid_credentials");
     }

@@ -25,6 +25,8 @@ pub struct AdminFailure {
 /// `user add` for any kind of server (П38).
 pub trait UserAdmin: Send + Sync {
     fn user_add(&self, username: &str) -> Result<EnrollTicket, AdminFailure>;
+    /// `user remove <name> --yes` (П38).
+    fn user_remove(&self, username: &str) -> Result<(), AdminFailure>;
 }
 
 /// A direct call into the server that runs in this process.
@@ -45,6 +47,14 @@ impl UserAdmin for InProcessAdmin {
                 exit_code: Some(error.exit_code()),
                 message: error.to_string(),
             })
+    }
+
+    fn user_remove(&self, username: &str) -> Result<(), AdminFailure> {
+        let state = self.state.read().unwrap().clone();
+        amby_sync_server::admin::user_remove(&state, username).map_err(|error| AdminFailure {
+            exit_code: Some(error.exit_code()),
+            message: error.to_string(),
+        })
     }
 }
 
@@ -100,5 +110,28 @@ impl UserAdmin for CommandAdmin {
                 .to_string(),
             expires_ms: value["expires_ms"].as_i64().unwrap_or(0),
         })
+    }
+
+    fn user_remove(&self, username: &str) -> Result<(), AdminFailure> {
+        let (program, args) = self.command.split_first().ok_or_else(|| AdminFailure {
+            exit_code: None,
+            message: "AMBY_SYNC_ADMIN_CMD is empty".into(),
+        })?;
+        let output = Command::new(program)
+            .args(args)
+            .args(["user", "remove", username, "--yes"])
+            .output()
+            .map_err(|error| AdminFailure {
+                exit_code: None,
+                message: format!("cannot run {program}: {error}"),
+            })?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(AdminFailure {
+                exit_code: output.status.code(),
+                message: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            })
+        }
     }
 }

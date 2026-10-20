@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use amby_sync_conformance::client::{
-    enroll, hex16, new_item, open_device_name, random16, seal_device_name, unwrap_ak,
+    enroll, hex16, new_item, open_space_name, random16, seal_space_name, unwrap_ak,
     unwrap_vk_from_listing, PASSWORD,
 };
 use amby_sync_conformance::Target;
@@ -25,7 +25,11 @@ fn a_space_is_created_and_listed_with_its_wrapped_key() {
     assert_eq!(listed["seq"], 0);
     assert!(listed["created_ms"].as_i64().unwrap() > 0);
     assert_eq!(
-        open_device_name(&account.ak, listed["name_enc"].as_str().unwrap()),
+        open_space_name(
+            &account.ak,
+            space.id.as_bytes(),
+            listed["name_enc"].as_str().unwrap()
+        ),
         "My vault"
     );
     assert_eq!(unwrap_vk_from_listing(&account.ak, listed), space.vk);
@@ -42,7 +46,7 @@ fn creating_a_space_answers_201_with_seq_zero() {
             "/v1/spaces",
             json!({
                 "space_id": hex16(&id),
-                "name_enc": seal_device_name(&account.ak, "x"),
+                "name_enc": seal_space_name(&account.ak, &id, "x"),
                 "key_epoch": 1,
                 "wrapped_vk": "ab".repeat(73),
             }),
@@ -99,7 +103,7 @@ fn a_space_id_can_be_used_once() {
             "/v1/spaces",
             json!({
                 "space_id": hex16(space.id.as_bytes()),
-                "name_enc": seal_device_name(&account.ak, "again"),
+                "name_enc": seal_space_name(&account.ak, space.id.as_bytes(), "again"),
                 "key_epoch": 1,
                 "wrapped_vk": "cd".repeat(73),
             }),
@@ -118,9 +122,10 @@ fn bad_space_fields_are_refused() {
     // П2, П3, П20, Ф3: hex rules, 73-byte wrapped key, epoch 1 only.
     let target = Target::from_env();
     let account = enroll(&target, PASSWORD);
+    let good_id = random16();
     let good = json!({
-        "space_id": hex16(&random16()),
-        "name_enc": seal_device_name(&account.ak, "x"),
+        "space_id": hex16(&good_id),
+        "name_enc": seal_space_name(&account.ak, &good_id, "x"),
         "key_epoch": 1,
         "wrapped_vk": "ab".repeat(73),
     });
@@ -134,7 +139,14 @@ fn bad_space_fields_are_refused() {
     epoch_zero["key_epoch"] = json!(0);
     let mut short_id = good.clone();
     short_id["space_id"] = json!("ab".repeat(15));
-    for body in [upper, short, epoch_two, epoch_zero, short_id] {
+    // Ф34: a name envelope is exactly 105 bytes, no more and no less (П20).
+    let mut name_short = good.clone();
+    name_short["name_enc"] = json!("ab".repeat(104));
+    let mut name_long = good.clone();
+    name_long["name_enc"] = json!("ab".repeat(106));
+    for body in [
+        upper, short, epoch_two, epoch_zero, short_id, name_short, name_long,
+    ] {
         account
             .post("/v1/spaces", body)
             .expect_error(400, "bad_request");

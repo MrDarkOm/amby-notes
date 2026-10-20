@@ -5,9 +5,10 @@
 use std::time::Duration;
 
 use amby_sync_conformance::client::{
-    assert_hex, enroll, enroll_body, enroll_with, limit, login, params_from_json, prelogin,
-    recover, unhex, unwrap_ak, PASSWORD,
+    assert_hex, device_json, enroll, enroll_body, enroll_with, limit, login, params_from_json,
+    prelogin, recover, unhex, unwrap_ak, Account, PASSWORD,
 };
+use amby_sync_conformance::http::Body;
 use amby_sync_conformance::{in_process_or_skip, Target};
 use amby_sync_core::crypto::account::{
     create_account, derive_recovery_keys, unwrap_account_key, Argon2Params,
@@ -29,7 +30,7 @@ fn wrong_login(target: &Target, username: &str) -> amby_sync_conformance::Resp {
         json!({
             "username": username,
             "auth_key": random_hex(32),
-            "device": { "name_enc": random_hex(40) },
+            "device": { "name_enc": random_hex(105) },
         }),
     )
 }
@@ -415,7 +416,7 @@ fn the_password_key_and_the_recovery_key_are_not_interchangeable() {
             "/v1/auth/login",
             None,
             json!({ "username": account.username, "auth_key": recovery_key,
-                    "device": { "name_enc": random_hex(40) } }),
+                    "device": { "name_enc": random_hex(105) } }),
         )
         .expect_error(401, "invalid_credentials");
     target
@@ -424,7 +425,7 @@ fn the_password_key_and_the_recovery_key_are_not_interchangeable() {
             "/v1/auth/recover",
             None,
             json!({ "username": account.username, "recovery_auth_key": password_key,
-                    "device": { "name_enc": random_hex(40) } }),
+                    "device": { "name_enc": random_hex(105) } }),
         )
         .expect_error(401, "invalid_credentials");
 }
@@ -649,4 +650,169 @@ fn prelogin_is_not_a_login_attempt() {
         prelogin(&target.api, &account.username).expect(200);
     }
     login(&target.api, &account.username, PASSWORD, &account.ak, "ok").expect(200);
+}
+
+// ------------------------------------- two counters: per name and address, per name (П16)
+
+fn from_ip(target: &Target, path: &str, body: Value, ip: &str) -> amby_sync_conformance::Resp {
+    target.api.send(
+        "POST",
+        path,
+        None,
+        &[("X-Forwarded-For", ip)],
+        Body::Json(body),
+    )
+}
+
+fn wrong_login_from(target: &Target, username: &str, ip: &str) -> amby_sync_conformance::Resp {
+    from_ip(
+        target,
+        "/v1/auth/login",
+        json!({ "username": username, "auth_key": random_hex(32),
+                "device": { "name_enc": random_hex(105) } }),
+        ip,
+    )
+}
+
+fn right_login_from(target: &Target, account: &Account, ip: &str) -> amby_sync_conformance::Resp {
+    from_ip(
+        target,
+        "/v1/auth/login",
+        json!({ "username": account.username,
+                "auth_key": hex::encode(account.password_auth_key().as_bytes()),
+                "device": device_json(&account.ak, "from elsewhere") }),
+        ip,
+    )
+}
+
+#[test]
+fn an_attacker_at_one_address_does_not_lock_the_owner_at_another() {
+    // П16, О8: the strict counter is per name and address (with a trusted proxy header).
+    let target = Target::in_process_with(|config| config.trust_proxy = true);
+    let _ = in_process_or_skip!(target);
+    let account = enroll(&target, PASSWORD);
+    let max = limit(&target.api, "login_max_failures");
+    for _ in 0..max {
+        wrong_login_from(&target, &account.username, "203.0.113.7")
+            .expect_error(401, "invalid_credentials");
+    }
+    wrong_login_from(&target, &account.username, "203.0.113.7").expect_error(429, "rate_limited");
+    right_login_from(&target, &account, "198.51.100.20").expect(200);
+}
+
+#[test]
+fn the_soft_counter_per_name_works_across_addresses() {
+    // П16: guessing from many addresses is still stopped, by the looser counter for the name.
+    let target = Target::in_process_with(|config| {
+        config.trust_proxy = true;
+        config.login_max_failures_per_user = 8;
+    });
+    let _ = in_process_or_skip!(target);
+    let account = enroll(&target, PASSWORD);
+    for n in 0..8 {
+        let ip = format!("192.0.2.{}", n + 1);
+        wrong_login_from(&target, &account.username, &ip).expect_error(401, "invalid_credentials");
+    }
+    // A fresh address, the right password, and still locked: the name has had enough.
+    right_login_from(&target, &account, "192.0.2.200").expect_error(429, "rate_limited");
+}
+
+#[test]
+fn the_forwarded_header_is_ignored_without_trust_in_the_proxy() {
+    // П16: without AMBY_SYNC_TRUST_PROXY every request has the address of the socket, so changing
+    // the header does not buy more attempts.
+    let target = Target::in_process();
+    let _ = in_process_or_skip!(target);
+    let account = enroll(&target, PASSWORD);
+    let max = limit(&target.api, "login_max_failures");
+    for n in 0..max {
+        wrong_login_from(&target, &account.username, &format!("192.0.2.{}", n + 1))
+            .expect_error(401, "invalid_credentials");
+    }
+    right_login_from(&target, &account, "192.0.2.250").expect_error(429, "rate_limited");
+}
+
+#[test]
+fn the_last_forwarded_address_counts() {
+    // П16: with a trusted proxy the last address of the list is the client's; the ones before it
+    // are what the client claimed and are ignored.
+    let target = Target::in_process_with(|config| config.trust_proxy = true);
+    let _ = in_process_or_skip!(target);
+    let account = enroll(&target, PASSWORD);
+    let max = limit(&target.api, "login_max_failures");
+    for n in 0..max {
+        let claimed = format!("10.9.9.{}, 203.0.113.50", n + 1);
+        wrong_login_from(&target, &account.username, &claimed)
+            .expect_error(401, "invalid_credentials");
+    }
+    wrong_login_from(&target, &account.username, "1.2.3.4, 203.0.113.50")
+        .expect_error(429, "rate_limited");
+}
+
+#[test]
+fn a_lock_does_not_touch_devices_that_already_have_a_token() {
+    // П16, П5: the lock is about signing in; a connected device keeps working.
+    let target = Target::from_env();
+    let account = enroll(&target, PASSWORD);
+    let max = limit(&target.api, "login_max_failures");
+    for _ in 0..max {
+        wrong_login(&target, &account.username).expect_error(401, "invalid_credentials");
+    }
+    login(&target.api, &account.username, PASSWORD, &account.ak, "x")
+        .expect_error(429, "rate_limited");
+    account.get("/v1/keys").expect(200);
+    account.get("/v1/devices").expect(200);
+}
+
+// ------------------------------------------------------ name envelopes of 105 bytes (Ф34)
+
+#[test]
+fn name_envelopes_must_be_exactly_105_bytes() {
+    // П12, П14, П15, П20, Ф34: a device name that is not 105 bytes is `bad_request`; an enrolment
+    // that was refused for it does not burn the code.
+    let target = Target::from_env();
+    let ticket = target.new_ticket();
+    let new = create_account(PASSWORD, &Argon2Params::V1_DEFAULT, &mut OsRandom).unwrap();
+    for bytes in [0usize, 1, 104, 106, 200] {
+        let mut body = enroll_body(&ticket.username, &ticket.enroll_code, &new, "d");
+        body["device"]["name_enc"] = json!(random_hex(bytes));
+        target
+            .api
+            .post("/v1/auth/enroll", None, body)
+            .expect_error(400, "bad_request");
+    }
+    let account = enroll_with(&target, &ticket.username, &ticket.enroll_code, PASSWORD);
+    for bytes in [104usize, 106] {
+        target
+            .api
+            .post(
+                "/v1/auth/login",
+                None,
+                json!({ "username": account.username,
+                        "auth_key": hex::encode(account.password_auth_key().as_bytes()),
+                        "device": { "name_enc": random_hex(bytes) } }),
+            )
+            .expect_error(400, "bad_request");
+        target
+            .api
+            .post(
+                "/v1/auth/recover",
+                None,
+                json!({ "username": account.username,
+                        "recovery_auth_key": hex::encode(account.recovery_auth_key.as_bytes()),
+                        "device": { "name_enc": random_hex(bytes) } }),
+            )
+            .expect_error(400, "bad_request");
+    }
+    // A name of exactly 105 bytes is fine, whatever is inside: the server cannot look.
+    target
+        .api
+        .post(
+            "/v1/auth/login",
+            None,
+            json!({ "username": account.username,
+                    "auth_key": hex::encode(account.password_auth_key().as_bytes()),
+                    "device": { "name_enc": random_hex(105) } }),
+        )
+        .expect(200);
 }

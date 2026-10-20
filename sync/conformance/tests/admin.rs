@@ -129,3 +129,38 @@ fn user_add_for_a_user_with_a_password_fails_with_exit_code_3() {
         Ok(_) => panic!("a user with a password must not get a new code"),
     }
 }
+
+#[test]
+fn a_removed_user_loses_the_tokens_and_the_name_can_be_made_again() {
+    // П38, П6, Р5: old tokens are `unauthorized` (they no longer exist), sign-in looks like an
+    // unknown name, and `user add` for the same name makes a new, empty user.
+    let target = Target::from_env();
+    let account = enroll(&target, PASSWORD);
+    let space = account.create_space();
+    space.commit_ok(&[space.folder(&amby_sync_conformance::client::new_item(), 0, "Docs")]);
+    target
+        .admin
+        .user_remove(&account.username)
+        .unwrap_or_else(|failure| panic!("user remove failed: {}", failure.message));
+    account.get("/v1/keys").expect_error(401, "unauthorized");
+    account.get("/v1/spaces").expect_error(401, "unauthorized");
+    amby_sync_conformance::client::login(
+        &target.api,
+        &account.username,
+        PASSWORD,
+        &account.ak,
+        "x",
+    )
+    .expect_error(401, "invalid_credentials");
+
+    let ticket = target
+        .try_user_add(&account.username)
+        .expect("the name can be made again");
+    let again = enroll_with(&target, &ticket.username, &ticket.enroll_code, PASSWORD);
+    assert!(again.get("/v1/spaces").expect(200).json()["spaces"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_ne!(again.token, account.token);
+    account.get("/v1/keys").expect_error(401, "unauthorized");
+}

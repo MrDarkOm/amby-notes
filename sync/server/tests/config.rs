@@ -39,6 +39,14 @@ fn the_defaults_are_the_values_the_plan_names() {
     assert_eq!(config.login_max_failures, 5);
     assert_eq!(config.login_window_secs, 900);
     assert_eq!(config.data_dir, PathBuf::from("/data"));
+    // П16: the soft counter per name; П8: 10 000 items keep a big folder rename atomic (Р2);
+    // П42: no quota unless the administrator sets one.
+    assert_eq!(config.login_max_failures_per_user, 50);
+    assert_eq!(config.login_window_per_user_secs, 3600);
+    assert!(!config.trust_proxy);
+    assert_eq!(config.max_commit_items, 10_000);
+    assert_eq!(config.max_json_bytes, 64 * 1024 * 1024);
+    assert_eq!(config.quota_bytes_per_user, None);
 }
 
 #[test]
@@ -58,6 +66,10 @@ fn every_variable_of_the_table_is_read() {
         ("AMBY_SYNC_LOGIN_MAX_FAILURES", "9"),
         ("AMBY_SYNC_LOGIN_WINDOW_SECS", "60"),
         ("AMBY_SYNC_SSE_KEEPALIVE_SECS", "5"),
+        ("AMBY_SYNC_LOGIN_MAX_FAILURES_PER_USER", "70"),
+        ("AMBY_SYNC_LOGIN_WINDOW_PER_USER_SECS", "7200"),
+        ("AMBY_SYNC_TRUST_PROXY", "1"),
+        ("AMBY_SYNC_QUOTA_BYTES_PER_USER", "123456"),
     ]);
     assert_eq!(config.data_dir, PathBuf::from("/srv/amby"));
     assert_eq!(config.listen, "127.0.0.1:9000");
@@ -72,6 +84,10 @@ fn every_variable_of_the_table_is_read() {
     assert_eq!(config.login_max_failures, 9);
     assert_eq!(config.login_window_secs, 60);
     assert_eq!(config.sse_keepalive_secs, 5);
+    assert_eq!(config.login_max_failures_per_user, 70);
+    assert_eq!(config.login_window_per_user_secs, 7200);
+    assert!(config.trust_proxy);
+    assert_eq!(config.quota_bytes_per_user, Some(123_456));
 }
 
 #[test]
@@ -91,6 +107,8 @@ fn a_bad_value_of_a_known_variable_refuses_to_start() {
         ("AMBY_SYNC_LOGIN_MAX_FAILURES", "-1"),
         ("AMBY_SYNC_ORPHAN_BLOB_HOURS", "1.5"),
         ("AMBY_SYNC_ALLOW_HTTP", "maybe"),
+        ("AMBY_SYNC_TRUST_PROXY", "yes please"),
+        ("AMBY_SYNC_QUOTA_BYTES_PER_USER", "a lot"),
     ] {
         match parse(&[(name, value)]) {
             Err(ConfigError::Invalid { name: got, .. }) => assert_eq!(got, name),

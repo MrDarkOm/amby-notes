@@ -3,7 +3,7 @@
 
 use amby_sync_conformance::client::{enroll, hex16, limit, new_body, random16, Space, PASSWORD};
 use amby_sync_conformance::http::Body;
-use amby_sync_conformance::Target;
+use amby_sync_conformance::{in_process_or_skip, Target};
 use serde_json::{json, Value};
 
 fn fresh_space(target: &Target) -> Space {
@@ -31,12 +31,21 @@ fn commit_of(space: &Space, entries: Vec<Value>) -> amby_sync_conformance::Resp 
     )
 }
 
+/// A server of the suite with a low item limit: the real default is 10 000 (П8, Р2), and a test
+/// of the edge must not send thousands of headers.
+const LOW_ITEM_LIMIT: usize = 40;
+
 #[test]
 fn a_commit_of_exactly_the_maximum_number_of_items_is_accepted() {
     // П8, Р2, Р3: a big folder rename is one commit (Р2); the limit itself is allowed.
-    let target = Target::from_env();
+    let target = Target::in_process_with(|config| config.max_commit_items = LOW_ITEM_LIMIT);
+    let _ = in_process_or_skip!(target);
     let space = fresh_space(&target);
     let max = limit(&target.api, "max_commit_items");
+    assert_eq!(
+        max, LOW_ITEM_LIMIT as u64,
+        "/v1/info shows the limit in force"
+    );
     let entries = (0..max).map(|n| fake_entry(n, 301)).collect();
     let answer = commit_of(&space, entries).expect(200).json();
     assert_eq!(answer["items"].as_array().unwrap().len() as u64, max);
@@ -45,12 +54,21 @@ fn a_commit_of_exactly_the_maximum_number_of_items_is_accepted() {
 #[test]
 fn one_item_more_than_the_maximum_is_refused_and_nothing_is_applied() {
     // П8, П27.
-    let target = Target::from_env();
+    let target = Target::in_process_with(|config| config.max_commit_items = LOW_ITEM_LIMIT);
+    let _ = in_process_or_skip!(target);
     let space = fresh_space(&target);
     let max = limit(&target.api, "max_commit_items");
     let entries = (0..=max).map(|n| fake_entry(n, 301)).collect();
     commit_of(&space, entries).expect_error(400, "too_many_items");
     assert_eq!(space.changes(0, None).expect(200).json()["seq"], 0);
+}
+
+#[test]
+fn the_default_allows_ten_thousand_items_so_a_big_rename_stays_atomic() {
+    // Р2, П8: until 10 000 files a folder rename is one commit; /v1/info says so.
+    let target = Target::in_process_with(|_| {});
+    let _ = in_process_or_skip!(target);
+    assert_eq!(limit(&target.api, "max_commit_items"), 10_000);
 }
 
 #[test]

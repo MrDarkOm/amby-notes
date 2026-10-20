@@ -239,24 +239,126 @@ fn entries_of_a_commit_keep_the_order_of_the_request() {
 }
 
 #[test]
-fn the_feed_shows_every_version_including_the_deletion() {
-    // Р6, О4, П31: create, change, delete — three entries of one item.
+fn the_feed_shows_only_the_latest_version_of_each_item() {
+    // П31, Р6, О4: create, change, delete → one entry, version 3, deleted, at the seq of the
+    // deletion. The earlier versions are in the history (П33), not in the feed.
     let space = fresh_space(&Target::from_env());
     let item = new_item();
     space.commit_ok(&[space.file(&item, 0, "a.md", b"one")]);
     space.commit_ok(&[space.file(&item, 1, "a.md", b"two")]);
     space.commit_ok(&[space.deletion(&item, 2, "a.md")]);
     let feed = space.all_changes(0);
-    let versions: Vec<u64> = feed
+    assert_eq!(feed.len(), 1, "one entry per item: {feed:?}");
+    assert_eq!(feed[0]["version"], 3);
+    assert_eq!(feed[0]["deleted"], true);
+    assert_eq!(feed[0]["seq"], 3);
+    let versions = space.versions(&item).expect(200).json();
+    assert_eq!(
+        versions["versions"].as_array().unwrap().len(),
+        3,
+        "the history keeps all three"
+    );
+}
+
+#[test]
+fn a_replaced_item_moves_to_its_new_seq_and_leaves_the_old_one() {
+    // П31: the entry of an item sits at the seq of its latest version.
+    let space = fresh_space(&Target::from_env());
+    let (a, b) = (new_item(), new_item());
+    space.commit_ok(&[space.file(&a, 0, "a.md", b"a1")]); // seq 1
+    space.commit_ok(&[space.file(&b, 0, "b.md", b"b1")]); // seq 2
+    space.commit_ok(&[space.file(&a, 1, "a.md", b"a2")]); // seq 3
+    let feed = space.all_changes(0);
+    let shape: Vec<(String, u64, u64)> = feed
         .iter()
-        .map(|c| c["version"].as_u64().unwrap())
+        .map(|c| {
+            (
+                c["item_id"].as_str().unwrap().to_string(),
+                c["seq"].as_u64().unwrap(),
+                c["version"].as_u64().unwrap(),
+            )
+        })
         .collect();
-    assert_eq!(versions, vec![1, 2, 3]);
-    let deleted: Vec<bool> = feed
+    assert_eq!(
+        shape,
+        vec![(hex16(b.as_bytes()), 2, 1), (hex16(a.as_bytes()), 3, 2)]
+    );
+    // From seq 1 on: a device that had a@1 learns a@2; nothing is lost.
+    let later = space.changes(1, None).expect(200).json();
+    assert_eq!(seqs(later["changes"].as_array().unwrap()), vec![2, 3]);
+}
+
+#[test]
+fn what_is_left_of_a_commit_still_arrives_whole() {
+    // П31, Р2: a commit of three items, one of them replaced later: the other two stay at the
+    // old seq and are never split from each other by a page.
+    let space = fresh_space(&Target::from_env());
+    let items: Vec<_> = (0..3).map(|_| new_item()).collect();
+    let batch: Vec<_> = items
         .iter()
-        .map(|c| c["deleted"].as_bool().unwrap())
+        .enumerate()
+        .map(|(i, item)| space.folder(item, 0, &format!("F{i}")))
         .collect();
-    assert_eq!(deleted, vec![false, false, true]);
+    space.commit_ok(&batch); // seq 1
+    space.commit_ok(&[space.folder(&items[0], 1, "F0 renamed")]); // seq 2
+    let page = space.changes(0, Some(1)).expect(200).json();
+    assert_eq!(
+        seqs(page["changes"].as_array().unwrap()),
+        vec![1, 1],
+        "the two that stayed come together"
+    );
+    assert_eq!(page["more"], true);
+    let rest = space
+        .changes(page["next"].as_u64().unwrap(), Some(1))
+        .expect(200)
+        .json();
+    assert_eq!(seqs(rest["changes"].as_array().unwrap()), vec![2]);
+}
+
+#[test]
+fn an_item_changed_while_paging_arrives_later_and_is_not_lost() {
+    // П31, Р10: the first page is read, then an item of it changes; the cursor moves forward only,
+    // and the change shows up on a later page.
+    let space = fresh_space(&Target::from_env());
+    let items: Vec<_> = (0..4).map(|_| new_item()).collect();
+    for (i, item) in items.iter().enumerate() {
+        space.commit_ok(&[space.file(item, 0, &format!("f{i}.md"), b"v1")]); // seq 1..4
+    }
+    let first = space.changes(0, Some(2)).expect(200).json();
+    assert_eq!(seqs(first["changes"].as_array().unwrap()), vec![1, 2]);
+    assert_eq!(first["more"], true);
+    // Meanwhile the first item is changed (seq 5).
+    space.commit_ok(&[space.file(&items[0], 1, "f0.md", b"v2")]);
+    let mut seen = std::collections::BTreeMap::new();
+    for page in [first] {
+        for change in page["changes"].as_array().unwrap() {
+            seen.insert(
+                change["item_id"].as_str().unwrap().to_string(),
+                change["version"].as_u64().unwrap(),
+            );
+        }
+    }
+    let mut cursor = 2;
+    loop {
+        let page = space.changes(cursor, Some(2)).expect(200).json();
+        for change in page["changes"].as_array().unwrap() {
+            seen.insert(
+                change["item_id"].as_str().unwrap().to_string(),
+                change["version"].as_u64().unwrap(),
+            );
+        }
+        cursor = page["next"].as_u64().unwrap();
+        if page["more"] != true {
+            break;
+        }
+    }
+    assert_eq!(seen.len(), 4);
+    assert_eq!(
+        seen[&hex16(items[0].as_bytes())],
+        2,
+        "the changed item arrived with its new version"
+    );
+    assert_eq!(cursor, 5);
 }
 
 #[test]

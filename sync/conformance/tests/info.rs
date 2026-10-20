@@ -29,6 +29,8 @@ fn info_describes_the_server() {
         "login_max_failures",
         "login_window_secs",
         "sse_keepalive_secs",
+        "login_max_failures_per_user",
+        "login_window_per_user_secs",
     ] {
         assert!(
             body["limits"][name].as_u64().is_some_and(|n| n > 0),

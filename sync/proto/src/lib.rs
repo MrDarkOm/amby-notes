@@ -58,6 +58,8 @@ pub mod error_code {
     pub const UNKNOWN_BLOB: &str = "unknown_blob";
     /// Too many failed sign-in attempts (П16).
     pub const RATE_LIMITED: &str = "rate_limited";
+    /// The user's quota would be exceeded (П42).
+    pub const QUOTA_EXCEEDED: &str = "quota_exceeded";
     /// A server fault; details only in the log.
     pub const INTERNAL: &str = "internal";
     /// A stub: the handler is not written yet (plan, раздел 6, шаг 1).

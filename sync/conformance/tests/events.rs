@@ -173,3 +173,36 @@ fn a_stream_needs_a_live_token_and_the_owner() {
         .expect("a stream of somebody else's space");
     foreign.expect_error(404, "not_found");
 }
+
+#[test]
+fn the_stream_of_a_revoked_device_is_closed_within_one_keep_alive() {
+    // Р5, П34, П19: disconnecting a device ends its open stream by the next event or ping, and
+    // the commits that follow are not delivered to it.
+    let target = Target::from_env();
+    let (first, space) = fresh(&target);
+    let second = first.another_device("second");
+    let as_second = space.with_token(&second.token);
+    let keepalive = limit(&target.api, "sse_keepalive_secs");
+    let mut stream = open(&as_second, keepalive + 10);
+    assert_eq!(stream.next_real_event().unwrap().name, "hello");
+    first
+        .delete(&format!("/v1/devices/{}", second.device_id))
+        .expect(204);
+    space.commit_ok(&[space.folder(&new_item(), 0, "After the revocation")]);
+    let started = std::time::Instant::now();
+    loop {
+        match stream.next_event() {
+            None => break,
+            Some(event) if event.name == ":comment" => {}
+            Some(event) => panic!("a revoked device must not get events, got {event:?}"),
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(keepalive + 5),
+            "the stream of a revoked device is still open"
+        );
+    }
+    assert!(
+        started.elapsed() < Duration::from_secs(keepalive + 5),
+        "the stream ended only because the read timed out, not because the server closed it"
+    );
+}
