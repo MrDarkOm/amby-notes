@@ -15,7 +15,9 @@ pub struct OsRandom;
 
 impl Random for OsRandom {
     /// Р6: random bytes from the operating system.
-    fn fill(&mut self, _dest: &mut [u8]) {
-        todo!("Р6: getrandom")
+    fn fill(&mut self, dest: &mut [u8]) {
+        // An unusable operating-system source cannot be worked around: keys made from anything
+        // else would be guessable, so stopping is the safe answer.
+        getrandom::fill(dest).expect("operating system randomness is unavailable");
     }
 }

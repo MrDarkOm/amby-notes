@@ -99,8 +99,10 @@ macro_rules! id16 {
             }
 
             /// A new random identifier: 16 bytes drawn from `rng` (Ф2, Ф31).
-            pub fn random(_rng: &mut dyn Random) -> Self {
-                todo!("Ф2, Ф31: 16 random bytes")
+            pub fn random(rng: &mut dyn Random) -> Self {
+                let mut bytes = [0u8; 16];
+                rng.fill(&mut bytes);
+                Self(bytes)
             }
         }
     };
