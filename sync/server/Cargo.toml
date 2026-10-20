@@ -19,8 +19,13 @@ path = "src/main.rs"
 [dependencies]
 amby-sync-proto.workspace = true
 axum.workspace = true
+futures-util.workspace = true
+getrandom.workspace = true
+hmac.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 

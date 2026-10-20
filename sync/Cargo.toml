@@ -30,7 +30,10 @@ unicode-normalization = "0.1"
 zeroize = { version = "1", features = ["derive"] }
 # Server (Э2). rusqlite is the same version as in the app (src-tauri).
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync", "signal", "fs", "io-util"] }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+hmac = "0.12"
+subtle = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # Only for tests.
 hex = "0.4"

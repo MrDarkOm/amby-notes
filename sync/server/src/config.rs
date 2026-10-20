@@ -6,9 +6,6 @@ use std::path::PathBuf;
 /// Why the settings were refused.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ConfigError {
-    /// The parsing is not written yet (stage Э2, step 1).
-    #[error("not_implemented: configuration parsing")]
-    NotImplemented,
     /// A known variable has a value that cannot be used (П40).
     #[error("{name}: {reason}")]
     Invalid {
@@ -98,7 +95,165 @@ impl Config {
     /// a bad value of a known one is an error (П40); `AMBY_SYNC_PUBLIC_URL` must be `https://`
     /// unless the host is local or `AMBY_SYNC_ALLOW_HTTP=1` (П41). A retention of zero is
     /// refused: it would delete everything at once (П35).
-    pub fn from_map(_vars: &HashMap<String, String>) -> Result<Self, ConfigError> {
-        Err(ConfigError::NotImplemented)
+    pub fn from_map(vars: &HashMap<String, String>) -> Result<Self, ConfigError> {
+        let mut config = Self::default();
+        let get = |name: &str| vars.get(name).map(String::as_str);
+        if let Some(value) = get("AMBY_SYNC_DATA_DIR") {
+            config.data_dir = PathBuf::from(non_empty("AMBY_SYNC_DATA_DIR", value)?);
+        }
+        if let Some(value) = get("AMBY_SYNC_LISTEN") {
+            config.listen = non_empty("AMBY_SYNC_LISTEN", value)?.to_string();
+        }
+        if let Some(value) = get("AMBY_SYNC_PUBLIC_URL") {
+            config.public_url = non_empty("AMBY_SYNC_PUBLIC_URL", value)?.to_string();
+        }
+        if let Some(value) = get("AMBY_SYNC_ALLOW_HTTP") {
+            config.allow_http = flag("AMBY_SYNC_ALLOW_HTTP", value)?;
+        }
+        if let Some(value) = get("AMBY_SYNC_TRUST_PROXY") {
+            config.trust_proxy = flag("AMBY_SYNC_TRUST_PROXY", value)?;
+        }
+        number(vars, "AMBY_SYNC_MAX_BLOB_BYTES", &mut config.max_blob_bytes)?;
+        number(
+            vars,
+            "AMBY_SYNC_MAX_COMMIT_ITEMS",
+            &mut config.max_commit_items,
+        )?;
+        number(
+            vars,
+            "AMBY_SYNC_MAX_HEADER_BYTES",
+            &mut config.max_header_bytes,
+        )?;
+        number(vars, "AMBY_SYNC_MAX_JSON_BYTES", &mut config.max_json_bytes)?;
+        number(
+            vars,
+            "AMBY_SYNC_RETAIN_VERSION_DAYS",
+            &mut config.retain_version_days,
+        )?;
+        number(
+            vars,
+            "AMBY_SYNC_ORPHAN_BLOB_HOURS",
+            &mut config.orphan_blob_hours,
+        )?;
+        number(
+            vars,
+            "AMBY_SYNC_ENROLL_CODE_HOURS",
+            &mut config.enroll_code_hours,
+        )?;
+        number(
+            vars,
+            "AMBY_SYNC_LOGIN_MAX_FAILURES",
+            &mut config.login_max_failures,
+        )?;
+        number(
+            vars,
+            "AMBY_SYNC_LOGIN_WINDOW_SECS",
+            &mut config.login_window_secs,
+        )?;
+        number(
+            vars,
+            "AMBY_SYNC_SSE_KEEPALIVE_SECS",
+            &mut config.sse_keepalive_secs,
+        )?;
+        number(
+            vars,
+            "AMBY_SYNC_LOGIN_MAX_FAILURES_PER_USER",
+            &mut config.login_max_failures_per_user,
+        )?;
+        number(
+            vars,
+            "AMBY_SYNC_LOGIN_WINDOW_PER_USER_SECS",
+            &mut config.login_window_per_user_secs,
+        )?;
+        if let Some(value) = get("AMBY_SYNC_QUOTA_BYTES_PER_USER") {
+            let mut quota = 0u64;
+            number(
+                &HashMap::from([(
+                    "AMBY_SYNC_QUOTA_BYTES_PER_USER".to_string(),
+                    value.to_string(),
+                )]),
+                "AMBY_SYNC_QUOTA_BYTES_PER_USER",
+                &mut quota,
+            )?;
+            config.quota_bytes_per_user = Some(quota);
+        }
+        check_public_url(&config)?;
+        Ok(config)
+    }
+}
+
+fn invalid(name: &str, reason: &str) -> ConfigError {
+    ConfigError::Invalid {
+        name: name.to_string(),
+        reason: reason.to_string(),
+    }
+}
+
+fn non_empty<'a>(name: &str, value: &'a str) -> Result<&'a str, ConfigError> {
+    if value.trim().is_empty() {
+        Err(invalid(name, "must not be empty"))
+    } else {
+        Ok(value.trim())
+    }
+}
+
+/// `0`/`1` (also `false`/`true`).
+fn flag(name: &str, value: &str) -> Result<bool, ConfigError> {
+    match value.trim() {
+        "1" | "true" => Ok(true),
+        "0" | "false" => Ok(false),
+        _ => Err(invalid(name, "must be 0 or 1")),
+    }
+}
+
+/// A positive whole number. Zero is refused everywhere: a zero limit locks everything out and a
+/// zero retention deletes everything at once.
+fn number<T>(vars: &HashMap<String, String>, name: &str, target: &mut T) -> Result<(), ConfigError>
+where
+    T: std::str::FromStr + PartialEq + Default,
+{
+    if let Some(value) = vars.get(name) {
+        let parsed: T = value
+            .trim()
+            .parse()
+            .map_err(|_| invalid(name, "must be a whole number, not negative"))?;
+        if parsed == T::default() {
+            return Err(invalid(name, "must be greater than zero"));
+        }
+        *target = parsed;
+    }
+    Ok(())
+}
+
+/// П41: `https://` unless the host is local or `AMBY_SYNC_ALLOW_HTTP=1`.
+fn check_public_url(config: &Config) -> Result<(), ConfigError> {
+    const NAME: &str = "AMBY_SYNC_PUBLIC_URL";
+    let url = config.public_url.trim();
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("https://") {
+        return Ok(());
+    }
+    let Some(rest) = lower.strip_prefix("http://") else {
+        return Err(invalid(
+            NAME,
+            "must start with https:// (or http:// for a local host)",
+        ));
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host_port = authority.rsplit('@').next().unwrap_or_default();
+    let host = if host_port.starts_with('[') {
+        host_port
+            .find(']')
+            .map_or(host_port, |end| &host_port[..=end])
+    } else {
+        host_port.split(':').next().unwrap_or_default()
+    };
+    if config.allow_http || matches!(host, "localhost" | "127.0.0.1" | "[::1]") {
+        Ok(())
+    } else {
+        Err(invalid(
+            NAME,
+            "plain http:// is allowed only for localhost; use https:// or set AMBY_SYNC_ALLOW_HTTP=1",
+        ))
     }
 }
