@@ -34,8 +34,10 @@ impl SyncError {
 impl From<ClientError> for SyncError {
     /// The code of the client error and its `Retry-After` (П4, П16); nothing else is copied.
     fn from(error: ClientError) -> Self {
-        let _ = error;
-        todo!("П4")
+        Self {
+            code: error.code().to_string(),
+            retry_after_secs: error.retry_after_secs(),
+        }
     }
 }
 

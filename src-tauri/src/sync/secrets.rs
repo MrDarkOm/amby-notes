@@ -28,19 +28,33 @@ pub trait SecretStore: Send + Sync {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct KeyringStore;
 
+fn entry(name: &str) -> Result<keyring::Entry, SecretError> {
+    keyring::Entry::new(KEYRING_SERVICE, name).map_err(|_| SecretError)
+}
+
 impl SecretStore for KeyringStore {
     fn get(&self, name: &str) -> Result<Option<String>, SecretError> {
-        let _ = name;
-        todo!("Р5")
+        match entry(name)?.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err(SecretError),
+        }
     }
 
     fn set(&self, name: &str, value: &str) -> Result<(), SecretError> {
-        let _ = (name, value);
-        todo!("Р5")
+        entry(name)?.set_password(value).map_err(|_| SecretError)?;
+        // A fresh entry must see the exact stored value; this also catches a build that fell
+        // back to entry-local mock storage.
+        match self.get(name)? {
+            Some(stored) if stored == value => Ok(()),
+            _ => Err(SecretError),
+        }
     }
 
     fn delete(&self, name: &str) -> Result<(), SecretError> {
-        let _ = name;
-        todo!("Р5")
+        match entry(name)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(_) => Err(SecretError),
+        }
     }
 }

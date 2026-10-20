@@ -2,9 +2,12 @@
 //! the settings of the application). They are not secrets (Р5). The record never holds a
 //! password, a key, a token or the recovery code.
 
+use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+use crate::frontmatter;
 
 /// The file name inside the app data root.
 pub const CONNECTION_FILE: &str = "sync-connection.json";
@@ -58,15 +61,26 @@ impl FileConnectionStore {
 
 impl ConnectionStore for FileConnectionStore {
     fn load(&self) -> Result<Option<ConnectionRecord>, ConnectionError> {
-        todo!("Р5")
+        match fs::read_to_string(&self.path) {
+            Ok(text) => Ok(serde_json::from_str(&text).ok()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(_) => Err(ConnectionError),
+        }
     }
 
     fn save(&self, record: &ConnectionRecord) -> Result<(), ConnectionError> {
-        let _ = record;
-        todo!("Р5")
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent).map_err(|_| ConnectionError)?;
+        }
+        let text = serde_json::to_string_pretty(record).map_err(|_| ConnectionError)?;
+        frontmatter::atomic_write_bytes(&self.path, text.as_bytes()).map_err(|_| ConnectionError)
     }
 
     fn clear(&self) -> Result<(), ConnectionError> {
-        todo!("Р5")
+        match fs::remove_file(&self.path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(ConnectionError),
+        }
     }
 }
