@@ -1027,3 +1027,17 @@ async fn nothing_secret_is_logged() {
         );
     }
 }
+
+#[tokio::test]
+async fn the_log_capture_of_the_test_above_really_sees_the_service() {
+    // so that "nothing secret is logged" cannot pass because nothing was captured at all
+    let target = Target::from_env();
+    let logs = LogCapture::default();
+    let device = Device::new();
+    async {
+        create_account(&device, &target, "Mac A").await;
+    }
+    .with_subscriber(logs.dispatch())
+    .await;
+    assert!(logs.text().contains("sync_connected"), "{}", logs.text());
+}
