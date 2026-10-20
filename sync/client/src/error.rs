@@ -61,18 +61,64 @@ impl ClientError {
     /// `invalid_username`, `invalid_device_name`, `network`, `timeout`, `bad_response`,
     /// `unsupported_server`, `cannot_decrypt` or `crypto`.
     pub fn code(&self) -> &str {
-        todo!("П4")
+        match self {
+            Self::InvalidUrl(_) => "invalid_url",
+            Self::InsecureUrl => "insecure_url",
+            Self::InvalidUsername => "invalid_username",
+            Self::InvalidDeviceName => "invalid_device_name",
+            Self::Network => "network",
+            Self::Timeout => "timeout",
+            Self::Api { code, .. } => code,
+            Self::BadResponse(_) => "bad_response",
+            Self::UnsupportedServer { .. } => "unsupported_server",
+            Self::CannotDecrypt => "cannot_decrypt",
+            Self::Crypto(_) => "crypto",
+        }
     }
 
     /// Seconds to wait before the next try, from `Retry-After` of a `429` (П16).
     pub fn retry_after_secs(&self) -> Option<u64> {
-        todo!("П16")
+        match self {
+            Self::Api {
+                retry_after_secs, ..
+            } => *retry_after_secs,
+            _ => None,
+        }
     }
 }
 
 /// A plain sentence for a machine code of Б.0.1, for logs and for programs without translations.
 /// An unknown code gives a general sentence that still names the code.
 pub fn describe(code: &str) -> String {
-    let _ = code;
-    todo!("П4")
+    let sentence = match code {
+        "bad_request" => "The server did not understand the request.",
+        "too_many_items" => "Too many changes were sent at once.",
+        "duplicate_item" => "The same item was sent twice in one request.",
+        "bad_part" => "A part of an upload has a wrong number or size.",
+        "unauthorized" => "This device is not signed in.",
+        "token_revoked" => "This device was disconnected from the account.",
+        "invalid_credentials" => "Wrong user name, password or recovery code.",
+        "invalid_enroll_code" => "The invitation code is wrong or was already used.",
+        "enroll_code_expired" => "The invitation code has expired.",
+        "invalid_proof" => "The old password or the recovery code is wrong.",
+        "not_found" => "The server has no such object.",
+        "method_not_allowed" => "The server does not accept this kind of request here.",
+        "version_conflict" => "The item was changed by another device in the meantime.",
+        "commit_id_reused" => "A change was sent twice with different content.",
+        "keys_conflict" => "The keys were changed from another device in the meantime.",
+        "space_exists" => "A vault with this identifier already exists on the server.",
+        "blob_exists" => "An upload with this identifier already exists.",
+        "parts_missing" => "The upload is not complete yet.",
+        "payload_too_large" => "The request is too large for this server.",
+        "blob_too_large" => "The file is too large for this server.",
+        "range_not_satisfiable" => "The requested part of the file does not exist.",
+        "unknown_blob" => "A change refers to a file the server does not have.",
+        "rate_limited" => "Too many failed sign-in attempts; wait before trying again.",
+        "internal" => "The server failed to handle the request.",
+        "not_implemented" => "The server does not support this yet.",
+        "quota_exceeded" => "The storage quota on the server is used up.",
+        "server_unavailable" => "The server is temporarily unavailable.",
+        other => return format!("The server refused the request ({other})."),
+    };
+    sentence.to_string()
 }

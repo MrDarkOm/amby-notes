@@ -11,6 +11,7 @@ COPY proto proto
 COPY core core
 COPY server server
 COPY conformance conformance
+COPY client client
 RUN cargo build --release --locked -p amby-sync-server
 
 FROM debian:bookworm-slim
