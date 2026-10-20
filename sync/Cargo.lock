@@ -31,6 +31,7 @@ dependencies = [
  "hex",
  "hkdf",
  "proptest",
+ "serde",
  "serde_json",
  "sha2",
  "thiserror",
