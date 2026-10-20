@@ -8,16 +8,17 @@ wrong stops the work and is fixed in its own commit after review.
 A separate Cargo workspace (decision Р12): it does not touch `src-tauri/target` or the app gates.
 License AGPL-3.0-only. Not wired into `src-tauri` yet.
 
-| Path                                   | Owns                                                                                 |
-| -------------------------------------- | ------------------------------------------------------------------------------------ |
-| [proto/](proto/src/lib.rs)             | wire constants of the protocol: part size, machine error codes (appendix Б)          |
-| [core/](core/src/lib.rs)               | cryptography (Э1) and the sync engine (Э3), no Tauri; I/O only through interfaces    |
-| [server/](server/src/lib.rs)           | blind storage server (Э2): all of appendix Б; Dockerfile, compose with Caddy, README |
-| [conformance/](conformance/src/lib.rs) | server conformance suite: HTTP tests against any address, real client crypto (Э2)    |
-| [reference/](reference/)               | independent Python reference of the byte format; generates `vectors/format-v1.json`  |
-| [vectors/](vectors/)                   | test vectors: `standards.json` (from RFCs, by hand) and `format-v1.json` (generated) |
-| [deny.toml](deny.toml)                 | cargo-deny: licenses and advisories                                                  |
-| [core/fuzz/](core/fuzz/Cargo.toml)     | cargo-fuzz targets (nightly only)                                                    |
+| Path                                       | Owns                                                                                 |
+| ------------------------------------------ | ------------------------------------------------------------------------------------ |
+| [proto/](proto/src/lib.rs)                 | wire constants of the protocol: part size, machine error codes (appendix Б)          |
+| [core/](core/src/lib.rs)                   | cryptography (Э1) and the sync engine (Э3), no Tauri; I/O only through interfaces    |
+| [core/src/engine/](core/src/engine/mod.rs) | engine ports and types, appendix В; bodies are `todo!()` until the second session    |
+| [server/](server/src/lib.rs)               | blind storage server (Э2): all of appendix Б; Dockerfile, compose with Caddy, README |
+| [conformance/](conformance/src/lib.rs)     | server conformance suite: HTTP tests against any address, real client crypto (Э2)    |
+| [reference/](reference/)                   | independent Python reference of the byte format; generates `vectors/format-v1.json`  |
+| [vectors/](vectors/)                       | test vectors: `standards.json` (from RFCs, by hand) and `format-v1.json` (generated) |
+| [deny.toml](deny.toml)                     | cargo-deny: licenses and advisories                                                  |
+| [core/fuzz/](core/fuzz/Cargo.toml)         | cargo-fuzz targets (nightly only)                                                    |
 
 Commands (see [package.json](../package.json)): `npm run sync:test`, `sync:lint` (fmt, clippy,
 cargo-deny), `sync:conformance:red` (sorts the failures of the stub server by reason),
