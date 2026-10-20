@@ -14,3 +14,17 @@ amby-sync-core = { path = ".." }
 
 # Detached from the workspace: cargo-fuzz builds with nightly and its own profile.
 [workspace]
+
+[[bin]]
+name = "header_open"
+path = "fuzz_targets/header_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "body_open"
+path = "fuzz_targets/body_open.rs"
+test = false
+doc = false
+bench = false

@@ -69,3 +69,18 @@ jobs:
       # main the script finds no plan and passes.
       - run: node scripts/sync-req-check.mjs
         continue-on-error: true
+
+  reference:
+    name: Reference vectors are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r sync/reference/requirements.txt
+      # The reference must agree with the standards, and its output must be the committed vectors.
+      - run: python -m unittest -q
+        working-directory: sync/reference
+      - run: python sync/reference/generate_vectors.py
+      - run: git diff --exit-code -- sync/vectors

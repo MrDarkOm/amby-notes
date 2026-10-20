@@ -26,3 +26,5 @@ in a test), `sync:mutants`, `sync:fuzz -- <target>`, `sync:reference:setup`,
 
 The exact byte format is appendix "Точный формат v1" of the plan; the Python reference and the Rust
 code must agree with it byte for byte.
+
+Stage report with the red run and open questions for review: [sync-e1-report.md](../docs/Road/sync-e1-report.md).
