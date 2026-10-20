@@ -1200,6 +1200,117 @@ async inspectAiCredential(credentialId: string) : Promise<Result<CredentialInfo,
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Asks a server for `/v1/info` and checks the address (П9, П41).
+ */
+async syncCheckServer(url: string, allowHttp: boolean) : Promise<Result<ServerCheck, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_check_server", { url, allowHttp }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The verdict on a password while the person types it (Р5).
+ */
+async syncCheckPassword(password: string, username: string) : Promise<PasswordCheck> {
+    return await TAURI_INVOKE("sync_check_password", { password, username });
+},
+/**
+ * Makes the keys of a new account and returns the recovery code to show (Р5, О3).
+ */
+async syncPrepareAccount(url: string, allowHttp: boolean, username: string, enrollCode: string, password: string, deviceName: string) : Promise<Result<PreparedAccountView, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_prepare_account", { url, allowHttp, username, enrollCode, password, deviceName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The person typed back the asked groups of the recovery code: sends the account (О3).
+ */
+async syncConfirmRecoveryCode(groups: string[]) : Promise<Result<SyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_confirm_recovery_code", { groups }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Forgets the prepared account.
+ */
+async syncCancelPending() : Promise<void> {
+    await TAURI_INVOKE("sync_cancel_pending");
+},
+/**
+ * Signs in on this device with the password (Р5).
+ */
+async syncSignIn(url: string, allowHttp: boolean, username: string, password: string, deviceName: string) : Promise<Result<SyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_sign_in", { url, allowHttp, username, password, deviceName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Replaces a forgotten password with the recovery code and signs in (Р5, О3).
+ */
+async syncRecover(url: string, allowHttp: boolean, username: string, recoveryCode: string, newPassword: string, deviceName: string) : Promise<Result<SyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_recover", { url, allowHttp, username, recoveryCode, newPassword, deviceName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The state of the connection (no network).
+ */
+async syncStatus() : Promise<Result<SyncStatus, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * The devices of the account (П19).
+ */
+async syncListDevices() : Promise<Result<DeviceView[], SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_list_devices") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Disconnects a device (П19).
+ */
+async syncDisconnectDevice(deviceId: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_disconnect_device", { deviceId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Signs this device out (Р5).
+ */
+async syncSignOut() : Promise<Result<SignOutResult, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_sign_out") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async cancelAiRequest(streamId: string) : Promise<Result<boolean, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("cancel_ai_request", { streamId }) };
@@ -1612,6 +1723,30 @@ export type DeleteDatabaseViewRequest = { expectedGeneration: number; databaseId
  */
 export type DeleteMode = "system" | "vault" | "permanent"
 export type DeletedDatabaseProperty = { databaseId: string; propertyId: string; manifestRevision: string; warnings: string[] }
+/**
+ * A device in the list (П19, Ф34).
+ */
+export type DeviceView = { 
+/**
+ * The identifier on the server.
+ */
+deviceId: string; 
+/**
+ * The name, or `None` when it cannot be read.
+ */
+name: string | null; 
+/**
+ * Created, Unix milliseconds.
+ */
+createdMs: number; 
+/**
+ * Last seen by the server, Unix milliseconds.
+ */
+lastSeenMs: number; 
+/**
+ * This device.
+ */
+current: boolean }
 export type DuplicateDatabaseRowRequest = { expectedGeneration: number; databaseId: string; noteId: string; 
 /**
  * Title of the copy; the caller localizes the "copy" wording.
@@ -1760,6 +1895,38 @@ notebooks: Notebook[];
 truncated: boolean }
 export type OperationWarning = "indexRebuildRequired"
 export type PageInfo = { title: string; description: string | null }
+/**
+ * The verdict on a password (Р5: 12 characters and a sufficient `zxcvbn` score).
+ */
+export type PasswordCheck = { 
+/**
+ * The password is accepted.
+ */
+ok: boolean; 
+/**
+ * The `zxcvbn` score, 0 (worst) to 4.
+ */
+score: number; 
+/**
+ * The length in characters.
+ */
+length: number; 
+/**
+ * The least length accepted (12).
+ */
+minLength: number; 
+/**
+ * The password is shorter than the least length.
+ */
+tooShort: boolean; 
+/**
+ * A machine name of the main weakness found (`zxcvbn` warning), if any.
+ */
+warning: string | null; 
+/**
+ * Machine names of the advice of `zxcvbn`.
+ */
+suggestions: string[] }
 export type PathChange = { oldPath: string; newPath: string }
 /**
  * Which database `ensure_plot_links` makes ready.
@@ -1773,6 +1940,18 @@ export type PlotLinksTarget =
  * The anchors database: it gets the "Arcs" and "Universe" relations.
  */
 "anchors"
+/**
+ * The recovery code of a prepared account and the groups the person has to type back.
+ */
+export type PreparedAccountView = { 
+/**
+ * The code as printed: 14 groups of four symbols joined by `-` (Ф30). Shown once.
+ */
+recoveryCode: string; 
+/**
+ * Two different positions, from 1 to 14, in ascending order.
+ */
+confirmGroups: number[] }
 export type ProjectCatalog = { vaultGeneration: number; 
 /**
  * Changes whenever the index is rebuilt.
@@ -1882,11 +2061,95 @@ export type SectionState =
  * No database has this ID. The entry is kept and shown as missing.
  */
 "missing"
+/**
+ * The answer of "check the server" (`/v1/info`, П9).
+ */
+export type ServerCheck = { 
+/**
+ * The normalised address.
+ */
+url: string; 
+/**
+ * The host for display.
+ */
+host: string; 
+/**
+ * The version of the server program.
+ */
+serverVersion: string; 
+/**
+ * `instance_id` (П10).
+ */
+instanceId: string }
+/**
+ * The result of signing out.
+ */
+export type SignOutResult = { 
+/**
+ * The server was told to disconnect this device. `false` when it could not be reached: the
+ * device is signed out here anyway and can be disconnected from another device.
+ */
+serverNotified: boolean }
 export type SnapshotEntry = { id: string; createdAtMs: number; reason: string; sizeBytes: number }
 export type SnapshotText = { sourcePath: string; content: string }
 export type StagedPackageInfo = { stagingId: string; manifest: ModuleManifest; stagingPath: string }
 export type StorySummary = { storyId: string; workshopId: string; name: string; folderPath: string; cardPath: string; cardNoteId: string | null; databaseId: string | null; fileRevision: string; formatVersion: number; textJson: string | null; text: ProjectTextSummary | null }
+/**
+ * A failed sync command: a stable machine code (the codes of table Б.0.1, the codes of
+ * [`ClientError::code`], and the codes of the application below) and, for a rate limit, the
+ * seconds to wait.
+ * 
+ * Codes of the application: `weak_password`, `password_too_short`, `no_pending_account`,
+ * `recovery_confirmation_mismatch`, `invalid_recovery_code`, `not_connected`,
+ * `already_connected`, `keychain_unavailable`, `storage_error`.
+ */
+export type SyncError = { 
+/**
+ * The machine code.
+ */
+code: string; 
+/**
+ * Seconds to wait before the next try (`rate_limited`).
+ */
+retryAfterSecs: number | null }
 export type SyncReport = { inserted: number; updated: number; deleted: number; warnings: string[]; pathToId: Partial<{ [key in string]: string }> }
+/**
+ * The state of the connection as the interface needs it. No secrets.
+ */
+export type SyncStatus = { 
+/**
+ * This device is signed in: the record exists and the key store holds AK and the token.
+ */
+connected: boolean; 
+/**
+ * A record exists but the key store lost AK or the token (cleared keychain): the person
+ * has to sign in again.
+ */
+keysMissing: boolean; 
+/**
+ * An account was prepared and waits for the confirmation of the recovery code.
+ */
+pending: boolean; 
+/**
+ * The address of the server, normalised.
+ */
+serverUrl: string | null; 
+/**
+ * The host for "connected to …".
+ */
+host: string | null; 
+/**
+ * The user name on the server.
+ */
+username: string | null; 
+/**
+ * The identifier of this device on the server.
+ */
+deviceId: string | null; 
+/**
+ * Whether the server was added with the "local network" switch.
+ */
+allowHttp: boolean }
 export type TagEntry = { tag: string; notes: IndexedNote[] }
 /**
  * How an entry of the `text` block relates to the text database.

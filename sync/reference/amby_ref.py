@@ -31,6 +31,10 @@ INFO_BODY = b"amby-sync/body/1"
 AAD_WRAP_AK = b"amby-sync/wrap-ak/1"  # Ф11
 AAD_WRAP_VK = b"amby-sync/wrap-vk/1"  # Ф12
 AAD_HEADER = b"amby-sync/header/1"  # Ф18
+INFO_NAME_KEY = b"amby-sync/name-key/1"  # Ф34
+AAD_DEVICE_NAME = b"amby-sync/device-name/1"  # Ф34
+AAD_SPACE_NAME = b"amby-sync/space-name/1"  # Ф34
+NAME_PLAIN_LEN = 64  # Ф34
 CHECK_PREFIX = b"amby-sync/recovery-check/1"  # Ф29
 
 DEFAULT_PARAMS = {"memory_kib": 65536, "iterations": 3, "parallelism": 4}  # Ф7
@@ -156,6 +160,28 @@ def wrap_account_key(kek, ak, nonce):
 def wrap_space_key(ak, space_id, epoch, vk, nonce):
     """Ф12, Ф13."""
     return VERSION + nonce + xseal(ak, nonce, AAD_WRAP_VK + space_id + u32(epoch), vk)
+
+
+def seal_name(ak, aad, name, nonce):
+    """Ф34: 0x01 ‖ nonce ‖ ciphertext(64) ‖ tag(16) = 105 bytes; key = HKDF(AK, name-key)."""
+    plain = name.encode("utf-8")
+    assert len(plain) <= NAME_PLAIN_LEN and b"\x00" not in plain
+    plain += bytes(NAME_PLAIN_LEN - len(plain))
+    return VERSION + nonce + xseal(hkdf(ak, INFO_NAME_KEY), nonce, aad, plain)
+
+
+def seal_name_raw(ak, aad, plain64, nonce, version=VERSION):
+    """Ф34 without the writer's checks: used only to make envelopes the Rust reader must reject."""
+    assert len(plain64) == NAME_PLAIN_LEN
+    return version + nonce + xseal(hkdf(ak, INFO_NAME_KEY), nonce, aad, plain64)
+
+
+def seal_device_name(ak, name, nonce):
+    return seal_name(ak, AAD_DEVICE_NAME, name, nonce)
+
+
+def seal_space_name(ak, space_id, name, nonce):
+    return seal_name(ak, AAD_SPACE_NAME + space_id, name, nonce)
 
 
 class Draw:

@@ -7,4 +7,5 @@ pub mod modules;
 pub mod mutations;
 pub mod notes;
 pub mod project;
+pub mod sync;
 pub mod vault;
