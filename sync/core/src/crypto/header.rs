@@ -390,7 +390,8 @@ pub fn parse_header_json(json: &[u8]) -> Result<Header, CryptoError> {
     let body_id = match object.remove("body_id") {
         Some(Value::Null) => None,
         Some(Value::String(text)) => Some(BodyId::from_bytes(
-            hex_decode::<16>(&text).ok_or(CryptoError::Malformed("body_id is not 32 hex digits"))?,
+            hex_decode::<16>(&text)
+                .ok_or(CryptoError::Malformed("body_id is not 32 hex digits"))?,
         )),
         _ => return Err(CryptoError::Malformed("header has no valid body_id")),
     };

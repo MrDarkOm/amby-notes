@@ -215,7 +215,8 @@ pub fn wrap_account_key(kek: &Kek, ak: &AccountKey, rng: &mut dyn Random) -> Vec
 /// Unwraps AK. A wrong KEK (wrong password or code) or any change of the data is
 /// [`CryptoError::Authentication`]; the wrong version byte is `UnsupportedVersion`. О3, С12.
 pub fn unwrap_account_key(kek: &Kek, wrapped: &[u8]) -> Result<AccountKey, CryptoError> {
-    unwrap_secret(kek.as_bytes(), AAD_WRAP_AK, wrapped).map(|secret| AccountKey::from_bytes(*secret))
+    unwrap_secret(kek.as_bytes(), AAD_WRAP_AK, wrapped)
+        .map(|secret| AccountKey::from_bytes(*secret))
 }
 
 /// A new space key with `epoch` (Р5, Ф3): 32 random bytes (Ф31). Epoch 0 is `InvalidParams`.
