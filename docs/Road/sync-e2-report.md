@@ -189,6 +189,8 @@ AMBY_SYNC_URL=http://127.0.0.1:8080 AMBY_SYNC_ADMIN_CMD="docker exec amby-sync a
 11. **Публичный интерфейс.** Остались `Config`, `Clock`, `ManualClock`, `SystemClock`, `AppState::open`, `build_app`, `ROUTES`, `error_response`, трейты `BlobStore`/`UserStore`, функции `admin::*` и `maintenance::run`. Убраны заглушки: варианты `NotImplemented` в `ConfigError`, `StoreError`, `AdminError`, `MaintenanceError`, а также `StubBlobStore` и `StubUserStore` (набор их не использует). Добавлены: `AppState::try_open`, `DbError`, `FsBlobStore`, `DbUserStore`, `StoreError::HasPassword`.
 12. **`serve`**: уборка раз в 10 минут и перед остановкой, остановка по `SIGTERM`/Ctrl-C с 10 секундами на закрытие запросов и потоков; команда `healthcheck` (в образе нет `curl`). `user remove` без `--yes` — отказ с кодом 2.
 
+- **Гонка уборки (проверка Opus).** Файлы удалённых тел удалялись после транзакции без замка базы, и заново начатое тело с тем же `blob_id` могло потерять новые файлы. Теперь файлы удаляются во второй транзакции `BEGIN IMMEDIATE` (`Db::write_then`), пока замок держится, и только если строки тела в базе нет. Так же сделаны `user remove` и подметание остатков; `remove_parts` после `complete` трогает только части завершённого тела и безопасен. Детерминированного теста без внедрения сбоя не написать, поэтому правка идёт без нового теста.
+
 ### Сила тестов (шаг 7): cargo mutants
 
 Прогнан весь код сервера, кроме `main.rs` (командная строка, её видит только прогон против контейнера), `clock.rs`, `state.rs` и `app.rs` (по 2–7 мутантов, это сборка). Всего **589 мутантов**: **274 пойманы**, **48 выжили**, 267 не компилируются (cargo-mutants считает их негодными). Из тех, что можно проверить, поймано 85 %.

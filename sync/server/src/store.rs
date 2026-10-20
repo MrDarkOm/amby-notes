@@ -361,37 +361,45 @@ impl UserStore for DbUserStore {
     fn remove_user(&self, username: &str) -> StoreResult<()> {
         // The rows go first and the files after: a crash in between leaves files nobody refers
         // to (the cleanup sweeps them), never a row that points to a missing file.
-        let keys = self.db.write(|tx| -> StoreResult<Vec<BlobKey>> {
-            let id: i64 = tx
-                .query_row(
-                    "SELECT id FROM users WHERE username = ?1",
-                    [username],
-                    |row| row.get(0),
-                )
-                .optional()?
-                .ok_or(StoreError::NotFound)?;
-            let mut keys = Vec::new();
-            {
-                let mut statement = tx.prepare(
+        self.db.write_then(
+            |tx| -> StoreResult<Vec<BlobKey>> {
+                let id: i64 = tx
+                    .query_row(
+                        "SELECT id FROM users WHERE username = ?1",
+                        [username],
+                        |row| row.get(0),
+                    )
+                    .optional()?
+                    .ok_or(StoreError::NotFound)?;
+                let mut keys = Vec::new();
+                {
+                    let mut statement = tx.prepare(
                     "SELECT s.space_id, b.blob_id FROM blobs b JOIN spaces s ON s.id = b.space \
                      WHERE s.user_id = ?1",
                 )?;
-                let rows = statement.query_map([id], |row| {
-                    Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?))
-                })?;
-                for row in rows {
-                    let (space, blob) = row?;
-                    if let (Ok(space_id), Ok(blob_id)) = (space.try_into(), blob.try_into()) {
-                        keys.push(BlobKey { space_id, blob_id });
+                    let rows = statement.query_map([id], |row| {
+                        Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?))
+                    })?;
+                    for row in rows {
+                        let (space, blob) = row?;
+                        if let (Ok(space_id), Ok(blob_id)) = (space.try_into(), blob.try_into()) {
+                            keys.push(BlobKey { space_id, blob_id });
+                        }
                     }
                 }
-            }
-            tx.execute("DELETE FROM users WHERE id = ?1", [id])?;
-            Ok(keys)
-        })?;
-        for key in keys {
-            self.blobs.delete(&key)?;
-        }
+                tx.execute("DELETE FROM users WHERE id = ?1", [id])?;
+                Ok(keys)
+            },
+            |tx, keys| {
+                // Under the lock, and only for bodies whose row did not come back meanwhile.
+                for key in keys {
+                    if !crate::maintenance::row_exists(tx, key)? {
+                        self.blobs.delete(key)?;
+                    }
+                }
+                Ok(())
+            },
+        )?;
         Ok(())
     }
 }

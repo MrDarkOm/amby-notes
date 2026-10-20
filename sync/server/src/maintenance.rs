@@ -71,101 +71,109 @@ pub fn run(state: &AppState) -> Result<MaintenanceReport, MaintenanceError> {
     );
 
     let mut report = MaintenanceReport::default();
-    let mut doomed: Vec<BlobKey> = Vec::new();
-    state.db.write(|tx| -> Result<(), MaintenanceError> {
-        let mut freed: Vec<(i64, Vec<u8>)> = Vec::new();
+    state.db.write_then(
+        |tx| -> Result<Vec<BlobKey>, MaintenanceError> {
+            let mut doomed: Vec<BlobKey> = Vec::new();
+            let mut freed: Vec<(i64, Vec<u8>)> = Vec::new();
 
-        // П36: an item whose last version is a deletion older than the retention goes whole.
-        let mut statement = tx.prepare(
-            "SELECT space, item_id, seq FROM versions \
+            // П36: an item whose last version is a deletion older than the retention goes whole.
+            let mut statement = tx.prepare(
+                "SELECT space, item_id, seq FROM versions \
              WHERE superseded_ms IS NULL AND deleted = 1 AND committed_ms <= ?1",
-        )?;
-        let gone: Vec<(i64, Vec<u8>, i64)> = statement
-            .query_map([now.saturating_sub(version_ms)], |row| {
-                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-            })?
-            .collect::<Result<_, _>>()?;
-        drop(statement);
-        for (space, item, seq) in gone {
+            )?;
+            let gone: Vec<(i64, Vec<u8>, i64)> = statement
+                .query_map([now.saturating_sub(version_ms)], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })?
+                .collect::<Result<_, _>>()?;
+            drop(statement);
+            for (space, item, seq) in gone {
+                collect_blobs(
+                    tx,
+                    "space = ?1 AND item_id = ?2",
+                    params![space, item],
+                    &mut freed,
+                )?;
+                tx.execute(
+                    "DELETE FROM versions WHERE space = ?1 AND item_id = ?2",
+                    params![space, item],
+                )?;
+                tx.execute(
+                    "UPDATE spaces SET purged_seq = MAX(purged_seq, ?2) WHERE id = ?1",
+                    params![space, seq],
+                )?;
+                report.items += 1;
+            }
+
+            // П35: an old version lives `retain_version_days` after it was replaced. The feed never
+            // showed it, so nothing in the feed and no `purged_seq` changes.
             collect_blobs(
                 tx,
-                "space = ?1 AND item_id = ?2",
-                params![space, item],
+                "superseded_ms IS NOT NULL AND superseded_ms <= ?1",
+                [now.saturating_sub(version_ms)],
                 &mut freed,
             )?;
-            tx.execute(
-                "DELETE FROM versions WHERE space = ?1 AND item_id = ?2",
-                params![space, item],
-            )?;
-            tx.execute(
-                "UPDATE spaces SET purged_seq = MAX(purged_seq, ?2) WHERE id = ?1",
-                params![space, seq],
-            )?;
-            report.items += 1;
-        }
+            report.versions += tx.execute(
+                "DELETE FROM versions WHERE superseded_ms IS NOT NULL AND superseded_ms <= ?1",
+                [now.saturating_sub(version_ms)],
+            )? as u64;
 
-        // П35: an old version lives `retain_version_days` after it was replaced. The feed never
-        // showed it, so nothing in the feed and no `purged_seq` changes.
-        collect_blobs(
-            tx,
-            "superseded_ms IS NOT NULL AND superseded_ms <= ?1",
-            [now.saturating_sub(version_ms)],
-            &mut freed,
-        )?;
-        report.versions += tx.execute(
-            "DELETE FROM versions WHERE superseded_ms IS NOT NULL AND superseded_ms <= ?1",
-            [now.saturating_sub(version_ms)],
-        )? as u64;
-
-        // A body that lost its last live version goes with it (П35, П36) …
-        freed.sort_unstable();
-        freed.dedup();
-        for (space, blob) in freed {
-            if unreferenced(tx, space, &blob)? {
-                if let Some(key) = remove_blob_row(tx, space, &blob)? {
-                    doomed.push(key);
+            // A body that lost its last live version goes with it (П35, П36) …
+            freed.sort_unstable();
+            freed.dedup();
+            for (space, blob) in freed {
+                if unreferenced(tx, space, &blob)? {
+                    if let Some(key) = remove_blob_row(tx, space, &blob)? {
+                        doomed.push(key);
+                    }
                 }
             }
-        }
-        // … and a body nobody committed goes `orphan_blob_hours` after its last action (П25).
-        let mut statement = tx.prepare(
-            "SELECT b.space, b.blob_id FROM blobs b WHERE b.activity_ms <= ?1 AND NOT EXISTS \
+            // … and a body nobody committed goes `orphan_blob_hours` after its last action (П25).
+            let mut statement = tx.prepare(
+                "SELECT b.space, b.blob_id FROM blobs b WHERE b.activity_ms <= ?1 AND NOT EXISTS \
              (SELECT 1 FROM versions v WHERE v.space = b.space AND v.blob_id = b.blob_id)",
-        )?;
-        let orphans: Vec<(i64, Vec<u8>)> = statement
-            .query_map([now.saturating_sub(orphan_ms)], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?
-            .collect::<Result<_, _>>()?;
-        drop(statement);
-        for (space, blob) in orphans {
-            if let Some(key) = remove_blob_row(tx, space, &blob)? {
-                doomed.push(key);
-                report.orphan_blobs += 1;
+            )?;
+            let orphans: Vec<(i64, Vec<u8>)> = statement
+                .query_map([now.saturating_sub(orphan_ms)], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })?
+                .collect::<Result<_, _>>()?;
+            drop(statement);
+            for (space, blob) in orphans {
+                if let Some(key) = remove_blob_row(tx, space, &blob)? {
+                    doomed.push(key);
+                    report.orphan_blobs += 1;
+                }
             }
-        }
 
-        // П17, П16: spent codes and old counters.
-        tx.execute(
-            "UPDATE users SET enroll_hash = NULL, enroll_expires_ms = NULL \
+            // П17, П16: spent codes and old counters.
+            tx.execute(
+                "UPDATE users SET enroll_hash = NULL, enroll_expires_ms = NULL \
              WHERE enroll_expires_ms IS NOT NULL AND enroll_expires_ms <= ?1",
-            [now.saturating_sub(EXPIRED_CODE_GRACE_MS)],
-        )?;
-        tx.execute(
-            "DELETE FROM login_failures WHERE at_ms <= ?1",
-            [now.saturating_sub(attempts_ms)],
-        )?;
-        // П28: the memory of old commits is as long as the history it belongs to.
-        tx.execute(
-            "DELETE FROM commits WHERE committed_ms <= ?1",
-            [now.saturating_sub(version_ms)],
-        )?;
-        Ok(())
-    })?;
-
-    for key in &doomed {
-        state.files.delete(key)?;
-    }
+                [now.saturating_sub(EXPIRED_CODE_GRACE_MS)],
+            )?;
+            tx.execute(
+                "DELETE FROM login_failures WHERE at_ms <= ?1",
+                [now.saturating_sub(attempts_ms)],
+            )?;
+            // П28: the memory of old commits is as long as the history it belongs to.
+            tx.execute(
+                "DELETE FROM commits WHERE committed_ms <= ?1",
+                [now.saturating_sub(version_ms)],
+            )?;
+            Ok(doomed)
+        },
+        |tx, doomed| {
+            // The files go while the lock is held, and only if no row of the same key came back in
+            // the meantime (a body started again under the same id keeps its new files).
+            for key in doomed {
+                if !row_exists(tx, key)? {
+                    state.files.delete(key)?;
+                }
+            }
+            Ok(())
+        },
+    )?;
     sweep_leftovers(state)?;
     Ok(report)
 }
@@ -243,10 +251,24 @@ fn sweep_leftovers(state: &AppState) -> Result<(), MaintenanceError> {
         }
         Ok(keys)
     })?;
-    for key in on_disk {
-        if !known.contains(&key) {
-            state.files.delete(&key)?;
+    // The row is looked at again under the lock, right before the delete: a body started after
+    // the list above was read must keep its files.
+    state.db.write(|tx| -> Result<(), MaintenanceError> {
+        for key in on_disk {
+            if !known.contains(&key) && !row_exists(tx, &key)? {
+                state.files.delete(&key)?;
+            }
         }
-    }
-    Ok(())
+        Ok(())
+    })
+}
+
+/// Whether the database has a row for the body.
+pub(crate) fn row_exists(tx: &rusqlite::Connection, key: &BlobKey) -> rusqlite::Result<bool> {
+    tx.query_row(
+        "SELECT EXISTS (SELECT 1 FROM blobs b JOIN spaces s ON s.id = b.space \
+         WHERE s.space_id = ?1 AND b.blob_id = ?2)",
+        params![key.space_id.as_slice(), key.blob_id.as_slice()],
+        |row| row.get(0),
+    )
 }

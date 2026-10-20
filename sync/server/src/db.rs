@@ -192,6 +192,29 @@ impl Db {
         Ok(result)
     }
 
+    /// Like [`Db::write`], and then runs `after` in a second `BEGIN IMMEDIATE` transaction while
+    /// the lock is still held. For deleting files of rows the first transaction removed: files
+    /// must not go before the commit (a failed commit would keep rows without files), and after
+    /// it the lock must not be let go (a body started again under the same id would lose its
+    /// fresh files). `after` checks the rows again, so another process cannot slip in either.
+    pub fn write_then<R, E>(
+        &self,
+        work: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<R, E>,
+        after: impl FnOnce(&rusqlite::Transaction<'_>, &R) -> Result<(), E>,
+    ) -> Result<R, E>
+    where
+        E: From<rusqlite::Error>,
+    {
+        let mut conn = self.lock();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let result = work(&tx)?;
+        tx.commit()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        after(&tx, &result)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
     fn lock(&self) -> MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(PoisonError::into_inner)
     }
