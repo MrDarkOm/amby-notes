@@ -648,6 +648,10 @@ export const previewMoveRefactor = (
 export const openInExplorer = (path: string): Promise<void> => assetsRepository.openInExplorer(path)
 export const openAttachment = (notePath: string, attachmentPath: string): Promise<void> =>
   assetsRepository.openAttachment(notePath, attachmentPath)
+export const saveAttachmentCopy = (
+  notePath: string,
+  attachmentPath: string,
+): Promise<string | null> => assetsRepository.saveAttachmentCopy(notePath, attachmentPath)
 export const openWebAddress = (address: string): Promise<void> =>
   assetsRepository.openWebAddress(address)
 export const fetchPageInfo = (address: string): Promise<PageInfo> =>

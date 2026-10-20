@@ -89,7 +89,7 @@ describe("ordinary item navigation", () => {
     expect(useTabsStore.getState().tabs[0].historyIndex).toBe(1)
   })
 
-  it("reuses a graph tab when a graph node is selected", () => {
+  it("keeps the graph in the tab history when a graph node is selected", () => {
     useTabsStore.setState({
       tabs: [
         {
@@ -105,7 +105,7 @@ describe("ordinary item navigation", () => {
     })
     useTabsStore.getState().openItem(targets[0])
     expect(useTabsStore.getState().tabs).toEqual([
-      { ...targets[0], key: "graph", history: [targets[0].fileId], historyIndex: 0 },
+      { ...targets[0], key: "graph", history: ["__graph__", targets[0].fileId], historyIndex: 1 },
     ])
   })
 
@@ -119,5 +119,56 @@ describe("ordinary item navigation", () => {
     openItem(target, true)
     expect(useTabsStore.getState().tabs).toHaveLength(2)
     expect(useTabsStore.getState().activeTabKey).not.toBe(firstKey)
+  })
+})
+
+describe("moving a tab within its pane", () => {
+  function openThree() {
+    const tab = (key: string): Tab => ({
+      key,
+      kind: "document",
+      fileId: `note-${key}`,
+      title: key,
+      history: [],
+      historyIndex: 0,
+    })
+    useTabsStore.getState().setTabs([tab("a"), tab("b"), tab("c")])
+    useTabsStore.getState().setActiveTabKey("a")
+  }
+  const order = () => useTabsStore.getState().tabs.map((t) => t.key)
+  const paneOrder = () => {
+    const root = useTabsStore.getState().rootPane
+    return root.type === "leaf" ? root.tabKeys : []
+  }
+
+  beforeEach(() => {
+    useTabsStore.setState({ tabs: [], activeTabKey: "", secondaryTabKey: null })
+    openThree()
+  })
+
+  it("moves a tab to a later slot, counting slots with the dragged tab still in place", () => {
+    const paneId = useTabsStore.getState().activePaneId
+    // Slot 2 is the gap between b and c.
+    useTabsStore.getState().moveTabToPane("a", paneId, 2)
+    expect(order()).toEqual(["b", "a", "c"])
+    expect(paneOrder()).toEqual(["b", "a", "c"])
+  })
+
+  it("moves a tab to the end and to the start", () => {
+    const paneId = useTabsStore.getState().activePaneId
+    useTabsStore.getState().moveTabToPane("a", paneId, 3)
+    expect(order()).toEqual(["b", "c", "a"])
+    useTabsStore.getState().moveTabToPane("a", paneId, 0)
+    expect(order()).toEqual(["a", "b", "c"])
+    expect(paneOrder()).toEqual(["a", "b", "c"])
+  })
+
+  it("leaves the order alone when the tab is dropped on its own slot", () => {
+    const paneId = useTabsStore.getState().activePaneId
+    const before = useTabsStore.getState().tabs
+    useTabsStore.getState().moveTabToPane("b", paneId, 1)
+    useTabsStore.getState().moveTabToPane("b", paneId, 2)
+    expect(order()).toEqual(["a", "b", "c"])
+    expect(useTabsStore.getState().tabs).toBe(before)
   })
 })

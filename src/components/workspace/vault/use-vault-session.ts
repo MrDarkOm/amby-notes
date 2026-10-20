@@ -4,5 +4,3 @@ export function workspaceRelativePath(path: string, workspacePath: string): stri
   const prefix = `${normalizedWorkspace}/`
   return normalizedPath.startsWith(prefix) ? normalizedPath.slice(prefix.length) : normalizedPath
 }
-
-export { EmptyStateHeader } from "./empty-state-header"

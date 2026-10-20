@@ -9,10 +9,13 @@ export function useTreeKeyboard({
   closedIds,
   toggleOpen,
   selectedId,
+  selectedIds,
   keyboardFocusId,
   focusRow,
   setEditingId,
   onSelect,
+  onDelete,
+  onDeleteMany,
   scrollRef,
 }: {
   items: TreeItem[]
@@ -20,10 +23,13 @@ export function useTreeKeyboard({
   closedIds: Set<string>
   toggleOpen: (id: string) => void
   selectedId: string | null
+  selectedIds?: Set<string>
   keyboardFocusId: string | null
   focusRow: (id: string) => void
   setEditingId: (id: string | null) => void
   onSelect: (id: string) => void
+  onDelete?: (id: string) => void
+  onDeleteMany?: (ids: string[]) => void
   scrollRef: React.RefObject<HTMLDivElement | null>
 }) {
   const parentIdFor = React.useCallback(
@@ -122,6 +128,19 @@ export function useTreeKeyboard({
           event.preventDefault()
           setEditingId(current.item.id)
           break
+        case "Delete":
+        case "Backspace": {
+          if (event.key === "Backspace" && !event.metaKey) break
+          if (!current) break
+          event.preventDefault()
+          if (selectedIds && selectedIds.size > 1 && selectedIds.has(current.item.id)) {
+            if (onDeleteMany) onDeleteMany(Array.from(selectedIds))
+            else onDelete?.(current.item.id)
+          } else {
+            onDelete?.(current.item.id)
+          }
+          break
+        }
         case "ContextMenu":
           event.preventDefault()
           openContextMenu()
@@ -138,10 +157,13 @@ export function useTreeKeyboard({
       flatRows,
       focusRow,
       keyboardFocusId,
+      onDelete,
+      onDeleteMany,
       onSelect,
       parentIdFor,
       scrollRef,
       selectedId,
+      selectedIds,
       setEditingId,
       toggleOpen,
     ],

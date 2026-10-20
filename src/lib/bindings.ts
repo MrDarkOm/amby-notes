@@ -1061,6 +1061,18 @@ async openAttachment(notePath: string, attachmentPath: string) : Promise<Result<
 }
 },
 /**
+ * Saves a copy of an attachment of a note where the person chooses: the file's own bytes, not
+ * a re-encoded picture. The attachment is judged by the same rules as for opening it.
+ */
+async saveAttachmentCopy(notePath: string, attachmentPath: string) : Promise<Result<string | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("save_attachment_copy", { notePath, attachmentPath }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Opens a web address in the system's browser.
  */
 async openWebAddress(address: string) : Promise<Result<null, string>> {

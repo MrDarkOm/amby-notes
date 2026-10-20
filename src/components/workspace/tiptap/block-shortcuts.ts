@@ -7,11 +7,13 @@ import {
   type Selection,
   type Transaction,
 } from "@tiptap/pm/state"
+import type { EditorView } from "@tiptap/pm/view"
 
 // Typing and keyboard habits carried over from other Markdown editors: `- [ ] ` makes
 // a task, `1) ` a numbered list, Backspace at the start of a heading removes an empty line
-// above it (or else makes the heading a paragraph), Mod-D duplicates the block,
-// Mod-Shift-Up/Down moves it, Mod-K opens the link panel.
+// above it (or else makes the heading a paragraph), Mod-Backspace deletes back to the start
+// of the current line, Mod-D duplicates the block, Mod-Shift-Up/Down moves it, Mod-K opens
+// the link panel.
 
 type Dispatch = ((tr: Transaction) => void) | undefined
 
@@ -106,6 +108,67 @@ export function backspaceAtHeadingStart(state: EditorState, dispatch?: Dispatch)
   return true
 }
 
+/**
+ * Deletes from the caret back to the start of the current line (or block start).
+ * Prevents WebKit's native Cmd+Backspace DOM mutation from being mistaken by
+ * prosemirror-view's `looksLikeBackspace` heuristic for a single-character Backspace.
+ */
+export function deleteToLineStart(
+  state: EditorState,
+  dispatch?: Dispatch,
+  view?: EditorView,
+): boolean {
+  const { selection } = state
+  if (!selection.empty) return false
+  const { $from } = selection
+  if (!$from.parent.isTextblock) return false
+  if ($from.parentOffset === 0) {
+    return backspaceAtHeadingStart(state, dispatch)
+  }
+
+  const blockStart = $from.start()
+  let lineStart = blockStart
+  const scanEnd = Math.max(0, $from.parentOffset - 1)
+
+  $from.parent.nodesBetween(0, scanEnd, (node, pos) => {
+    if (node.type.name === "hardBreak") {
+      lineStart = Math.max(lineStart, blockStart + pos + node.nodeSize)
+    } else if (node.isText && node.text) {
+      const sliceLen = Math.max(0, scanEnd - pos)
+      const lastNewline = node.text.slice(0, sliceLen).lastIndexOf("\n")
+      if (lastNewline !== -1) {
+        lineStart = Math.max(lineStart, blockStart + pos + lastNewline + 1)
+      }
+    }
+  })
+
+  if (view) {
+    try {
+      const caretCoords = view.coordsAtPos($from.pos)
+      const domAtStart = view.domAtPos(blockStart).node
+      const blockEl = domAtStart instanceof HTMLElement ? domAtStart : domAtStart.parentElement
+      if (blockEl && caretCoords.bottom > caretCoords.top) {
+        const rect = blockEl.getBoundingClientRect()
+        if (rect.width > 0) {
+          const hit = view.posAtCoords({
+            left: rect.left + 2,
+            top: (caretCoords.top + caretCoords.bottom) / 2,
+          })
+          if (hit && hit.pos >= lineStart && hit.pos < $from.pos) {
+            lineStart = hit.pos
+          }
+        }
+      }
+    } catch {
+      // Fallback to logical lineStart when layout measurements are unavailable
+    }
+  }
+
+  if (lineStart >= $from.pos) return false
+  dispatch?.(state.tr.delete(lineStart, $from.pos).scrollIntoView())
+  return true
+}
+
 const KEPT_SOURCE = {
   markdownBlockSource: null,
   markdownBlockSignature: null,
@@ -196,11 +259,14 @@ export const BlockShortcuts = Extension.create({
 
   addKeyboardShortcuts() {
     const run =
-      (command: (state: EditorState, dispatch?: Dispatch) => boolean) =>
-      ({ editor }: { editor: { view: { state: EditorState; dispatch: Dispatch } } }) =>
-        command(editor.view.state, editor.view.dispatch)
+      (command: (state: EditorState, dispatch?: Dispatch, view?: EditorView) => boolean) =>
+      ({ editor }: { editor: { isEditable: boolean; view: EditorView } }) => {
+        if (!editor.isEditable) return false
+        return command(editor.view.state, editor.view.dispatch, editor.view)
+      }
     return {
       Backspace: run(backspaceAtHeadingStart),
+      "Mod-Backspace": run(deleteToLineStart),
       "Mod-d": run(duplicateBlock),
       "Mod-Shift-ArrowUp": run(moveBlock("up")),
       "Mod-Shift-ArrowDown": run(moveBlock("down")),

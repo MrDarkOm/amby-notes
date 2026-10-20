@@ -1,101 +1,50 @@
-"use client"
-
-import * as React from "react"
-import { BookOpenText, FileText } from "lucide-react"
+import { BookOpenText, Database, FileText, LayoutGrid, PenLine } from "lucide-react"
 
 import type { TreeItem } from "../sidebar-tree"
+import type { PageCrumb } from "../page-chrome/page-chrome-types"
 import { isSuperNoteItem } from "../workspace-tree-utils"
-import { buildBreadcrumb } from "./document-breadcrumbs-utils"
+import { buildBreadcrumb, findBreadcrumbTrail } from "./document-breadcrumbs-utils"
 
-export interface DocumentBreadcrumbsProps {
-  treeItems?: TreeItem[]
-  docId?: string
-  docTitle?: string
-  docPath?: string
-  onOpenItem?: (id: string) => void
-  expanded?: boolean
-  onExpandChange?: (expanded: boolean) => void
-}
-
-export function DocumentBreadcrumbs({
-  treeItems,
-  docId,
-  docTitle,
-  docPath,
-  onOpenItem,
-  expanded = false,
-  onExpandChange,
-}: DocumentBreadcrumbsProps) {
-  const breadcrumb = React.useMemo(() => buildBreadcrumb(treeItems, docId), [treeItems, docId])
-  const isSuperNote = Boolean(docPath && isSuperNoteItem({ path: docPath, type: "file" }))
-
-  if (!docId && !docTitle) return null
-
-  const breadcrumbTrail =
-    breadcrumb.length > 0 ? (
-      (!expanded && breadcrumb.length > 4
-        ? [
-            breadcrumb[0],
-            { id: "__ellipsis__", name: "…", kind: "folder" as const },
-            ...breadcrumb.slice(-2),
-          ]
-        : breadcrumb
-      ).map((seg, idx, visible) => {
-        const isLast = idx === visible.length - 1
-        const isEllipsis = seg.id === "__ellipsis__"
-        const isClickable = !isLast && !!onOpenItem
-        return (
-          <React.Fragment key={seg.id}>
-            {isEllipsis ? (
-              <span
-                className="shrink-0 px-1 text-muted-foreground"
-                title={breadcrumb
-                  .slice(1, -2)
-                  .map((item) => item.name)
-                  .join(" › ")}
-                onMouseEnter={() => onExpandChange?.(true)}
-                onMouseLeave={() => onExpandChange?.(false)}
-              >
-                …
-              </span>
-            ) : isClickable ? (
-              <button
-                type="button"
-                data-breadcrumb-segment
-                className="max-w-[200px] truncate rounded px-1 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                onClick={() => onOpenItem?.(seg.id)}
-                title={seg.name}
-              >
-                {isLast &&
-                  (isSuperNote ? (
-                    <BookOpenText className="mr-1 inline-block size-3 align-middle" />
-                  ) : (
-                    <FileText className="mr-1 inline-block size-3 align-middle" />
-                  ))}
-                {seg.name}
-              </button>
-            ) : (
-              <span
-                data-breadcrumb-segment
-                className={`max-w-[260px] truncate px-1 ${isLast ? "inline-flex items-center gap-1 text-foreground" : "text-muted-foreground"}`}
-                title={seg.name}
-              >
-                {isLast &&
-                  (isSuperNote ? (
-                    <BookOpenText className="size-3 shrink-0" />
-                  ) : (
-                    <FileText className="size-3 shrink-0" />
-                  ))}
-                {seg.name}
-              </span>
-            )}
-            {!isLast && <span className="shrink-0 text-muted-foreground">›</span>}
-          </React.Fragment>
+/**
+ * The crumbs of a note: the folders it lies in, then the note itself. The shared header draws
+ * them; folders open when the surface can open an item.
+ */
+export function documentCrumbs(
+  treeItems: TreeItem[] | undefined,
+  docId: string | undefined,
+  docPath: string | undefined,
+  onOpenItem: ((id: string) => void) | undefined,
+): PageCrumb[] {
+  // Canvas and sketch documents are keyed by path while their tree rows are prefixed.
+  const rowId =
+    docId && treeItems
+      ? [docId, `canvas:${docId}`, `sketch:${docId}`, `database:${docId}`].find((id) =>
+          findBreadcrumbTrail(treeItems, id),
         )
-      })
-    ) : docTitle ? (
-      <span className="truncate text-muted-foreground">{docTitle}</span>
-    ) : null
-
-  return <>{breadcrumbTrail}</>
+      : undefined
+  const rowTrail = rowId && treeItems ? findBreadcrumbTrail(treeItems, rowId) : null
+  const rowType = rowTrail?.[rowTrail.length - 1]?.type
+  const trail = buildBreadcrumb(treeItems, rowId ?? docId)
+  const isSuperNote = Boolean(docPath && isSuperNoteItem({ path: docPath, type: "file" }))
+  return trail.map((segment, index) => {
+    const isLast = index === trail.length - 1
+    return {
+      key: segment.id,
+      label: segment.name,
+      icon: isLast ? (
+        rowType === "sketch" ? (
+          <PenLine className="size-3 shrink-0" />
+        ) : rowType === "canvas" ? (
+          <LayoutGrid className="size-3 shrink-0" />
+        ) : rowType === "database" ? (
+          <Database className="size-3 shrink-0" />
+        ) : isSuperNote ? (
+          <BookOpenText className="size-3 shrink-0" />
+        ) : (
+          <FileText className="size-3 shrink-0" />
+        )
+      ) : undefined,
+      onOpen: onOpenItem ? () => onOpenItem(segment.id) : undefined,
+    }
+  })
 }

@@ -52,7 +52,7 @@ describe("SidebarTree rename trigger", () => {
         children: [],
       },
     ],
-  ])("starts renaming a %s on double click", async (_, item) => {
+  ])("does not start renaming a %s on double click", async (_, item) => {
     const onRename = vi.fn()
     const { container } = render(
       <SidebarTree items={[item]} selectedId={item.id} onSelect={() => {}} onRename={onRename} />,
@@ -65,17 +65,8 @@ describe("SidebarTree rename trigger", () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
 
-    const input = container.querySelector("input") as HTMLInputElement
-    expect(input).not.toBeNull()
-    expect(document.activeElement).toBe(input)
-    expect(input.className).toContain("p-0")
-    expect(input.className).not.toContain("px-1")
-    expect(input.selectionStart).toBe(0)
-    expect(input.selectionEnd).toBe(item.name.length)
-
-    fireEvent.change(input, { target: { value: `${item.name} renamed` } })
-    fireEvent.keyDown(input, { key: "Enter" })
-    expect(onRename).toHaveBeenCalledWith(item.id, `${item.name} renamed`)
+    expect(container.querySelector("input")).toBeNull()
+    expect(onRename).not.toHaveBeenCalled()
   })
 
   it("keeps root and leaf icons on the compact tree grid", () => {

@@ -1,7 +1,8 @@
 {
   "name": "amby-notes",
   "private": true,
-  "version": "0.1.8",
+  "version": "0.1.9",
+  "license": "AGPL-3.0-only",
   "description": "Local-first desktop knowledge workspace",
   "type": "module",
   "engines": {

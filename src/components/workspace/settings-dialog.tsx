@@ -76,6 +76,21 @@ import {
   SearchResults,
   DebugSettings,
 } from "./settings"
+import { StopSlider } from "./database/stop-slider"
+
+const FONT_SCALES = ["sm", "md", "lg"] as const satisfies readonly FontScale[]
+const TOOLTIP_DELAY_STOPS = ["0", "500", "1000", "1500", "2000", "-1"] as const
+type TooltipDelayStop = (typeof TOOLTIP_DELAY_STOPS)[number]
+
+function resolveTooltipDelayStop(ms: number): TooltipDelayStop {
+  if (ms < 0) return "-1"
+  if (ms <= 250) return "0"
+  if (ms <= 750) return "500"
+  if (ms <= 1250) return "1000"
+  if (ms <= 1750) return "1500"
+  return "2000"
+}
+
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
 const SETTINGS_WINDOW_LABEL = "settings"
 const SETTINGS_MODULE_CHANGE_EVENT = "amby:settings-module-change"
@@ -604,19 +619,29 @@ export function SettingsDialog({
                     </Select>
                   </Row>
                   <Row label={t("settings.appearance.fontScale")}>
-                    <Select
-                      value={prefs.fontScale}
-                      onValueChange={(v) => setPrefs({ fontScale: v as FontScale })}
-                    >
-                      <SelectTrigger className={selectTrigger}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="sm">{t("settings.appearance.fontSm")}</SelectItem>
-                        <SelectItem value="md">{t("settings.appearance.fontMd")}</SelectItem>
-                        <SelectItem value="lg">{t("settings.appearance.fontLg")}</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[12px] tabular-nums text-muted-foreground">
+                        {prefs.fontScale === "sm"
+                          ? t("settings.appearance.fontSm")
+                          : prefs.fontScale === "lg"
+                            ? t("settings.appearance.fontLg")
+                            : t("settings.appearance.fontMd")}
+                      </span>
+                      <StopSlider
+                        stops={FONT_SCALES}
+                        value={prefs.fontScale}
+                        ariaLabel={t("settings.appearance.fontScale")}
+                        label={(scale) =>
+                          scale === "sm"
+                            ? t("settings.appearance.fontSm")
+                            : scale === "lg"
+                              ? t("settings.appearance.fontLg")
+                              : t("settings.appearance.fontMd")
+                        }
+                        onChange={(fontScale) => setPrefs({ fontScale })}
+                        className="w-28"
+                      />
+                    </div>
                   </Row>
                 </SettingsGroup>
               </TabsContent>
@@ -652,33 +677,53 @@ export function SettingsDialog({
                       aria-label={t("settings.interface.rightPanel")}
                     />
                   </Row>
+                  <Row
+                    label={t("settings.interface.bottomBar")}
+                    hint={t("settings.interface.bottomBarHint")}
+                  >
+                    <Switch
+                      checked={prefs.editor.showAreaControls ?? true}
+                      onCheckedChange={(showAreaControls) =>
+                        setPrefs({ editor: { ...prefs.editor, showAreaControls } })
+                      }
+                      aria-label={t("settings.interface.bottomBar")}
+                    />
+                  </Row>
                   <Row label={t("settings.interface.tooltipDelay")}>
-                    <Select
-                      value={String(prefs.tooltipDelayMs)}
-                      onValueChange={(value) => {
-                        const next = Number(value)
-                        setPrefs({ tooltipDelayMs: next })
-                      }}
-                    >
-                      <SelectTrigger className={selectTrigger}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="0">{t("settings.interface.tooltipNone")}</SelectItem>
-                        <SelectItem value="1000">
-                          {t("settings.interface.tooltipOneSecond")}
-                        </SelectItem>
-                        <SelectItem value="1500">
-                          {t("settings.interface.tooltipOneHalfSeconds")}
-                        </SelectItem>
-                        <SelectItem value="2000">
-                          {t("settings.interface.tooltipTwoSeconds")}
-                        </SelectItem>
-                        <SelectItem value="-1">
-                          {t("settings.interface.tooltipDisabled")}
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
+                    {(() => {
+                      const currentStop = resolveTooltipDelayStop(prefs.tooltipDelayMs)
+                      const labelForStop = (stop: TooltipDelayStop) => {
+                        switch (stop) {
+                          case "0":
+                            return t("settings.interface.tooltipNone")
+                          case "500":
+                            return t("settings.interface.tooltipHalfSecond")
+                          case "1000":
+                            return t("settings.interface.tooltipOneSecond")
+                          case "1500":
+                            return t("settings.interface.tooltipOneHalfSeconds")
+                          case "2000":
+                            return t("settings.interface.tooltipTwoSeconds")
+                          case "-1":
+                            return t("settings.interface.tooltipDisabled")
+                        }
+                      }
+                      return (
+                        <div className="flex items-center gap-3">
+                          <span className="text-[12px] tabular-nums text-muted-foreground">
+                            {labelForStop(currentStop)}
+                          </span>
+                          <StopSlider
+                            stops={TOOLTIP_DELAY_STOPS}
+                            value={currentStop}
+                            ariaLabel={t("settings.interface.tooltipDelay")}
+                            label={labelForStop}
+                            onChange={(stop) => setPrefs({ tooltipDelayMs: Number(stop) })}
+                            className="w-36"
+                          />
+                        </div>
+                      )
+                    })()}
                   </Row>
                 </SettingsGroup>
               </TabsContent>

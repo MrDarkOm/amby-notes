@@ -39,7 +39,8 @@ packages. Manual updates remain available. The main window has only the narrow
 scope or privilege escalation permission is added.
 
 Native installed-version smoke tests must run on macOS (arm64 and x64) and
-Linux AppImage as well as Windows. Unit tests with mocked IPC check installation
+Linux AppImage as well as Windows; the arm64 Windows and Linux builds have no
+smoke machine yet, so their first release is a beta for owners of such devices. Unit tests with mocked IPC check installation
 ordering and the package guard, but do not verify platform replacement or signing.
 
 Windows uses the updater's `quiet` installer mode, with no installer progress
@@ -74,9 +75,12 @@ Production releases must still satisfy the macOS and Windows signing gates.
 3. Commit and push the release candidate when explicitly requested.
 4. After explicit authorization to publish a release, create tag `v<version>`
    and push it.
-5. The `Release` workflow builds macOS arm64/x64, Linux x64 AppImage, and Windows x64,
-   signs the updater artifacts in one draft, and publishes it with `latest.json`
-   only after every platform succeeds.
+5. The `Release` workflow first runs the full gate on Linux plus the Rust tests on
+   Windows and macOS and the WebKit editor suite on macOS. It then builds macOS
+   arm64/x64, Linux x64/arm64 AppImages and Windows x64 (NSIS + MSI) / arm64 (NSIS
+   only: WiX has no arm64 support), signs the updater artifacts in one draft, and
+   publishes it with `latest.json` only after every platform succeeds. Windows arm64
+   is cross-compiled on x64 Windows; Linux arm64 is built on a native arm64 runner.
 6. Verify the release assets and run an installed-version update smoke test
    before promoting the release through the documented channels.
 

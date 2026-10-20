@@ -52,3 +52,40 @@ test("between two lines the handle stands at the line a click puts the cursor in
     await expect.poll(() => caretHeading(page), `cursor at ${share} of the gap`).toBe(expected)
   }
 })
+
+const COLUMNS = [
+  "Outside",
+  "",
+  "<!-- amby:columns -->",
+  "",
+  "<!-- amby:column -->",
+  "",
+  "Left text",
+  "",
+  "<!-- amby:column -->",
+  "",
+  "Right text",
+  "",
+  "<!-- /amby:columns -->",
+  "",
+].join("\n")
+
+test("column text lines up with the note and its first letters take a click", async ({ page }) => {
+  await seedVault(page, { Columns: COLUMNS })
+  await openInLive(page, "Columns")
+  const editor = liveEditor(page)
+  const outside = (await editor.getByText("Outside").boundingBox())!
+  const inside = (await editor.getByText("Left text").boundingBox())!
+  expect(Math.abs(inside.x - outside.x)).toBeLessThan(1)
+
+  // The handle shows beside the line; its hover bridge must not cover the text.
+  await editor.getByText("Outside").click()
+  await page.mouse.move(inside.x + 20, inside.y + inside.height / 2)
+  await expect(page.locator(".amby-block-handles")).toBeVisible()
+  await page.mouse.click(inside.x + 3, inside.y + inside.height / 2)
+  const caret = await page.evaluate(() => {
+    const selection = getSelection()!
+    return { text: selection.anchorNode?.textContent, offset: selection.anchorOffset }
+  })
+  expect(caret).toEqual({ text: "Left text", offset: 0 })
+})

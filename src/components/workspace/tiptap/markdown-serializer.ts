@@ -404,6 +404,9 @@ const nodeSerializers: Record<
     let altPart = (node.attrs.alt as string | undefined) || ""
     const width = node.attrs.width as number | string | null | undefined
     const height = node.attrs.height as number | string | null | undefined
+    const align = node.attrs.align as string | null | undefined
+    // Alignment is written as `|center` after the alt text, before the size.
+    if (align === "left" || align === "center" || align === "right") altPart = `${altPart}|${align}`
     if (width) {
       const sizeStr = height ? `${width}x${height}` : `${width}`
       if (altPart) {

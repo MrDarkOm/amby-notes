@@ -54,7 +54,22 @@ export function collectDocumentBufferUsage(
   return usage
 }
 
-/** Return clean buffers which no tab or pane owns. */
+/**
+ * The entries one step back and one step forward in every tab's history. Their clean buffers stay
+ * in memory, so Back and Forward show the note at once instead of reading it again.
+ */
+export function historyNeighbours(tabs: Tab[]): Set<string> {
+  const ids = new Set<string>()
+  for (const tab of tabs) {
+    for (const index of [tab.historyIndex - 1, tab.historyIndex + 1]) {
+      const fileId = tab.history[index]
+      if (fileId) ids.add(fileId)
+    }
+  }
+  return ids
+}
+
+/** Return clean buffers which no tab or pane owns, nor a tab's next step back or forward. */
 export function selectEvictableDocumentIds({
   openDocs,
   unsavedFileIds,
@@ -66,11 +81,14 @@ export function selectEvictableDocumentIds({
   hasRecoveryDraft,
 }: EvictionCandidateInput): string[] {
   const usage = collectDocumentBufferUsage(tabs, activeTabKey, secondaryTabKey)
+  const neighbours = historyNeighbours(tabs)
   return Object.entries(openDocs)
     .filter(([fileId, document]) => {
       const refs = usage.get(fileId) ?? (document.path ? usage.get(document.path) : undefined)
       return (
         !refs &&
+        !neighbours.has(fileId) &&
+        !(document.path && neighbours.has(document.path)) &&
         !unsavedFileIds.has(fileId) &&
         !externalConflicts[fileId] &&
         !hasPendingAutosave(fileId) &&

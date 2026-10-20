@@ -121,7 +121,6 @@ function AmbyImageContent({ node, selected, editor, updateAttributes }: NodeView
           key={resolved}
           src={resolved}
           alt={alt}
-          title={title}
           draggable={false}
           style={{
             width: displayWidth ? `${displayWidth}px` : undefined,
@@ -155,6 +154,7 @@ function AmbyImageContent({ node, selected, editor, updateAttributes }: NodeView
           </>
         )}
       </span>
+      {title && <span className="amby-image-caption">{title}</span>}
     </NodeViewWrapper>
   )
 }

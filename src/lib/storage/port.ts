@@ -143,6 +143,8 @@ export interface StoragePort extends DatabasePort, ProjectPort {
   openInExplorer(path: string): Promise<void>
   /** Opens an attachment of a note with the system program; the backend decides if it may be. */
   openAttachment(notePath: string, attachmentPath: string): Promise<void>
+  /** Asks where to save a copy of a note's attachment; the chosen path, or `null` when cancelled. */
+  saveAttachmentCopy(notePath: string, attachmentPath: string): Promise<string | null>
   /** Opens an http(s) address in the system browser; the backend decides if it may be. */
   openWebAddress(address: string): Promise<void>
   /** Asks one web page for its title and description; the backend decides if it may be asked. */

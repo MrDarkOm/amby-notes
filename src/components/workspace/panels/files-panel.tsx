@@ -61,6 +61,7 @@ import {
   isTreeTypeKind,
   type TreeTypeKind,
 } from "../tree-type-filter"
+import { useSettingsStore } from "../use-settings-store"
 import { useViewStateStore } from "../use-view-state-store"
 import { NewItemModal } from "../new-item-modal"
 import type { PanelRenderProps } from "../panel-registry"
@@ -170,6 +171,8 @@ export function FilesPanel(props: PanelRenderProps) {
     onAttachCanvas,
     onAttachSketch,
     onOpenInNewTab,
+    onOpenSplitRight,
+    onOpenSplitDown,
     onOpenInNewWindow,
     onCloneFile,
     onOpenInExplorer,
@@ -196,7 +199,8 @@ export function FilesPanel(props: PanelRenderProps) {
   const closedTreeIds = useViewStateStore((s) => s.closedTreeIds)
   const setTreeExpanded = useViewStateStore((s) => s.setTreeExpanded)
   const allOpen = closedTreeIds.size === 0
-  const [findActiveKey, setFindActiveKey] = React.useState(0)
+  const autoReveal = useSettingsStore((s) => s.prefs.autoRevealFile)
+  const setPrefs = useSettingsStore((s) => s.setPrefs)
   const [sortSelection, setSortSelection] = React.useState(readTreeSortSelection)
   const [manualOrder, setManualOrder] = React.useState<ManualTreeOrder>(() =>
     readManualTreeOrder(vault),
@@ -286,8 +290,8 @@ export function FilesPanel(props: PanelRenderProps) {
     setTreeExpanded(treeItems, !allOpen)
   }
 
-  function handleFindActive() {
-    setFindActiveKey((k) => k + 1)
+  function handleToggleAutoReveal() {
+    void setPrefs({ autoRevealFile: !autoReveal })
   }
 
   const handleReorderItems = React.useCallback(
@@ -413,9 +417,13 @@ export function FilesPanel(props: PanelRenderProps) {
             <Button
               variant="ghost"
               size="icon"
-              className="size-7 text-muted-foreground hover:bg-accent hover:text-white"
-              title={t("filesPanel.findActive")}
-              onClick={handleFindActive}
+              className={`size-7 hover:bg-accent hover:text-white ${
+                autoReveal ? "bg-accent text-primary" : "text-muted-foreground"
+              }`}
+              title={t(autoReveal ? "filesPanel.autoRevealOn" : "filesPanel.autoRevealOff")}
+              aria-label={t("filesPanel.autoReveal")}
+              aria-pressed={autoReveal}
+              onClick={handleToggleAutoReveal}
             >
               <LocateFixed className="size-3.5" />
             </Button>
@@ -462,6 +470,8 @@ export function FilesPanel(props: PanelRenderProps) {
                   onAttachCanvas={onAttachCanvas}
                   onAttachSketch={onAttachSketch}
                   onOpenInNewTab={onOpenInNewTab}
+                  onOpenSplitRight={onOpenSplitRight}
+                  onOpenSplitDown={onOpenSplitDown}
                   onOpenInNewWindow={onOpenInNewWindow}
                   onCloneFile={onCloneFile}
                   onOpenInExplorer={onOpenInExplorer}
@@ -476,7 +486,7 @@ export function FilesPanel(props: PanelRenderProps) {
                   linkedLayersByDoc={linkedLayersByDoc}
                   canvasEnabled={canvasEnabled}
                   sketchEnabled={sketchEnabled}
-                  findActiveKey={findActiveKey}
+                  autoReveal={autoReveal}
                 />
               )}
             </div>

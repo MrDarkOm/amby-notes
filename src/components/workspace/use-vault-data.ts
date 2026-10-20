@@ -124,6 +124,9 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
 
   const [treeItems, setTreeItems] = React.useState<TreeItem[]>([])
   const [linkGraph, setLinkGraph] = React.useState<LinkGraph>({ nodes: [], edges: [] })
+  // Bumped by the graph's Refresh button to read the links again without a tree change.
+  const [linkGraphRequest, setLinkGraphRequest] = React.useState(0)
+  const refreshLinkGraph = React.useCallback(() => setLinkGraphRequest((n) => n + 1), [])
 
   // sessionHydratedRef: false while loadVault is applying a restored session so
   // the persist effect doesn't immediately echo the just-restored state back.
@@ -454,7 +457,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     // openDocs intentionally excluded: web-mode already reads via openDocsRef; Tauri-mode
     // fetches from SQLite and doesn't need openDocs at all. Removing it prevents this effect
     // from re-running on every keystroke.
-  }, [treeItems, vault])
+  }, [treeItems, vault, linkGraphRequest])
 
   // Debounced session persistence (tabs + favorites + view-modes + content widths + database labels + locked + icons).
   // Gated on sessionHydratedRef so loadVault's hydration doesn't echo back.
@@ -849,6 +852,7 @@ export function useVaultData(options: UseVaultDataOptions = {}) {
     setTreeItems,
     displayTreeItems,
     linkGraph,
+    refreshLinkGraph,
     loadVault,
     refreshTree,
     reloadVaultData,

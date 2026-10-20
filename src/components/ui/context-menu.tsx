@@ -9,8 +9,14 @@ import { cn } from "@/lib/utils"
 import {
   floatingSurfaceAnimate,
   floatingSurfaceInitial,
+  menuItemPress,
   motionTransitions,
 } from "@/lib/motion-config"
+
+// Items are drawn by Motion so that a press gives way a little (`menuItemPress`).
+const MotionItem = motion.create(ContextMenuPrimitive.Item)
+const MotionCheckboxItem = motion.create(ContextMenuPrimitive.CheckboxItem)
+const MotionRadioItem = motion.create(ContextMenuPrimitive.RadioItem)
 
 function ContextMenu({ ...props }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
   return <ContextMenuPrimitive.Root data-slot="context-menu" {...props} />
@@ -126,7 +132,8 @@ function ContextMenuItem({
   variant?: "default" | "destructive"
 }) {
   return (
-    <ContextMenuPrimitive.Item
+    <MotionItem
+      {...menuItemPress}
       data-slot="context-menu-item"
       data-inset={inset}
       data-variant={variant}
@@ -134,7 +141,7 @@ function ContextMenuItem({
         "focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive data-[variant=destructive]:*:[svg]:!text-destructive [&_svg:not([class*='text-'])]:text-muted-foreground relative flex cursor-default items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
-      {...props}
+      {...(props as React.ComponentProps<typeof MotionItem>)}
     />
   )
 }
@@ -149,7 +156,8 @@ function ContextMenuCheckboxItem({
   indicatorPosition?: "left" | "right"
 }) {
   return (
-    <ContextMenuPrimitive.CheckboxItem
+    <MotionCheckboxItem
+      {...menuItemPress}
       data-slot="context-menu-checkbox-item"
       className={cn(
         "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -157,7 +165,7 @@ function ContextMenuCheckboxItem({
         className,
       )}
       checked={checked}
-      {...props}
+      {...(props as React.ComponentProps<typeof MotionCheckboxItem>)}
     >
       <span
         className={cn(
@@ -170,7 +178,7 @@ function ContextMenuCheckboxItem({
         </ContextMenuPrimitive.ItemIndicator>
       </span>
       {children}
-    </ContextMenuPrimitive.CheckboxItem>
+    </MotionCheckboxItem>
   )
 }
 
@@ -180,13 +188,14 @@ function ContextMenuRadioItem({
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.RadioItem>) {
   return (
-    <ContextMenuPrimitive.RadioItem
+    <MotionRadioItem
+      {...menuItemPress}
       data-slot="context-menu-radio-item"
       className={cn(
         "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-sm py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className,
       )}
-      {...props}
+      {...(props as React.ComponentProps<typeof MotionRadioItem>)}
     >
       <span className="pointer-events-none absolute left-2 flex size-3.5 items-center justify-center">
         <ContextMenuPrimitive.ItemIndicator>
@@ -194,7 +203,7 @@ function ContextMenuRadioItem({
         </ContextMenuPrimitive.ItemIndicator>
       </span>
       {children}
-    </ContextMenuPrimitive.RadioItem>
+    </MotionRadioItem>
   )
 }
 

@@ -9,6 +9,8 @@ interface PageHeaderProps {
   /** The numbers of the page, after the kind; none hides them. */
   meta?: string | null
   tags?: readonly string[]
+  /** Extra content under the quiet line: the workshop's numbers. */
+  below?: React.ReactNode
   /** Buttons at the right: only the ones that mean something on this page. */
   actions?: React.ReactNode
 }
@@ -24,6 +26,7 @@ export function PageHeader({
   kind,
   meta = null,
   tags = [],
+  below,
   actions,
 }: PageHeaderProps) {
   return (
@@ -41,6 +44,7 @@ export function PageHeader({
             </span>
           ))}
         </p>
+        {below}
       </div>
       {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
     </div>

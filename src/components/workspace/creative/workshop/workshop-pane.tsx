@@ -1,5 +1,7 @@
 import * as React from "react"
+import { Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
+import { Button } from "@/components/ui/button"
 import {
   createTextPage,
   type CreatedTextPage,
@@ -39,6 +41,7 @@ import { buildNotebookTree, noteItemsOf } from "./notebook-model"
 import { useNotebookActions } from "./use-notebook-actions"
 import { useNotebooks } from "./use-notebooks"
 import { AnchorsOverview } from "./anchors-overview"
+import type { UniverseSwitch } from "./story-header"
 import { WorksTab, type AnchorsSlot, type NotesSlot, type PlotPart } from "./works-tab"
 import { WorldSection, type PlotRow } from "./world-section"
 import { pagesOf, readBindings, type PageBinding } from "./plot-model"
@@ -111,6 +114,10 @@ interface WorkshopPaneProps {
   /** The menu of the empty space: what can be created from here, the "Create" button's list. */
   createOptions: ChooserOption[]
   onCreate: (choice: CreateChoice) => void
+  /** Opens the "Create" chooser: the button beside the search. */
+  onOpenCreate: () => void
+  /** The universes the bar at the top chooses among: they set the scope of the lists. */
+  universe?: UniverseSwitch | null
 }
 
 /**
@@ -133,6 +140,8 @@ export function WorkshopPane({
   fileActions,
   createOptions,
   onCreate,
+  onOpenCreate,
+  universe = null,
 }: WorkshopPaneProps) {
   const { t } = useTranslation()
   const databases = useDatabaseStore((state) => state.databases)
@@ -800,6 +809,20 @@ export function WorkshopPane({
           onChange={setSearch}
           placeholder={t("creative.workshop.search")}
           ariaLabel={t("creative.workshop.search")}
+          trailing={
+            scope.workshop.readOnly ? undefined : (
+              <Button
+                variant="outline"
+                size="icon-sm"
+                className="shrink-0"
+                title={t("creative.panel.create")}
+                aria-label={t("creative.panel.create")}
+                onClick={onOpenCreate}
+              >
+                <Plus className="size-4" />
+              </Button>
+            )
+          }
         />
         <ContextMenu>
           <ContextMenuTrigger asChild>
@@ -818,6 +841,7 @@ export function WorkshopPane({
                   stories={listedStories}
                   selectedStoryId={selectedStory?.storyId ?? null}
                   selectedUniverseId={universeId}
+                  universe={universe}
                   onSelectStory={(storyId) => {
                     // `null` is all the stories of the scope; it is stored as "all" because an
                     // empty choice means "the first story".

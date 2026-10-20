@@ -350,6 +350,7 @@ export interface EditorPrefs {
   defaultViewMode: ViewModePref
   contentWidth: ContentWidth
   autosaveMs: number
+  showAreaControls?: boolean
 }
 
 export type DeleteModePref = "system" | "vault" | "permanent"
@@ -407,6 +408,8 @@ export interface AppPreferences {
   fontFamily: FontFamily
   rainbowTree: boolean
   treeGuides: boolean
+  /** The file tree follows the open file: its folders open and it is scrolled to. */
+  autoRevealFile: boolean
   density: Density
   tooltipDelayMs: number
   language: Language
@@ -427,10 +430,16 @@ export const DEFAULT_PREFS: AppPreferences = {
   fontFamily: "system",
   rainbowTree: false,
   treeGuides: true,
+  autoRevealFile: false,
   density: "comfortable",
   tooltipDelayMs: 1000,
   language: "ru",
-  editor: { defaultViewMode: "live", contentWidth: "normal", autosaveMs: 500 },
+  editor: {
+    defaultViewMode: "live",
+    contentWidth: "normal",
+    autosaveMs: 500,
+    showAreaControls: true,
+  },
   startup: { reopenLastVault: true, restoreSession: true },
   files: { deleteMode: "system" },
   updates: { autoUpdate: true },
@@ -493,6 +502,7 @@ export function normalizeAppPreferences(
     ),
     rainbowTree: typeof d.rainbowTree === "boolean" ? d.rainbowTree : false,
     treeGuides: typeof d.treeGuides === "boolean" ? d.treeGuides : true,
+    autoRevealFile: typeof d.autoRevealFile === "boolean" ? d.autoRevealFile : false,
     density: oneOf<Density>(d.density, ["comfortable", "compact"], DEFAULT_PREFS.density),
     tooltipDelayMs,
     language: oneOf<Language>(
@@ -504,6 +514,7 @@ export function normalizeAppPreferences(
       defaultViewMode: oneOf<ViewModePref>(ed.defaultViewMode, ["source", "live", "read"], "live"),
       contentWidth: oneOf<ContentWidth>(ed.contentWidth, ["normal", "wide", "full"], "normal"),
       autosaveMs,
+      showAreaControls: typeof ed.showAreaControls === "boolean" ? ed.showAreaControls : true,
     },
     startup: {
       reopenLastVault: typeof su.reopenLastVault === "boolean" ? su.reopenLastVault : true,

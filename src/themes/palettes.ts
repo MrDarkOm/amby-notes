@@ -24,6 +24,16 @@ export const ARC_COLORS = [
   "#f97316",
 ] as const
 
+/** Colours offered in turn to a new colour group of the link graph. */
+export const GRAPH_GROUP_COLORS = [
+  "#e0c95f",
+  "#e57373",
+  "#64b5f6",
+  "#81c784",
+  "#ba68c8",
+  "#ffb74d",
+] as const
+
 export const ICON_PICKER_COLORS = [
   "#64748b",
   "#ef4444",

@@ -2,8 +2,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
-import type { DatabaseRow } from "@/lib/storage"
+import { selectedText } from "@/lib/test-utils/amby-select"
+import type { DatabaseRow, DatabaseSummary } from "@/lib/storage"
 import { useDatabaseStore } from "../database/database-store"
+import { parseViewSettings } from "../database/view-config"
+import { readWorkshopPrefs } from "./creative-scope-storage"
 import { useCreativeNavStore } from "./creative-nav-store"
 import {
   catalog,
@@ -15,6 +18,9 @@ import { ProjectPage } from "./project-page"
 import { useProjectStore } from "./project-store"
 
 const queryDatabase = vi.fn()
+const getDatabaseView = vi.fn()
+const updateDatabaseViewConfig = vi.fn()
+const listTextStats = vi.fn()
 const ensurePlotLinks = vi.fn()
 const createWorkshopEntity = vi.fn()
 const updateDatabaseRelationValue = vi.fn()
@@ -31,9 +37,17 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
   ensurePlotLinks: (...args: unknown[]) => ensurePlotLinks(...args),
   createWorkshopEntity: (...args: unknown[]) => createWorkshopEntity(...args),
   updateDatabaseRelationValue: (...args: unknown[]) => updateDatabaseRelationValue(...args),
-  listTextStats: async () => [],
+  getDatabaseView: (...args: unknown[]) => getDatabaseView(...args),
+  updateDatabaseViewConfig: (...args: unknown[]) => updateDatabaseViewConfig(...args),
+  listTextStats: (...args: unknown[]) => listTextStats(...args),
   resolveDatabaseAssetPaths: async () => ({ paths: [] }),
 }))
+beforeEach(() => {
+  listTextStats.mockReset().mockResolvedValue([])
+  getDatabaseView.mockReset().mockResolvedValue({ revision: "view-r1", configJson: "{}" })
+  updateDatabaseViewConfig.mockReset().mockResolvedValue({ viewRevision: "view-r2" })
+  localStorage.clear()
+})
 vi.mock("./create-section-dialog", () => ({ CreateSectionDialog: () => null }))
 vi.mock("./create-project-dialog", () => ({
   CreateProjectDialog: (props: NonNullable<typeof dialog.props>) => {
@@ -71,19 +85,29 @@ const workshop = workshopSummary("verse", {
   ],
   stories: [
     storySummary("hills", { workshopId: "verse", name: "MoleHills", databaseId: "db_t_hills" }),
+    storySummary("twin", { workshopId: "verse", name: "Близнец", databaseId: "db_t_twin" }),
     storySummary("lone", { workshopId: "verse", name: "Одиночка", databaseId: "db_t_lone" }),
   ],
 })
 
+/** The cards of the stories: two stories in the universe u1, one in none. */
+const storyCards = (): DatabaseRow[] => [
+  row("note_hills", "MoleHills", { up: rel("u1") }),
+  row("note_twin", "Близнец", { up: rel("u1") }),
+  row("note_lone", "Одиночка"),
+]
+
 const ROWS: Record<string, DatabaseRow[]> = {
-  db_stories: [row("note_hills", "MoleHills", { up: rel("u1") }), row("note_lone", "Одиночка")],
+  db_stories: storyCards(),
   db_univ: [row("u1", "Палуверс")],
   db_chars: [
     row("anna", "Анна", { stp: rel("note_hills") }),
     row("gleb", "Глеб", { stp: rel("note_lone") }),
     row("zoya", "Зоя"),
   ],
+  // Zoya is named by one story only; Anna is a page of two stories of the universe.
   db_t_hills: [row("h1", "Глава", { cast: rel("zoya") })],
+  db_t_twin: [row("t1", "Глава", { cast: rel("anna") })],
   db_t_lone: [],
 }
 
@@ -111,7 +135,7 @@ describe("the page of a universe", () => {
     render(
       <ProjectPage
         projectId="universe:u1"
-        renderDatabase={() => null}
+        onOpenDatabase={() => undefined}
         onOpenProject={onOpenProject}
         onOpenNote={onOpenNote}
       />,
@@ -125,32 +149,35 @@ describe("the page of a universe", () => {
     fireEvent.click(within(stories).getByRole("button", { name: /MoleHills/ }))
     expect(onOpenProject).toHaveBeenCalledWith("hills")
 
-    // The pages of the universe: Anna names a story of it, Zoya is named in that story's text.
+    // The world of a universe is what two or more of its stories hold: Anna names one story and
+    // is named in the text of the other. Zoya is only in one, so she is on that story's page.
     const characters = await screen.findByRole("region", { name: "Персонажи" })
     await within(characters).findByText("Анна")
-    expect(within(characters).getByText("Зоя")).toBeTruthy()
+    expect(within(characters).queryByText("Зоя")).toBeNull()
     expect(within(characters).queryByText("Глеб")).toBeNull()
-    fireEvent.click(within(characters).getByText("Зоя"))
-    expect(onOpenNote).toHaveBeenCalledWith("zoya")
+    expect(characters.textContent).toContain("Ещё 1 — только в одной истории")
+    fireEvent.click(within(characters).getByText("Анна"))
+    expect(onOpenNote).toHaveBeenCalledWith("anna")
   })
 
   it("says so when no story belongs to the universe", async () => {
-    ROWS.db_stories = [row("note_hills", "MoleHills"), row("note_lone", "Одиночка")]
+    ROWS.db_stories = [
+      row("note_hills", "MoleHills"),
+      row("note_twin", "Близнец"),
+      row("note_lone", "Одиночка"),
+    ]
     try {
       render(
         <ProjectPage
           projectId="universe:u1"
-          renderDatabase={() => null}
+          onOpenDatabase={() => undefined}
           onOpenProject={vi.fn()}
           onOpenNote={vi.fn()}
         />,
       )
       expect(await screen.findByText(/В этой вселенной пока нет историй/)).toBeTruthy()
     } finally {
-      ROWS.db_stories = [
-        row("note_hills", "MoleHills", { up: rel("u1") }),
-        row("note_lone", "Одиночка"),
-      ]
+      ROWS.db_stories = storyCards()
     }
   })
 })
@@ -185,7 +212,7 @@ describe("the events of a universe", () => {
     render(
       <ProjectPage
         projectId="universe:u1"
-        renderDatabase={() => null}
+        onOpenDatabase={() => undefined}
         onOpenProject={vi.fn()}
         onOpenNote={onOpenNote}
       />,
@@ -289,7 +316,7 @@ function mountPage(
     onOpenProject: vi.fn(),
     onOpenNote: vi.fn(),
     onTitle: vi.fn(),
-    renderDatabase: vi.fn(() => null),
+    onOpenDatabase: vi.fn(),
   }
   render(<ProjectPage projectId={projectId} {...handlers} {...extra} />)
   return handlers
@@ -339,7 +366,7 @@ describe("the page of the standalone stories", () => {
     // Anna names a story of the universe and Zoya is named in its text: not here.
     expect(within(characters).queryByText("Анна")).toBeNull()
     expect(within(characters).queryByText("Зоя")).toBeNull()
-    const group = screen.getByRole("region", { name: "Персонажи: без истории" })
+    const group = screen.getByRole("region", { name: "Без истории" })
     fireEvent.click(within(group).getByText("Ева"))
     expect(onOpenNote).toHaveBeenCalledWith("eva")
   })
@@ -347,7 +374,11 @@ describe("the page of the standalone stories", () => {
   it("has the header of every page: no settings, no new section, the numbers of the stories", async () => {
     mountPage("standalone:verse")
     await screen.findByRole("region", { name: "Истории" })
-    await waitFor(() => expect(screen.getByText(/1 история/)).toBeTruthy())
+    const numbers = (await screen.findByText("Написано слов")).closest("dl") as HTMLElement
+    await waitFor(() =>
+      expect(within(numbers).getByText("Историй").nextSibling?.textContent).toBe("1"),
+    )
+    expect(within(numbers).queryByText("Персонажей")).toBeNull()
     expect(screen.queryByRole("button", { name: "Настройки" })).toBeNull()
     expect(screen.queryByRole("button", { name: "Раздел" })).toBeNull()
   })
@@ -364,6 +395,7 @@ describe("the page of the standalone stories", () => {
   it("says so when there is no standalone story, and offers the first", async () => {
     ROWS.db_stories = [
       row("note_hills", "MoleHills", { up: rel("u1") }),
+      row("note_twin", "Близнец", { up: rel("u1") }),
       row("note_lone", "Одиночка", { up: rel("u1") }),
     ]
     try {
@@ -371,21 +403,18 @@ describe("the page of the standalone stories", () => {
       expect(await screen.findByText(/Отдельных историй пока нет/)).toBeTruthy()
       expect(screen.getByRole("button", { name: "Новая история" })).toBeTruthy()
     } finally {
-      ROWS.db_stories = [
-        row("note_hills", "MoleHills", { up: rel("u1") }),
-        row("note_lone", "Одиночка"),
-      ]
+      ROWS.db_stories = storyCards()
     }
   })
 
   it("lists one section as the pages of this scope, with a way to the whole base", async () => {
-    const { onOpenProject, renderDatabase, onOpenNote } = mountPage("standalone:verse")
+    const { onOpenProject, onOpenDatabase, onOpenNote } = mountPage("standalone:verse")
     const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
     fireEvent.click(within(nav).getByRole("button", { name: "Персонажи" }))
     const list = await screen.findByRole("region", { name: "Персонажи" })
     await within(list).findByText("Глеб")
     expect(within(list).queryByText("Анна")).toBeNull()
-    expect(renderDatabase).not.toHaveBeenCalled()
+    expect(onOpenDatabase).not.toHaveBeenCalled()
     fireEvent.click(within(list).getByText("Глеб"))
     expect(onOpenNote).toHaveBeenCalledWith("gleb")
     fireEvent.click(within(list).getByRole("button", { name: "Вся база" }))
@@ -504,11 +533,196 @@ describe("the header and the tab of each page", () => {
   })
 
   it("gives a story its settings, as the workshop has", async () => {
+    const settingsInMenu = async () => {
+      fireEvent.pointerDown(await screen.findByRole("button", { name: "Другие действия" }), {
+        button: 0,
+        ctrlKey: false,
+      })
+      return screen.getByRole("menuitem", { name: "Настройки" })
+    }
     mountPage("hills")
-    expect(await screen.findByRole("button", { name: "Настройки" })).toBeTruthy()
+    expect(await settingsInMenu()).toBeTruthy()
     cleanup()
     mountPage("verse")
-    expect(await screen.findByRole("button", { name: "Настройки" })).toBeTruthy()
-    expect(screen.getByRole("button", { name: "Раздел" })).toBeTruthy()
+    expect(await screen.findByRole("button", { name: "Раздел" })).toBeTruthy()
+    expect(await settingsInMenu()).toBeTruthy()
+  })
+})
+
+describe("the stories of a universe: order, cards and timeline", () => {
+  const storiesSummary: DatabaseSummary = {
+    databaseId: "db_stories",
+    title: "Истории",
+    icon: null,
+    attachedNoteId: null,
+    manifestRevision: "m",
+    locked: false,
+    properties: [],
+    views: [{ viewId: "v1", title: "Таблица", layout: "table", revision: "vr1", groupField: null }],
+    templates: [],
+    diagnostics: [],
+  }
+  const CREATED: Record<string, number> = { note_hills: 100, note_twin: 200 }
+
+  beforeEach(async () => {
+    await i18n.changeLanguage("ru")
+    listTextStats.mockImplementation(async (databaseId: string) =>
+      databaseId === "db_stories"
+        ? Object.entries(CREATED).map(([noteId, created]) => ({
+            noteId,
+            wordCount: 0,
+            modified: null,
+            created,
+          }))
+        : [],
+    )
+    resetScopeState()
+    act(() => useDatabaseStore.getState().setCatalog([storiesSummary]))
+  })
+  afterEach(cleanup)
+
+  const names = () =>
+    within(screen.getByRole("region", { name: "Истории" }))
+      .getAllByRole("button", { name: /MoleHills|Близнец|Одиночка/ })
+      .filter((button) => button.getAttribute("aria-pressed") === null)
+      .map((button) => (button.textContent?.includes("MoleHills") ? "MoleHills" : "Близнец"))
+  const timeline = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Таймлайн" }))
+    return screen.getByRole("region", { name: "Истории" })
+  }
+  const savedOrder = () =>
+    parseViewSettings(updateDatabaseViewConfig.mock.calls[0][0].configJson).manualOrder
+
+  it("lists the stories in the order of the universe by default, unplaced ones by creation", async () => {
+    mountPage("universe:u1")
+    await within(await screen.findByRole("region", { name: "Истории" })).findByRole("button", {
+      name: /Близнец/,
+    })
+    expect(selectedText("Сортировка")).toBe("По порядку")
+    expect(names()).toEqual(["MoleHills", "Близнец"])
+  })
+
+  it("puts the stories placed by hand first", async () => {
+    getDatabaseView.mockResolvedValue({
+      revision: "view-r1",
+      configJson: JSON.stringify({ manualOrder: ["note_twin", "note_hills"] }),
+    })
+    mountPage("universe:u1")
+    await waitFor(() => expect(names()).toEqual(["Близнец", "MoleHills"]))
+  })
+
+  it("offers 'in order' only on a universe's page", async () => {
+    mountPage("universe:u1")
+    await within(await screen.findByRole("region", { name: "Истории" })).findByRole("button", {
+      name: /Близнец/,
+    })
+    fireEvent.click(screen.getByRole("combobox", { name: "Сортировка" }))
+    expect(await screen.findByRole("option", { name: /По порядку/ })).toBeTruthy()
+    cleanup()
+    mountPage("standalone:verse")
+    await within(await screen.findByRole("region", { name: "Истории" })).findByRole("button", {
+      name: /Одиночка/,
+    })
+    fireEvent.click(screen.getByRole("combobox", { name: "Сортировка" }))
+    await screen.findByRole("option", { name: "Название" })
+    expect(screen.queryByRole("option", { name: /По порядку/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Таймлайн" })).toBeNull()
+    expect(screen.queryByRole("button", { name: "Карточки" })).toBeNull()
+  })
+
+  it("shows the timeline in the same order and remembers the view in this vault", async () => {
+    mountPage("universe:u1", { vaultPath: "/vault" })
+    const region = await timeline()
+    const items = await within(region).findAllByRole("listitem")
+    expect(items.map((item) => item.textContent).slice(0, 2)).toEqual([
+      expect.stringContaining("MoleHills"),
+      expect.stringContaining("Близнец"),
+    ])
+    expect(within(region).getByText(/Что за чем идёт внутри мира/)).toBeTruthy()
+    expect(readWorkshopPrefs("/vault").scopes?.universe?.view).toBe("timeline")
+    cleanup()
+    mountPage("universe:u1", { vaultPath: "/vault" })
+    expect(await screen.findByText(/Что за чем идёт внутри мира/)).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Таймлайн" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    )
+  })
+
+  it("moves a story with the arrows and saves the order in the first view of the stories base", async () => {
+    mountPage("universe:u1")
+    const region = await timeline()
+    await within(region).findByText("MoleHills")
+    fireEvent.click(within(region).getByRole("button", { name: "Сдвинуть «MoleHills» позже" }))
+    await waitFor(() => expect(updateDatabaseViewConfig).toHaveBeenCalledTimes(1))
+    expect(updateDatabaseViewConfig.mock.calls[0][0]).toMatchObject({
+      databaseId: "db_stories",
+      viewId: "v1",
+      expectedViewRevision: "view-r1",
+    })
+    expect(savedOrder()).toEqual(["note_twin", "note_hills"])
+    // The first story cannot step out to the left.
+    expect(
+      (
+        within(region).getByRole("button", {
+          name: "Сдвинуть «Близнец» позже",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false)
+  })
+
+  it("moves a story by dragging it onto another place", async () => {
+    mountPage("universe:u1")
+    const region = await timeline()
+    const items = await within(region).findAllByRole("listitem")
+    fireEvent.dragStart(items[0])
+    fireEvent.dragOver(items[1])
+    fireEvent.drop(items[1])
+    await waitFor(() => expect(updateDatabaseViewConfig).toHaveBeenCalledTimes(1))
+    expect(savedOrder()).toEqual(["note_twin", "note_hills"])
+  })
+
+  it("keeps the places other universes' stories hold when it saves", async () => {
+    getDatabaseView.mockResolvedValue({
+      revision: "view-r1",
+      configJson: JSON.stringify({ manualOrder: ["note_lone", "note_hills", "note_twin"] }),
+    })
+    mountPage("universe:u1")
+    const region = await timeline()
+    await waitFor(() =>
+      expect(within(region).getAllByRole("listitem")[0].textContent).toContain("MoleHills"),
+    )
+    fireEvent.click(within(region).getByRole("button", { name: "Сдвинуть «MoleHills» позже" }))
+    await waitFor(() => expect(updateDatabaseViewConfig).toHaveBeenCalledTimes(1))
+    expect(savedOrder()).toEqual(["note_lone", "note_twin", "note_hills"])
+  })
+
+  it("says why the order was not saved", async () => {
+    updateDatabaseViewConfig.mockRejectedValue(new Error("диск полон"))
+    mountPage("universe:u1")
+    const region = await timeline()
+    await within(region).findByText("MoleHills")
+    fireEvent.click(within(region).getByRole("button", { name: "Сдвинуть «MoleHills» позже" }))
+    const alert = await within(region).findByRole("alert")
+    expect(alert.textContent).toContain("Не удалось сохранить порядок")
+    expect(alert.textContent).toContain("диск полон")
+  })
+
+  it("opens a story from the timeline and starts a new one from its end", async () => {
+    const { onOpenProject } = mountPage("universe:u1")
+    const region = await timeline()
+    fireEvent.click(await within(region).findByRole("button", { name: /^Близнец/ }))
+    expect(onOpenProject).toHaveBeenCalledWith("twin")
+    fireEvent.click(within(region).getByRole("button", { name: "История" }))
+    expect(dialog.props?.kinds).toEqual(["story"])
+  })
+
+  it("applies the same two-stories rule on the section tab of the page", async () => {
+    mountPage("universe:u1")
+    const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
+    fireEvent.click(within(nav).getByRole("button", { name: "Персонажи" }))
+    const list = await screen.findByRole("region", { name: "Персонажи" })
+    await within(list).findByText("Анна")
+    expect(within(list).queryByText("Зоя")).toBeNull()
+    expect(list.textContent).toContain("Ещё 1 — только в одной истории")
   })
 })

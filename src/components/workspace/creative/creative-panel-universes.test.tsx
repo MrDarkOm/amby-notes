@@ -140,11 +140,10 @@ const props = (extra: Partial<PanelRenderProps> = {}) =>
 const prefs = () => JSON.parse(localStorage.getItem("amby:creative-workshop") ?? "{}")[VAULT] ?? {}
 const has = (name: RegExp) => screen.queryByRole("button", { name }) !== null
 
-/** The card a drop-down list sits in: the list and the button that opens its page. */
-// The control fills its card: the card is the control's parent.
-const cardOf = (name: string) => screen.getByRole("combobox", { name }).parentElement as HTMLElement
-/** The row of a card: the card itself and the open button that slides out beside it. */
-const rowOf = (name: string) => cardOf(name).parentElement as HTMLElement
+/** The bar the drop-down lists sit in: universe › story, and the button that opens the page. */
+const cardOf = (name: string) =>
+  screen.getByRole("combobox", { name }).closest("[data-scope-bar]") as HTMLElement
+const rowOf = cardOf
 
 async function open(name: string) {
   fireEvent.click(screen.getByRole("combobox", { name }))
@@ -201,8 +200,14 @@ describe("CreativePanel: the stories above the lists, the universes below them",
   describe("the card of the stories", () => {
     it("names the stories, shows the first story of the scope, and ends its list with 'New story'", async () => {
       render(<CreativePanel {...props()} />)
+      // One bar holds the universe and the story, in that order.
       const card = cardOf("История")
-      expect(card.textContent).toContain("Истории")
+      expect(card).toBe(cardOf("Вселенная"))
+      const universe = screen.getByRole("combobox", { name: "Вселенная" })
+      const story = screen.getByRole("combobox", { name: "История" })
+      expect(
+        universe.compareDocumentPosition(story) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy()
       // The panel opens on the standalone stories: Lone is the only one.
       await waitFor(() => expect(selectedText("История")).toContain("Lone"))
 
@@ -269,12 +274,11 @@ describe("CreativePanel: the stories above the lists, the universes below them",
   })
 
   describe("the card of the universes", () => {
-    it("sits below 'Create' and says 'Standalone stories' until a universe is chosen", async () => {
+    it("sits under the search row and says 'Standalone stories' until a universe is chosen", async () => {
       render(<CreativePanel {...props()} />)
       const create = screen.getByRole("button", { name: "Создать" })
       const card = cardOf("Вселенная")
       expect(create.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(card.textContent).toContain("Вселенные")
       expect(selectedText("Вселенная")).toContain("Отдельные истории")
       // The title of the panel is the one place that says "Workshop".
       expect(card.textContent).not.toContain("Мастерская")

@@ -79,6 +79,30 @@ describe("document buffer lifecycle", () => {
     ).toEqual([])
   })
 
+  it("keeps the notes one step back and forward in a tab's history, and releases older ones", () => {
+    const walked: Tab = {
+      ...tab("only", "now"),
+      history: ["old", "back", "now", "forward"],
+      historyIndex: 2,
+    }
+    const eligible = selectEvictableDocumentIds({
+      openDocs: {
+        old: note("old"),
+        back: note("back"),
+        now: note("now"),
+        forward: note("forward"),
+      },
+      unsavedFileIds: new Set(),
+      externalConflicts: {},
+      tabs: [walked],
+      activeTabKey: "only",
+      secondaryTabKey: null,
+      hasPendingAutosave: () => false,
+      hasRecoveryDraft: () => false,
+    })
+    expect(eligible).toEqual(["old"])
+  })
+
   it("refuses a split that would mount one note in two editable panes", () => {
     expect(canRenderSplit(tab("one", "note"), tab("duplicate", "note"))).toBe(false)
     expect(canRenderSplit(tab("one", "note"), tab("two", "other"))).toBe(true)

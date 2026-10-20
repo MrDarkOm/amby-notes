@@ -10,6 +10,10 @@ import {
 export const STANDARD_PROFILE_VERSION = "1.0.0"
 export const STANDARD_CATALOG_REVISION = "2026-09-20"
 
+/**
+ * The official modules the Standard profile turns on. Creative is ready but opt-in: it is
+ * enabled from Settings → Modules, so a new workspace starts without the Workshop.
+ */
 export const STANDARD_MODULES: string[] = [
   "amby.tags",
   "amby.favorites",
@@ -19,7 +23,6 @@ export const STANDARD_MODULES: string[] = [
   "amby.graph",
   "amby.ai",
   "amby.excalidraw",
-  "amby.creative",
 ]
 
 export const STANDARD_PROFILE_SIGNATURE = {

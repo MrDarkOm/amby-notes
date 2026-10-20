@@ -2,7 +2,8 @@ import * as React from "react"
 import { useActivityDnD } from "./use-activity-dnd"
 import type { ActionContext, PanelId, Side } from "./panel-registry"
 import type { ActivityButton } from "./panel-registry"
-import { findButtonDef } from "./panel-definitions"
+import { findButtonDef, firstViewOnSide } from "./panel-definitions"
+import { canHideButton, setButtonHidden } from "./activity-buttons"
 import { isTauri } from "@/lib/storage"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import {
@@ -261,6 +262,26 @@ export function useSidebarLayout({
     })
   }
 
+  // Hide or show a button on its dock. A hidden view that was open on its side gives way
+  // to the first view still shown there.
+  function setDockButtonHidden(defId: string, hidden: boolean) {
+    setActivityButtons((prev) => setButtonHidden(prev, defId, hidden))
+    const button = activityButtons.find((candidate) => candidate.defId === defId)
+    if (!hidden || !button || !canHideButton(defId)) return
+    if (findButtonDef(defId)?.kind !== "view") return
+    setActiveBySide((prev) =>
+      prev[button.side] === defId
+        ? {
+            ...prev,
+            [button.side]: firstViewOnSide(
+              setButtonHidden(activityButtons, defId, true),
+              button.side,
+            ),
+          }
+        : prev,
+    )
+  }
+
   // Drop handler: place defId on `targetSide` before `beforeDefId` (or at end).
   function reorderButton(defId: string, targetSide: Side, beforeDefId: string | "__end__") {
     setActivityButtons((prev) => {
@@ -457,6 +478,7 @@ export function useSidebarLayout({
     handleEnterFocusMode,
     handleExitFocusMode,
     moveButtonToSide,
+    setDockButtonHidden,
     dnd,
     handleActivate,
     activatePanelAnywhere,

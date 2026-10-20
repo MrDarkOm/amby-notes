@@ -33,7 +33,7 @@ export function FavoritesPanel({
   const { t } = useTranslation()
   const [query, setQuery] = React.useState("")
   const all = flattenTreeItems(treeItems)
-  const favItems = all.filter((i) => i.type === "file" && favorites?.has(i.id))
+  const favItems = all.filter((i) => i.type !== "folder" && favorites?.has(i.id))
   const normalizedQuery = query.trim().toLocaleLowerCase()
   const visibleItems = favItems.filter((item) =>
     item.name.toLocaleLowerCase().includes(normalizedQuery),

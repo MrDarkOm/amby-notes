@@ -169,6 +169,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::project::create_workshop_entity,
         commands::assets::open_in_explorer,
         commands::external::open_attachment,
+        commands::external::save_attachment_copy,
         commands::external::open_web_address,
         commands::external::fetch_page_info,
         commands::assets::import_asset,

@@ -16,6 +16,10 @@ Those directories, along with `.amby/`, are excluded from the note index.
 - `notes.db` — rebuildable SQLite index for note metadata, links, tags, and
   search. It is never the only copy of note content.
 - `blocks/<note-id>.json` — per-note UI block sidecars.
+- `graph-layout.json` — version-1 layout of a locked link graph: `locked`, node
+  positions keyed by node ID (`nodes: { id: [x, y] }`) and the view (`camera`).
+  It is user state, not a cache; a missing, unlocked or unknown-version file only
+  means the graph lays itself out freely.
 - `properties.json` — versioned custom-property metadata keyed by stable note ID;
   SQLite mirrors it for queries, while this sidecar makes the data rebuildable.
 - `property-backups/<note-id>/<operation-id>.json` — immutable versioned backups

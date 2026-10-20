@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
+use std::path::Path;
 
 use rusqlite::Connection;
 use serde_json::{json, Value};
@@ -1114,7 +1115,7 @@ fn two_pages_with_one_title_in_a_shared_database_get_two_files_and_show_one_titl
         &entity(&created, "locations", "Финал", None),
     )
     .unwrap();
-    assert!(place.note_path.ends_with("Локации/Финал.md"));
+    assert!(Path::new(&place.note_path).ends_with("Локации/Финал.md"));
 }
 
 // ---------------------------------------------------------------------------
