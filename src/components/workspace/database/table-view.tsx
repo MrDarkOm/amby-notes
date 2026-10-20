@@ -803,7 +803,7 @@ export function TableView({
                   }
                 }}
               >
-                <span className="h-full w-px bg-slate-200 group-hover/resizer:w-1 group-hover/resizer:bg-primary dark:bg-border" />
+                <span className="h-full w-px bg-slate-200 group-hover/resizer:w-0.5 group-hover/resizer:bg-primary dark:bg-border" />
               </span>
             </div>
             {visibleProperties.map((property, propertyIndex) => {
@@ -929,7 +929,7 @@ export function TableView({
                       }
                     }}
                   >
-                    <span className="h-full w-px bg-slate-200 group-hover/resizer:w-1 group-hover/resizer:bg-primary dark:bg-border" />
+                    <span className="h-full w-px bg-slate-200 group-hover/resizer:w-0.5 group-hover/resizer:bg-primary dark:bg-border" />
                   </span>
                 </div>
               )

@@ -20,6 +20,8 @@ import { BlockShortcuts } from "./block-shortcuts"
 import { TableAlignment } from "./table-alignment"
 import { BookmarkCards } from "./bookmark-card"
 import { LinkOpen } from "./link-open"
+import { ImageLine } from "./image-line"
+import { SelectionHighlight } from "./selection-highlight"
 
 export interface BuildExtensionsOptions {
   placeholder: string
@@ -53,6 +55,8 @@ export function buildExtensions({ placeholder, callbacks }: BuildExtensionsOptio
     BookmarkCards,
     LinkOpen,
     BlockShortcuts,
+    ImageLine,
+    SelectionHighlight,
     // Files and image addresses first; plain text written as Markdown after them.
     MediaDrop,
     MarkdownPaste,

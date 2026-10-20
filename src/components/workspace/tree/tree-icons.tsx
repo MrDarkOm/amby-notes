@@ -132,8 +132,8 @@ export function TreeItemStatusIcon({
   onActivate?: () => void
   label?: string
 }) {
-  const isFavoriteItem = (item.type === "file" || item.type === "database") && isFavorite
-  const isInteractive = (item.type === "file" || item.type === "database") && !!onActivate
+  const isFavoriteItem = item.type !== "folder" && isFavorite
+  const isInteractive = item.type !== "folder" && !!onActivate
   const isSuperNote = isSuperNoteItem(item)
   const Icon =
     item.type === "folder"

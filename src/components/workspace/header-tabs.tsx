@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { AnimatePresence, motion } from "motion/react"
 import {
   Columns2,
+  Rows2,
   ChevronDown,
   FolderOpen,
   Maximize2,
@@ -17,6 +18,7 @@ import {
   Plus,
   Star,
   X,
+  type LucideIcon,
 } from "lucide-react"
 
 const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform)
@@ -29,6 +31,7 @@ import { WorkspacePicker, type VaultRecord } from "./workspace-picker"
 import { IconValue } from "./icon-value"
 import { isRichIconValue } from "./icon-values"
 import { KNOWN_ICONS } from "./tree/tree-types"
+import { beginTabPointerDown } from "./pane-dnd"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,6 +43,8 @@ import {
   ContextMenu,
   ContextMenuCheckboxItem,
   ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 
@@ -48,13 +53,27 @@ export interface HeaderTab {
   fileId: string
   title: string
   icon?: string
+  /** A vector icon shown instead of `icon`; set when the tab has no emoji of its own. */
+  Icon?: LucideIcon
 }
 
-function tabEmoji(icon?: string) {
+export function tabEmoji(icon?: string) {
   return Boolean(icon && (isRichIconValue(icon) || !KNOWN_ICONS.has(icon)))
 }
 
-interface TabsMenuProps {
+function hasTabIcon(tab: HeaderTab) {
+  return Boolean(tab.Icon) || tabEmoji(tab.icon)
+}
+
+function TabIcon({ tab }: { tab: HeaderTab }) {
+  return tab.Icon ? (
+    <tab.Icon className="size-4" />
+  ) : (
+    <IconValue value={tab.icon} className="size-4" />
+  )
+}
+
+export interface TabsMenuProps {
   trigger: React.ReactNode
   tabs: HeaderTab[]
   activeTabKey: string
@@ -63,10 +82,15 @@ interface TabsMenuProps {
   onTabChange: (key: string) => void
   onToggleFavorite?: (id: string) => void
   onCloseAllTabs?: () => void
+  onCloseOtherTabs?: () => void
+  onSplitRight?: () => void
+  onSplitDown?: () => void
+  onClosePane?: () => void
+  onUnsplitAll?: () => void
   align?: "start" | "center" | "end"
 }
 
-/** Shared tabs menu used by both the normal header and focus mode. */
+/** Shared tabs menu used by both the normal header, split panes, and focus mode. */
 export function TabsMenu({
   trigger,
   tabs,
@@ -76,6 +100,11 @@ export function TabsMenu({
   onTabChange,
   onToggleFavorite,
   onCloseAllTabs,
+  onCloseOtherTabs,
+  onSplitRight,
+  onSplitDown,
+  onClosePane,
+  onUnsplitAll,
   align = "end",
 }: TabsMenuProps) {
   const { t } = useTranslation()
@@ -100,6 +129,57 @@ export function TabsMenu({
             </>
           )}
         </DropdownMenuItem>
+        {(onSplitRight || onSplitDown) && (
+          <>
+            <DropdownMenuSeparator className="bg-accent" />
+            {onSplitRight && (
+              <DropdownMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={onSplitRight}
+              >
+                <Columns2 className="size-3.5 text-muted-foreground" />
+                {t("tabs.splitRight")}
+              </DropdownMenuItem>
+            )}
+            {onSplitDown && (
+              <DropdownMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={onSplitDown}
+              >
+                <Rows2 className="size-3.5 text-muted-foreground" />
+                {t("tabs.splitDown")}
+              </DropdownMenuItem>
+            )}
+            {onUnsplitAll && (
+              <DropdownMenuItem
+                className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+                onSelect={onUnsplitAll}
+              >
+                <X className="size-3.5 text-muted-foreground" />
+                {t("tabs.unsplitAll")}
+              </DropdownMenuItem>
+            )}
+          </>
+        )}
+        <DropdownMenuSeparator className="bg-accent" />
+        {onCloseOtherTabs && tabs.length > 1 && (
+          <DropdownMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={onCloseOtherTabs}
+          >
+            <X className="size-3.5 text-muted-foreground" />
+            {t("tabs.closeOthers")}
+          </DropdownMenuItem>
+        )}
+        {onClosePane && (
+          <DropdownMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={onClosePane}
+          >
+            <X className="size-3.5 text-muted-foreground" />
+            {t("tabs.closePane")}
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
           onSelect={onCloseAllTabs}
@@ -119,9 +199,9 @@ export function TabsMenu({
                 )}
                 onSelect={() => onTabChange(tab.key)}
               >
-                {tabEmoji(tab.icon) && (
+                {hasTabIcon(tab) && (
                   <span className="flex size-4 items-center justify-center" aria-hidden="true">
-                    <IconValue value={tab.icon} className="size-4" />
+                    <TabIcon tab={tab} />
                   </span>
                 )}
                 <span className="truncate">{tab.title}</span>
@@ -156,10 +236,7 @@ interface HeaderTabsProps {
   currentVaultPath: string | null
   onSwitchVault: (path: string) => void
   onAddVault: () => void
-  onRenameVault: (id: string, name: string) => void
-  onDeleteVault: (id: string) => void
-  onMoveVault: (id: string) => void
-  onOpenVaultInExplorer: (path: string) => void
+  onManageVaults: () => void
   onCloseAllTabs?: () => void
   leftTreeWidth?: number
   rightPanelWidth?: number
@@ -169,6 +246,13 @@ interface HeaderTabsProps {
   showWorkspacePicker?: boolean
   onToggleSplit?: () => void
   isSplit?: boolean
+  paneId?: string
+  onSplitRight?: (tabKey?: string) => void
+  onSplitDown?: (tabKey?: string) => void
+  onCloseOtherTabs?: (tabKey: string) => void
+  onUnsplitAll?: () => void
+  /** When true and `isSplit` is active, each pane renders its own tab bar and HeaderTabs hides the center strip. */
+  hideCenterTabsWhenSplit?: boolean
 }
 
 // Keep the title-bar controls aligned with the real `w-12` activity rails.
@@ -182,10 +266,10 @@ const MACOS_SIDEBAR_TOGGLE_WIDTH = 44
 
 // Shared style for header toolbar icon buttons (sidebar toggles, dropdown,
 // plus) — keeps a uniform 32×32 hit area, rounding and hover highlight.
-const HEADER_ICON_BTN =
+export const HEADER_ICON_BTN =
   "flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
 
-function handleDragStart(e: React.MouseEvent) {
+export function handleDragStart(e: React.MouseEvent) {
   if (e.button !== 0) return
   // Skip drag when the click originated on an interactive element.
   // Without this guard the mousedown bubbles from e.g. a sidebar-toggle button
@@ -200,22 +284,40 @@ function handleDragStart(e: React.MouseEvent) {
   }
 }
 
-interface TabItemProps {
+export interface TabItemProps {
   tab: HeaderTab
+  paneId?: string
+  layoutGroupId?: string
   isSelected: boolean
+  isPaneFocused?: boolean
   isUnsaved?: boolean
   showDivider?: boolean
+  totalTabsInPane?: number
   onTabChange: (key: string) => void
   onTabClose: (key: string) => void
+  onCloseOtherTabs?: (key: string) => void
+  onCloseAllTabs?: () => void
+  onSplitRight?: (key: string) => void
+  onSplitDown?: (key: string) => void
+  onClosePane?: () => void
 }
 
-function TabItem({
+export function TabItem({
   tab,
+  paneId = "pane-root",
+  layoutGroupId = "activeHeaderTabPill",
   isSelected,
+  isPaneFocused = true,
   isUnsaved,
   showDivider,
+  totalTabsInPane = 1,
   onTabChange,
   onTabClose,
+  onCloseOtherTabs,
+  onCloseAllTabs,
+  onSplitRight,
+  onSplitDown,
+  onClosePane,
 }: TabItemProps) {
   const { t } = useTranslation()
   const [isHovered, setIsHovered] = React.useState(false)
@@ -223,6 +325,7 @@ function TabItem({
   return (
     <motion.div
       key={tab.key}
+      data-tab-item-key={tab.key}
       layout="position"
       initial={{ opacity: 0, scale: 0.9, y: -2 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -241,6 +344,17 @@ function TabItem({
       onClick={() => onTabChange(tab.key)}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onPointerDown={(e) => {
+        if (e.button === 0 && !(e.target as HTMLElement).closest("button")) {
+          beginTabPointerDown({
+            tabKey: tab.key,
+            title: tab.title,
+            sourcePaneId: paneId,
+            startX: e.clientX,
+            startY: e.clientY,
+          })
+        }
+      }}
       onMouseDown={(e) => {
         if (e.button === 1) {
           e.preventDefault()
@@ -257,8 +371,11 @@ function TabItem({
     >
       {isSelected && (
         <motion.div
-          layoutId="activeHeaderTabPill"
-          className="absolute inset-0 rounded-lg bg-[var(--note-surface)] shadow-xs border border-border/80"
+          layoutId={layoutGroupId}
+          className={cn(
+            "absolute inset-0 rounded-lg bg-[var(--note-surface)] shadow-xs border",
+            isPaneFocused ? "border-border/80" : "border-border/50 opacity-85",
+          )}
           transition={{ type: "spring", stiffness: 500, damping: 38 }}
         />
       )}
@@ -268,37 +385,83 @@ function TabItem({
           className="pointer-events-none absolute -right-[2.5px] inset-y-0 my-auto h-3.5 w-px bg-border/60 rounded-full"
         />
       )}
-      <div className="relative z-10 flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden pr-1">
-        {isUnsaved && <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />}
-        {tabEmoji(tab.icon) && (
-          <span className="flex size-4 shrink-0 items-center justify-center" aria-hidden="true">
-            <IconValue value={tab.icon} className="size-4" />
-          </span>
-        )}
-        <span className="min-w-0 flex-1 truncate">{tab.title}</span>
-      </div>
-      <motion.button
-        type="button"
-        title={t("tabs.closeTab")}
-        aria-label={t("tabs.closeTab")}
-        onClick={(e) => {
-          e.stopPropagation()
-          onTabClose(tab.key)
-        }}
-        className="relative z-10 flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-        whileHover={{ scale: 1.15 }}
-        whileTap={{ scale: 0.9 }}
-        animate={{
-          opacity: isSelected ? 1 : isHovered ? 1 : 0,
-          scale: isSelected ? 1 : isHovered ? 1 : 0.8,
-        }}
-        transition={motionTransitions.fast}
-        style={{
-          pointerEvents: isSelected || isHovered ? "auto" : "none",
-        }}
-      >
-        <X className="size-3.5" />
-      </motion.button>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div className="relative z-10 flex min-w-0 flex-1 items-center justify-between gap-1">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden pr-1">
+              {isUnsaved && <span className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />}
+              {hasTabIcon(tab) && (
+                <span
+                  className="flex size-4 shrink-0 items-center justify-center"
+                  aria-hidden="true"
+                >
+                  <TabIcon tab={tab} />
+                </span>
+              )}
+              <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+            </div>
+            <motion.button
+              type="button"
+              title={t("tabs.closeTab")}
+              aria-label={t("tabs.closeTab")}
+              onClick={(e) => {
+                e.stopPropagation()
+                onTabClose(tab.key)
+              }}
+              className="relative z-10 flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              whileHover={{ scale: 1.15 }}
+              whileTap={{ scale: 0.9 }}
+              animate={{
+                opacity: isSelected ? 1 : isHovered ? 1 : 0,
+                scale: isSelected ? 1 : isHovered ? 1 : 0.8,
+              }}
+              transition={motionTransitions.fast}
+              style={{
+                pointerEvents: isSelected || isHovered ? "auto" : "none",
+              }}
+            >
+              <X className="size-3.5" />
+            </motion.button>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-52 border-border bg-popover text-foreground">
+          {onSplitRight && (
+            <ContextMenuItem onSelect={() => onSplitRight(tab.key)}>
+              <Columns2 className="size-3.5 text-muted-foreground" />
+              {t("tabs.splitRight")}
+            </ContextMenuItem>
+          )}
+          {onSplitDown && (
+            <ContextMenuItem onSelect={() => onSplitDown(tab.key)}>
+              <Rows2 className="size-3.5 text-muted-foreground" />
+              {t("tabs.splitDown")}
+            </ContextMenuItem>
+          )}
+          {(onSplitRight || onSplitDown) && <ContextMenuSeparator />}
+          <ContextMenuItem onSelect={() => onTabClose(tab.key)}>
+            <X className="size-3.5 text-muted-foreground" />
+            {t("tabs.closeTab")}
+          </ContextMenuItem>
+          {onCloseOtherTabs && totalTabsInPane > 1 && (
+            <ContextMenuItem onSelect={() => onCloseOtherTabs(tab.key)}>
+              <X className="size-3.5 text-muted-foreground" />
+              {t("tabs.closeOthers")}
+            </ContextMenuItem>
+          )}
+          {onClosePane && (
+            <ContextMenuItem onSelect={onClosePane}>
+              <X className="size-3.5 text-muted-foreground" />
+              {t("tabs.closePane")}
+            </ContextMenuItem>
+          )}
+          {onCloseAllTabs && (
+            <ContextMenuItem onSelect={onCloseAllTabs}>
+              <X className="size-3.5 text-muted-foreground" />
+              {t("tabs.closeAll")}
+            </ContextMenuItem>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
     </motion.div>
   )
 }
@@ -324,10 +487,7 @@ export function HeaderTabs({
   currentVaultPath,
   onSwitchVault,
   onAddVault,
-  onRenameVault,
-  onDeleteVault,
-  onMoveVault,
-  onOpenVaultInExplorer,
+  onManageVaults,
   onCloseAllTabs,
   leftTreeWidth = 300,
   rightPanelWidth = 300,
@@ -337,8 +497,15 @@ export function HeaderTabs({
   showWorkspacePicker = true,
   onToggleSplit,
   isSplit = false,
+  paneId = "pane-root",
+  onSplitRight,
+  onSplitDown,
+  onCloseOtherTabs,
+  onUnsplitAll,
+  hideCenterTabsWhenSplit = false,
 }: HeaderTabsProps) {
   const { t } = useTranslation()
+  const hideCenterStrip = isSplit && hideCenterTabsWhenSplit
   // The left header dock ends on the same divider as the left body panel.
   // On macOS the 80px traffic-light region already consumes 36px more than the
   // 44px activity rail, so subtract that difference from the panel header.
@@ -471,7 +638,7 @@ export function HeaderTabs({
     onSetRightDockPinned,
   )
 
-  const viewControls = (
+  const viewControls = hideCenterStrip ? null : (
     <div
       className="absolute top-1.5 z-10 flex items-center gap-1"
       style={{ right: rightHeaderInsetCss }}
@@ -511,13 +678,22 @@ export function HeaderTabs({
         onTabChange={onTabChange}
         onToggleFavorite={onToggleFavorite}
         onCloseAllTabs={onCloseAllTabs}
+        onCloseOtherTabs={
+          onCloseOtherTabs && activeTabKey ? () => onCloseOtherTabs(activeTabKey) : undefined
+        }
+        onSplitRight={onSplitRight ? () => onSplitRight(activeTabKey) : undefined}
+        onSplitDown={onSplitDown ? () => onSplitDown(activeTabKey) : undefined}
+        onUnsplitAll={isSplit ? onUnsplitAll : undefined}
       />
     </div>
   )
 
   return (
     <header
-      className="relative z-50 flex h-11 select-none items-stretch bg-background"
+      className={cn(
+        "relative z-50 flex h-11 select-none items-stretch",
+        hideCenterStrip ? "pointer-events-none bg-transparent" : "bg-background",
+      )}
       onDoubleClick={(event) => {
         if ((event.target as HTMLElement).closest("button, a, input, select, [role='button']"))
           return
@@ -529,11 +705,14 @@ export function HeaderTabs({
     >
       {/* macOS traffic light spacer — native buttons live here */}
       {isMac ? (
-        <div className="w-[80px] shrink-0" onMouseDown={handleDragStart} />
+        <div
+          className="pointer-events-auto w-[80px] shrink-0 bg-background"
+          onMouseDown={handleDragStart}
+        />
       ) : (
         /* Windows: the left toggle is aligned with the left activity rail. */
         <div
-          className="flex w-12 shrink-0 items-center justify-center"
+          className="pointer-events-auto flex w-12 shrink-0 items-center justify-center bg-background"
           onMouseDown={handleDragStart}
         >
           {leftSidebarToggle}
@@ -543,7 +722,7 @@ export function HeaderTabs({
       {/* Workspace switcher (left panel header column, only when panel open) */}
       {isLeftSidebarOpen && (
         <div
-          className="flex shrink-0 items-center"
+          className="pointer-events-auto flex shrink-0 items-center bg-background"
           style={{ width: leftPanelHeaderCssWidth }}
           onMouseDown={handleDragStart}
         >
@@ -554,10 +733,7 @@ export function HeaderTabs({
                 currentPath={currentVaultPath}
                 onSelect={onSwitchVault}
                 onAdd={onAddVault}
-                onRename={onRenameVault}
-                onDelete={onDeleteVault}
-                onMove={onMoveVault}
-                onOpenInExplorer={onOpenVaultInExplorer}
+                onManage={onManageVaults}
               >
                 <motion.button
                   type="button"
@@ -587,56 +763,67 @@ export function HeaderTabs({
 
       {/* Editor area (flex-1). Tabs share the width and shrink with the window;
           the strip ends right where the view-controls cluster begins. */}
-      <div
-        className={cn(
-          "flex min-w-0 flex-1 items-center gap-1 overflow-hidden pr-1",
-          isMac
-            ? isLeftSidebarOpen && isLeftDockPinned
-              ? "pl-0"
-              : "pl-9"
-            : isLeftSidebarOpen
-              ? "pl-0"
-              : "pl-0",
-        )}
-      >
-        <div className="flex h-full min-w-0 max-w-full items-center gap-1 overflow-hidden shrink">
-          <AnimatePresence initial={false}>
-            {tabs.map((tab, index) => {
-              const isSelected = activeTabKey === tab.key
-              const nextTab = tabs[index + 1]
-              const isNextSelected = nextTab && activeTabKey === nextTab.key
-              const showDivider = !isSelected && index < tabs.length - 1 && !isNextSelected
-
-              return (
-                <TabItem
-                  key={tab.key}
-                  tab={tab}
-                  isSelected={isSelected}
-                  isUnsaved={unsavedFileIds?.has(tab.fileId)}
-                  showDivider={showDivider}
-                  onTabChange={onTabChange}
-                  onTabClose={onTabClose}
-                />
-              )
-            })}
-          </AnimatePresence>
-        </div>
-
-        <motion.button
-          type="button"
-          title={t("tabs.newTab")}
-          data-spotlight-origin="new-tab"
-          onClick={onOpenPlusModal}
-          className={HEADER_ICON_BTN}
-          whileHover={{ scale: 1.08 }}
-          whileTap={{ scale: 0.92 }}
-          transition={motionTransitions.fast}
+      {hideCenterStrip ? (
+        <div className="pointer-events-none flex min-w-0 flex-1" />
+      ) : (
+        <div
+          data-pane-tab-bar={paneId}
+          className={cn(
+            "pointer-events-auto flex min-w-0 flex-1 items-center gap-1 overflow-hidden pr-1",
+            isMac
+              ? isLeftSidebarOpen && isLeftDockPinned
+                ? "pl-0"
+                : "pl-9"
+              : isLeftSidebarOpen
+                ? "pl-0"
+                : "pl-0",
+          )}
         >
-          <Plus className="size-4" />
-        </motion.button>
+          <div className="flex h-full min-w-0 max-w-full items-center gap-1 overflow-hidden shrink">
+            <AnimatePresence initial={false}>
+              {tabs.map((tab, index) => {
+                const isSelected = activeTabKey === tab.key
+                const nextTab = tabs[index + 1]
+                const isNextSelected = nextTab && activeTabKey === nextTab.key
+                const showDivider = !isSelected && index < tabs.length - 1 && !isNextSelected
 
-        <div className="h-full flex-1 cursor-default" onMouseDown={handleEmptySpaceMouseDown} />
-      </div>
+                return (
+                  <TabItem
+                    key={tab.key}
+                    tab={tab}
+                    paneId={paneId}
+                    isSelected={isSelected}
+                    isUnsaved={unsavedFileIds?.has(tab.fileId)}
+                    showDivider={showDivider}
+                    totalTabsInPane={tabs.length}
+                    onTabChange={onTabChange}
+                    onTabClose={onTabClose}
+                    onCloseOtherTabs={onCloseOtherTabs}
+                    onCloseAllTabs={onCloseAllTabs}
+                    onSplitRight={onSplitRight}
+                    onSplitDown={onSplitDown}
+                  />
+                )
+              })}
+            </AnimatePresence>
+          </div>
+
+          <motion.button
+            type="button"
+            title={t("tabs.newTab")}
+            data-spotlight-origin="new-tab"
+            onClick={onOpenPlusModal}
+            className={HEADER_ICON_BTN}
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.92 }}
+            transition={motionTransitions.fast}
+          >
+            <Plus className="size-4" />
+          </motion.button>
+
+          <div className="h-full flex-1 cursor-default" onMouseDown={handleEmptySpaceMouseDown} />
+        </div>
+      )}
 
       {/* View controls cluster — kept in the flex flow, so the editor strip
           (tabs + plus) ends exactly at its left edge. It still lands on the
@@ -646,7 +833,11 @@ export function HeaderTabs({
 
       {/* Sidebar toggles are window-edge controls: unlike panel content they
           never move when a sidebar opens, closes, or is resized. */}
-      {isMac && <div className="absolute left-[80px] top-1.5 z-20">{leftSidebarToggle}</div>}
+      {isMac && (
+        <div className="pointer-events-auto absolute left-[80px] top-1.5 z-20">
+          {leftSidebarToggle}
+        </div>
+      )}
       {/* Match the exact body dock width. This keeps the right toggle attached
           to the panel divider and prevents the large jump when it is closed. */}
       <div
@@ -658,14 +849,14 @@ export function HeaderTabs({
                 ? 0
                 : rightDockWidth,
         }}
-        className="shrink-0"
+        className="pointer-events-auto shrink-0 bg-background"
         onMouseDown={handleDragStart}
       />
 
       {/* macOS: right panel toggle in the former logo position */}
       {isMac && rightPanelEnabled && (
         <div
-          className="flex w-11 shrink-0 items-center justify-center"
+          className="pointer-events-auto flex w-11 shrink-0 items-center justify-center bg-background"
           onMouseDown={handleDragStart}
         >
           {rightSidebarToggle}
@@ -675,7 +866,7 @@ export function HeaderTabs({
       {/* Windows: the right toggle stays immediately before the native-style
           controls instead of jumping to the opposite side of the header. */}
       {!isMac && (
-        <div className="amby-window-controls absolute right-0 top-0 flex h-11 w-48 items-center justify-end">
+        <div className="amby-window-controls pointer-events-auto absolute right-0 top-0 flex h-11 w-48 items-center justify-end bg-background">
           {rightPanelEnabled && (
             <div className="flex h-11 w-12 shrink-0 items-center justify-center">
               {rightSidebarToggle}

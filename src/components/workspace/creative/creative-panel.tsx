@@ -6,7 +6,6 @@ import {
   ExternalLink,
   Feather,
   Loader2,
-  Plus,
   Settings,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
@@ -30,7 +29,7 @@ import { useCreativeSettingsStore } from "./creative-settings-store"
 import { readWorkshopPrefs, writeWorkshopPrefs, type WorkshopPrefs } from "./creative-scope-storage"
 import { projectErrorText } from "./project-error"
 import { useProjectStore } from "./project-store"
-import { standaloneTargetId, universeTargetId } from "./project-tree-model"
+import { universeTargetId } from "./project-tree-model"
 import { sectionRoleIcon } from "./section-icons"
 import { useCompleteWorkshop } from "./use-complete-workshop"
 import { useStoryLinks } from "./use-story-links"
@@ -38,7 +37,6 @@ import { hasGaps, workshopGaps } from "./workshop-gaps"
 import { WorkshopInitScreen } from "./workshop-init-screen"
 import { resolveWorkshopPlace } from "./workshop-location"
 import { entityTabs, storySection, worksSectionsFromPrefs } from "./workshop/workshop-model"
-import { UniverseCard } from "./workshop/universe-card"
 import { usePlotEnsurer } from "./workshop/use-ensure-plot"
 import { useUniverses } from "./workshop/use-universes"
 import { WorkshopPane } from "./workshop/workshop-pane"
@@ -513,48 +511,25 @@ export function CreativePanel({
           fileActions={{ onMoveItem, onCreativeChanged }}
           createOptions={chooserOptions}
           onCreate={pickCreate}
+          onOpenCreate={() => setChooserOpen(true)}
+          universe={{
+            universes,
+            selectedUniverseId: activeUniverseId,
+            onSelectUniverse: chooseUniverse,
+            onNewUniverse: workshop.readOnly
+              ? null
+              : () => setNewProject({ workshop, kind: "universe", kinds: ["universe"] }),
+          }}
         />
         <LegacyFoldersRow diagnostics={legacyFolders} />
       </div>
     )
   }
 
-  const bottom =
-    databaseRuntimeEnabled && workshop && status !== "disabled" ? (
-      <div className="shrink-0 space-y-2 p-2">
-        <Button
-          className="w-full gap-2 border border-foreground/10 bg-foreground/10 font-medium text-foreground shadow-sm hover:bg-foreground/15 hover:shadow-md active:shadow-sm focus-visible:ring-1 focus-visible:ring-foreground/20"
-          whileTap={{ y: 1, scale: 0.99 }}
-          onClick={() => setChooserOpen(true)}
-        >
-          <Plus className="size-4" />
-          {t("creative.panel.create")}
-        </Button>
-        <UniverseCard
-          universes={universes}
-          selectedUniverseId={activeUniverseId}
-          onSelectUniverse={chooseUniverse}
-          onNewUniverse={
-            workshop.readOnly
-              ? null
-              : () => setNewProject({ workshop, kind: "universe", kinds: ["universe"] })
-          }
-          onOpenTarget={() =>
-            openProject(
-              activeUniverseId
-                ? universeTargetId(activeUniverseId)
-                : standaloneTargetId(workshop.workshopId),
-            )
-          }
-        />
-      </div>
-    ) : null
-
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {header}
       {body}
-      {bottom}
       <CreateChooserDialog
         open={chooserOpen}
         onClose={() => setChooserOpen(false)}

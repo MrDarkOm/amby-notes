@@ -38,13 +38,21 @@ interface PanelSearchProps {
   onChange: (value: string) => void
   placeholder: string
   ariaLabel?: string
+  /** A control after the field, in its row (a panel's "add" button). */
+  trailing?: React.ReactNode
 }
 
 /** Consistent compact search field for list-oriented panels. */
-export function PanelSearch({ value, onChange, placeholder, ariaLabel }: PanelSearchProps) {
+export function PanelSearch({
+  value,
+  onChange,
+  placeholder,
+  ariaLabel,
+  trailing,
+}: PanelSearchProps) {
   return (
-    <div className="shrink-0 px-4 pb-3">
-      <div className="relative">
+    <div className="flex shrink-0 items-center gap-2 px-4 pb-3">
+      <div className="relative min-w-0 flex-1">
         <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
         <Input
           value={value}
@@ -54,6 +62,7 @@ export function PanelSearch({ value, onChange, placeholder, ariaLabel }: PanelSe
           className="h-8 min-w-0 bg-transparent pl-8 text-xs"
         />
       </div>
+      {trailing}
     </div>
   )
 }

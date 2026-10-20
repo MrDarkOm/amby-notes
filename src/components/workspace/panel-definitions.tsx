@@ -159,6 +159,7 @@ export function buttonsForSide(buttons: ActivityButton[], side: Side): ActivityB
 /** Returns the first view-button on a side, or null if none. */
 export function firstViewOnSide(buttons: ActivityButton[], side: Side): PanelId | null {
   for (const button of buttonsForSide(buttons, side)) {
+    if (button.hidden) continue
     const definition = findButtonDef(button.defId)
     if (definition?.kind === "view") return definition.id
   }

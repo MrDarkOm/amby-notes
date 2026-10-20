@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  ancestorIds,
   treeBranchGradientColor,
   flattenVisible,
   isValidTreeDropTarget,
@@ -158,5 +159,28 @@ describe("treeBranchGradientColor", () => {
     expect(treeBranchGradientColor(1, 4)).toBe(
       "color-mix(in oklch, var(--tree-gradient-start) 66.66666666666667%, var(--tree-gradient-end) 33.33333333333333%)",
     )
+  })
+})
+
+describe("ancestorIds", () => {
+  const file = (id: string): TreeItem => ({ id, path: id, name: id, type: "file" })
+  const tree: TreeItem[] = [
+    file("top"),
+    {
+      id: "a",
+      path: "a",
+      name: "a",
+      type: "folder",
+      children: [{ id: "b", path: "a/b", name: "b", type: "folder", children: [file("deep")] }],
+    },
+  ]
+
+  it("lists the folders around an item, outermost first", () => {
+    expect(ancestorIds(tree, "deep")).toEqual(["a", "b"])
+    expect(ancestorIds(tree, "top")).toEqual([])
+  })
+
+  it("is null for an item that is not in the tree", () => {
+    expect(ancestorIds(tree, "gone")).toBeNull()
   })
 })

@@ -6,6 +6,7 @@ import {
   FileText,
   GitBranch,
   Globe2,
+  Library,
   MapPin,
   StickyNote,
   Users,
@@ -35,5 +36,15 @@ export function projectFallbackIcon(
 ): LucideIcon {
   if ("storyId" in project) return BookOpen
   if ("workshopId" in project) return Feather
+  return Feather
+}
+
+/** The vector icon of a creative page, shared by its tab and its header. */
+export function projectTargetIcon(
+  kind: "story" | "universe" | "standalone" | "workshop",
+): LucideIcon {
+  if (kind === "story") return BookOpen
+  if (kind === "universe") return Globe2
+  if (kind === "standalone") return Library
   return Feather
 }

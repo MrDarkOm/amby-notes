@@ -193,8 +193,23 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
   const columnGeometryRef = React.useRef<ColumnGeometry[] | null>(null)
   const editorGeometryRef = React.useRef<{
     rect: DOMRect
+    clipRect: DOMRect
     paddingLeft: number
   } | null>(null)
+
+  const getVisibleEditorBounds = React.useCallback((editorDom: HTMLElement) => {
+    const rawRect = editorDom.getBoundingClientRect()
+    const scrollEl = editorDom.closest<HTMLElement>(".amby-editor-scroll")
+    const clipRect = scrollEl ? scrollEl.getBoundingClientRect() : rawRect
+    const top = Math.max(rawRect.top, clipRect.top)
+    const bottom = Math.min(rawRect.bottom, clipRect.bottom)
+    const left = Math.max(rawRect.left, clipRect.left)
+    const right = Math.min(rawRect.right, clipRect.right)
+    return {
+      rect: new DOMRect(left, top, Math.max(0, right - left), Math.max(0, bottom - top)),
+      clipRect,
+    }
+  }, [])
 
   const isEditorSurfaceHidden = React.useCallback(() => {
     if (editor.isDestroyed) return true
@@ -223,8 +238,10 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
     }
 
     const { state, view } = editor
+    const bounds = getVisibleEditorBounds(view.dom as HTMLElement)
     editorGeometryRef.current = {
-      rect: view.dom.getBoundingClientRect(),
+      rect: bounds.rect,
+      clipRect: bounds.clipRect,
       paddingLeft: parseFloat(window.getComputedStyle(view.dom).paddingLeft) || 12,
     }
 
@@ -325,6 +342,19 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         taskLabel || target.nodeType === "horizontalRule"
           ? anchorRect.top + (anchorRect.height - BUTTON_H) / 2
           : anchorRect.top + 1
+    }
+
+    // Never render the body-portaled grip outside the note's visible scroll container.
+    if (
+      bounds.clipRect.width <= 0 ||
+      bounds.clipRect.height <= 0 ||
+      top < bounds.clipRect.top + 2 ||
+      top + BUTTON_H > bounds.clipRect.bottom - 2 ||
+      left < bounds.clipRect.left ||
+      left + HANDLE_WIDTH > bounds.clipRect.right
+    ) {
+      setHandle((h) => (h.visible ? { ...h, visible: false } : h))
+      return
     }
 
     // At another block the handle is hidden before it is moved there, or it would be seen
@@ -557,6 +587,18 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         applyVisibility()
         return
       }
+      const { clipRect } = getVisibleEditorBounds(editorDom)
+      if (
+        clipRect.width <= 0 ||
+        clipRect.height <= 0 ||
+        x < clipRect.left ||
+        x > clipRect.right ||
+        y < clipRect.top ||
+        y > clipRect.bottom
+      ) {
+        dropHover()
+        return
+      }
       const geometry = readColumnGeometry()
       const columnTarget = targetFromColumnRect(x, y, geometry)
       if (columnTarget) {
@@ -593,6 +635,7 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
       for (const child of Array.from(editorDom.children)) {
         const rect = child.getBoundingClientRect()
         if (rect.height <= 0) continue
+        if (rect.bottom < clipRect.top || rect.top > clipRect.bottom) continue
         const gap = Math.max(rect.top - y, y - rect.bottom, 0)
         if (gap < nearestGap) {
           nearestGap = gap
@@ -680,7 +723,17 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
         }
         return
       }
-      const { rect, paddingLeft } = editorGeometry
+      const { rect, clipRect, paddingLeft } = editorGeometry
+      const insideClipRect =
+        e.clientX >= clipRect.left &&
+        e.clientX <= clipRect.right &&
+        e.clientY >= clipRect.top &&
+        e.clientY <= clipRect.bottom
+      if (!insideClipRect) {
+        mouseInsideEditorRef.current = false
+        dropHover()
+        return
+      }
       const contentLeft = rect.left + paddingLeft
       const inExtendedGutter =
         e.clientX >= contentLeft - HANDLE_WIDTH - GUTTER_GAP - GUTTER_HIT_SLOP &&
@@ -1511,7 +1564,6 @@ export function BlockHandles({ editor, vaultPath, notePath }: BlockHandlesProps)
           nodePos={handle.nodePos}
           nodeType={handle.nodeType}
           isCallout={isCallout}
-          vaultPath={vaultPath}
           notePath={notePath}
           anchorRect={anchorRect}
           onDuplicate={() => {

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
 
 import { ACTION_DEFS, PERSISTENT_ACTION_BUTTONS } from "./panel-definitions"
-import { availableModuleIds, isModuleAvailable, MODULE_REGISTRY } from "./modules"
+import { availableModuleIds, findModule, isModuleAvailable, MODULE_REGISTRY } from "./modules"
+import { STANDARD_MODULES } from "@/lib/modules/profiles"
 import { SIMPLE_PRESET, STANDARD_PRESET, visibleLayout } from "./presets"
 
 describe("preset activity zones", () => {
@@ -23,8 +24,19 @@ describe("preset activity zones", () => {
 
   it("keeps preview modules discoverable but disabled in the standard preset", () => {
     for (const module of MODULE_REGISTRY) {
-      expect(STANDARD_PRESET.activeModules.includes(module.id)).toBe(module.status === "ready")
+      expect(STANDARD_PRESET.activeModules.includes(module.id)).toBe(
+        module.status === "ready" && !module.optIn,
+      )
     }
+  })
+
+  it("leaves the creative module out of the standard preset and profile", () => {
+    expect(findModule("creative")?.status).toBe("ready")
+    expect(STANDARD_PRESET.activeModules).not.toContain("creative")
+    expect(STANDARD_MODULES).not.toContain("amby.creative")
+    // Everything the preset turns on is also in the workspace profile.
+    const profile = STANDARD_MODULES.map((id) => id.replace(/^amby\./u, ""))
+    for (const id of STANDARD_PRESET.activeModules) expect(profile).toContain(id)
   })
 
   it("keeps the beta database module available without enabling it in new presets", () => {

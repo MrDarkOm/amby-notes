@@ -2,18 +2,9 @@
 
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { Check, FolderOpen, FolderTree, MoreHorizontal, PenLine, Plus, Unlink } from "lucide-react"
-import { motion } from "motion/react"
+import { Check, FolderOpen, Settings2 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { motionTransitions } from "@/lib/motion-config"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 
 export interface VaultRecord {
   id: string
@@ -26,12 +17,14 @@ interface WorkspacePickerProps {
   vaults: VaultRecord[]
   currentPath: string | null
   onSelect: (path: string) => void
+  /** Opens the native dialog to pick or create a vault. */
   onAdd: () => void
-  onRename: (id: string, name: string) => void
-  onDelete: (id: string) => void
-  onMove: (id: string) => void
-  onOpenInExplorer: (path: string) => void
+  /** Opens the vault manager modal. */
+  onManage: () => void
 }
+
+const ACTION =
+  "flex w-full items-center gap-2 rounded px-2 py-1.5 text-[13px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:bg-accent"
 
 export function WorkspacePicker({
   children,
@@ -39,26 +32,10 @@ export function WorkspacePicker({
   currentPath,
   onSelect,
   onAdd,
-  onRename,
-  onDelete,
-  onMove,
-  onOpenInExplorer,
+  onManage,
 }: WorkspacePickerProps) {
   const { t } = useTranslation()
   const [open, setOpen] = React.useState(false)
-  const [renamingId, setRenamingId] = React.useState<string | null>(null)
-  const [renameValue, setRenameValue] = React.useState("")
-  const renameInputRef = React.useRef<HTMLInputElement>(null)
-
-  React.useEffect(() => {
-    if (renamingId) setTimeout(() => renameInputRef.current?.focus(), 0)
-  }, [renamingId])
-
-  function commitRename(id: string) {
-    const trimmed = renameValue.trim()
-    if (trimmed) onRename(id, trimmed)
-    setRenamingId(null)
-  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -66,134 +43,61 @@ export function WorkspacePicker({
       <PopoverContent
         align="start"
         sideOffset={4}
-        className="w-64 border-border bg-popover p-0 shadow-xl"
+        className="w-56 border-border bg-popover p-1 shadow-xl"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="border-b border-border px-3 py-2">
-          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            {t("vaultPicker.vaults")}
-          </p>
-        </div>
-
-        <div className="flex max-h-64 flex-col overflow-y-auto p-1">
+        <div className="flex max-h-56 flex-col overflow-y-auto">
           {vaults.length === 0 && (
-            <p className="px-3 py-2 text-[12px] text-muted-foreground">
+            <p className="px-2 py-1.5 text-[12px] text-muted-foreground">
               {t("vaultPicker.noVaults")}
             </p>
           )}
           {vaults.map((vault) => (
-            <motion.div
+            <button
               key={vault.id}
-              initial="rest"
-              whileHover="hover"
+              type="button"
+              title={vault.path}
+              onClick={() => {
+                onSelect(vault.path)
+                setOpen(false)
+              }}
               className={cn(
-                "group flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent",
+                "flex items-center gap-2 rounded px-2 py-1.5 text-left outline-none hover:bg-accent focus-visible:bg-accent",
                 vault.path === currentPath && "bg-accent/60",
               )}
             >
-              {/* Check mark for active */}
-              <div className="flex size-4 shrink-0 items-center justify-center">
+              <span className="flex size-3.5 shrink-0 items-center justify-center">
                 {vault.path === currentPath && <Check className="size-3 text-foreground" />}
-              </div>
-
-              {/* Name / rename input */}
-              {renamingId === vault.id ? (
-                <input
-                  ref={renameInputRef}
-                  value={renameValue}
-                  onChange={(e) => setRenameValue(e.target.value)}
-                  onBlur={() => commitRename(vault.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitRename(vault.id)
-                    if (e.key === "Escape") setRenamingId(null)
-                    e.stopPropagation()
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="flex-1 min-w-0 rounded bg-accent px-1.5 py-0.5 text-[13px] text-foreground outline-none ring-1 ring-ring"
-                />
-              ) : (
-                <button
-                  className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:bg-accent/70"
-                  onClick={() => {
-                    onSelect(vault.path)
-                    setOpen(false)
-                  }}
-                >
-                  <span className="block truncate text-[13px] text-foreground">{vault.name}</span>
-                  <span className="block truncate text-[10px] text-muted-foreground">
-                    {vault.path}
-                  </span>
-                </button>
-              )}
-
-              {/* Three-dot menu */}
-              <DropdownMenu modal={false}>
-                <DropdownMenuTrigger asChild>
-                  <motion.button
-                    title={t("vaultPicker.actions")}
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex size-5 shrink-0 items-center justify-center rounded outline-none hover:bg-accent"
-                    variants={{ rest: { opacity: 0 }, hover: { opacity: 1 } }}
-                    whileFocus={{ opacity: 1 }}
-                    transition={motionTransitions.fast}
-                  >
-                    <MoreHorizontal className="size-3.5 text-muted-foreground" />
-                  </motion.button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  className="w-48 border-border bg-popover text-foreground"
-                  align="end"
-                  onClick={(e) => e.stopPropagation()}
-                  onCloseAutoFocus={(e) => e.preventDefault()}
-                >
-                  <DropdownMenuItem
-                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                    onSelect={() => {
-                      setRenameValue(vault.name)
-                      setRenamingId(vault.id)
-                    }}
-                  >
-                    <PenLine className="size-3.5 text-muted-foreground" />
-                    {t("vaultPicker.rename")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                    onSelect={() => onMove(vault.id)}
-                  >
-                    <FolderTree className="size-3.5 text-muted-foreground" />
-                    {t("vaultPicker.move")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-                    onSelect={() => onOpenInExplorer(vault.path)}
-                  >
-                    <FolderOpen className="size-3.5 text-muted-foreground" />
-                    {t("vaultPicker.showInExplorer")}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator className="bg-accent" />
-                  <DropdownMenuItem
-                    className="flex items-center gap-2 text-[13px] text-red-400 focus:bg-accent focus:text-red-300"
-                    onSelect={() => onDelete(vault.id)}
-                  >
-                    <Unlink className="size-3.5" />
-                    {t("vaultPicker.detach")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </motion.div>
+              </span>
+              <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
+                {vault.name}
+              </span>
+            </button>
           ))}
         </div>
 
-        <div className="border-t border-border p-1">
+        <div className="mt-1 border-t border-border pt-1">
           <button
+            type="button"
             onClick={() => {
               onAdd()
               setOpen(false)
             }}
-            className="flex w-full items-center gap-2 rounded px-3 py-1.5 text-[13px] text-muted-foreground outline-none hover:bg-accent hover:text-foreground"
+            className={ACTION}
           >
-            <Plus className="size-3.5" />
-            {t("vaultPicker.openOrCreate")}
+            <FolderOpen className="size-3.5" />
+            {t("vaultPicker.choose")}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onManage()
+              setOpen(false)
+            }}
+            className={ACTION}
+          >
+            <Settings2 className="size-3.5" />
+            {t("vaultPicker.manage")}
           </button>
         </div>
       </PopoverContent>

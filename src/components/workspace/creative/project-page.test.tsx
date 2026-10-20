@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import i18n from "@/lib/i18n"
+import type { DatabaseRow } from "@/lib/storage"
 import { useDatabaseStore } from "../database/database-store"
 import { useCreativeNavStore } from "./creative-nav-store"
 import {
@@ -22,6 +23,7 @@ const reorderWorkshopSections = vi.hoisted(() => vi.fn())
 const updateTextLevels = vi.hoisted(() => vi.fn())
 const addTextStatus = vi.hoisted(() => vi.fn())
 const renameDatabase = vi.hoisted(() => vi.fn())
+const queryDatabase = vi.hoisted(() => vi.fn())
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
@@ -31,6 +33,15 @@ vi.mock("@/lib/storage", async (importOriginal) => ({
   updateTextLevels,
   addTextStatus,
   renameDatabase,
+  queryDatabase: (...args: unknown[]) => queryDatabase(...args),
+  listTextStats: async () => [],
+  listNotebooks: async () => ({
+    databaseId: "",
+    containerPath: "",
+    rootItemCount: 0,
+    notebooks: [],
+  }),
+  resolveDatabaseAssetPaths: async () => ({ paths: [] }),
 }))
 
 vi.mock("./create-section-dialog", () => ({
@@ -39,17 +50,45 @@ vi.mock("./create-section-dialog", () => ({
 
 function mount(projectId: string) {
   const onOpenProject = vi.fn()
-  const renderDatabase = vi.fn(({ databaseId, title }: { databaseId: string; title: string }) => (
-    <div data-testid="database">{`${title}:${databaseId}`}</div>
-  ))
+  const onOpenDatabase = vi.fn()
+  const onOpenNote = vi.fn()
   render(
     <ProjectPage
       projectId={projectId}
-      renderDatabase={renderDatabase}
+      onOpenDatabase={onOpenDatabase}
       onOpenProject={onOpenProject}
+      onOpenNote={onOpenNote}
     />,
   )
-  return { onOpenProject, renderDatabase }
+  return { onOpenProject, onOpenDatabase, onOpenNote }
+}
+
+const openPageMenu = () =>
+  fireEvent.pointerDown(screen.getByRole("button", { name: "Другие действия" }), {
+    button: 0,
+    ctrlKey: false,
+  })
+
+function row(noteId: string, title: string): DatabaseRow {
+  return {
+    noteId,
+    title,
+    relativePath: `${noteId}.md`,
+    parentNoteId: null,
+    depth: 0,
+    categoryPath: [],
+    valuesJson: "{}",
+    rowRevision: `rev-${noteId}`,
+  }
+}
+
+function serveRows(rows: Record<string, DatabaseRow[]>) {
+  queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => ({
+    rows: rows[databaseId] ?? [],
+    nextCursor: null,
+    totalCount: (rows[databaseId] ?? []).length,
+    diagnostics: [],
+  }))
 }
 
 describe("ProjectPage", () => {
@@ -64,6 +103,8 @@ describe("ProjectPage", () => {
     updateTextLevels.mockReset()
     addTextStatus.mockReset()
     renameDatabase.mockReset()
+    queryDatabase.mockReset()
+    serveRows({})
   })
   afterEach(cleanup)
 
@@ -79,10 +120,9 @@ describe("ProjectPage", () => {
 
   it("opens a story on its desk and lists only the lists that can hold its pages", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
-    const { renderDatabase } = mount("molehills")
+    mount("molehills")
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("MoleHills")
     expect(screen.getByText("История")).toBeTruthy()
-    expect(renderDatabase).not.toHaveBeenCalled()
     const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
     const tabs = Array.from(nav.querySelectorAll("button")).map((b) => b.textContent)
     // The desk, then the world's lists, the anchors and the notes: no list of stories, no text,
@@ -96,40 +136,44 @@ describe("ProjectPage", () => {
 
   it("shows a section of a story as the pages that belong to it, not as the shared database", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
-    const { renderDatabase } = mount("molehills")
+    const { onOpenDatabase } = mount("molehills")
     const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
     fireEvent.click(
       Array.from(nav.querySelectorAll("button")).find((b) => b.textContent === "Персонажи")!,
     )
-    expect(renderDatabase).not.toHaveBeenCalled()
+    expect(onOpenDatabase).not.toHaveBeenCalled()
     expect(screen.getByRole("button", { name: "Вся база" })).toBeTruthy()
     expect(useCreativeNavStore.getState().sectionByProject.molehills).toBe("characters")
   })
 
-  it("shows a section of the workshop as the ordinary database and remembers it", () => {
+  it("shows a section of the workshop as a gallery, remembers it and opens the base on request", async () => {
+    serveRows({ db_characters: [row("anna", "Анна"), row("gleb", "Глеб")] })
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
-    const { renderDatabase } = mount("palooverse")
+    const { onOpenDatabase, onOpenNote } = mount("palooverse")
     const nav = screen.getByRole("navigation", { name: "Разделы мастерской" })
     fireEvent.click(
       Array.from(nav.querySelectorAll("button")).find((b) => b.textContent === "Персонажи")!,
     )
-    expect(renderDatabase).toHaveBeenLastCalledWith({
-      databaseId: "db_characters",
-      title: "Персонажи",
-      readOnly: false,
-      toolbarHost: expect.any(HTMLElement),
-    })
-    expect(screen.getByTestId("database").textContent).toBe("Персонажи:db_characters")
+    // The gallery is named by the database (the fixture's is its ID), the tab by the section.
+    const gallery = await screen.findByRole("region", { name: "characters" })
+    await within(gallery).findByText("Анна")
+    fireEvent.click(within(gallery).getByText("Глеб"))
+    expect(onOpenNote).toHaveBeenCalledWith("gleb")
     expect(useCreativeNavStore.getState().sectionByProject.palooverse).toBe("characters")
+    // The ordinary database is one row away, in the page's "⋯" menu: no button in the tabs row.
+    expect(within(nav).queryByRole("button", { name: "Открыть как базу" })).toBeNull()
+    openPageMenu()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Открыть как базу" }))
+    expect(onOpenDatabase).toHaveBeenCalledWith("db_characters", "Персонажи")
   })
 
-  it("opens the section the sidebar asked for", () => {
+  it("opens the section the sidebar asked for", async () => {
     act(() => {
       useProjectStore.getState().setCatalog(universeCatalog())
       useCreativeNavStore.getState().showSection("palooverse", "notes")
     })
     mount("palooverse")
-    expect(screen.getByTestId("database").textContent).toBe("Заметки:db_notes")
+    expect(await screen.findByRole("region", { name: "notes" })).toBeTruthy()
   })
 
   it("falls back to the overview when the remembered section no longer exists", () => {
@@ -138,16 +182,28 @@ describe("ProjectPage", () => {
       useCreativeNavStore.getState().showSection("palooverse", "gone")
     })
     mount("palooverse")
-    expect(screen.queryByTestId("database")).toBeNull()
+    expect(screen.getByRole("region", { name: "Истории" })).toBeTruthy()
+    openPageMenu()
+    expect(screen.queryByRole("menuitem", { name: "Открыть как базу" })).toBeNull()
   })
 
-  it("lists the stories of the workshop and opens one", () => {
+  it("lists the stories of the workshop as cards and opens one", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
     const { onOpenProject } = mount("palooverse")
     expect(screen.getByRole("heading", { name: "Истории" })).toBeTruthy()
-    expect(screen.getByRole("heading", { name: "Мир" })).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "MoleHills" }))
+    // No tiles of the sections any more: the tabs above are the way to them.
+    expect(screen.queryByRole("heading", { name: "Мир" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: /MoleHills/ }))
     expect(onOpenProject).toHaveBeenCalledWith("molehills")
+  })
+
+  it("shows the numbers of the workshop under its name: worlds, stories, words", async () => {
+    act(() => useProjectStore.getState().setCatalog(universeCatalog()))
+    mount("palooverse")
+    const numbers = screen.getByText("Историй").closest("dl") as HTMLElement
+    expect(within(numbers).getByText("Миров")).toBeTruthy()
+    expect(within(numbers).getByText("Написано слов")).toBeTruthy()
+    expect(within(numbers).getByText("Историй").nextSibling?.textContent).toBe("2")
   })
 
   it("explains a section whose database is missing instead of rendering it", () => {
@@ -158,9 +214,10 @@ describe("ProjectPage", () => {
       useProjectStore.getState().setCatalog(catalog([broken]))
       useCreativeNavStore.getState().showSection("p", "s")
     })
-    const { renderDatabase } = mount("p")
-    expect(renderDatabase).not.toHaveBeenCalled()
+    mount("p")
     expect(screen.getByText("Раздел не найден")).toBeTruthy()
+    openPageMenu()
+    expect(screen.queryByRole("menuitem", { name: "Открыть как базу" })).toBeNull()
   })
 
   it("is read-only for a project of an unknown format", () => {
@@ -182,10 +239,14 @@ describe("ProjectPage", () => {
     expect(screen.getByTestId("section-dialog")).toBeTruthy()
   })
 
-  it("opens project settings from the header", () => {
+  it("opens project settings from the page's menu", () => {
     act(() => useProjectStore.getState().setCatalog(universeCatalog()))
     mount("molehills")
-    fireEvent.click(screen.getByRole("button", { name: "Настройки" }))
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Другие действия" }), {
+      button: 0,
+      ctrlKey: false,
+    })
+    fireEvent.click(screen.getByRole("menuitem", { name: "Настройки" }))
     expect(screen.getByRole("heading", { name: "Настройки мастерской" })).toBeTruthy()
   })
 })

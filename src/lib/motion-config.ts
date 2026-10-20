@@ -10,6 +10,12 @@ export const motionTransitions = {
   reorder: { type: "spring", stiffness: 520, damping: 38, mass: 0.55 },
 } satisfies Record<string, Transition>
 
+/** A press on a menu or list item gives way a little, as buttons do. */
+export const menuItemPress = {
+  whileTap: { scale: 0.97 },
+  transition: motionTransitions.fast,
+} as const
+
 export const floatingSurfaceInitial = {
   opacity: 0,
   scale: 0.96,

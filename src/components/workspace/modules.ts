@@ -40,6 +40,8 @@ export interface ModuleDef {
   descriptionKey: string
   /** Preview modules are visible in the catalogue but cannot be enabled yet. */
   status: "ready" | "beta" | "preview"
+  /** Ready, but left out of the Standard preset: the user turns it on in Settings → Modules. */
+  optIn?: boolean
   manifest: ModuleManifest
   /** Panels (from panel-registry) this module contributes to the activity bar. */
   panels?: PanelId[]
@@ -149,6 +151,7 @@ export const MODULE_REGISTRY: ModuleDef[] = [
     labelKey: "settings.modules.creative",
     descriptionKey: "settings.modules.descriptions.creative",
     status: "ready",
+    optIn: true,
     manifest: {
       dependencies: { "amby.databases": "^1.0.0" },
       permissions: ["ui-action", "read-databases", "write-databases", "read-notes", "write-notes"],
@@ -158,9 +161,12 @@ export const MODULE_REGISTRY: ModuleDef[] = [
 ]
 
 export const ALL_MODULE_IDS: string[] = MODULE_REGISTRY.map((m) => m.id)
-/** Modules enabled by the Standard preset. Preview entries stay discoverable but inactive. */
+/**
+ * Modules enabled by the Standard preset: the ready ones except the opt-in ones. Preview
+ * entries stay discoverable but inactive.
+ */
 export const READY_MODULE_IDS: string[] = MODULE_REGISTRY.filter(
-  (module) => module.status === "ready",
+  (module) => module.status === "ready" && !module.optIn,
 ).map((module) => module.id)
 
 export function findModule(id: string): ModuleDef | undefined {

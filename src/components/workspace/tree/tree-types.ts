@@ -105,6 +105,8 @@ export interface SidebarTreeProps {
   onAttachCanvas?: (id: string) => void
   onAttachSketch?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenSplitRight?: (id: string) => void
+  onOpenSplitDown?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
@@ -124,8 +126,8 @@ export interface SidebarTreeProps {
   linkedLayersByDoc?: Record<string, NodeLayers>
   canvasEnabled?: boolean
   sketchEnabled?: boolean
-  /** Increment to scroll the currently selected item into view. */
-  findActiveKey?: number
+  /** Open the folders around the selected item and scroll to it whenever it changes. */
+  autoReveal?: boolean
 }
 
 export type FlatRow = { item: TreeItem; level: number; branchIndex: number | null }
@@ -138,6 +140,17 @@ export function treeBranchGradientColor(branchIndex: number, branchCount: number
   const endWeight =
     branchCount <= 1 ? 0 : Math.min(100, Math.max(0, (branchIndex / (branchCount - 1)) * 100))
   return `color-mix(in oklch, var(--tree-gradient-start) ${100 - endWeight}%, var(--tree-gradient-end) ${endWeight}%)`
+}
+
+/** The ids of the items that contain `id`, outermost first; null when it is not in the tree. */
+export function ancestorIds(items: TreeItem[], id: string): string[] | null {
+  for (const item of items) {
+    if (item.id === id) return []
+    if (!item.children?.length) continue
+    const inner = ancestorIds(item.children, id)
+    if (inner) return [item.id, ...inner]
+  }
+  return null
 }
 
 export function flattenVisible(
@@ -181,6 +194,8 @@ export interface TreeNodeProps {
   onAttachCanvas?: (id: string) => void
   onAttachSketch?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenSplitRight?: (id: string) => void
+  onOpenSplitDown?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
   onOpenInExplorer?: (id: string) => void

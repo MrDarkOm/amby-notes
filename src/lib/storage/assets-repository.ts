@@ -41,6 +41,10 @@ export class AssetsRepository {
     return this.port().openAttachment(notePath, attachmentPath)
   }
 
+  async saveAttachmentCopy(notePath: string, attachmentPath: string): Promise<string | null> {
+    return this.port().saveAttachmentCopy(notePath, attachmentPath)
+  }
+
   async openWebAddress(address: string): Promise<void> {
     return this.port().openWebAddress(address)
   }

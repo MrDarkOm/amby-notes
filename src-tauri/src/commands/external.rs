@@ -10,6 +10,7 @@
 //! The webview passes the note and the address of the attachment as the note wrote it;
 //! everything else is decided here.
 
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use crate::paths;
@@ -176,6 +177,43 @@ pub fn open_attachment(
     let file = resolve_openable_attachment(&vault, &note, &attachment_path)
         .map_err(|code| code.to_string())?;
     hand_to_system(plain_path(&file).as_os_str()).map_err(|code| code.to_string())
+}
+
+/// Saves a copy of an attachment of a note where the person chooses: the file's own bytes, not
+/// a re-encoded picture. The attachment is judged by the same rules as for opening it.
+#[tauri::command]
+#[specta::specta]
+pub async fn save_attachment_copy(
+    app: tauri::AppHandle,
+    context: tauri::State<'_, VaultContext>,
+    note_path: String,
+    attachment_path: String,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    use tokio::sync::oneshot;
+
+    let note = paths::guard(&context, &note_path)?;
+    let vault = context.root()?;
+    let file = resolve_openable_attachment(&vault, &note, &attachment_path)
+        .map_err(|code| code.to_string())?;
+    let default_name = file
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| "attachment".to_string());
+
+    let (tx, rx) = oneshot::channel();
+    app.dialog()
+        .file()
+        .set_file_name(&default_name)
+        .save_file(move |path| {
+            let _ = tx.send(path);
+        });
+    let Some(chosen) = rx.await.map_err(|e| e.to_string())? else {
+        return Ok(None);
+    };
+    let destination = chosen.to_string();
+    fs::copy(&file, &destination).map_err(|e| e.to_string())?;
+    Ok(Some(destination))
 }
 
 /// Opens a web address in the system's browser.

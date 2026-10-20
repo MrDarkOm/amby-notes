@@ -44,6 +44,25 @@ describe("TreeItemIcon", () => {
     expect(container.querySelectorAll("svg")).toHaveLength(2)
   })
 
+  it("renders a star for a favorited sketch and canvas and makes them togglable", () => {
+    for (const type of ["sketch", "canvas"] as const) {
+      const onActivate = vi.fn()
+      const { container } = render(
+        <TreeItemStatusIcon
+          item={{ ...databaseItem, id: `${type}-1`, type }}
+          isFavorite
+          onActivate={onActivate}
+          label="Remove"
+        />,
+      )
+      const control = container.querySelector('[data-tree-file-status="favorite"]')
+      expect(control).not.toBeNull()
+      expect(control?.getAttribute("role")).toBe("button")
+      fireEvent.click(control as Element)
+      expect(onActivate).toHaveBeenCalledOnce()
+    }
+  })
+
   it("keeps a custom folder icon without adding a folder glyph", () => {
     const { container } = render(<TreeItemIcon item={folder} />)
 

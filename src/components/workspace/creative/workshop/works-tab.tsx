@@ -28,7 +28,7 @@ import { Accordion } from "./accordion"
 import { treeIndent } from "./tree-indent"
 import { EmptyAction } from "./empty-action"
 import { InlineCreateRow } from "./inline-create-row"
-import { StoryHeader } from "./story-header"
+import { StoryHeader, type UniverseSwitch } from "./story-header"
 import { ItemMenu, type ArrangeMenu, type PlotChoice, type PlotMenu } from "./item-menu"
 import { LinkAction } from "./link-action"
 import { PageMarksView, RowError } from "./page-marks"
@@ -80,6 +80,8 @@ interface WorksTabProps {
   selectedStoryId: string | null
   /** The universe chosen in the card below, if any: where the open button leads without a story. */
   selectedUniverseId?: string | null
+  /** The universes the bar above chooses among. */
+  universe?: UniverseSwitch | null
   onSelectStory: (storyId: string | null) => void
   /** Which accordion parts are unfolded. */
   open: Record<WorksSection, boolean>
@@ -945,6 +947,7 @@ export function WorksTab({
   stories,
   selectedStoryId,
   selectedUniverseId = null,
+  universe = null,
   onSelectStory,
   open,
   onToggleSection,
@@ -992,14 +995,16 @@ export function WorksTab({
     return { noteId: latest.noteId, title: latest.title, when: formatModified(latestAt) ?? "" }
   }, [activeNoteId, stats, textRows])
 
-  const handleOpenTarget = () => {
-    if (selectedStoryId) {
-      onOpenProject(selectedStoryId)
-    } else if (selectedUniverseId) {
+  const handleOpenScope = () => {
+    if (selectedUniverseId) {
       onOpenProject(universeTargetId(selectedUniverseId))
     } else {
       onOpenProject(standaloneTargetId(workshop.workshopId))
     }
+  }
+  const handleOpenTarget = () => {
+    if (selectedStoryId) onOpenProject(selectedStoryId)
+    else handleOpenScope()
   }
 
   return (
@@ -1015,6 +1020,8 @@ export function WorksTab({
         onOpenTarget={handleOpenTarget}
         resume={resume}
         onOpenNote={onOpenNote}
+        universe={universe}
+        onOpenScope={handleOpenScope}
       />
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-2 pb-3">
         {status === "error" && (

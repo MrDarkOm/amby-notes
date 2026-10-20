@@ -114,10 +114,11 @@ pub fn list_notebooks_of(
             |row| row.get(0),
         )
         .map_err(|_| ProjectError::failed("databaseNotFound", "the database was not found"))?;
-    let container = crate::paths::confine(vault, &vault.join(&relative))
+    // The folder keeps the vault's own spelling, so the paths match the file tree's; it is
+    // joined name by name so Windows paths do not mix separators.
+    let spelled = crate::vault::scan::abs_from_rel(vault, &relative);
+    let container = crate::paths::confine(vault, &spelled)
         .map_err(|error| ProjectError::failed("notebooksUnavailable", error))?;
-    // The folder keeps the vault's own spelling, so the paths match the file tree's.
-    let spelled = vault.join(&relative);
     let container = if container.canonicalize().ok() == spelled.canonicalize().ok() {
         spelled
     } else {
@@ -231,7 +232,11 @@ mod tests {
         assert_eq!(names(&catalog), vec!["Идеи"]);
         assert_eq!(
             catalog.notebooks[0].path,
-            vault.join("Мастерская/Заметки/Идеи").to_string_lossy()
+            vault
+                .join("Мастерская")
+                .join("Заметки")
+                .join("Идеи")
+                .to_string_lossy()
         );
         assert!(list_notebooks_of(&connection, &vault, "db_missing").is_err());
         connection

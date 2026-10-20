@@ -1507,6 +1507,10 @@ export class WebAdapterCore implements StoragePort {
 
   async openInExplorer(_path: string): Promise<void> {}
 
+  async saveAttachmentCopy(_notePath: string, _attachmentPath: string): Promise<string | null> {
+    return null
+  }
+
   async openAttachment(_notePath: string, _attachmentPath: string): Promise<void> {
     // Browser development has no files on disk to hand to a system program.
     throw new Error("AttachmentOpenUnavailable")

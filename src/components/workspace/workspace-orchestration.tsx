@@ -69,11 +69,14 @@ import { cn } from "@/lib/utils"
 import { useLayers } from "./use-layers"
 import { useTabActions } from "./use-tab-actions"
 import { canRenderSplit } from "./document-buffer-lifecycle"
+import { computeSplitLayout, type LayoutLeafItem, type SplitDirection } from "./split-tree"
+import { usePaneDnd, zoneToSplitParams, type ActivePaneHoverTarget } from "./pane-dnd"
+import { PaneDropOverlay, PaneTabBar, SplitResizeHandle } from "./pane-tab-bar"
+import { findTabTreeItem, treeItemTabTarget } from "./tab-target"
 import {
   wsPathStem,
   canvasLayerPath,
   sketchLayerPath,
-  newTabKey,
   formatModified,
   nextAvailableNoteName,
 } from "./workspace-tree-utils"
@@ -89,12 +92,14 @@ import type { TreeItem } from "./sidebar-tree"
 import { useDatabaseController } from "./database/use-database-controller"
 import { useProjectController } from "./creative/use-project-controller"
 import { DossierFrame } from "./creative/dossier/dossier-frame"
+import { CreativeNoteTrail } from "./creative/note-trail-header"
 import { useProjectStore } from "./creative/project-store"
 import { useCollectionFolderSelect } from "./creative/use-collection-folder-select"
 import { useCreativeTreeItems } from "./creative/use-creative-tree-items"
-import { OVERVIEW_SECTION, useCreativeNavStore } from "./creative/creative-nav-store"
-import { creativeTitleLabels } from "./creative/project-labels"
-import { projectTargetTitle, resolveProjectTarget } from "./creative/project-tree-model"
+import { useCreativeNavStore } from "./creative/creative-nav-store"
+import { creativeTabTarget, parseCreativeFileId } from "./creative/creative-history"
+import { resolveProjectTarget } from "./creative/project-tree-model"
+import { projectTargetIcon } from "./creative/section-icons"
 import { useDatabaseStore } from "./database/database-store"
 import type { DatabaseRowActions } from "./database/use-row-menu"
 import { ModuleRequiredFallback } from "./editor/module-required-fallback"
@@ -125,7 +130,9 @@ import { WorkspaceLayout } from "./workspace-layout"
 import { matchesShortcut } from "./keyboard-shortcuts"
 import { DATABASE_LAYER_CREATION_AVAILABLE } from "./modules"
 
-import { EmptyStateHeader, workspaceRelativePath } from "./vault/use-vault-session"
+import { workspaceRelativePath } from "./vault/use-vault-session"
+import { StartScreen } from "./vault/start-screen"
+import { VaultManagerDialog } from "./vault/vault-manager"
 import { useNoteWindows } from "./windows/use-note-windows"
 import { flushEditorSerializations } from "./tiptap/editor-serialization-lifecycle"
 import { useTagFocusStore } from "./tags/tag-focus-store"
@@ -137,8 +144,6 @@ const EMPTY_CONTENT_WIDTHS: Record<string, ContentWidth> = {}
 const EMPTY_DATABASE_TITLE_LABELS: Record<string, string> = {}
 const EMPTY_LAYERS = { canvas: false, sketch: false, database: false }
 const NOOP = () => {}
-/** A section of a story is first shown as cards that open as whole pages. */
-const CREATIVE_SECTION_PRESENTATION = { layout: "gallery", openMode: "fullPage" } as const
 
 /** Spinner shown while a lazy chunk (Canvas / Graph) is being fetched. */
 function LazyEditorFallback() {
@@ -385,6 +390,11 @@ export function WorkspaceOrchestration() {
   const tabs = useTabsStore((s) => s.tabs)
   const activeTabKey = useTabsStore((s) => s.activeTabKey)
   const secondaryTabKey = useTabsStore((s) => s.secondaryTabKey)
+  const rootPane = useTabsStore((s) => s.rootPane)
+  const activePaneId = useTabsStore((s) => s.activePaneId)
+  const splitLayout = React.useMemo(() => computeSplitLayout(rootPane), [rootPane])
+  const isMultiPane = splitLayout.leaves.length > 1
+  const mainStageRef = React.useRef<HTMLElement | null>(null)
   const activeTab = tabs.find((tab) => tab.key === activeTabKey) ?? null
   // Subscribe only to whether the active document has been loaded. The editor
   // owns content updates; this small subscription fixes the startup race
@@ -462,6 +472,7 @@ export function WorkspaceOrchestration() {
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [isHelpOpen, setIsHelpOpen] = React.useState(false)
   const [settingsOpen, setSettingsOpen] = React.useState(false)
+  const [vaultManagerOpen, setVaultManagerOpen] = React.useState(false)
   const [settingsTarget, setSettingsTarget] = React.useState<SettingsNavigationTarget | null>(null)
   const defaultViewMode = useSettingsStore((s) => s.prefs.editor.defaultViewMode)
   const defaultContentWidth = useSettingsStore((s) => s.prefs.editor.contentWidth)
@@ -557,11 +568,6 @@ export function WorkspaceOrchestration() {
     }
   }
 
-  const selectedId =
-    activeTab &&
-    (activeTab.kind === "document" || activeTab.kind === "folder" || activeTab.kind === "database")
-      ? activeTab.fileId
-      : ""
   const canGoBack = (activeTab?.historyIndex ?? 0) > 0
   const canGoForward = activeTab ? activeTab.historyIndex < activeTab.history.length - 1 : false
 
@@ -579,35 +585,46 @@ export function WorkspaceOrchestration() {
       .openItem({ kind: "graph", fileId: GRAPH_TAB_FILE_ID, title: t("workspace.graphTab") })
   }
 
+  // A workshop page opens in the current tab like a note, so Back and Forward pass through it
+  // (and the notes it opens) in one history.
   const openCreativeTab = React.useCallback(
-    (projectId: string, sectionId?: string) => {
-      const fileId = `creative:${projectId}`
-      if (sectionId) useCreativeNavStore.getState().showSection(projectId, sectionId)
-      else if (!useCreativeNavStore.getState().sectionByProject[projectId])
-        useCreativeNavStore.getState().showSection(projectId, OVERVIEW_SECTION)
-      const existing = tabs.find((tab) => tab.kind === "creative" && tab.fileId === fileId)
-      if (existing) {
-        setActiveTabKey(existing.key)
-        return
-      }
-      const target = resolveProjectTarget(useProjectStore.getState().catalog, projectId)
-      // A universe is named by its card's row, which the page reads and hands back (`onTitle`).
-      const title = projectTargetTitle(target, creativeTitleLabels(t))
-      const key = newTabKey()
-      setTabs((prev) => [
-        ...prev,
-        {
-          key,
-          kind: "creative",
-          fileId,
-          title,
-          history: [],
-          historyIndex: 0,
-        },
-      ])
-      setActiveTabKey(key)
+    (projectId: string, sectionId?: string, inNewTab = false) => {
+      flushEditorSerializations()
+      useTabsStore
+        .getState()
+        .openItem(creativeTabTarget(projectCatalog, t, projectId, sectionId), inNewTab)
     },
-    [setActiveTabKey, setTabs, t, tabs],
+    [projectCatalog, t],
+  )
+
+  // Editors are cached with the props they were made with; the latest opener is read at the click.
+  const openCreativeTabRef = React.useRef(openCreativeTab)
+  openCreativeTabRef.current = openCreativeTab
+  const stableOpenCreativeTab = React.useCallback(
+    (projectId: string, sectionId?: string) => openCreativeTabRef.current(projectId, sectionId),
+    [],
+  )
+
+  // A section tab of the page is a step of the history too; it never jumps to another tab.
+  const openCreativeSection = React.useCallback(
+    (projectId: string, sectionId: string) => {
+      flushEditorSerializations()
+      const target = creativeTabTarget(projectCatalog, t, projectId, sectionId)
+      // The tab already carries the page's name (a universe's is read from its card).
+      const current = useTabsStore.getState()
+      const active = current.tabs.find((tab) => tab.key === current.activeTabKey)
+      const here = active ? parseCreativeFileId(active.fileId) : null
+      useTabsStore
+        .getState()
+        .openItem(
+          here?.projectId === projectId ? { ...target, title: active!.title } : target,
+          false,
+          {
+            inPlace: true,
+          },
+        )
+    },
+    [projectCatalog, t],
   )
 
   const openDatabaseTab = React.useCallback(
@@ -747,6 +764,7 @@ export function WorkspaceOrchestration() {
     handleEnterFocusMode,
     handleExitFocusMode,
     moveButtonToSide,
+    setDockButtonHidden,
     dnd,
     handleActivate,
     activatePanelAnywhere,
@@ -768,6 +786,7 @@ export function WorkspaceOrchestration() {
   const activityDockProps = (side: "left" | "right") => ({
     pinned: isDockPinned(side),
     onPinnedChange: (pinned: boolean) => setDockPinned(side, pinned),
+    onSetButtonHidden: setDockButtonHidden,
   })
 
   const vaultName = vault?.replace(/\\/g, "/").split("/").pop() ?? undefined
@@ -787,6 +806,18 @@ export function WorkspaceOrchestration() {
     visit(displayTreeItems)
     return result
   }, [displayTreeItems])
+
+  // Canvas and sketch tabs hold the file path while their tree rows are `canvas:`/`sketch:`
+  // prefixed, so resolve the tab to its row to highlight it.
+  const selectedId =
+    activeTab &&
+    (activeTab.kind === "document" ||
+      activeTab.kind === "folder" ||
+      activeTab.kind === "database" ||
+      activeTab.kind === "canvas" ||
+      activeTab.kind === "sketch")
+      ? (treeItemById.get(activeTab.fileId)?.id ?? activeTab.fileId)
+      : ""
 
   // Current file icon (from iconOverrides or tree)
   const activeFileId = activeTab?.fileId ?? null
@@ -1145,18 +1176,25 @@ export function WorkspaceOrchestration() {
     }, 400)
   }, [])
 
-  const { handleBack, handleForward, handleTabChange, handleTabClose, handleCloseAllTabs } =
-    useTabActions({
-      activeTab,
-      activeTabKey,
-      secondaryTabKey,
-      tabs,
-      treeItems,
-      canGoBack,
-      canGoForward,
-      navigateToFile,
-      onTabUsageChanged: handleTabUsageChanged,
-    })
+  const {
+    handleBack,
+    handleForward,
+    handleTabChange,
+    handleTabClose,
+    handleCloseAllTabs,
+    handleSplitRight,
+    handleSplitDown,
+  } = useTabActions({
+    activeTab,
+    activeTabKey,
+    secondaryTabKey,
+    tabs,
+    treeItems,
+    canGoBack,
+    canGoForward,
+    navigateToFile,
+    onTabUsageChanged: handleTabUsageChanged,
+  })
 
   // useTabActions is also a plain helper used directly by unit tests. Stable
   // delegates here keep its navigation callbacks from invalidating cached
@@ -1455,6 +1493,10 @@ export function WorkspaceOrchestration() {
     () =>
       tabs.map((tab) => {
         const item = treeItemById.get(tab.fileId)
+        const creativeTarget =
+          tab.kind === "creative"
+            ? resolveProjectTarget(projectCatalog, parseCreativeFileId(tab.fileId)?.projectId ?? "")
+            : null
         return {
           key: tab.key,
           fileId: tab.fileId,
@@ -1463,22 +1505,16 @@ export function WorkspaceOrchestration() {
             tab.kind === "folder"
               ? (item?.icon ?? "📁")
               : tab.kind === "creative"
-                ? (() => {
-                    const rawId = tab.fileId.replace(/^creative:/u, "")
-                    const target = resolveProjectTarget(projectCatalog, rawId)
-                    return (
-                      (target?.kind === "story"
-                        ? "📖"
-                        : target?.kind === "universe"
-                          ? "🌌"
-                          : target?.kind === "standalone"
-                            ? "📚"
-                            : target?.kind === "workshop"
-                              ? target.workshop.icon
-                              : null) ?? "🪶"
-                    )
-                  })()
+                ? creativeTarget?.kind === "workshop"
+                  ? (creativeTarget.workshop.icon ?? undefined)
+                  : undefined
                 : item?.icon,
+          Icon:
+            tab.kind === "creative"
+              ? creativeTarget?.kind === "workshop" && creativeTarget.workshop.icon
+                ? undefined
+                : projectTargetIcon(creativeTarget?.kind ?? "workshop")
+              : undefined,
         }
       }),
     [projectCatalog, tabs, treeItemById],
@@ -1520,6 +1556,98 @@ export function WorkspaceOrchestration() {
     openProject: openCreativeTab,
   })
 
+  const openTreeItemInSplit = React.useCallback(
+    async (
+      fileId: string,
+      direction: SplitDirection,
+      options?: { paneId?: string; placement?: "before" | "after" },
+    ) => {
+      flushEditorSerializations()
+      const item = findTabTreeItem(displayTreeItems, fileId, vault)
+      if (!item) return
+      const target = treeItemTabTarget(item)
+      try {
+        if (item.type === "file") {
+          await loadDoc(item.id, target.title)
+        } else if (item.type === "canvas" || item.type === "sketch" || item.type === "database") {
+          await loadDoc(target.fileId, target.title)
+        }
+      } catch {
+        /* best effort */
+      }
+      useTabsStore.getState().splitPane(direction, {
+        paneId: options?.paneId,
+        target,
+        placement: options?.placement,
+      })
+      handleTabUsageChanged()
+    },
+    [displayTreeItems, handleTabUsageChanged, loadDoc, vault],
+  )
+
+  const handleOpenSplitRight = React.useCallback(
+    (fileId: string) => {
+      void openTreeItemInSplit(fileId, "horizontal", { placement: "after" })
+    },
+    [openTreeItemInSplit],
+  )
+
+  const handleOpenSplitDown = React.useCallback(
+    (fileId: string) => {
+      void openTreeItemInSplit(fileId, "vertical", { placement: "after" })
+    },
+    [openTreeItemInSplit],
+  )
+
+  const handleDropTab = React.useCallback(
+    (tabKey: string, sourcePaneId: string, target: ActivePaneHoverTarget) => {
+      flushEditorSerializations()
+      if (target.zone === "tabbar" || target.zone === "center") {
+        useTabsStore.getState().moveTabToPane(tabKey, target.paneId, target.tabIndex)
+        handleTabUsageChanged()
+        return
+      }
+      const { direction, placement } = zoneToSplitParams(target.zone)
+      const sourceLeaf = splitLayout.leaves.find((l) => l.leaf.id === sourcePaneId)
+      const moveTab = (sourceLeaf?.leaf.tabKeys.length ?? 0) > 1
+      useTabsStore.getState().splitPane(direction, {
+        paneId: target.paneId,
+        tabKey,
+        placement,
+        moveTab,
+      })
+      handleTabUsageChanged()
+    },
+    [handleTabUsageChanged, splitLayout.leaves],
+  )
+
+  const handleDropTreeItem = React.useCallback(
+    (itemId: string, target: ActivePaneHoverTarget) => {
+      flushEditorSerializations()
+      if (target.zone === "tabbar") {
+        useTabsStore.getState().focusPane(target.paneId)
+        void handleOpenInNewTab(itemId)
+        return
+      }
+      if (target.zone === "center") {
+        useTabsStore.getState().focusPane(target.paneId)
+        handleTreeSelect(itemId)
+        return
+      }
+      const { direction, placement } = zoneToSplitParams(target.zone)
+      void openTreeItemInSplit(itemId, direction, {
+        paneId: target.paneId,
+        placement,
+      })
+    },
+    [handleOpenInNewTab, handleTreeSelect, openTreeItemInSplit],
+  )
+
+  const paneDnd = usePaneDnd({
+    onDropTab: handleDropTab,
+    onDropTreeItem: handleDropTreeItem,
+  })
+
   const panelRenderProps: PanelRenderProps = React.useMemo(
     () => ({
       treeItems: displayTreeItems,
@@ -1539,6 +1667,8 @@ export function WorkspaceOrchestration() {
       onAttachCanvas: handleAttachCanvasToNote,
       onAttachSketch: handleAttachSketchToNote,
       onOpenInNewTab: handleOpenInNewTab,
+      onOpenSplitRight: handleOpenSplitRight,
+      onOpenSplitDown: handleOpenSplitDown,
       onOpenInNewWindow: handleOpenInNewWindow,
       onCloneFile: handleCloneFile,
       onOpenInExplorer: openInExplorer,
@@ -1591,10 +1721,7 @@ export function WorkspaceOrchestration() {
           currentPath={vault}
           onSelect={loadVault}
           onAdd={handleOpenVault}
-          onRename={handleRenameVault}
-          onDelete={handleDeleteVault}
-          onMove={handleMoveVault}
-          onOpenInExplorer={openInExplorer}
+          onManage={() => setVaultManagerOpen(true)}
         >
           <button className="flex w-full items-center gap-2 rounded-lg border border-border bg-background/70 px-3 py-2.5 text-left outline-none hover:bg-accent">
             <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
@@ -1630,6 +1757,8 @@ export function WorkspaceOrchestration() {
       handleAttachCanvasToNote,
       handleAttachSketchToNote,
       handleOpenInNewTab,
+      handleOpenSplitRight,
+      handleOpenSplitDown,
       handleOpenInNewWindow,
       handleCloneFile,
       handleMoveItem,
@@ -1664,9 +1793,6 @@ export function WorkspaceOrchestration() {
       vaults,
       vaultName,
       loadVault,
-      handleRenameVault,
-      handleDeleteVault,
-      handleMoveVault,
       t,
     ],
   )
@@ -1675,9 +1801,9 @@ export function WorkspaceOrchestration() {
   const rightButtons = buttonsForSide(shownButtons, "right")
 
   // Build editor props for a given tab. The primary pane (active tab) keeps full
-  // functionality; a secondary (split) pane gets editing + view-mode + autosave,
-  // with layer/canvas/history scoped to the primary to keep the split coherent.
-  function paneEditorProps(tab: Tab | null, preserveLayer = false) {
+  // functionality; split panes also get independent navigation, editing, view-mode,
+  // and autosave.
+  function paneEditorProps(tab: Tab | null, preserveLayer = false, paneId?: string) {
     const rawDoc = tab ? (openDocs[tab.fileId] ?? null) : null
     const isCanvasOrSketch =
       tab?.kind === "canvas" ||
@@ -1702,6 +1828,8 @@ export function WorkspaceOrchestration() {
           )
         : null)
     const isPrimary = !!tab && tab.key === activeTabKey
+    const tabCanGoBack = tab ? (tab.historyIndex ?? 0) > 0 : canGoBack
+    const tabCanGoForward = tab ? tab.historyIndex < tab.history.length - 1 : canGoForward
     const nestedNotes = (treeItem?.children ?? []).filter((item) => item.type !== "folder")
     const foundDatabase = databases.find(
       (database) =>
@@ -1726,8 +1854,8 @@ export function WorkspaceOrchestration() {
         : undefined)
     // Keep a hidden database note's layer mounted while its tab is cached. This
     // avoids tearing down and rebuilding the database workspace on every tab
-    // switch, while the visible secondary split remains editor-only.
-    const canRenderLayer = isPrimary || preserveLayer
+    // switch, while the legacy secondary split remains editor-only.
+    const canRenderLayer = isPrimary || isMultiPane || preserveLayer
     const resolvedPrimaryLayer =
       (doc?.id ? primaryLayers[doc.id] : undefined) ??
       (doc?.path ? primaryLayers[doc.path] : undefined) ??
@@ -1766,7 +1894,12 @@ export function WorkspaceOrchestration() {
     const pageContentWidth = contentWidthKey
       ? (contentWidths[contentWidthKey] ?? defaultContentWidth)
       : defaultContentWidth
-    const scrollPositionKey = doc ? `${vault ?? "browser"}:${doc.id}` : undefined
+    const baseScrollKey = doc ? `${vault ?? "browser"}:${doc.id}` : undefined
+    const scrollPositionKey = doc
+      ? tab && isMultiPane
+        ? `${vault ?? "browser"}:${tab.key}:${doc.id}`
+        : baseScrollKey
+      : undefined
     return {
       document: doc,
       onContentChange: (content: string, sourceDocumentId?: string) => {
@@ -1785,17 +1918,20 @@ export function WorkspaceOrchestration() {
           useDocStore.getState().markSaved(targetId)
         }
       },
-      onBack: isPrimary ? handleBack : () => {},
-      onForward: isPrimary ? handleForward : () => {},
-      canGoBack: isPrimary ? canGoBack : false,
-      canGoForward: isPrimary ? canGoForward : false,
+      onBack: isPrimary ? handleBack : tab ? () => handleBack(tab.key) : () => {},
+      onForward: isPrimary ? handleForward : tab ? () => handleForward(tab.key) : () => {},
+      canGoBack: isPrimary ? canGoBack : tabCanGoBack,
+      canGoForward: isPrimary ? canGoForward : tabCanGoForward,
       onRenameTitle: (name: string) => {
         if (tab) handleRenameFile(tab.fileId, name)
       },
       vault: vault ?? undefined,
-      fileIcon: isPrimary ? currentFileIcon : doc ? treeItemById.get(doc.id)?.icon : undefined,
-      onFileIconChange:
-        isPrimary && doc ? (emoji: string) => handleSetIcon(doc.id, emoji) : undefined,
+      fileIcon: isPrimary
+        ? currentFileIcon
+        : doc
+          ? (treeItemById.get(doc.id)?.icon ?? iconOverrides[doc.id])
+          : undefined,
+      onFileIconChange: doc ? (emoji: string) => handleSetIcon(doc.id, emoji) : undefined,
       onNewFile: () => handleNewFileIn(null),
       onNewCanvas: () => handleNewCanvasIn(null),
       onNewSketch: () => handleNewSketchIn(null),
@@ -1839,9 +1975,16 @@ export function WorkspaceOrchestration() {
         }
       },
       activeLayer: pageLayer,
-      onLayerChange: isPrimary ? handleLayerChange : async (_layer: EditorLayer) => {},
+      onLayerChange:
+        isPrimary || isMultiPane ? handleLayerChange : async (_layer: EditorLayer) => {},
       onRestoreDeleted: doc ? () => handleRestoreDeleted(doc.id) : undefined,
       onCloseTab: tab ? () => handleTabClose(tab.key) : undefined,
+      onSplitRight: tab
+        ? () => handleSplitRight({ tabKey: tab.key, paneId })
+        : () => handleSplitRight({ paneId }),
+      onSplitDown: tab
+        ? () => handleSplitDown({ tabKey: tab.key, paneId })
+        : () => handleSplitDown({ paneId }),
       viewMode: doc
         ? getLayerViewMode(viewModes, doc.id, pageLayer, defaultViewMode)
         : defaultViewMode,
@@ -1938,13 +2081,21 @@ export function WorkspaceOrchestration() {
       },
       onOpenCanvasNote: handleOpenCanvasNote,
       scrollPositionKey,
-      scrollPosition: scrollPositionKey ? scrollPositionsRef.current[scrollPositionKey] : undefined,
+      scrollPosition: scrollPositionKey
+        ? (scrollPositionsRef.current[scrollPositionKey] ??
+          (baseScrollKey ? scrollPositionsRef.current[baseScrollKey] : undefined))
+        : undefined,
       onScrollPositionChange: scrollPositionKey
         ? (position: number) => {
             scrollPositionsRef.current[scrollPositionKey] = position
+            if (baseScrollKey && isPrimary) {
+              scrollPositionsRef.current[baseScrollKey] = position
+            }
           }
         : undefined,
       editorFrame: creativeEnabled ? DossierFrame : undefined,
+      noteTrail: creativeEnabled ? CreativeNoteTrail : undefined,
+      onOpenWorkshopPage: creativeEnabled ? stableOpenCreativeTab : undefined,
       databaseBody:
         canRenderLayer && doc && attachedDatabase ? (
           databasesEnabled ? (
@@ -2018,6 +2169,9 @@ export function WorkspaceOrchestration() {
         tab.kind === "sketch" ||
         tab.kind === "database",
     )
+    if (isMultiPane) {
+      return openDocumentTabs
+    }
     const representativeByFileId = new Map<string, Tab>()
     for (const tab of openDocumentTabs) {
       const current = representativeByFileId.get(tab.fileId)
@@ -2029,7 +2183,7 @@ export function WorkspaceOrchestration() {
     // front on every selection also moves its (potentially huge) DOM subtree,
     // which forces style/layout work before the newly selected tab can paint.
     return openDocumentTabs.filter((tab) => representativeByFileId.get(tab.fileId) === tab)
-  }, [activeTabKey, secondaryTabKey, showSplit, tabs])
+  }, [activeTabKey, isMultiPane, secondaryTabKey, showSplit, tabs])
 
   interface EditorPropsCacheEntry {
     props: DocumentEditorProps
@@ -2044,12 +2198,22 @@ export function WorkspaceOrchestration() {
     }
   }, [documentTabs])
 
-  function renderDocumentEditors(isFocusMode: boolean) {
-    if (documentTabs.length === 0) {
+  function renderPaneDocumentEditors(leafItem: LayoutLeafItem | null, isFocusMode: boolean) {
+    const leaf = leafItem?.leaf ?? null
+    const leafTabSet = leaf && isMultiPane ? new Set(leaf.tabKeys) : null
+    const paneDocTabs = leafTabSet
+      ? documentTabs.filter((tab) => leafTabSet.has(tab.key))
+      : documentTabs
+    const paneActiveKey =
+      leaf && isMultiPane
+        ? leaf.activeTabKey || leaf.tabKeys[leaf.tabKeys.length - 1] || ""
+        : activeTabKey
+
+    if (paneDocTabs.length === 0) {
       return (
         <React.Suspense fallback={<LazyEditorFallback />}>
           <DocumentEditor
-            {...paneEditorProps(null)}
+            {...paneEditorProps(null, false, leaf?.id)}
             isFocusMode={isFocusMode}
             onToggleFocusMode={isFocusMode ? handleExitFocusMode : handleEnterFocusMode}
           />
@@ -2062,9 +2226,13 @@ export function WorkspaceOrchestration() {
     // user returns to a tab instead of rebuilding a large document from Markdown.
     return (
       <div className="relative flex min-h-0 min-w-0 flex-1">
-        {documentTabs.map((tab) => {
-          const visible = tab.key === activeTabKey || (showSplit && tab.key === secondaryTabKey)
+        {paneDocTabs.map((tab) => {
+          const visible =
+            leaf && isMultiPane
+              ? tab.key === paneActiveKey
+              : tab.key === activeTabKey || (showSplit && tab.key === secondaryTabKey)
           const primary = tab.key === activeTabKey
+          const showNav = isMultiPane || primary
           const rawDoc = openDocs[tab.fileId] ?? null
           const isCanvasOrSketch =
             tab.kind === "canvas" ||
@@ -2198,6 +2366,8 @@ export function WorkspaceOrchestration() {
             creativeEnabled,
             defaultViewMode,
             defaultContentWidth,
+            isMultiPane,
+            leaf?.id,
           ] as const
           const cacheKey = `${tab.key}:${tab.fileId}`
           const cached = editorPropsCacheRef.current.get(cacheKey)
@@ -2205,7 +2375,7 @@ export function WorkspaceOrchestration() {
             cached?.signature.length === signature.length &&
             cached.signature.every((value, index) => value === signature[index])
           const shouldRefresh = !cached || (visible && (!cached.wasVisible || !sameSignature))
-          const props = shouldRefresh ? paneEditorProps(tab, !visible) : cached.props
+          const props = shouldRefresh ? paneEditorProps(tab, !visible, leaf?.id) : cached.props
           if (shouldRefresh) {
             editorPropsCacheRef.current.set(cacheKey, {
               props,
@@ -2229,7 +2399,7 @@ export function WorkspaceOrchestration() {
                   editorProps={props}
                   visible={visible}
                   isFocusMode={isFocusMode}
-                  hideNavigation={!primary}
+                  hideNavigation={!showNav}
                   focusTabs={primary && visible ? headerTabs : []}
                   activeTabKey={primary && visible ? activeTabKey : undefined}
                   onFocusTabChange={primary && visible ? stableHandleTabChange : undefined}
@@ -2252,63 +2422,247 @@ export function WorkspaceOrchestration() {
     )
   }
 
-  function renderCreativeProject() {
-    if (activeTab?.kind !== "creative") return null
+  function renderCreativeProject(targetTab: Tab | null = activeTab, paneId?: string) {
+    if (targetTab?.kind !== "creative") return null
+    const location = parseCreativeFileId(targetTab.fileId)
+    if (!location) return null
+    const { projectId, sectionId } = location
+    const root = vault?.replace(/[\\/]+$/u, "") ?? ""
+    const separator = root.includes("\\") ? "\\" : "/"
     return (
       <ProjectPage
-        projectId={activeTab.fileId.replace(/^creative:/u, "")}
-        onOpenProject={openCreativeTab}
-        onTitle={(title) => retitleTab(activeTab.key, title)}
+        key={projectId}
+        projectId={projectId}
+        section={sectionId}
+        onShowSection={(next) => openCreativeSection(projectId, next)}
+        onOpenProject={(id, section) => openCreativeTab(id, section)}
+        onTitle={(title) => retitleTab(targetTab.key, title)}
         onOpenNote={(noteId) => handleSelect(noteId)}
         vaultPath={vault ?? null}
         onChanged={refreshAfterCreativeWrite}
-        renderDatabase={({ databaseId, title, readOnly, toolbarHost }) => (
-          <React.Suspense fallback={<LazyEditorFallback />}>
-            <DatabaseWorkspace
-              databaseId={databaseId}
-              title={title}
-              icon={databases.find((database) => database.databaseId === databaseId)?.icon}
-              hideHeader
-              toolbarHost={toolbarHost}
-              hostKind="tab"
-              hostId={`creative:${databaseId}`}
-              // A section fills the page of its story: the whole width, cards, whole pages.
-              contentWidth="full"
-              initialPresentation={readOnly ? undefined : CREATIVE_SECTION_PRESENTATION}
-              titleColumnName={databaseTitleLabels[databaseContentWidthKey(databaseId)]}
-              onTitleColumnNameChange={(name) =>
-                setDatabaseTitleLabel(databaseContentWidthKey(databaseId), name)
-              }
-              onOpenInNewTab={() => openDatabaseTab(databaseId, title, true)}
-              onOpenNote={(id) => handleSelect(id)}
-              onOpenRowFullPage={(row) => handleSelect(row.noteId, row.title)}
-              rowActions={databaseRowActions}
-              onRenameRow={handleRenameDatabaseRow}
-              onLoadRowDocument={handleLoadRowDocument}
-              onRowContentChange={handleContentChange}
-              vault={vault ?? undefined}
-              onCatalogChanged={refreshDatabaseCatalog}
-              onRowCreated={async (row) => {
-                await refreshTree()
-                await loadDoc(row.noteId, row.title)
-              }}
-            />
-          </React.Suspense>
-        )}
+        onOpenDatabase={(databaseId, title) => openDatabaseTab(databaseId, title, true)}
+        host={{
+          onBack: () => handleBack(targetTab.key),
+          onForward: () => handleForward(targetTab.key),
+          canGoBack: targetTab.historyIndex > 0,
+          canGoForward: targetTab.historyIndex < targetTab.history.length - 1,
+          isFocusMode,
+          onToggleFocusMode: isFocusMode ? handleExitFocusMode : handleEnterFocusMode,
+          focusTabs: {
+            tabs: headerTabs,
+            activeTabKey: targetTab.key,
+            activeFileId: targetTab.fileId,
+            favorites,
+            onTabChange: stableHandleTabChange,
+            onToggleFavorite: handleToggleFavorite,
+            onCloseAllTabs: stableHandleCloseAllTabs,
+          },
+          onOpenInNewTab: () => openCreativeTab(projectId, sectionId ?? undefined, true),
+          onSplitRight: () => handleSplitRight({ tabKey: targetTab.key, paneId }),
+          onSplitDown: () => handleSplitDown({ tabKey: targetTab.key, paneId }),
+          onToggleFavorite: handleToggleFavorite,
+          onShowInExplorer: root
+            ? (relative) =>
+                openInExplorer(
+                  relative ? `${root}${separator}${relative.split("/").join(separator)}` : root,
+                )
+            : undefined,
+        }}
       />
     )
   }
 
-  // The graph stays mounted while any tab shows it; notes stay mounted always (see the stage).
-  const graphActive = activeTab?.kind === "graph" && graphEnabled
-  const graphMounted = graphEnabled && tabs.some((tab) => tab.kind === "graph")
-  const documentsActive =
-    activeTab?.kind !== "graph" && activeTab?.kind !== "creative" && activeFolder?.type !== "folder"
-
-  function renderCachedTabSurfaces(isFocusMode: boolean) {
+  function renderCachedTabSurfaces(isFocusMode: boolean, leafItem: LayoutLeafItem | null = null) {
     return (
       <div className="relative flex min-h-0 min-w-0 flex-1">
-        {renderDocumentEditors(isFocusMode)}
+        {renderPaneDocumentEditors(leafItem, isFocusMode)}
+      </div>
+    )
+  }
+
+  function renderPaneLeaf(leafItem: LayoutLeafItem) {
+    const { leaf, rect, edges } = leafItem
+    const leafTabSet = new Set(leaf.tabKeys)
+    const leafHeaderTabs = headerTabs.filter((item) => leafTabSet.has(item.key))
+    const leafActiveKey = isMultiPane
+      ? leaf.activeTabKey || leaf.tabKeys[leaf.tabKeys.length - 1] || ""
+      : activeTabKey
+    const leafActiveTab = tabs.find((item) => item.key === leafActiveKey) ?? null
+    const leafActiveFolder =
+      leafActiveTab?.kind === "folder" ? (treeItemById.get(leafActiveTab.fileId) ?? null) : null
+    const leafGraphActive = leafActiveTab?.kind === "graph" && graphEnabled
+    const leafGraphMounted =
+      graphEnabled &&
+      tabs.some((item) => (isMultiPane ? leafTabSet.has(item.key) : true) && item.kind === "graph")
+    const leafDocumentsActive =
+      leafActiveTab?.kind !== "graph" &&
+      leafActiveTab?.kind !== "creative" &&
+      leafActiveFolder?.type !== "folder"
+    const isPaneFocused = leaf.id === activePaneId
+    const leafCanGoBack = (leafActiveTab?.historyIndex ?? 0) > 0
+    const leafCanGoForward = leafActiveTab
+      ? leafActiveTab.historyIndex < leafActiveTab.history.length - 1
+      : false
+
+    const ensurePaneFocused = () => {
+      if (useTabsStore.getState().activePaneId !== leaf.id) {
+        flushEditorSerializations()
+        useTabsStore.getState().focusPane(leaf.id)
+      }
+    }
+
+    return (
+      <div
+        key={leaf.id}
+        data-pane-id={leaf.id}
+        onPointerDownCapture={ensurePaneFocused}
+        style={
+          isMultiPane
+            ? {
+                left: `${rect.x}%`,
+                top: `${rect.y}%`,
+                width: `${rect.w}%`,
+                height: `${rect.h}%`,
+              }
+            : undefined
+        }
+        className={cn(
+          "flex min-h-0 min-w-0 flex-col overflow-hidden",
+          isMultiPane
+            ? cn("absolute", !edges.left && "pl-1", !edges.right && "pr-1")
+            : "relative flex-1",
+        )}
+      >
+        {isMultiPane ? (
+          <PaneTabBar
+            paneId={leaf.id}
+            tabs={leafHeaderTabs}
+            activeTabKey={leafActiveKey}
+            activeFileId={leafActiveTab?.fileId}
+            isPaneFocused={isPaneFocused}
+            unsavedFileIds={unsavedFileIds}
+            favorites={favorites}
+            edges={edges}
+            isLeftSidebarOpen={isLeftSidebarVisible}
+            isLeftDockPinned={leftDockPinned}
+            isRightSidebarOpen={isRightSidebarVisible}
+            isRightDockPinned={rightDockPinned}
+            rightPanelEnabled={rightPanelEnabled}
+            onFocusPane={ensurePaneFocused}
+            onTabChange={(tabKey) => {
+              flushEditorSerializations()
+              useTabsStore.getState().selectTabInPane(leaf.id, tabKey)
+              const nextTab = useTabsStore.getState().tabs.find((item) => item.key === tabKey)
+              if (nextTab) void navigateToFile(nextTab.fileId)
+            }}
+            onTabClose={handleTabClose}
+            onCloseOtherTabs={(tabKey) => {
+              flushEditorSerializations()
+              useTabsStore.getState().closeOtherTabsInPane(leaf.id, tabKey)
+              handleTabUsageChanged()
+            }}
+            onCloseAllTabs={handleCloseAllTabs}
+            onClosePane={() => {
+              flushEditorSerializations()
+              useTabsStore.getState().closePane(leaf.id)
+              handleTabUsageChanged()
+            }}
+            onSplitRight={(tabKey) =>
+              handleSplitRight({ tabKey: tabKey ?? leafActiveKey, paneId: leaf.id })
+            }
+            onSplitDown={(tabKey) =>
+              handleSplitDown({ tabKey: tabKey ?? leafActiveKey, paneId: leaf.id })
+            }
+            onUnsplitAll={() => {
+              flushEditorSerializations()
+              useTabsStore.getState().unsplitAll()
+              handleTabUsageChanged()
+            }}
+            onOpenPlusModal={() => setQuickOpenMode("new")}
+            onToggleFavorite={handleToggleFavorite}
+          />
+        ) : null}
+        <div className="relative flex min-h-0 min-w-0 flex-1">
+          {leafGraphMounted ? (
+            <div
+              aria-hidden={!leafGraphActive}
+              className={cn(
+                "absolute inset-0 flex flex-col",
+                !leafGraphActive && "invisible pointer-events-none",
+              )}
+            >
+              <React.Suspense fallback={<LazyEditorFallback />}>
+                <div
+                  className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                  style={{ boxShadow: "var(--note-surface-shadow)" }}
+                >
+                  <GraphTabView
+                    graph={linkGraph}
+                    selectedId={null}
+                    onSelect={handleSelect}
+                    vault={vault}
+                    treeItems={treeItems}
+                    onBack={() => handleBack(leafActiveTab?.key)}
+                    onOpenInNewTab={handleOpenInNewTab}
+                    onTagClick={showTagInPanel}
+                    onRefresh={refreshLinkGraph}
+                    isFocusMode={isFocusMode}
+                    onToggleFocusMode={isFocusMode ? handleExitFocusMode : handleEnterFocusMode}
+                    onForward={() => handleForward(leafActiveTab?.key)}
+                    canGoBack={leafCanGoBack}
+                    canGoForward={leafCanGoForward}
+                  />
+                </div>
+              </React.Suspense>
+            </div>
+          ) : null}
+          {leafActiveTab?.kind === "graph" && !graphEnabled ? (
+            <ModuleRequiredFallback
+              moduleId="amby.graph"
+              moduleName={t("settings.modules.graph")}
+              onEnableModule={() => {
+                void setModuleEnabled("graph", true, { vault })
+              }}
+            />
+          ) : leafActiveTab?.kind === "creative" ? (
+            creativeEnabled ? (
+              <React.Suspense fallback={<LazyEditorFallback />}>
+                <div
+                  className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
+                  style={{ boxShadow: "var(--note-surface-shadow)" }}
+                >
+                  {renderCreativeProject(leafActiveTab, leaf.id)}
+                </div>
+              </React.Suspense>
+            ) : (
+              <ModuleRequiredFallback
+                moduleId="amby.creative"
+                moduleName={t("creative.welcome.title", "Творческая мастерская")}
+                onEnableModule={() => {
+                  void setModuleEnabled("creative", true, { vault })
+                }}
+              />
+            )
+          ) : leafActiveFolder?.type === "folder" ? (
+            <FolderView
+              folder={leafActiveFolder}
+              onOpenItem={handleSelect}
+              onNewNote={handleNewFileIn}
+              onNewFolder={handleNewFolderIn}
+              onIconChange={(icon) => handleSetIcon(leafActiveFolder.id, icon)}
+            />
+          ) : null}
+          <div
+            aria-hidden={!leafDocumentsActive}
+            className={
+              leafDocumentsActive
+                ? "relative flex min-h-0 min-w-0 flex-1"
+                : "invisible pointer-events-none absolute inset-0 flex min-h-0 min-w-0 overflow-hidden"
+            }
+          >
+            {renderCachedTabSurfaces(false, leafItem)}
+          </div>
+        </div>
       </div>
     )
   }
@@ -2326,19 +2680,15 @@ export function WorkspaceOrchestration() {
         leftActivityBar={null}
         leftSidebar={null}
         noVault={
-          <div className="flex h-screen flex-col bg-background">
-            <EmptyStateHeader />
-            <div className="flex flex-1 flex-col items-center justify-center gap-4">
-              <p className="text-muted-foreground">{t("workspace.noVault")}</p>
-              <button
-                onClick={handleOpenVault}
-                className="flex items-center gap-2 rounded-lg border border-border bg-card px-5 py-2.5 text-sm text-foreground hover:bg-accent"
-              >
-                <FolderOpen className="size-4" />
-                {t("workspace.openVault")}
-              </button>
-            </div>
-          </div>
+          <StartScreen
+            vaults={vaults}
+            onSelect={loadVault}
+            onOpenVault={handleOpenVault}
+            onRename={handleRenameVault}
+            onDelete={handleDeleteVault}
+            onMove={handleMoveVault}
+            onOpenInExplorer={openInExplorer}
+          />
         }
         normalContent={null}
         notice={null}
@@ -2517,6 +2867,18 @@ export function WorkspaceOrchestration() {
           originSelector={SPOTLIGHT_ORIGIN.dockSearch}
         />
 
+        <VaultManagerDialog
+          open={vaultManagerOpen}
+          onOpenChange={setVaultManagerOpen}
+          vaults={vaults}
+          currentPath={vault}
+          onSelect={loadVault}
+          onOpenVault={handleOpenVault}
+          onRename={handleRenameVault}
+          onDelete={handleDeleteVault}
+          onMove={handleMoveVault}
+          onOpenInExplorer={openInExplorer}
+        />
         <SettingsDialog
           open={settingsOpen}
           onOpenChange={(open) => {
@@ -2551,6 +2913,7 @@ export function WorkspaceOrchestration() {
 
   const leftDockPinned = isDockPinned("left")
   const rightDockPinned = isDockPinned("right")
+  const singlePaneId = splitLayout.leaves[0]?.leaf.id ?? "pane-root"
 
   // ── Normal layout ──────────────────────────────────────────────
   return (
@@ -2575,10 +2938,7 @@ export function WorkspaceOrchestration() {
         currentVaultPath={vault}
         onSwitchVault={loadVault}
         onAddVault={handleOpenVault}
-        onRenameVault={handleRenameVault}
-        onDeleteVault={handleDeleteVault}
-        onMoveVault={handleMoveVault}
-        onOpenVaultInExplorer={openInExplorer}
+        onManageVaults={() => setVaultManagerOpen(true)}
         onCloseAllTabs={handleCloseAllTabs}
         leftTreeWidth={isCompactLayout ? 0 : leftWidth}
         rightPanelWidth={isCompactLayout || !rightDockPinned || !rightPanelEnabled ? 0 : rightWidth}
@@ -2587,11 +2947,26 @@ export function WorkspaceOrchestration() {
         favorites={favorites}
         onToggleFavorite={handleToggleFavorite}
         showWorkspacePicker={false}
+        paneId={singlePaneId}
+        isSplit={isMultiPane}
+        hideCenterTabsWhenSplit
+        onSplitRight={(tabKey) => handleSplitRight({ tabKey, paneId: singlePaneId })}
+        onSplitDown={(tabKey) => handleSplitDown({ tabKey, paneId: singlePaneId })}
+        onCloseOtherTabs={(tabKey) => {
+          flushEditorSerializations()
+          useTabsStore.getState().closeOtherTabsInPane(singlePaneId, tabKey)
+          handleTabUsageChanged()
+        }}
+        onUnsplitAll={() => {
+          flushEditorSerializations()
+          useTabsStore.getState().unsplitAll()
+          handleTabUsageChanged()
+        }}
       />
       {deleteConfirmationDialog}
       {propertyMigrationDialog}
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1">
         {leftDockPinned && (
           <ActivityBar
             side="left"
@@ -2627,12 +3002,16 @@ export function WorkspaceOrchestration() {
               }
             >
               <div
-                className="h-full shrink-0"
+                className="relative h-full shrink-0"
                 style={{ width: "var(--amby-left-panel-width, 300px)" }}
               >
                 <PanelHost side="left" activeId={activeBySide.left} props={panelRenderProps} />
                 {!isCompactLayout && (
-                  <ResizeHandle side="right" onMouseDown={startResize("left")} />
+                  <ResizeHandle
+                    side="right"
+                    active={resizingSide === "left"}
+                    onMouseDown={startResize("left")}
+                  />
                 )}
               </div>
             </div>
@@ -2672,7 +3051,7 @@ export function WorkspaceOrchestration() {
                   autoHideReveal
                 />
                 <div
-                  className="h-full shrink-0"
+                  className="relative h-full shrink-0"
                   style={{ width: "var(--amby-left-panel-width, 300px)" }}
                 >
                   <PanelHost
@@ -2682,7 +3061,11 @@ export function WorkspaceOrchestration() {
                     flush
                   />
                   {!isCompactLayout && (
-                    <ResizeHandle side="right" onMouseDown={startResize("left")} />
+                    <ResizeHandle
+                      side="right"
+                      active={resizingSide === "left"}
+                      onMouseDown={startResize("left")}
+                    />
                   )}
                 </div>
               </div>
@@ -2690,91 +3073,29 @@ export function WorkspaceOrchestration() {
           </div>
         )}
 
-        <main className={cn("flex flex-1 gap-0 overflow-hidden", !rightPanelEnabled && "pr-2")}>
-          {/* One stage for every kind of page. The graph and the open notes stay mounted and are
-              only hidden while another tab is shown, so switching tabs never rebuilds them: a
-              note keeps its scroll position and the graph its layout. */}
-          <div className="relative flex min-h-0 min-w-0 flex-1">
-            {graphMounted ? (
-              <div
-                aria-hidden={!graphActive}
-                className={cn(
-                  "absolute inset-0 flex flex-col",
-                  !graphActive && "invisible pointer-events-none",
-                )}
-              >
-                <React.Suspense fallback={<LazyEditorFallback />}>
-                  <div
-                    className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
-                    style={{ boxShadow: "var(--note-surface-shadow)" }}
-                  >
-                    <GraphTabView
-                      graph={linkGraph}
-                      selectedId={null}
-                      onSelect={handleSelect}
-                      vault={vault}
-                      treeItems={treeItems}
-                      onBack={handleBack}
-                      onOpenInNewTab={handleOpenInNewTab}
-                      onTagClick={showTagInPanel}
-                      onRefresh={refreshLinkGraph}
-                      isFocusMode={isFocusMode}
-                      onToggleFocusMode={isFocusMode ? handleExitFocusMode : handleEnterFocusMode}
-                      onForward={handleForward}
-                      canGoBack={canGoBack}
-                      canGoForward={canGoForward}
-                    />
-                  </div>
-                </React.Suspense>
-              </div>
-            ) : null}
-            {activeTab?.kind === "graph" && !graphEnabled ? (
-              <ModuleRequiredFallback
-                moduleId="amby.graph"
-                moduleName={t("settings.modules.graph")}
-                onEnableModule={() => {
-                  void setModuleEnabled("graph", true, { vault })
-                }}
+        <main
+          ref={mainStageRef}
+          className={cn(
+            "relative flex flex-1 gap-0 overflow-hidden",
+            !rightPanelEnabled && "pr-2",
+            isMultiPane && "-mt-11",
+          )}
+        >
+          {splitLayout.leaves.map((leaf) => renderPaneLeaf(leaf))}
+          {isMultiPane &&
+            splitLayout.dividers.map((divider) => (
+              <SplitResizeHandle
+                key={divider.splitId}
+                divider={divider}
+                containerRef={mainStageRef}
+                onResize={(splitId, ratio) => useTabsStore.getState().setSplitRatio(splitId, ratio)}
               />
-            ) : activeTab?.kind === "creative" ? (
-              creativeEnabled ? (
-                <React.Suspense fallback={<LazyEditorFallback />}>
-                  <div
-                    className="relative mb-2 mt-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-border/80 bg-[var(--note-surface)]"
-                    style={{ boxShadow: "var(--note-surface-shadow)" }}
-                  >
-                    {renderCreativeProject()}
-                  </div>
-                </React.Suspense>
-              ) : (
-                <ModuleRequiredFallback
-                  moduleId="amby.creative"
-                  moduleName={t("creative.welcome.title", "Творческая мастерская")}
-                  onEnableModule={() => {
-                    void setModuleEnabled("creative", true, { vault })
-                  }}
-                />
-              )
-            ) : activeFolder?.type === "folder" ? (
-              <FolderView
-                folder={activeFolder}
-                onOpenItem={handleSelect}
-                onNewNote={handleNewFileIn}
-                onNewFolder={handleNewFolderIn}
-                onIconChange={(icon) => handleSetIcon(activeFolder.id, icon)}
-              />
-            ) : null}
-            <div
-              aria-hidden={!documentsActive}
-              className={
-                documentsActive
-                  ? "relative flex min-h-0 min-w-0 flex-1"
-                  : "invisible pointer-events-none absolute inset-0 flex min-h-0 min-w-0 overflow-hidden"
-              }
-            >
-              {renderCachedTabSurfaces(false)}
-            </div>
-          </div>
+            ))}
+          <PaneDropOverlay
+            hoverTarget={paneDnd.hoverTarget}
+            leaves={splitLayout.leaves}
+            tabDrag={paneDnd.tabDrag}
+          />
         </main>
 
         {rightPanelEnabled && rightDockPinned && isRightSidebarOpen && (
@@ -2794,11 +3115,15 @@ export function WorkspaceOrchestration() {
               }
             >
               <div
-                className="h-full shrink-0"
+                className="relative h-full shrink-0"
                 style={{ width: "var(--amby-right-panel-width, 300px)" }}
               >
                 {!isCompactLayout && (
-                  <ResizeHandle side="left" onMouseDown={startResize("right")} />
+                  <ResizeHandle
+                    side="left"
+                    active={resizingSide === "right"}
+                    onMouseDown={startResize("right")}
+                  />
                 )}
                 <PanelHost side="right" activeId={activeBySide.right} props={panelRenderProps} />
               </div>
@@ -2841,11 +3166,15 @@ export function WorkspaceOrchestration() {
                 style={{ width: "calc(var(--amby-right-panel-width, 300px) + 48px)" }}
               >
                 <div
-                  className="h-full shrink-0"
+                  className="relative h-full shrink-0"
                   style={{ width: "var(--amby-right-panel-width, 300px)" }}
                 >
                   {!isCompactLayout && (
-                    <ResizeHandle side="left" onMouseDown={startResize("right")} />
+                    <ResizeHandle
+                      side="left"
+                      active={resizingSide === "right"}
+                      onMouseDown={startResize("right")}
+                    />
                   )}
                   <PanelHost
                     side="right"
@@ -2898,6 +3227,18 @@ export function WorkspaceOrchestration() {
         originSelector={SPOTLIGHT_ORIGIN.dockSearch}
       />
 
+      <VaultManagerDialog
+        open={vaultManagerOpen}
+        onOpenChange={setVaultManagerOpen}
+        vaults={vaults}
+        currentPath={vault}
+        onSelect={loadVault}
+        onOpenVault={handleOpenVault}
+        onRename={handleRenameVault}
+        onDelete={handleDeleteVault}
+        onMove={handleMoveVault}
+        onOpenInExplorer={openInExplorer}
+      />
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={(open) => {

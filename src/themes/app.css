@@ -605,6 +605,48 @@
   background: transparent;
 }
 
+/* The file tree draws its own thin scrollbar over the rows (tree-scrollbar.tsx): the native one
+   is hidden so it never takes width from them. The thumb fades in while the list scrolls or
+   while the pointer is on it (tree-scrollbar.tsx). */
+.amby-tree-scroll {
+  scrollbar-width: none;
+}
+
+.amby-tree-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.amby-tree-scrollbar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 14px;
+  pointer-events: none;
+}
+
+.amby-tree-scrollbar[hidden] {
+  display: none;
+}
+
+.amby-tree-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  width: 5px;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  /* Faded in and out by tree-scrollbar.tsx. */
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.amby-tree-scrollbar-thumb:hover,
+.amby-tree-scrollbar-thumb:active {
+  background: var(--scrollbar-thumb-hover);
+}
+
 /* Frameless Windows title-bar controls. Keep the control strip on the same
    surface as the header so no one-pixel rule appears under the buttons. */
 .amby-window-controls {
@@ -1689,12 +1731,13 @@
   pointer-events: auto;
 }
 
+/* In a column the bridge spans only the gap up to the content, never the text itself. */
 .amby-block-handles--column::before {
   top: -7px;
   right: auto;
   bottom: -7px;
   left: 100%;
-  width: 48px;
+  width: 8px;
 }
 
 .amby-block-handle-btn {
@@ -1851,7 +1894,7 @@
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
   gap: 18px;
-  margin: 1rem 0;
+  margin: 0.75rem 0;
   /* Columns share the row's height, so a divider spans the tallest column. */
   align-items: stretch;
 }
@@ -1865,14 +1908,24 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 2.5rem;
+  min-height: 1.35em;
 }
 
 .amby-tiptap .ProseMirror .amby-column-content {
   flex: 1 1 auto;
-  min-height: 2.5rem;
-  padding: 6px 9px;
+  min-height: 1.35em;
+  /* No left padding: column text lines up with the text outside the columns. No vertical
+     spacing either: the first and last block sit flush with the top and bottom of the row. */
+  padding: 0 9px 0 0;
   border-radius: 8px;
+}
+
+.amby-tiptap .ProseMirror .amby-column-content > :first-child {
+  margin-top: 0;
+}
+
+.amby-tiptap .ProseMirror .amby-column-content > :last-child {
+  margin-bottom: 0;
 }
 
 /* Reserve the area between divider and content exclusively for the grab. */
@@ -1901,13 +1954,13 @@
 
 /* With the pointer on the divider: a grey strip as tall as the tallest column shows where to grab. */
 .amby-tiptap .ProseMirror .amby-column.is-resize-edge::before {
-  width: 4px;
+  width: 2px;
   background: hsl(var(--foreground) / 0.22);
 }
 
 /* While the border is being dragged the strip takes the accent colour. */
 .amby-tiptap .ProseMirror .amby-column-set.is-resizing .amby-column::before {
-  width: 3px;
+  width: 2px;
   background: var(--drop-indicator-color);
   box-shadow: 0 0 7px var(--drop-indicator-shadow);
 }
@@ -2407,10 +2460,34 @@ body.amby-resizing-columns * {
 
 /* ── Image NodeView ──────────────────────────────────────────────────────── */
 
+/* Beside a picture alone on its line nothing is typed or clicked: no cursor, no text pointer. */
+.ProseMirror .amby-image-line {
+  caret-color: transparent;
+  cursor: default;
+}
+
+.amby-tiptap .ProseMirror p.amby-image-line {
+  margin: 0.5rem 0;
+  /* No text stands on this line. An aligned picture is a block inside it, and the editor's
+     cursor helpers after it (a separator, a trailing break) would otherwise make a line of
+     text height under it. */
+  line-height: 0;
+}
+
+/* The editor's cursor helpers after the picture (a separator and a trailing break) take no
+   room of their own: after an aligned picture they would stand on a line under it. */
+.amby-tiptap .ProseMirror p.amby-image-line > img.ProseMirror-separator {
+  position: absolute;
+}
+
+.amby-tiptap .ProseMirror p.amby-image-line > br.ProseMirror-trailingBreak {
+  display: none;
+}
+
 .amby-image-wrap {
   display: inline-block;
   max-width: 100%;
-  margin: 0.5rem 0;
+  margin: 0;
   line-height: 0;
   vertical-align: top;
 }
@@ -2425,8 +2502,363 @@ body.amby-resizing-columns * {
   background: transparent;
 }
 
-.amby-image-wrap.is-selected img {
+.amby-image-wrap img {
+  cursor: default;
+  /* The picture is not text: macOS Live Text would otherwise read icons in a screenshot as
+     characters and mark them as selected text when the picture is selected. */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* A selected picture, alone or inside selected text, is tinted like selected text, with
+   rounded corners. Only while the editor has the focus: a picture left selected in an editor
+   the user has left must not look selected. */
+.ProseMirror-focused .amby-image-wrap.is-selected .amby-image-container::after,
+.amby-image-wrap[data-in-selection] .amby-image-container::after {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: hsl(var(--primary) / 0.24);
+  content: "";
+  pointer-events: none;
+}
+
+/* The picture viewer: a picture over the whole window with a bar of controls below it. It takes
+   its colours from the theme: the window's own background, the menu surface for the bar. */
+.amby-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: hsl(var(--background) / 0.94);
+}
+
+.amby-lightbox-image {
+  max-width: none;
+  max-height: none;
+  flex: none;
+  border-radius: 6px;
+  box-shadow: var(--menu-shadow);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.amby-lightbox-bar {
+  position: absolute;
+  bottom: 28px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  transform: translateX(-50%);
+  border: 1px solid var(--menu-border);
+  border-radius: 10px;
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
+  color: var(--menu-item-fg);
+  font-size: 0.8rem;
+}
+
+.amby-lightbox-button,
+.amby-lightbox-percent,
+.amby-lightbox-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: inherit;
   outline: none;
+}
+
+.amby-lightbox-button {
+  width: 32px;
+  height: 32px;
+}
+
+.amby-lightbox-percent {
+  min-width: 52px;
+  height: 32px;
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--muted-foreground));
+}
+
+.amby-lightbox-button:hover,
+.amby-lightbox-percent:hover,
+.amby-lightbox-arrow:hover,
+.amby-lightbox-button:focus-visible,
+.amby-lightbox-percent:focus-visible,
+.amby-lightbox-arrow:focus-visible {
+  background: var(--menu-item-hover-bg);
+}
+
+.amby-lightbox-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: var(--menu-border);
+}
+
+.amby-lightbox-counter {
+  padding: 0 8px;
+  color: hsl(var(--muted-foreground));
+  font-variant-numeric: tabular-nums;
+}
+
+.amby-lightbox-arrow {
+  position: absolute;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  transform: translateY(-50%);
+  border: 1px solid var(--menu-border);
+  border-radius: 999px;
+  background: var(--menu-bg);
+  box-shadow: var(--menu-shadow);
+  color: var(--menu-item-fg);
+}
+
+.amby-lightbox-arrow--previous {
+  left: 20px;
+}
+
+.amby-lightbox-arrow--next {
+  right: 20px;
+}
+
+/* The crop window: a bar with the shape menu, the title and the buttons over a dark stage; the
+   frame has corner brackets and a pill on each edge to take hold of. */
+.amby-crop-dialog {
+  background: var(--menu-bg);
+  color: var(--menu-item-fg);
+}
+
+.amby-crop-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--menu-border);
+}
+
+.amby-crop-title {
+  min-width: 0;
+  flex: 1;
+  font-size: 1.05rem;
+  font-weight: 500;
+  text-align: center;
+}
+
+.amby-crop-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.amby-crop-cancel {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.amby-crop-cancel:hover,
+.amby-crop-cancel:focus-visible {
+  color: var(--menu-item-fg);
+}
+
+.amby-crop-shape-button {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: hsl(var(--muted));
+  color: var(--menu-item-fg);
+  outline: none;
+}
+
+.amby-crop-shape-button:hover,
+.amby-crop-shape-button:focus-visible {
+  background: var(--menu-item-hover-bg);
+}
+
+.amby-crop-stage {
+  display: flex;
+  max-height: 72vh;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 36px 40px;
+}
+
+.amby-crop-frame {
+  box-shadow: 0 0 0 9999px hsl(var(--background) / 0.72);
+  color: hsl(var(--muted-foreground));
+}
+
+.amby-crop-frame.is-circle {
+  border-radius: 50%;
+}
+
+.amby-crop-corner,
+.amby-crop-edge {
+  position: absolute;
+  touch-action: none;
+  /* The handle is drawn in a soft halo of the page colour, so it reads on any picture. */
+  filter: drop-shadow(0 0 1px hsl(var(--background) / 0.7));
+}
+
+/* A corner: a short bracket just outside the frame's corner. The box is the grip. */
+.amby-crop-corner {
+  width: 30px;
+  height: 30px;
+}
+
+.amby-crop-corner::before {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border: 0 solid currentColor;
+  content: "";
+}
+
+.amby-crop-corner--nw {
+  top: -15px;
+  left: -15px;
+  cursor: nwse-resize;
+}
+
+.amby-crop-corner--nw::before {
+  top: 12px;
+  left: 12px;
+  border-top-width: 3px;
+  border-left-width: 3px;
+  border-top-left-radius: 5px;
+}
+
+.amby-crop-corner--ne {
+  top: -15px;
+  right: -15px;
+  cursor: nesw-resize;
+}
+
+.amby-crop-corner--ne::before {
+  top: 12px;
+  right: 12px;
+  border-top-width: 3px;
+  border-right-width: 3px;
+  border-top-right-radius: 5px;
+}
+
+.amby-crop-corner--se {
+  right: -15px;
+  bottom: -15px;
+  cursor: nwse-resize;
+}
+
+.amby-crop-corner--se::before {
+  right: 12px;
+  bottom: 12px;
+  border-right-width: 3px;
+  border-bottom-width: 3px;
+  border-bottom-right-radius: 5px;
+}
+
+.amby-crop-corner--sw {
+  bottom: -15px;
+  left: -15px;
+  cursor: nesw-resize;
+}
+
+.amby-crop-corner--sw::before {
+  bottom: 12px;
+  left: 12px;
+  border-bottom-width: 3px;
+  border-left-width: 3px;
+  border-bottom-left-radius: 5px;
+}
+
+/* An edge: a short bar in the middle of the side, just outside the frame. The whole side
+   between the corners is the grip. */
+.amby-crop-edge {
+  display: flex;
+}
+
+.amby-crop-edge::after {
+  display: block;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+}
+
+.amby-crop-edge--n,
+.amby-crop-edge--s {
+  left: 18px;
+  right: 18px;
+  height: 14px;
+  align-items: flex-end;
+  justify-content: center;
+  cursor: ns-resize;
+}
+
+.amby-crop-edge--n {
+  top: -14px;
+}
+
+.amby-crop-edge--s {
+  bottom: -14px;
+  align-items: flex-start;
+}
+
+.amby-crop-edge--n::after,
+.amby-crop-edge--s::after {
+  width: 28px;
+  height: 3px;
+}
+
+.amby-crop-edge--e,
+.amby-crop-edge--w {
+  top: 18px;
+  bottom: 18px;
+  width: 14px;
+  align-items: center;
+  justify-content: flex-start;
+  cursor: ew-resize;
+}
+
+.amby-crop-edge--e {
+  right: -14px;
+}
+
+.amby-crop-edge--w {
+  left: -14px;
+  justify-content: flex-end;
+}
+
+.amby-crop-edge--e::after,
+.amby-crop-edge--w::after {
+  width: 3px;
+  height: 28px;
+}
+
+/* The caption (the image's Markdown title) sits under the picture and never widens it. */
+.amby-image-caption {
+  display: block;
+  width: 0;
+  min-width: 100%;
+  margin-top: 0.3rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.85em;
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 
 .amby-image-wrap img.is-broken {
@@ -2592,6 +3024,8 @@ body.amby-resizing-columns * {
 .amby-image-container {
   position: relative;
   display: inline-block;
+  /* Not on the text baseline: that leaves room under the picture for the descenders of a line. */
+  vertical-align: top;
   max-width: 100%;
   line-height: 0;
   border-radius: 8px;
@@ -2606,7 +3040,7 @@ body.amby-resizing-columns * {
 }
 
 .amby-image-wrap:hover .amby-image-resizer,
-.amby-image-wrap.is-selected .amby-image-resizer,
+.ProseMirror-focused .amby-image-wrap.is-selected .amby-image-resizer,
 .amby-image-wrap.is-resizing .amby-image-resizer {
   opacity: 1;
 }
@@ -2813,7 +3247,8 @@ em-emoji-picker {
 .amby-tiptap .ProseMirror img {
   max-width: 100%;
   border-radius: 6px;
-  margin: 0.75rem 0;
+  /* The line the picture is on keeps the space around it (p.amby-image-line). */
+  margin: 0;
 }
 
 .amby-tiptap .ProseMirror table {
@@ -3574,10 +4009,11 @@ body {
   color-scheme: light;
 }
 
-/* Do not let the browser add its own blue focus outline to plain controls.
-   Components keep their intentional input/drag states, while ordinary
-   buttons and links use their existing hover and active surfaces. */
-:where(button, [role="button"], a, input, textarea, select):focus {
+/* The browser's own focus ring (the blue or grey "auto" outline) is never drawn anywhere
+   in the app. `:where` keeps this at zero specificity, so a component's own focus style
+   (an outline, a ring, a highlighted background) still shows. */
+:where(*):focus,
+:where(*):focus-visible {
   outline: none;
 }
 
@@ -3770,6 +4206,26 @@ select {
 
 ::selection {
   background: hsl(var(--primary) / 0.24);
+  color: hsl(var(--foreground));
+}
+
+/* The editor draws its own text selection (tiptap/selection-highlight.ts): the webview's
+   native paint also fills the space between blocks. */
+.amby-tiptap .ProseMirror.amby-custom-selection::selection,
+.amby-tiptap .ProseMirror.amby-custom-selection ::selection {
+  background: transparent;
+}
+
+/* A picture is never tinted by the browser: the browser's tint of a selected picture is not
+   always repainted when the selection leaves it, and stays on screen. The editor draws its
+   own (data-in-selection, is-selected). */
+.amby-tiptap .ProseMirror .amby-image-wrap::selection,
+.amby-tiptap .ProseMirror .amby-image-wrap ::selection {
+  background: transparent;
+}
+
+::highlight(amby-selection) {
+  background-color: hsl(var(--primary) / 0.24);
   color: hsl(var(--foreground));
 }
 
@@ -4883,4 +5339,19 @@ html:not(.dark) button[data-amby-icon-color="#38bdf8"] {
 .amby-graph-toolbar {
   background: color-mix(in srgb, var(--note-surface) 88%, transparent);
   backdrop-filter: blur(6px);
+}
+
+/* Sidebar and split-pane resize handles: match the subtle column divider highlight on hover. */
+.amby-resize-handle-line {
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.amby-resize-handle:hover .amby-resize-handle-line {
+  background: hsl(var(--foreground) / 0.22);
+}
+
+.amby-resize-handle:active .amby-resize-handle-line,
+.amby-resize-handle[data-resizing="true"] .amby-resize-handle-line {
+  background: hsl(var(--foreground) / 0.35);
 }

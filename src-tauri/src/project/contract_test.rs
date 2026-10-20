@@ -557,19 +557,22 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
             ),
         );
     }
-    // The notebooks as the listing reads them from the disk; the vault's own path is a name.
+    // The notebooks as the listing reads them from the disk; the vault's own path is a name and
+    // the separators are the same on every system.
     let listing = list_notebooks_of(&connection, &fixture.vault, &notes_db).unwrap();
     let vault_prefix = fixture.vault.to_string_lossy().into_owned();
     let mut notebooks = serde_json::to_value(&listing).unwrap();
     notebooks["containerPath"] = json!(notebooks["containerPath"]
         .as_str()
         .unwrap()
-        .replace(&vault_prefix, "VAULT"));
+        .replace(&vault_prefix, "VAULT")
+        .replace('\\', "/"));
     for entry in notebooks["notebooks"].as_array_mut().unwrap() {
         entry["path"] = json!(entry["path"]
             .as_str()
             .unwrap()
-            .replace(&vault_prefix, "VAULT"));
+            .replace(&vault_prefix, "VAULT")
+            .replace('\\', "/"));
     }
     let produced = names.value(&json!({
         "workshop": summary,
@@ -582,7 +585,10 @@ fn the_interface_reads_the_catalog_and_rows_this_backend_really_writes() {
     if std::env::var_os("UPDATE_CREATIVE_FIXTURE").is_some() {
         fs::write(&path, &text).unwrap();
     }
-    let recorded = fs::read_to_string(&path).unwrap_or_default();
+    // A Windows checkout may turn the fixture's line endings into CRLF.
+    let recorded = fs::read_to_string(&path)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     assert_eq!(
         recorded, text,
         "the interface's fixture is out of date; run `UPDATE_CREATIVE_FIXTURE=1 cargo test --lib contract_test`"

@@ -1078,6 +1078,10 @@ export class DesktopAdapter implements StoragePort {
     await unwrapCommand(commands.openAttachment(notePath, attachmentPath))
   }
 
+  async saveAttachmentCopy(notePath: string, attachmentPath: string): Promise<string | null> {
+    return unwrapCommand(commands.saveAttachmentCopy(notePath, attachmentPath))
+  }
+
   async openWebAddress(address: string): Promise<void> {
     await unwrapCommand(commands.openWebAddress(address))
   }

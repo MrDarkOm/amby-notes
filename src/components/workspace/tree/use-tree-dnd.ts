@@ -209,7 +209,7 @@ export function useTreeDnd({
             onMoveItemRef.current?.(drag.sourceIds, dropTarget.targetId)
           }
         } else {
-          const dropTarget = getValidTarget(drag, e.clientX, e.clientY) ?? drag.targetId
+          const dropTarget = getValidTarget(drag, e.clientX, e.clientY)
           if (dropTarget) onMoveItemRef.current?.(drag.sourceIds, dropTarget)
         }
         setPtrDrag(null)

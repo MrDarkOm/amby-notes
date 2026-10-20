@@ -157,7 +157,10 @@ export function applySessionRemap(
 
   // Favorites / locked: remap + filter to existing ids.
   const favorites = session.favorites.map(remap).filter((id) => allIds.has(id))
-  const lockedFileIds = session.locked.map(remap).filter((id) => allIds.has(id))
+  // A workshop page is not a file of the tree: its read mode is kept under `creative:<project>`.
+  const lockedFileIds = session.locked
+    .map(remap)
+    .filter((id) => allIds.has(id) || id.startsWith("creative:"))
   const closedTreeIds = (session.closedTreeIds ?? []).map(remap).filter((id) => allIds.has(id))
 
   // View modes: remap + filter.

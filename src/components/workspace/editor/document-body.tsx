@@ -374,10 +374,7 @@ export function DocumentBody({
             // The empty page around the note: the cursor goes to the nearest line.
             if (viewMode !== "live" || isLocked) return
             const target = event.target as HTMLElement
-            const empty =
-              target === event.currentTarget ||
-              target === contentRef.current ||
-              target.classList.contains("amby-tiptap")
+            const empty = target === event.currentTarget || target === contentRef.current
             if (!empty) return
             const top = scrollRef.current
               ?.querySelector(".ProseMirror")

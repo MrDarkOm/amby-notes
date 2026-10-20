@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { collapseButtonsToLeft } from "./activity-buttons"
+import { collapseButtonsToLeft, setButtonHidden } from "./activity-buttons"
 import type { ActivityButton } from "./panel-registry"
 
 const button = (defId: string, side: "left" | "right", order: number): ActivityButton =>
@@ -28,5 +28,21 @@ describe("collapseButtonsToLeft", () => {
     const withRight = [button("files", "left", 0), button("info", "right", 0)]
     collapseButtonsToLeft(withRight)
     expect(withRight[1].side).toBe("right")
+  })
+})
+
+describe("setButtonHidden", () => {
+  const stored = [button("files", "left", 0), button("settings", "left", 5)]
+
+  it("hides a button where it stands and shows it again without a trace", () => {
+    const hidden = setButtonHidden(stored, "files", true)
+    expect(hidden[0]).toEqual({ defId: "files", side: "left", order: 0, hidden: true })
+    expect(setButtonHidden(hidden, "files", false)[0]).toEqual(stored[0])
+  })
+
+  it("never hides the settings button and leaves unknown or unchanged buttons alone", () => {
+    expect(setButtonHidden(stored, "settings", true)).toBe(stored)
+    expect(setButtonHidden(stored, "gone", true)).toBe(stored)
+    expect(setButtonHidden(stored, "files", false)).toBe(stored)
   })
 })

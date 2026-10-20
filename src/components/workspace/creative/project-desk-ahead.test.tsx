@@ -14,11 +14,13 @@ import { ProjectDesk } from "./project-desk"
 
 const queryDatabase = vi.fn()
 const createWorkshopEntity = vi.fn()
+const updateDatabaseRelationValue = vi.fn()
 
 vi.mock("@/lib/storage", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/storage")>()),
   queryDatabase: (...args: unknown[]) => queryDatabase(...args),
   createWorkshopEntity: (...args: unknown[]) => createWorkshopEntity(...args),
+  updateDatabaseRelationValue: (...args: unknown[]) => updateDatabaseRelationValue(...args),
   listTextStats: async () => [],
   resolveDatabaseAssetPaths: async () => ({ paths: [] }),
 }))
@@ -91,7 +93,7 @@ function mount(onOpenNote = vi.fn(), w = workshop()) {
   return onOpenNote
 }
 
-describe("the ribbon of anchors on a story's desk", () => {
+describe('the anchors of a story on its desk: marks on the pages and the strip "Ahead"', () => {
   beforeEach(async () => {
     await i18n.changeLanguage("ru")
     ROWS = {
@@ -121,54 +123,112 @@ describe("the ribbon of anchors on a story's desk", () => {
         diagnostics: [],
       }))
     createWorkshopEntity.mockReset().mockResolvedValue({ noteId: "new" })
+    updateDatabaseRelationValue.mockReset().mockResolvedValue(undefined)
     useCreativeNavStore.setState({ dataNonce: 0 })
     useDatabaseStore.setState({ vaultGeneration: 1, invalidationSeq: 0 })
   })
   afterEach(cleanup)
 
-  const names = (region: HTMLElement) =>
-    within(region)
-      .getAllByRole("listitem")
-      .filter((item) => item.querySelector("button"))
-      .map((item) => item.textContent ?? "")
+  const chapters = async () => {
+    const region = await screen.findByRole("region", { name: "Главы" })
+    await within(region).findByRole("button", { name: "Глава первая" })
+    return region
+  }
+  const strip = async () => {
+    const region = await chapters()
+    await within(region).findByText("Впереди")
+    return region
+  }
+  const pageRow = (region: HTMLElement, title: string) =>
+    within(region).getByRole("button", { name: title }).closest("[data-text-page]") as HTMLElement
 
-  it("lists the anchors in the order of the text, then the ones ahead", async () => {
+  /** A drag as the browser carries it: the data set at the start is read at the drop. */
+  function dragData() {
+    const store = new Map<string, string>()
+    return {
+      setData: (type: string, value: string) => void store.set(type, value),
+      getData: (type: string) => store.get(type) ?? "",
+      get types() {
+        return [...store.keys()]
+      },
+      dropEffect: "none",
+      effectAllowed: "all",
+    }
+  }
+
+  it("marks a page with the anchors bound to it, and lists only the unbound ones ahead", async () => {
     mount()
-    const region = await screen.findByRole("region", { name: "Якоря" })
-    await within(region).findByText("Начало")
-    const items = names(region)
-    expect(items).toHaveLength(3)
-    expect(items[0]).toContain("Начало")
-    expect(items[0]).toContain("Глава первая")
-    expect(items[1]).toContain("Встреча")
-    expect(items[1]).toContain("Глава вторая")
-    expect(items[2]).toContain("Мечта")
+    const region = await strip()
+    expect(within(pageRow(region, "Глава первая")).getByTestId("page-anchor-mark")).toBeTruthy()
+    expect(within(pageRow(region, "Глава вторая")).getByTestId("page-anchor-mark")).toBeTruthy()
+    expect(within(region).getByRole("button", { name: "Мечта" })).toBeTruthy()
+    // Bound anchors are on their pages, not ahead; another story's anchor is nowhere here.
+    expect(within(region).queryByRole("button", { name: "Начало" })).toBeNull()
+    expect(within(region).queryByRole("button", { name: "Встреча" })).toBeNull()
     expect(within(region).queryByText("Чужой")).toBeNull()
   })
 
-  it("marks the anchor on a page that is done as passed, and only that one", async () => {
-    mount()
-    const region = await screen.findByRole("region", { name: "Якоря" })
-    await within(region).findByText("Начало")
-    const items = names(region)
-    expect(items[0]).toContain("пройден")
-    expect(items[1]).not.toContain("пройден")
-    expect(items[2]).not.toContain("пройден")
-  })
-
-  it("opens an anchor", async () => {
+  it("opens an anchor ahead", async () => {
     const onOpenNote = mount()
-
-    const region = await screen.findByRole("region", { name: "Якоря" })
-    fireEvent.click(await within(region).findByText("Мечта"))
+    const region = await strip()
+    fireEvent.click(within(region).getByRole("button", { name: "Мечта" }))
     expect(onOpenNote).toHaveBeenCalledWith("a3")
   })
 
-  it("is quiet without anchors and offers making the first, in this story", async () => {
+  it("binds an anchor to a page when it is dropped on it, keeping the page's other anchors", async () => {
+    mount()
+    const region = await strip()
+    const data = dragData()
+    const chip = within(region).getByRole("button", { name: "Мечта" }).closest("[draggable]")!
+    fireEvent.dragStart(chip, { dataTransfer: data })
+    const row = pageRow(region, "Глава вторая")
+    fireEvent.dragOver(row, { dataTransfer: data })
+    fireEvent.drop(row, { dataTransfer: data })
+    await waitFor(() => expect(updateDatabaseRelationValue).toHaveBeenCalledTimes(1))
+    expect(updateDatabaseRelationValue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        databaseId: "db_text",
+        noteId: "c2",
+        propertyId: "tanc",
+        targetNoteIds: ["a1", "a3"],
+        expectedRevision: "rev-c2",
+      }),
+    )
+  })
+
+  it("binds an anchor from its menu, by keyboard", async () => {
+    mount()
+    const region = await strip()
+    fireEvent.keyDown(
+      within(region).getByRole("button", { name: "Привязать «Мечта» к странице…" }),
+      {
+        key: "Enter",
+      },
+    )
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Глава первая" }))
+    await waitFor(() => expect(updateDatabaseRelationValue).toHaveBeenCalledTimes(1))
+    expect(updateDatabaseRelationValue).toHaveBeenCalledWith(
+      expect.objectContaining({ noteId: "c1", targetNoteIds: ["a2", "a3"] }),
+    )
+  })
+
+  it("says why a binding failed", async () => {
+    updateDatabaseRelationValue.mockRejectedValue(new Error("страница изменилась"))
+    mount()
+    const region = await strip()
+    const data = dragData()
+    const chip = within(region).getByRole("button", { name: "Мечта" }).closest("[draggable]")!
+    fireEvent.dragStart(chip, { dataTransfer: data })
+    const row = pageRow(region, "Глава первая")
+    fireEvent.dragOver(row, { dataTransfer: data })
+    fireEvent.drop(row, { dataTransfer: data })
+    expect((await within(region).findByRole("alert")).textContent).toContain("страница изменилась")
+  })
+
+  it("offers making an anchor of this story, and says why it failed", async () => {
     ROWS.db_anch = []
     mount()
-    const region = await screen.findByRole("region", { name: "Якоря" })
-    expect(await within(region).findByText("У истории пока нет якорей.")).toBeTruthy()
+    const region = await strip()
     fireEvent.click(within(region).getByRole("button", { name: "Добавить якорь" }))
     const field = within(region).getByLabelText("Название якоря")
     fireEvent.change(field, { target: { value: "Первый" } })
@@ -188,20 +248,20 @@ describe("the ribbon of anchors on a story's desk", () => {
     ROWS.db_anch = []
     createWorkshopEntity.mockRejectedValue(new Error("нет места"))
     mount()
-    const region = await screen.findByRole("region", { name: "Якоря" })
-    fireEvent.click(await within(region).findByRole("button", { name: "Добавить якорь" }))
+    const region = await strip()
+    fireEvent.click(within(region).getByRole("button", { name: "Добавить якорь" }))
     const field = within(region).getByLabelText("Название якоря")
     fireEvent.change(field, { target: { value: "Первый" } })
     fireEvent.submit(field.closest("form") as HTMLFormElement)
     expect((await within(region).findByRole("alert")).textContent).toContain("нет места")
   })
 
-  it("has no ribbon in a workshop without an anchors base", async () => {
+  it("has no strip in a workshop without an anchors base", async () => {
     mount(vi.fn(), {
       ...workshop(),
       sections: [section("text", { role: "text", databaseId: "db_text" })],
     })
-    await screen.findByText("Продолжить с…")
-    expect(screen.queryByRole("region", { name: "Якоря" })).toBeNull()
+    const region = await chapters()
+    expect(within(region).queryByText("Впереди")).toBeNull()
   })
 })

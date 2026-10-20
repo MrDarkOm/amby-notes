@@ -14,11 +14,18 @@ import {
   ArrowUp,
   CheckSquare,
   ChevronRight,
+  Captions,
+  Check,
   Copy,
+  Crop,
+  Download,
   Droplet,
   Link as LinkIcon,
   List,
   ListOrdered,
+  Maximize,
+  Replace,
+  RotateCcw,
   Rows3,
   Trash2,
 } from "lucide-react"
@@ -27,7 +34,18 @@ import { getTurnIntoItems, type BlockInsertItem } from "./block-insert-items"
 import { markActiveRow, pointerReallyMoved, revealRow, stepIndex } from "./menu-keyboard"
 import { convertBlockToParagraph, convertBlockWrapper } from "./block-conversion"
 import { EmojiPickerPanel } from "./EmojiPickerPanel"
-import { importAsset, pickAssetFile } from "@/lib/storage"
+import { attachmentKind, localFileKind } from "./attachment-kind"
+import { isVaultImage } from "./image-actions"
+import {
+  canEditImageFiles,
+  copyImageAt,
+  imageNodeAt,
+  replaceImageAt,
+  requestImageCrop,
+  requestImageViewer,
+  saveImageAt,
+} from "./image-commands"
+import { updateImageNode, type ImagePatch } from "./image-edit"
 import { useSmartPlacement, type AnchorRect } from "./use-smart-placement"
 import { BLOCK_TEXT_COLORS as TEXT_COLORS, CALLOUT_SWATCHES } from "@/lib/themes"
 import { motionTransitions } from "@/lib/motion-config"
@@ -63,7 +81,6 @@ interface Props {
   nodePos: number
   nodeType: string
   isCallout: boolean
-  vaultPath?: string
   notePath?: string
   anchorRect: AnchorRect
   onDuplicate: () => void
@@ -126,7 +143,6 @@ export function BlockActionsPanel({
   nodePos,
   nodeType,
   isCallout,
-  vaultPath,
   notePath,
   anchorRect,
   onDuplicate,
@@ -355,10 +371,11 @@ export function BlockActionsPanel({
   }, [editor])
 
   const isListItem = nodeType === "listItem" || nodeType === "taskItem"
+  const pictureAt = pictureOfBlock(editor, nodePos)
   const hasContext =
     nodeType === "callout" ||
     nodeType === "heading" ||
-    nodeType === "image" ||
+    pictureAt !== null ||
     nodeType === "codeBlock" ||
     isListItem
 
@@ -429,13 +446,12 @@ export function BlockActionsPanel({
                 {nodeType === "heading" && (
                   <HeadingContext editor={editor} nodePos={nodePos} matches={matches} />
                 )}
-                {nodeType === "image" && (
+                {pictureAt !== null && (
                   <ImageContext
                     editor={editor}
-                    nodePos={nodePos}
-                    vaultPath={vaultPath}
-                    notePath={notePath}
+                    pos={pictureAt}
                     matches={matches}
+                    onClose={onClose}
                   />
                 )}
                 {nodeType === "codeBlock" && (
@@ -826,172 +842,266 @@ function HeadingContext({
 
 // ── Context: Image ───────────────────────────────────────────────────────────
 
+/**
+ * The position of the picture a block is about: the picture itself, or the only picture on a
+ * line of its own. A player or a card drawn from an image node is not a picture.
+ */
+function pictureOfBlock(editor: Editor, nodePos: number): number | null {
+  const node = editor.state.doc.nodeAt(nodePos)
+  if (!node) return null
+  const image =
+    node.type.name === "image"
+      ? { node, pos: nodePos }
+      : node.type.name === "paragraph" &&
+          node.childCount === 1 &&
+          node.child(0).type.name === "image"
+        ? { node: node.child(0), pos: nodePos + 1 }
+        : null
+  if (!image) return null
+  const src = String(image.node.attrs.src ?? "")
+  return attachmentKind(src) || localFileKind(src) ? null : image.pos
+}
+
 function ImageContext({
   editor,
-  nodePos,
-  vaultPath,
-  notePath,
+  pos,
   matches,
+  onClose,
 }: {
   editor: Editor
-  nodePos: number
-  vaultPath?: string
-  notePath?: string
+  pos: number
   matches: (s: string) => boolean
+  onClose: () => void
 }) {
   const { t } = useTranslation()
-  const node = editor.state.doc.nodeAt(nodePos)
-  const altInit = (node?.attrs.alt as string | null) ?? ""
-  const alignInit = (node?.attrs.align as string | null) ?? null
-  const [alt, setAlt] = React.useState(altInit)
-  const alignButtons = [
-    { id: "left", Icon: AlignLeft },
-    { id: "center", Icon: AlignCenter },
-    { id: "right", Icon: AlignRight },
-  ] as const
+  const node = imageNodeAt(editor, pos)
+  const src = String(node?.attrs.src ?? "")
+  const align = (node?.attrs.align as string | null) ?? null
+  const hasCustomSize = Boolean(node?.attrs.width || node?.attrs.height)
+  const [caption, setCaption] = React.useState(String(node?.attrs.title ?? ""))
+  const [alt, setAlt] = React.useState(String(node?.attrs.alt ?? ""))
+  const [flyout, setFlyout] = React.useState<{
+    kind: "align" | "details"
+    anchor: AnchorRect
+  } | null>(null)
+  const flyoutRef = React.useRef<HTMLDivElement>(null)
+  const flyoutStyle = useSmartPlacement(flyout?.anchor ?? null, flyoutRef)
+  const canReplace = canEditImageFiles(editor)
 
   React.useEffect(() => {
-    setAlt(altInit)
-    // intentionally re-run when nodePos changes (different image selected)
+    setCaption(String(node?.attrs.title ?? ""))
+    setAlt(String(node?.attrs.alt ?? ""))
+    setFlyout(null)
+    // intentionally re-run when another picture is shown
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodePos])
+  }, [pos])
 
-  async function replaceImage() {
-    if (!vaultPath || !notePath) return
-    const src = await pickAssetFile(true)
-    if (!src) return
-    const result = await importAsset(vaultPath, notePath, src)
-    if (!result) return
-    editor.chain().focus().updateAttributes("image", { src: result.relPath }).run()
+  // The menu changes the picture without selecting it: it stays open for the next change.
+  const patch = (change: ImagePatch) => updateImageNode(editor, pos, src, change, false)
+
+  /** Opens (or closes) a submenu to the right of the row that was pressed. */
+  function toggleFlyout(kind: "align" | "details", row: HTMLElement) {
+    const rect = row.getBoundingClientRect()
+    setFlyout((current) =>
+      current?.kind === kind
+        ? null
+        : {
+            kind,
+            anchor: {
+              left: rect.right + 4,
+              top: rect.top,
+              right: rect.right + 4,
+              bottom: rect.top - 4,
+              width: 0,
+              height: 0,
+            },
+          },
+    )
   }
 
-  function commitAlt() {
-    editor.chain().focus().updateAttributes("image", { alt }).run()
-  }
+  const actions = [
+    {
+      id: "open",
+      Icon: Maximize,
+      label: t("editorToolbar.imageOpen"),
+      run: () => requestImageViewer(editor, pos),
+    },
+    {
+      id: "copy",
+      Icon: Copy,
+      label: t("editorToolbar.imageCopy"),
+      run: () => copyImageAt(editor, pos),
+    },
+    {
+      id: "save",
+      Icon: Download,
+      label: t("editorToolbar.imageSave"),
+      run: () => saveImageAt(editor, pos, src),
+    },
+    ...(canReplace
+      ? [
+          {
+            id: "replace",
+            Icon: Replace,
+            label: t("editorToolbar.imageReplace"),
+            run: () => replaceImageAt(editor, pos, src),
+          },
+        ]
+      : []),
+    ...(canReplace && isVaultImage(src)
+      ? [
+          {
+            id: "crop",
+            Icon: Crop,
+            label: t("editorToolbar.imageCrop"),
+            run: () => requestImageCrop(editor, pos, src),
+          },
+        ]
+      : []),
+    ...(hasCustomSize
+      ? [
+          {
+            id: "reset",
+            Icon: RotateCcw,
+            label: t("editorToolbar.imageResetSize"),
+            run: () => patch({ width: null, height: null }),
+          },
+        ]
+      : []),
+  ].filter((action) => matches(action.label))
 
-  function setAlign(align: string) {
-    editor.chain().focus().updateAttributes("image", { align }).run()
-  }
+  const alignLabel = t("blockPanel.align")
+  const detailsLabel = t("blockPanel.imageDetails")
+  const showAlign = matches(alignLabel) || matches("align")
+  const showDetails =
+    matches(detailsLabel) ||
+    matches("alt") ||
+    matches("caption") ||
+    matches(t("editorToolbar.imageCaption"))
+  const alignments = [
+    { id: "left", Icon: AlignLeft, label: t("editorToolbar.imageAlignLeft") },
+    { id: "center", Icon: AlignCenter, label: t("editorToolbar.imageAlignCenter") },
+    { id: "right", Icon: AlignRight, label: t("editorToolbar.imageAlignRight") },
+  ] as const
+  const currentAlign = align ?? "left"
 
-  const widthInit = (node?.attrs.width as number | string | null) ?? null
-  const [widthInput, setWidthInput] = React.useState(widthInit ? String(widthInit) : "")
-
-  React.useEffect(() => {
-    setWidthInput(widthInit ? String(widthInit) : "")
-  }, [widthInit, nodePos])
-
-  function setWidth(nextWidth: number | null) {
-    editor.chain().focus().updateAttributes("image", { width: nextWidth }).run()
-  }
-
-  function commitWidth() {
-    const parsed = parseInt(widthInput.trim(), 10)
-    if (parsed > 0) {
-      setWidth(parsed)
-    } else if (widthInput.trim() === "") {
-      setWidth(null)
-    }
-  }
-
-  const showReplace = matches("replace") || matches("заменить")
-  const showAlt = matches("alt")
-  const showAlign = matches("align") || matches("выравн")
-  const showSize = matches("size") || matches("размер") || matches("width") || matches("ширин")
-
-  if (!showReplace && !showAlt && !showAlign && !showSize) return null
+  if (!node) return null
 
   return (
     <>
-      {showSize && (
-        <>
-          <div className="amby-block-panel-section">{t("blockPanel.imageSize")}</div>
-          <div className="flex items-center gap-1.5 mb-2">
-            {[
-              { label: "25%", width: 250 },
-              { label: "50%", width: 450 },
-              { label: "75%", width: 700 },
-              { label: t("blockPanel.imageWidthAuto"), width: null },
-            ].map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                className={`amby-ctx-size-preset-btn ${
-                  (preset.width === null && !node?.attrs.width) ||
-                  (preset.width !== null && Number(node?.attrs.width) === preset.width)
-                    ? "is-active"
-                    : ""
-                }`}
-                onClick={() => setWidth(preset.width)}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              className="amby-ctx-text-input text-xs w-28"
-              value={widthInput}
-              onChange={(e) => setWidthInput(e.target.value)}
-              onBlur={commitWidth}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault()
-                  commitWidth()
-                }
-              }}
-              placeholder={t("blockPanel.imageWidthPlaceholder")}
-              min={60}
-              max={2000}
-            />
-            <span className="text-xs text-muted-foreground">{"px"}</span>
-          </div>
-        </>
-      )}
-      {showReplace && (
-        <>
-          <div className="amby-block-panel-section">{t("blockPanel.source")}</div>
-          <button type="button" className="amby-ctx-replace-btn" onClick={replaceImage}>
-            {t("blockPanel.replaceImage")}
-          </button>
-        </>
-      )}
-      {showAlt && (
-        <>
-          <div className="amby-block-panel-section">{t("blockPanel.altText")}</div>
-          <input
-            className="amby-ctx-text-input"
-            value={alt}
-            onChange={(e) => setAlt(e.target.value)}
-            onBlur={commitAlt}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault()
-                commitAlt()
-              }
-            }}
-            placeholder={t("blockPanel.imagePlaceholder")}
-            onMouseDown={(e) => e.stopPropagation()}
-          />
-        </>
-      )}
+      {actions.map(({ id, Icon, label, run }) => (
+        <MotionRowButton
+          key={id}
+          type="button"
+          className="amby-block-row"
+          onClick={() => {
+            void run()
+            onClose()
+          }}
+        >
+          <Icon className="amby-block-row-icon" />
+          <span className="amby-block-row-label">{label}</span>
+        </MotionRowButton>
+      ))}
       {showAlign && (
-        <>
-          <div className="amby-block-panel-section">{t("blockPanel.align")}</div>
-          <div className="amby-ctx-align-row">
-            {alignButtons.map(({ id, Icon }) => (
-              <button
-                key={id}
-                type="button"
-                className={"amby-ctx-align-btn" + (alignInit === id ? " is-active" : "")}
-                onClick={() => setAlign(id)}
-              >
-                <Icon className="size-3.5" />
-              </button>
-            ))}
-          </div>
-        </>
+        <MotionRowButton
+          type="button"
+          className="amby-block-row"
+          onClick={(event) => toggleFlyout("align", event.currentTarget)}
+        >
+          {currentAlign === "center" ? (
+            <AlignCenter className="amby-block-row-icon" />
+          ) : currentAlign === "right" ? (
+            <AlignRight className="amby-block-row-icon" />
+          ) : (
+            <AlignLeft className="amby-block-row-icon" />
+          )}
+          <span className="amby-block-row-label">{alignLabel}</span>
+          <span className="amby-block-row-hint">▸</span>
+        </MotionRowButton>
       )}
+      {showDetails && (
+        <MotionRowButton
+          type="button"
+          className="amby-block-row"
+          onClick={(event) => toggleFlyout("details", event.currentTarget)}
+        >
+          <Captions className="amby-block-row-icon" />
+          <span className="amby-block-row-label">{detailsLabel}</span>
+          <span className="amby-block-row-hint">▸</span>
+        </MotionRowButton>
+      )}
+      {flyout &&
+        createPortal(
+          <div
+            ref={flyoutRef}
+            className="amby-turn-into-menu"
+            style={flyout.kind === "details" ? { ...flyoutStyle, width: 260 } : flyoutStyle}
+            onMouseDown={(event) => {
+              // Rows keep the editor's focus. A field must take the focus itself: the press
+              // would reach the menu (events pass through a portal to the tree above it),
+              // which refuses the focus to everything.
+              if (event.target instanceof HTMLInputElement) event.stopPropagation()
+              else event.preventDefault()
+            }}
+          >
+            {flyout.kind === "align" &&
+              alignments.map(({ id, Icon, label }) => (
+                <MotionRowButton
+                  key={id}
+                  type="button"
+                  className="amby-block-row"
+                  onClick={() => {
+                    // Left is how a picture stands anyway: it is written as no alignment.
+                    patch({ align: id === "left" ? null : id })
+                    setFlyout(null)
+                  }}
+                >
+                  <Icon className="amby-block-row-icon" />
+                  <span className="amby-block-row-label">{label}</span>
+                  {currentAlign === id && <Check className="amby-block-row-icon" />}
+                </MotionRowButton>
+              ))}
+            {flyout.kind === "details" && (
+              <div className="flex flex-col gap-1 p-1">
+                <div className="amby-block-panel-section">{t("editorToolbar.imageCaption")}</div>
+                <input
+                  className="amby-ctx-text-input"
+                  autoFocus
+                  value={caption}
+                  onChange={(e) => setCaption(e.target.value)}
+                  onBlur={() => patch({ title: caption.trim() || null })}
+                  onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      patch({ title: caption.trim() || null })
+                    }
+                    if (e.key === "Escape") setFlyout(null)
+                  }}
+                  placeholder={t("editorToolbar.imageCaptionPlaceholder")}
+                />
+                <div className="amby-block-panel-section">{t("blockPanel.altText")}</div>
+                <input
+                  className="amby-ctx-text-input"
+                  value={alt}
+                  onChange={(e) => setAlt(e.target.value)}
+                  onBlur={() => patch({ alt: alt || null })}
+                  onKeyDown={(e) => {
+                    e.stopPropagation()
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      patch({ alt: alt || null })
+                    }
+                    if (e.key === "Escape") setFlyout(null)
+                  }}
+                  placeholder={t("blockPanel.imagePlaceholder")}
+                />
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
     </>
   )
 }

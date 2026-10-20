@@ -12,7 +12,7 @@ import type { TreeItem } from "../sidebar-tree"
 import type { NoteProperties } from "@/lib/storage"
 import { flattenTree, relativeToVault } from "./document-breadcrumbs-utils"
 import { FilePickerModal, LayerConfirmDialog, type LayerKind } from "./document-actions"
-import { DocumentHeader } from "./document-header"
+import { DocumentHeader, type NoteTrailProps } from "./document-header"
 import { EmptyTab } from "./empty-tab"
 import { DocumentBody, type EditorFrameProps } from "./document-body"
 import { NotePdfExport, NotePdfExportDialog, type PdfExportOptions } from "./note-pdf-export"
@@ -91,6 +91,8 @@ export interface DocumentEditorProps {
   isFavorite?: boolean
   onToggleFavorite?: () => void
   onOpenInNewTab?: () => void
+  onSplitRight?: () => void
+  onSplitDown?: () => void
   nestedNotes?: TreeItem[]
   nestedNotesPlacement?: "top" | "bottom" | "hidden"
   onNestedNotesPlacementChange?: (placement: "top" | "bottom" | "hidden") => void
@@ -114,6 +116,9 @@ export interface DocumentEditorProps {
   onEnableModule?: (moduleId: string) => void
   databaseBody?: React.ReactNode
   editorFrame?: React.ComponentType<EditorFrameProps>
+  /** The module's path for a note in the header, in place of its folders (the workshop's). */
+  noteTrail?: React.ComponentType<NoteTrailProps>
+  onOpenWorkshopPage?: (projectId: string, sectionId?: string) => void
   editorSurfaceOwner?: EditorSurface
   scrollPositionKey?: string
   scrollPosition?: number
@@ -172,6 +177,8 @@ export function DocumentEditor({
   isFavorite = false,
   onToggleFavorite,
   onOpenInNewTab,
+  onSplitRight,
+  onSplitDown,
   nestedNotes = [],
   nestedNotesPlacement = "top",
   onNestedNotesPlacementChange,
@@ -195,6 +202,8 @@ export function DocumentEditor({
   onEnableModule,
   databaseBody,
   editorFrame,
+  noteTrail,
+  onOpenWorkshopPage,
   editorSurfaceOwner = "document",
   scrollPositionKey,
   scrollPosition,
@@ -288,7 +297,10 @@ export function DocumentEditor({
     setHasEditorLease(acquired)
     return () => editorSurfaceLeases.release(documentId, leaseToken)
   }, [documentId, editorSurfaceOwner, leaseToken])
-  const effectiveLocked = isLocked || editingPolicy.readOnly || !hasEditorLease
+  const leaseOwner = documentId ? editorSurfaceLeases.owner(documentId) : null
+  const blockedByOtherSurface =
+    !hasEditorLease && leaseOwner !== null && leaseOwner !== editorSurfaceOwner
+  const effectiveLocked = isLocked || editingPolicy.readOnly || blockedByOtherSurface
   const effectiveViewMode = editingPolicy.sourceOnly ? "source" : viewMode
 
   const flatTreeItems = React.useMemo(() => flattenTree(treeItems ?? []), [treeItems])
@@ -419,6 +431,8 @@ export function DocumentEditor({
 
   const headerElement = (
     <DocumentHeader
+      NoteTrail={noteTrail}
+      onOpenWorkshopPage={onOpenWorkshopPage}
       hasDocument={Boolean(document)}
       docId={document?.id}
       docTitle={document?.title}
@@ -452,6 +466,8 @@ export function DocumentEditor({
       isFavorite={isFavorite}
       onToggleFavorite={onToggleFavorite}
       onOpenInNewTab={onOpenInNewTab}
+      onSplitRight={onSplitRight}
+      onSplitDown={onSplitDown}
       viewMode={effectiveViewMode}
       onViewModeChange={handleEditorViewModeChange}
       contentWidth={contentWidth}

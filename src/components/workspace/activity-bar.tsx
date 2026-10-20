@@ -1,7 +1,16 @@
 "use client"
 
 import * as React from "react"
-import { ArrowLeft, ArrowRight, Check, Download, Pin, Settings2, Upload } from "lucide-react"
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  Download,
+  EyeOff,
+  Pin,
+  Settings2,
+  Upload,
+} from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { motion } from "motion/react"
 
@@ -12,6 +21,7 @@ import {
   ContextMenuCheckboxItem,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
@@ -25,6 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { type ActivityButton, type ButtonDef, type PanelId, type Side } from "./panel-registry"
 import { findButtonDef, buttonsForSide } from "./panel-definitions"
+import { canHideButton } from "./activity-buttons"
 import {
   settingsLabelKeyForActivityButton,
   settingsTargetForActivityButton,
@@ -53,6 +64,8 @@ interface ActivityBarProps {
   autoHideReveal?: boolean
   onPinnedChange?: (pinned: boolean) => void
   onAutoHideChange?: (hovering: boolean) => void
+  /** Hides or shows a button on its dock; absent where the dock cannot be changed. */
+  onSetButtonHidden?: (defId: string, hidden: boolean) => void
   onOpenSettings: (target: SettingsNavigationTarget) => void
   helpContext?: HelpContext
 }
@@ -83,6 +96,7 @@ export function ActivityBar({
   autoHideReveal = false,
   onPinnedChange,
   onAutoHideChange,
+  onSetButtonHidden,
   onOpenSettings,
   helpContext,
 }: ActivityBarProps) {
@@ -90,8 +104,11 @@ export function ActivityBar({
   const [isAutoHideHover, setIsAutoHideHover] = React.useState(false)
   const isExpanded = pinned || autoHideReveal || isAutoHideHover
   const sideButtons = buttonsForSide(buttons, side)
-  const viewButtons = sideButtons.filter((button) => findDef(button.defId)?.kind === "view")
-  const actionButtons = sideButtons.filter((button) => findDef(button.defId)?.kind === "action")
+  // Every zone keeps its hidden buttons: its menu lists them so they can be shown again.
+  const zoneButtons = (zone: ActivityZone) =>
+    sideButtons.filter((button) => findDef(button.defId)?.kind === zone)
+  const viewButtons = zoneButtons("view").filter((button) => !button.hidden)
+  const actionButtons = zoneButtons("action").filter((button) => !button.hidden)
 
   function presetMenu() {
     return (
@@ -188,6 +205,58 @@ export function ActivityBar({
     )
   }
 
+  /** The zone's section label and a switch for each button in it, styled like the menu items. */
+  function zoneToggleItems(zone: ActivityZone) {
+    if (!onSetButtonHidden) return null
+    return (
+      <>
+        <ContextMenuSeparator />
+        <ContextMenuLabel className="text-[11px] uppercase tracking-wider text-muted-foreground">
+          {t(zone === "view" ? "activityBar.zoneSections" : "activityBar.zoneActions")}
+        </ContextMenuLabel>
+        {zoneButtons(zone).map((button) => {
+          const def = findDef(button.defId)
+          if (!def) return null
+          const Icon = def.icon
+          return (
+            <ContextMenuCheckboxItem
+              key={def.id}
+              data-dock-toggle={def.id}
+              indicatorPosition="right"
+              checked={!button.hidden}
+              disabled={!canHideButton(def.id)}
+              // The menu stays open, so several buttons can be switched in a row.
+              onSelect={(event) => event.preventDefault()}
+              onCheckedChange={(checked) => onSetButtonHidden(def.id, !checked)}
+              className="gap-2 text-[13px]"
+            >
+              <Icon className="size-4 text-muted-foreground" />
+              {t(def.labelKey)}
+            </ContextMenuCheckboxItem>
+          )
+        })}
+      </>
+    )
+  }
+
+  /** A zone's own menu: pinning the dock, and a switch for each button that is in the zone. */
+  function zoneMenu(zone: ActivityZone) {
+    return (
+      <ContextMenuContent className="min-w-64 w-auto border-border bg-popover p-1 text-foreground">
+        <ContextMenuCheckboxItem
+          indicatorPosition="right"
+          checked={pinned}
+          onCheckedChange={onPinnedChange}
+          className="gap-2 text-[13px]"
+        >
+          <Pin className="size-4 text-muted-foreground" />
+          {t(side === "left" ? "dock.pinLeft" : "dock.pinRight")}
+        </ContextMenuCheckboxItem>
+        {zoneToggleItems(zone)}
+      </ContextMenuContent>
+    )
+  }
+
   function renderButton(button: ActivityButton, zone: ActivityZone) {
     const def = findDef(button.defId)
     if (!def) return null
@@ -237,7 +306,14 @@ export function ActivityBar({
         whileTap={{ scale: 0.88, y: 1 }}
         transition={motionTransitions.fast}
       >
-        <Icon className="size-4" />
+        <Icon
+          className={cn(
+            "size-4",
+            isActive &&
+              // Fill only closed shapes: an open stroke would be filled as a stray wedge.
+              "fill-primary text-primary [fill-opacity:0.25] [&_path:not([d$=Z]):not([d$=z])]:fill-none",
+          )}
+        />
       </motion.button>
     )
 
@@ -278,6 +354,19 @@ export function ActivityBar({
                 </ContextMenuItem>
               </>
             )}
+            {onSetButtonHidden && canHideButton(def.id) && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-accent-foreground"
+                  onSelect={() => onSetButtonHidden(def.id, true)}
+                >
+                  <EyeOff className="size-4 text-muted-foreground" />
+                  {t("activityBar.hideButton")}
+                </ContextMenuItem>
+              </>
+            )}
+            {zoneToggleItems(zone)}
             {dockMenuItems()}
           </ContextMenuContent>
         </ContextMenu>
@@ -312,21 +401,32 @@ export function ActivityBar({
             animate={{ x: isExpanded ? 0 : side === "left" ? -44 : 44 }}
             transition={motionTransitions.panel}
           >
-            <div
-              data-activity-zone="view"
-              className="flex min-h-8 flex-col items-center gap-1.5 pt-2"
-            >
-              {viewButtons.map((button) => renderButton(button, "view"))}
-            </div>
+            {/* The bar is split 2:1 from the top: the upper two thirds belong to the section
+                buttons, the lower third to the action buttons, so a right click anywhere in
+                either part opens that zone's menu. */}
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  data-activity-zone="view"
+                  className="flex min-h-min flex-[2_1_0%] flex-col items-center gap-1.5 py-2"
+                >
+                  {viewButtons.map((button) => renderButton(button, "view"))}
+                </div>
+              </ContextMenuTrigger>
+              {zoneMenu("view")}
+            </ContextMenu>
 
-            <div className="flex-1" />
-
-            <div
-              data-activity-zone="action"
-              className="mb-2 flex min-h-8 flex-col items-center gap-1.5 pb-2"
-            >
-              {actionButtons.map((button) => renderButton(button, "action"))}
-            </div>
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  data-activity-zone="action"
+                  className="flex min-h-min flex-[1_1_0%] flex-col items-center justify-end gap-1.5 pb-4"
+                >
+                  {actionButtons.map((button) => renderButton(button, "action"))}
+                </div>
+              </ContextMenuTrigger>
+              {zoneMenu("action")}
+            </ContextMenu>
           </motion.div>
         </motion.div>
       </ContextMenuTrigger>

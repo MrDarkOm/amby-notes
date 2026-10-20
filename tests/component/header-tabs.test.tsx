@@ -27,10 +27,7 @@ function headerProps(): ComponentProps<typeof HeaderTabs> {
     showWorkspacePicker: false,
     onSwitchVault: vi.fn(),
     onAddVault: vi.fn(),
-    onRenameVault: vi.fn(),
-    onDeleteVault: vi.fn(),
-    onMoveVault: vi.fn(),
-    onOpenVaultInExplorer: vi.fn(),
+    onManageVaults: vi.fn(),
   }
 }
 

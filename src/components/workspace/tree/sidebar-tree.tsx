@@ -11,6 +11,7 @@ import { motionTransitions } from "@/lib/motion-config"
 import {
   flattenVisible,
   ROOT_DROP_TARGET,
+  ancestorIds,
   treeBranchGradientColor,
   treeItemHasChildren,
   type SidebarTreeProps,
@@ -21,6 +22,7 @@ import { TreeNode } from "./tree-row"
 import { useTreeKeyboard } from "./use-tree-keyboard"
 import { useTreeDnd } from "./use-tree-dnd"
 import { useStableCallback } from "./use-stable-callback"
+import { TreeScrollbar } from "./tree-scrollbar"
 
 export function SidebarTree({
   items,
@@ -33,6 +35,8 @@ export function SidebarTree({
   onAttachCanvas,
   onAttachSketch,
   onOpenInNewTab,
+  onOpenSplitRight,
+  onOpenSplitDown,
   onOpenInNewWindow,
   onCloneFile,
   onOpenInExplorer,
@@ -48,7 +52,7 @@ export function SidebarTree({
   linkedLayersByDoc,
   canvasEnabled,
   sketchEnabled,
-  findActiveKey,
+  autoReveal = false,
 }: SidebarTreeProps) {
   const { t } = useTranslation()
   // Handlers reach the memoized rows with a fixed identity, so a workspace render (a tab
@@ -61,6 +65,8 @@ export function SidebarTree({
   const stableOnAttachCanvas = useStableCallback(onAttachCanvas)
   const stableOnAttachSketch = useStableCallback(onAttachSketch)
   const stableOnOpenInNewTab = useStableCallback(onOpenInNewTab)
+  const stableOnOpenSplitRight = useStableCallback(onOpenSplitRight)
+  const stableOnOpenSplitDown = useStableCallback(onOpenSplitDown)
   const stableOnOpenInNewWindow = useStableCallback(onOpenInNewWindow)
   const stableOnCloneFile = useStableCallback(onCloneFile)
   const stableOnOpenInExplorer = useStableCallback(onOpenInExplorer)
@@ -205,33 +211,49 @@ export function SidebarTree({
     closedIds,
     toggleOpen,
     selectedId,
+    selectedIds,
     keyboardFocusId,
     focusRow,
     setEditingId,
     onSelect: handleKeyboardSelect,
+    onDelete: stableOnDelete,
+    onDeleteMany: stableOnDeleteMany,
     scrollRef,
   })
 
-  // Scroll selected item into view when selection changes or "find active" fires.
+  // Scroll the selected item into view when the selection changes. With auto-reveal the
+  // folders around it are opened first (also when auto-reveal is switched on), and the
+  // scroll waits for the rows they add; folders closed by hand later stay closed.
+  const expandTreeItems = useViewStateStore((s) => s.expandTreeItems)
+  // `waitForRows`: folders were just asked to open, so the item may appear one render later.
+  const pendingRevealRef = React.useRef<{ id: string; waitForRows: boolean } | null>(null)
   const prevSelectedIdRef = React.useRef<string | null>(null)
+  const prevAutoRevealRef = React.useRef(autoReveal)
   React.useEffect(() => {
-    if (selectedId === prevSelectedIdRef.current) return
+    const switchedOn = autoReveal && !prevAutoRevealRef.current
+    prevAutoRevealRef.current = autoReveal
+    if (selectedId === prevSelectedIdRef.current && !switchedOn) return
     prevSelectedIdRef.current = selectedId
     if (!selectedId) return
-    const idx = flatRows.findIndex((r) => r.item.id === selectedId)
-    if (idx !== -1) virtualizer.scrollToIndex(idx, { align: "auto" })
+    const closedAround = autoReveal
+      ? (ancestorIds(items, selectedId) ?? []).filter((id) => closedIds.has(id))
+      : []
+    if (closedAround.length > 0) expandTreeItems(closedAround)
+    pendingRevealRef.current = { id: selectedId, waitForRows: closedAround.length > 0 }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedId])
-
-  const prevFindActiveKeyRef = React.useRef<number | undefined>(undefined)
+  }, [selectedId, autoReveal])
   React.useEffect(() => {
-    if (findActiveKey === undefined || findActiveKey === prevFindActiveKeyRef.current) return
-    prevFindActiveKeyRef.current = findActiveKey
-    if (!selectedId) return
-    const idx = flatRows.findIndex((r) => r.item.id === selectedId)
-    if (idx !== -1) virtualizer.scrollToIndex(idx, { align: "center" })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [findActiveKey])
+    const pending = pendingRevealRef.current
+    if (!pending) return
+    const idx = flatRows.findIndex((r) => r.item.id === pending.id)
+    if (idx === -1 && pending.waitForRows) {
+      pending.waitForRows = false
+      return
+    }
+    // Shown or not (a filter may hide it), the reveal is over: no later jump to it.
+    pendingRevealRef.current = null
+    if (idx !== -1) virtualizer.scrollToIndex(idx, { align: "auto" })
+  }, [flatRows, selectedId, autoReveal, virtualizer])
 
   const { ptrDrag, onPtrDragStart } = useTreeDnd({
     onMoveItem,
@@ -263,7 +285,7 @@ export function SidebarTree({
   )
 
   return (
-    <>
+    <div className="relative h-full min-h-0">
       {/* Scroll container — owns the ref the virtualizer needs */}
       <div
         ref={scrollRef}
@@ -273,7 +295,7 @@ export function SidebarTree({
         aria-label={t("panels.files")}
         tabIndex={keyboardFocusId ? -1 : 0}
         onKeyDown={handleTreeKeyDown}
-        className="h-full overflow-y-auto select-none focus:outline-none"
+        className="amby-tree-scroll h-full overflow-y-auto select-none focus:outline-none"
         style={{ cursor: ptrDrag ? "grabbing" : undefined }}
       >
         {/* Virtualized content — absolute-positioned rows inside a sized container */}
@@ -323,6 +345,8 @@ export function SidebarTree({
                   onAttachCanvas={stableOnAttachCanvas}
                   onAttachSketch={stableOnAttachSketch}
                   onOpenInNewTab={stableOnOpenInNewTab}
+                  onOpenSplitRight={stableOnOpenSplitRight}
+                  onOpenSplitDown={stableOnOpenSplitDown}
                   onOpenInNewWindow={stableOnOpenInNewWindow}
                   onCloneFile={stableOnCloneFile}
                   onOpenInExplorer={stableOnOpenInExplorer}
@@ -380,6 +404,7 @@ export function SidebarTree({
           )}
         </div>
       </div>
+      <TreeScrollbar scrollRef={scrollRef} />
 
       <AnimatePresence>
         {ptrDrag?.active && (
@@ -402,6 +427,6 @@ export function SidebarTree({
           </motion.div>
         )}
       </AnimatePresence>
-    </>
+    </div>
   )
 }

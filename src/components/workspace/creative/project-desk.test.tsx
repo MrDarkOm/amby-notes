@@ -9,6 +9,7 @@ import {
   workshopSection as section,
   workshopSummary,
 } from "./project-fixtures.test-support"
+import type { DeskItem } from "./desk/desk-layout-model"
 import { ProjectDesk } from "./project-desk"
 
 const queryDatabase = vi.fn()
@@ -16,6 +17,9 @@ const createWorkshopEntity = vi.fn()
 const listTextStats = vi.fn()
 const readNote = vi.fn()
 const exportTextFile = vi.fn()
+const createTextPage = vi.fn()
+const moveTextPage = vi.fn()
+const listNotebooks = vi.fn()
 
 vi.mock("@/lib/storage", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/lib/storage")>()
@@ -26,6 +30,10 @@ vi.mock("@/lib/storage", async (importOriginal) => {
     readNote: (...args: unknown[]) => readNote(...args),
     exportTextFile: (...args: unknown[]) => exportTextFile(...args),
     createWorkshopEntity: (...args: unknown[]) => createWorkshopEntity(...args),
+    createTextPage: (...args: unknown[]) => createTextPage(...args),
+    moveTextPage: (...args: unknown[]) => moveTextPage(...args),
+    listNotebooks: (...args: unknown[]) => listNotebooks(...args),
+    resolveDatabaseAssetPaths: async () => ({ paths: [] }),
   }
 })
 
@@ -131,40 +139,262 @@ describe("ProjectDesk", () => {
       source: "disk",
     }))
     exportTextFile.mockReset().mockResolvedValue("/home/me/MoleHills.md")
+    createTextPage.mockReset().mockResolvedValue({ noteId: "new" })
+    moveTextPage.mockReset().mockResolvedValue({})
+    listNotebooks.mockReset().mockResolvedValue({
+      databaseId: "db_notes",
+      containerPath: "notes",
+      rootItemCount: 0,
+      notebooks: [{ segments: ["Идеи"], path: "notes/Идеи", itemCount: 1 }],
+    })
     useDatabaseStore.setState({ vaultGeneration: 1, invalidationSeq: 0 })
   })
   afterEach(cleanup)
 
-  it("offers the pages changed last to continue with, newest first, and opens one", async () => {
+  it("offers the page changed last to continue with, and only that one", async () => {
     const onOpenNote = renderDesk()
-    const section = await screen.findByRole("region", { name: "Продолжить с…" })
-    await within(section).findByText("Глава вторая")
-    // The newest heads the card and has the button; the two before it follow, newest first.
-    expect(within(section).getByRole("heading", { name: "Глава вторая" })).toBeTruthy()
-    const earlier = within(section)
-      .getAllByRole("button")
-      .map((button) => button.textContent ?? "")
-      .filter((text) => !text.includes("рукопись") && !text.includes("Открыть"))
-    expect(earlier).toHaveLength(2)
-    expect(earlier[0]).toContain("Глава первая")
-    expect(earlier[1]).toContain("Книга первая")
-    fireEvent.click(within(section).getByRole("button", { name: /Глава вторая/ }))
+    const widget = await screen.findByRole("region", { name: "Продолжить" })
+    await within(widget).findByText("Глава вторая")
+    expect(widget.textContent).toContain("Глава")
+    expect(widget.textContent).toContain("300 сл.")
+    // The older pages are not listed here any more: the outline has them.
+    expect(within(widget).queryByText("Глава первая")).toBeNull()
+    fireEvent.click(within(widget).getByRole("button", { name: "Писать" }))
     expect(onOpenNote).toHaveBeenCalledWith("c2")
   })
 
-  it("counts the pages and words of each top-level page; the whole work's numbers are the page header's", async () => {
+  it("shows the progress: pages and words, with no bar when the story keeps no page status", async () => {
     renderDesk()
-    const progress = await screen.findByRole("region", { name: "Текст" })
-    await within(progress).findByRole("button", { name: /Книга первая/ })
-    // The totals stand in the header of the page above the desk, not in tiles that repeat them.
-    expect(screen.queryByText("Слов")).toBeNull()
-    expect(screen.queryByText("Страниц")).toBeNull()
-    expect(within(progress).getByRole("button", { name: /Книга первая/ }).textContent).toContain(
-      "3 стр. · 1500 сл.",
+    const widget = await screen.findByRole("region", { name: "Прогресс" })
+    await waitFor(() => expect(widget.textContent).toContain("Страниц: 4"))
+    expect(widget.textContent).toContain((1580).toLocaleString())
+    expect(within(widget).queryByRole("progressbar")).toBeNull()
+  })
+
+  it("outlines the text with the words of each page and of what is below it, and opens a page", async () => {
+    const onOpenNote = renderDesk()
+    const outline = await screen.findByRole("region", { name: "Главы" })
+    const book = await within(outline).findByRole("button", { name: "Книга первая" })
+    const bookRow = book.closest("[data-text-page]") as HTMLElement
+    expect(bookRow.textContent).toContain((1500).toLocaleString())
+    expect(
+      (
+        within(outline)
+          .getByRole("button", { name: "Книга вторая" })
+          .closest("[data-text-page]") as HTMLElement
+      ).textContent,
+    ).toContain("80")
+    fireEvent.click(within(outline).getByRole("button", { name: "Глава первая" }))
+    expect(onOpenNote).toHaveBeenCalledWith("c1")
+  })
+
+  it("makes a page at the top of the text with the first level's name, and opens it", async () => {
+    const onOpenNote = renderDesk()
+    const outline = await screen.findByRole("region", { name: "Главы" })
+    await within(outline).findByRole("button", { name: "Книга первая" })
+    fireEvent.click(within(outline).getByRole("button", { name: "Книга" }))
+    const field = within(outline).getByPlaceholderText(/Название страницы/)
+    fireEvent.change(field, { target: { value: "Книга третья" } })
+    fireEvent.keyDown(field, { key: "Enter" })
+    await waitFor(() => expect(createTextPage).toHaveBeenCalledTimes(1))
+    expect(createTextPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storyId: "hills",
+        title: "Книга третья",
+        parentNoteId: null,
+        levelId: "book",
+      }),
     )
-    expect(within(progress).getByRole("button", { name: /Книга вторая/ }).textContent).toContain(
-      "1 стр. · 80 сл.",
+    await waitFor(() => expect(onOpenNote).toHaveBeenCalledWith("new"))
+  })
+
+  it("moves a page with the panel's own moves, from the page's menu", async () => {
+    renderDesk()
+    const outline = await screen.findByRole("region", { name: "Главы" })
+    await within(outline).findByRole("button", { name: "Глава вторая" })
+    fireEvent.keyDown(
+      within(outline).getByRole("button", { name: "Действия со страницей «Глава вторая»" }),
+      { key: "Enter" },
     )
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Выше" }))
+    await waitFor(() => expect(moveTextPage).toHaveBeenCalledTimes(1))
+    expect(moveTextPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        storyId: "hills",
+        noteId: "c2",
+        newParentNoteId: "b1",
+        expectedRevision: "rev-c2",
+      }),
+    )
+    const { orderKey } = moveTextPage.mock.calls[0][0] as { orderKey: string }
+    expect(orderKey < "a0").toBe(true)
+  })
+
+  it("greys out a move the page cannot make", async () => {
+    renderDesk()
+    const outline = await screen.findByRole("region", { name: "Главы" })
+    await within(outline).findByRole("button", { name: "Глава первая" })
+    fireEvent.keyDown(
+      within(outline).getByRole("button", { name: "Действия со страницей «Глава первая»" }),
+      { key: "Enter" },
+    )
+    const up = await screen.findByRole("menuitem", { name: "Выше" })
+    expect(up.getAttribute("aria-disabled")).toBe("true")
+    expect(screen.getByRole("menuitem", { name: "Ниже" }).getAttribute("aria-disabled")).toBeNull()
+  })
+
+  it("shows the widgets in their default order and widths", async () => {
+    renderDesk()
+    await screen.findByRole("region", { name: "Главы" })
+    const titles = screen.getAllByRole("region").map((region) => region.getAttribute("aria-label"))
+    expect(titles).toEqual(["Продолжить", "Прогресс", "Главы"])
+    const widths = screen
+      .getAllByRole("region")
+      .map((region) => (region as HTMLElement).style.gridColumn)
+    expect(widths).toEqual(["span 2 / span 2", "span 1 / span 1", "span 2 / span 2"])
+  })
+
+  it("follows its own width: two columns when medium, one when narrow", async () => {
+    const original = Element.prototype.getBoundingClientRect
+    const widthOf = (width: number) =>
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({
+        width,
+        height: 100,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: 100,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      })
+    try {
+      const spy = widthOf(700)
+      renderDesk()
+      const outline = await screen.findByRole("region", { name: "Главы" })
+      expect(outline.parentElement?.className).toContain("grid-cols-2")
+      expect(outline.style.gridColumn).toBe("span 2 / span 2")
+      cleanup()
+      spy.mockRestore()
+      widthOf(400)
+      renderDesk()
+      const narrow = await screen.findByRole("region", { name: "Главы" })
+      expect(narrow.parentElement?.className).toContain("grid-cols-1")
+      expect(narrow.style.gridColumn).toBe("span 1 / span 1")
+    } finally {
+      vi.restoreAllMocks()
+      Element.prototype.getBoundingClientRect = original
+    }
+  })
+
+  describe("customizing the desk", () => {
+    const layout: DeskItem[] = [
+      { id: "continue", span: 2, hidden: false },
+      { id: "progress", span: 1, hidden: false },
+      { id: "chapters", span: 2, hidden: false },
+    ]
+
+    function mountEditing(onLayoutChange = vi.fn(), items = layout) {
+      render(
+        <ProjectDesk
+          story={story}
+          workshop={workshop}
+          vaultPath="/vault"
+          onOpenNote={vi.fn()}
+          layout={items}
+          editing
+          onLayoutChange={onLayoutChange}
+        />,
+      )
+      return onLayoutChange
+    }
+
+    it("explains the mode and gives every widget its controls, off outside the mode", async () => {
+      mountEditing()
+      await screen.findByRole("region", { name: "Главы" })
+      expect(screen.getByText(/Раскладка одна для всех историй/)).toBeTruthy()
+      for (const name of ["Продолжить", "Прогресс", "Главы"]) {
+        expect(screen.getByRole("button", { name: `Выше: «${name}»` })).toBeTruthy()
+        expect(screen.getByRole("button", { name: `Ниже: «${name}»` })).toBeTruthy()
+        expect(screen.getByRole("button", { name: `Скрыть виджет «${name}»` })).toBeTruthy()
+      }
+      // The first cannot go up and the last cannot go down.
+      expect(
+        (screen.getByRole("button", { name: "Выше: «Продолжить»" }) as HTMLButtonElement).disabled,
+      ).toBe(true)
+      expect(
+        (screen.getByRole("button", { name: "Ниже: «Главы»" }) as HTMLButtonElement).disabled,
+      ).toBe(true)
+      cleanup()
+      renderDesk()
+      await screen.findByRole("region", { name: "Главы" })
+      expect(screen.queryByRole("button", { name: /Скрыть виджет/ })).toBeNull()
+      expect(screen.queryByText(/Раскладка одна для всех историй/)).toBeNull()
+    })
+
+    it("moves a widget and changes its width, handing the whole layout on", async () => {
+      const onLayoutChange = mountEditing()
+      await screen.findByRole("region", { name: "Главы" })
+      fireEvent.click(screen.getByRole("button", { name: "Ниже: «Продолжить»" }))
+      expect(onLayoutChange).toHaveBeenLastCalledWith([
+        { id: "progress", span: 1, hidden: false },
+        { id: "continue", span: 2, hidden: false },
+        { id: "chapters", span: 2, hidden: false },
+      ])
+      fireEvent.click(screen.getByRole("button", { name: /^Ширина «Прогресс»: треть строки/ }))
+      expect(onLayoutChange).toHaveBeenLastCalledWith([
+        { id: "continue", span: 2, hidden: false },
+        { id: "progress", span: 2, hidden: false },
+        { id: "chapters", span: 2, hidden: false },
+      ])
+    })
+
+    it("hides a widget into the tray, and the tray brings it back", async () => {
+      const onLayoutChange = mountEditing()
+      await screen.findByRole("region", { name: "Главы" })
+      expect(screen.getByText("Все виджеты на столе.")).toBeTruthy()
+      fireEvent.click(screen.getByRole("button", { name: "Скрыть виджет «Прогресс»" }))
+      expect(onLayoutChange).toHaveBeenLastCalledWith([
+        { id: "continue", span: 2, hidden: false },
+        { id: "progress", span: 1, hidden: true },
+        { id: "chapters", span: 2, hidden: false },
+      ])
+      cleanup()
+      const again = mountEditing(vi.fn(), [
+        { id: "continue", span: 2, hidden: false },
+        { id: "progress", span: 1, hidden: true },
+        { id: "chapters", span: 2, hidden: false },
+      ])
+      await screen.findByRole("region", { name: "Главы" })
+      expect(screen.queryByRole("region", { name: "Прогресс" })).toBeNull()
+      const tray = screen.getByRole("region", { name: "Скрытые виджеты" })
+      fireEvent.click(within(tray).getByRole("button", { name: "Вернуть на стол «Прогресс»" }))
+      expect(again).toHaveBeenLastCalledWith([
+        { id: "continue", span: 2, hidden: false },
+        { id: "progress", span: 1, hidden: false },
+        { id: "chapters", span: 2, hidden: false },
+      ])
+    })
+  })
+
+  it("leaves a hidden widget off the desk", async () => {
+    render(
+      <ProjectDesk
+        story={story}
+        workshop={workshop}
+        vaultPath="/vault"
+        onOpenNote={vi.fn()}
+        layout={[
+          { id: "chapters", span: 3, hidden: false },
+          { id: "progress", span: 1, hidden: true },
+        ]}
+      />,
+    )
+    await screen.findByRole("region", { name: "Главы" })
+    expect(screen.queryByRole("region", { name: "Прогресс" })).toBeNull()
+    // What the layout does not know is added after the rest.
+    const titles = screen.getAllByRole("region").map((region) => region.getAttribute("aria-label"))
+    expect(titles).toEqual(["Главы", "Продолжить"])
   })
 
   it("offers to make the first page in a list the story has none in, linked to the story", async () => {
@@ -222,10 +452,11 @@ describe("ProjectDesk", () => {
         stats={stats}
       />,
     )
-    const progress = await screen.findByRole("region", { name: "Текст" })
+    const outline = await screen.findByRole("region", { name: "Главы" })
+    const book = await within(outline).findByRole("button", { name: "Книга первая" })
     await waitFor(() =>
-      expect(within(progress).getByRole("button", { name: /Книга первая/ }).textContent).toContain(
-        "3 стр. · 1500 сл.",
+      expect((book.closest("[data-text-page]") as HTMLElement).textContent).toContain(
+        (1500).toLocaleString(),
       ),
     )
     expect(listTextStats).not.toHaveBeenCalled()
@@ -279,7 +510,7 @@ describe("ProjectDesk", () => {
 
   it("offers no manuscript without a vault to read from", async () => {
     renderDesk(vi.fn(), null)
-    await screen.findByRole("region", { name: "Текст" })
+    await screen.findByRole("region", { name: "Прогресс" })
     expect(screen.queryByRole("button", { name: "Собрать рукопись" })).toBeNull()
   })
 
@@ -332,8 +563,10 @@ describe("ProjectDesk", () => {
         onOpenNote={vi.fn()}
       />,
     )
-    await screen.findByRole("region", { name: "Текст" })
+    await screen.findByRole("region", { name: "Прогресс" })
     await waitFor(() => expect(screen.getByText("Готово: 2 из 3")).toBeTruthy())
+    const bar = screen.getByRole("progressbar")
+    expect(bar.getAttribute("aria-valuenow")).toBe("67")
   })
 
   describe("the world beside the text", () => {
@@ -383,9 +616,94 @@ describe("ProjectDesk", () => {
       expect(within(card).getByText("Зоя")).toBeTruthy()
       expect(within(card).queryByText("Борис")).toBeNull()
       expect(within(card).queryByText("Ева")).toBeNull()
-      // The tile counts what the card lists.
-      const tile = screen.getByText("Персонажи", { selector: "dt" }).parentElement
-      expect(tile?.textContent).toContain("2")
+      // The widget's header counts what it lists.
+      expect(within(card).getByText("2")).toBeTruthy()
+    })
+  })
+
+  describe("the notes of this story", () => {
+    const withNotes = workshopSummary("w_hills", {
+      name: "MoleHills Workshop",
+      stories: [story],
+      sections: [
+        section("text", { role: "text", databaseId: "db_text", databaseName: "Текст" }),
+        section("notes", {
+          role: "notes",
+          name: "Заметки",
+          databaseId: "db_notes",
+          databaseName: "Заметки",
+          storiesPropertyId: "nst",
+        }),
+      ],
+    })
+    const rel = (...ids: string[]) => ({ type: "relation", targetNoteIds: ids })
+    const note = (
+      noteId: string,
+      title: string,
+      values: Record<string, unknown>,
+      path: string[],
+    ) => ({
+      ...row(noteId, title, values),
+      categoryPath: path,
+    })
+    const NOTE_ROWS = [
+      note("n1", "Идея", { nst: rel("note_hills") }, ["Идеи"]),
+      note("n2", "Факт", { nst: rel("note_hills") }, []),
+      note("n3", "Чужая", { nst: rel("note_other") }, ["Идеи"]),
+    ]
+
+    function mountNotes() {
+      queryDatabase.mockImplementation(async ({ databaseId }: { databaseId: string }) => {
+        const rows = databaseId === "db_notes" ? NOTE_ROWS : ROWS
+        return { rows, nextCursor: null, totalCount: rows.length, diagnostics: [] }
+      })
+      const onOpenNote = vi.fn()
+      render(
+        <ProjectDesk
+          story={story}
+          workshop={withNotes}
+          vaultPath="/vault"
+          onOpenNote={onOpenNote}
+        />,
+      )
+      return onOpenNote
+    }
+
+    it("lists only the notes of this story under their notebooks and opens one", async () => {
+      const onOpenNote = mountNotes()
+      const widget = await screen.findByRole("region", { name: "Заметки" })
+      await within(widget).findByText("Идея")
+      expect(within(widget).getByText("Факт")).toBeTruthy()
+      expect(within(widget).queryByText("Чужая")).toBeNull()
+      expect(
+        within(widget)
+          .getAllByRole("tab")
+          .map((tab) => tab.textContent),
+      ).toEqual(["Все2", "Идеи1", "Без блокнота1"])
+      fireEvent.click(within(widget).getByText("Идея"))
+      expect(onOpenNote).toHaveBeenCalledWith("n1")
+    })
+
+    it("makes a note linked to this story in the notebook shown", async () => {
+      createWorkshopEntity.mockReset().mockResolvedValue({ noteId: "new" })
+      mountNotes()
+      const widget = await screen.findByRole("region", { name: "Заметки" })
+      await within(widget).findByText("Идея")
+      fireEvent.click(within(widget).getByRole("tab", { name: /Идеи/ }))
+      fireEvent.click(within(widget).getByRole("button", { name: "Заметка" }))
+      const field = within(widget).getByLabelText("Название заметки")
+      fireEvent.change(field, { target: { value: "Новая" } })
+      fireEvent.submit(field.closest("form") as HTMLFormElement)
+      await waitFor(() => expect(createWorkshopEntity).toHaveBeenCalledTimes(1))
+      expect(createWorkshopEntity).toHaveBeenCalledWith(
+        expect.objectContaining({
+          workshopId: "w_hills",
+          sectionId: "notes",
+          title: "Новая",
+          storyId: "hills",
+          notebook: ["Идеи"],
+        }),
+      )
     })
   })
 })

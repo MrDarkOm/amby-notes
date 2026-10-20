@@ -35,6 +35,10 @@ outside, so the rule is a list of what may be opened, not a list of what may not
 - The webview sends the note and the address as written in the node it was clicked on;
   the refusal is a code (`AttachmentOutsideAssets`, `AttachmentTypeNotAllowed`, ...) that
   the webview turns into a sentence.
+- "Save image as…" (`save_attachment_copy`, same file) judges the file by exactly the same
+  rules, asks where to put it with the system's save dialog and copies the file's own
+  bytes there; the webview never names a path outside the vault. It adds no plugin
+  permission either.
 - No Tauri plugin that opens paths or runs programs is added to any window's
   capabilities (`tauri-capabilities.test.ts` guards this).
 

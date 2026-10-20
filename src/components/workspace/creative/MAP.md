@@ -6,32 +6,33 @@ recovery and the index live in the [project backend](../../../../src-tauri/src/p
 and arrive through [project-port.ts](../../../lib/storage/project-port.ts). The contract is the
 [format v3](../../../../docs/creative-format.md); the stages are in the [plan](../../../../docs/creative-workshop-plan.md).
 
-| Concern                                 | Owner                                                                                                               |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Module registration (panel `creative`)  | [creative-module.tsx](creative-module.tsx)                                                                          |
-| Catalog state and lifecycle             | [project-store.ts](project-store.ts), [use-project-controller.ts](use-project-controller.ts)                        |
-| Panel: header, "Create", body states    | [creative-panel.tsx](creative-panel.tsx)                                                                            |
-| Which marker is the workshop (setting)  | [workshop-location.ts](workshop-location.ts) (pure), `project-store.ts` (`rawCatalog`, `setPlace`)                  |
-| No workshop: initialize                 | [workshop-init-screen.tsx](workshop-init-screen.tsx)                                                                |
-| Missing parts: model, hook, notice      | `workshop-gaps.ts`, `use-complete-workshop.ts`, `complete-workshop-notice.tsx`                                      |
-| "Create" chooser                        | [create-chooser-dialog.tsx](create-chooser-dialog.tsx)                                                              |
-| Panel state (filter, parts), prefs      | [creative-nav-store.ts](creative-nav-store.ts), [creative-scope-storage.ts](creative-scope-storage.ts)              |
-| Section groups, find a workshop (pure)  | [project-tree-model.ts](project-tree-model.ts)                                                                      |
-| Workshop: tabs, lists, text tree, notes | [workshop/](workshop/MAP.md): `workshop-pane.tsx` composes; models: `workshop-model.ts`, `text-tree-model.ts`       |
-| Belonging to stories and universes      | `workshop-model.ts` (`resolvePanelFilter`, `storiesInScope`, `buildMembership`, `scopeEntities`); `world-cards.tsx` |
-| Universe / standalone page              | [scope-desk.tsx](scope-desk.tsx); `page-header.tsx`, `scoped-section.tsx`, `workshop/use-scope-data.ts`             |
-| Project tab: header, sections, overview | [project-page.tsx](project-page.tsx); a story's desk: [project-desk.tsx](project-desk.tsx)                          |
-| Project settings dialog                 | [project-settings-dialog.tsx](project-settings-dialog.tsx)                                                          |
-| Words and last-change time of pages     | [use-text-stats.ts](use-text-stats.ts) (one read-only call)                                                         |
-| Create story, universe / section        | [create-project-dialog.tsx](create-project-dialog.tsx), [create-section-dialog.tsx](create-section-dialog.tsx)      |
-| Text schema of a new story (levels)     | [text-schema-presets.ts](text-schema-presets.ts); chosen in `create-project-dialog.tsx`                             |
-| Names in the active language            | [project-labels.ts](project-labels.ts); `creative.*` keys of `locales/resources.ts`                                 |
-| Errors, operation IDs                   | [project-error.ts](project-error.ts), [use-operation-id.ts](use-operation-id.ts)                                    |
-| Dossier of a world page                 | [dossier/](dossier/)                                                                                                |
-| File tree: icons, hiding                | [creative-tree-model.ts](creative-tree-model.ts), [use-creative-tree-items.ts](use-creative-tree-items.ts)          |
-| The workshop folder opens its page      | [use-collection-folder-select.ts](use-collection-folder-select.ts)                                                  |
-| Settings (`showInTree`, `workshopPath`) | [creative-settings-store.ts](creative-settings-store.ts), [creative-settings.tsx](creative-settings.tsx)            |
-| Section icons                           | [section-icons.ts](section-icons.ts)                                                                                |
+| Concern                                 | Owner                                                                                                          |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Module registration (panel `creative`)  | [creative-module.tsx](creative-module.tsx)                                                                     |
+| Catalog state and lifecycle             | [project-store.ts](project-store.ts), [use-project-controller.ts](use-project-controller.ts)                   |
+| Panel: header, search "+", body states  | [creative-panel.tsx](creative-panel.tsx)                                                                       |
+| Which marker is the workshop (setting)  | [workshop-location.ts](workshop-location.ts) (pure), `project-store.ts` (`rawCatalog`, `setPlace`)             |
+| No workshop: initialize                 | [workshop-init-screen.tsx](workshop-init-screen.tsx)                                                           |
+| Missing parts: model, hook, notice      | `workshop-gaps.ts`, `use-complete-workshop.ts`, `complete-workshop-notice.tsx`                                 |
+| "Create" chooser                        | [create-chooser-dialog.tsx](create-chooser-dialog.tsx)                                                         |
+| Panel state (filter, parts), prefs      | [creative-nav-store.ts](creative-nav-store.ts), [creative-scope-storage.ts](creative-scope-storage.ts)         |
+| Section groups, find a workshop (pure)  | [project-tree-model.ts](project-tree-model.ts)                                                                 |
+| Workshop: tabs, lists, text tree, notes | [workshop/](workshop/MAP.md): `workshop-pane.tsx` composes; models: `workshop-model.ts`, `text-tree-model.ts`  |
+| Belonging to stories and universes      | `workshop-model.ts` (`resolvePanelFilter`, `buildMembership`, `scopeEntities`); `world-cards.tsx`              |
+| Universe / standalone page              | [scope-desk.tsx](scope-desk.tsx); `page-header.tsx`, `scoped-section.tsx`, `workshop/use-scope-data.ts`        |
+| Project tab: header, sections, overview | [project-page.tsx](project-page.tsx); a story's desk: [project-desk.tsx](project-desk.tsx)                     |
+| Workshop page, section gallery (pages/) | [pages/](pages/): `workshop-overview.tsx`, `story-list.tsx`, `section-gallery.tsx`, `*-model.ts`               |
+| Project settings dialog                 | [project-settings-dialog.tsx](project-settings-dialog.tsx)                                                     |
+| Words and last-change time of pages     | [use-text-stats.ts](use-text-stats.ts) (one read-only call)                                                    |
+| Create story, universe / section        | [create-project-dialog.tsx](create-project-dialog.tsx), [create-section-dialog.tsx](create-section-dialog.tsx) |
+| Text schema of a new story (levels)     | [text-schema-presets.ts](text-schema-presets.ts); chosen in `create-project-dialog.tsx`                        |
+| Names in the active language            | [project-labels.ts](project-labels.ts); `creative.*` keys of `locales/resources.ts`                            |
+| Errors, operation IDs                   | [project-error.ts](project-error.ts), [use-operation-id.ts](use-operation-id.ts)                               |
+| Dossier of a world page                 | [dossier/](dossier/)                                                                                           |
+| File tree: icons, hiding                | [creative-tree-model.ts](creative-tree-model.ts), [use-creative-tree-items.ts](use-creative-tree-items.ts)     |
+| The workshop folder opens its page      | [use-collection-folder-select.ts](use-collection-folder-select.ts)                                             |
+| Settings (`showInTree`, `workshopPath`) | [creative-settings-store.ts](creative-settings-store.ts), [creative-settings.tsx](creative-settings.tsx)       |
+| Section icons                           | [section-icons.ts](section-icons.ts)                                                                           |
 
 **One workshop** ([format §2.1](../../../../docs/creative-format.md)). The folder `moduleSettings.creative.workshopPath` names
 (default: the localized "Workshop") is the workshop. `useProjectStore` keeps every marker (`rawCatalog`) and, as `catalog`,
@@ -47,10 +48,9 @@ catalog once the database catalog is ready, re-reads it when the databases chang
 call `onCreativeChanged` (tree and database catalog) and then the store's `refresh`, and only
 then open the page; the page never opens on an unknown project.
 
-**The page does not own a database view.** A section is rendered by the shell's
-`renderDatabase` as the ordinary `DatabaseWorkspace` (with `hideHeader` and `toolbarHost`), so every layout,
-filter and row action is the database's own while its view settings icon sits at the right end of the
-section tabs bar (using the compact toolbar actions inside `ViewSettingsPanel`). A project tab is `kind: "creative"` with `fileId` `creative:<projectId>`.
+**Sections are galleries.** A section tab shows a `SectionGallery` (the whole base on the workshop's page, the pages of the
+scope elsewhere); "Open as base" asks the shell (`onOpenDatabase`) for the ordinary database tab. Body of the workshop's page
+and the gallery: [pages/](pages/MAP.md). A project tab is `kind: "creative"` (`fileId`: its page; [history, header](pages/MAP.md)).
 
 **File tree.** Creative folders are ordinary folders on disk, so the module marks them in a view-only pass
 (`applyCreativeTree`): workshop and story folders by vault-relative path, section databases by `databaseId`; an icon the
@@ -59,7 +59,7 @@ vault's own tree passes through. With `showInTree` off the folders are left out 
 workshop's folder carries `statusIcon`; selecting it opens that workshop's page.
 
 **Workshop panel.** One column under the one search (`search-results.tsx` replaces it while it has
-text; session state). Top: the card of the stories (`story-header.tsx`, `workshop/scope-card.tsx`: "All stories" or one, ending with "New story";
+text; session state). Top: one card, universe over story (`story-header.tsx`, `workshop/scope-bar.tsx`; the story is "All stories" or one, ending with "New story";
 `storyFilter`). Then "Story" with three folding
 parts: _text_ is the whole text as one tree from `buildTextTree`, every page once (a page without a
 parent or a level is a root), with the level icon and word count (`use-text-stats.ts`) on each row, the
@@ -69,8 +69,8 @@ open page marked, its parents unfolded and the row scrolled into view once per c
 stand where the text puts them, with the rest "Ahead" in the author's order (`manualOrder`); _notes_ show
 notebooks. Anchors, arcs and their marks in the tree: [workshop map](workshop/MAP.md). An empty list offers "Add the first …" (`empty-action.tsx`). Under them the **world**
 (`world-section.tsx`): one folding list per category (by role, or by name for an author's section). Two axes
-filter it: the card of the universes under "Create" (`workshop/universe-card.tsx`; `universeFilter`) sets the scope, a
-universe or "Standalone stories" (the default; no "whole workshop"), and the card of the stories narrows to one story
+filter it: the universe in the bar (`UniverseSwitch`; `universeFilter`) sets the scope, a
+universe or "Standalone stories" (the default; no "whole workshop"), and the story in the bar narrows to one story
 (`resolvePanelFilter`: story > universe > standalone; [workshop map](workshop/MAP.md)).
 Belonging (a page is in a story by its "Stories" relation or a relation of that story's text; in a universe through its
 stories) is `buildMembership` / `scopeEntities` on rows already held ([format §6](../../../../docs/creative-format.md),
@@ -93,7 +93,7 @@ the row. A page starts one level below its parent (`startLevelId`).
 (Page), Comic (Book → Volume → Chapter → Page; "Arc" belongs to story arcs) or Custom (1 to 6 names). The names go as `textLevels` in the active
 language; `levelsProblem` mirrors what the backend refuses; the list is part of the operation-ID payload.
 
-**Project settings.** `project-settings-dialog.tsx` (the "Settings" button of `project-page.tsx`, off on
+**Project settings.** `project-settings-dialog.tsx` (the "Settings" row of the page's "⋯" menu in `project-page.tsx`, off on
 read-only projects): basics (`updateProject`), sections (reorder, remove without deleting the folder) and,
 on a story, text levels (`updateTextLevels`) and the `status` property (`addTextStatus`).
 
@@ -109,7 +109,7 @@ its anchors and chapters and a character's its arcs (`plot-blocks.tsx`); [format
 [manuscript-compiler.ts](../../../lib/storage/manuscript-compiler.ts) turns the tree into one Markdown
 document by tree depth (it reads, it never writes; a page it cannot read stops it, naming the page).
 
-**Story desk.** `ProjectDesk`: the pages changed last, pages, words and done pages (from `list_text_stats`), the
-ribbon of anchors, and "Compile manuscript" (`readNote` in tree order, then `exportTextFile`; only a new file is written).
+**Story desk.** `ProjectDesk`: a grid of widgets (Continue, Progress with "Compile manuscript", Chapters with the anchors
+"Ahead", Notes, the world), one layout for every story, arranged from the page ("Customize desk"): [desk/](desk/MAP.md).
 
 Do not reintroduce a single entities database, type overlays, `.amby-creative/` metadata or renderer-side creation.

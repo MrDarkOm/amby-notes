@@ -3,18 +3,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { animate, type AnimationPlaybackControls } from "motion/react"
-import {
-  ChevronLeft,
-  ChevronRight,
-  LocateFixed,
-  Lock,
-  LockOpen,
-  Maximize2,
-  Minimize2,
-  Network,
-  RefreshCw,
-  Settings2,
-} from "lucide-react"
+import { LocateFixed, Network, RefreshCw, Settings2 } from "lucide-react"
 import {
   forceCenter,
   forceCollide,
@@ -37,7 +26,8 @@ import type { LinkGraph } from "./panel-registry"
 import type { TreeItem } from "./sidebar-tree"
 import { flattenFileItems } from "./workspace-tree-utils"
 import { findTabTreeItem } from "./tab-target"
-import { ToolbarButton } from "./common/toolbar-button"
+import { PageFloatingBar } from "./page-chrome/page-floating-bar"
+import { PageHeaderBar } from "./page-chrome/page-header-bar"
 import {
   buildGraphView,
   DEFAULT_GRAPH_SETTINGS,
@@ -1006,36 +996,59 @@ export function GraphTabView({
     flyTo({ tx: size.w / 2, ty: size.h / 2, zoom: 1 })
   }
 
-  const historyNav =
-    onBack || onForward ? (
-      <div className="amby-graph-toolbar pointer-events-auto flex items-center gap-0.5 rounded-lg">
-        <button
-          type="button"
-          title={t("graph.back")}
-          aria-label={t("graph.back")}
-          onClick={onBack}
-          disabled={!canGoBack}
-          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30"
-        >
-          <ChevronLeft className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          title={t("graph.forward")}
-          aria-label={t("graph.forward")}
-          onClick={onForward}
-          disabled={!canGoForward}
-          className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-30"
-        >
-          <ChevronRight className="size-3.5" />
-        </button>
-      </div>
-    ) : null
-
-  // The bar has the geometry of a note's header (40px high, 8px side padding), so the buttons
-  // sit exactly where they do above a note.
-  const headerClass =
-    "pointer-events-none absolute inset-x-0 top-0 z-10 flex h-10 items-center justify-between px-2"
+  const header = (
+    <PageHeaderBar
+      variant="floating"
+      crumbs={[]}
+      showHistory={Boolean(onBack || onForward)}
+      onBack={onBack}
+      onForward={onForward}
+      canGoBack={canGoBack}
+      canGoForward={canGoForward}
+      backLabel={t("graph.back")}
+      forwardLabel={t("graph.forward")}
+      isFocusMode={isFocusMode}
+      onToggleFocusMode={onToggleFocusMode}
+      hideFocusToggle={!onToggleFocusMode || isEmpty}
+      leadingActions={
+        isEmpty ? null : (
+          <>
+            <TopButton title={t("graph.fit")} onClick={recenter}>
+              <LocateFixed className="size-3.5" />
+            </TopButton>
+            {onRefresh ? (
+              <TopButton title={t("graph.refresh")} onClick={refresh}>
+                <RefreshCw className="size-3.5" />
+              </TopButton>
+            ) : null}
+          </>
+        )
+      }
+      trailingActions={
+        isEmpty ? null : (
+          <>
+            <TopButton
+              title={t("graph.settings.open")}
+              active={settingsOpen}
+              onClick={() => setSettingsOpen((open) => !open)}
+            >
+              <Settings2 className="size-3.5" />
+            </TopButton>
+            <GraphMoreMenu
+              settings={settings}
+              locked={locked}
+              onChange={updateSettings}
+              onFit={recenter}
+              onRefresh={onRefresh ? refresh : undefined}
+              onAnimate={replayLayout}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onReset={() => setConfirmReset(true)}
+            />
+          </>
+        )
+      }
+    />
+  )
 
   if (isEmpty) {
     return (
@@ -1045,7 +1058,7 @@ export function GraphTabView({
           <p className="text-[14px] text-muted-foreground">{t("graph.noLinks")}</p>
           <p className="text-[12px] text-muted-foreground">{t("graph.noLinksHint")}</p>
         </div>
-        <div className={headerClass}>{historyNav ?? <span />}</div>
+        {header}
       </div>
     )
   }
@@ -1166,48 +1179,7 @@ export function GraphTabView({
         </p>
       ) : null}
 
-      <div className={headerClass}>
-        {historyNav ?? <span />}
-        <div className="amby-graph-toolbar pointer-events-auto flex items-center gap-0.5 rounded-lg">
-          <TopButton title={t("graph.fit")} onClick={recenter}>
-            <LocateFixed className="size-3.5" />
-          </TopButton>
-          {onRefresh ? (
-            <TopButton title={t("graph.refresh")} onClick={refresh}>
-              <RefreshCw className="size-3.5" />
-            </TopButton>
-          ) : null}
-          {onToggleFocusMode ? (
-            <TopButton
-              title={isFocusMode ? t("docEditor.focusModeExit") : t("docEditor.focusModeEnter")}
-              onClick={onToggleFocusMode}
-            >
-              {isFocusMode ? (
-                <Minimize2 className="size-3.5" />
-              ) : (
-                <Maximize2 className="size-3.5" />
-              )}
-            </TopButton>
-          ) : null}
-          <TopButton
-            title={t("graph.settings.open")}
-            active={settingsOpen}
-            onClick={() => setSettingsOpen((open) => !open)}
-          >
-            <Settings2 className="size-3.5" />
-          </TopButton>
-          <GraphMoreMenu
-            settings={settings}
-            locked={locked}
-            onChange={updateSettings}
-            onFit={recenter}
-            onRefresh={onRefresh ? refresh : undefined}
-            onAnimate={replayLayout}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onReset={() => setConfirmReset(true)}
-          />
-        </div>
-      </div>
+      {header}
 
       <div className="pointer-events-none absolute top-10 right-2 bottom-14 z-10 flex flex-col items-end">
         {settingsOpen ? (
@@ -1233,30 +1205,21 @@ export function GraphTabView({
         }}
       />
 
-      <div className="pointer-events-none absolute right-4 bottom-2 z-10 max-w-[calc(100%-2rem)] select-none">
-        <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border border-border/80 bg-card/90 p-1 shadow-md backdrop-blur-md">
-          <span className="px-1.5 text-[11px] text-muted-foreground">
-            {t("graph.stats", { nodes: simNodes.length, edges: simLinks.length })}
-          </span>
-          <div className="mx-0.5 h-3.5 w-px bg-border/80" />
-          <ToolbarButton
-            title={locked ? t("graph.unlock") : t("graph.lock")}
-            aria-pressed={locked}
-            active={locked}
-            disabled={lockBusy}
-            onClick={() => void toggleLock()}
-          >
-            {locked ? <Lock className="size-3.5" /> : <LockOpen className="size-3.5" />}
-          </ToolbarButton>
-          <ToolbarButton
-            title={t("graph.settings.open")}
-            active={settingsOpen}
-            onClick={() => setSettingsOpen((open) => !open)}
-          >
-            <Settings2 className="size-3.5" />
-          </ToolbarButton>
-        </div>
-      </div>
+      <PageFloatingBar
+        summary={t("graph.stats", { nodes: simNodes.length, edges: simLinks.length })}
+        lock={{
+          locked,
+          onToggle: () => void toggleLock(),
+          title: locked ? t("graph.unlock") : t("graph.lock"),
+          disabled: lockBusy,
+          asToggle: true,
+        }}
+        settings={{
+          title: t("graph.settings.open"),
+          active: settingsOpen,
+          onClick: () => setSettingsOpen((open) => !open),
+        }}
+      />
     </div>
   )
 }

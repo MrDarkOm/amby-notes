@@ -1,36 +1,59 @@
 import * as React from "react"
-import { FileText, NotebookPen, Play } from "lucide-react"
+import { Plus } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Button } from "@/components/ui/button"
 import {
+  createTextPage,
   createWorkshopEntity,
   exportTextFile,
+  moveTextPage,
   readNote,
   type DatabaseRow,
   type StorySummary,
   type TextPageStat,
+  type WorkshopSectionSummary,
   type WorkshopSummary,
 } from "@/lib/storage"
 import { compileManuscript, ManuscriptReadError } from "@/lib/storage/manuscript-compiler"
 import { cn } from "@/lib/utils"
-import { IconValue } from "../icon-value"
 import { useDatabaseStore } from "../database/database-store"
-import { formatModified } from "../workspace-tree-utils"
 import { useCreativeNavStore } from "./creative-nav-store"
+import { ChaptersWidget } from "./desk/chapters-widget"
+import { DeskControls } from "./desk/desk-controls"
+import { ContinueWidget } from "./desk/continue-widget"
+import { DeskWidget } from "./desk/desk-widget"
+import {
+  availableWidgets,
+  deskColumns,
+  effectiveSpan,
+  moveWidget,
+  nextSpan,
+  reconcileDeskLayout,
+  setWidgetHidden,
+  setWidgetSpan,
+  worldWidgetId,
+  type DeskItem,
+} from "./desk/desk-layout-model"
+import { ProgressWidget, type CompileState } from "./desk/progress-widget"
+import { useElementWidth } from "./desk/use-element-width"
+import { NotesBoard } from "./pages/notes-board"
+import { SectionGallery } from "./pages/section-gallery"
+import { projectErrorText } from "./project-error"
 import { useProjectStore } from "./project-store"
 import { useTextStats } from "./use-text-stats"
-import { AnchorRibbon } from "./workshop/anchor-ribbon"
-import { orderStoryAnchors, readBindings } from "./workshop/plot-model"
-import { anchorRibbon } from "./workshop/plot-views"
+import { orderStoryAnchors, readBindings, type PageBinding } from "./workshop/plot-model"
 import { useAnchorOrder } from "./workshop/use-anchor-order"
 import { useDatabaseRows } from "./workshop/use-database-rows"
-import { WorldCards, type WorldCard } from "./workshop/world-cards"
+import { useNotebooks } from "./workshop/use-notebooks"
+import { usePlotEnsurer } from "./workshop/use-ensure-plot"
+import { usePlotBinding } from "./workshop/use-plot-binding"
 import {
   buildTextTree,
-  countNodes,
-  pageStatusDotClass,
+  findNode,
+  lastOrderKey,
   resolvePageStatus,
+  startLevelId,
   textOrder,
+  type MovePlan,
   type TextNode,
 } from "./workshop/text-tree-model"
 import { useCreateInScope } from "./workshop/use-create-in-scope"
@@ -41,8 +64,6 @@ import {
   scopeSections,
 } from "./workshop/workshop-model"
 
-const CONTINUE_COUNT = 3
-
 interface ProjectDeskProps {
   story?: StorySummary | null
   workshop?: WorkshopSummary | null
@@ -51,26 +72,31 @@ interface ProjectDeskProps {
   /** Needed to read the pages for the manuscript; without it the button is not offered. */
   vaultPath: string | null
   onOpenNote: (noteId: string) => void
-  /** Opens a section's list for this story. */
+  /** Opens a section's list for this story (the section's tab of the page). */
   onOpenSection?: (sectionId: string) => void
   /**
    * The words and times of the story's pages, when the page above the desk already read them (its
    * header counts them); without it the desk reads them itself.
    */
   stats?: Record<string, TextPageStat>
-}
-
-interface PartProgress {
-  node: TextNode
-  pages: number
-  words: number
-}
-
-function wordsOf(node: TextNode, stats: Record<string, TextPageStat>): number {
-  return (
-    (stats[node.noteId]?.wordCount ?? 0) +
-    node.children.reduce((total, child) => total + wordsOf(child, stats), 0)
-  )
+  /** Refreshes the file tree and the catalog after the desk made what a binding needs. */
+  onChanged?: () => Promise<void>
+  /**
+   * The desk's layout: the widgets, their order, widths and which are hidden. It is one layout for
+   * every story; it is reconciled with the widgets this story can show. Without it, the defaults.
+   */
+  layout?: readonly DeskItem[]
+  /** The layout mode: each widget shows its controls and the hidden ones wait in a tray. */
+  editing?: boolean
+  /** Asks the page to keep a changed layout. */
+  onLayoutChange?: (next: DeskItem[]) => void
+  /** Read mode: nothing is made, moved or bound from the desk. */
+  locked?: boolean
+  /**
+   * Handed the desk's "compile the manuscript" (or `null` where there is nothing to compile), so
+   * the page's menu can run it too.
+   */
+  compileRef?: React.MutableRefObject<(() => void) | null>
 }
 
 function flatten(nodes: TextNode[]): TextNode[] {
@@ -89,16 +115,16 @@ function fileNameOf(name: string): string {
   return `${cleaned || "manuscript"}.md`
 }
 
-type Compile =
-  | { status: "idle" }
-  | { status: "working" }
-  | { status: "done"; pages: number; path: string }
-  | { status: "failed"; message: string }
+const NO_ROWS: DatabaseRow[] = []
+
+const COLUMN_CLASS = { 1: "grid-cols-1", 2: "grid-cols-2", 3: "grid-cols-3" } as const
 
 /**
- * A story's desk: where to continue, the numbers of the work, the outline of the text and the
- * world beside it, and the manuscript. All of it is read from the databases and the note index;
- * nothing is kept apart, and compiling the manuscript only reads the pages.
+ * A story's desk: a grid of widgets, three columns wide, two and then one as the desk narrows.
+ * Where to continue, how far the work is (with the manuscript), the text as an outline with its
+ * anchors "ahead", the notes of the story and the pages of the world that belong to it. All of it
+ * is read from the databases and the note index; nothing is kept apart, and compiling the
+ * manuscript only reads the pages.
  */
 export function ProjectDesk({
   story,
@@ -108,6 +134,12 @@ export function ProjectDesk({
   onOpenNote,
   onOpenSection,
   stats: givenStats,
+  onChanged,
+  layout,
+  editing = false,
+  onLayoutChange,
+  locked = false,
+  compileRef,
 }: ProjectDeskProps) {
   const { t } = useTranslation()
   const catalog = useProjectStore((state) => state.catalog)
@@ -124,21 +156,14 @@ export function ProjectDesk({
   const dataNonce = useCreativeNavStore((state) => state.dataNonce)
   const bumpData = useCreativeNavStore((state) => state.bumpData)
   const vaultGeneration = useDatabaseStore((state) => state.vaultGeneration)
-  // The cards beside the text: the lists of the workshop that can hold a page of this story.
-  const cards = React.useMemo<WorldCard[]>(
-    () =>
-      resolvedWorkshop
-        ? scopeSections(resolvedWorkshop).map((section) => ({
-            owner: resolvedWorkshop,
-            section,
-            rows: [],
-          }))
-        : [],
+  // The sections beside the text: the lists of the workshop that can hold a page of this story.
+  const sections = React.useMemo<WorkshopSectionSummary[]>(
+    () => scopeSections(resolvedWorkshop),
     [resolvedWorkshop],
   )
   const databaseIds = React.useMemo(
-    () => [...(databaseId ? [databaseId] : []), ...cards.map((card) => card.section.databaseId)],
-    [cards, databaseId],
+    () => [...(databaseId ? [databaseId] : []), ...sections.map((section) => section.databaseId)],
+    [sections, databaseId],
   )
   const data = useDatabaseRows(databaseIds, dataNonce)
   const ownStats = useTextStats(givenStats ? null : databaseId, dataNonce)
@@ -146,30 +171,42 @@ export function ProjectDesk({
 
   // The pages beside the text are those that belong to this story: its "Stories" relation names
   // its card, or its text names them.
-  const worldCards = React.useMemo<WorldCard[]>(() => {
+  const rowsOfSection = React.useMemo(() => {
     const membership = buildMembership({
       stories: resolvedStory ? [resolvedStory] : [],
       sections: resolvedWorkshop?.sections ?? [],
       rows: data.rows,
     })
-    return cards.map(({ owner, section }) => {
+    const result = new Map<string, DatabaseRow[]>()
+    for (const section of sections) {
       const rows = data.rows[section.databaseId] ?? []
-      if (!resolvedStory) return { owner, section, rows }
+      if (!resolvedStory || !resolvedWorkshop) {
+        result.set(section.id, rows)
+        continue
+      }
       const keep = new Set(
         scopeEntities(
-          entityItemsOf(rows, section.databaseId, owner.workshopId),
+          entityItemsOf(rows, section.databaseId, resolvedWorkshop.workshopId),
           { kind: "story", storyId: resolvedStory.storyId },
           membership,
         ).shown.map((item) => item.noteId),
       )
-      return { owner, section, rows: rows.filter((row) => keep.has(row.noteId)) }
-    })
-  }, [cards, data.rows, resolvedStory, resolvedWorkshop?.sections])
-  const createFor = useCreateInScope(
+      result.set(
+        section.id,
+        rows.filter((row) => keep.has(row.noteId)),
+      )
+    }
+    return result
+  }, [data.rows, resolvedStory, resolvedWorkshop, sections])
+  const createInScope = useCreateInScope(
     resolvedWorkshop,
     resolvedStory ? { kind: "story", storyId: resolvedStory.storyId } : null,
   )
-  const [compile, setCompile] = React.useState<Compile>({ status: "idle" })
+  const createFor = React.useCallback(
+    (section: WorkshopSectionSummary) => (locked ? null : createInScope(section)),
+    [createInScope, locked],
+  )
+  const [compile, setCompile] = React.useState<CompileState>({ status: "idle" })
 
   const rows: DatabaseRow[] | undefined = databaseId ? data.rows[databaseId] : undefined
   const roots = React.useMemo(
@@ -177,58 +214,80 @@ export function ProjectDesk({
     [text, rows],
   )
   const all = React.useMemo(() => flatten(roots), [roots])
-  const parts = React.useMemo<PartProgress[]>(
-    () =>
-      roots.map((node) => ({
-        node,
-        pages: countNodes([node]),
-        words: wordsOf(node, stats),
-      })),
-    [roots, stats],
+  const levels = React.useMemo(() => text?.levels ?? [], [text])
+  const statusOptions = React.useMemo(
+    () => (text?.properties.status ? (text.statusOptions ?? []) : []),
+    [text],
   )
-  const widest = Math.max(1, ...parts.map((part) => part.words))
-  const recent = React.useMemo(
+  const totalWords = React.useMemo(
+    () => all.reduce((sum, node) => sum + (stats[node.noteId]?.wordCount ?? 0), 0),
+    [all, stats],
+  )
+  const groups = React.useMemo(() => {
+    if (statusOptions.length === 0) return null
+    const of = (group: string) =>
+      all.filter((node) => resolvePageStatus(statusOptions, node.statusOptionId)?.group === group)
+        .length
+    return { done: of("done"), inProgress: of("inProgress") }
+  }, [all, statusOptions])
+  const latest = React.useMemo(
     () =>
       all
         .filter((node) => (stats[node.noteId]?.modified ?? 0) > 0)
-        .sort((a, b) => (stats[b.noteId]?.modified ?? 0) - (stats[a.noteId]?.modified ?? 0))
-        .slice(0, CONTINUE_COUNT),
+        .sort((a, b) => (stats[b.noteId]?.modified ?? 0) - (stats[a.noteId]?.modified ?? 0))[0] ??
+      null,
     [all, stats],
   )
-  // The anchors of the story along its text, as the panel orders them.
-  const anchorsEntry = worldCards.find((entry) => entry.section.role === "anchors") ?? null
-  const anchorOrder = useAnchorOrder(anchorsEntry?.section.databaseId, dataNonce)
-  const ribbon = React.useMemo(() => {
-    if (!anchorsEntry || !text) return null
-    const ordered = orderStoryAnchors({
-      anchors: anchorsEntry.rows,
-      textOrder: textOrder(roots),
-      bindings: readBindings(rows ?? [], text.properties),
-      manualOrder: anchorOrder.order,
-      createdOf: (id) => anchorOrder.created[id],
-    })
-    const nodes = new Map(all.map((node) => [node.noteId, node]))
-    const options = text.properties.status ? (text.statusOptions ?? []) : []
-    return anchorRibbon(
-      ordered,
-      (pageId) =>
-        resolvePageStatus(options, nodes.get(pageId)?.statusOptionId ?? null)?.group === "done",
-    )
-  }, [all, anchorOrder.created, anchorOrder.order, anchorsEntry, roots, rows, text])
-  const canCreateAnchor = Boolean(
-    anchorsEntry?.section.storiesPropertyId &&
-    resolvedStory &&
-    resolvedWorkshop &&
-    !resolvedWorkshop.readOnly &&
-    vaultGeneration !== null,
+
+  // Anchors and arcs: which belong to the story, how its pages hold them, and the way to bind.
+  const sectionOf = (role: string) => sections.find((section) => section.role === role)
+  const anchorsSection = sectionOf("anchors")
+  const arcsSection = sectionOf("arcs")
+  const anchorRows = anchorsSection ? (rowsOfSection.get(anchorsSection.id) ?? NO_ROWS) : NO_ROWS
+  const arcRows = arcsSection ? (rowsOfSection.get(arcsSection.id) ?? NO_ROWS) : NO_ROWS
+  const anchorOrder = useAnchorOrder(anchorsSection?.databaseId, dataNonce)
+  const bindings = React.useMemo<ReadonlyMap<string, PageBinding>>(
+    () => (text ? readBindings(rows ?? [], text.properties) : new Map()),
+    [rows, text],
   )
+  const pageOrder = React.useMemo(() => textOrder(roots), [roots])
+  const ahead = React.useMemo(
+    () =>
+      orderStoryAnchors({
+        anchors: anchorRows,
+        textOrder: pageOrder,
+        bindings,
+        manualOrder: anchorOrder.order,
+        createdOf: (id) => anchorOrder.created[id],
+      }).ahead,
+    [anchorOrder.created, anchorOrder.order, anchorRows, bindings, pageOrder],
+  )
+  const plotTitleOf = React.useCallback(
+    (kind: "anchor" | "arc", id: string) =>
+      (kind === "anchor" ? anchorRows : arcRows).find((row) => row.noteId === id)?.title,
+    [anchorRows, arcRows],
+  )
+  const { ensure } = usePlotEnsurer(onChanged)
+  const plotBinding = usePlotBinding({
+    workshop: resolvedWorkshop,
+    story: resolvedStory,
+    rows: data.rows,
+    vaultGeneration,
+    ensure,
+    onChanged: bumpData,
+  })
+  const canWrite = Boolean(
+    resolvedWorkshop && !resolvedWorkshop.readOnly && vaultGeneration !== null && !locked,
+  )
+  const binding = canWrite && databaseId ? plotBinding : null
+  const canCreateAnchor = Boolean(anchorsSection?.storiesPropertyId && resolvedStory && canWrite)
   const createAnchor = async (title: string) => {
-    if (!anchorsEntry || !resolvedStory || !resolvedWorkshop || vaultGeneration === null) return
+    if (!anchorsSection || !resolvedStory || !resolvedWorkshop || vaultGeneration === null) return
     try {
       await createWorkshopEntity({
         expectedGeneration: vaultGeneration,
         workshopId: resolvedWorkshop.workshopId,
-        sectionId: anchorsEntry.section.id,
+        sectionId: anchorsSection.id,
         title,
         storyId: resolvedStory.storyId,
       })
@@ -237,7 +296,73 @@ export function ProjectDesk({
     }
   }
 
-  const levelOf = (node: TextNode) => text?.levels.find((level) => level.id === node.levelId)
+  // Pages: a new one under a parent, and the moves of the page's menu.
+  const [moveError, setMoveError] = React.useState<string | null>(null)
+  const createPage = async (parent: TextNode | null, title: string) => {
+    if (!resolvedStory || !text?.databaseId || vaultGeneration === null) {
+      throw new Error(t("creative.workshop.noText"))
+    }
+    const parentNode = parent ? findNode(roots, parent.noteId) : null
+    const levelId = startLevelId(text.levels, parentNode)
+    if (!levelId) throw new Error(t("creative.workshop.noLevels"))
+    const formats = text.formats.filter((format) => format.state === "ok")
+    const format = formats.find((entry) => entry.kind === "manuscript") ?? formats[0]
+    const created = await createTextPage({
+      expectedGeneration: vaultGeneration,
+      storyId: resolvedStory.storyId,
+      title,
+      parentNoteId: parentNode?.noteId ?? null,
+      levelId,
+      formatId: format?.id ?? null,
+      orderKey: lastOrderKey(parentNode ? parentNode.children : roots),
+    })
+    bumpData()
+    onOpenNote(created.noteId)
+  }
+  const movePage = (pageId: string, plan: MovePlan) => {
+    const moved = rows?.find((row) => row.noteId === pageId)
+    if (!moved || !resolvedStory || vaultGeneration === null) return
+    setMoveError(null)
+    void moveTextPage({
+      expectedGeneration: vaultGeneration,
+      operationId: `move-${crypto.randomUUID()}`,
+      storyId: resolvedStory.storyId,
+      noteId: pageId,
+      newParentNoteId: plan.newParentId,
+      orderKey: plan.orderKey,
+      expectedRevision: moved.rowRevision,
+    })
+      .catch((error: unknown) => setMoveError(projectErrorText(t, error)))
+      .finally(bumpData)
+  }
+
+  // Notes of this story, under their notebooks.
+  const notesSection = sectionOf("notes")
+  const noteRows = notesSection ? rowsOfSection.get(notesSection.id) : undefined
+  const noteStats = useTextStats(notesSection?.databaseId, dataNonce)
+  const { catalog: notebookCatalog } = useNotebooks(notesSection?.databaseId, dataNonce)
+  const noteModifiedOf = React.useCallback(
+    (noteId: string) => noteStats[noteId]?.modified ?? null,
+    [noteStats],
+  )
+  const createNote =
+    canWrite && notesSection && resolvedWorkshop && vaultGeneration !== null
+      ? async (title: string, notebook: string[] | undefined) => {
+          try {
+            await createWorkshopEntity({
+              expectedGeneration: vaultGeneration,
+              workshopId: resolvedWorkshop.workshopId,
+              sectionId: notesSection.id,
+              title,
+              // A note is linked to the story from the first write when the base has the link.
+              storyId: notesSection.storiesPropertyId ? (resolvedStory?.storyId ?? null) : null,
+              notebook: notebook ?? null,
+            })
+          } finally {
+            bumpData()
+          }
+        }
+      : null
 
   const assemble = async () => {
     if (!vaultPath || compile.status === "working") return
@@ -266,242 +391,237 @@ export function ProjectDesk({
     }
   }
 
+  // The page's menu runs the same compile as the Progress widget's button.
+  const assembleRef = React.useRef(assemble)
+  assembleRef.current = assemble
+  React.useEffect(() => {
+    if (!compileRef) return undefined
+    compileRef.current = vaultPath ? () => void assembleRef.current() : null
+    return () => {
+      compileRef.current = null
+    }
+  }, [compileRef, vaultPath])
+
+  // The widgets this story can show, and how the layout puts them.
+  const worldSections = React.useMemo(
+    () => sections.filter((section) => section.role !== "anchors" && section.role !== "notes"),
+    [sections],
+  )
+  const available = React.useMemo(
+    () =>
+      availableWidgets({
+        hasNotes: Boolean(notesSection),
+        worldSections: worldSections.map((section) => ({ id: section.id, role: section.role })),
+      }),
+    [notesSection, worldSections],
+  )
+  const items = React.useMemo(() => reconcileDeskLayout(layout, available), [available, layout])
+  const [deskRef, width] = useElementWidth<HTMLDivElement>()
+  const columns = deskColumns(width)
+  const sectionOfWidget = (id: string) => worldSections.find((s) => worldWidgetId(s) === id)
+
   if (!databaseId) return null
 
   const loading = data.status === "loading" && rows === undefined
-  const card = "rounded-2xl border border-border bg-card p-5"
-  const heading = "text-sm font-semibold"
-  const [latest, ...earlier] = recent
-  const latestLevel = latest ? levelOf(latest) : undefined
-  const latestWords = latest ? (stats[latest.noteId]?.wordCount ?? 0) : 0
-  const countOf = (role: string) =>
-    worldCards
-      .filter((entry) => entry.section.role === role)
-      .reduce((total, entry) => total + entry.rows.length, 0)
-  const statusOptions = text?.properties.status ? (text.statusOptions ?? []) : []
-  const donePages =
-    statusOptions.length > 0
-      ? all.filter(
-          (node) => resolvePageStatus(statusOptions, node.statusOptionId)?.group === "done",
-        ).length
-      : null
-  const tiles: { label: string; value: number | string }[] = [
-    ...(donePages !== null
-      ? [
-          {
-            label: t("creative.schema.properties.status"),
-            value: t("creative.page.desk.doneOf", { done: donePages, total: all.length }),
-          },
-        ]
-      : []),
-    ...(["characters", "locations"] as const)
-      .filter((role) => cards.some((entry) => entry.section.role === role))
-      .map((role) => ({ label: t(`creative.sections.${role}`), value: countOf(role) })),
-  ]
+  const levelNameOf = (node: TextNode) => levels.find((level) => level.id === node.levelId)?.name
+  const worldTitle = (section: WorkshopSectionSummary) =>
+    section.role && t(`creative.sections.${section.role}`, { defaultValue: "" })
+      ? t(`creative.sections.${section.role}`)
+      : section.databaseName?.trim() || section.name
 
+  const widgetTitle = (id: string): string => {
+    switch (id) {
+      case "continue":
+        return t("creative.workshopPage.continue")
+      case "progress":
+        return t("creative.desk.progress")
+      case "chapters":
+        return t("creative.desk.chapters")
+      case "notes":
+        return t("creative.notesBoard.title")
+      default: {
+        const section = sectionOfWidget(id)
+        return section ? worldTitle(section) : id
+      }
+    }
+  }
+  const shown = items.filter((item) => !item.hidden)
+  const change = (next: DeskItem[]) => onLayoutChange?.(next)
+  const controlsOf = (item: DeskItem, index: number) =>
+    editing ? (
+      <DeskControls
+        name={widgetTitle(item.id)}
+        span={item.span}
+        first={index === 0}
+        last={index === shown.length - 1}
+        onUp={() => change(moveWidget(items, item.id, -1))}
+        onDown={() => change(moveWidget(items, item.id, 1))}
+        onWidth={() => change(setWidgetSpan(items, item.id, nextSpan(item.span)))}
+        onHide={() => change(setWidgetHidden(items, item.id, true))}
+      />
+    ) : undefined
+
+  const renderWidget = (item: DeskItem, index: number): React.ReactElement | null => {
+    const controls = controlsOf(item, index)
+    const style = {
+      gridColumn: `span ${effectiveSpan(item.span, columns)} / span ${effectiveSpan(item.span, columns)}`,
+    }
+    switch (item.id) {
+      case "continue":
+        return (
+          <DeskWidget
+            key={item.id}
+            style={style}
+            controls={controls}
+            title={t("creative.workshopPage.continue")}
+          >
+            <ContinueWidget
+              page={
+                latest
+                  ? {
+                      noteId: latest.noteId,
+                      title: latest.title,
+                      modified: stats[latest.noteId]?.modified ?? null,
+                      words: stats[latest.noteId]?.wordCount ?? 0,
+                    }
+                  : null
+              }
+              levelName={latest ? levelNameOf(latest) : null}
+              loading={loading}
+              onOpen={onOpenNote}
+            />
+          </DeskWidget>
+        )
+      case "progress":
+        return (
+          <DeskWidget
+            key={item.id}
+            style={style}
+            controls={controls}
+            title={t("creative.desk.progress")}
+          >
+            <ProgressWidget
+              pages={all.length}
+              words={totalWords}
+              groups={groups}
+              onCompile={vaultPath ? () => void assemble() : null}
+              compile={compile}
+            />
+          </DeskWidget>
+        )
+      case "chapters":
+        return (
+          <DeskWidget
+            key={item.id}
+            style={style}
+            controls={controls}
+            title={t("creative.desk.chapters")}
+            count={all.length}
+          >
+            <ChaptersWidget
+              roots={roots}
+              levels={levels}
+              statusOptions={statusOptions}
+              stats={stats}
+              pageOrder={pageOrder}
+              pageTitleOf={(noteId) => rows?.find((row) => row.noteId === noteId)?.title ?? ""}
+              bindings={bindings}
+              plotTitleOf={plotTitleOf}
+              ahead={ahead}
+              hasAnchors={Boolean(anchorsSection)}
+              binding={binding}
+              canWrite={canWrite}
+              onOpenNote={onOpenNote}
+              onCreatePage={createPage}
+              onMovePage={movePage}
+              onCreateAnchor={canCreateAnchor ? createAnchor : null}
+              moveError={moveError}
+              loading={data.status === "loading" || data.status === "idle"}
+            />
+          </DeskWidget>
+        )
+      case "notes":
+        return notesSection ? (
+          <DeskWidget
+            key={item.id}
+            style={style}
+            controls={controls}
+            title={t("creative.notesBoard.title")}
+            count={noteRows?.length ?? null}
+          >
+            <NotesBoard
+              embedded
+              notes={noteRows}
+              notebooks={notebookCatalog?.notebooks ?? []}
+              modifiedOf={noteModifiedOf}
+              onOpenNote={onOpenNote}
+              onCreate={createNote}
+            />
+          </DeskWidget>
+        ) : null
+      default: {
+        const section = sectionOfWidget(item.id)
+        if (!section) return null
+        const sectionRows = rowsOfSection.get(section.id) ?? []
+        return (
+          <DeskWidget
+            key={item.id}
+            style={style}
+            controls={controls}
+            title={worldTitle(section)}
+            count={sectionRows.length}
+            onOpen={onOpenSection ? () => onOpenSection(section.id) : null}
+          >
+            <SectionGallery
+              compact
+              section={section}
+              rows={sectionRows}
+              loading={data.status === "loading"}
+              onOpenNote={onOpenNote}
+              createFor={createFor(section)}
+            />
+          </DeskWidget>
+        )
+      }
+    }
+  }
+
+  const hidden = items.filter((item) => item.hidden)
   return (
-    <div className="mb-8 flex w-full flex-col gap-5">
-      <section
-        aria-label={t("creative.page.desk.continue")}
-        className={cn(card, "flex flex-col gap-4")}
-      >
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="min-w-0 flex-1">
-            <p className="text-xs text-muted-foreground">{t("creative.page.desk.continue")}</p>
-            {latest ? (
-              <>
-                <h2 className="break-words text-xl font-semibold tracking-tight">{latest.title}</h2>
-                <p className="break-words text-xs text-muted-foreground">
-                  {[
-                    latestLevel?.name,
-                    formatModified(stats[latest.noteId]?.modified ?? undefined),
-                    latestWords > 0 ? t("docEditor.wordCount", { count: latestWords }) : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              </>
-            ) : (
-              <p className="pt-1 text-sm text-muted-foreground">
-                {loading ? "" : t("creative.page.desk.continueEmpty")}
-              </p>
-            )}
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {vaultPath && (
-              <Button
-                variant="outline"
-                size="sm"
-                title={t("creative.page.desk.manuscriptHint")}
-                disabled={compile.status === "working" || all.length === 0}
-                onClick={() => void assemble()}
-              >
-                <NotebookPen className="size-3.5" />
-                {compile.status === "working"
-                  ? t("creative.page.desk.compiling")
-                  : t("creative.page.desk.compile")}
-              </Button>
-            )}
-            {latest && (
-              <Button size="sm" onClick={() => onOpenNote(latest.noteId)}>
-                <Play className="size-3.5" />
-                {t("creative.page.desk.open", { name: latest.title })}
-              </Button>
-            )}
-          </div>
-        </div>
-        {earlier.length > 0 && (
-          <div className="flex flex-wrap gap-2 border-t border-border pt-3">
-            {earlier.map((node) => (
+    <div ref={deskRef} className="mb-8 flex w-full min-w-0 flex-col gap-4">
+      {editing && (
+        <p className="rounded-xl bg-primary/10 px-3.5 py-2.5 text-[13px] text-foreground">
+          {t("creative.desk.editHint")}
+        </p>
+      )}
+      <div className={cn("grid items-start gap-4", COLUMN_CLASS[columns])}>
+        {shown.map(renderWidget)}
+      </div>
+      {editing && (
+        <section
+          aria-label={t("creative.desk.hiddenTitle")}
+          className="flex flex-col gap-2.5 rounded-2xl border border-dashed border-border px-[18px] py-4"
+        >
+          <h2 className="text-sm font-semibold">{t("creative.desk.hiddenTitle")}</h2>
+          <div className="flex flex-wrap gap-2">
+            {hidden.map((item) => (
               <button
-                key={node.noteId}
+                key={item.id}
                 type="button"
-                onClick={() => onOpenNote(node.noteId)}
-                className="flex max-w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-xs hover:bg-accent"
+                aria-label={t("creative.desk.show", { name: widgetTitle(item.id) })}
+                onClick={() => change(setWidgetHidden(items, item.id, false))}
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-border bg-background px-3.5 text-sm outline-none hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring"
               >
-                <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
-                  <IconValue
-                    value={levelOf(node)?.icon ?? undefined}
-                    fallback={<FileText className="size-4" />}
-                    className="size-4"
-                  />
-                </span>
-                <span className="min-w-0 break-words font-medium">{node.title}</span>
-                <span className="shrink-0 text-muted-foreground">
-                  {formatModified(stats[node.noteId]?.modified ?? undefined)}
-                </span>
+                <Plus className="size-3.5" />
+                {widgetTitle(item.id)}
               </button>
             ))}
+            {hidden.length === 0 && (
+              <span className="text-sm text-muted-foreground">{t("creative.desk.noHidden")}</span>
+            )}
           </div>
-        )}
-        {compile.status === "done" && (
-          <p role="status" className="break-words text-xs text-muted-foreground">
-            {t("creative.page.desk.compiled", { pages: compile.pages, path: compile.path })}
-          </p>
-        )}
-        {compile.status === "failed" && (
-          <p role="alert" className="break-words text-xs text-destructive">
-            {t("creative.page.desk.compileFailed", { message: compile.message })}
-          </p>
-        )}
-      </section>
-
-      {tiles.length > 0 && (
-        <dl className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          {tiles.map((tile) => (
-            <div key={tile.label} className="min-w-0 rounded-2xl bg-accent/50 px-4 py-3">
-              <dt className="text-xs text-muted-foreground">{tile.label}</dt>
-              <dd className="text-2xl font-semibold tabular-nums tracking-tight">
-                {typeof tile.value === "number" ? tile.value.toLocaleString() : tile.value}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-
-      {ribbon && (
-        <section aria-label={t("creative.plot.ribbon.title")} className={card}>
-          <h2 className={cn(heading, "mb-3")}>{t("creative.plot.ribbon.title")}</h2>
-          <AnchorRibbon
-            items={ribbon}
-            pageTitleOf={(pageId) => rows?.find((row) => row.noteId === pageId)?.title ?? ""}
-            onOpen={onOpenNote}
-            loading={data.status === "loading" || data.status === "idle"}
-            onCreate={canCreateAnchor ? createAnchor : null}
-          />
         </section>
       )}
-
-      <div className="grid items-start gap-5 lg:grid-cols-5">
-        <section
-          aria-label={t("creative.page.desk.progress")}
-          className={cn(card, "lg:col-span-3")}
-        >
-          <h2 className={cn(heading, "mb-3")}>{t("creative.page.desk.progress")}</h2>
-          {parts.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {loading ? "" : t("creative.workshop.noPages")}
-            </p>
-          ) : (
-            <ul className="grid gap-1">
-              {parts.map((part) => (
-                <li key={part.node.noteId}>
-                  <button
-                    type="button"
-                    onClick={() => onOpenNote(part.node.noteId)}
-                    className="flex w-full flex-col gap-1.5 rounded-lg px-2 py-1.5 text-left hover:bg-accent"
-                  >
-                    <span className="flex items-baseline justify-between gap-3 text-sm">
-                      <span className="min-w-0 break-words font-medium">{part.node.title}</span>
-                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                        {t("creative.page.desk.partTotals", {
-                          pages: part.pages,
-                          words: part.words,
-                        })}
-                      </span>
-                    </span>
-                    {/* A bar compares the parts, so one part alone has none. */}
-                    {parts.length > 1 && (
-                      <span className="h-1.5 w-full overflow-hidden rounded-full bg-accent">
-                        <span
-                          className="block h-full rounded-full bg-primary/60"
-                          style={{ width: `${Math.round((part.words / widest) * 100)}%` }}
-                        />
-                      </span>
-                    )}
-                  </button>
-                  {part.node.children.length > 0 && (
-                    <ul className="mb-1 ml-2 grid border-l border-border pl-2">
-                      {part.node.children.map((child) => {
-                        const words = wordsOf(child, stats)
-                        const statusOption = resolvePageStatus(statusOptions, child.statusOptionId)
-                        return (
-                          <li key={child.noteId}>
-                            <button
-                              type="button"
-                              onClick={() => onOpenNote(child.noteId)}
-                              className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] hover:bg-accent"
-                            >
-                              <span
-                                aria-hidden="true"
-                                title={statusOption?.name}
-                                className={cn(
-                                  "size-2 shrink-0 rounded-full",
-                                  pageStatusDotClass(statusOptions, child.statusOptionId, words),
-                                )}
-                              />
-                              <span className="min-w-0 flex-1 break-words">{child.title}</span>
-                              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                                {words.toLocaleString()}
-                              </span>
-                            </button>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <div className="grid gap-5 lg:col-span-2">
-          <WorldCards
-            // The ribbon shows the story's anchors in full, so their card would only repeat it.
-            cards={
-              ribbon ? worldCards.filter((entry) => entry.section.role !== "anchors") : worldCards
-            }
-            loading={data.status === "loading"}
-            vaultGeneration={vaultGeneration}
-            onOpenNote={onOpenNote}
-            onOpenSection={
-              onOpenSection ? (_ownerId, sectionId) => onOpenSection(sectionId) : undefined
-            }
-            createFor={(card) => createFor(card.section)}
-          />
-        </div>
-      </div>
     </div>
   )
 }

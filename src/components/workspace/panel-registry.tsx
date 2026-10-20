@@ -101,6 +101,8 @@ export interface PanelRenderProps {
   onAttachCanvas?: (id: string) => void
   onAttachSketch?: (id: string) => void
   onOpenInNewTab?: (id: string) => void
+  onOpenSplitRight?: (id: string) => void
+  onOpenSplitDown?: (id: string) => void
   onOpenInNewWindow?: (id: string) => void
   onCloneFile?: (id: string) => void
   onOpenInExplorer?: (id: string) => void
@@ -188,6 +190,8 @@ export interface ActivityButton {
   defId: string // PanelId for view, action id for action
   side: Side
   order: number
+  /** Taken off its dock by the user; it keeps its side and place and can be shown again. */
+  hidden?: boolean
 }
 
 // Re-export panel implementations from panels/

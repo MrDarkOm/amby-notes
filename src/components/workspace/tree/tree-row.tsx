@@ -7,6 +7,7 @@ import {
   Archive,
   AppWindow,
   ChevronRight,
+  Columns2,
   Copy,
   Database,
   FileText,
@@ -15,6 +16,7 @@ import {
   Paperclip,
   Pencil,
   PenLine,
+  Rows2,
   Smile,
   SquareArrowOutUpRight,
   Star,
@@ -59,6 +61,8 @@ export const TreeNode = React.memo(
     onAttachCanvas,
     onAttachSketch,
     onOpenInNewTab,
+    onOpenSplitRight,
+    onOpenSplitDown,
     onOpenInNewWindow,
     onCloneFile,
     onOpenInExplorer,
@@ -151,13 +155,6 @@ export const TreeNode = React.memo(
       onPtrDragStart(item.id, item.name, item.path ?? item.id, e.clientX, e.clientY)
     }
 
-    function handleDoubleClick(e: React.MouseEvent) {
-      if (isEditing) return
-      e.preventDefault()
-      e.stopPropagation()
-      onStartEdit(item.id)
-    }
-
     function handleContextMenu(e: React.MouseEvent) {
       e.stopPropagation()
       if (!isSelected) onContextMenuSelect?.(item.id)
@@ -180,7 +177,7 @@ export const TreeNode = React.memo(
         onBlur={commitRename}
         onKeyDown={handleKeyDown}
         onClick={(e) => e.stopPropagation()}
-        className="w-full min-w-0 rounded bg-accent p-0 text-[13px] leading-4 text-foreground outline-none ring-1 ring-inset ring-ring"
+        className="w-full min-w-0 bg-transparent p-0 text-[13px] text-foreground outline-none selection:bg-primary/25"
       />
     ) : (
       <span
@@ -203,10 +200,10 @@ export const TreeNode = React.memo(
         item={item}
         isFavorite={isFavorite}
         onActivate={
-          item.type === "file" && onToggleFavorite ? () => onToggleFavorite(item.id) : undefined
+          item.type !== "folder" && onToggleFavorite ? () => onToggleFavorite(item.id) : undefined
         }
         label={
-          item.type === "file"
+          item.type !== "folder"
             ? isFavorite
               ? t("tree.removeBookmark")
               : t("tree.addBookmark")
@@ -248,6 +245,24 @@ export const TreeNode = React.memo(
           >
             <SquareArrowOutUpRight className="size-3.5 text-muted-foreground" />
             {t("tree.openInNewTab")}
+          </ContextMenuItem>
+        )}
+        {!isMultiSelection && onOpenSplitRight && (
+          <ContextMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={() => onOpenSplitRight(item.id)}
+          >
+            <Columns2 className="size-3.5 text-muted-foreground" />
+            {t("tabs.openToRight")}
+          </ContextMenuItem>
+        )}
+        {!isMultiSelection && onOpenSplitDown && (
+          <ContextMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={() => onOpenSplitDown(item.id)}
+          >
+            <Rows2 className="size-3.5 text-muted-foreground" />
+            {t("tabs.openBelow")}
           </ContextMenuItem>
         )}
         {!isMultiSelection && item.type !== "folder" && onOpenInNewWindow && (
@@ -332,21 +347,19 @@ export const TreeNode = React.memo(
             </ContextMenuSubContent>
           </ContextMenuSub>
         )}
-        {!isMultiSelection &&
-          (item.type === "file" || item.type === "database") &&
-          onToggleFavorite && (
-            <ContextMenuItem
-              className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
-              onSelect={() => onToggleFavorite(item.id)}
-            >
-              {favorites?.has(item.id) ? (
-                <Star className="size-3.5 fill-current text-primary" />
-              ) : (
-                <Star className="size-3.5 text-muted-foreground" />
-              )}
-              {favorites?.has(item.id) ? t("tree.removeBookmark") : t("tree.addBookmark")}
-            </ContextMenuItem>
-          )}
+        {!isMultiSelection && item.type !== "folder" && onToggleFavorite && (
+          <ContextMenuItem
+            className="flex items-center gap-2 text-[13px] focus:bg-accent focus:text-white"
+            onSelect={() => onToggleFavorite(item.id)}
+          >
+            {favorites?.has(item.id) ? (
+              <Star className="size-3.5 fill-current text-primary" />
+            ) : (
+              <Star className="size-3.5 text-muted-foreground" />
+            )}
+            {favorites?.has(item.id) ? t("tree.removeBookmark") : t("tree.addBookmark")}
+          </ContextMenuItem>
+        )}
 
         {!isMultiSelection && <ContextMenuSeparator className="bg-accent" />}
 
@@ -495,8 +508,10 @@ export const TreeNode = React.memo(
     )
 
     const buttonCls = cn(
-      "amby-density-inline-padding-left amby-tree-row flex w-full items-center gap-1.5 rounded pl-0 py-1 pr-3 text-left text-[13px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+      "amby-density-inline-padding-left amby-tree-row flex w-full items-center gap-1.5 rounded pl-0 py-1 pr-[23px] text-left text-[13px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
       isSelected && "bg-accent",
+      isEditing &&
+        "bg-background outline outline-1 -outline-offset-1 outline-primary/60 hover:bg-background",
       isDragSource && "opacity-40",
     )
     const selectedAttr = isSelected ? { "data-tree-selected": "true" } : {}
@@ -592,7 +607,6 @@ export const TreeNode = React.memo(
                       onFocus={() => onKeyboardFocus(item.id)}
                       onPointerDown={handlePointerDown}
                       onClick={(event) => onSelect(item.id, event)}
-                      onDoubleClick={handleDoubleClick}
                       className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
                       whileTap={{ scale: 0.985 }}
                       transition={motionTransitions.fast}
@@ -658,7 +672,6 @@ export const TreeNode = React.memo(
                   onFocus={() => onKeyboardFocus(item.id)}
                   onPointerDown={handlePointerDown}
                   onClick={(event) => onSelect(item.id, event)}
-                  onDoubleClick={handleDoubleClick}
                   className={buttonCls}
                   style={
                     {

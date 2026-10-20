@@ -205,6 +205,11 @@ describe("app-config & settings storage resilience (WP-19)", () => {
     })
   })
 
+  it("follows the open file in the tree only when switched on", () => {
+    expect(normalizeAppPreferences({}).autoRevealFile).toBe(false)
+    expect(normalizeAppPreferences({ autoRevealFile: true }).autoRevealFile).toBe(true)
+  })
+
   it("defaults tree guide lines on and preserves the explicit preference", () => {
     expect(normalizeAppPreferences({}).treeGuides).toBe(true)
   })
