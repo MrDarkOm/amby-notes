@@ -39,12 +39,7 @@ jobs:
           workspaces: ./sync -> target
       - run: cargo fmt --manifest-path sync/Cargo.toml --all --check
       - run: cargo clippy --manifest-path sync/Cargo.toml --workspace --all-targets -- -D warnings
-      # The tests must always build. While stage Э1 is in its "tests first" phase the tests are
-      # red on purpose (docs/sync-plan.md, раздел 6, шаги 3–6), so running them cannot fail the
-      # job yet. Remove `continue-on-error` when the Э1 implementation makes them pass.
-      - run: cargo test --manifest-path sync/Cargo.toml --workspace --no-run
       - run: cargo test --manifest-path sync/Cargo.toml --workspace
-        continue-on-error: true
 
   deny:
     name: Licenses and advisories (cargo-deny)
