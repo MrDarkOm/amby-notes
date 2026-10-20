@@ -51,6 +51,21 @@ jobs:
           manifest-path: sync/Cargo.toml
           command: check
 
+  container:
+    name: Container image passes the conformance suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Rust stable
+        run: rustup toolchain install stable --profile minimal
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./sync -> target
+      # Builds the server image from sync/server/Dockerfile, starts a container and runs the
+      # suite against its address; user names are created with `docker exec … user add`. The
+      # tests that move the clock or read the data directory run on their own in-process server.
+      - run: bash sync/conformance/run-docker.sh
+
   requirements:
     name: Requirement coverage
     runs-on: ubuntu-latest

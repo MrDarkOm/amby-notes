@@ -10,6 +10,17 @@ publish.workspace = true
 
 [dependencies]
 amby-sync-proto.workspace = true
+amby-sync-core.workspace = true
+amby-sync-server = { path = "../server" }
+axum.workspace = true
+hex.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+rusqlite.workspace = true
 
 [lints]
 workspace = true

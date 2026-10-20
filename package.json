@@ -39,6 +39,8 @@
     "sync:test": "cargo test --manifest-path sync/Cargo.toml --workspace",
     "sync:lint": "cargo fmt --manifest-path sync/Cargo.toml --all --check && cargo clippy --manifest-path sync/Cargo.toml --workspace --all-targets -- -D warnings && cargo deny --manifest-path sync/Cargo.toml check",
     "sync:req-check": "node scripts/sync-req-check.mjs",
+    "sync:conformance:docker": "bash sync/conformance/run-docker.sh",
+    "sync:conformance:red": "cargo test --manifest-path sync/Cargo.toml -p amby-sync-conformance -p amby-sync-server --no-fail-fast 2>&1 | python3 sync/conformance/classify_red.py",
     "sync:mutants": "cargo mutants --dir sync --package amby-sync-core",
     "sync:fuzz": "cargo +nightly fuzz run --fuzz-dir sync/core/fuzz",
     "sync:reference:setup": "python3 -m venv sync/reference/.venv && sync/reference/.venv/bin/pip install -r sync/reference/requirements.txt",
