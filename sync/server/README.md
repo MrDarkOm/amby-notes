@@ -80,8 +80,7 @@ servers.
 | `AMBY_SYNC_LISTEN`               | `0.0.0.0:8080`          | address inside the container                                  |
 
 A value the server cannot use stops it from starting, with a message that names the variable.
-The rest of the limits (login attempts, request sizes) are listed in
-[appendix Б of the plan](../../docs/sync-plan.md) and are visible at `/v1/info`.
+The rest of the limits (login attempts, request sizes) are visible at `/v1/info`.
 
 Old versions and deleted files are removed by a cleanup that runs every ten minutes and before the
 server stops; you can also run it by hand with `amby-sync-server maintenance`.
@@ -97,7 +96,11 @@ docker compose exec amby-sync rm -r /data/backups/2026-10-20
 ```
 
 The copy holds the database and the encrypted files; they are as unreadable as the live ones. To
-restore, stop the server, put `amby-sync.db` and `blobs/` back into the volume, and start it.
+restore, stop the server, **delete `amby-sync.db-wal` and `amby-sync.db-shm` from the volume if
+they are there** (they belong to the database you are replacing, and SQLite would apply them to the
+restored one), put `amby-sync.db` and `blobs/` back into the volume, and start it. A restored
+server keeps its `instance_id` but is older than what your devices have seen; they notice that it
+went back in time and do not delete anything to match it.
 Keep a copy somewhere other than this machine, and remember that **every device also holds a full
 copy of your notes**.
 

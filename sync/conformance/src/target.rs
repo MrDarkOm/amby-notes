@@ -64,7 +64,7 @@ impl Target {
     pub fn from_process(process: InProcess) -> Self {
         let process = Arc::new(process);
         Self {
-            api: Api::new(&process.base_url()),
+            api: Api::new(&process.base_url()).keeping(process.clone()),
             admin: Arc::new(InProcessAdmin {
                 state: process.state.clone(),
             }),

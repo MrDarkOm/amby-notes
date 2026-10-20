@@ -2,7 +2,9 @@
 //! the tests look at. A transport failure (no server, a hung connection) is a panic with a clear
 //! text, never a silent pass.
 
+use std::any::Any;
 use std::io::{BufRead, BufReader, Read};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -101,6 +103,10 @@ pub enum Body {
 pub struct Api {
     base: String,
     agent: ureq::Agent,
+    /// The server started in this process, kept running while any client of it exists: a test
+    /// may drop its `Target` (for example `fresh_space(&Target::from_env())`) and go on using the
+    /// accounts and spaces made from it.
+    keep_alive: Option<Arc<dyn Any + Send + Sync>>,
 }
 
 impl Api {
@@ -112,7 +118,14 @@ impl Api {
         Self {
             base: base.trim_end_matches('/').to_string(),
             agent,
+            keep_alive: None,
         }
+    }
+
+    /// The same client, keeping `server` alive as long as any clone of it exists.
+    pub fn keeping(mut self, server: Arc<dyn Any + Send + Sync>) -> Self {
+        self.keep_alive = Some(server);
+        self
     }
 
     pub fn base(&self) -> &str {

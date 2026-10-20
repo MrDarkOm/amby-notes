@@ -93,6 +93,13 @@ impl InProcess {
         maintenance::run(&state).unwrap_or_else(|error| panic!("maintenance failed: {error}"))
     }
 
+    /// `amby-sync-server backup <dir>` against the running server (П38, Р11).
+    pub fn backup(&self, dir: &Path) {
+        let state = self.state.read().unwrap().clone();
+        amby_sync_server::admin::backup(&state, dir)
+            .unwrap_or_else(|error| panic!("backup failed: {error:?}"));
+    }
+
     /// Stops the server and starts it again on the same data directory, clock and port
     /// (a restart: П10 says `instance_id` stays).
     pub fn restart(&self) {
