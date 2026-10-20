@@ -31,6 +31,7 @@ import { WorkspacePicker, type VaultRecord } from "./workspace-picker"
 import { IconValue } from "./icon-value"
 import { isRichIconValue } from "./icon-values"
 import { KNOWN_ICONS } from "./tree/tree-types"
+import { handleDragStart } from "./editor/document-header-utils"
 import { beginTabPointerDown } from "./pane-dnd"
 import {
   DropdownMenu,
@@ -57,7 +58,7 @@ export interface HeaderTab {
   Icon?: LucideIcon
 }
 
-export function tabEmoji(icon?: string) {
+function tabEmoji(icon?: string) {
   return Boolean(icon && (isRichIconValue(icon) || !KNOWN_ICONS.has(icon)))
 }
 
@@ -268,21 +269,6 @@ const MACOS_SIDEBAR_TOGGLE_WIDTH = 44
 // plus) — keeps a uniform 32×32 hit area, rounding and hover highlight.
 export const HEADER_ICON_BTN =
   "flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-
-export function handleDragStart(e: React.MouseEvent) {
-  if (e.button !== 0) return
-  // Skip drag when the click originated on an interactive element.
-  // Without this guard the mousedown bubbles from e.g. a sidebar-toggle button
-  // up to the drag-region div, startDragging() captures the mouse pointer, and
-  // the button's click event never fires.
-  if ((e.target as HTMLElement).closest("button, a, input, select, [role='button']")) return
-  if (isTauri()) {
-    e.preventDefault()
-    getCurrentWindow()
-      .startDragging()
-      .catch(() => {})
-  }
-}
 
 export interface TabItemProps {
   tab: HeaderTab

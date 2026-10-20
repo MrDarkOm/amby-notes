@@ -332,6 +332,13 @@ export function ModulesTab({
   const [deleteModalOpen, setDeleteModalOpen] = React.useState(false)
   const [presetToDelete, setPresetToDelete] = React.useState<Preset | null>(null)
 
+  // The saved configuration is loaded once, when the section opens; with no saved preset it is
+  // guessed from the modules that are on at the moment the configuration arrives.
+  const activeModulesRef = React.useRef(activeModules)
+  React.useEffect(() => {
+    activeModulesRef.current = activeModules
+  }, [activeModules])
+
   React.useEffect(() => {
     let mounted = true
     loadWorkspaceConfig()
@@ -356,10 +363,12 @@ export function ModulesTab({
           setActivePresetId(presetsList[0].id)
         } else {
           setActivePresetId(
-            activeModules.length === 0
+            activeModulesRef.current.length === 0
               ? "minimal"
-              : activeModules.length === STANDARD_MODULES.length &&
-                  activeModules.every((id) => STANDARD_MODULES.includes(toCanonicalModuleId(id)))
+              : activeModulesRef.current.length === STANDARD_MODULES.length &&
+                  activeModulesRef.current.every((id) =>
+                    STANDARD_MODULES.includes(toCanonicalModuleId(id)),
+                  )
                 ? "standard"
                 : (presetsList[0]?.id ?? "standard"),
           )
