@@ -400,7 +400,9 @@ describe("the connect wizard", () => {
     })
 
     it("prints the code", async () => {
-      const print = vi.spyOn(window, "print").mockImplementation(() => {})
+      // happy-dom has no `print`: a stand-in is put there
+      const print = vi.fn()
+      window.print = print as unknown as typeof window.print
       const port = createFakePort()
       renderWizard(port)
       await reachRecoveryStep(port)

@@ -46,7 +46,9 @@ describe("the Synchronization tab of the settings", () => {
 
   it("is found by the search of the settings", async () => {
     renderDialog(["files", "sync"])
-    fireEvent.change(screen.getByPlaceholderText(/Поиск/), { target: { value: "синхрон" } })
+    fireEvent.change(screen.getByPlaceholderText("Найти настройку…"), {
+      target: { value: "синхрон" },
+    })
     expect((await screen.findAllByText(/Синхронизация/)).length).toBeGreaterThan(0)
   })
 })
