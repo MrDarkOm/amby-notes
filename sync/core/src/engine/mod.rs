@@ -6,8 +6,8 @@
 //! the clock and randomness (Р12, Д2). There is no Tauri, SQLite or network in this crate: the
 //! real ports live in the application (Э4), the test ports in `sync/sim`.
 //!
-//! Stage Э3, step 1 (plan, раздел 6): this module holds **interfaces only**. The bodies are
-//! `todo!()`; the tests of `sync/sim` and of `sync/core/tests` are written against them first.
+//! Stage Э3 (plan, раздел 6): the interfaces were written first, then the tests of `sync/sim` and
+//! of `sync/core/tests`, and the engine last, against them.
 //!
 //! - [`ports`]: the traits the engine reaches the world through;
 //! - [`model`]: the state kept on the device and the report of a pass;
@@ -17,13 +17,22 @@
 //! - [`rules`]: what is not synchronised (Р4) and the mass-change threshold (Р8);
 //! - [`sync`]: the engine itself.
 
+mod apply;
+mod classify;
 pub mod consistency;
+mod decide;
+mod feed;
+mod flow;
 pub mod model;
 pub mod names;
+mod plan;
 pub mod ports;
+mod push;
 pub mod rules;
+mod scan;
 pub mod stream;
 pub mod sync;
+mod util;
 
 pub use model::{
     Approvals, ConflictKind, ConflictRecord, CycleOutcome, CycleReport, CycleRequest, Direction,
