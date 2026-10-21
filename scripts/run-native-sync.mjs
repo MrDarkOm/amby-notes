@@ -1,7 +1,9 @@
 import { spawn, execFileSync } from "node:child_process"
 import { createRequire } from "node:module"
 import { mkdir, writeFile } from "node:fs/promises"
+import console from "node:console"
 import path from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
 import process from "node:process"
 
 // Native check of the sync connect screen (docs/native-ui-smoke.md, «Синхронизация»; plan Э4).
@@ -52,11 +54,11 @@ try {
   const url = `http://127.0.0.1:${port}`
   let up = false
   for (let attempt = 0; attempt < 60 && !up; attempt += 1) {
-    up = await fetch(`${url}/v1/info`).then(
+    up = await globalThis.fetch(`${url}/v1/info`).then(
       (response) => response.ok,
       () => false,
     )
-    if (!up) await new Promise((resolve) => setTimeout(resolve, 1000))
+    if (!up) await sleep(1000)
   }
   if (!up) throw new Error("The server container did not answer")
   const added = JSON.parse(
