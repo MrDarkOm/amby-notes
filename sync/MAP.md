@@ -8,21 +8,22 @@ wrong stops the work and is fixed in its own commit after review.
 A separate Cargo workspace (decision Р12): it does not touch `src-tauri/target` or the app gates.
 License AGPL-3.0-only. Not wired into `src-tauri` yet.
 
-| Path                                       | Owns                                                                                 |
-| ------------------------------------------ | ------------------------------------------------------------------------------------ |
-| [proto/](proto/src/lib.rs)                 | wire constants of the protocol: part size, machine error codes (appendix Б)          |
-| [core/](core/src/lib.rs)                   | cryptography (Э1) and the sync engine (Э3), no Tauri; I/O only through interfaces    |
-| [core/src/engine/](core/src/engine/mod.rs) | engine ports and types, appendix В; bodies are `todo!()` until the second session    |
-| [server/](server/src/lib.rs)               | blind storage server (Э2): all of appendix Б; Dockerfile, compose with Caddy, README |
-| [conformance/](conformance/src/lib.rs)     | server conformance suite: HTTP tests against any address, real client crypto (Э2)    |
-| [reference/](reference/)                   | independent Python reference of the byte format; generates `vectors/format-v1.json`  |
-| [vectors/](vectors/)                       | test vectors: `standards.json` (from RFCs, by hand) and `format-v1.json` (generated) |
-| [deny.toml](deny.toml)                     | cargo-deny: licenses and advisories                                                  |
-| [core/fuzz/](core/fuzz/Cargo.toml)         | cargo-fuzz targets (nightly only)                                                    |
+| Path                                       | Owns                                                                                                            |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| [proto/](proto/src/lib.rs)                 | wire constants of the protocol: part size, machine error codes (appendix Б)                                     |
+| [core/](core/src/lib.rs)                   | cryptography (Э1) and the sync engine (Э3), no Tauri; I/O only through interfaces                               |
+| [core/src/engine/](core/src/engine/mod.rs) | engine ports and types, appendix В; bodies are `todo!()` until the second session                               |
+| [server/](server/src/lib.rs)               | blind storage server (Э2): all of appendix Б; Dockerfile, compose with Caddy, README                            |
+| [conformance/](conformance/src/lib.rs)     | server conformance suite: HTTP tests against any address, real client crypto (Э2)                               |
+| [sim/](sim/src/lib.rs)                     | deterministic simulation of the engine (Э3): virtual devices, the real server, faults, invariants, mini-engines |
+| [reference/](reference/)                   | independent Python reference of the byte format; generates `vectors/format-v1.json`                             |
+| [vectors/](vectors/)                       | test vectors: `standards.json` (from RFCs, by hand) and `format-v1.json` (generated)                            |
+| [deny.toml](deny.toml)                     | cargo-deny: licenses and advisories                                                                             |
+| [core/fuzz/](core/fuzz/Cargo.toml)         | cargo-fuzz targets (nightly only)                                                                               |
 
 Commands (see [package.json](../package.json)): `npm run sync:test`, `sync:lint` (fmt, clippy,
 cargo-deny), `sync:conformance:red` (sorts the failures of the stub server by reason),
-`sync:conformance:docker` (build the image, run the suite against the container), `sync:req-check` ([script](../scripts/sync-req-check.mjs): every requirement is named
+`sync:sim:red` (sorts the failures of the stub engine: all real-engine tests must fail on `todo!()`, everything else pass), `sync:conformance:docker` (build the image, run the suite against the container), `sync:req-check` ([script](../scripts/sync-req-check.mjs): every requirement is named
 in a test), `sync:mutants`, `sync:fuzz -- <target>`, `sync:reference:setup`,
 `sync:reference:vectors`. CI: [sync.yml](../.github/workflows/sync.yml).
 
@@ -60,3 +61,25 @@ Inside [server/src/](server/src/lib.rs):
 
 Running your own server: [server/README.md](server/README.md) and
 [server/docker-compose.yml](server/docker-compose.yml).
+
+Stage Э3 (engine, tests first): rules are appendix В of the plan (decisions Д1–Д69). The ports and
+types are in [core/src/engine/](core/src/engine/mod.rs); the bodies are `todo!()` until the second
+session writes them. The simulation and the tests of the engine are in `sim/`; stage report with
+the red run and the open questions for review: [sync-e3-report.md](../docs/Road/sync-e3-report.md).
+
+Inside [core/src/engine/](core/src/engine/mod.rs):
+
+| File                                             | Owns                                                                   |
+| ------------------------------------------------ | ---------------------------------------------------------------------- |
+| [ports.rs](core/src/engine/ports.rs)             | `LocalFs`, `Remote`, `StateStore`, `Clock` and the types they speak in |
+| [model.rs](core/src/engine/model.rs)             | the state of a device, the report of a pass, stops and approvals       |
+| [names.rs](core/src/engine/names.rs)             | names of the system, collision keys, conflict copy names (Р7, Р9)      |
+| [consistency.rs](core/src/engine/consistency.rs) | meaning of the header fields (Д65)                                     |
+| [stream.rs](core/src/engine/stream.rs)           | opening a body as a stream (Ф24, Д68)                                  |
+| [rules.rs](core/src/engine/rules.rs)             | what is not synchronised (Р4), the mass-change threshold (Р8)          |
+| [sync.rs](core/src/engine/sync.rs)               | the `SyncEngine` trait and the real `Engine`                           |
+
+Inside [sim/](sim/src/lib.rs): `vfs.rs` (files in memory with history and trash), `world.rs` (server,
+account, devices), `fault.rs` (crashes, lost requests, lies of the server), `invariants.rs`
+(раздел 7), `scenario.rs` (random scenarios; `AMBY_SIM_SCENARIOS`, `AMBY_SIM_SEED`), `mini.rs` (the
+correct mini-engine and seven broken ones), `dsl.rs` (helpers for the directed tests in `sim/tests/`).

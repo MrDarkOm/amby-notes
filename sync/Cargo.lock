@@ -83,6 +83,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "amby-sync-sim"
+version = "0.0.0"
+dependencies = [
+ "amby-sync-conformance",
+ "amby-sync-core",
+ "amby-sync-proto",
+ "amby-sync-server",
+ "hex",
+ "serde_json",
+ "tempfile",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
