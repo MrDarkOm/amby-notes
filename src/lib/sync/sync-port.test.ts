@@ -7,6 +7,7 @@ const commands = vi.hoisted(() => ({
   syncPrepareAccount: vi.fn(),
   syncConfirmRecoveryCode: vi.fn(),
   syncCancelPending: vi.fn(),
+  syncSetEnrollCode: vi.fn(),
   syncSignIn: vi.fn(),
   syncRecover: vi.fn(),
   syncListDevices: vi.fn(),
@@ -87,6 +88,10 @@ describe("the desktop sync port", () => {
     commands.syncDisconnectDevice.mockResolvedValue(ok(null))
     await port.disconnectDevice("d2")
     expect(commands.syncDisconnectDevice).toHaveBeenCalledWith("d2")
+
+    commands.syncSetEnrollCode.mockResolvedValue(ok(null))
+    await port.setEnrollCode("NEW")
+    expect(commands.syncSetEnrollCode).toHaveBeenCalledWith("NEW")
 
     commands.syncCheckPassword.mockResolvedValue({ ok: true })
     await port.checkPassword("pw", "alice")

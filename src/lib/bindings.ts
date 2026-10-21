@@ -1240,6 +1240,17 @@ async syncConfirmRecoveryCode(groups: string[]) : Promise<Result<SyncStatus, Syn
 }
 },
 /**
+ * Another invitation code for the prepared account (the keys and the recovery code stay).
+ */
+async syncSetEnrollCode(enrollCode: string) : Promise<Result<null, SyncError>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("sync_set_enroll_code", { enrollCode }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Forgets the prepared account.
  */
 async syncCancelPending() : Promise<void> {

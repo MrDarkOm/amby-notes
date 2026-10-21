@@ -68,6 +68,16 @@ pub async fn sync_confirm_recovery_code(
     service.confirm_recovery_code(&groups).await
 }
 
+/// Another invitation code for the prepared account (the keys and the recovery code stay).
+#[tauri::command]
+#[specta::specta]
+pub fn sync_set_enroll_code(
+    service: State<'_, SyncService>,
+    enroll_code: String,
+) -> Result<(), SyncError> {
+    service.set_enroll_code(&enroll_code)
+}
+
 /// Forgets the prepared account.
 #[tauri::command]
 #[specta::specta]

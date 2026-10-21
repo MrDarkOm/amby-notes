@@ -1041,3 +1041,83 @@ async fn the_log_capture_of_the_test_above_really_sees_the_service() {
     .await;
     assert!(logs.text().contains("sync_connected"), "{}", logs.text());
 }
+
+#[tokio::test]
+async fn a_refused_invitation_code_is_replaced_without_a_new_recovery_code() {
+    // П17, О3: the person saved the code; a second try keeps the same keys and the same code
+    let target = Target::from_env();
+    let device = Device::new();
+    let ticket = target.new_ticket();
+    let view = device
+        .service
+        .prepare_account(prepare_request(
+            &target,
+            &ticket.username,
+            "0000-0000-0000-0000-0000",
+            "Mac A",
+        ))
+        .await
+        .unwrap();
+    let groups = typed_groups(&view);
+    assert_eq!(
+        code_of(device.service.confirm_recovery_code(&groups)).await,
+        "invalid_enroll_code"
+    );
+    assert!(device.service.status().unwrap().pending);
+    // the same groups of the same code still confirm, with the right invitation code
+    device.service.set_enroll_code(&ticket.enroll_code).unwrap();
+    assert!(
+        device
+            .service
+            .confirm_recovery_code(&groups)
+            .await
+            .unwrap()
+            .connected
+    );
+    // and the recovery code that was shown works for the account
+    let other = Device::new();
+    other
+        .service
+        .recover(RecoverRequest {
+            endpoint: endpoint_of(&target),
+            username: ticket.username.clone(),
+            recovery_code: view.recovery_code.clone(),
+            new_password: NEW_PASSWORD.into(),
+            device_name: "Mac B".into(),
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn an_unreachable_server_also_keeps_the_prepared_account() {
+    // a request that did not arrive: the code on the screen stays the only valid one
+    let target = Target::from_env();
+    let device = Device::new();
+    let ticket = target.new_ticket();
+    let mut request = prepare_request(&target, &ticket.username, &ticket.enroll_code, "Mac A");
+    request.endpoint = Endpoint {
+        url: "http://127.0.0.1:1".into(),
+        allow_http: false,
+    };
+    let view = device.service.prepare_account(request).await.unwrap();
+    let groups = typed_groups(&view);
+    assert_eq!(
+        code_of(device.service.confirm_recovery_code(&groups)).await,
+        "network"
+    );
+    assert!(device.service.status().unwrap().pending);
+    assert_eq!(
+        code_of(device.service.confirm_recovery_code(&groups)).await,
+        "network"
+    );
+}
+
+#[tokio::test]
+async fn another_invitation_code_needs_a_prepared_account() {
+    let device = Device::new();
+    assert_eq!(
+        device.service.set_enroll_code("AAAA").unwrap_err().code,
+        "no_pending_account"
+    );
+}

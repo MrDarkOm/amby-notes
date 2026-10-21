@@ -72,6 +72,8 @@ export interface SyncPort {
   prepareAccount(input: PrepareAccountInput): Promise<PreparedAccountView>
   /** The groups typed back; right ones send the account and connect the device. */
   confirmRecoveryCode(groups: string[]): Promise<SyncStatus>
+  /** Another invitation code for the prepared account; the keys and the recovery code stay. */
+  setEnrollCode(enrollCode: string): Promise<void>
   /** Forgets the prepared account. */
   cancelPending(): Promise<void>
   signIn(input: SignInInput): Promise<SyncStatus>
@@ -110,6 +112,9 @@ export function createDesktopSyncPort(): SyncPort {
     prepareAccount: ({ url, allowHttp, username, enrollCode, password, deviceName }) =>
       call(commands.syncPrepareAccount(url, allowHttp, username, enrollCode, password, deviceName)),
     confirmRecoveryCode: (groups) => call(commands.syncConfirmRecoveryCode(groups)),
+    setEnrollCode: async (enrollCode) => {
+      await call(commands.syncSetEnrollCode(enrollCode))
+    },
     cancelPending: async () => {
       try {
         await commands.syncCancelPending()
@@ -158,6 +163,7 @@ export const unavailableSyncPort: SyncPort = {
   checkPassword: unavailable,
   prepareAccount: unavailable,
   confirmRecoveryCode: unavailable,
+  setEnrollCode: unavailable,
   cancelPending: async () => {},
   signIn: unavailable,
   recover: unavailable,

@@ -190,6 +190,7 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::sync::sync_check_password,
         commands::sync::sync_prepare_account,
         commands::sync::sync_confirm_recovery_code,
+        commands::sync::sync_set_enroll_code,
         commands::sync::sync_cancel_pending,
         commands::sync::sync_sign_in,
         commands::sync::sync_recover,

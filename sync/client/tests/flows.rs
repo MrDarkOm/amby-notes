@@ -516,3 +516,39 @@ async fn nothing_secret_is_printed_by_debug() {
         assert!(!printed.contains(&secret), "{secret} in {printed}");
     }
 }
+
+#[tokio::test]
+async fn a_refused_invitation_code_can_be_replaced_and_the_keys_stay() {
+    // П17, О3: the person has already saved the recovery code, so a second try with another
+    // invitation code must enrol the same keys under the same recovery code
+    let target = Target::from_env();
+    let client = client_of(&target);
+    let ticket = target.new_ticket();
+    let mut prepared = prepare_account(&ticket.username, "0000-0000-0000-0000-0000", PASSWORD)
+        .await
+        .unwrap();
+    let code = prepared.recovery_code().clone();
+    let error = enroll_prepared(&client, &prepared, "Mac A")
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), "invalid_enroll_code");
+    prepared.set_enroll_code(&ticket.enroll_code.to_lowercase());
+    assert_eq!(prepared.recovery_code(), &code);
+    let connected = enroll_prepared(&client, &prepared, "Mac A").await.unwrap();
+    let again = sign_in(&client, &ticket.username, PASSWORD, "Mac B")
+        .await
+        .unwrap();
+    assert_eq!(
+        again.account_key.as_bytes(),
+        connected.account_key.as_bytes()
+    );
+    recover_account(
+        &client,
+        &ticket.username,
+        &code,
+        "a brand new password 77",
+        "Mac C",
+    )
+    .await
+    .unwrap();
+}

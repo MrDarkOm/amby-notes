@@ -363,6 +363,13 @@ impl SyncService {
         }
     }
 
+    /// Replaces the invitation code of the prepared account; the keys and the recovery code stay.
+    /// `no_pending_account` when there is none.
+    pub fn set_enroll_code(&self, enroll_code: &str) -> Result<(), SyncError> {
+        let _ = enroll_code;
+        todo!("П17")
+    }
+
     /// Forgets the prepared account.
     pub fn cancel_pending(&self) {
         *lock(&self.pending) = None;

@@ -113,6 +113,7 @@ export function createFakePort(overrides: Partial<SyncPort> = {}): FakePort {
         return CONNECTED
       throw new SyncPortError("recovery_confirmation_mismatch")
     },
+    setEnrollCode: async () => {},
     cancelPending: async () => {},
     signIn: async () => CONNECTED,
     recover: async () => CONNECTED,

@@ -365,6 +365,54 @@ describe("the connect wizard", () => {
       expect(screen.getByLabelText("Код приглашения")).toBeTruthy()
     })
 
+    it.each(["invalid_enroll_code", "enroll_code_expired"])(
+      "asks for another invitation code after %s and keeps the same recovery code",
+      async (code) => {
+        // the person has saved the code already: no new keys, no new code to save
+        let refusals = 1
+        const port = createFakePort({
+          confirmRecoveryCode: async (groups) => {
+            if (refusals-- > 0) throw new SyncPortError(code)
+            expect(groups).toEqual(["3333", "9999"])
+            return CONNECTED
+          },
+        })
+        const { onConnected } = renderWizard(port)
+        await reachRecoveryStep(port)
+        type("Группа 3", "3333")
+        type("Группа 9", "9999")
+        click("Подтвердить и подключиться")
+        await screen.findByRole("alert")
+        expect(screen.getByTestId("recovery-code").textContent).toBe(FAKE_CODE)
+        type("Новый код приглашения", "NEW1-NEW2-NEW3-NEW4-NEW5")
+        click("Подтвердить и подключиться")
+        await waitFor(() => expect(onConnected).toHaveBeenCalledWith(CONNECTED))
+        expect(port.setEnrollCode).toHaveBeenCalledWith("NEW1-NEW2-NEW3-NEW4-NEW5")
+        expect(port.prepareAccount).toHaveBeenCalledTimes(1)
+        expect(port.cancelPending).not.toHaveBeenCalled()
+      },
+    )
+
+    it("does not ask for an invitation code unless the server refused it", async () => {
+      const port = createFakePort({
+        confirmRecoveryCode: async () => {
+          throw new SyncPortError("network")
+        },
+      })
+      renderWizard(port)
+      await reachRecoveryStep(port)
+      expect(screen.queryByLabelText("Новый код приглашения")).toBeNull()
+      type("Группа 3", "3333")
+      type("Группа 9", "9999")
+      click("Подтвердить и подключиться")
+      await screen.findByRole("alert")
+      expect(screen.queryByLabelText("Новый код приглашения")).toBeNull()
+      // the same groups can be sent again; nothing is prepared again
+      click("Подтвердить и подключиться")
+      await waitFor(() => expect(port.confirmRecoveryCode).toHaveBeenCalledTimes(2))
+      expect(port.prepareAccount).toHaveBeenCalledTimes(1)
+    })
+
     it("saves the code to a file and tells where", async () => {
       const port = createFakePort()
       renderWizard(port)
